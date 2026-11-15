@@ -16,6 +16,7 @@ try:
     from . import autocode_command_receipt as command_receipt
     from . import autocode_dependency_dirs as dependency_dirs
     from . import autocode_mutation_check as mutation
+    from . import autocode_mutation_checkpoint as mutation_checkpoint
     from . import autocode_package_scope as package_scope
     from . import autocode_proof_stability as proof_stability
     from . import autocode_python_tests as python_tests
@@ -28,6 +29,7 @@ except ImportError:
     import autocode_command_receipt as command_receipt
     import autocode_dependency_dirs as dependency_dirs
     import autocode_mutation_check as mutation
+    import autocode_mutation_checkpoint as mutation_checkpoint
     import autocode_package_scope as package_scope
     import autocode_proof_stability as proof_stability
     import autocode_python_tests as python_tests
@@ -35,7 +37,7 @@ except ImportError:
     import autocode_util as util
     import autocode_verify as verify
 
-VERSION = 3
+VERSION = 4
 
 
 def collect(
@@ -233,6 +235,14 @@ def reviewed(proof, exceptions):
     )
     if inputs.get("inventory") is None and inputs.get("custody_gaps"):
         result["reason"] = "Changed-code input custody failed: " + ", ".join(inputs["custody_gaps"][:20])
+    if mutation_checkpoint.FAILURE in inputs:
+        failure = inputs[mutation_checkpoint.FAILURE]
+        reason = failure.get("reason") if isinstance(failure, dict) else None
+        result = {
+            **result,
+            "status": "UNVERIFIED",
+            "reason": "Mutation refresh did not establish a new measurement: " + str(reason or "reference unavailable"),
+        }
     return result
 
 
@@ -253,6 +263,13 @@ def intact(proof, result):
     if expected is not None and expected != outputs:
         return False
     required = set()
+    if mutation_checkpoint.FAILURE in inputs:
+        failure = inputs[mutation_checkpoint.FAILURE]
+        if not isinstance(failure, dict) or not isinstance(failure.get("command_outputs"), list):
+            return False
+        if not all(isinstance(output, str) and output for output in failure["command_outputs"]):
+            return False
+        required.update(failure["command_outputs"])
     coverage = result.get("diff_coverage") or {}
     if (inputs.get("coverage") or {}).get("files") and coverage.get("collected") is not True:
         return False

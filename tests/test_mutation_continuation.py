@@ -1,7 +1,9 @@
 """A bounded study advances through untouched sites, retaining authenticated failures."""
 
+import contextlib
 import copy
 import json
+import os
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -94,6 +96,40 @@ class CollectorTests(unittest.TestCase):
                 self.assertEqual([], calls)
                 (self.tree / "app.py").write_text(fixtures.WINDOW)
 
+    def test_limited_or_unstarted_reference_records_the_budget_without_launching_a_site(self):
+        first = self.collect(fixtures.Clock(), [])
+        before = copy.deepcopy(first)
+        for deadline in (0, 30):
+            with self.subTest(deadline=deadline):
+                calls = []
+
+                def unavailable(command, label, timeout):
+                    calls.append(label)
+                    return {"output": str(self.evidence / "timed-out.log"), "timed_out": True, "exit_code": None}
+
+                report = mutation.collect_selected_tests(
+                    "unittest",
+                    fixtures.COMMAND,
+                    [fixtures.C1, fixtures.C2],
+                    self.tree,
+                    self.evidence,
+                    [("app.py", "modified")],
+                    lambda files: fixtures.DIFF,
+                    unavailable,
+                    clock=fixtures.Clock(),
+                    deadline=deadline,
+                    enforcement=True,
+                    previous=first,
+                )
+                self.assertFalse(report["collected"])
+                self.assertEqual([] if deadline == 0 else ["unmutated"], calls)
+                reference = report["reference_attempt"]
+                self.assertTrue(reference["budget_limited"])
+                self.assertEqual(deadline, reference["timeout_seconds"])
+                self.assertEqual(deadline == 0, reference.get("not_started", False))
+                self.assertEqual(deadline != 0, reference["timed_out"])
+                self.assertEqual(before, first)
+
 
 class ProofTests(unittest.TestCase):
     def setUp(self):
@@ -154,6 +190,122 @@ class ProofTests(unittest.TestCase):
             cached = regression.prove(self.state, self.root, self.run_dir)
         self.assertEqual(final["path"], cached["path"])
 
+    def reference_failure(self, kind):
+        first = self.partial()
+        original_bytes = Path(first["path"]).read_bytes()
+        original_study = copy.deepcopy(first["mutation_check"])
+        original_history = len(self.state["history"])
+        run_suite = verify.run_suite
+        observed = []
+
+        def timed_out(proof, result, framework, workspace, out, tree, context, **kwargs):
+            # This unavailable measurement deliberately has no completed capture.
+            # The transaction must retain its prior authenticated checkpoint.
+            output = Path(out) / "reference-timeout.log"
+            output.write_text("")
+            receipt = {"output": str(output), "timed_out": True, "exit_code": None, "duration_seconds": 0}
+            observed.append(receipt)
+            proof.setdefault("changed_code_receipts", []).append(receipt)
+            return mutation.record("the reference exhausted its remaining window")
+
+        def run(framework, command, tree, evidence_dir, label, **kwargs):
+            if label != "unmutated":
+                self.fail("No mutant may run after an unavailable reference")
+            test = Path(tree) / "tests/test_calc.py"
+            source, times = test.read_bytes(), test.stat()
+            try:
+                if kind == "assertion":
+                    self.assertIn(b"self.assertEqual(10, limit(50))", source)
+                    test.write_bytes(
+                        source.replace(b"self.assertEqual(10, limit(50))", b"self.assertEqual(11, limit(50))")
+                    )
+                else:
+                    self.assertEqual("missing_test", kind)
+                    test.write_bytes(source.replace(b"def test_t1_caps_large_values", b"def test_unrelated"))
+                receipt = run_suite(framework, command, tree, evidence_dir, label, **kwargs)
+                observed.append(receipt)
+                return receipt
+            finally:
+                test.write_bytes(source)
+                os.utime(test, ns=(times.st_atime_ns, times.st_mtime_ns))
+
+        with mock.patch.object(verify, "verify", side_effect=AssertionError("functional proof repeated")):
+            reference = (
+                mock.patch.object(changed_code, "collect", side_effect=timed_out)
+                if kind == "timeout"
+                else mock.patch.object(verify, "run_suite", side_effect=run)
+            )
+            with reference, contextlib.suppress(util.Paused):
+                regression.prove(self.state, self.root, self.run_dir)
+        self.assertEqual(1, len(observed))
+        if kind == "timeout":
+            self.assertTrue(observed[0]["timed_out"])
+        else:
+            self.assertNotEqual(0, observed[0]["exit_code"])
+        self.assertEqual(original_bytes, Path(first["path"]).read_bytes())
+        retained = self.state["regression_proof"]
+        self.assertEqual(original_study, retained["mutation_check"], "an unavailable refresh cannot erase the study")
+        self.assertEqual(first["source_revision"], retained["source_revision"])
+        self.assertEqual(continuation.pending(first), continuation.pending(retained))
+        self.assertEqual("UNVERIFIED", changed_code.reviewed(retained, [])["status"])
+        self.assertFalse(regression.complete(self.state, retained["source_revision"], all_due=True))
+        self.assertEqual(original_history + 1, len(self.state["history"]))
+        record = self.state["history"][-1]
+        self.assertTrue(record.get("error_kind"), "the unsuccessful window remains an accounted attempt")
+        self.assertIn("retained", record["summary"])
+        self.assertEqual(0, sum(record["metrics"]["provider_tokens"].values()))
+        failure = json.loads(Path(record["output"]).read_text())
+        continuation_record = failure.get("mutation_continuation", failure)
+        self.assertEqual(first["path"], continuation_record["previous_path"])
+        self.assertEqual(first["receipt_sha256"], continuation_record["previous_sha256"])
+        self.assertIn(observed[0]["output"], json.dumps(failure), "retain the failed command receipt")
+
+    def test_timed_out_reference_retains_the_study_and_failed_attempt(self):
+        self.reference_failure("timeout")
+
+    def test_exhausted_window_retains_progress_and_a_fresh_success_clears_its_blocker(self):
+        first = self.partial()
+        original = util.read(first["path"])
+        unavailable = mutation.record("preparation exhausted this window")
+        unavailable["reference_attempt"] = {"not_started": True, "budget_limited": True}
+        with mock.patch.object(changed_code, "collect", return_value=unavailable):
+            retained = continuation._window(
+                self.state,
+                self.root,
+                self.run_dir,
+                first,
+                original,
+                None,
+                None,
+                first["execution_context"],
+                -1,
+                lambda: first["execution_context"]["identity"],
+            )
+        self.assertEqual(first["mutation_check"], retained["mutation_check"])
+        self.assertEqual("PASS", retained["verdict"])
+        self.assertEqual("UNVERIFIED", retained["changed_code_evidence"]["status"])
+        self.assertEqual("window_budget_exhausted", retained["changed_code_inputs"]["mutation_refresh_failure"]["kind"])
+        self.assertTrue(changed_code.intact(retained, util.read(retained["path"])))
+        with mock.patch.object(verify, "verify", side_effect=AssertionError("functional proof repeated")):
+            final = regression.prove(self.state, self.root, self.run_dir)
+        self.assertEqual(0, continuation.pending(final))
+        self.assertNotIn("mutation_refresh_failure", final["changed_code_inputs"])
+        self.assertTrue(changed_code.intact(final, util.read(final["path"])))
+        self.assertNotIn("Mutation refresh", changed_code.reviewed(final, [])["reason"])
+
+    def test_failing_reference_retains_the_study_and_failed_attempt(self):
+        self.reference_failure("assertion")
+
+    def test_incomplete_reference_retains_the_study_and_failed_attempt(self):
+        self.reference_failure("missing_test")
+
+    def test_policy_three_cannot_reuse_authority_before_refresh_retention_was_enforced(self):
+        first = self.partial()
+        first["execution_context"]["changed_code_policy"] = 3
+        with mock.patch.object(verify, "verify", side_effect=AssertionError("old policy requires a fresh proof")):
+            with self.assertRaisesRegex(AssertionError, "old policy requires a fresh proof"):
+                regression.prove(self.state, self.root, self.run_dir)
+
     def test_lost_or_changed_custody_cannot_continue_or_silently_restart(self):
         first = self.partial()
         with mock.patch.object(verify, "make_tree", side_effect=AssertionError("unsafe launch")):
@@ -206,6 +358,94 @@ class ProofTests(unittest.TestCase):
 
 
 class BudgetTests(unittest.TestCase):
+    def proof(self, attempted):
+        return {
+            "verdict": "PASS",
+            "source_revision": "source",
+            "execution_context": {"policy": "current", "identity": {"reuse_supported": True}},
+            "mutation_check": {
+                "collected": True,
+                "reference_output": "reference.log",
+                "files": [
+                    {
+                        "mutants": [
+                            {
+                                "site_id": str(i),
+                                "outcome": "killed" if i < attempted else "not_run",
+                                "evidence": [str(i)] if i < attempted else [],
+                            }
+                            for i in range(3)
+                        ]
+                    }
+                ],
+            },
+            "changed_code_receipts": [{"output": "reference.log", "duration_seconds": 15}],
+        }
+
+    def test_review_waits_for_progressing_local_work_and_changes_no_limits(self):
+        previous = self.proof(1)
+        state = {
+            "settings": {"limits": {"stage_timeout_seconds": 3600, "max_seconds": 10000}},
+            "active_seconds": 200,
+            "regression_proof": self.proof(2),
+        }
+        saved = copy.deepcopy(state)
+        self.assertTrue(continuation.defer_review(state, previous))
+        self.assertEqual(saved, state)
+        self.assertFalse(continuation.defer_review(state, state["regression_proof"]))
+        state["regression_proof"] = self.proof(3)
+        self.assertFalse(continuation.defer_review(state, previous))
+        state["regression_proof"] = self.proof(0)
+        state["regression_proof"]["execution_context"] = {"policy": "new"}
+        self.assertFalse(continuation.defer_review(state, previous), "no new observed site means no automatic loop")
+        state["regression_proof"] = self.proof(1)
+        self.assertTrue(continuation.defer_review(state, None))
+
+    def test_unreusable_measurements_do_not_repeat_their_mutation_prefix(self):
+        previous = self.proof(1)
+        state = {"settings": {}, "regression_proof": self.proof(2)}
+        for identity in ({}, None, "invalid", {"reuse_supported": False}, {"reuse_supported": "yes"}):
+            with self.subTest(identity=identity):
+                state["regression_proof"]["execution_context"]["identity"] = identity
+                self.assertFalse(continuation.defer_review(state, previous))
+
+    def test_unverified_or_unavailable_measurements_cannot_authorize_a_deferred_review(self):
+        previous = self.proof(1)
+        state = {"settings": {}, "regression_proof": self.proof(2)}
+        for verdict in ("FAIL", "UNVERIFIED"):
+            state["regression_proof"]["verdict"] = verdict
+            self.assertFalse(continuation.defer_review(state, previous))
+        state["regression_proof"]["verdict"] = "PASS"
+        for failure in ({}, None, "invalid", {"kind": "reference_unavailable"}):
+            state["regression_proof"]["changed_code_inputs"] = {"mutation_refresh_failure": failure}
+            self.assertFalse(continuation.defer_review(state, previous))
+        state["regression_proof"]["changed_code_inputs"] = {
+            "mutation_refresh_failure": {"kind": "window_budget_exhausted"}
+        }
+        self.assertTrue(continuation.defer_review(state, previous))
+        state["regression_proof"]["changed_code_inputs"] = {"custody_gaps": ["source changed"]}
+        self.assertFalse(continuation.defer_review(state, previous))
+
+    def test_next_window_reserves_the_observed_reference_and_respects_the_total_cap(self):
+        previous, current = self.proof(1), self.proof(2)
+        self.assertEqual(75, continuation.minimum_window(current))
+        for value in (None, "15", -1, float("nan")):
+            current["changed_code_receipts"][0]["duration_seconds"] = value
+            self.assertEqual(mutation.MUTANT_FLOOR_SECONDS, continuation.minimum_window(current))
+        current["changed_code_receipts"][0]["duration_seconds"] = 15
+        state = {
+            "settings": {"limits": {"stage_timeout_seconds": 3600, "max_seconds": 10000}},
+            "active_seconds": 9990,
+            "regression_proof": current,
+        }
+        saved = copy.deepcopy(state)
+        with self.assertRaises(util.Paused) as blocked:
+            continuation.defer_review(state, previous)
+        self.assertEqual("PAUSED_TIME_LIMIT", blocked.exception.status)
+        self.assertEqual(saved, state)
+        current["changed_code_receipts"] = []
+        self.assertEqual(mutation.MUTANT_FLOOR_SECONDS, continuation.minimum_window(current))
+
     def test_saved_stage_and_total_limits_bound_continuation_without_changes(self):
         state = {"settings": {"limits": {"stage_timeout_seconds": 3600, "max_seconds": 10000}}, "active_seconds": 9500}
         saved = copy.deepcopy(state)

@@ -2137,7 +2137,9 @@ def before_review(state: RunState, stage, workspace, run_dir):
         or stage == "review_completion"
         and _review_needs_proof(state, workspace)
     ):
+        previous = state.get("regression_proof")
         prove(state, workspace, run_dir)
+        return changed_code_continuation.defer_review(state, previous)
 
 
 def _planning(stage) -> bool:

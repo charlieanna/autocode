@@ -10,6 +10,7 @@ No provider is launched and no completion decision is made here.
 from __future__ import annotations
 
 import copy
+import math
 import time
 import uuid
 from pathlib import Path
@@ -21,6 +22,7 @@ if TYPE_CHECKING:
 try:
     from . import autocode_changed_code_proof as changed_code
     from . import autocode_mutation_check as mutation
+    from . import autocode_mutation_checkpoint as mutation_checkpoint
     from . import autocode_runner_check as runner_check
     from . import autocode_source_scope as source_scope
     from . import autocode_status as status
@@ -30,6 +32,7 @@ try:
 except ImportError:
     import autocode_changed_code_proof as changed_code
     import autocode_mutation_check as mutation
+    import autocode_mutation_checkpoint as mutation_checkpoint
     import autocode_runner_check as runner_check
     import autocode_source_scope as source_scope
     import autocode_status as status
@@ -59,6 +62,46 @@ def allowance(state: RunState):
     return max(0, seconds)
 
 
+def minimum_window(proof):
+    """Reserve the observed reference duration as well as one mutant's minimum slot."""
+    reference = (proof.get("mutation_check") or {}).get("reference_output")
+    receipt = next((row for row in proof.get("changed_code_receipts", []) if row.get("output") == reference), {})
+    duration = receipt.get("duration_seconds")
+    observed = duration if type(duration) in (int, float) and math.isfinite(duration) and duration > 0 else 0
+    return mutation.MUTANT_FLOOR_SECONDS + observed
+
+
+def defer_review(state: RunState, previous):
+    """Progressing local work gets another bounded step before a provider review."""
+    current = state.get("regression_proof") or {}
+    left = pending(current)
+    if current.get("verdict") != verify.PASS or not left:
+        return False
+    identity = (current.get("execution_context") or {}).get("identity") or {}
+    if not isinstance(identity, dict) or identity.get("reuse_supported") is not True:
+        return False
+    inputs = current.get("changed_code_inputs") or {}
+    if mutation_checkpoint.FAILURE in inputs:
+        failure = inputs[mutation_checkpoint.FAILURE]
+        if not isinstance(failure, dict) or failure.get("kind") != "window_budget_exhausted":
+            return False
+    if allowance(state) < minimum_window(current):
+        raise util.Paused(
+            "PAUSED_TIME_LIMIT", "The saved execution allowance cannot fit the next local verification window"
+        )
+    previous = previous or {}
+    same_context = previous.get("source_revision") == current.get("source_revision") and previous.get(
+        "execution_context"
+    ) == current.get("execution_context")
+    if same_context:
+        return left < pending(previous)
+    return any(
+        row.get("outcome") != "not_run" or row.get("evidence")
+        for file in current["mutation_check"].get("files", [])
+        for row in file.get("mutants", [])
+    )
+
+
 def continue_proof(state: RunState, workspace, run_dir, proof, framework, inputs, current_identity):
     """Called only after the parent proof's full reuse checks succeeded, or it just completed.
 
@@ -76,7 +119,7 @@ def continue_proof(state: RunState, workspace, run_dir, proof, framework, inputs
     ) as progress:
         # Every admitted window must reduce this finite set. No-progress and
         # attempted failures return to ordinary independent review, not a loop.
-        while pending(proof) and deadline - time.monotonic() >= mutation.MUTANT_FLOOR_SECONDS:
+        while pending(proof) and deadline - time.monotonic() >= minimum_window(proof):
             before = pending(proof)
             original = util.read(proof["path"])
             if (
@@ -117,7 +160,7 @@ def _window(
             dependencies_from=state.get("project_workspace") or workspace,
             ignored_inputs=inputs,
         )
-        proof["mutation_check"] = changed_code.collect(
+        measured = changed_code.collect(
             proof,
             result,
             framework,
@@ -130,6 +173,18 @@ def _window(
             evidence_dir=out / "mutation-check",
             deadline=deadline,
         )
+        refresh_failure = None
+        if problem := mutation_checkpoint.replacement_error(previous["mutation_check"], measured):
+            retained, receipts, inputs, refresh_failure = mutation_checkpoint.retain(
+                previous, proof, measured, problem, deadline_expired=time.monotonic() >= deadline
+            )
+            proof.update(mutation_check=retained, changed_code_receipts=receipts, changed_code_inputs=inputs)
+            proof["changed_code_evidence"] = changed_code.reviewed(proof, [])
+            if refresh_failure["kind"] != "window_budget_exhausted":
+                proof["verdict"] = verify.UNVERIFIED
+                proof.setdefault("unverified", []).append(problem)
+        else:
+            proof["mutation_check"] = measured
         if current_identity() != context["identity"]:
             proof["verdict"] = verify.UNVERIFIED
             proof.setdefault("unverified", []).append("Execution context changed during mutation continuation")
@@ -142,6 +197,8 @@ def _window(
             "duration_seconds": duration,
             "reason": "Continue unattempted sites; retain every completed, failed and timed-out observation",
         }
+        if refresh_failure:
+            continuation["failure"] = refresh_failure
         proof.update(
             path=str(path), proved_at=util.now(), duration_seconds=duration, mutation_continuation=continuation
         )
@@ -189,6 +246,12 @@ def _window(
             },
             "summary": f"Changed-line checks continued: {continuation['pending_before']} → {continuation['pending_after']} unattempted sites",
         }
+        if refresh_failure:
+            record.update(
+                error_kind="MutationReferenceUnavailable",
+                reason=refresh_failure["reason"],
+                summary=f"Mutation refresh unavailable; {continuation['pending_after']} unattempted sites and prior observations retained",
+            )
         state.setdefault("stages", []).append(record)
         state.setdefault("history", []).append(record)
         return proof

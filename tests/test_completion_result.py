@@ -83,6 +83,22 @@ class PreservationReviewRefreshTests(unittest.TestCase):
         ):
             completion.before_review(state, "review_completion", "/work", self.run)
 
+    def test_progressing_local_verification_defers_review_before_any_delivery_or_review_preparation(self):
+        for stage in ("tester", "review_checkpoint", "review_completion"):
+            with self.subTest(stage=stage):
+                state = self.state()
+                before = copy.deepcopy(state)
+                with (
+                    patch.object(regression, "before_review", return_value=True),
+                    patch.object(
+                        delivery,
+                        "requirement",
+                        side_effect=AssertionError("review prepared before local work finished"),
+                    ),
+                ):
+                    self.assertIs(True, completion.before_review(state, stage, "/work", self.run))
+                self.assertEqual(before, state)
+
     def test_new_passing_guard_proof_archives_old_private_review_blocker_without_granting_authority(self):
         state = self.state()
         before = copy.deepcopy(state)
