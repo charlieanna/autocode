@@ -52,8 +52,8 @@ try:
     from .. import autocode_output_decoding as output_decoding
     from ..autocode_invocation_environment import without_call_markers
 except ImportError:
-    import autocode_output_decoding as output_decoding
     import autocode_captured_process as captured
+    import autocode_output_decoding as output_decoding
     from autocode_invocation_environment import without_call_markers
 
 CONNECTION_TIMEOUT_SECONDS = 45

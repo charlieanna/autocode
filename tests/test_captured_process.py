@@ -218,6 +218,37 @@ with captured._temporary('w+t') as output, captured._temporary('w+t') as errors:
 
 @unittest.skipUnless(sys.platform == "linux", "Linux invocation-local subreaper")
 class CapturedLinuxTests(unittest.TestCase):
+    def test_small_and_large_binary_and_text_input_reaches_the_owned_target(self):
+        from providers import env_prep
+
+        command = [
+            sys.executable,
+            "-c",
+            "import sys; data=sys.stdin.buffer.read(); sys.stdout.buffer.write(data); sys.stderr.buffer.write(data)",
+        ]
+        for text, payload, encoding in (
+            (False, b"\xff\r\n", None),
+            (False, bytes(range(256)) * 1024, None),
+            (True, "é\r\n", "latin-1"),
+            (True, "é\r\n" * 65536, "utf-8"),
+        ):
+            with self.subTest(text=text, size=len(payload), encoding=encoding):
+                with patch.dict(
+                    os.environ, {"HOME": str(self.root / "home"), "XDG_STATE_HOME": str(self.root / "metadata-state")}
+                ):
+                    result = env_prep.preflight_run(
+                        command,
+                        dict(os.environ),
+                        input=payload,
+                        text=text,
+                        encoding=encoding,
+                        capture_output=True,
+                        timeout=5,
+                    )
+                expected = payload.replace("\r\n", "\n").replace("\r", "\n") if text else payload
+                self.assertEqual(0, result.returncode)
+                self.assertEqual((expected, expected), (result.stdout, result.stderr))
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)

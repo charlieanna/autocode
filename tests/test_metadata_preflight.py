@@ -58,7 +58,13 @@ class MetadataCaptureTests(unittest.TestCase):
             self.assertIsInstance(kept, env_prep.KeptCheck)
             self.assertEqual(expected.stdout, kept.stdout)
         run.assert_called_once_with(
-            self.command, env=self.env, cwd=self.root, capture_output=True, text=True, timeout=30
+            self.command,
+            env=self.env,
+            cwd=self.root,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            encoding=captured.output_decoding.resolve().encoding,
         )
 
     def test_unconfirmed_cleanup_is_neither_retried_completed_nor_kept(self):
@@ -232,6 +238,7 @@ class MetadataCaptureTests(unittest.TestCase):
             capture_output=True,
             text=True,
             timeout=run.call_args.kwargs["timeout"],
+            encoding=captured.output_decoding.resolve().encoding,
         )
         preflight.assert_called_once_with(
             [str(self.tool), "debug", "agent", "review"],
