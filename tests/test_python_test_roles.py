@@ -389,6 +389,35 @@ class PinnedRolePolicyTests(unittest.TestCase):
         )
         self.assertEqual(role_policy.PRODUCT, result.role("pkg/billing_tests.py"))
 
+    def test_a_tests_module_beside_the_code_is_a_test_unless_the_package_imports_it(self):
+        code = {"shop/__init__.py": "", "shop/pager.py": "def pages():\n    return 1\n"}
+        result = self.roles({**code, "shop/tests.py": self.CASE, "test.py": self.CASE, "shop/admin/test.py": self.CASE})
+        self.assertEqual(role_policy.TEST, result.role("shop/tests.py"))
+        self.assertEqual(role_policy.TEST, result.role("test.py"))
+        self.assertTrue(result.protected("shop/tests.py"))
+        self.assertEqual(role_policy.PRODUCT, result.role("shop/admin/test.py"))
+        # jinja2/tests.py holds the template language's tests as functions named test_odd, and the package
+        # imports it: product code, whatever it declares.
+        rules = "def test_odd(value):\n    return value % 2 == 1\n\n\nTESTS = {'odd': test_odd}\n"
+        for source in (rules, self.CASE, "VALUE = 1\n"):
+            result = self.roles({**code, "shop/defaults.py": "from .tests import *\n", "shop/tests.py": source})
+            self.assertEqual(role_policy.PRODUCT, result.role("shop/tests.py"), source)
+            self.assertFalse(result.protected("shop/tests.py"))
+        # Any other test name the package imports keeps its refusal, and so does a tests.py the packaging ships.
+        result = self.roles({**code, "shop/defaults.py": "from .rule_tests import *\n", "shop/rule_tests.py": rules})
+        self.assertEqual(role_policy.AMBIGUOUS, result.role("shop/rule_tests.py"))
+        packaged = {"pyproject.toml": '[tool.setuptools]\npackages=["shop"]\n', **code}
+        result = self.roles({**packaged, "shop/defaults.py": "from .tests import *\n", "shop/tests.py": rules})
+        self.assertEqual(role_policy.AMBIGUOUS, result.role("shop/tests.py"))
+        # One that declares nothing and that nothing imports is unknown, as any file of a test name is.
+        self.assertEqual(
+            role_policy.AMBIGUOUS, self.roles({**code, "shop/tests.py": "VALUE = 1\n"}).role("shop/tests.py")
+        )
+        # A change cannot make the application's tests product by importing them.
+        result = self.roles({**code, "shop/tests.py": self.CASE}, candidates={"shop/pager.py": "from . import tests\n"})
+        self.assertEqual(role_policy.TEST, result.role("shop/tests.py"))
+        self.assertTrue(result.protected("shop/tests.py"))
+
     def test_candidate_test_declarations_do_not_convert_original_product_or_unknown_files(self):
         for original in (
             {"pyproject.toml": '[tool.setuptools]\npackages=["pkg"]\n', "pkg/billing_tests.py": "VALUE=1\n"},
@@ -644,7 +673,7 @@ class RoleProofFreshnessTests(unittest.TestCase):
             mock.patch.object(regression.changed_code, "ready", return_value=True),
         ):
             self.assertFalse(regression.complete(state, "current"))
-            for previous_policy in (1, 2, 3):
+            for previous_policy in (1, 2, 3, 4):
                 proof["execution_context"] = {"test_role_policy": previous_policy}
                 self.assertFalse(regression.complete(state, "current"))
             proof["execution_context"] = {"test_role_policy": role_policy.VERSION}

@@ -21,7 +21,7 @@ except ImportError:
     import autocode_python_packaging as packaging
     import autocode_python_tests as python_tests
 
-VERSION = 4
+VERSION = 5
 PRODUCT, TEST, AMBIGUOUS = "product", "test", "ambiguous"
 TEST_DIRS = project_kinds.TEST_DIRS
 ROOT_TEST_DIRS = project_kinds.ROOT_TEST_DIRS
@@ -227,7 +227,11 @@ def _classify(paths, read, hint, ownership, links, *, original_tests=None):
             result[path] = TEST
             continue
         declared = _declares(source(path))
-        if ownership.contains(path) or path in reached:
+        if path in reached and PurePosixPath(path).name == "tests.py" and not ownership.contains(path):
+            # "tests" is also a product noun: jinja2/tests.py holds the template tests, as functions named
+            # test_odd, and the package imports it. An application's own tests are imported by nothing.
+            result[path] = PRODUCT
+        elif ownership.contains(path) or path in reached:
             result[path] = AMBIGUOUS if declared or test_root else PRODUCT
         elif test_root or declared and not dynamic:
             result[path] = TEST

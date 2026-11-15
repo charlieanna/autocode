@@ -7,7 +7,7 @@ or layout one copy missed was a separate bug found on a live run (a Ruby Minites
 ``Cargo.lock``; docs/bugs/2026-11-13-shared-root-causes.md). It lives here now, one row per
 language, and the modules derive what they need from the rows:
 
-* ``autocode_verify.TEST_NAME`` and ``CODE_SUFFIXES``: a file's role by its name and suffix;
+* ``autocode_verify.is_test_path`` and ``CODE_SUFFIXES``: a file's role by its path and suffix;
 * ``autocode_python_test_roles`` and ``autocode_verify``: the directories that hold tests;
 * ``autocode_test_examples``: the test files shown to a stage as examples;
 * ``autocode_plan_test_suite``: which runner runs which planned test files, and how they are named;
@@ -37,6 +37,10 @@ class Language:
     suffixes: tuple[str, ...]
     # Files that belong to its test suite by their name. Case-sensitive: Latest.java is product code.
     test_names: tuple[str, ...] = ()
+    # Files that are a test only at the repository root, where one test file sits beside the code it
+    # tests (index.js and test.js, pager.c and test.c). A root ``test/`` directory holds tests in the
+    # same way, and deeper a ``test.py`` or a ``test.js`` may be product code (a ``test`` command).
+    root_test_names: tuple[str, ...] = ()
     # Files only tests use that are not tests themselves (conftest.py, a Jest snapshot).
     support_names: tuple[str, ...] = ()
     # The test files its targeted runners collect by default, when narrower than ``test_names``
@@ -98,7 +102,10 @@ LANGUAGES: tuple[Language, ...] = (
     Language(
         "python",
         (".py", ".pyi"),
-        test_names=(r"test_.*\.py", r".*_tests?\.py"),
+        # tests.py is the test module beside an application's code (what Django's startapp writes), which
+        # unittest discovery collects at any depth; autocode_python_test_roles reads what it declares.
+        test_names=(r"tests\.py", r"test_.*\.py", r".*_tests?\.py"),
+        root_test_names=(r"test\.py",),
         support_names=(r"conftest\.py",),
         collected=r"(test_.*|.*_test)\.py",
         targets=r"(tests|test_.*|.*_tests?)\.py",
@@ -137,6 +144,8 @@ LANGUAGES: tuple[Language, ...] = (
         "javascript",
         (".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx"),
         test_names=(r".*\.(test|spec)\.[cm]?[jt]sx?",),
+        # node --test and Jest collect a test.js; `node test.js` is the whole suite of many small packages.
+        root_test_names=(r"tests?\.[cm]?[jt]sx?",),
         support_names=(r".*\.snap",),
         collected=r".*\.(test|spec)\.[cm]?[jt]sx?",
         shown="JavaScript or TypeScript",
@@ -167,9 +176,9 @@ LANGUAGES: tuple[Language, ...] = (
     Language("scala", (".scala",), test_names=_xunit("scala"), build_dirs=_JVM_BUILD_DIRS),
     Language("swift", (".swift",), test_names=_xunit("swift")),
     Language("csharp", (".cs",), test_names=_xunit("cs")),
-    Language("shell", (".sh",), test_names=(r"test_.*\.sh",)),
-    Language("c", (".c", ".h"), build_dirs=_CMAKE_BUILD_DIRS),
-    Language("cpp", (".cc", ".cpp", ".hpp"), build_dirs=_CMAKE_BUILD_DIRS),
+    Language("shell", (".sh",), test_names=(r"test_.*\.sh",), root_test_names=(r"tests?\.sh",)),
+    Language("c", (".c", ".h"), root_test_names=(r"tests?\.c",), build_dirs=_CMAKE_BUILD_DIRS),
+    Language("cpp", (".cc", ".cpp", ".hpp"), root_test_names=(r"tests?\.(cc|cpp)",), build_dirs=_CMAKE_BUILD_DIRS),
     Language(
         "php",
         (".php",),
@@ -204,6 +213,8 @@ def _whole(patterns) -> re.Pattern:
 CODE_SUFFIXES = frozenset(suffix for language in LANGUAGES for suffix in language.suffixes)
 # A test file by its name, in any language.
 TEST_FILE = _whole(pattern for language in LANGUAGES for pattern in language.test_names)
+# A test file by its name where it is at the repository root, beside the code it tests.
+ROOT_TEST_FILE = _whole(pattern for language in LANGUAGES for pattern in language.root_test_names)
 # A test file or a file only tests use, by its name: the test role (autocode_verify.TEST_NAME).
 TEST_ROLE = _whole(pattern for language in LANGUAGES for pattern in (*language.test_names, *language.support_names))
 # The files that make a directory a project of its own.
@@ -237,8 +248,22 @@ COLLECTED = tuple(
 
 
 def is_test_file(path) -> bool:
-    """Whether ``path`` is a test file by its name alone, in any language (not a support file)."""
-    return bool(TEST_FILE.match(PurePosixPath(str(path)).name))
+    """Whether ``path`` is a test file by its name, in any language (not a support file)."""
+    name = PurePosixPath(str(path)).name
+    return bool(TEST_FILE.match(name) or name == str(path) and ROOT_TEST_FILE.match(name))
+
+
+def is_test_path(path: str) -> bool:
+    """True for a file that belongs to the test suite rather than the product, by its path alone."""
+    parts = PurePosixPath(path).parts
+    if not parts:
+        return False
+    directories = parts[:-1]
+    if any(part in TEST_DIRS for part in directories) or (directories and directories[0] in ROOT_TEST_DIRS):
+        return True
+    if path.startswith("src/test/") or "/src/test/" in path:
+        return True  # Maven and Gradle layouts
+    return bool(TEST_ROLE.match(parts[-1]) or not directories and ROOT_TEST_FILE.match(parts[-1]))
 
 
 def targets(runner: str) -> re.Pattern:

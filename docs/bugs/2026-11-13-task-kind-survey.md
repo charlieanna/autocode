@@ -1307,6 +1307,70 @@ question (bundle manifest `a04efc87888822079eed5e3ed956288481d2cf4b68b5213464145
 added `tests/data/dirlink/ptr -> sub`, the proof counted that link among the change's test files and passed
 at its first attempt, and the original tests ran through the original links.
 
+## 43. One test file beside the code: the person is asked for a regression command (fixed)
+
+A Python package that keeps its tests in `shop/tests.py`, beside `shop/pager.py` and `shop/listing.py`, as
+Django's `startapp` lays an application out; `python3 -m unittest discover` collects it. The request: "A
+listing of eleven items at five a page says "Page 1 of 2". It needs three pages. Fix it and add a regression
+test." The README says to keep the tests where they are.
+
+On master `b76a42d`: `WAITING_FOR_USER`, 10 stages, 220 s, $1.29 (bundle manifest
+`ed6b1f5931c248b6b96a4212ca4f666c1f72efea5bd220c5c59c23d515302401`). The fix and both new tests in
+`shop/tests.py` were right. The proof failed twice with "No regression test was added or changed, so the bug
+is not shown to be reproduced", and the Resolver asked the person: "Set the saved regression command through
+the verification-command correction to: `python3 -m unittest shop.tests.PagerTests.test_ac1_... `", with
+"Amend the contract so the regression tests may live in a recognized test file name" as the alternative. Its
+own finding names the cause: "The runner's unittest regression proof did not recognize shop/tests.py as a
+test file."
+
+A file was a test by its directory (`tests/`, a root `test/`) or by a name of the form `test_x.py`,
+`x_test.py`, `x.test.js`. The one test file beside the code it tests had neither. Found without a model, the
+same proof failure for a single `test.js` beside `index.js` (with `node --test`, and with `node test.js` as
+the whole suite), for `test.c` and `test.sh` with `make test`, and for a root `test.py` run as `python3
+test.py`, where the approved plan's own command could not prove the fix because it named no test file.
+
+Fixed in the languages' table (`autocode_project_kinds`), which now also holds the rule itself
+(`is_test_path`):
+
+- `tests.py` is a Python test module at any depth, as the unittest runner's own file pattern already had it.
+  What it is in a given project is still read from the original tree (`autocode_python_test_roles`): one that
+  declares tests and that nothing imports is a test; one the package's own code imports is product code
+  whatever it declares, as before (`jinja2/tests.py` holds the template tests as functions named `test_odd`).
+- At the top of the repository, `test.py`, `test.js` (and `.mjs`, `.cjs`, `.ts`; also `tests.`), `test.c`,
+  `test.cc`, `test.cpp` and `test.sh` are tests, as the root `test/` directory holds tests. Deeper in the
+  tree they stay product code (`lib/commands/test.js`, `django/core/management/commands/test.py`). Go, Rust
+  and the JVM languages have no such file: their tools say which files are tests.
+- No runner is given a root `test.py` by its name alone (inside a package the name is product code), so
+  such a project is proven by the approved plan's own command, `python3 test.py`, as any project without a
+  detected runner is (section 1).
+
+The role policy version is raised, so a proof saved under the old rule is made again once.
+
+Three real runs on the fixed tree, each with one plan approval and no question:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| The same request in the same package with `shop/tests.py` | `TASK_COMPLETE`, 10 stages (one plan revision), 205 s, $1.36. The run's original tests are `shop/tests.py`, the proof passed at its first attempt with both new tests of `shop/tests.py` failing first, and the Tester's original-test check passed with `shop/tests.py` as the changed test | `f761f5f113ee408bdafb5ebeecc9879b3078205d6c37bac37110493b9908af26` |
+| A bug fix in a Node package of `index.js` and `test.js`, run with `node --test` | `TASK_COMPLETE`, 10 stages (one plan revision), 157 s, $1.18. The proof ran `node --test test.js` and passed at its first attempt | `a680625ec4bc99f0f2d47afd6941d29a8055edae2d08b7833528193f87284439` |
+| A bug fix in a Python project of `pager.py` and `test.py`, run as `python3 test.py` | `TASK_COMPLETE`, 15 stages counting repairs, 295 s, $2.31. The first draft named its tests (`test:`), was told that "this project's tests run with no runner AutoCode reads", and after two report repairs and the Investigator the plan proved the fix with `` `python3 test.py` fails on the original code and passes with the fix `` and guarded with ``guard: run `python3 test.py` `` | `bccf11bdf4b7e95d6011d771c240ba2647d7dc1281f8aef1da77885fe8736a14` |
+
+Still open: a root `test.py` of unittest cases is not found as a unittest suite, so its tests are not named
+one by one and its plan costs a revision (the third run above); a `test.py` written for pytest, which pytest
+does not collect by its default file pattern; a test class whose base is not literally `TestCase` (`APITestCase`,
+`SimpleTestCase`) in a file outside a test directory, which declares no test the role inventory can see; and
+a Django project's own runner (`python manage.py test`), which is not detected.
+
+Also run, complete with no change needed: a bug fix across two Maven modules, where the wrong heading of
+`app` comes from a calculation in `core` (`TASK_COMPLETE`, 10 stages, 355 s, $2.38, one plan approval and
+no question; bundle manifest `5cde754e71fd886db7bae0b86cb728c6b0c1fb92911e13ecfb4d7ca34c40b6f5`). The plan
+proved the fix with a new test in each module (`mvn -q -pl core test -Dtest=PagerRoundingTest` and
+`mvn -B -q -pl app -am test -Dtest=ReportRoundingTest,PagerTest ...`) and guarded with `mvn -B -q test`.
+Three planning reports were refused and repaired, each for the same reason: the guard
+``guard: run `mvn -B -q test -Dtest=PagerTest,ReportTest` `` selects existing test classes, and the plan
+check accepts only a command that names an existing test file or is the project's suite ("names no
+existing test file and is not the project's suite `mvn -B -q test`"). Open: a Maven or Gradle guard that
+selects existing test classes.
+
 ## Also seen, not yet run on real models
 
 - **Claude Code refuses to edit some directories inside the stage's own directory.** With Edit and
