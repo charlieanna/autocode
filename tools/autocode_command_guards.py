@@ -24,6 +24,7 @@ a command guard there is refused when the plan is drafted and ignored by the pro
 
 from __future__ import annotations
 
+import shlex
 from typing import TYPE_CHECKING
 
 try:
@@ -67,26 +68,60 @@ def due(state: RunState, *, all_due: bool = False) -> list[dict]:
 _CLASS_GUARDS = {"maven": "mvn -B -q test -Dtest=PagerTest", "gradle": "gradle --no-daemon -q test --tests PagerTest"}
 
 
-def runs_existing_tests(command, framework, original_tests) -> bool:
+def runs_existing_tests(command, framework, original_tests, observed=()) -> bool:
     """Whether ``command`` runs tests the original code has: it names one of ``original_tests``, by its path
-    or as a class a Maven or Gradle command runs, or it is ``framework``'s suite. A command that also names a
+    or as a class a Maven or Gradle command runs, it is ``framework``'s suite, or it is one of ``observed``,
+    the commands seen to run them (autocode_plan_command_roles.runs_tests). A command that also names a
     test the change adds fails on the original code."""
     if framework is not None and " ".join(command.split()) == " ".join(str(framework.suite or "").split()):
         return True
-    return bool(plan_command.test_files(command, original_tests))
+    return command in observed or bool(plan_command.test_files(command, original_tests))
 
 
-def usable(guards, framework, original_tests, *, per_test: bool | None = None) -> list[dict]:
+def usable(guards, framework, original_tests, *, per_test: bool | None = None, observed=()) -> list[dict]:
     """The ``guards`` the proof runs: none where the runner names its tests, and none that runs no test the
     original code has."""
     names_tests = (framework is not None and framework.per_test) if per_test is None else per_test
     if names_tests:
         return []
-    return [guard for guard in guards if runs_existing_tests(guard["command"], framework, original_tests)]
+    return [guard for guard in guards if runs_existing_tests(guard["command"], framework, original_tests, observed)]
 
 
-def problem(guards, framework, original_tests, *, per_test: bool | None = None) -> str | None:
-    """Why the plan's command guards could never be proven, for the Planner, or None."""
+def unproven(guards, framework, original_tests, *, per_test: bool | None = None, observed=()) -> list[str]:
+    """What the proof says of each guard whose command it could not use, where the runner names no test.
+
+    With no runner detected a plan may guard with a command that names no test file (``problem``): whether it
+    runs the project's tests is seen when the proof runs it (autocode_plan_command_roles). One that was not
+    seen to guards nothing, and its criterion stays unproven."""
+    names_tests = (framework is not None and framework.per_test) if per_test is None else per_test
+    if names_tests or framework is not None:
+        return []  # with a runner detected, such a guard was refused when the plan was drafted
+    return [
+        f"Guard {guard['id']}'s command `{guard['command']}` was not seen to run a test the project already has "
+        "(it must pass on the original code, and fail there when the project's test files cannot be loaded), "
+        "so it guards nothing"
+        for guard in guards
+        if not runs_existing_tests(guard["command"], framework, original_tests, observed)
+    ]
+
+
+def _names_a_missing_test(command, original_tests, is_test) -> bool:
+    """Whether ``command`` names a test file the original code does not have: it fails there."""
+    try:
+        words = shlex.split(command, comments=True)
+    except ValueError:
+        words = command.split()
+    named = {word[2:] if word.startswith("./") else word for word in words}
+    return any(is_test(word) and word not in original_tests for word in named)
+
+
+def problem(guards, framework, original_tests, *, per_test: bool | None = None, is_test=None) -> str | None:
+    """Why the plan's command guards could never be proven, for the Planner, or None.
+
+    With no runner detected, no rule knows what the project's test command looks like (``dotnet test``,
+    ``mix test``, ``./run_tests.sh`` name no test file): such a guard is left to the proof, which runs it and
+    sees whether it runs the project's tests (autocode_plan_command_roles). Only a command that names a test
+    file the original code does not have (``is_test`` says which words are test files) is refused there."""
     if not guards:
         return None
     named = ", ".join(guard["id"] for guard in guards)
@@ -98,6 +133,9 @@ def problem(guards, framework, original_tests, *, per_test: bool | None = None) 
             '("guard: test_counts_a_partial_page", or a test\'s title where tests have titles)'
         )
     unusable = [guard for guard in guards if not runs_existing_tests(guard["command"], framework, original_tests)]
+    if framework is None and original_tests and is_test is not None:
+        present = set(original_tests)
+        unusable = [guard for guard in unusable if _names_a_missing_test(guard["command"], present, is_test)]
     if not unusable:
         return None
     by_class = _CLASS_GUARDS.get(framework.name) if framework is not None else None
@@ -109,6 +147,8 @@ def problem(guards, framework, original_tests, *, per_test: bool | None = None) 
         + (
             f'. Write the command that runs existing test classes ("guard: run `{by_class}`"), or '
             if by_class
+            else '. Write the command this project runs its existing tests with ("guard: run `./run_tests.sh`"), or '
+            if framework is None
             else '. Write the command that runs the existing test file ("guard: run `ruby test/pager_test.rb`"), or '
         )
         + "give the criterion an ordinary verification_method"

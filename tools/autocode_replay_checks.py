@@ -402,19 +402,25 @@ def require_supported(state: RunState):
             )
 
 
-def test_homes(state: RunState):
-    """The homes the recording's next regression proof kept for its changed tests, or None.
+def kept(state: RunState, key):
+    """What the recording's next regression proof kept under ``key`` of its receipt, or None.
 
-    A live proof finds where a changed test loads by running it (autocode_test_homes) and derives its
-    commands from that. A replay runs nothing, so it reads what the recorded proof found, from the
-    authenticated receipt it is about to be compared with. The homes decide only which commands the
-    replay derives; ``regression`` still refuses a recording whose commands differ from them.
+    A live proof finds some things by running commands: where a changed test loads
+    (autocode_test_homes), and which of the plan's commands runs the project's tests
+    (autocode_plan_command_roles). A replay runs nothing, so it reads what the recorded proof found,
+    from the authenticated receipt it is about to be compared with. What it reads decides only which
+    commands the replay derives; ``regression`` still refuses a recording whose commands differ.
     """
     tape = transport.selected(state["settings"])
     used = (state.get("replay_result") or {}).get("consumed_checks", [])
     rows = tape.document["checks"][len(used) if isinstance(used, list) else 0 :]
     row = next((row for row in rows if row["purpose"] == "regression_proof"), None)
-    return authenticated(tape, row)[2].get("test_homes") if row else None
+    return authenticated(tape, row)[2].get(key) if row else None
+
+
+def test_homes(state: RunState):
+    """The homes the recording's next regression proof kept for its changed tests, or None."""
+    return kept(state, "test_homes")
 
 
 def regression(state: RunState, workspace, *, case_ids, suite, regression_command):
