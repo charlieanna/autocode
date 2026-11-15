@@ -425,7 +425,7 @@ were archived at tag `archive/pre-restructure-2026-09-26`
    functions over state) → runtime (processes, providers) → controller
    (`autopilot`, owns the loop) → interfaces (CLI). Lower layers never import
    higher ones.
-4. **Run state is a dict of about 230 named keys.** `tools/autocode_run_state.py`
+4. **Run state is a dict of about 255 named keys.** `tools/autocode_run_state.py`
    is the typed contract that names every key with who writes and who reads it;
    `tests/test_run_state.py` fails when `tools/` touches a key it does not name.
    Prefer an existing key: read the contract before adding one. If you must add
