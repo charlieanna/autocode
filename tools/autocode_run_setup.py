@@ -67,6 +67,7 @@ try:
     from . import autocode_recovery_view as recovery_view
     from . import autocode_registry as registry
     from . import autocode_regression as regression
+    from . import autocode_requirements_overlap_input as overlap_input
     from . import autocode_resolver_human as resolver_human
     from . import autocode_resolver_recovery as resolver_recovery
     from . import autocode_retired_token_budget as retired_token_budget
@@ -117,6 +118,7 @@ except ImportError:
     import autocode_recovery_view as recovery_view
     import autocode_registry as registry
     import autocode_regression as regression
+    import autocode_requirements_overlap_input as overlap_input
     import autocode_resolver_human as resolver_human
     import autocode_resolver_recovery as resolver_recovery
     import autocode_retired_token_budget as retired_token_budget
@@ -662,6 +664,9 @@ def load_locked(runner, args, parser, state: RunState, state_path, run_dir, work
             runner.opencode,
             workspace,
             interactive=args.chat,
+            # Every prompt of a run reads through the one reader its questions use: a bare input() beside
+            # it reads ahead on a pipe and takes the lines the next question is waiting for.
+            ask=overlap_input.read,
             inventory=getattr(args, "_model_inventory", None),
             named_strong=getattr(args, "builder_strong_model", None),
         )

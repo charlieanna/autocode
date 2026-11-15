@@ -234,6 +234,62 @@ class ReadyGateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "changed a number the source states: 29.50"):
             self.ready(draft, records=records)
 
+    def test_a_number_the_plan_states_where_the_check_does_not_read_is_refused_and_the_refusal_names_the_place(self):
+        # A live MiMo planner answered "changed a number the source states: 203" by writing the source's path
+        # and line into the criterion's current_behavior. The literal check accepted it there, the number check
+        # did not, and the next two refusals repeated the first without saying why (2026-11-15).
+        text = (
+            "A module goal whose scope empties after exclusion is dropped silently "
+            "(`app/services/canonical_engine_global_practice_plan.rb:203`)."
+        )
+        beside = "The guard beside it needs a spec."
+        records = [{"id": "design:evidence", "kind": "design", "text": f"{text} {beside}"}]
+        location = "`app/services/canonical_engine_global_practice_plan.rb:203`"
+        outcome = "A module goal whose scope empties after exclusion is reported"
+        unread = "which this check does not read: it reads the criterion and verification_method"
+
+        def refusal(*rows, **contract):
+            with self.assertRaises(ValueError) as refused:
+                self.ready(body(list(rows), **contract), records=records)
+            message = str(refused.exception)
+            self.assertIn("changed a number the source states: 203 (state each as", message)
+            return message
+
+        citing = criterion("C1", outcome, [text], source_id="design:evidence")
+        guard = criterion("C2", "A spec covers the guard", [beside], source_id="design:evidence")
+        today = {**citing, "current_behavior": f"Dropped silently at {location} (line 203)."}
+        message = refusal(today, guard)
+        self.assertIn(f"; 203 is in the plan only in C1 current_behavior, {unread}", message)
+        self.assertNotIn("dropped a literal", message)  # the literal check reads current_behavior too
+        # The same refusal for the same reason, wherever else the planner wrote the value.
+        other = {**guard, "criterion": f"A spec covers the guard beside the drop at {location}"}
+        self.assertIn(f"; 203 is in the plan only in C2 criterion, {unread}", refusal(citing, other))
+        prose = refusal(citing, guard, intended_outcome=f"The plan reports the goal dropped at {location}.")
+        self.assertIn(f"; 203 is in the plan only in intended_outcome, {unread}", prose)
+        both = refusal(today, other, end_to_end_flow=[f"The build reaches {location}."])
+        self.assertIn("203 is in the plan only in C1 current_behavior, C2 criterion, end_to_end_flow, which", both)
+        # A value the plan states nowhere gets the refusal it always had: its citation quotes the source, and
+        # a quote is not the plan's own statement.
+        self.assertNotIn("is in the plan only in", refusal(citing, guard))
+        # The clause reports; it excuses nothing. Only the criterion text carries the number.
+        kept = {**citing, "criterion": f"{outcome}, where today it is dropped at {location}"}
+        self.ready(body([kept, guard]), records=records)
+
+    def test_a_negation_kept_only_in_the_citing_criterions_other_text_is_refused_and_the_refusal_says_so(self):
+        text = "The exporter must never write outside the project."
+        beside = "The importer keeps its format."
+        records = [{"id": "task:0", "kind": "task", "text": f"{text} {beside}"}]
+        row = criterion("C1", "The exporter writes inside the project.", [text])
+        # A negation is only a word: one in another criterion or in the contract's prose is not this sentence's.
+        other = criterion("C2", "The importer does not change its format.", [beside])
+        with self.assertRaisesRegex(ValueError, r"dropped the source's negation \(.*\); only .* allows that$"):
+            self.ready(body([row, other], scope_exclusions=["No importer changes."]), records=records)
+        row["current_behavior"] = "The exporter does not check where it writes."
+        with self.assertRaisesRegex(
+            ValueError, "allows that; a negation is in the plan only in C1 current_behavior, which this check does not"
+        ):
+            self.ready(body([row, other]), records=records)
+
     def test_amounts_in_cents_survive_when_the_sentence_itself_spells_one_in_cents(self):
         # Live GLM planners (#2780) wrote the brief's $50 and $4.99 as the code's cents, and finalize refused it.
         text = (
@@ -987,6 +1043,57 @@ class SealTests(unittest.TestCase):
         event = {"kind": "answer", "actor": "user_cli", "question_id": question_id, "text": text}
         source_log.save_answer(self.state, question_id, event)
         self.state.setdefault("user_events", []).append(event)
+
+    def test_a_waiver_for_a_negation_the_runner_does_not_recognize_is_kept_and_excuses_nothing(self):
+        # A live Plan Reviewer waived this sentence of the issue and its whole answer was refused with
+        # "A negation waiver quotes a span with no negation": the word list has no "nothing".
+        task = "Nothing in the prepared plan says a goal was dropped. The plan must never hide a dropped goal."
+        self.state = make_state(task)
+        self.state["task_id"] = "task"
+        records = obligations.sources(self.state)
+        waiver = {
+            "source_id": "task:0",
+            "quote": "Nothing in the prepared plan says a goal was dropped.",
+            "reason": "The fix reverses this observed defect",
+        }
+        report = {"source_trace": {"out_of_scope": [], "negation_waivers": [waiver]}}
+        kept = body([criterion("C1", "The prepared plan reports each dropped goal and never hides one.", [task])])
+        sealed = trace.reviewed(self.state, kept, report["source_trace"], self.record(report), records)
+        self.assertEqual([waiver], sealed["source_trace"]["negation_waivers"])
+        trace.verify(self.state, sealed, records, ready=True)
+        # The waiver names the first sentence only: the second may still not lose its negation.
+        dropped = body([criterion("C1", "The prepared plan reports each dropped goal.", [task])])
+        with self.assertRaisesRegex(ValueError, "dropped the source's negation"):
+            trace.reviewed(self.state, dropped, report["source_trace"], self.record(report), records)
+
+    def test_a_reviewer_entry_that_repeats_an_earlier_one_merges_into_it(self):
+        # The same cause as the waiver above: an entry that changes no check must not refuse the answer.
+        kept_text = "Nothing in the prepared plan says a goal was dropped. The plan must never hide a dropped goal."
+        task = kept_text + " Do not build a web UI."
+        self.state = make_state(task)
+        self.state["task_id"] = "task"
+        records = obligations.sources(self.state)
+        waiver = {
+            "source_id": "task:0",
+            "quote": "Nothing in the prepared plan says a goal was dropped.",
+            "reason": "The fix reverses this observed defect",
+        }
+        excluded = {"source_id": "task:0", "quote": "Do not build a web UI.", "reason": "The UI is deferred"}
+        report = {
+            "source_trace": {
+                "out_of_scope": [excluded, {**excluded, "reason": "Said again"}],
+                "negation_waivers": [waiver, dict(waiver)],
+            }
+        }
+        kept = body([criterion("C1", "The prepared plan reports each dropped goal and never hides one.", [kept_text])])
+        sealed = trace.reviewed(self.state, kept, report["source_trace"], self.record(report), records)
+        self.assertEqual([excluded], sealed["source_trace"]["out_of_scope"])
+        self.assertEqual([waiver], sealed["source_trace"]["negation_waivers"])
+        trace.verify(self.state, sealed, records, ready=True)
+        # Merging excuses no more than one entry did: the sentence nobody excluded must still be cited.
+        report["source_trace"]["out_of_scope"] = []
+        with self.assertRaisesRegex(ValueError, "neither cited nor out of scope"):
+            trace.reviewed(self.state, kept, report["source_trace"], self.record(report), records)
 
     def test_a_requirements_review_go_ahead_is_not_an_obligation_to_quote(self):
         # #1630: a live GLM-5.3 draft cited every brief sentence but not the review's "plan" reply,

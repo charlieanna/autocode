@@ -112,6 +112,13 @@ the terminal chat and the headless conformance client:
   `autocode changeset status` names. Words written before a gate was
   posted can never answer it: each gate remembers which comments it has already
   consumed.
+- **The bridge never takes its own words as a reply.** One person's token often
+  both posts for the bridge and writes the replies, so the bridge's comments come
+  from an allowlisted account. Every comment it posts ends with a hidden marker
+  (`<!-- autocode-bridge -->`), and a comment carrying it is never read as a
+  reply, wherever it sits. A finished run keeps the floor of its last gate, so a
+  comment that gate left unread stays unread; only words written after it ask
+  for a follow-up.
 - **A reply is found however long the issue is.** Each poll reads the issue's
   newest 30 comments, across GitHub's pages of 30, so a reply is read as long
   as fewer than 30 comments arrive between two polls.
