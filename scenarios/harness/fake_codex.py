@@ -2409,6 +2409,32 @@ def guided_to_fix_citation() -> bool:
     return "code_refs" in guidance or "code_ref" in guidance.lower() or any(note in guidance for note in bug_notes())
 
 
+def _default_ambiguity_audit(payload: dict) -> dict:
+    qids = [
+        str(q["id"])
+        for q in (payload.get("open_questions") or [])
+        if isinstance(q, dict) and q.get("id") and q.get("kind") == "decision" and q.get("category") != "technical"
+    ]
+    first = (
+        {"status": "open_question", "refs": qids}
+        if qids
+        else (
+            {"status": "not_applicable", "refs": []}
+            if payload.get("job") == "none" and not payload.get("requirements")
+            else {"status": "specified_in_source", "refs": ["task"]}
+        )
+    )
+    rest = {"status": "not_applicable", "refs": []}
+    return {
+        "outcome_scope": first,
+        "inputs_and_edge_cases": dict(rest),
+        "error_and_failure_behavior": dict(rest),
+        "compatibility_and_callers": dict(rest),
+        "ux_and_output_contract": dict(rest),
+        "state_and_side_effects": dict(rest),
+    }
+
+
 def complete(value, schema: dict):
     """Give every required field the script leaves out an empty value of its schema type.
 
@@ -2428,12 +2454,17 @@ def complete(value, schema: dict):
             else:
                 value.setdefault("category", "requested_outcome")
                 value.setdefault("convention_ref", "")
+        needs_audit = "ambiguity_audit" in properties and "ambiguity_audit" not in value
         for key in schema.get("required", []):
+            if key == "ambiguity_audit":
+                continue
             if key not in value and key in properties:
                 value[key] = empty(properties[key])
         for key, sub in properties.items():
             if key in value:
                 complete(value[key], sub)
+        if needs_audit:
+            value["ambiguity_audit"] = _default_ambiguity_audit(value)
     elif kind == "array" and isinstance(value, list) and isinstance(schema.get("items"), dict):
         for item in value:
             complete(item, schema["items"])

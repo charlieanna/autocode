@@ -74,6 +74,32 @@ def default(schema):
     return {"array": [], "string": "", "boolean": False, "integer": 0, "number": 0, "null": None}.get(kind)
 
 
+def _default_ambiguity_audit(payload):
+    qids = [
+        str(q["id"])
+        for q in (payload.get("open_questions") or [])
+        if isinstance(q, dict) and q.get("id") and q.get("kind") == "decision" and q.get("category") != "technical"
+    ]
+    first = (
+        {"status": "open_question", "refs": qids}
+        if qids
+        else (
+            {"status": "not_applicable", "refs": []}
+            if payload.get("job") == "none" and not payload.get("requirements")
+            else {"status": "specified_in_source", "refs": ["task"]}
+        )
+    )
+    rest = {"status": "not_applicable", "refs": []}
+    return {
+        "outcome_scope": first,
+        "inputs_and_edge_cases": dict(rest),
+        "error_and_failure_behavior": dict(rest),
+        "compatibility_and_callers": dict(rest),
+        "ux_and_output_contract": dict(rest),
+        "state_and_side_effects": dict(rest),
+    }
+
+
 def shaped(value, schema):
     """Recorded fixture answers use exactly the active protocol's field names."""
     if isinstance(value, dict) and schema.get("type") == "object":
@@ -214,6 +240,11 @@ def main():
             )
         else:
             raise RuntimeError("Unrelated intake must never plan or build: " + stage)
+        if "ambiguity_audit" in schema.get("properties", {}) and not (
+            data.get("report_repair")
+            and "ambiguity_audit" in ((data.get("rejected_report") or {}).get("content") or {})
+        ):
+            report["ambiguity_audit"] = _default_ambiguity_audit(report)
         result = shaped(report, schema)
         output.write_text(json.dumps({"repair_report": result} if wrapped_repair else result))
         log = root / ".autocode/provider-calls.jsonl"
@@ -354,6 +385,26 @@ def main():
     report.update({key: value for key, value in common.items() if key in schema.get("properties", {})})
     session = sys.argv[sys.argv.index("resume") + 1] if "resume" in sys.argv else str(uuid.uuid4())
     print(json.dumps({"type": "thread.started", "thread_id": session}), flush=True)
+    if (
+        not data.get("report_repair")
+        and stage in ("requirements_gather", "draft_plan", "revise_plan", "review_plan", "finalize_plan")
+        and (root / source).is_file()
+    ):
+        print(
+            json.dumps(
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "id": "read-sources",
+                        "type": "command_execution",
+                        "command": shlex.join(["head", "-n", "1", source]),
+                        "exit_code": 0,
+                        "aggregated_output": "",
+                    },
+                }
+            ),
+            flush=True,
+        )
     if stage == "recognize_workflow":
         report.update(workflow="build", reason="Fixture follow-up or integration task", signals=[], design_document="")
         if "clarity" in report:
@@ -686,6 +737,10 @@ def main():
                 }
         if role == "stuck" or not data.get("report_repair"):
             report["workspace_scope"] = labels
+    if "ambiguity_audit" in schema.get("properties", {}) and not (
+        data.get("report_repair") and "ambiguity_audit" in ((data.get("rejected_report") or {}).get("content") or {})
+    ):
+        report["ambiguity_audit"] = _default_ambiguity_audit(report)
     # Keep the fake output strictly at the active public schema, including optional fields it declared.
     result = shaped(report, schema)
     output.write_text(json.dumps({"repair_report": result} if wrapped_repair else result))

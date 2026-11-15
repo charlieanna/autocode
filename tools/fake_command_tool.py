@@ -114,37 +114,30 @@ def _workspace_sources():
     return found[:8]
 
 
-def _complete_required(value, subschema):
-    kind = subschema.get("type")
-    kind = ("null" if "null" in kind else kind[0]) if isinstance(kind, list) else kind
-    if kind == "object" and isinstance(value, dict):
-        properties = subschema.get("properties", {})
-        for key in subschema.get("required", []):
-            if key not in value and key in properties:
-                prop = properties[key]
-                prop_kind = prop.get("type")
-                prop_kind = (
-                    ("null" if "null" in prop_kind else prop_kind[0]) if isinstance(prop_kind, list) else prop_kind
-                )
-                value[key] = (
-                    prop["enum"][0]
-                    if prop.get("enum")
-                    else {
-                        "object": lambda p=prop: _complete_required({}, p),
-                        "array": list,
-                        "string": str,
-                        "boolean": bool,
-                        "integer": int,
-                        "number": float,
-                    }.get(prop_kind, lambda: None)()
-                )
-        for key, prop in properties.items():
-            if key in value:
-                _complete_required(value[key], prop)
-    elif kind == "array" and isinstance(value, list) and isinstance(subschema.get("items"), dict):
-        for item in value:
-            _complete_required(item, subschema["items"])
-    return value
+def _default_ambiguity_audit(payload):
+    qids = [
+        str(q["id"])
+        for q in (payload.get("open_questions") or [])
+        if isinstance(q, dict) and q.get("id") and q.get("kind") == "decision" and q.get("category") != "technical"
+    ]
+    first = (
+        {"status": "open_question", "refs": qids}
+        if qids
+        else (
+            {"status": "not_applicable", "refs": []}
+            if payload.get("job") == "none" and not payload.get("requirements")
+            else {"status": "specified_in_source", "refs": ["task"]}
+        )
+    )
+    rest = {"status": "not_applicable", "refs": []}
+    return {
+        "outcome_scope": first,
+        "inputs_and_edge_cases": dict(rest),
+        "error_and_failure_behavior": dict(rest),
+        "compatibility_and_callers": dict(rest),
+        "ux_and_output_contract": dict(rest),
+        "state_and_side_effects": dict(rest),
+    }
 
 
 def _conform_ledger(payload, schema_obj, default_ref, *, has_events: bool):
@@ -156,7 +149,7 @@ def _conform_ledger(payload, schema_obj, default_ref, *, has_events: bool):
         if len(branches) == 2:
             props = branches[1].get("properties", {})
     if "ambiguity_audit" in props and "ambiguity_audit" not in payload:
-        payload["ambiguity_audit"] = _complete_required({}, props["ambiguity_audit"])
+        payload["ambiguity_audit"] = _default_ambiguity_audit(payload)
     q_props = ((props.get("open_questions") or {}).get("items") or {}).get("properties") or {}
     if "convention_ref" in q_props:
         for q in payload.get("open_questions") or []:
