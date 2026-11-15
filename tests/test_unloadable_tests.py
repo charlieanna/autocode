@@ -6,6 +6,7 @@ the suite without it and says so (autocode_unloadable_tests). The runner does no
 at all beside such a file, unittest and Node run the rest, and each proof used to end UNVERIFIED.
 """
 
+import importlib.util
 import shutil
 import sys
 import unittest
@@ -184,6 +185,31 @@ class UnloadableProofTests(unittest.TestCase):
         proof, _state = prove(self.project(RAILS, broken), kind="build")
         self.assertEqual(verify.FAIL, proof["verdict"], proof)
         self.assertIn("spec/requests/grader_spec.rb::Grader test_passes", " ".join(proof["failures"]))
+
+    @unittest.skipUnless(importlib.util.find_spec("pytest"), "pytest runs the suite")
+    def test_a_pytest_module_that_cannot_load_is_left_out_too(self):
+        path = "import sys, pathlib\nsys.path.insert(0, str(pathlib.Path(__file__).parents[1]))\n"
+        zero = path + "from calc import add\n\ndef test_zero():\n    assert add(0, 0) == 0\n"
+        seed = {
+            "calc.py": "def add(a, b):\n    return a - b\n",
+            "tests/test_calc.py": zero,
+            "tests/test_sibling.py": "import sibling_checkout\n\ndef test_reads():\n    pass\n",
+            "tests/unit/test_more.py": "def test_more():\n    assert True\n",
+        }
+        change = {
+            "calc.py": "def add(a, b):\n    return a + b\n",
+            "tests/test_calc.py": zero + "\ndef test_add():\n    assert add(2, 3) == 5\n",
+        }
+        proof, _state = prove(self.project(seed, change))
+        self.assertEqual(verify.PASS, proof["verdict"], proof)
+        self.assertEqual(["tests/test_sibling.py"], proof["suite_fallback"]["left_out"])
+        self.assertIn("--continue-on-collection-errors", proof["suite_fallback"]["whole_suite"])
+        self.assertTrue(
+            proof["commands"]["suite"].endswith(
+                "-m pytest -q -p no:cacheprovider tests/test_calc.py tests/unit/test_more.py"
+            ),
+            proof["commands"],
+        )
 
     @unittest.skipUnless(shutil.which("node"), "Node runs the suite")
     def test_a_node_test_file_that_cannot_load_is_left_out_too(self):
