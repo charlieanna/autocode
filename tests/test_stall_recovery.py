@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import autocode_idle_policy as idle_policy
 import autocode_source_scope as source_scope
 import autocode_stage_recovery as stage_recovery
 import autocode_stall_recovery as stall_recovery
@@ -221,6 +222,44 @@ class StallRecoveryTests(unittest.TestCase):
         archived = [row for row in self.state["stages"] if not row.get("runner_owned")][-1]
         self.assertEqual("during_reasoning_or_output", archived["stall_phase"])
         self.assertEqual(0, archived["completed_tool_calls"])
+
+    def test_a_builder_stopped_before_its_first_event_is_relaunched_without_a_recovery_review(self):
+        builder = {**self.record_for("builder"), "timeout_kind": "idle"}
+        self.snapshot(builder)
+        Path(builder["events"]).write_text("")
+        recovery = self.timeout(builder)
+        self.assertEqual("before_first_event", recovery["stall_phase"])
+        self.assertEqual([], recovery["changed_files"])
+        self.assertEqual("builder", recovery["next_stage"])
+        self.assertEqual("builder", self.state["next_stage"])
+        self.assertIn("Nothing was retained to inspect", recovery["instruction"])
+        self.assertNotIn("partial_work", recovery)
+        # The relaunch is the retry of a silent start, so it runs without a second startup budget.
+        self.assertTrue(idle_policy.silent_start(self.state["recovery_context"], "builder"))
+        self.assertEqual(
+            (None, None),
+            idle_policy.first_event_limit(
+                300,
+                "runner_default",
+                silent_start=idle_policy.silent_start(self.state["recovery_context"], self.state["next_stage"]),
+            ),
+        )
+
+    def test_a_builder_that_did_something_before_an_idle_stop_keeps_its_recovery_review(self):
+        for name, events, edit in (
+            ("an event and no change", [{"type": "thread.started", "thread_id": "quiet"}], None),
+            ("a change and no event", [], "changed without an event\n"),
+        ):
+            with self.subTest(name):
+                self.setUp()
+                builder = {**self.record_for("builder"), "timeout_kind": "idle"}
+                self.snapshot(builder)
+                Path(builder["events"]).write_text("".join(json.dumps(row) + "\n" for row in events))
+                if edit:
+                    (self.root / "app.py").write_text(edit)
+                recovery = self.timeout(builder)
+                self.assertEqual("review_completion", recovery["next_stage"])
+                self.assertFalse(idle_policy.silent_start(recovery, recovery["next_stage"]))
 
     def test_read_only_planning_and_review_timeouts_carry_executed_work(self):
         read_call = read("/repo/app.py", offset=1, limit=25, output="1: committed")

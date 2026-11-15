@@ -1378,6 +1378,59 @@ class ActivityRuntimeTests(unittest.TestCase):
         self.assertGreaterEqual(record["duration_seconds"], 1)
         self.assertEqual("Drafted the greeting plan", value["summary"])
 
+    def test_a_builder_stopped_before_its_first_event_is_relaunched_and_not_stopped_there_again(self):
+        """A Builder that never began has nothing for a recovery review: it is run again, and may begin slowly."""
+        self.start_task()
+        self.state["settings"]["limits"].update(
+            stage_timeout_seconds=60, idle_timeout_seconds=10, tool_timeout_seconds=10
+        )
+        self.state["settings"]["budget_origins"] = {"idle_timeout_seconds": "runner_default"}
+        report = {
+            **envelope(self.state),
+            "summary": "Greeting implemented on the second launch",
+            "changed_files": ["greet.py"],
+            "commands_run": [],
+            "results": ["Hello, fixture"],
+            "remaining_risks": [],
+            "evidence_refs": [],
+            "addressed_requirements": ["Greet a valid name"],
+            "untested_behavior": ["Invalid input"],
+            "recommended_checks": ["The Validator executes valid and invalid CLI cases"],
+        }
+        script = f"""
+            import json, sys, time
+            from pathlib import Path
+            sys.stdin.read()
+            launched = Path(__file__).with_name('launched')
+            if not launched.exists():
+                launched.write_text('the first launch never answers')
+                time.sleep(30)
+            time.sleep(1)
+            print(json.dumps({{'type': 'thread.started', 'thread_id': 'offline-slow-builder'}}), flush=True)
+            Path('greet.py').write_text("print('Hello, fixture')\\n")
+            Path(sys.argv[sys.argv.index('-o') + 1]).write_text(json.dumps({report!r}))
+            print(json.dumps({{'type': 'turn.completed', 'usage': {{'input_tokens': 1, 'output_tokens': 1}}}}), flush=True)
+        """
+        source = (self.root / "greet.py").read_bytes()
+        with (
+            patch.object(runner.idle_policy, "FIRST_EVENT_SECONDS", 0.3),
+            self.fake_provider(script),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            with self.assertRaises(support.Paused) as caught:
+                self.real_terra()
+            self.assertEqual("before_first_event", support.read(self.run / "state.json")["active_stage"]["stall_phase"])
+            self.assertTrue(
+                runner.automatically_recover_timed_out_stage(self.state, self.run, self.root, caught.exception)
+            )
+            self.assertEqual(source, (self.root / "greet.py").read_bytes())
+            self.assertEqual("builder", self.state["next_stage"])
+            value, record = self.real_terra()
+        self.assertFalse(record["timed_out"])
+        self.assertGreaterEqual(record["duration_seconds"], 1)
+        self.assertEqual("Greeting implemented on the second launch", value["summary"])
+        self.assertEqual("print('Hello, fixture')\n", (self.root / "greet.py").read_text())
+
 
 if __name__ == "__main__":
     unittest.main()

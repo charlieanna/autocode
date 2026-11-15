@@ -1017,7 +1017,8 @@ That budget cannot tell a wedged transport from a first answer that is slow to b
 once: the retry of a stage stopped there runs under the inactivity limit above alone. On a busy host,
 Plan Reviewer calls on MiMo with a 200 KB prompt took longer than 90 seconds to emit anything; three in
 a row were stopped at the budget, which spent the run's automatic recoveries and asked the person for
-more.
+more. A Builder stopped there that changed no file is run again as that retry: it ran no tool and
+reported nothing, so there is no partial work for a recovery review to inspect.
 A configured tool with no event protocol (`output = "report_file"`, such as GoCode's
 `codex exec` without `--json`) writes its progress as plain lines: each new, distinct line counts
 as activity there, never as tool or report evidence, and a repeated or blank line does not.
