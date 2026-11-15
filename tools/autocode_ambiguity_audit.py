@@ -84,7 +84,8 @@ def validate(state: RunState, report: dict) -> None:
         row["id"]: row for row in report.get("open_questions") or [] if isinstance(row, dict) and row.get("id")
     }
     sources = source_ids(state, report)
-    problems, named = [], set()
+    problems: list[str] = []
+    named: set[str] = set()
     for dimension in DIMENSIONS:
         entry = audit[dimension] if isinstance(audit[dimension], dict) else {}
         status, refs = entry.get("status"), [ref for ref in entry.get("refs") or [] if isinstance(ref, str)]
