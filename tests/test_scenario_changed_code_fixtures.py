@@ -1353,6 +1353,73 @@ class CompactFixtureReviewTests(unittest.TestCase):
         packet["context_artifact"]["sha256"] = "0" * 64
         self.assertEqual([], fixture.progressive_judgments(packet, scenario / "reference", "S2", root=self.root))
 
+    def test_checkpoint_field_budget_summary_restores_full_proof_and_fails_closed(self):
+        expected = fixture.judgments(self.data, self.root)
+        checkpoint_data = {**copy.deepcopy(self.data), "stage": "review_checkpoint"}
+        checkpoint_data["regression_proof"]["files"] = [f"f{i}.py" for i in range(2000)]
+        packet, _, budgeted = context.compact_with_metrics(
+            checkpoint_data, self.root / "checkpoint/state.json", stage="review_checkpoint"
+        )
+        self.assertIn("regression_proof", budgeted)
+        self.assertEqual(expected, fixture.judgments(packet, self.root))
+        self.assertIsNone(fixture._review_data([]))
+        self.assertIsNone(
+            fixture._review_data({"regression_proof": {"details_artifact": {"field": "regression_proof"}}})
+        )
+        art_path = self.root / "bad.json"
+        art_path.write_bytes(b"[]")
+        self.assertIsNone(
+            fixture._review_data(
+                {
+                    "context_artifact": {
+                        "path": str(art_path),
+                        "sha256": hashlib.sha256(b"[]").hexdigest(),
+                        "fields": {"regression_proof": {"total": 1}},
+                    }
+                }
+            )
+        )
+        raw = json.dumps({"regression_proof": {"path": "p"}}).encode()
+        art_path.write_bytes(raw)
+        digest = hashlib.sha256(raw).hexdigest()
+        self.assertIsNone(
+            fixture._review_data(
+                {
+                    "context_artifact": {
+                        "path": str(art_path),
+                        "sha256": digest,
+                        "fields": {"regression_proof": {"total": 2}},
+                    }
+                }
+            )
+        )
+        raw_rows = json.dumps({"regression_proof_obligations": [{"gap_id": "g"}]}).encode()
+        art_path.write_bytes(raw_rows)
+        digest_rows = hashlib.sha256(raw_rows).hexdigest()
+        self.assertIsNone(
+            fixture._review_data(
+                {
+                    "regression_proof": ["bad"],
+                    "context_artifact": {
+                        "path": str(art_path),
+                        "sha256": digest_rows,
+                        "fields": {"regression_proof_obligations": {"total": 1}},
+                    },
+                }
+            )
+        )
+        restored = fixture._review_data(
+            {
+                "regression_proof": {"path": "p"},
+                "context_artifact": {
+                    "path": str(art_path),
+                    "sha256": digest_rows,
+                    "fields": {"regression_proof_obligations": {"total": 1}},
+                },
+            }
+        )
+        self.assertEqual([{"gap_id": "g"}], restored["regression_proof"]["changed_code_evidence"]["obligations"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -13,26 +13,42 @@ from pathlib import Path
 
 def _review_data(data):
     """Read the runner's pinned full rows before judging summarized proof detail."""
+    if not isinstance(data, dict):
+        return None
     fields = {
         "regression_proof_mutation_files": ("mutation_check", "files"),
         "regression_proof_obligations": ("changed_code_evidence", "obligations"),
     }
-    artifact = data.get("context_artifact") or {}
+    artifact = data.get("context_artifact")
+    if artifact is None:
+        artifact = {}
     if not isinstance(artifact, dict):
         return None
-    declared = artifact.get("fields") or {}
+    declared = artifact.get("fields")
+    if declared is None:
+        declared = {}
     if not isinstance(declared, dict):
         return None
-    requested = fields.keys() & declared.keys()
+    requested = (fields.keys() | {"regression_proof"}) & declared.keys()
     if requested:
         try:
             raw = Path(artifact["path"]).read_bytes()
             if hashlib.sha256(raw).hexdigest() != artifact["sha256"]:
                 return None
             saved = json.loads(raw)
+            if not isinstance(saved, dict):
+                return None
             result = copy.deepcopy(data)
-            proof = result.get("regression_proof") or {}
-            for name in requested:
+            if "regression_proof" in requested:
+                whole_proof = saved["regression_proof"]
+                if not isinstance(whole_proof, dict) or declared["regression_proof"].get("total") != len(whole_proof):
+                    return None
+                proof = copy.deepcopy(whole_proof)
+            else:
+                proof = result.get("regression_proof") or {}
+                if not isinstance(proof, dict):
+                    return None
+            for name in fields.keys() & requested:
                 rows = saved[name]
                 if (
                     not isinstance(rows, list)
@@ -41,13 +57,19 @@ def _review_data(data):
                 ):
                     return None
                 holder, key = fields[name]
-                proof.setdefault(holder, {})[key] = rows
+                section = proof.get(holder)
+                if not isinstance(section, dict):
+                    section = {}
+                    proof[holder] = section
+                section[key] = rows
             result["regression_proof"] = proof
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
             return None
     else:
         result = data
     proof = result.get("regression_proof") or {}
+    if not isinstance(proof, dict) or "details_artifact" in proof:
+        return None
     for row in (proof.get("mutation_check") or {}).get("files") or []:
         if not isinstance(row, dict) or not isinstance(row.get("mutants", []), list):
             return None  # A count without readable full rows is not mutation evidence.

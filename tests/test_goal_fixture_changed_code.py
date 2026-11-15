@@ -3,10 +3,12 @@
 import contextlib
 import copy
 import hashlib
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
+import autocode_context as context
 import blackbox_build_provider as blackbox
 import goal_fixtures as fixture
 
@@ -286,6 +288,200 @@ class HelloFixtureReasonsTests(unittest.TestCase):
             self.assertEqual([], blackbox.scripted_changed_code_reasons({"payloads": {}}, data))
             data["regression_proof"]["changed_code_evidence"]["obligations"][0]["sha256"] = "0" * 64
             self.assertEqual([], blackbox.scripted_changed_code_reasons(spec, data))
+
+    def test_compacted_tester_and_checkpoint_proofs_restore_full_rows_and_fail_closed(self):
+        with tempfile.TemporaryDirectory() as folder, contextlib.chdir(folder):
+            fixture.seed_greeting_workspace(folder)
+            Path("main.py").write_text(blackbox.HELLO_SOURCE)
+            Path("test_main.py").write_text(blackbox.HELLO_TESTS)
+            greet_sha = hashlib.sha256(fixture.GREETING_SOURCE.encode()).hexdigest()
+            hello_sha = hashlib.sha256(blackbox.HELLO_SOURCE.encode()).hexdigest()
+            spec = {"payloads": {"M1": {"main.py": blackbox.HELLO_SOURCE, "test_main.py": blackbox.HELLO_TESTS}}}
+            base = {
+                "stage": "tester",
+                "regression_proof": {
+                    "verdict": "FAIL",
+                    "path": "proof.json",
+                    "mutation_check": {
+                        "collected": True,
+                        "files": [
+                            {
+                                "path": "greet.py",
+                                "sha256": greet_sha,
+                                "mutants": [{"line": 99, "end_line": 99, "outcome": "killed", "pad": "x" * 14000}],
+                            }
+                        ],
+                    },
+                    "changed_code_evidence": {
+                        "obligations": [
+                            {
+                                "gap_id": "hello:1",
+                                "handle": "L1",
+                                "path": "main.py",
+                                "line": 1,
+                                "source_line": "print('hello')",
+                                "sha256": hello_sha,
+                                "status": "reason_required",
+                                "mutation_outcomes": [],
+                                "evidence": ["runner.log"] * 1200,
+                            },
+                            {
+                                "gap_id": "greet:1",
+                                "handle": "L2",
+                                "path": "greet.py",
+                                "line": 1,
+                                "source_line": "import sys",
+                                "sha256": greet_sha,
+                                "status": "reason_required",
+                                "mutation_outcomes": [],
+                                "evidence": ["runner.log"] * 1200,
+                            },
+                        ]
+                    },
+                },
+            }
+            for stage in ("tester", "review_checkpoint"):
+                state_path = Path(folder) / stage / "state.json"
+                state_path.parent.mkdir(parents=True, exist_ok=True)
+                packet, _, _ = context.compact_with_metrics(
+                    {**copy.deepcopy(base), "stage": stage}, state_path, stage=stage
+                )
+                before = copy.deepcopy(packet)
+                quoted_blackbox = blackbox.quote_changed_lines(
+                    packet, blackbox.scripted_changed_code_reasons(spec, packet)
+                )
+                self.assertEqual(
+                    [("hello:1", "print('hello')")], [(r["gap_id"], r["source_line"]) for r in quoted_blackbox]
+                )
+                quoted_goal = fixture.quote_changed_lines(packet, fixture.greeting_changed_code_reasons(packet))
+                self.assertEqual([("greet:1", "import sys")], [(r["gap_id"], r["source_line"]) for r in quoted_goal])
+                self.assertEqual(
+                    ["greet:1"],
+                    [
+                        r["gap_id"]
+                        for r in fixture.scripted_files_changed_code_reasons(
+                            packet, {"greet.py": fixture.GREETING_SOURCE}
+                        )
+                    ],
+                )
+                self.assertEqual(
+                    ["greet:1"],
+                    [
+                        r["gap_id"]
+                        for r in fixture.scripted_files_changed_code_rejections(
+                            packet, {"greet.py": fixture.GREETING_SOURCE}
+                        )
+                    ],
+                )
+                self.assertEqual(before, packet)
+
+            for mod in (blackbox, fixture):
+                self.assertIsNone(mod._review_data([]))
+                self.assertIsNone(mod._review_data({"context_artifact": []}))
+                self.assertIsNone(mod._review_data({"context_artifact": {"fields": []}}))
+                self.assertIsNone(
+                    mod._review_data({"regression_proof": {"details_artifact": {"field": "regression_proof"}}})
+                )
+                self.assertIsNone(
+                    mod._review_data({"regression_proof": {"mutation_check": {"files": [{"mutants": 1}]}}})
+                )
+                self.assertIsNone(
+                    mod._review_data({"regression_proof": {"changed_code_evidence": {"obligations": [{"gaps": []}]}}})
+                )
+                art_path = Path(folder) / "bad.json"
+                art_path.write_bytes(b"[]")
+                self.assertIsNone(
+                    mod._review_data(
+                        {
+                            "context_artifact": {
+                                "path": str(art_path),
+                                "sha256": hashlib.sha256(b"[]").hexdigest(),
+                                "fields": {"regression_proof": {"total": 1}},
+                            }
+                        }
+                    )
+                )
+                raw = json.dumps({"regression_proof": {"path": "p"}}).encode()
+                art_path.write_bytes(raw)
+                digest = hashlib.sha256(raw).hexdigest()
+                self.assertIsNone(
+                    mod._review_data(
+                        {
+                            "context_artifact": {
+                                "path": str(art_path),
+                                "sha256": "0" * 64,
+                                "fields": {"regression_proof": {"total": 1}},
+                            }
+                        }
+                    )
+                )
+                self.assertIsNone(
+                    mod._review_data(
+                        {
+                            "context_artifact": {
+                                "path": str(art_path),
+                                "sha256": digest,
+                                "fields": {"regression_proof": {"total": 2}},
+                            }
+                        }
+                    )
+                )
+                raw_rows = json.dumps({"regression_proof_obligations": [{"gap_id": "g"}]}).encode()
+                art_path.write_bytes(raw_rows)
+                digest_rows = hashlib.sha256(raw_rows).hexdigest()
+                self.assertIsNone(
+                    mod._review_data(
+                        {
+                            "regression_proof": ["bad"],
+                            "context_artifact": {
+                                "path": str(art_path),
+                                "sha256": digest_rows,
+                                "fields": {"regression_proof_obligations": {"total": 1}},
+                            },
+                        }
+                    )
+                )
+                self.assertIsNone(
+                    mod._review_data(
+                        {
+                            "regression_proof": {"path": "p"},
+                            "context_artifact": {
+                                "path": str(art_path),
+                                "sha256": digest_rows,
+                                "fields": {"regression_proof_obligations": {"total": 2}},
+                            },
+                        }
+                    )
+                )
+                restored = mod._review_data(
+                    {
+                        "regression_proof": {"path": "p"},
+                        "context_artifact": {
+                            "path": str(art_path),
+                            "sha256": digest_rows,
+                            "fields": {"regression_proof_obligations": {"total": 1}},
+                        },
+                    }
+                )
+                self.assertEqual(
+                    [{"gap_id": "g"}], restored["regression_proof"]["changed_code_evidence"]["obligations"]
+                )
+                self.assertIsNone(
+                    mod._review_data(
+                        {
+                            "context_artifact": {
+                                "path": str(art_path) + ".missing",
+                                "sha256": digest_rows,
+                                "fields": {"regression_proof_obligations": {"total": 1}},
+                            }
+                        }
+                    )
+                )
+            self.assertEqual([], fixture.scripted_files_changed_code_reasons([], {"greet.py": fixture.GREETING_SOURCE}))
+            self.assertEqual(
+                [], fixture.scripted_files_changed_code_rejections([], {"greet.py": fixture.GREETING_SOURCE})
+            )
+            self.assertEqual([], blackbox.scripted_changed_code_reasons(spec, []))
 
 
 if __name__ == "__main__":

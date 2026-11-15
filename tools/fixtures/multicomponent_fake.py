@@ -16,6 +16,7 @@ for real, once per component's own worktree.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
@@ -489,10 +490,80 @@ def _equivalent(row: dict, files: dict, proof: dict) -> tuple[str, str] | None:
     return "equivalent_mutant", reason[1]
 
 
+def _review_data(data):
+    """Read the runner's pinned full rows before judging summarized proof detail."""
+    if not isinstance(data, dict):
+        return None
+    fields = {
+        "regression_proof_mutation_files": ("mutation_check", "files"),
+        "regression_proof_obligations": ("changed_code_evidence", "obligations"),
+    }
+    artifact = data.get("context_artifact")
+    if artifact is None:
+        artifact = {}
+    if not isinstance(artifact, dict):
+        return None
+    declared = artifact.get("fields")
+    if declared is None:
+        declared = {}
+    if not isinstance(declared, dict):
+        return None
+    requested = (fields.keys() | {"regression_proof"}) & declared.keys()
+    if requested:
+        try:
+            raw = Path(artifact["path"]).read_bytes()
+            if hashlib.sha256(raw).hexdigest() != artifact["sha256"]:
+                return None
+            saved = json.loads(raw)
+            if not isinstance(saved, dict):
+                return None
+            result = copy.deepcopy(data)
+            if "regression_proof" in requested:
+                whole_proof = saved["regression_proof"]
+                if not isinstance(whole_proof, dict) or declared["regression_proof"].get("total") != len(whole_proof):
+                    return None
+                proof = copy.deepcopy(whole_proof)
+            else:
+                proof = result.get("regression_proof") or {}
+                if not isinstance(proof, dict):
+                    return None
+            for name in fields.keys() & requested:
+                rows = saved[name]
+                if (
+                    not isinstance(rows, list)
+                    or not all(isinstance(row, dict) for row in rows)
+                    or declared[name].get("total") != len(rows)
+                ):
+                    return None
+                holder, key = fields[name]
+                section = proof.get(holder)
+                if not isinstance(section, dict):
+                    section = {}
+                    proof[holder] = section
+                section[key] = rows
+            result["regression_proof"] = proof
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            return None
+    else:
+        result = data
+    proof = result.get("regression_proof") or {}
+    if not isinstance(proof, dict) or "details_artifact" in proof:
+        return None
+    for row in (proof.get("mutation_check") or {}).get("files") or []:
+        if not isinstance(row, dict) or not isinstance(row.get("mutants", []), list):
+            return None
+    for row in (proof.get("changed_code_evidence") or {}).get("obligations") or []:
+        if not isinstance(row, dict) or "gaps" in row or "tested_lines" in row:
+            return None
+    return result
+
+
 def quote_changed_lines(data, rows):
     """Each decision with its gap's source_line from the handoff, as a Tester quotes the line it decides (#2977)."""
+    resolved = _review_data(data)
+    source = resolved if resolved is not None else data
     texts = {}
-    evidence = ((data.get("regression_proof") or {}).get("changed_code_evidence") or {}).get("obligations") or []
+    evidence = ((source.get("regression_proof") or {}).get("changed_code_evidence") or {}).get("obligations") or []
     for row in evidence if isinstance(evidence, list) else []:
         for gap in [row, *(row.get("gaps") or [])] if isinstance(row, dict) else []:
             for key in ("gap_id", "handle"):
@@ -510,7 +581,10 @@ def changed_code_reasons(spec: dict, data: dict) -> list:
     wrote, and never for a file it did not script. A surviving mutant of a scripted line is judged
     only where ``EQUIVALENT_MUTANTS`` names those exact bytes, line and operator.
     """
-    proof = data.get("regression_proof") or {}
+    resolved = _review_data(data)
+    if resolved is None:
+        return []
+    proof = resolved.get("regression_proof") or {}
     if not proof.get("path"):
         return []
     scripted = {path: hashlib.sha256(text.encode()).hexdigest() for path, text in (spec.get("files") or {}).items()}
