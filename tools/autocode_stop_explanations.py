@@ -583,7 +583,7 @@ def explain(
     """
     if internal_failure:
         happened = internal_failure["what_happened"]
-        means = (
+        means = internal_failure.get("what_it_means") or (
             "AutoCode is blocked while source binding, cleanup or ownership remains unconfirmed; work is retained and completion is not claimed."
             if internal_failure["category"] == "blocked"
             else "AutoCode could not finish this task. Work, approvals and evidence are retained; completion is not claimed."
