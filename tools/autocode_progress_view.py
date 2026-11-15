@@ -135,7 +135,7 @@ def progress(
     elif stage and active and not open_record:
         # A failed or interrupted attempt can remain here awaiting reconciliation.
         # Its recorded end is not a saved successful report or confirmed cleanup.
-        headline = f"{stage} attempt retained"
+        headline = f"{stage} attempt ended"
     elif stage and open_record:
         writing_first = open_record.get("stage") == TESTS_FIRST_STAGE
         headline = f"{stage} writing tests first" if writing_first else f"{stage} working"

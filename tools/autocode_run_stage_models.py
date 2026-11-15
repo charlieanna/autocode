@@ -34,7 +34,7 @@ except ImportError:
 FLAG = "--stage-model"
 VIA = "stage_models"
 BUSY = "A stage is working. Pause the chat, or wait until it asks you something, to change its models."
-RETAINED = "A stage attempt is retained for reconciliation. Its models cannot be changed yet."
+RETAINED = "The last stage attempt still needs recovery. Its models cannot be changed yet."
 NO_ROUTES = "This run has no saved routes yet; its models are chosen when it starts."
 CHECK_UNCERTAIN = "A previous check has not been confirmed stopped. Models cannot be changed while this run is paused."
 

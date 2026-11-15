@@ -132,7 +132,7 @@ class RetainedAttemptDisplayTests(unittest.TestCase):
                             self.assertEqual(extra.get("exit_code"), attempt["exit_code"])
                             self.assertNotIn("working", view["progress"]["headline"].lower())
                             self.assertNotIn("working", view["stage_models"]["reason"].lower())
-                            self.assertIn("retained", view["stage_models"]["reason"].lower())
+                            self.assertIn("needs recovery", view["stage_models"]["reason"].lower())
                             self.assertNotIn("next", {row["state"] for row in view["pipeline"]})
                         else:
                             self.assertEqual(models.BUSY, view["stage_models"]["reason"])
@@ -156,11 +156,11 @@ class RetainedAttemptDisplayTests(unittest.TestCase):
                     self.assertEqual([], chat_log.project(state, public, self.run, supervised=lambda _: True))
                 described = {
                     **public,
-                    "progress": {"headline": "Requirements attempt retained", "stage": "Requirements"},
+                    "progress": {"headline": "Requirements attempt ended", "stage": "Requirements"},
                 }
-                self.assertEqual(["Requirements attempt retained"], chat_progress.project(state, described))
+                self.assertEqual(["Requirements attempt ended"], chat_progress.project(state, described))
                 described["liveness"] = {"kind": "stopped"}
-                self.assertEqual(["Requirements attempt retained"], chat_progress.project(state, described))
+                self.assertEqual(["Requirements attempt ended"], chat_progress.project(state, described))
 
     def test_parallel_worker_log_uses_the_same_record_state_before_live_supervision(self):
         child_run = self.root / "worker"
@@ -197,9 +197,9 @@ class RetainedAttemptDisplayTests(unittest.TestCase):
         self.assertIsNotNone(refusal)
         self.assertIsNotNone(retained)
         self.assertNotEqual(refusal, retained)
-        self.assertIn("retained", retained)
+        self.assertIn("needs recovery", retained)
         self.assertEqual(
-            "Builder attempt retained", progress.progress(state, accepted=(), stage="Builder", needs=None)["headline"]
+            "Builder attempt ended", progress.progress(state, accepted=(), stage="Builder", needs=None)["headline"]
         )
         state["current_task"] = {"milestone_id": "one"}
         state["goal_contract"] = {"body": {"milestones": [{"id": "one", "objective": "Keep the failed work"}]}}

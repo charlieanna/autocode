@@ -2226,7 +2226,7 @@ its wording may change, so programs read the fields beside it:
   `<job> working` (`Tester writing tests first` while the Tester writes the approved
   tests before the Builder starts), `<job> finished` (its report is saved but not applied yet),
   `<job> finished · Next: <job>` when the run already knows the job after that
-  finished one (#1711), `<job> attempt retained` (an ended or accounted attempt
+  finished one (#1711), `<job> attempt ended` (an ended or accounted attempt
   still held for reconciliation, without asserting a successful report or confirmed cleanup),
   `Next: <job>`, `<job> stopped without saving a report` (the
   recorded workers are
@@ -3206,7 +3206,7 @@ a client reads the list again afterwards. A refused change exits 2 with the reas
 saves nothing.
 
 A retained settled attempt still refuses model changes until reconciliation.
-Its reason describes that retained attempt instead of claiming a stage is working;
+Its reason says the previous attempt still needs recovery instead of claiming a stage is working;
 the end of an attempt record does not release any model-change guard.
 
 At a pause the person requested while the approved plan is being built, the status view's
