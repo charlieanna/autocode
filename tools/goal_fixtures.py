@@ -497,6 +497,7 @@ def body(*, questions=False, human=False, task_kind="build") -> dict[str, Any]:
                 "proposed_default": "CLI: local use without a server",
                 "kind": "decision",
                 "category": "behavior",
+                "convention_ref": "",
                 "delegable": True,
             }
         ]

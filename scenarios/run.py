@@ -306,6 +306,7 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
         explicit_answers=scenario.fake_answers if args.fake and not split else (),
         acknowledge=scenario.fake_acknowledge if args.fake and not split else (),
         round_trip_plans=True,
+        person=scenario.person_answers,
         **options,
     )
     drive_error, not_reached = "", None

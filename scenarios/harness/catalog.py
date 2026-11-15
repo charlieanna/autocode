@@ -23,7 +23,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import pinned_seed
+from . import person_answers, pinned_seed
 
 CATALOG = Path(__file__).resolve().parent.parent / "catalog"
 # The kind of engineering job. The first eight change or create code; the next
@@ -63,6 +63,7 @@ KEYS = {
     "setup",
     "conformance",
     "seed",
+    "person",
 }
 RUN_KEYS = {"max_steps", "timeout_minutes", "expected", "known_failure", "requires_stages"}
 FAKE_KEYS = {
@@ -148,6 +149,9 @@ class Scenario:
     # [fake] acknowledge: {PAUSED_STATUS = [flags...]} the person types with --resume-paused to continue a pause
     # the driver never continues by default, such as a cost cap (PAUSED_COST_LIMIT, #721); each once per run.
     fake_acknowledge: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    # [person] answers: the person's answers by what a question is about (harness.person_answers), given in
+    # fake and live runs alike, so a live model's own question ids still get the person's decision.
+    person_answers: tuple[dict, ...] = ()
     # [hybrid]: the stages a hybrid run (run --hybrid) scripts; empty when the scenario declares no route.
     hybrid_scripted: tuple[str, ...] = ()
     hybrid_first_attempt: tuple[str, ...] = ()
@@ -359,6 +363,7 @@ def load(scenario_id: str) -> Scenario:
         fake_turn_paths=tuple(tuple(row) for row in turn_paths),
         fake_answers=tuple(sorted(answers.items())),
         fake_acknowledge=acknowledge,
+        person_answers=person_answers.parse(scenario_id, meta.get("person")),
         hybrid_scripted=tuple(hybrid.get("scripted", ())),
         hybrid_first_attempt=tuple(hybrid.get("first_attempt", ())),
         components_architecture=architecture,

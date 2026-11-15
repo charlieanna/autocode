@@ -26,6 +26,7 @@ REQUIREMENTS_PROMPT_CONSUMERS = (
     "tests.test_chat_cli",
     "tests.test_requirements_review",
     "tests.test_requirements_job_cli",
+    "tests.test_requirements_question_contract",
 )
 CORE_CONSUMERS = (
     "tests.test_cli_surface",
@@ -314,6 +315,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "tools/prompts/fragments/autoplanner/requirements-observation-reuse.md",
         ("tests.test_requirements_observations", "tests.test_requirements_observations_cli"),
     ),
+    (
+        "tools/prompts/fragments/autoplanner/requirements-round-observations.md",
+        ("tests.test_requirements_observations", "tests.test_requirements_observations_cli"),
+    ),
     ("tools/prompts/fragments/autoplanner/time-budget.md", ("tests.test_planning", "tests.test_planning_time")),
     (
         "tools/prompts/fragments/autoplanner/retained-review-observations.md",
@@ -441,6 +446,8 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("tests.test_failure_routing_cli", "tests.test_classification_recovery"),
     ),
     ("scenarios/harness/clarifying_requirements_provider.py", ("tests.test_requirements_review",)),
+    ("scenarios/harness/hidden_assumptions_provider.py", ("tests.test_scenario_person_answers",)),
+    ("scenarios/harness/person_answers.py", ("tests.test_scenario_person_answers",)),
     ("tools/autocode_requirements_handoff.py", ("tests.test_requirements_citation_cli",)),
     ("scripts/homebrew_formula.py", ("tests.test_homebrew_formula",)),
     ("scripts/run_linux_fake.py", ("tests.test_linux_fake_container",)),
@@ -479,6 +486,12 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tools/prompts/requirements-gather.md", REQUIREMENTS_PROMPT_CONSUMERS),
     ("tools/prompts/requirements-triage.md", ("tests.test_requirements_triage", "tests.test_requirements_chat")),
     ("tools/prompts/fragments/autoplanner/requirements-conversation.md", REQUIREMENTS_PROMPT_CONSUMERS),
+    ("tools/prompts/fragments/autoplanner/assumption-policy.md", REQUIREMENTS_PROMPT_CONSUMERS),
+    ("tools/prompts/fragments/autoplanner/question-policy.md", REQUIREMENTS_PROMPT_CONSUMERS),
+    (
+        "tools/prompts/fragments/goals/decision-provenance.md",
+        (*PROMPT_CONSUMERS, "tests.test_assumption_ledger", "tests.test_goals"),
+    ),
     (
         "tools/prompts/fragments/provider-opencode/conversation-output.md",
         ("tests.test_schema_prompt_formatting", "tests.test_requirements_chat", "tests.test_plan_chat"),

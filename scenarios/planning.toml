@@ -68,6 +68,15 @@ feedback = "Also make check() include the node name it was called with in the st
 expect = { clarity = "clear", size = "large" }
 fake = { blocking_review = 1 }
 
+# Assumption-laden (#3603): the brief reads as complete, but the seed's code leaves two user-visible
+# forks open (which file wins a repeated key; whether an empty merge is an error). A good run asks the
+# person both before the plan, and nothing about the repository's conventions or the machinery.
+[[case]]
+id = "assumption-envfile-merge"
+seed = "feature-hidden-assumptions"
+feedback = "Also print a warning on stderr naming each key whose value a later file replaced; the output on stdout stays as planned."
+expect = { clarity = "clear", size = "small", hidden_forks = 2 }
+
 [[case]]
 id = "vague-timesheet-useful"
 seed = "feature-timesheet-by-project"

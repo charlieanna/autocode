@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 try:
+    from .. import autocode_ambiguity_audit as ambiguity_audit
+    from .. import autocode_code_citations as code_citations
     from .. import autocode_gate_chat as gate_chat
     from .. import autocode_packet_events as packet_events
     from .. import autocode_plan_chat as plan_chat
@@ -14,6 +16,8 @@ try:
     from .. import autocode_requirements_observations as requirements_observations
     from .. import autocode_requirements_triage as requirements_triage
 except ImportError:
+    import autocode_ambiguity_audit as ambiguity_audit
+    import autocode_code_citations as code_citations
     import autocode_gate_chat as gate_chat
     import autocode_packet_events as packet_events
     import autocode_plan_chat as plan_chat
@@ -27,6 +31,7 @@ except ImportError:
 
 
 import copy
+import functools
 import json
 import os
 import uuid
@@ -534,7 +539,7 @@ SCHEMAS = {
             "acceptance_tests": SS,
             "source_refs": SS,
             "proposed_assumptions": ASSUMPTIONS,
-            "open_questions": {"type": "array", "maxItems": 3, "items": goals.QUESTION},
+            "open_questions": {"type": "array", "maxItems": 5, "items": goals.QUESTION},
             "requirements": {"type": "array", "items": REQUIREMENT},
             "ignored_statements": SS,
             "conflicts": {"type": "array", "items": CONFLICT},
@@ -734,6 +739,9 @@ for _stage in ("draft_plan", "revise_plan", "finalize_plan", "plan", "plan_revis
 SCHEMAS["requirements_gather"]["properties"]["task_kind"] = goals.TASK_KIND
 # Work that belongs to another repository, validated on acceptance (autocode_workspace_scope, #2066).
 SCHEMAS["requirements_gather"]["properties"]["workspace_scope"] = workspace_scope.SCHEMA
+# Where each dimension of the change's behavior comes from (autocode_ambiguity_audit): optional for
+# saved reports and the triage pass, required on the wire, checked against its refs on acceptance.
+SCHEMAS["requirements_gather"]["properties"][ambiguity_audit.FIELD] = ambiguity_audit.SCHEMA
 for _stage in planning_scope.STAGES:
     SCHEMAS[_stage]["properties"]["workspace_scope"] = workspace_scope.SCHEMA
 JOB_TYPE_POLICY = goals.JOB_TYPE_POLICY
@@ -1140,13 +1148,7 @@ def split_code_ref(root, ref):
     """(path, line citation) of a cited source entry. A line citation follows a colon ("path:12",
     "path:12-20 why"). Prose after an existing path ("path — why", "path: why") is the model's explanation,
     not a malformed citation: the runner checks the file, so the entry is not rejected for it."""
-    token = ref.split(maxsplit=1)[0] if ref.strip() else ref
-    if token != ref and ":" not in token and (Path(root) / token).is_file():
-        return token, ""
-    head, _, rest = ref.partition(":")
-    if rest[:1].isspace() and (Path(root) / head).is_file():
-        return head, ""
-    return head, rest
+    return code_citations.split_ref(root, ref)
 
 
 # Paths the runner or the tools own: a plan may not cite them as evidence. They are transient (a run's
@@ -1158,16 +1160,7 @@ RUNNER_OWNED_PARTS = workspace_inventory_impl.RUNNER_OWNED_PARTS
 def cited_file(root, path, field, ref):
     """The workspace file a citation names, or ValueError: it must exist inside the workspace and must not
     be one the runner or a tool owns or generates."""
-    root = Path(root).resolve()
-    target = (root / path).resolve()
-    if not target.is_relative_to(root) or not target.is_file():
-        raise ValueError(f"{field} entry {ref} is not a file in the workspace")
-    if target.suffix == ".pyc" or any(part in RUNNER_OWNED_PARTS for part in target.relative_to(root).parts):
-        raise ValueError(
-            f"{field} entry {ref} is a file the runner or a tool owns (.autocode/, .git/, "
-            "__pycache__/ and caches): cite source files, which outlive the run"
-        )
-    return target
+    return code_citations.cited_file(root, path, field, ref)
 
 
 def workspace_inventory(workspace, task, limit=40, scan_limit=5000):
@@ -1592,6 +1585,15 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
         instruction = requirements_prompt.render(
             instruction, response_schema if response_schema is not None else _requirements_model_schema(state)
         )
+    retained_obs_rule = (
+        (
+            prompts.get("fragments/autoplanner/requirements-round-observations.md")
+            if stage == "requirements_gather"
+            else prompts.get("fragments/autoplanner/requirements-observation-reuse.md")
+        )
+        if retained_requirements
+        else ""
+    )
     full_packet_bytes = len(json.dumps(packet, indent=2).encode("utf-8"))
     state_file = Path(state_path) if state_path is not None else None
     if state_file is not None and (
@@ -1603,7 +1605,7 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
     context_tail = prompts.get("fragments/autoplanner/context-03.md")
     if legacy:
         prompt = (
-            (prompts.get("fragments/autoplanner/requirements-observation-reuse.md") if retained_requirements else "")
+            retained_obs_rule
             + (retention.FINAL_PROMPT if compact_final else instruction)
             + progress_rule
             + prompts.get("fragments/autoplanner/time-budget.md")
@@ -1639,7 +1641,7 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
             + planning_policy
             + clarification_policy
             + progressive_rule
-            + (prompts.get("fragments/autoplanner/requirements-observation-reuse.md") if retained_requirements else "")
+            + retained_obs_rule
             + recovery_instruction
             + rejection_rule
             + figma_instruction
@@ -1980,6 +1982,39 @@ def escalate_planner(state: RunState, value):
         detail=f"Plan Reviewer challenge {challenges} still blocks the revised plan: {ids}",
         struggle_id=f"planning:{len(state.get('planning_history') or [])}",
     )
+
+
+def requirements_checks(state: RunState, stage, value, check_code_refs, record=None):
+    """Requirements' own acceptance checks, before its handoff: the ambiguity audit holds to its refs, and
+    every citation names a file Requirements read (code_citations). Synthetic ``apply_planning`` unit helpers
+    that pass only ``{"output": ...}`` with no provider events keep the file-existence check."""
+    if stage != "requirements_gather":
+        return check_code_refs
+    ambiguity_audit.validate(state, value)
+    if not code_citations.stage_evidenced(state, stage, record):
+        return check_code_refs
+    return functools.partial(check_code_refs, stage=stage)
+
+
+def accept_handoff(state: RunState, stage, value, record, check_code_refs, accept_requirements, queue):
+    """Run Requirements' audit and read-authenticated citation checks, scope deferral and handoff acceptance
+    with ``record`` visible to ``code_citations`` before ``save_record`` appends the attempt to ``stages``."""
+    with code_citations.applying(record):
+        checked_refs = requirements_checks(state, stage, value, check_code_refs, record)
+        value, deferred = planning_scope.prepare_handoff(
+            state,
+            stage,
+            value,
+            record,
+            investigation_stages=INVESTIGATION_STAGES,
+            check_code_refs=checked_refs,
+        )
+        if deferred:
+            return value, True
+        if stage == "requirements_gather":
+            accept_requirements(state, value, record, check_code_refs=checked_refs, queue=queue)
+            return value, True
+        return value, False
 
 
 def rerun_requirements(state: RunState, value):

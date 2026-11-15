@@ -36,6 +36,7 @@ def _init_git_repo(root: Path) -> None:
 
 def _base_state(root: Path, run_dir: Path, *, limits=None) -> dict:
     return {
+        "version": 3,
         "task": "Make the app output clearer errors",
         "workspace": str(root),
         "run_dir": str(run_dir),
@@ -109,7 +110,7 @@ def _write_stopped_attempt(root: Path, run_dir: Path, state: dict, *, timeout_ki
         "timeout_kind": timeout_kind,
         "timeout_reason": "Requirements pass reached its 12-tool-call reply budget; finish from collected evidence",
         "exit_code": -15,
-        "first_reply_budget_active": {"max_seconds": 360, "max_tool_calls": 12},
+        "first_reply_budget_active": {"max_seconds": 600, "max_tool_calls": 12},
         "processes": [],
     }
     state["active_stage"] = record
@@ -119,7 +120,13 @@ def _write_stopped_attempt(root: Path, run_dir: Path, state: dict, *, timeout_ki
 
 class FirstReplyBudgetTests(unittest.TestCase):
     def test_limits_defaults_and_clamping(self):
-        self.assertEqual((360, 12), first_reply_budget.limits({"settings": {}}))
+        self.assertEqual((600, 12), first_reply_budget.limits({"settings": {}}))
+        self.assertEqual(
+            (900, 12),
+            first_reply_budget.limits(
+                {"settings": {"roles": {"requirements": {"model": "kilo/xiaomi/mimo-v2-pro:free"}}}}
+            ),
+        )
         self.assertEqual(
             (180, 5),
             first_reply_budget.limits(
@@ -135,14 +142,27 @@ class FirstReplyBudgetTests(unittest.TestCase):
             ),
         )
         timeout, meta, progress = role_launch.stage_deadline_and_progress(
-            {"settings": {"limits": {"stage_timeout_seconds": 600}}},
+            {"settings": {"limits": {"stage_timeout_seconds": 900}}},
             "requirements_gather",
-            600,
+            900,
             report_only=False,
         )
-        self.assertEqual(360, timeout)
-        self.assertEqual({"max_seconds": 360, "max_tool_calls": 12}, meta)
+        self.assertEqual(600, timeout)
+        self.assertEqual({"max_seconds": 600, "max_tool_calls": 12}, meta)
         self.assertIsNotNone(progress)
+        mimo_timeout, mimo_meta, _ = role_launch.stage_deadline_and_progress(
+            {
+                "settings": {
+                    "roles": {"requirements": {"model": "kilo/xiaomi/mimo-v2-pro:free"}},
+                    "limits": {"stage_timeout_seconds": 900},
+                }
+            },
+            "requirements_gather",
+            900,
+            report_only=False,
+        )
+        self.assertEqual(900, mimo_timeout)
+        self.assertEqual({"max_seconds": 900, "max_tool_calls": 12}, mimo_meta)
         self.assertEqual(
             (600, None, None),
             role_launch.stage_deadline_and_progress(
@@ -208,6 +228,77 @@ class FirstReplyBudgetTests(unittest.TestCase):
             _write_stopped_attempt(root, run_dir, state)
             with self.assertRaisesRegex(autocode.support.Paused, "1-attempt allowance"):
                 stage_recovery.automatically_recover_first_reply_budget(state, run_dir, root, error)
+
+    def test_partial_evidence_names_what_native_tools_looked_at(self):
+        with tempfile.TemporaryDirectory() as directory:
+            events = Path(directory) / "events.jsonl"
+            rows = [
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "id": "c1",
+                        "type": "tool_call",
+                        "name": "Read",
+                        "status": "completed",
+                        "display_input": {"file_path": "/work/src/app.py"},
+                    },
+                },
+                {
+                    "type": "tool_use",
+                    "part": {
+                        "id": "o1",
+                        "tool": "grep",
+                        "state": {"status": "completed", "input": {"pattern": "def run", "path": "src"}, "output": ""},
+                    },
+                },
+            ]
+            events.write_text("".join(json.dumps(row) + "\n" for row in rows))
+            evidence = first_reply_budget.extract_partial_evidence(events, {})
+        self.assertEqual(
+            ["Read /work/src/app.py", "grep src def run"], [row["command"] for row in evidence["inspected_commands"]]
+        )
+
+    def test_partial_evidence_retains_2000_char_excerpts_reasoning_parts_and_latest_notes(self):
+        long_source = "line = 1\n" * 180  # 1,620 chars (> old 400-char trim, <= 2,000-char cap)
+        with tempfile.TemporaryDirectory() as directory:
+            events = Path(directory) / "events.jsonl"
+            rows = [
+                {
+                    "type": "tool_use",
+                    "part": {
+                        "id": "r1",
+                        "tool": "read",
+                        "state": {
+                            "status": "completed",
+                            "input": {"filePath": "/work/src/app.py"},
+                            "output": long_source,
+                        },
+                    },
+                },
+                *[{"type": "reasoning", "part": {"id": f"th_{idx}", "text": f"Thought {idx}"}} for idx in range(9)],
+                {
+                    "type": "autocode_progress",
+                    "progress": {"id": "prt_live", "kind": "reasoning", "preview": "Early draft"},
+                },
+                {
+                    "type": "autocode_progress",
+                    "progress": {"id": "prt_live", "kind": "reasoning", "preview": "Weighing Q1 vs Q3 fork"},
+                },
+            ]
+            events.write_text("".join(json.dumps(row) + "\n" for row in rows))
+            evidence = first_reply_budget.extract_partial_evidence(events, {})
+        self.assertEqual(long_source.strip(), evidence["inspected_commands"][0]["output_excerpt"])
+        self.assertEqual(first_reply_budget.MAX_NOTES, len(evidence["assistant_notes"]))
+        self.assertNotIn("Thought 0", evidence["assistant_notes"])
+        self.assertNotIn("Thought 1", evidence["assistant_notes"])
+        self.assertIn("Thought 8", evidence["assistant_notes"])
+        self.assertEqual("Weighing Q1 vs Q3 fork", evidence["assistant_notes"][-1])
+
+    def test_the_budget_points_requirements_at_the_code_the_change_touches(self):
+        instruction = first_reply_budget.handoff_spec({"settings": {}})["instruction"]
+        self.assertIn("the target module, its callers and its tests", instruction)
+        self.assertIn("user-visible forks to ask about together", instruction)
+        self.assertNotIn("at most a few targeted file reads", instruction)
 
     def test_person_stop_or_pending_intervention_bypasses_budget_finish(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -290,6 +381,158 @@ class FirstReplyBudgetTests(unittest.TestCase):
                 prompt=autoplanner.prepare(state, "requirements_gather", str(state_path), run_dir).prompt
             )
             self.assertIn("reply_budget", req_gather.prompt)
+
+    def _stopped_budget_repair(self, root: Path, run_dir: Path, state: dict, *, ordinal: int, events_text: str) -> dict:
+        original = state["pending_report_repair"]["original"]
+        events_path = run_dir / f"repair-{ordinal:02d}.jsonl"
+        events_path.write_text(events_text)
+        before_ref = run_dir / f"repair-{ordinal:02d}.before.json"
+        before = util.snapshot(root)
+        before_ref.write_text(json.dumps(before))
+        record = {
+            "stage": "requirements_gather_report_repair",
+            "original_stage": "requirements_gather",
+            "role": original["role"],
+            "iteration": original["iteration"],
+            "report_only": True,
+            "events": str(events_path),
+            "output": str(run_dir / f"repair-{ordinal:02d}.json"),
+            "schema": original["schema"],
+            "before_ref": str(before_ref),
+            "source_revision": before["revision"],
+            "contract_hash": original.get("contract_hash"),
+            "task_id": original.get("task_id"),
+            "criteria_revision": original.get("criteria_revision"),
+            "finished_at": "2026-11-15T00:00:00Z",
+            "timed_out": True,
+            "timeout_kind": "idle" if not events_text else "stage",
+            "timeout_reason": "90s cold start" if not events_text else "repair stage deadline",
+            "exit_code": -15,
+            "processes": [{"pid": 99999999, "birth_time": 1}],
+        }
+        state["active_stage"] = record
+        return record
+
+    def test_budget_repair_silent_start_timeout_refunds_once_and_disables_startup_budget(self):
+        from unittest import mock
+
+        import autocode_resolve_repair_job as resolve_repair_job
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            _init_git_repo(root)
+            run_dir = root / ".autocode/runs/r1"
+            run_dir.mkdir(parents=True)
+            state = _base_state(root, run_dir)
+            state["settings"]["budget_origins"] = {"idle_timeout_seconds": "runner_default"}
+            _write_stopped_attempt(root, run_dir, state)
+            self.assertEqual(
+                "timeout",
+                recovery_dispatch.recover(
+                    autocode, state, run_dir, root, autocode.support.Paused("PAUSED_PROVIDER_TIMEOUT", "budget reached")
+                ),
+            )
+            pending = state["pending_report_repair"]
+
+            watch_before = role_launch.launch_limits(
+                state, "mimo-v2-pro", "requirements_gather", "requirements_gather_report_repair", report_only=True
+            )[3]
+            self.assertEqual(90, watch_before["first_event_limit"])
+            self.assertEqual(900, watch_before["idle_limit"])
+
+            pending["attempts"] = 1
+            self._stopped_budget_repair(root, run_dir, state, ordinal=1, events_text="")
+            with mock.patch.object(stage_recovery.processes, "live_processes", return_value=[]):
+                recovered = recovery_dispatch.recover(
+                    autocode,
+                    state,
+                    run_dir,
+                    root,
+                    autocode.support.Paused("PAUSED_PROVIDER_TIMEOUT", "90s cold start"),
+                )
+            self.assertEqual("timeout", recovered)
+            self.assertNotIn("active_stage", state)
+            self.assertEqual(("RUNNING", "REPORT_REPAIR"), (state["status"], state["phase"]))
+            self.assertEqual(0, pending["attempts"])
+            self.assertTrue(pending["silent_start_retried"])
+            self.assertTrue(report_repair_queue.pending_repair_dispatchable(state))
+            receipt = next(row for row in reversed(state["stages"]) if row["stage"] == "resolver")["receipt"]
+            self.assertEqual(0, receipt["evidence"]["repair_attempts_used"])
+            self.assertTrue(receipt["evidence"]["silent_start_retried"])
+
+            watch_mimo = role_launch.launch_limits(
+                state, "mimo-v2-pro", "requirements_gather", "requirements_gather_report_repair", report_only=True
+            )[3]
+            self.assertIsNone(watch_mimo["first_event_limit"])
+            self.assertEqual(900, watch_mimo["idle_limit"])
+            watch_glm = role_launch.launch_limits(
+                state, "glm-5", "requirements_gather", "requirements_gather_report_repair", report_only=True
+            )[3]
+            self.assertIsNone(watch_glm["first_event_limit"])
+            self.assertEqual(600, watch_glm["idle_limit"])
+
+            # A second 0-event timeout does not refund again; it archives cleanly and escalates to resolve_repair.
+            pending["attempts"] = 1
+            self._stopped_budget_repair(root, run_dir, state, ordinal=2, events_text="")
+            with mock.patch.object(stage_recovery.processes, "live_processes", return_value=[]):
+                recovered_again = recovery_dispatch.recover(
+                    autocode,
+                    state,
+                    run_dir,
+                    root,
+                    autocode.support.Paused("PAUSED_PROVIDER_TIMEOUT", "wedged transport"),
+                )
+            self.assertEqual("timeout", recovered_again)
+            self.assertEqual(1, pending["attempts"])
+            self.assertFalse(report_repair_queue.pending_repair_dispatchable(state))
+            with self.assertRaises(autocode.support.Paused) as limit_stop:
+                autocode.execute_report_repair(state, run_dir, root)
+            self.assertEqual("PAUSED_REPORT_REPAIR_LIMIT", limit_stop.exception.status)
+            self.assertTrue(resolve_repair_job.eligible_report_repair(state))
+            self.assertTrue(resolve_repair_job.queue_from_pending(state, run_dir))
+            self.assertEqual("resolve_repair", state["next_stage"])
+            self.assertEqual("report_repair", state["resolve_repair_request"]["kind"])
+
+    def test_budget_repair_post_event_timeout_escalates_to_resolve_repair_without_operational_pause(self):
+        from unittest import mock
+
+        import autocode_resolve_repair_job as resolve_repair_job
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            _init_git_repo(root)
+            run_dir = root / ".autocode/runs/r1"
+            run_dir.mkdir(parents=True)
+            state = _base_state(root, run_dir)
+            _write_stopped_attempt(root, run_dir, state)
+            recovery_dispatch.recover(
+                autocode, state, run_dir, root, autocode.support.Paused("PAUSED_PROVIDER_TIMEOUT", "budget reached")
+            )
+            pending = state["pending_report_repair"]
+            pending["attempts"] = 1
+            self._stopped_budget_repair(
+                root,
+                run_dir,
+                state,
+                ordinal=1,
+                events_text=json.dumps({"type": "thread.started", "thread_id": "r-1"}) + "\n",
+            )
+            with mock.patch.object(stage_recovery.processes, "live_processes", return_value=[]):
+                recovered = recovery_dispatch.recover(
+                    autocode,
+                    state,
+                    run_dir,
+                    root,
+                    autocode.support.Paused("PAUSED_PROVIDER_TIMEOUT", "repair stage deadline"),
+                )
+            self.assertEqual("timeout", recovered)
+            self.assertEqual(1, pending["attempts"])
+            self.assertNotIn("silent_start_retried", pending)
+            with self.assertRaises(autocode.support.Paused) as limit_stop:
+                autocode.execute_report_repair(state, run_dir, root)
+            self.assertEqual("PAUSED_REPORT_REPAIR_LIMIT", limit_stop.exception.status)
+            self.assertTrue(resolve_repair_job.queue_from_pending(state, run_dir, force=True))
+            self.assertEqual("resolve_repair", state["next_stage"])
 
 
 if __name__ == "__main__":

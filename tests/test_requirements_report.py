@@ -96,3 +96,20 @@ class RequirementsReportTests(unittest.TestCase):
         self.assertEqual([], result["acceptance_tests"])
         self.assertEqual(["acceptance_tests", "conflicts"], record["defaulted_fields"])
         self.assertNotIn("acceptance_tests", raw)
+
+    def test_follow_up_turn_retaining_earlier_contract_defaults_omitted_tests_until_new_plan(self):
+        state = {
+            "task": "Improve the chat",
+            "settings": {},
+            "stages": [],
+            "goal_contract": {"revision": 1, "hash": "turn1", "body": {}},
+            "turns": [{"event_id": "fb-turn2", "say": "Also support threads"}],
+            "user_events": [{"id": "fb-turn2", "kind": "brief_feedback", "contract_token": "r1:turn1"}],
+        }
+        value, record = self.load(self.raw(), state)
+        self.assertEqual([], value["acceptance_tests"])
+        self.assertIn("acceptance_tests", record["defaulted_fields"])
+
+        state["goal_contract"] = {"revision": 2, "hash": "turn2", "body": {}}
+        with self.assertRaises(ValueError):
+            self.load(self.raw(), state)

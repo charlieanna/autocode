@@ -39,6 +39,7 @@ def plan():
     from goal_fixtures import body
 
     draft = body(human=False)
+    draft["accepted_assumptions"] = []
     draft["acceptance_criteria"] = [
         {
             "id": f"C{i}",
@@ -188,13 +189,31 @@ def repair_report(data):
 def write_report(result):
     if "--output-schema" in sys.argv:
         schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
-        if "source_trace" in schema.get("properties", {}):
+        props = schema.get("properties", {})
+        if "source_trace" in props:
             result.setdefault("source_trace", {"out_of_scope": [], "negation_waivers": []})
-        if "source_verdict" in schema.get("properties", {}):
+        if "source_verdict" in props:
             result.setdefault(
                 "source_verdict",
                 {"verdict": "PASS", "uncovered": [], "summary": "Scripted: every criterion traces to the brief"},
             )
+        if "ambiguity_audit" in props:
+            rest = {"status": "not_applicable", "refs": []}
+            result.setdefault(
+                "ambiguity_audit",
+                {
+                    "outcome_scope": {"status": "specified_in_source", "refs": ["task"]},
+                    "inputs_and_edge_cases": dict(rest),
+                    "error_and_failure_behavior": dict(rest),
+                    "compatibility_and_callers": dict(rest),
+                    "ux_and_output_contract": dict(rest),
+                    "state_and_side_effects": dict(rest),
+                },
+            )
+        if "counterexample" in props:
+            result.setdefault("counterexample", {"file": "", "find": "", "replace": ""})
+        if "project_notes" in props:
+            result.setdefault("project_notes", [])
     Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))
 
 

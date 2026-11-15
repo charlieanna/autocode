@@ -40,6 +40,15 @@ INSTRUCTION = (
     "The archive index is relative to this run, not a source citation."
 )
 INPUTS = {"events": "events", "before": "before_ref", "after": "after_ref", "report": "output"}
+# Stages that receive the sealed packet, and the rule each one is given with it: the first Planner,
+# and every later Requirements round, which would otherwise read the same files again cold.
+REUSE_RULES = {
+    "draft_plan": "fragments/autoplanner/requirements-observation-reuse.md",
+    "requirements_gather": "fragments/autoplanner/requirements-round-observations.md",
+}
+# Native read, search and listing tools (Claude Code, OpenCode, Kilo) recorded beside shell commands.
+NATIVE_TOOLS = frozenset({"Read", "Grep", "Glob", "LS", "NotebookRead", "read", "grep", "glob", "list"})
+NATIVE_INPUTS = ("file_path", "filePath", "notebook_path", "path", "pattern", "include", "glob")
 BINDING = (
     "stage",
     "role",
@@ -164,9 +173,9 @@ def _eligible(record):
     )
 
 
-def _accepted_repairs(state: RunState):
+def _accepted_repairs(state: RunState, handoff=None):
     """Resolve only core-committed repairs of a fresh, still-archived intake."""
-    handoff = state.get("requirements_handoff") or {}
+    handoff = (state.get("requirements_handoff") or {}) if handoff is None else handoff
     records = state.get("stages") or []
     accepted = []
     for entry in state.get("report_repair_history") or []:
@@ -244,11 +253,54 @@ def _rows(raw):
         r.get("type") == "turn.failed" for r in events
     ):
         return []
-    return [
+    commands = [
         {**r["item"], "_truncated": (r.get("item") or {}).get("id") in blocked}
         for r in events
         if r.get("type") == "item.completed" and (r.get("item") or {}).get("type") == "command_execution"
     ]
+    return commands + _native(values, blocked)
+
+
+def _native(values, blocked):
+    """Completed native read/search/list calls: Claude Code's adapted tool_call items carry only the
+    call's inputs, OpenCode and Kilo parts also their output."""
+    rows = []
+    for row in values:
+        item, part = row.get("item") or {}, row.get("part") or {}
+        if row.get("type") == "item.completed" and item.get("type") == "tool_call":
+            if item.get("name") in NATIVE_TOOLS and item.get("status") == "completed":
+                rows.append({"_native": item["name"], "_input": item.get("display_input"), "_output": None})
+        elif row.get("type") == "tool_use" and part.get("tool") in NATIVE_TOOLS:
+            state = part.get("state") or {}
+            if state.get("status") == "completed":
+                output = state.get("output") if isinstance(state.get("output"), str) else None
+                truncated = part.get("id") in blocked
+                rows.append(
+                    {"_native": part["tool"], "_input": state.get("input"), "_output": output, "_truncated": truncated}
+                )
+    return rows
+
+
+def _native_candidate(item, workspace):
+    """{"tool", "input"[, "output"]}: inputs that say what was looked at, workspace paths relative.
+    An output too large for the packet is left out whole; the call itself is still recorded."""
+    shown = item["_input"] if isinstance(item["_input"], dict) else {}
+    root = Path(workspace)
+    inputs = {}
+    for key in NATIVE_INPUTS:
+        value = shown.get(key)
+        if isinstance(value, str) and value.strip() and len(value.encode()) <= MAX_OUTPUT:
+            path = Path(value)
+            if path.is_absolute() and path.is_relative_to(root):
+                value = path.relative_to(root).as_posix() or "."
+            inputs[key] = value
+    if not inputs:
+        return None
+    candidate = {"tool": item["_native"], "input": inputs}
+    output = item["_output"]
+    if isinstance(output, str) and not item.get("_truncated") and len(output.encode()) <= MAX_OUTPUT:
+        candidate["output"] = output
+    return candidate
 
 
 def _packet(payload, seal):
@@ -290,6 +342,14 @@ def _seal(state: RunState, record, accepted_report, *, owner, repair_binding=Non
         }
         candidates, omitted = [], 0
         for item in items:
+            if "_native" in item:
+                candidate = _native_candidate(item, state["workspace"])
+                estimate["observations"] = [candidate]
+                if candidate is None or len(_bytes({FIELD: _packet(estimate, placeholder)})) > MAX_PACKET:
+                    omitted += 1
+                else:
+                    candidates.append(candidate)
+                continue
             output, command, code = item.get("aggregated_output"), item.get("command"), item.get("exit_code")
             if (
                 item.get("_truncated")
@@ -356,19 +416,50 @@ def _seal(state: RunState, record, accepted_report, *, owner, repair_binding=Non
 
 
 def context(state: RunState, stage, run_dir, current_source):
-    if stage != "draft_plan" or (state.get("settings") or {}).get("replay_recording"):
+    """The sealed packet for the first Planner, or for a later Requirements round.
+
+    A Requirements round gets the newest packet among the accepted handoffs (the current one, then
+    earlier rounds), so a round that read nothing new still carries what an earlier round observed.
+    Each packet keeps its own custody, report, record and unchanged-source checks.
+    """
+    if stage not in REUSE_RULES or (state.get("settings") or {}).get("replay_recording"):
         return None
-    handoff = state.get("requirements_handoff") or {}
+    handoffs = [state.get("requirements_handoff") or {}]
+    if stage == "requirements_gather":
+        handoffs += [row for row in reversed(state.get("requirements_history") or []) if isinstance(row, dict)]
+    source: list[object] = []
+
+    def current():
+        if not source:
+            source.append(current_source() if callable(current_source) else current_source)
+        return source[0]
+
+    for handoff in handoffs:
+        packet = _handoff_packet(state, stage, handoff, run_dir, current)
+        if packet is not None:
+            return packet
+    return None
+
+
+def _turn_start(state: RunState, count: int) -> int:
+    turns = state.get("turns") or []
+    start = turns[-1].get("stage_index") if turns and isinstance(turns[-1], dict) else 0
+    return start if type(start) is int and 0 <= start <= count else 0
+
+
+def _handoff_packet(state: RunState, stage, handoff, run_dir, current_source):
     records = state.get("stages") or []
     matching = [
         (i, r, r, None)
         for i, r in enumerate(records)
         if r.get("stage") == "requirements_gather" and r.get("output") == handoff.get("output")
     ]
-    matching.extend(_accepted_repairs(state))
+    matching.extend(_accepted_repairs(state, handoff))
     if len(matching) != 1:
         return None
     index, record, owner, repair_binding = matching[0]
+    if index < _turn_start(state, len(records)):
+        return None
     seal = owner.get(FIELD)
     if (
         (repair_binding is None and not _eligible(record))
@@ -376,7 +467,7 @@ def context(state: RunState, stage, run_dir, current_source):
         or seal.get("status") != "sealed"
     ):
         return None
-    if any(r.get("stage") == "draft_plan" for r in records[index + 1 :]):
+    if stage == "draft_plan" and any(r.get("stage") == "draft_plan" for r in records[index + 1 :]):
         return None
     try:
         if set(seal) != {"status", "path", "sha256"} or seal["path"] != "context/" + seal["sha256"] + ".json":
@@ -390,7 +481,7 @@ def context(state: RunState, stage, run_dir, current_source):
             or payload.get("repair_binding") != repair_binding
             or payload["report_digest"] != util.digest(handoff["report"])
             or payload["record_digest"] != util.digest({key: record.get(key) for key in BINDING})
-            or payload["source"] != _product(current_source() if callable(current_source) else current_source)
+            or payload["source"] != _product(current_source())
         ):
             return None
         for key, field in INPUTS.items():

@@ -358,8 +358,8 @@ def dispatch_unit(runtime, state: RunState, stage, workspace, run_dir):
     return record
 
 
-def _check_code_refs(state: RunState, refs, field="code_refs"):
-    code_citations.require(state, refs, field, planning_unit=planning_unit)
+def _check_code_refs(state: RunState, refs, field="code_refs", *, stage=None):
+    code_citations.require(state, refs, field, planning_unit=planning_unit, stage=stage)
 
 
 def _bind_plan(state: RunState, value, origin, record):
@@ -533,18 +533,11 @@ def apply_planning(state: RunState, stage, value, record, *, run_dir=None):
     )
     if stage == "draft_plan" and planning_unit.rerun_requirements(state, value):
         return  # the draft is discarded before any of its checks: Requirements runs next
-    value, deferred = planning_unit.planning_scope.prepare_handoff(
-        state,
-        stage,
-        value,
-        record,
-        investigation_stages=planning_unit.INVESTIGATION_STAGES,
-        check_code_refs=_check_code_refs,
+    value, done = planning_unit.accept_handoff(
+        state, stage, value, record, _check_code_refs, requirements_handoff.accept, human.queue
     )
-    if deferred:
+    if done:
         return
-    if stage == "requirements_gather":
-        return requirements_handoff.accept(state, value, record, check_code_refs=_check_code_refs, queue=human.queue)
     # New joint plans must state every dependency; older saved contracts remain readable.
     if (
         "plan_reviewer" in state.get("settings", {}).get("roles", {})

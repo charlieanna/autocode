@@ -28,7 +28,8 @@ class TechnicalQuestionsCliTests(unittest.TestCase):
                     "id": "internal-proof", "question": "May AC4 use the executable fixture?",
                     "why": "The example needs a complete input and exact Python invocation.",
                     "options": [], "proposed_default": "Use the complete input and Python command.",
-                    "kind": "decision", "category": os.environ["QUESTION_CATEGORY"], "delegable": False}]
+                    "kind": "decision", "category": os.environ["QUESTION_CATEGORY"],
+                    "delegable": False, "convention_ref": ""}]
                 if count:
                     report["contract"]["open_blocking_questions"][0].update(
                         question="Can the previously selected executable fixture verify AC4?",

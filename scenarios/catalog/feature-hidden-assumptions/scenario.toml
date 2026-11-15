@@ -1,0 +1,29 @@
+title = "A complete-looking feature request whose code hides two product decisions"
+category = "feature"
+# Seeded hidden assumptions (#3603). The brief for `envfile merge` reads as complete, but the code
+# shows two user-visible forks it leaves open: load() keeps a repeated key's FIRST value inside one
+# file (which file wins across files?) and `show` refuses a file with no entries (is an empty merge
+# an error?). Two more facts are settled by the repository and must never be asked: the `--sorted`
+# spelling `show` uses and errors through envfile.errors.fail(). The person ([person] below) picks
+# the option against the code's grain for both forks, so a run that assumes instead of asking
+# delivers the wrong behavior and the hidden tests catch it. Clear sibling: feature-node-stable-sort
+# (max_questions = 0).
+
+[fake]
+check = "python3 -m unittest discover -s tests -t ."
+fault = "hidden_assumption_questions"
+
+# The person's own decisions, given in fake and live runs alike (harness/person_answers.py).
+[[person.answers]]
+match = "duplicat|repeated|same key|more than one (input )?file|several files|multiple files|conflict|overrid|precedence|which (file|value)"
+choose = "\\blast\\b|\\blater\\b|overrid|right-?most|\\bfinal\\b"
+answer = "When a key is set in more than one file, the last file's value wins (later files override earlier ones); the key keeps the place where it first appeared."
+
+[[person.answers]]
+match = "\\bempty\\b|no entries|without entries|nothing to merge|zero entries|no keys"
+choose = "exit\\w*\\s+(with\\s+)?(status\\s+|code\\s+)?0\\b|succe|not an error|no error"
+answer = "Empty inputs merge to empty output and succeed cleanly."
+
+[run]
+timeout_minutes = 90
+max_steps = 50

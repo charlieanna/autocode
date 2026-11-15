@@ -653,6 +653,37 @@ class RequirementsChatTests(unittest.TestCase):
             self.assertEqual(("requirements-live", "assistant", True), (live["id"], live["role"], live["streaming"]))
             self.assertEqual("Hi! I'm AutoCode's requirements assistant", live["text"])
 
+    def test_follow_up_turn_with_retained_contract_keeps_chat_streaming_and_approval_active(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            events = root / "requirements-gather-02.jsonl"
+            events.write_text(
+                json.dumps(
+                    {
+                        "type": "item.updated",
+                        "item": {
+                            "id": "item_0",
+                            "type": "agent_message",
+                            "text": '{"assistant_reply":"Checking Turn 2',
+                        },
+                    }
+                )
+                + "\n"
+            )
+            state = {
+                "settings": {"spec_first": True},
+                "goal_contract": {"revision": 1, "hash": "turn1", "body": {}},
+                "turns": [{"event_id": "fb-turn2", "say": "Also support JSON"}],
+                "user_events": [{"id": "fb-turn2", "kind": "brief_feedback", "contract_token": "r1:turn1"}],
+                "active_stage": {"stage": chat.STAGE, "events": str(events)},
+                "workflow": {"kind": None, "then": "draft_plan"},
+            }
+            self.assertTrue(chat.enabled(state))
+            self.assertEqual("Checking Turn 2", chat.streaming_reply(state, root))
+            state["goal_contract"] = {"revision": 2, "hash": "turn2", "body": {}}
+            self.assertFalse(chat.enabled(state))
+            self.assertEqual("", chat.streaming_reply(state, root))
+
 
 if __name__ == "__main__":
     unittest.main()

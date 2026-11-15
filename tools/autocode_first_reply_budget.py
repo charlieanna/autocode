@@ -19,13 +19,15 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 STAGE = "requirements_gather"
-DEFAULT_MAX_SECONDS = 360
+DEFAULT_MAX_SECONDS = 600
+MIMO_MAX_SECONDS = 900
 DEFAULT_MAX_TOOL_CALLS = 12
 MAX_PARTIAL_BYTES = 32 * 1024
 MAX_NOTES = 8
 MAX_COMMANDS = 16
 MAX_PATHS = 24
 MAX_ITEM_CHARS = 800
+MAX_EXCERPT_CHARS = 2000
 
 _CODEX_TOOL_TYPES = frozenset(
     {
@@ -51,9 +53,14 @@ def applies(state: RunState, stage: str, *, report_only: bool = False) -> bool:
 
 def limits(state: RunState) -> tuple[int, int]:
     """Return ``(max_seconds, max_tool_calls)`` for a ``requirements_gather`` pass."""
-    cfg = (state.get("settings") or {}).get("limits") or {}
+    settings = state.get("settings") or {}
+    cfg = settings.get("limits") or {}
     raw_secs = cfg.get("first_reply_timeout_seconds")
-    max_secs = int(raw_secs) if isinstance(raw_secs, (int, float)) and raw_secs > 0 else DEFAULT_MAX_SECONDS
+    if isinstance(raw_secs, (int, float)) and raw_secs > 0:
+        max_secs = int(raw_secs)
+    else:
+        model = str(((settings.get("roles") or {}).get("requirements") or {}).get("model") or "").lower()
+        max_secs = MIMO_MAX_SECONDS if "mimo" in model else DEFAULT_MAX_SECONDS
     stage_secs = cfg.get("stage_timeout_seconds")
     if isinstance(stage_secs, (int, float)) and stage_secs > 0:
         max_secs = min(max_secs, int(stage_secs))
@@ -117,8 +124,9 @@ def handoff_spec(state: RunState) -> dict[str, Any]:
         "instruction": (
             f"This Requirements pass has a per-pass reply budget ({max_seconds}s wall time and "
             f"{max_tool_calls} completed tool calls) so the user receives blocking questions or a "
-            "grounded handoff promptly. Spend at most a few targeted file reads or searches to resolve "
-            "genuine ambiguity; leave exhaustive file-by-file planning exploration to `draft_plan`."
+            "grounded handoff promptly. Spend them on the code the change touches (the target module, its "
+            "callers and its tests) to find the user-visible forks to ask about together, batching independent "
+            "reads; leave exhaustive file-by-file planning exploration to `draft_plan`."
         ),
     }
 
@@ -148,18 +156,42 @@ def _paths_from_text(text: str) -> list[str]:
     return paths
 
 
+def _native_call(item: dict[str, Any]) -> str:
+    """``Read app.py``: a native tool call (Claude Code's adapted ``tool_call``) with what it looked at."""
+    raw_shown = item.get("display_input")
+    shown: dict[str, Any] = raw_shown if isinstance(raw_shown, dict) else {}
+    target = " ".join(str(shown[key]) for key in ("file_path", "path", "pattern") if isinstance(shown.get(key), str))
+    return f"{item.get('name')} {target}".strip() if isinstance(item.get("name"), str) else ""
+
+
+def _native_part(tool_name: str, tool_input: Any) -> str:
+    """``read /work/app.py``: an OpenCode/Kilo native tool part with what it looked at."""
+    shown = tool_input if isinstance(tool_input, dict) else {}
+    target = " ".join(str(shown[key]) for key in ("filePath", "path", "pattern") if isinstance(shown.get(key), str))
+    return f"{tool_name} {target}".strip()
+
+
+def _record_note(notes_by_key: dict[str, str], key: str, raw_text: str) -> None:
+    trimmed = _trim_text(raw_text)
+    if not trimmed:
+        return
+    if key in notes_by_key:
+        del notes_by_key[key]
+    notes_by_key[key] = trimmed
+
+
 def extract_partial_evidence(events_path: Path | str, record: dict[str, Any]) -> dict[str, Any]:
     """Extract a bounded (<= 32 KiB) summary of completed exploration from stopped stage events."""
     path = Path(events_path)
     commands: list[dict[str, Any]] = []
-    notes: list[str] = []
+    notes_by_key: dict[str, str] = {}
     seen_paths: list[str] = []
     completed_ids: set[str] = set()
     try:
         raw_lines = path.read_text(errors="replace").splitlines()
     except OSError:
         raw_lines = []
-    for line in raw_lines:
+    for row_idx, line in enumerate(raw_lines):
         stripped = line.strip()
         if not stripped.startswith("{"):
             continue
@@ -181,7 +213,7 @@ def extract_partial_evidence(events_path: Path | str, record: dict[str, Any]) ->
                 and (event_type == "item.completed" or item.get("status") in ("completed", "failed"))
             ):
                 completed_ids.add("codex:" + ident)
-                cmd = item.get("command") or item.get("title") or kind
+                cmd = item.get("command") or item.get("title") or _native_call(item) or kind
                 out = item.get("aggregated_output") or item.get("output") or ""
                 for found in _paths_from_text(f"{cmd}\n{out}"):
                     if found not in seen_paths and len(seen_paths) < MAX_PATHS:
@@ -191,12 +223,15 @@ def extract_partial_evidence(events_path: Path | str, record: dict[str, Any]) ->
                         {
                             "command": _trim_text(str(cmd), 240),
                             "exit_code": item.get("exit_code"),
-                            "output_excerpt": _trim_text(str(out), 400),
+                            "output_excerpt": _trim_text(str(out), MAX_EXCERPT_CHARS),
                         }
                     )
             elif kind in ("agent_message", "reasoning") and isinstance(item.get("text"), str) and item["text"].strip():
-                if len(notes) < MAX_NOTES:
-                    notes.append(_trim_text(item["text"]))
+                _record_note(
+                    notes_by_key,
+                    f"item:{ident}" if isinstance(ident, str) and ident else f"row:{row_idx}",
+                    item["text"],
+                )
         elif isinstance(row.get("part"), dict):
             part = row["part"]
             ident = part.get("id") or part.get("callID")
@@ -214,14 +249,26 @@ def extract_partial_evidence(events_path: Path | str, record: dict[str, Any]) ->
                     if len(commands) < MAX_COMMANDS:
                         commands.append(
                             {
-                                "command": _trim_text(str(cmd or tool_name), 240),
+                                "command": _trim_text(str(cmd or _native_part(tool_name, tool_input)), 240),
                                 "status": state_obj.get("status"),
-                                "output_excerpt": _trim_text(str(out), 400),
+                                "output_excerpt": _trim_text(str(out), MAX_EXCERPT_CHARS),
                             }
                         )
-            elif event_type == "text" and isinstance(part.get("text"), str) and part["text"].strip():
-                if len(notes) < MAX_NOTES:
-                    notes.append(_trim_text(part["text"]))
+            elif event_type in ("text", "reasoning") and isinstance(part.get("text"), str) and part["text"].strip():
+                _record_note(
+                    notes_by_key,
+                    f"part:{ident}" if isinstance(ident, str) and ident else f"row:{row_idx}",
+                    part["text"],
+                )
+        elif event_type == "autocode_progress" and isinstance(row.get("progress"), dict):
+            progress = row["progress"]
+            pid = progress.get("id")
+            preview = progress.get("preview")
+            if progress.get("kind") == "reasoning" and isinstance(preview, str) and preview.strip():
+                key = f"part:{pid}" if isinstance(pid, str) and pid else f"row:{row_idx}"
+                if not (progress.get("final") is True and key in notes_by_key):
+                    _record_note(notes_by_key, key, preview)
+    notes = list(notes_by_key.values())[-MAX_NOTES:]
     payload: dict[str, Any] = {
         "complete_report": False,
         "stop_kind": record.get("timeout_kind"),

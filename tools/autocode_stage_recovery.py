@@ -312,6 +312,19 @@ def automatically_recover_report_repair_timeout(state: RunState, run_dir, worksp
         after = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
         pins = pending.get("pins") or {}
         required = ("events", "before_ref", "after_ref", "schema")
+        valid_completed_original = (
+            original.get("exit_code") == 0
+            and not original.get("timed_out")
+            and (
+                records.stage_completed(state, original)
+                or report_source.valid_truncated_report_attempt(original, False)
+            )
+        )
+        valid_first_reply_original = (
+            bool(pending.get("first_reply_budget"))
+            and isinstance(original.get("first_reply_budget"), dict)
+            and first_reply_budget.is_budget_stop(original)
+        )
         if (
             not original.get("source_revision")
             or before["revision"] != after["revision"]
@@ -337,16 +350,20 @@ def automatically_recover_report_repair_timeout(state: RunState, run_dir, worksp
             or (state.get("goal_contract") or {}).get("hash") != pending.get("contract_hash")
             or any(not original.get(key) or original[key] not in pins for key in required)
             or any(not Path(p).is_file() or support.file_hash(p) != h for p, h in pins.items())
-            or original.get("exit_code") != 0
-            or original.get("timed_out")
-            or not (
-                records.stage_completed(state, original)
-                or report_source.valid_truncated_report_attempt(original, False)
-            )
+            or not (valid_completed_original or valid_first_reply_original)
         ):
             stop("source, original evidence or stage bindings changed")
         attempts = pending.get("attempts")
-        if type(attempts) is not int or not 1 <= attempts < report_repair_queue.effective_repair_limit(state, pending):
+        limit = report_repair_queue.effective_repair_limit(state, pending)
+        is_silent_start = stall_recovery.classify_stall(record)[
+            "stall_phase"
+        ] == stall_recovery.BEFORE_FIRST_EVENT and not pending.get("silent_start_retried")
+        within_limit = (
+            1 <= attempts <= limit
+            if type(attempts) is int and (is_silent_start or bool(pending.get("first_reply_budget")))
+            else type(attempts) is int and 1 <= attempts < limit
+        )
+        if not within_limit:
             stop("bounded report-only repair allowance exhausted or invalid; consumed attempts stay charged")
     except (KeyError, TypeError, ValueError, OSError, processes.ProcessError) as invalid:
         stop(str(invalid))
@@ -356,8 +373,12 @@ def automatically_recover_report_repair_timeout(state: RunState, run_dir, worksp
         stop(str(blocked))
 
     # Persist the archive and resolver receipt together. No implementation/session,
-    # validation, original pins or pending attempt counters are reset here.
+    # validation or original pins are reset here; a zero-event startup timeout refunds
+    # its unstarted attempt once so the retry runs without the 90s startup budget.
     with interventions.admission(run_dir):
+        if is_silent_start and isinstance(attempts, int):
+            pending["attempts"] = attempts - 1
+            pending["silent_start_retried"] = True
         record["metrics"] = support.event_metrics(record["events"])
         records.account_stage(state, record)
         after_path = Path(record["output"]).with_suffix(".after.json")
@@ -375,21 +396,24 @@ def automatically_recover_report_repair_timeout(state: RunState, run_dir, worksp
             record,
             "AutoResolver retained stopped nonterminal report repair; retry remaining report-only allowance",
         )
+        evidence = {
+            "origin_output": record["output"],
+            "events": record["events"],
+            "pins": copy.deepcopy(pending["pins"]),
+            "source_revision": after["revision"],
+            "next_stage": original["stage"],
+            "repair_attempts_used": pending["attempts"],
+            "timeout_kind": record.get("timeout_kind"),
+            "timeout_reason": str(error),
+        }
+        if is_silent_start:
+            evidence["silent_start_retried"] = True
         resolver_runtime._operational_receipt(
             state,
             run_dir,
             "retry",
             "Retry only the remaining bounded report repair; preserve the original evidence and charged attempts.",
-            {
-                "origin_output": record["output"],
-                "events": record["events"],
-                "pins": copy.deepcopy(pending["pins"]),
-                "source_revision": after["revision"],
-                "next_stage": original["stage"],
-                "repair_attempts_used": attempts,
-                "timeout_kind": record.get("timeout_kind"),
-                "timeout_reason": str(error),
-            },
+            evidence,
         )
         run_status.running(state, "REPORT_REPAIR")
         records.write_json(run_dir / "state.json", state)

@@ -171,6 +171,37 @@ PROFILES = {
             "zai-coding-plan/glm-5.3",
         ],
     },
+    # glm53-mimo with Requirements on MiMo too (#3603): the same routes, so a requirements_gather change is
+    # exercised by both model families. MiMo then also reviews the plan; the Planner stays on GLM.
+    "glm53-mimo-requirements-mimo": {
+        "provider": "opencode",
+        "models": {
+            "requirements": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+            "planner": "zai-coding-plan/glm-5.3",
+            "reviewer": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+            "builder": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+            "validator": "zai-coding-plan/glm-5.3",
+            "completion": "zai-coding-plan/glm-5.3",
+            "resolver": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+        },
+        "effort": {
+            "requirements": "medium",
+            "planner": "high",
+            "reviewer": "high",
+            "builder": "medium",
+            "validator": "high",
+            "completion": "medium",
+            "resolver": "high",
+        },
+        "extra": [
+            "--resolver-model",
+            "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+            "--resolver-reasoning-effort",
+            "high",
+            "--investigator-model",
+            "zai-coding-plan/glm-5.3",
+        ],
+    },
     # GLM and MiMo through the Kilo Code provider only: the same family split as glm53-mimo
     # (GLM plans and validates, MiMo reviews the plan and builds). GLM uses the Z.AI Coding
     # Plan route and MiMo the Xiaomi Token Plan route. kilo/xiaomi/... is not used: it bills the
@@ -187,6 +218,36 @@ PROFILES = {
             "resolver": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
         },
         # Match the bundled Kilo GLM default: its native variants exclude medium.
+        "effort": {
+            "requirements": "high",
+            "planner": "high",
+            "reviewer": "high",
+            "builder": "medium",
+            "validator": "high",
+            "completion": "high",
+            "resolver": "high",
+        },
+        "extra": [
+            "--resolver-model",
+            "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+            "--resolver-reasoning-effort",
+            "high",
+            "--investigator-model",
+            "zai-coding-plan/glm-5.3",
+        ],
+    },
+    # glm-mimo-kilo with Requirements on MiMo too (#3603): same Kilo split, exercising MiMo on requirements_gather.
+    "glm-mimo-kilo-requirements-mimo": {
+        "provider": "kilocode",
+        "models": {
+            "requirements": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+            "planner": "zai-coding-plan/glm-5.3",
+            "reviewer": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+            "builder": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+            "validator": "zai-coding-plan/glm-5.3",
+            "completion": "zai-coding-plan/glm-5.3",
+            "resolver": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+        },
         "effort": {
             "requirements": "high",
             "planner": "high",

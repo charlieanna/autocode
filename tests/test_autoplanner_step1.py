@@ -4,8 +4,15 @@ preservation on excluded/superseded and on a refreshed handoff, and the
 GitHub issue #62 for the full rationale; this covers only the schema,
 validator and CLI-mutator layer (no obligation-discharge gating yet)."""
 
+import copy
+import json
+import tempfile
 import unittest
+from pathlib import Path
+from unittest import mock
 
+import autocode_assumption_ledger as ledger
+import autocode_code_citations as code_citations
 import autocode_goal_lifecycle as lifecycle
 import autocode_goals as goals
 from goal_fixtures import body
@@ -20,6 +27,23 @@ class QuestionSchemaTests(unittest.TestCase):
         self.assertIn("category", goals.QUESTION["properties"])
         self.assertIn("delegable", goals.QUESTION["properties"])
         self.assertEqual(["discoverable", "inferable", "decision"], goals.QUESTION["properties"]["kind"]["enum"])
+
+    def test_assumption_evidence_fields_are_optional_and_five_questions_fit(self):
+        # #3603: a technical default names the code it rests on; a Planner assumption names its category.
+        self.assertEqual({"type": "string"}, goals.QUESTION["properties"]["convention_ref"])
+        self.assertNotIn("convention_ref", goals.QUESTION["required"])
+        decision = goals.BODY_SCHEMA["properties"]["accepted_assumptions"]["items"]
+        self.assertEqual(list(goals.ASSUMPTION_CATEGORIES), decision["properties"]["category"]["enum"])
+        self.assertNotIn("category", decision["required"])
+        self.assertNotIn("convention_ref", decision["required"])
+        self.assertEqual(5, goals.BODY_SCHEMA["properties"]["open_blocking_questions"]["maxItems"])
+        legacy = goals.LEGACY_BODY_SCHEMA["properties"]["accepted_assumptions"]["items"]
+        self.assertNotIn("category", legacy["properties"], "sealed v3 briefs keep their contract")
+
+    def test_categories_and_normalization_have_one_home(self):
+        self.assertIs(ledger.ASSUMPTION_CATEGORIES, goals.ASSUMPTION_CATEGORIES)
+        self.assertIs(ledger.NON_INFERABLE_CATEGORIES, goals.NON_INFERABLE_CATEGORIES)
+        self.assertIs(ledger.normalize, goals.normalize_assumption)
 
 
 class AssumptionValidationTests(unittest.TestCase):
@@ -66,6 +90,163 @@ class AssumptionValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "cannot be inferable"):
             goals.validate_assumptions([row], set())
 
+    def test_a_protected_choice_is_never_an_assumption_whatever_its_kind(self):
+        # #3603: the category check sat inside `kind == "inferable"`, so kind=decision skipped it.
+        for kind in ("inferable", "decision", "discoverable"):
+            for category in sorted(goals.NON_INFERABLE_CATEGORIES):
+                with self.subTest(kind=kind, category=category):
+                    row = {
+                        "id": "A1",
+                        "text": "Prefer the cheaper model",
+                        "kind": kind,
+                        "category": category,
+                        "convention_ref": "tools/x.py:1",
+                        "rationale": "r",
+                        "supports": [],
+                    }
+                    with self.assertRaisesRegex(ValueError, "must be an open decision question"):
+                        goals.validate_assumptions([row], set())
+
+    def test_a_discoverable_assumption_names_its_evidence_too(self):
+        base = {"id": "A1", "text": "Tests use unittest", "kind": "discoverable", "category": "technical"}
+        with self.assertRaisesRegex(ValueError, "convention_ref"):
+            goals.validate_assumptions([{**base, "convention_ref": "", "rationale": "r", "supports": []}], set())
+        with self.assertRaisesRegex(ValueError, "rationale"):
+            goals.validate_assumptions([{**base, "convention_ref": "t.py:1", "rationale": "", "supports": []}], set())
+
+    def test_engineering_convention_must_cite_verified_read_code_under_every_kind(self):
+        # #3603: kind="decision" previously bypassed convention_ref/rationale, and any non-empty phrase passed.
+        with tempfile.TemporaryDirectory() as raw:
+            ws = Path(raw).resolve()
+            (ws / "app.py").write_text("x = 1\n")
+            (ws / "unread.py").write_text("y = 2\n")
+            events = ws / "events.jsonl"
+            events.write_text(
+                json.dumps(
+                    {
+                        "type": "item.completed",
+                        "item": {
+                            "id": "x1",
+                            "type": "command_execution",
+                            "command": "cat app.py",
+                            "exit_code": 0,
+                            "aggregated_output": "x = 1\n",
+                        },
+                    }
+                )
+                + "\n"
+            )
+            current = {
+                "task": "Update app.",
+                "workspace": str(ws),
+                "run_dir": str(ws),
+                "stages": [{"stage": "requirements_gather", "events": str(events)}],
+            }
+            for kind in ("inferable", "discoverable", "decision"):
+                base = {
+                    "id": "A1",
+                    "text": "Tests use unittest",
+                    "kind": kind,
+                    "category": "technical",
+                    "rationale": "Existing test runner",
+                    "supports": [],
+                }
+                with self.subTest(kind=kind):
+                    for bad in ("", "standard convention", "unread.py:1", "app.py:99"):
+                        with self.assertRaisesRegex(ValueError, "convention_ref"):
+                            goals.check_requirement_handoff(
+                                current,
+                                {
+                                    "requirements": [],
+                                    "ignored_statements": [],
+                                    "proposed_assumptions": [{**base, "convention_ref": bad}],
+                                },
+                            )
+                    with self.assertRaisesRegex(ValueError, "rationale"):
+                        goals.check_requirement_handoff(
+                            current,
+                            {
+                                "requirements": [],
+                                "ignored_statements": [],
+                                "proposed_assumptions": [{**base, "convention_ref": "app.py:1", "rationale": ""}],
+                            },
+                        )
+                    goals.check_requirement_handoff(
+                        current,
+                        {
+                            "requirements": [],
+                            "ignored_statements": [],
+                            "proposed_assumptions": [{**base, "convention_ref": "app.py:1"}],
+                        },
+                    )
+
+    def test_greenfield_accepts_engineering_convention_while_keeping_behavior_for_the_person(self):
+        # Empty workspace has no files to cite: technical conventions stand, behavior still needs confirmation.
+        with tempfile.TemporaryDirectory() as empty:
+            current = {"task": "Create a CLI.", "workspace": empty, "stages": []}
+            assumptions = [
+                {
+                    "id": "A1",
+                    "text": "Tests live in tests/",
+                    "kind": "inferable",
+                    "category": "technical",
+                    "convention_ref": "",
+                    "rationale": "Standard Python layout",
+                    "supports": [],
+                },
+                {
+                    "id": "A2",
+                    "text": "Empty input exits 0",
+                    "kind": "inferable",
+                    "category": "behavior",
+                    "convention_ref": "task",
+                    "rationale": "Quiet no-op",
+                    "supports": [],
+                },
+            ]
+            goals.check_requirement_handoff(
+                current, {"requirements": [], "ignored_statements": [], "proposed_assumptions": assumptions}
+            )
+            pending = ledger.unconfirmed(
+                assumptions,
+                confirmed_ids=(),
+                verify=ledger.verifier(current),
+                cites_person=ledger.cites_person(current),
+            )
+            self.assertEqual(["A2"], [row["id"] for row in pending])
+
+    def test_inference_is_separate_from_delegation_so_behavior_defaults_stay_delegable(self):
+        # Unattended --skip-requirements relies on behavior questions with a default remaining delegable.
+        q = {
+            "id": "Q1",
+            "question": "What should empty input print?",
+            "why": "Unstated edge case",
+            "options": ["Nothing", "Error"],
+            "proposed_default": "Nothing",
+            "kind": "decision",
+            "category": "behavior",
+            "delegable": True,
+        }
+        goals.check_delegable([q])
+        current = state()
+        current["pending_questions"] = [q]
+        self.assertEqual(["Q1"], [row["id"] for row in goals.delegable(current)])
+
+    def test_a_behavior_assumption_is_shown_for_confirmation_not_refused(self):
+        # The model's kind label does not decide who confirms it: the ledger does, and the gate asks.
+        row = {
+            "id": "A1",
+            "text": "Empty input prints nothing",
+            "kind": "inferable",
+            "category": "behavior",
+            "convention_ref": "cli.py:3",
+            "rationale": "The CLI prints nothing for no rows",
+            "supports": [],
+        }
+        rows = goals.validate_assumptions([row, {**row, "id": "A2", "kind": "decision", "convention_ref": ""}], set())
+        pending = ledger.unconfirmed(rows, confirmed_ids=(), verify=lambda ref: None)
+        self.assertEqual(["A1", "A2"], [r["id"] for r in pending])
+
     def test_assumption_cannot_support_an_unknown_requirement(self):
         row = {"id": "A1", "text": "x", "kind": "decision", "category": "cost", "supports": ["R9"]}
         with self.assertRaisesRegex(ValueError, "unknown requirement"):
@@ -78,6 +259,98 @@ class AssumptionValidationTests(unittest.TestCase):
         ]
         with self.assertRaisesRegex(ValueError, "Duplicate assumption id"):
             goals.validate_assumptions(rows, set())
+
+
+def planner_row(**extra):
+    return {"text": "Empty input prints an empty table", "basis": "agent_proposed", "answer_id": "", **extra}
+
+
+class PlannerAssumptionTests(unittest.TestCase):
+    """#3603: the Planner's own assumptions meet the ledger's rule, not only Requirements'."""
+
+    def setUp(self):
+        patcher = mock.patch.object(
+            code_citations,
+            "verify_citation",
+            create=True,
+            side_effect=lambda state, stage, ref, **_: None if ref.startswith("greet.py") else f"{ref} was never read",
+        )
+        self.verify = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def check(self, *rows):
+        draft = body()
+        draft["accepted_assumptions"] = list(rows)
+        lifecycle.check_planner_assumptions(state(), draft)
+
+    def test_a_planner_behavior_assumption_must_be_asked(self):
+        for category in ("behavior", "other", "requested_outcome", "cost"):
+            with self.subTest(category=category):
+                with self.assertRaisesRegex(ValueError, "open_blocking_question"):
+                    self.check(planner_row(category=category, convention_ref="greet.py:1"))
+
+    def test_a_planner_convention_needs_code_a_planning_stage_read(self):
+        with self.assertRaisesRegex(ValueError, "lib.py:2 was never read"):
+            self.check(planner_row(text="Helpers live in lib.py", category="technical", convention_ref="lib.py:2"))
+        self.check(planner_row(text="Output goes through print()", category="technical", convention_ref="greet.py:1"))
+        self.assertEqual(None, self.verify.call_args.args[1], "any planning stage of the turn may have read it")
+
+    def test_user_backed_and_unclassified_rows_are_not_judged(self):
+        self.check(
+            planner_row(basis="original_request", category="behavior"),
+            planner_row(category="behavior", basis="user_feedback"),
+            planner_row(),  # a saved or older draft has no category
+        )
+        self.verify.assert_not_called()
+
+    def test_install_refuses_a_planner_draft_with_an_unasked_behavior(self):
+        for origin in sorted(lifecycle.PLANNER_DRAFT_ORIGINS):
+            with self.subTest(origin=origin):
+                current = state()
+                draft = body()
+                draft["accepted_assumptions"] = [planner_row(category="behavior", convention_ref="")]
+                before = copy.deepcopy(current)
+                with self.assertRaisesRegex(ValueError, "behavior choice is the person's"):
+                    lifecycle.install_draft(current, draft, origin=origin)
+                self.assertEqual(before, current)
+
+    def test_a_persons_own_edit_is_not_held_to_the_planner_rule(self):
+        current = state()
+        draft = body()
+        draft["accepted_assumptions"] = [planner_row(category="behavior")]
+        lifecycle.install_draft(current, draft, origin="user_cli_edit")
+        self.assertEqual("behavior", current["goal_contract"]["body"]["accepted_assumptions"][0]["category"])
+
+    def test_handoff_assumption_confirmed_by_the_person_may_be_carried_unless_rejected(self):
+        import autocode_requirements_review as requirements_review
+
+        current = state()
+        current["requirements_handoff"] = {
+            "report": {
+                "proposed_assumptions": [
+                    {
+                        "id": "A1",
+                        "text": "Empty input prints an empty table",
+                        "kind": "inferable",
+                        "category": "behavior",
+                        "convention_ref": "greet.py:1",
+                        "rationale": "Quiet empty output",
+                        "supports": [],
+                    }
+                ]
+            },
+            "output": "req.json",
+        }
+        draft = body()
+        draft["accepted_assumptions"] = [planner_row(category="behavior", convention_ref="")]
+        with self.assertRaisesRegex(ValueError, "behavior choice is the person's"):
+            lifecycle.check_planner_assumptions(current, draft)
+        review_id = requirements_review.review_question(current)["id"]
+        current["answers"] = {review_id: {"text": "plan", "kind": "user"}}
+        lifecycle.check_planner_assumptions(current, draft)
+        current["deferred_obligations"] = [{"id": "ob-1", "assumption_id": "A1", "status": "open"}]
+        with self.assertRaisesRegex(ValueError, "behavior choice is the person's"):
+            lifecycle.check_planner_assumptions(current, draft)
 
 
 class RequirementPreservationTests(unittest.TestCase):
@@ -384,6 +657,32 @@ class RejectAssumptionTests(unittest.TestCase):
         obligation = goals.reject_assumption(current, "A2", shown(current))
         self.assertEqual("remediation", obligation["kind"])
         self.assertEqual([], obligation["supports"])
+
+    def test_behavior_and_other_categories_become_human_decision_obligations(self):
+        for category in ("behavior", "other"):
+            with self.subTest(category=category):
+                current = state()
+                current["goal_contract"] = _contract()
+                current["requirements_handoff"] = {
+                    "report": {
+                        "proposed_assumptions": [
+                            {
+                                "id": "A3",
+                                "text": "Empty input prints nothing",
+                                "kind": "inferable",
+                                "category": category,
+                                "convention_ref": "tools/x.py:1",
+                                "rationale": "quiet default",
+                                "supports": ["R1"],
+                            }
+                        ]
+                    },
+                    "output": "x.json",
+                }
+                await_approval(current)
+                obligation = goals.reject_assumption(current, "A3", shown(current))
+                self.assertEqual("human_decision", obligation["kind"])
+                self.assertEqual(["R1"], obligation["supports"])
 
     def test_legacy_or_unknown_assumption_id_cannot_be_rejected(self):
         current = state()

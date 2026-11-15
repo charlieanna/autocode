@@ -13,9 +13,11 @@ from typing import Any
 try:
     from . import autocode_git_delivery_policy as git_delivery
     from . import autocode_workflows as workflows
+    from .autocode_assumption_ledger import ASSUMPTION_CATEGORIES
 except ImportError:
     import autocode_git_delivery_policy as git_delivery
     import autocode_workflows as workflows
+    from autocode_assumption_ledger import ASSUMPTION_CATEGORIES
 
 ACTIONS = frozenset({"continue", "retry", "replan", "escalate"})
 RECEIPT_VERSION = 1
@@ -267,19 +269,34 @@ def _validate_body(body: Any) -> bool:
             return False
     if not all(
         isinstance(row, Mapping)
-        and set(row) == {"text", "basis", "answer_id"}
+        and set(row) >= {"text", "basis", "answer_id"}
+        and set(row) <= {"text", "basis", "answer_id", "category", "convention_ref"}
         and all(isinstance(row.get(key), str) for key in ("text", "basis", "answer_id"))
         and row["basis"] in {"original_request", "user_answer", "user_feedback", "agent_proposed", "delegated"}
+        and ("category" not in row or (isinstance(row["category"], str) and row["category"] in ASSUMPTION_CATEGORIES))
+        and ("convention_ref" not in row or isinstance(row["convention_ref"], str))
         for row in body["accepted_assumptions"] + body["delegated_decisions"]
     ):
         return False
     if any(row["basis"] != "delegated" for row in body["delegated_decisions"]):
         return False
-    if not _rows(body["open_blocking_questions"], {"id", "question", "why", "options", "proposed_default"}):
+    if not _rows(
+        body["open_blocking_questions"],
+        {"id", "question", "why", "options", "proposed_default"},
+        optional={"kind", "category", "delegable", "convention_ref"},
+    ):
         return False
     if not all(
         _strings(row["options"])
-        and all(isinstance(row[k], str) and row[k].strip() for k in ("id", "question", "why", "proposed_default"))
+        and all(isinstance(row[k], str) and row[k].strip() for k in ("id", "question", "why"))
+        and isinstance(row["proposed_default"], str)
+        and (
+            "kind" not in row
+            or (isinstance(row["kind"], str) and row["kind"] in {"discoverable", "inferable", "decision"})
+        )
+        and ("category" not in row or (isinstance(row["category"], str) and row["category"] in ASSUMPTION_CATEGORIES))
+        and ("delegable" not in row or isinstance(row["delegable"], bool))
+        and ("convention_ref" not in row or isinstance(row["convention_ref"], str))
         for row in body["open_blocking_questions"]
     ):
         return False

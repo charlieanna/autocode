@@ -40,22 +40,30 @@ def pending(state: RunState):
     )
 
 
-def _binding(state: RunState, kind):
-    report = (state.get("requirements_handoff") or {}).get("report") or {}
+def _handoff(state: RunState, kind: str | None):
     if kind == "requirements":
-        unresolved = [q for q in report.get("open_questions") or [] if q.get("id") not in (state.get("answers") or {})]
-        if state.get("goal_contract") or not report or unresolved:
+        return review.current_turn_handoff(state) or None
+    return state.get("requirements_handoff")
+
+
+def _binding(state: RunState, kind):
+    handoff = _handoff(state, kind)
+    report = (handoff or {}).get("report") or {}
+    if kind == "requirements":
+        open_questions, _ = review.without_summary_confirmations(state, report)
+        unresolved = [q for q in open_questions if q.get("id") not in (state.get("answers") or {})]
+        if review.current_turn_has_contract(state) or not report or unresolved:
             return None
         return {"token": review.review_question(state)["id"], "stage": "requirements_gather"}
     contract = state.get("goal_contract") or {}
-    handoff = util.digest(report)[:12] if report else "none"
+    handoff_ref = util.digest(report)[:12] if report else "none"
     if (
         kind != "plan"
         or not contract
         or not identity.sealed(contract)
         or contract.get("approval_status") != "draft"
         or state.get("displayed_goal") != identity.token(contract)
-        or state.get("displayed_handoff") != handoff
+        or state.get("displayed_handoff") != handoff_ref
         or state.get("pending_questions")
     ):
         return None
@@ -82,7 +90,7 @@ def offer(state: RunState):
         and event.get("intent") == "confirm"
         and event.get("reply_after")
         and event.get("gate_token") == binding["token"]
-        and event.get("handoff_sha256") == util.digest(state.get("requirements_handoff"))
+        and event.get("handoff_sha256") == util.digest(_handoff(state, kind))
     ):
         decision = {"message_id": event["id"], "intent": "confirm"}
     return {"kind": kind, **binding, "decision": decision}
@@ -109,7 +117,7 @@ def begin(state: RunState, text):
             "gate_kind": gate["kind"],
             "gate_token": gate["token"],
             "stage": gate["stage"],
-            "handoff_sha256": util.digest(state.get("requirements_handoff")),
+            "handoff_sha256": util.digest(_handoff(state, gate["kind"])),
             "return_stage": state.get("next_stage"),
             "return_status": state["status"],
             "return_phase": state.get("phase"),
@@ -129,7 +137,7 @@ def _checked(state: RunState):
         or not binding
         or binding["token"] != event["gate_token"]
         or binding["stage"] != event["stage"]
-        or util.digest(state.get("requirements_handoff")) != event["handoff_sha256"]
+        or util.digest(_handoff(state, event.get("gate_kind"))) != event["handoff_sha256"]
     ):
         raise ValueError("Gate reply does not match the current displayed evidence")
     return event
@@ -159,7 +167,7 @@ def context(state: RunState):
         "task": state.get("task"),
         "workspace": state.get("workspace"),
         "message": event,
-        "requirements_handoff": state.get("requirements_handoff"),
+        "requirements_handoff": _handoff(state, event.get("gate_kind")),
         "goal_contract": state.get("goal_contract"),
         "question": review.review_question(state)["question"] if event["gate_kind"] == "requirements" else None,
         "prior_exchanges": [

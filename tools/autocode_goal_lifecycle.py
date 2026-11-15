@@ -14,11 +14,13 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_assumption_ledger as assumption_ledger
     from . import autocode_component_plan as component_plan
     from . import autocode_roles as roles
     from . import autocode_source_scope as source_scope
     from . import autocode_technical_questions as technical_questions
 except ImportError:
+    import autocode_assumption_ledger as assumption_ledger
     import autocode_component_plan as component_plan
     import autocode_roles as roles
     import autocode_source_scope as source_scope
@@ -67,6 +69,7 @@ try:
     from . import autocode_progressive_state as progressive_state
     from . import autocode_proof_declarations as proof_declarations
     from . import autocode_recovery_context as recovery_context
+    from . import autocode_requirements_review as requirements_review
     from . import autocode_resolver_human as human
     from . import autocode_resolver_recommendation as recommendation
     from . import autocode_review_routing as review_routing
@@ -124,6 +127,7 @@ except ImportError:
     import autocode_progressive_state as progressive_state
     import autocode_proof_declarations as proof_declarations
     import autocode_recovery_context as recovery_context
+    import autocode_requirements_review as requirements_review
     import autocode_resolver_human as human
     import autocode_resolver_recommendation as recommendation
     import autocode_review_routing as review_routing
@@ -313,7 +317,7 @@ def apply_requirements(state: RunState, body, *, artifact_sha256, record=None):
     state["pending_questions"] = []
     state.pop("user_request", None)
     questions = copy.deepcopy(body["open_blocking_questions"])
-    remaining = technical_questions.settle(state, questions, state["requirements_artifact_token"])
+    remaining = technical_questions.settle(state, questions, state["requirements_artifact_token"], stage="requirements")
     if len(remaining) != len(questions):
         state.update({"status": "RUNNING", "phase": "DISCOVERING", "next_stage": "requirements"})
         return
@@ -352,6 +356,58 @@ UNAUTHORED_DRAFTS = (
 )
 
 
+# Drafts the Planner wrote, in the joint (v3) and the v2 flow: their own assumptions are checked at install.
+PLANNER_DRAFT_ORIGINS = frozenset(examples.PLANNER_ORIGINS | {"plan", "plan_revise", "plan_finalize"})
+
+
+def _confirmed_handoff_texts(state: RunState) -> frozenset[str]:
+    """Assumption texts from the current requirements handoff that the person confirmed and did not reject."""
+    handoff_fn = getattr(requirements_review, "current_turn_handoff", None)
+    handoff = handoff_fn(state) if callable(handoff_fn) else (state.get("requirements_handoff") or {})
+    report = handoff.get("report") if isinstance(handoff, dict) else None
+    if not isinstance(report, dict):
+        return frozenset()
+    confirmed_fn = getattr(requirements_review, "confirmed_assumption_ids", None)
+    confirmed = set(confirmed_fn(state)) if callable(confirmed_fn) else set()
+    review_answer = (state.get("answers") or {}).get(requirements_review.review_question(state)["id"]) or {}
+    review_confirmed = str(review_answer.get("text", "")).strip().lower() == requirements_review.APPROVE
+    rejected = {row.get("assumption_id") for row in state.get("deferred_obligations") or [] if isinstance(row, dict)}
+    texts = set()
+    for raw in report.get("proposed_assumptions") or []:
+        row = assumption_ledger.normalize(raw)
+        if row["id"] in rejected or not row["text"].strip():
+            continue
+        if review_confirmed or (row["id"] and row["id"] in confirmed):
+            texts.add(row["text"].strip())
+    return frozenset(texts)
+
+
+def check_planner_assumptions(state: RunState, body):
+    """A Planner's own assumption rests on code it read, never on a guess about what the person sees (#3603).
+
+    An ``agent_proposed`` row about user-visible behavior, or a protected or unclassified choice, is the
+    person's to decide, so the draft must ask it as an open_blocking_question unless Requirements already
+    had the person confirm that assumption; a technical one must cite code a planning stage of this turn
+    read. The rule is the assumption ledger's, as for Requirements. A row with no category (a saved draft,
+    or one written before rows were classified) is not judged."""
+    verify = assumption_ledger.verifier(state, None)
+    person = assumption_ledger.cites_person(state)
+    confirmed_texts = _confirmed_handoff_texts(state)
+    for row in body.get("accepted_assumptions", []):
+        if not isinstance(row, dict) or row.get("basis") != "agent_proposed" or "category" not in row:
+            continue
+        if str(row.get("text", "")).strip() in confirmed_texts:
+            continue
+        normalized = assumption_ledger.normalize({**row, "id": "planner"})
+        why = assumption_ledger.reason(normalized, verify=verify, cites_person=person)
+        if why:
+            raise ValueError(
+                f"Planner assumption {row.get('text', '')!r} ({row['category']}): {why}. Ask it as an "
+                "open_blocking_question with options and a proposed_default, or, for an engineering "
+                "convention, cite in convention_ref the code you read"
+            )
+
+
 def install_draft(state: RunState, body, *, origin, allow_legacy=False, changes=None, record=None, queue_human=True):
     body = review_routing.contract_body(state, body)
     body = brief_obligations.prepare_body(state, body, origin, record)
@@ -359,6 +415,8 @@ def install_draft(state: RunState, body, *, origin, allow_legacy=False, changes=
     if not allow_legacy or any(key in body for key in BRIEF_FIELDS):  # a legacy body has no such box
         body = current_behavior.prepare_body(state, body, origin)
     validate_body(state, body, allow_legacy=allow_legacy, origin=origin)
+    if origin in PLANNER_DRAFT_ORIGINS:
+        check_planner_assumptions(state, body)
     if origin in examples.PLANNER_ORIGINS:
         examples.refuse_unterminated_outputs(body, (state.get("goal_contract") or {}).get("body") or {})
     # Here, not in validate_body, which approval runs again on a saved draft. Human-review criteria too:
@@ -705,6 +763,35 @@ def answer_lines(answers) -> list[str]:
     return lines
 
 
+def _render_no_contract(state: RunState) -> str:
+    public = human.current(state)
+    if roles.planning_flow(state) == "v2":
+        questions = public["questions"] if public else human.internal_questions(state)
+        lines = ["No contract yet; resume with Requirements."]
+        for question in questions:
+            if not public:
+                lines.append("  Unissued proposal (not an actionable question):")
+            lines += [f"  [{question['id']}] {question['question']}", f"    Why: {question['why']}"]
+        if public:
+            # The request is named so it can be answered; its token is read back from the run
+            # by `--resolver-token -`, so no printed line carries the value (#2958).
+            lines.append(f"Resolver request ID: {public['request_id']}")
+        return "\n".join(lines)
+    header = "No contract yet; resume to interview with the Requirements Gatherer."
+    if not public or not public.get("questions"):
+        return header
+    lines = [header]
+    for question in public["questions"]:
+        lines.append(f"Answer ID: {question['id']} - {question['question']}")
+        if question.get("why"):
+            lines.append(f"  Why: {question['why']}")
+        lines += [f"  Option: {option}" for option in question.get("options") or ()]
+        if question.get("proposed_default"):
+            lines.append(f"  Proposed default: {question['proposed_default']}")
+    lines.append(f"Resolver request ID: {public['request_id']}")
+    return "\n".join(lines)
+
+
 def render(state: RunState, run_dir=None, *, details=True):
     """The brief as a person reads it; ``run_dir``, when given, completes the approve command.
 
@@ -714,20 +801,7 @@ def render(state: RunState, run_dir=None, *, details=True):
         return screen
     contract = state.get("goal_contract")
     if not contract:
-        if roles.planning_flow(state) == "v2":
-            public = human.current(state)
-            questions = public["questions"] if public else human.internal_questions(state)
-            lines = ["No contract yet; resume with Requirements."]
-            for question in questions:
-                if not public:
-                    lines.append("  Unissued proposal (not an actionable question):")
-                lines += [f"  [{question['id']}] {question['question']}", f"    Why: {question['why']}"]
-            if public:
-                # The request is named so it can be answered; its token is read back from the run
-                # by `--resolver-token -`, so no printed line carries the value (#2958).
-                lines.append(f"Resolver request ID: {public['request_id']}")
-            return "\n".join(lines)
-        return "No contract yet; resume to interview with the Requirements Gatherer."
+        return _render_no_contract(state)
     body = contract["body"]
     public = human.current(state)
     asks_approval = bool(public and public["scope"] == "goal_approval")

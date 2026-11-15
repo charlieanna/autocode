@@ -1943,6 +1943,8 @@ def report_for(stage: str, data: dict) -> dict:
             return scripted_fault("project_memory_provider.py")["requirements"](report, data)
         if CONFIG.get("fault") == "clarifying_requirements":
             report = scripted_fault("clarifying_requirements_provider.py")["requirements"](report, data)
+        if CONFIG.get("fault") == "hidden_assumption_questions":
+            report = scripted_fault("hidden_assumptions_provider.py")["requirements"](report, data)
         if "ready" in OUTPUT_SCHEMA.get("properties", {}):
             # The triage pass's small contract (#2940): the wire schema asks only for the blocking
             # questions or ready, so the report this scripted provider would hand over answers it —
@@ -2416,6 +2418,32 @@ def guided_to_fix_citation() -> bool:
     return "code_refs" in guidance or "code_ref" in guidance.lower() or any(note in guidance for note in bug_notes())
 
 
+def _default_ambiguity_audit(payload: dict) -> dict:
+    qids = [
+        str(q["id"])
+        for q in (payload.get("open_questions") or [])
+        if isinstance(q, dict) and q.get("id") and q.get("kind") == "decision" and q.get("category") != "technical"
+    ]
+    first = (
+        {"status": "open_question", "refs": qids}
+        if qids
+        else (
+            {"status": "not_applicable", "refs": []}
+            if payload.get("job") == "none" and not payload.get("requirements")
+            else {"status": "specified_in_source", "refs": ["task"]}
+        )
+    )
+    rest = {"status": "not_applicable", "refs": []}
+    return {
+        "outcome_scope": first,
+        "inputs_and_edge_cases": dict(rest),
+        "error_and_failure_behavior": dict(rest),
+        "compatibility_and_callers": dict(rest),
+        "ux_and_output_contract": dict(rest),
+        "state_and_side_effects": dict(rest),
+    }
+
+
 def complete(value, schema: dict):
     """Give every required field the script leaves out an empty value of its schema type.
 
@@ -2427,12 +2455,27 @@ def complete(value, schema: dict):
     kind = kind[0] if isinstance(kind, list) else kind
     if kind == "object" and isinstance(value, dict):
         properties = schema.get("properties", {})
+        if "basis" in value and "answer_id" in value and "category" in properties:
+            real = [ref for ref in source_refs() if ref != "task"]
+            if Path("todo.py").is_file() and "todo.py" not in real:
+                real.append("todo.py")
+            if value.get("basis") == "agent_proposed":
+                value.setdefault("category", "technical")
+                value.setdefault("convention_ref", f"{real[0]}:1" if real else "")
+            else:
+                value.setdefault("category", "requested_outcome")
+                value.setdefault("convention_ref", "")
+        needs_audit = "ambiguity_audit" in properties and "ambiguity_audit" not in value
         for key in schema.get("required", []):
+            if key == "ambiguity_audit":
+                continue
             if key not in value and key in properties:
                 value[key] = empty(properties[key])
         for key, sub in properties.items():
             if key in value:
                 complete(value[key], sub)
+        if needs_audit:
+            value["ambiguity_audit"] = _default_ambiguity_audit(value)
     elif kind == "array" and isinstance(value, list) and isinstance(schema.get("items"), dict):
         for item in value:
             complete(item, schema["items"])
@@ -2788,6 +2831,39 @@ def _main() -> int:
     if WIRE_SCHEMA and _schema_has_unique_items(WIRE_SCHEMA):
         return refuse_unique_items_schema(WIRE_SCHEMA)
     OUTPUT_SCHEMA = report_schema(WIRE_SCHEMA)
+    if (
+        not data.get("report_repair")
+        and "ready" not in OUTPUT_SCHEMA.get("properties", {})
+        and stage
+        in {
+            "requirements_gather",
+            "draft_plan",
+            "revise_plan",
+            "review_plan",
+            "finalize_plan",
+            "requirements",
+            "plan",
+            "plan_review",
+            "plan_revise",
+            "plan_finalize",
+        }
+    ):
+        _read = [ref for ref in source_refs() if ref != "task"]
+        if Path("todo.py").is_file() and "todo.py" not in _read:
+            _read.append("todo.py")
+        if _read:
+            emit(
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "id": "read-sources",
+                        "type": "command_execution",
+                        "command": shlex.join(["head", "-n", "1", *_read]),
+                        "exit_code": 0,
+                        "aggregated_output": "",
+                    },
+                }
+            )
     # Live #452 run jb1acns9: the Builder's first report after approval cites no evidence.
     no_evidence = stage == "builder" and os.environ.get("SCENARIO_FAKE_BUILDER_NO_EVIDENCE") == "1"
     if no_evidence and data.get("report_repair"):

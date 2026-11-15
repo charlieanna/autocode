@@ -297,6 +297,37 @@ class TruncatedReviewRecoveryTests(unittest.TestCase):
                 self.assertEqual("PAUSED_RESOLVER_OPERATIONAL", stopped.exception.status)
                 self.assertEqual(retained, state)
 
+    def test_silent_start_report_repair_timeout_refunds_once_and_lifts_first_event_budget(self):
+        import autocode_role_launch as role_launch
+
+        state = self.timed_out_repair()
+        state["settings"]["budget_origins"] = {"idle_timeout_seconds": "runner_default"}
+        state["pending_report_repair"]["attempts"] = 2
+        Path(state["active_stage"]["events"]).write_text("")
+        self.assertTrue(self.recover_timeout(state))
+        self.assertEqual(1, state["pending_report_repair"]["attempts"])
+        self.assertTrue(state["pending_report_repair"]["silent_start_retried"])
+        watch = role_launch.launch_limits(state, "glm-5", "review_plan", "review_plan_report_repair", report_only=True)[
+            3
+        ]
+        self.assertIsNone(watch["first_event_limit"])
+        self.assertEqual(600, watch["idle_limit"])
+
+        # A second zero-event timeout on an ordinary repair does not refund again.
+        retry = self.attempt("review_plan", ordinal=2, report_only=True)
+        Path(retry["events"]).write_text("")
+        retry.update(
+            timed_out=True,
+            exit_code=-15,
+            contract_hash=state["goal_contract"]["hash"],
+            processes=[{"pid": 99999999, "birth_time": 1}],
+        )
+        state["pending_report_repair"]["attempts"] = 2
+        state["active_stage"] = retry
+        with self.assertRaises(support.Paused) as stopped:
+            self.recover_timeout(state)
+        self.assertEqual("PAUSED_RESOLVER_OPERATIONAL", stopped.exception.status)
+
 
 class TruncatedReviewCliTests(unittest.TestCase):
     new_run_engine_args = ("--engine", "opencode")

@@ -7,6 +7,11 @@ can make. category names what the answer changes: cost, quota, permission,
 external_side_effect, requested_outcome, behavior, technical or other.
 delegable=true only when proposed_default is a safe choice the user may accept wholesale;
 always false for cost, quota, permission, external_side_effect and requested_outcome.
+convention_ref is "" except on a category="technical" question with a proposed_default: there
+it cites the path:line you read that settles the choice, and AutoCode settles the question
+itself only when that citation checks out; otherwise the person is asked. A user-visible
+behavior is category="behavior", never "technical". Tests, proof shape and commands are never a
+question: cite the code instead.
 Where the report has machine_resolutions and access_blockers, use [] unless
 investigation_request is present.
 
