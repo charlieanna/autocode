@@ -1,6 +1,7 @@
 """Captured commands finish only after their invocation's children are collected."""
 
 import errno
+import importlib.machinery
 import json
 import os
 import platform
@@ -26,6 +27,20 @@ except ImportError:  # Public behavioral proof also runs unchanged on the base.
 
 
 class CapturedContractTests(unittest.TestCase):
+    def test_missing_family_loader_refuses_before_module_execution(self):
+        source = Path(reaper.__file__).read_bytes()
+        for specification in (None, importlib.machinery.ModuleSpec("autocode_capture_family", None)):
+            with self.subTest(specification=specification):
+                with (
+                    patch.object(reaper.importlib.util, "spec_from_file_location", return_value=specification),
+                    patch.object(reaper.importlib.util, "module_from_spec") as load,
+                    patch.object(captured.subprocess, "Popen") as launch,
+                    self.assertRaisesRegex(ImportError, "Capture family module has no source loader"),
+                ):
+                    exec(compile(source, reaper.__file__, "exec"), {"__file__": reaper.__file__, "__name__": "fixture"})
+                load.assert_not_called()
+                launch.assert_not_called()
+
     def test_second_pipe_relocation_failure_closes_original_and_duplicate_descriptors(self):
         reader, writer = os.pipe()
         descriptors = [reader, writer]
