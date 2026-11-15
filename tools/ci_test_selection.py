@@ -91,6 +91,7 @@ SCENARIO_SELECTION_INPUTS = {
 # Prefixes deliberately include resource fragments, whose callers generally do
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("tests/test_changed_code_evidence_cli.py", ("tests.test_mutation_continuation_cli",)),
     *(
         (path, ("tests.test_storage_errors", "tests.test_verification_preparation_failure"))
         for path in ("scenarios/harness/driver.py", "docs/schemas/status-view.schema.json")
@@ -560,6 +561,17 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # that previously broke master would remain. These are fake-provider consumers,
 # never a request to qualify against live models.
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (
+        (
+            "tools/autocode_mutation_checkpoint.py",
+            "tools/autocode_mutation_check.py",
+            "tools/autocode_changed_code_continuation.py",
+            "tools/autocode_changed_code_proof.py",
+            "tools/autocode_completion_result.py",
+            "tools/autocode_regression.py",
+        ),
+        ("tests.test_mutation_continuation_cli",),
+    ),
     (
         ("tools/autocode_contract_identity.py",),
         (

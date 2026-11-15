@@ -299,14 +299,33 @@ def _collect(
     else:
         reference_limit = min(BUDGET_SECONDS, deadline - clock())
         if reference_limit <= 0:
-            return record("the 900-second mutation budget expired before the unmutated run", rows)
+            failed = record("the 900-second mutation budget expired before the unmutated run", rows)
+            if previous is not None:
+                failed["reference_attempt"] = {
+                    "output": None,
+                    "timeout_seconds": 0,
+                    "budget_limited": True,
+                    "timed_out": False,
+                    "not_started": True,
+                    "outcome": "not_run",
+                }
+            return failed
     cache = Path(tempfile.mkdtemp(prefix="pycache-", dir=evidence))
     reference = run(isolated(narrowed, cache), "unmutated", reference_limit)
     outcome, passed = (proved_outcome if enforcement else judge)(reference, tests)
     if outcome != "survived" or (strict and set(passed) != set(tests)):
-        return record(
+        failed = record(
             "the proving tests did not pass unmutated in the mutation check's own run, so no mutant ran", rows
         )
+        if previous is not None:
+            failed["reference_attempt"] = {
+                "output": reference.get("output"),
+                "timeout_seconds": reference_limit,
+                "budget_limited": reference_limit < BUDGET_SECONDS,
+                "timed_out": reference.get("timed_out") is True,
+                "outcome": outcome,
+            }
+        return failed
     bound = max(MUTANT_FLOOR_SECONDS, MUTANT_FACTOR * float(reference.get("duration_seconds") or 0))
     mutant_command = mutation_results.stop_command(narrowed) if enforcement else narrowed
     unrun = 0
