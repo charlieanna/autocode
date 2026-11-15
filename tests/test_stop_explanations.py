@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import sys
 import tempfile
+import tokenize
 import unittest
 from pathlib import Path
 
@@ -20,7 +21,12 @@ import autocode_stop_explanations as stop_explanations
 def named_pause_states(root: Path = TOOLS) -> set[str]:
     named = set()
     for path in python_sources(root):
-        text = path.read_text()
+        with tokenize.open(path) as source:
+            text = "\n".join(
+                token.string
+                for token in tokenize.generate_tokens(source.readline)
+                if token.type in (tokenize.STRING, getattr(tokenize, "FSTRING_MIDDLE", -1))
+            )
         named.update(re.findall(r"PAUSED_[A-Z_]+", text))
         named.update(
             re.findall(
@@ -206,6 +212,17 @@ class StopExplanationTests(unittest.TestCase):
         named = named_pause_states()
         missing = sorted(named - set(stop_explanations.TABLE))
         self.assertEqual([], missing, f"pause states without an explanation: {missing}")
+
+    def test_pause_state_scan_ignores_identifiers_and_comments(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "runtime.py").write_text(
+                '_PAUSED_COLLECTION = {"PAUSED_ACTUAL"}\n'
+                'PAUSED_VARIABLE = "ordinary text"\n'
+                'status = f"PAUSED_FSTRING {42}"\n'
+                "# PAUSED_COMMENT is not a runtime state\n"
+            )
+            self.assertEqual({"PAUSED_ACTUAL", "PAUSED_FSTRING"}, named_pause_states(root))
 
     def test_nested_runtime_pause_is_required_but_fixture_pauses_are_excluded(self):
         with tempfile.TemporaryDirectory() as directory:
