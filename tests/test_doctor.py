@@ -813,6 +813,16 @@ class CliTests(unittest.TestCase):
         version = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())["project"]["version"]
         self.assertTrue(proc.stdout.startswith(f"autocode {version} ("), proc.stdout)
 
+        import autocode_subcommands as sub
+
+        with patch.object(sub.metadata, "version", return_value="0.0.1-stale"):
+            self.assertEqual(version, sub.package_version())
+        with tempfile.TemporaryDirectory() as folder, patch.object(sub, "HERE", Path(folder) / "autocode_cli"):
+            with patch.object(sub.metadata, "version", return_value="0.9.9"):
+                self.assertEqual("0.9.9", sub.package_version())
+            with patch.object(sub.metadata, "version", side_effect=sub.metadata.PackageNotFoundError):
+                self.assertEqual("unknown", sub.package_version())
+
     def test_doctor_reports_json_and_fails_on_a_repository_git_cannot_read(self):
         # A folder outside Git is ready (a task sets it up itself); a repository Git cannot read is not.
         with tempfile.TemporaryDirectory() as folder:

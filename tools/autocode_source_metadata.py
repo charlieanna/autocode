@@ -75,6 +75,7 @@ ARTIFACT_SLUGS: frozenset[str] = frozenset(
         "requirements-gather",
         "requirements-revise",
         "resolve",
+        "resolve-repair",
         "resolver",
         "review-change",
         "review-checkpoint",

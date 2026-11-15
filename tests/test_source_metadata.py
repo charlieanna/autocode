@@ -117,7 +117,7 @@ class AutocodeMetadataReferenceTests(unittest.TestCase):
 
     def test_documentary_autocode_criterion_and_artifact_tokens_are_removed_without_hiding_values(self):
         text = (
-            "Keep AC5 and AC6 from discovery-02 and 001/builder-01.jsonl "
+            "Keep AC5 and AC6 from discovery-02, 001/builder-01.jsonl and 001/resolve-repair-01.json "
             "after validator-report-repair-01.json under milestone M2 (criterion C3, revision r5, "
             "r5:abcdef012345), and preserve exit code 7 with 30s timeout and $50 cap."
         )
@@ -127,6 +127,7 @@ class AutocodeMetadataReferenceTests(unittest.TestCase):
             "AC6",
             "discovery-02",
             "001/builder-01.jsonl",
+            "001/resolve-repair-01.json",
             "validator-report-repair-01.json",
             "milestone M2",
             "criterion C3",
@@ -135,7 +136,17 @@ class AutocodeMetadataReferenceTests(unittest.TestCase):
         ):
             self.assertIn(token, tokens)
         cleaned = metadata.value_text(text, [], autocode_reference_tokens=tokens)
-        for hidden in ("AC5", "AC6", "discovery-02", "builder-01", "validator-report-repair-01", "M2", "C3", "r5"):
+        for hidden in (
+            "AC5",
+            "AC6",
+            "discovery-02",
+            "builder-01",
+            "resolve-repair-01",
+            "validator-report-repair-01",
+            "M2",
+            "C3",
+            "r5",
+        ):
             self.assertNotIn(hidden, cleaned)
         for kept in ("exit code 7", "30s", "$50"):
             self.assertIn(kept, cleaned)
