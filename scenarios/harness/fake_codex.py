@@ -1934,6 +1934,8 @@ def report_for(stage: str, data: dict) -> dict:
             return scripted_fault("project_memory_provider.py")["requirements"](report, data)
         if CONFIG.get("fault") == "clarifying_requirements":
             report = scripted_fault("clarifying_requirements_provider.py")["requirements"](report, data)
+        if CONFIG.get("fault") == "hidden_assumption_questions":
+            report = scripted_fault("hidden_assumptions_provider.py")["requirements"](report, data)
         if "ready" in OUTPUT_SCHEMA.get("properties", {}):
             # The triage pass's small contract (#2940): the wire schema asks only for the blocking
             # questions or ready, so the report this scripted provider would hand over answers it —
