@@ -776,6 +776,47 @@ class StoppedRunProjectionTests(unittest.TestCase):
         self.assertEqual("AutoCode could not finish this task", public["recovery"]["title"])
         self.assertEqual("autocode", public["pause_category"])
 
+    def test_terminal_stop_keeps_ended_attempts_counted_without_claiming_live_work(self):
+        endings = (
+            {"finished_at": "2026-11-15T12:00:01+00:00", "accounted": True, "exit_code": 1},
+            {"finished_at": "2026-11-15T12:00:01+00:00", "timed_out": True, "exit_code": -15},
+            {"accounted": True, "exit_code": 1},
+        )
+        for stage, status, saved, ending in itertools.product(
+            ("requirements_gather", "builder"),
+            ("RUNNING", "PAUSED_INTERVENTION"),
+            (False, True),
+            endings,
+        ):
+            job = "requirements" if stage == "requirements_gather" else "builder"
+            with self.subTest(stage=stage, status=status, saved=saved, ending=ending):
+                attempt = {
+                    "stage": stage,
+                    "role": job,
+                    "model": "fixture/model",
+                    "iteration": 1,
+                    "started_at": "2026-11-15T12:00:00+00:00",
+                    "output": "/run/ended-attempt.json",
+                    **ending,
+                }
+                state = self.state(status=status, active_stage=attempt, next_stage="tester")
+                if saved:
+                    state["stages"] = [copy.deepcopy(attempt)]
+                self.apply_stop(state)
+                public = self.assert_terminal(state)
+                row = next(row for row in public["pipeline"] if row["job"] == job)
+                self.assertEqual("ran", row["state"])
+                self.assertNotIn("next", {row["state"] for row in public["pipeline"]})
+                measured = public["usage"]["accounting"]
+                self.assertEqual(1, measured["attempt_count"])
+                self.assertEqual(ending["exit_code"], measured["attempts"][0]["exit_code"])
+                self.assertFalse(measured["attempts"][0]["active"])
+                self.assertEqual(int(job == "requirements"), public["planning_calls"]["used"])
+                self.assertFalse(public["stage_models"]["changeable"])
+                self.assertNotIn("working", public["stage_models"]["reason"].lower())
+                headline = progress.progress(state, accepted=(), stage=row["label"], needs=public["needs"])["headline"]
+                self.assertEqual(f"{row['label']} attempt ended", headline)
+
     def test_applied_stop_precedes_retained_failure_presentations(self):
         for actor in ("user_cli", stop.RUNNER_ACTOR):
             for scope in ("verification_preparation", "model_listing"):
