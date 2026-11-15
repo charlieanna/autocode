@@ -9,6 +9,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Fixed
+
+- **An incomplete retained plan has no approval authority and does not crash recovery** (#3614): checking a plan identity missing its task, revision or body now returns unapproved, so rejected-report recovery can continue through its existing path. Exact digest, approval-token, actor and event checks stay required.
+
 ### Added
 
 - **Resolver repair job** (`resolve_repair`): a rejected stage report that one same-model report repair could not settle, and a stage that stalls on the Builder retry limit, a milestone stall or a planning budget, now goes to a read-only Resolver that repairs the report from checks that really ran, asks for one missing check, sends the Builder back with a changed approach, starts a replan, or asks a genuine product question, instead of pausing for the person. A failing check sends the Builder back without a report repair first; a check reported as passing that fails the clean replay is a false report and keeps its existing route. Bounded per task and counted against the planning call cap.
