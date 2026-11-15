@@ -1812,7 +1812,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/a6a0eb8e3a14a35723e4cf19ae9f0de1b81c7f2f/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/a5a484080bf42e047231f7ab524db75ad81c973e/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -3125,7 +3125,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/a6a0eb8e3a14a35723e4cf19ae9f0de1b81c7f2f/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/a5a484080bf42e047231f7ab524db75ad81c973e/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3914,7 +3914,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/a6a0eb8e3a14a35723e4cf19ae9f0de1b81c7f2f/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/a5a484080bf42e047231f7ab524db75ad81c973e/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
@@ -4147,7 +4147,9 @@ its wording may change, so programs read the fields beside it:</p>
   <code>&lt;job&gt; working</code> (<code>Tester writing tests first</code> while the Tester writes the approved
   tests before the Builder starts), <code>&lt;job&gt; finished</code> (its report is saved but not applied yet),
   <code>&lt;job&gt; finished · Next: &lt;job&gt;</code> when the run already knows the job after that
-  finished one (#1711), <code>Next: &lt;job&gt;</code>, <code>&lt;job&gt; stopped without saving a report</code> (the
+  finished one (#1711), <code>&lt;job&gt; attempt ended</code> (an ended or accounted attempt
+  still held for reconciliation, without asserting a successful report or confirmed cleanup),
+  <code>Next: &lt;job&gt;</code>, <code>&lt;job&gt; stopped without saving a report</code> (the
   recorded workers are
   gone; see the top-level <code>stale</code> and <code>next_action</code>; a stopped runner check is named
   <code>Runner check (...)</code>), or the status in words when no stage is known. Job names
@@ -4557,6 +4559,11 @@ of its own (<code>tools/autocode_stage_pipeline.py</code>). It is always present
 </table>
 <p><code>ran</code> says the job launched, never that its work was accepted. The record grants nothing; the VS
 Code chat shows it as the strip at the top of a chat.</p>
+<p>A finished or accounted attempt retained in the active slot is a job that <code>ran</code>,
+not one that is <code>working</code>. Its failure, interruption or rejected answer remains in
+the public usage attempts. A queued job is not labeled <code>next</code> while that retained
+attempt still awaits reconciliation. This display distinction grants no result,
+cleanup, retry, route or completion authority.</p>
 <p><code>proxied_requirements</code> lists the requirements the current plan proves only on a stand-in
 (#2068): the user-visible result is rendered by code outside this checkout, so the plan's
 criteria prove an internal value the result is believed to depend on. Each row has
@@ -5139,6 +5146,17 @@ null. Unbound answers expose no diagnostic fields. Command output, report text,
 error text and control tokens are never included. This observation does not
 reconcile the run, permit a retry or establish passing evidence.</p>
 <h2 id="connections-for-clients">Connections for clients<a class="headerlink" href="#connections-for-clients" title="Permanent link">&para;</a></h2>
+<p>Metadata admission and uncertain cleanup are distinct internal outcomes. A check
+that cannot acquire admission within its existing allowance has not started;
+contention establishes nothing about another owner's health or cleanup. Core
+keeps that refused runtime attempt as <code>PAUSED_METADATA_ADMISSION</code>, with saved
+work and usage, no Resume offer, report repair, provider retry or new allowance.
+Uncertain custody and unauthenticated worker evidence take precedence. Views
+only project the recorded outcome: polling or later lock release does not retry
+it, and there is no background continuation mechanism for this saved refusal.
+An ordinary non-native setup refusal before run ownership keeps its existing
+no-save cleanup boundary. Fresh connection requests still use normal admission;
+after the contention ends they regain the usual named Check and Login offers.</p>
 <p>Connection setup is a core interface alongside task runs. A client may read
 <code>autocode connections list --json</code> before starting a task. The version-1 object
 contains <code>connections</code>, each with <code>id</code>, <code>label</code>, <code>connection_status</code>, <code>detail</code>, and <code>actions</code>.
@@ -5240,6 +5258,9 @@ marked <code>unavailable</code> against the run's other routes, <code>reset</cod
 --stage-model ROLE MODEL EFFORT</code>, filled the same way; it prints a sentence rather than the view, so
 a client reads the list again afterwards. A refused change exits 2 with the reason on stderr and
 saves nothing.</p>
+<p>A retained settled attempt still refuses model changes until reconciliation.
+Its reason says the previous attempt still needs recovery instead of claiming a stage is working;
+the end of an attempt record does not release any model-change guard.</p>
 <p>At a pause the person requested while the approved plan is being built, the status view's
 <code>implementation_discrepancy</code> lets them say where the code departs from that plan without revising it
 (#3045). <code>offer</code> is null unless a report may be sent now; otherwise it has <code>label</code>, <code>effect</code> and
