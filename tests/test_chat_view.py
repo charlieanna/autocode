@@ -973,7 +973,7 @@ class ChatViewTests(unittest.TestCase):
         self.assertEqual(["Explain it", "It uses a queue.", "Add a test"], [row["text"] for row in rows])
 
     def test_a_completed_task_worktree_run_says_where_its_work_is(self):
-        """The completion message names the branch and the merge and clean-up commands (#2344)."""
+        """The completion message names the branch without asking the reader to operate machinery."""
         state = {
             "status": "TASK_COMPLETE",
             "task": "Add a goodbye script",
@@ -986,10 +986,10 @@ class ChatViewTests(unittest.TestCase):
         self.assertTrue(
             text.startswith("The script prints goodbye.\n\nDelivered on branch autocode/add-a-goodbye"), text
         )
-        self.assertIn(
-            "autocode merge --workspace '/a project' '/a project/.autocode/worktrees/add-a-goodbye-script-4e8c'", text
-        )
-        self.assertIn("autocode clean-worktrees --workspace '/a project' --yes", text)
+        self.assertIn("Merge that branch into your project when you are ready", text)
+        self.assertNotIn("autocode merge", text)
+        self.assertNotIn("clean-worktrees", text)
+        self.assertNotIn("/a project", text)
         in_place = {"status": "TASK_COMPLETE", "task": "Add it", "workspace": "/a project"}
         self.assertEqual(
             "The requested task is complete.", self.project(in_place, "done", True)["messages"][-1]["text"]

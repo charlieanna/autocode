@@ -75,6 +75,11 @@ def question(state: RunState, rewordings: list[dict]) -> dict:
                 f"{row['item']} approved proof: {json.dumps(row.get('approved_proof') or '')}",
                 f"{row['item']} proposed proof: {json.dumps(row.get('proposed_proof') or '')}",
             ]
+        if row.get("approved_review") != row.get("proposed_review"):
+            lines += [
+                f"{row['item']} approved human review: {json.dumps(row.get('approved_review'))}",
+                f"{row['item']} proposed human review: {json.dumps(row.get('proposed_review'))}",
+            ]
     lines.append(f"Reply '{ACCEPT}' to let the next plan use it, or '{KEEP}'.")
     return {
         "id": PREFIX + util.digest({"token": contract_token(state), "rewordings": rewordings})[:12],

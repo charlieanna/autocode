@@ -224,6 +224,12 @@ def file_hash(path):
     return h.hexdigest()
 
 
+def runtime_source_digest(root=None):
+    """Identify the runtime's Python sources independently of its checkout path."""
+    root = Path(root) if root is not None else Path(__file__).resolve().parent
+    return digest({str(path.relative_to(root)): file_hash(path) for path in sorted(root.rglob("*.py"))})
+
+
 class JSONCommitUncertain(OSError):
     """An observed parent write reached replacement; ordinary rollback is unsafe.
 

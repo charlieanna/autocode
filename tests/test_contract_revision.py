@@ -3,6 +3,7 @@
 import copy
 import unittest
 
+import autocode_contract_delta as delta
 import autocode_contract_revision as revision
 import autocode_rewording_question as rewording
 from autocode_goals import revision_guard
@@ -204,6 +205,82 @@ class DraftVerificationRevisionTests(unittest.TestCase):
         retained = copy.deepcopy((state, after, changes))
         revision_guard(state, after, changes, "revise_plan")
         self.assertEqual(retained, (state, after, changes))
+
+    def test_nested_engineering_changes_have_the_same_authority_as_their_parent(self):
+        for item in ("milestones[M1].objective", "milestones[M1].acceptance_criteria", "initial_task.objective"):
+            with self.subTest(item=item):
+                state, after, changes = self.revision_report()
+                state["goal_contract"]["body"]["milestones"][0]["acceptance_criteria"] = ["AC5"]
+                after["milestones"][0]["acceptance_criteria"] = ["AC5", "AC8"]
+                changes = [row for row in changes if row["item"] not in ("M1", "initial_task")]
+                changes.append({"item": item, "change": "reworded", "basis": "agent_proposed", "answer_id": ""})
+                before = copy.deepcopy((state, after, changes))
+                revision_guard(state, after, changes, "revise_plan")
+                self.assertEqual(before, (state, after, changes))
+
+    def test_nested_engineering_alias_does_not_authorize_protected_changes(self):
+        for kind in ("proof", "behavior", "permission", "approved", "user_edited"):
+            with self.subTest(kind=kind):
+                state, after, changes = self.revision_report()
+                if kind == "proof":
+                    state["goal_contract"]["body"]["acceptance_criteria"][0]["verification_method"] = "test: test_old"
+                elif kind == "behavior":
+                    after["acceptance_criteria"][0]["criterion"] = "Only a selected check passes"
+                elif kind == "permission":
+                    after["permission_boundaries"] = ["Allow network"]
+                elif kind == "approved":
+                    state["goal_contract"]["approval_status"] = "approved"
+                else:
+                    state["goal_contract"]["origin"] = "user_cli_edit"
+                changes = [row for row in changes if row["item"] != "M1"]
+                changes.append(
+                    {
+                        "item": "milestones[M1].objective",
+                        "change": "reworded",
+                        "basis": "agent_proposed",
+                        "answer_id": "",
+                    }
+                )
+                with self.assertRaises(ValueError):
+                    revision_guard(state, after, changes, "revise_plan")
+
+    def test_nested_engineering_paths_must_resolve_uniquely_and_use_agent_basis(self):
+        state, after, _ = self.revision_report()
+        before = state["goal_contract"]["body"]
+        base = {"change": "reworded", "basis": "agent_proposed", "answer_id": ""}
+        for item in (
+            "milestones[M2].objective",
+            "milestones[M1].missing",
+            "milestones[M1.objective",
+            "milestones[].objective",
+            "initial_task[bogus].objective",
+            "constraints[0]",
+            "initial_task.",
+        ):
+            with self.subTest(item=item):
+                self.assertFalse(
+                    delta.engineering_delta({**base, "item": item}, before, after, set(), revision.PROTECTED_LISTS)
+                )
+        forged = {**base, "item": "initial_task.objective", "basis": "user_feedback"}
+        self.assertFalse(delta.engineering_delta(forged, before, after, set(), revision.PROTECTED_LISTS))
+        duplicated = copy.deepcopy(before)
+        duplicated["milestones"].append(copy.deepcopy(duplicated["milestones"][0]))
+        self.assertFalse(
+            delta.engineering_delta(
+                {**base, "item": "milestones[M1].objective"}, duplicated, after, set(), revision.PROTECTED_LISTS
+            )
+        )
+        # A valid path on just one side is not evidence of an authorized
+        # change, even when the other body has a non-list milestone field.
+        malformed = copy.deepcopy(after)
+        malformed["milestones"] = {"M1": malformed["milestones"][0]}
+        for old, new in ((before, malformed), (malformed, after)):
+            with self.subTest(malformed_on="before" if old is malformed else "after"):
+                self.assertFalse(
+                    delta.engineering_delta(
+                        {**base, "item": "milestones[M1].objective"}, old, new, set(), revision.PROTECTED_LISTS
+                    )
+                )
 
     def suite_criterion_report(self):
         """The Plan Reviewer asked for a whole-suite check; AC4's runner-checked proof may not become it.

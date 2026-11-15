@@ -9,6 +9,34 @@ from __future__ import annotations
 import re
 
 
+def _engineering_path_changed(item: str, before: dict, after: dict) -> bool:
+    """Resolve a nested engineering field from both plans, without guessing an identity."""
+    parts = item.split(".")
+    if not parts or parts[0].split("[", 1)[0] not in ("technical_approach", "milestones", "initial_task"):
+        return False
+    missing = object()
+
+    def lookup(body):
+        current = body
+        for part in parts:
+            field, sep, selector = part.partition("[")
+            if not field.isidentifier() or not isinstance(current, dict) or field not in current:
+                return missing
+            current = current[field]
+            if sep:
+                if not selector.endswith("]") or not selector[:-1] or not isinstance(current, list):
+                    return missing
+                identity = selector[:-1]
+                matches = [row for row in current if isinstance(row, dict) and row.get("id") == identity]
+                if len(matches) != 1:
+                    return missing
+                current = matches[0]
+        return current
+
+    old, new = lookup(before), lookup(after)
+    return old is not missing and new is not missing and old != new
+
+
 def own_assumption(before: dict, after: dict, item: str) -> bool:
     """An assumption the Planner proposed itself is engineering detail, not the person's text.
 
@@ -66,6 +94,12 @@ def engineering_delta(
         )
     if item in ("technical_approach", "milestones", "initial_task"):
         return item in after and before.get(item) != after[item]
+    # An explicit indexed path must resolve to one changed field in each
+    # body; do not reinterpret an invalid path as a prose mention of its ID.
+    if item.startswith("milestones["):
+        return _engineering_path_changed(item, before, after)
+    if _engineering_path_changed(item, before, after):
+        return True
     milestones = {row["id"]: row for row in before.get("milestones", [])}
     proposed = {row["id"]: row for row in after.get("milestones", [])}
     if item in milestones and item in proposed and milestones[item] != proposed[item]:
