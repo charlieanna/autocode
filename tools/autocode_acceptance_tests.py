@@ -116,6 +116,30 @@ def _intact(receipt: dict) -> bool:
         return False
 
 
+def _ordered_receipts(state: RunState, rows) -> list[dict]:
+    """Recorded generation order, never serialized batch hashes or case insertion order.
+
+    Reapproval can inherit different cases from successive versions of one physical file. The latest
+    qualified whole-file archive owns that path. A current-contract receipt still takes precedence;
+    historical revisions also order legacy receipts whose stage rows are unavailable.
+    """
+    contract = state.get("goal_contract") or {}
+    revisions = {
+        row.get("hash"): row["revision"]
+        for row in [*(state.get("contract_history") or []), contract]
+        if isinstance(row, dict) and type(row.get("revision")) is int
+    }
+    stages = {row["output"]: index for index, row in enumerate(state.get("stages") or []) if row.get("output")}
+    return sorted(
+        rows,
+        key=lambda row: (
+            row.get("contract_hash") == contract.get("hash"),
+            revisions.get(row.get("contract_hash"), -1),
+            stages.get(row.get("output"), -1),
+        ),
+    )
+
+
 def inherited(state: RunState) -> dict[str, dict]:
     """The cases an earlier approved contract's receipt still covers, {case id: receipt} (#2464).
 
@@ -153,7 +177,7 @@ def inherited(state: RunState) -> dict[str, dict]:
     }
     reproduced = {case.get("id") for case in test_cases.diagnosis_cases(state)}
     found: dict[str, dict] = {}
-    for receipt in receipts(state).values():
+    for receipt in _ordered_receipts(state, receipts(state).values()):
         old = approved.get(receipt.get("contract_hash"))
         if old is None or not _intact(receipt):
             continue
@@ -281,10 +305,12 @@ def record_send_back(state: RunState, case_ids: list[str], output) -> None:
 
 
 def _current_and_inherited(state: RunState) -> list[dict]:
-    """The receipts in force: inherited ones first, so a current-contract receipt for the same path wins."""
+    """Receipts in force, ordered once for both protected file custody and its public view."""
     current = (state.get("goal_contract") or {}).get("hash")
     kept = list({id(receipt): receipt for receipt in inherited(state).values()}.values())
-    return kept + [receipt for receipt in receipts(state).values() if receipt.get("contract_hash") == current]
+    return _ordered_receipts(
+        state, kept + [receipt for receipt in receipts(state).values() if receipt.get("contract_hash") == current]
+    )
 
 
 def all_files(state: RunState) -> dict[str, dict]:
@@ -438,8 +464,7 @@ def view(state: RunState) -> dict | None:
     rows = _current_and_inherited(state)
     if not rows:
         return None
-    order = {row.get("output"): index for index, row in enumerate(state.get("stages") or [])}
-    last = max(rows, key=lambda row: (order.get(row.get("output"), -1), str(row.get("output") or "")))
+    last = rows[-1]
     payload = {
         "files": sorted(all_files(state)),
         "case_ids": list(last.get("case_ids") or []),
