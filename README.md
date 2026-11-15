@@ -109,7 +109,7 @@ python tools/reliability_table.py docs/reliability-sweeps.json
 | 2026-10-08 | glm53-mimo | 1 | 1 | 0 |
 | 2026-10-07 | glm53-openai | 3 | 2 | 0 |
 | 2026-10-04 | claude-tiers | 9 | 8 | 0 |
-| 2026-10-01 | claude-tiers | 2 | 1 | 1 |
+| 2026-10-01 | glm53-openai | 3 | 1 | 1 |
 | 2026-10-01 | glm53-openai | 3 | 1 | 0 |
 | 2026-10-10 | native-glm53-latency | 1 | 0 | 0 |
 
