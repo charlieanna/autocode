@@ -19,6 +19,7 @@ import autocode_support as support
 from harness.conformance import ConformanceDriver
 
 from . import test_subprocess
+from .operational_fixtures import save_legacy_checkpoint
 
 
 class OperationalInformationCLITests(unittest.TestCase):
@@ -87,7 +88,10 @@ class OperationalInformationCLITests(unittest.TestCase):
                     runner, stopped, self.run, support.Paused(status, reason)
                 )
             )
-        runner.write_json(self.run / "state.json", stopped)
+        if legacy:
+            save_legacy_checkpoint(stopped, self.run)
+        else:
+            runner.write_json(self.run / "state.json", stopped)
         view = self.status()
         if cached is not None or runner.resolver_runtime.disposition.presentation(stopped):
             self.assert_blocked(view)
@@ -345,7 +349,7 @@ class OperationalInformationCLITests(unittest.TestCase):
             "request_id": event["request_id"],
         }
         old["resolver"].pop("information_reviews", None)
-        runner.write_json(run / "state.json", old)
+        save_legacy_checkpoint(old, run)
         self.refuse_cached_information(cached, event["text"])
         for flags in ((), ("--resume-paused",)):
             code, launched, output = self.invoke(*flags)
@@ -424,7 +428,7 @@ class OperationalInformationCLITests(unittest.TestCase):
             "PAUSED_REPORT_REPAIR_LIMIT", "Bounded report-only repair attempts exhausted"
         )
 
-    def test_held_information_allows_reconciling_spent_planning_repair_before_scoped_retry(self):
+    def test_stale_plan_token_preserves_spent_planning_repair_without_retry(self):
         def failed_planning(state):
             from types import SimpleNamespace
 
@@ -461,15 +465,15 @@ class OperationalInformationCLITests(unittest.TestCase):
         self.assert_blocked(self.status())
         _, held = self.saved()
         self.assertEqual(before["pending_report_repair"], held["pending_report_repair"])
-        # One exact scoped retry first reconciles the recorded terminal repair,
-        # then obtains real retry authorization. A stale final plan token must
-        # still prevent dispatch and retirement of the retained incident.
+        # A stale token cannot archive a repair or obtain retry authority before
+        # its final refusal. The entire retained checkpoint stays unchanged.
+        before_retry = (self.run / "state.json").read_bytes()
         code, launched, output = self.resume("--retry-failed-stage", "--expected-goal-token", "r0:stale")
         self.assertEqual((2, False), (code, launched), output)
         _, saved = self.saved()
-        self.assertEqual(before["pending_report_repair"], saved["report_repair_archive"][-1]["repair"])
-        self.assertNotIn("pending_report_repair", saved)
-        self.assertTrue(saved.get("failure_retry_authorizations"), "archival alone is not authorization")
+        self.assertEqual(before_retry, (self.run / "state.json").read_bytes())
+        self.assertEqual(before["pending_report_repair"], saved["pending_report_repair"])
+        self.assertFalse(saved.get("failure_retry_authorizations"))
         for key in ("failure_history", "sessions", "settings", "planning"):
             self.assertEqual(before.get(key), saved.get(key), key)
         self.assertTrue(

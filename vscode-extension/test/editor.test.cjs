@@ -3637,6 +3637,62 @@ test('once the other chat leaves the folder, the chat takes the named continue i
   assert.equal(launch.mock.callCount(), 1, 'taken once, not on every poll');
 });
 
+test('stopped supervision takes its named metadata reconciliation once without a recovery click', async (t) => {
+  const ui = await openChat(t, workingView());
+  const stopped = {
+    status: 'RUNNING', done: false, next_stage: 'review_completion', iteration: 1,
+    controller: { kind: 'ended', checked: true, alive: false },
+    liveness: { kind: 'interrupted' }, needs: { kind: 'continue' },
+    next_command: `AUTOCODE_RECONCILE_ONLY_TOKEN=checkpoint-v1:one autocode --workspace ${run.workspace} --run-dir ${run.runDir} --reconcile-only -`,
+  };
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  await ui.poll(stopped); await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 1, 'the public metadata action belongs to the client');
+  assert.deepEqual(launch.mock.calls[0].arguments[1], ['--reconcile-only', '-', '--workspace', run.workspace, '--run-dir', run.runDir]);
+  await ui.poll(stopped); await flush();
+  assert.equal(launch.mock.callCount(), 1, 'an unchanged recovery checkpoint cannot loop on polling');
+});
+
+test('automatic reconciliation uses the core-reported worktree and refuses a foreign command', async (t) => {
+  const ui = await openChat(t, workingView());
+  const moved = { workspace: `${run.workspace}/.autocode/worktrees/task`, runDir: `${run.workspace}/.autocode/worktrees/task/.autocode/runs/one` };
+  const stopped = {
+    status: 'PAUSED_UNCERTAIN_STAGE', done: false, next_stage: 'review_completion', iteration: 1,
+    workspace: moved.workspace, run_dir: moved.runDir,
+    controller: { kind: 'boundary', checked: true, alive: false },
+    liveness: { kind: 'interrupted' }, needs: { kind: 'continue' },
+    next_command: `AUTOCODE_RECONCILE_ONLY_TOKEN=checkpoint-v1:moved autocode --workspace ${moved.workspace} --run-dir ${moved.runDir} --reconcile-only -`,
+  };
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  await ui.poll({ ...stopped, next_command: stopped.next_command.replace(moved.runDir, '/foreign/run') });
+  await flush();
+  assert.equal(launch.mock.callCount(), 0, 'the command must match the current public view');
+  await ui.poll(stopped); await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 1, 'the original tab address cannot suppress its worktree recovery');
+  assert.deepEqual(launch.mock.calls[0].arguments[1], ['--reconcile-only', '-', '--workspace', moved.workspace, '--run-dir', moved.runDir]);
+});
+
+test('metadata recovery follows a changed named command even when the stage is unchanged', async (t) => {
+  const ui = await openChat(t, workingView());
+  const stopped = {
+    status: 'RUNNING', phase: 'EXECUTING', done: false, next_stage: 'review_completion', iteration: 1,
+    controller: { kind: 'ended', checked: true, alive: false },
+    liveness: { kind: 'interrupted' }, needs: { kind: 'continue' },
+    next_command: `AUTOCODE_RECONCILE_ONLY_TOKEN=checkpoint-v1:two autocode --workspace ${run.workspace} --run-dir ${run.runDir} --reconcile-only -`,
+  };
+  const ready = { ...stopped, controller: { kind: 'ready', checked: true, alive: false },
+    liveness: { kind: 'unknown' }, next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}` };
+  let calls = 0;
+  const launch = t.mock.method(cli, 'stream', async () => {
+    ui.setView(++calls === 1 ? ready : workingView());
+    return ok;
+  });
+  await ui.poll(stopped); await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 2, 'the core changed the available action without changing stages');
+  assert.ok(launch.mock.calls[0].arguments[1].includes('--reconcile-only'));
+  assert.deepEqual(launch.mock.calls[1].arguments[1], ['--workspace', run.workspace, '--run-dir', run.runDir]);
+});
+
 test('a Continue on a ready run that never waited for its folder is still the person\'s to press', async (t) => {
   const ui = await openChat(t, waitingForFolderView(false));
   const launch = t.mock.method(cli, 'stream', async () => ok);
@@ -4481,6 +4537,97 @@ test('a run with no saved change offers no diff of it', async (t) => {
   const ui = await openChat(t, view);
   assert.equal(ui.document.querySelector('#all-changes-show'), null);
   assert.equal(ui.document.querySelector('#all-changes'), null);
+});
+
+test('an open run diff refreshes when saved code changes without changing its command', async (t) => {
+  const view = checkpointView();
+  const ui = await openChat(t, view);
+  let patch = '+earlier Builder';
+  const read = t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({
+    changed_files: ['app.txt'], patch,
+  }) }));
+  ui.document.querySelector('#all-changes-show').click();
+  await flush(); await flush();
+  assert.ok(ui.document.querySelector('#app').textContent.includes(patch));
+  for (const changed of [
+    { id: 'cp-2', source_revision: 'second' },
+    { id: 'cp-2', source_revision: 'corrected' },
+  ]) {
+    patch = '+' + changed.source_revision;
+    view.code_checkpoints.rows = [{ ...view.code_checkpoints.rows[0], ...changed }];
+    await ui.poll(view); await flush(); await flush();
+    const text = ui.document.querySelector('#app').textContent;
+    assert.ok(text.includes(patch), 'the open diff follows the saved code identity');
+    assert.ok(!text.includes('+earlier Builder'));
+  }
+  assert.equal(read.mock.callCount(), 3);
+  await ui.poll(view); await flush();
+  assert.equal(read.mock.callCount(), 3, 'unchanged status polling does not reread the diff');
+});
+
+test('a checkpoint change replaces an in-flight diff and ignores its late reply', async (t) => {
+  const view = checkpointView();
+  const ui = await openChat(t, view);
+  let finishOld;
+  let calls = 0;
+  t.mock.method(cli, 'invoke', async () => {
+    if (++calls === 1) return new Promise((resolve) => { finishOld = () => resolve({ ...ok,
+      stdout: JSON.stringify({ changed_files: ['app.txt'], patch: '+obsolete' }) }); });
+    return { ...ok, stdout: JSON.stringify({ changed_files: ['app.txt'], patch: '+current' }) };
+  });
+  ui.document.querySelector('#all-changes-show').click();
+  await flush();
+  view.code_checkpoints.rows[0].source_revision = 'new-source';
+  await ui.poll(view); await flush(); await flush();
+  assert.ok(ui.document.querySelector('#app').textContent.includes('+current'));
+  finishOld(); await flush(); await flush();
+  const text = ui.document.querySelector('#app').textContent;
+  assert.ok(text.includes('+current'));
+  assert.ok(!text.includes('+obsolete'), 'an old reply cannot overwrite the current diff');
+});
+
+test('a withdrawn diff action invalidates cached content and refreshes when offered again', async (t) => {
+  const view = checkpointView();
+  const ui = await openChat(t, view);
+  let patch = '+old';
+  const read = t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({ patch }) }));
+  ui.document.querySelector('#all-changes-show').click();
+  await flush(); await flush();
+  const offer = view.code_checkpoints.all_changes;
+  view.code_checkpoints.all_changes = null;
+  await ui.poll(view);
+  assert.equal(ui.document.querySelector('#all-changes'), null);
+  patch = '+restored';
+  view.code_checkpoints.all_changes = offer;
+  await ui.poll(view); await flush(); await flush();
+  assert.ok(ui.document.querySelector('#app').textContent.includes('+restored'));
+  assert.equal(read.mock.callCount(), 2);
+});
+
+test('saved code changes do not fetch a diff the person has never opened', async (t) => {
+  const view = checkpointView();
+  const ui = await openChat(t, view);
+  const read = t.mock.method(cli, 'invoke', async () => ok);
+  view.code_checkpoints.rows[0].source_revision = 'new-source';
+  await ui.poll(view);
+  assert.equal(read.mock.callCount(), 0);
+});
+
+test('a late failed diff read cannot replace a newer successful read in the same checkpoint', async (t) => {
+  const ui = await openChat(t, checkpointView());
+  let failOld;
+  let calls = 0;
+  t.mock.method(cli, 'invoke', async () => {
+    if (++calls === 1) return new Promise((resolve) => { failOld = () => resolve({ ...ok,
+      code: 2, stderr: 'earlier read failed' }); });
+    return { ...ok, stdout: JSON.stringify({ changed_files: ['app.txt'], patch: '+latest read' }) };
+  });
+  ui.document.querySelector('#all-changes-show').click(); await flush();
+  ui.document.querySelector('#all-changes-show').click(); await flush(); await flush();
+  failOld(); await flush(); await flush();
+  const text = ui.document.querySelector('#app').textContent;
+  assert.ok(text.includes('+latest read'));
+  assert.ok(!text.includes('earlier read failed'));
 });
 
 test('a failed all-changes read says why in the section', async (t) => {

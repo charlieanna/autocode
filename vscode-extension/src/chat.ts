@@ -31,13 +31,15 @@ const ADVANCE_LIMIT = 8;
 
 /** What a continue that made progress changes, as TaskRun.advance_until_input compares it. */
 function advanceIdentity(view: StatusView): string {
-  return JSON.stringify([view.status, view.next_stage ?? null, view.iteration ?? null, view.phase ?? null, view.run_dir ?? null]);
+  return JSON.stringify([view.status, view.next_stage ?? null, view.iteration ?? null, view.phase ?? null, view.run_dir ?? null, view.next_command ?? null]);
 }
 
 interface ChatMessage {
   type?: string;
   text?: string;
   runKey?: string;
+  /** Display-only read sequence; echoed so a late comparison cannot replace a newer one. */
+  requestId?: number;
   hasSelectedRun?: boolean;
   selectedRun?: unknown;
   context?: string;
@@ -82,6 +84,8 @@ interface ChatTab {
   starting: boolean;
   launching: boolean;
   continuePending?: boolean;
+  /** A metadata-only recovery offer is taken once per exact checkpoint, never on every poll. */
+  reconciledOffer?: string;
   /** What a run's start is doing before its first status view, in the core's words (#3079). */
   startingLabel: string;
   /** A chat that has not started: the stages it will run, with its own picks (`stages list --json`). */
@@ -933,11 +937,20 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   }
 
   // A failed startup read or a held folder must not lose the first message's automatic continuation.
-  private async continueWhenReady(tab: ChatTab, before: StatusView | undefined, now: StatusView): Promise<void> {
-    if (!tab.run || (!tab.continuePending && (!before || !waitsForFolder(before)))) return;
+  private async continueWhenReady(tab: ChatTab, before: StatusView | undefined, now: StatusView | null): Promise<void> {
+    if (!tab.run || !now) return;
+    let reconcile: string | undefined;
+    if (now.needs?.kind === "continue" && now.next_command && !isWorking(now)) {
+      try {
+        if (this.controller.isMetadataReconciliation(now, tab.run)) reconcile = now.next_command;
+      } catch { /* A malformed or foreign command remains a client gap; it is never taken automatically. */ }
+    }
+    if (!tab.continuePending && (!before || !waitsForFolder(before))
+        && (!reconcile || reconcile === tab.reconciledOffer)) return;
     if (waitsForFolder(now) || this.busy.has(tab.key) || tab.starting) return;
     tab.continuePending = false;
     if (now.done || now.needs?.kind !== "continue" || isWorking(now)) return;
+    if (reconcile) tab.reconciledOffer = reconcile;
     const run = tab.run;
     const key = tab.key;
     this.busy.add(key);
@@ -1036,9 +1049,9 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     const key = tab.key;
     try {
       const comparison = await this.controller.allChanges(run);
-      void this.view?.webview.postMessage({ type: "all_changes", runKey: key, comparison });
+      void this.view?.webview.postMessage({ type: "all_changes", runKey: key, requestId: message.requestId, comparison });
     } catch (error) {
-      void this.view?.webview.postMessage({ type: "all_changes", runKey: key, error: messageOf(error) });
+      void this.view?.webview.postMessage({ type: "all_changes", runKey: key, requestId: message.requestId, error: messageOf(error) });
     }
   }
 

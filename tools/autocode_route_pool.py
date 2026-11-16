@@ -59,7 +59,6 @@ _ROLE_SCAN_ORDER = (
     "architect",
     "acceptance_tester",
 )
-_KNOWN_FAMILIES = ("glm", "mimo", "claude", "openai")
 
 
 def account_key(model: str | None, role_engine: str, settings: dict) -> str:
@@ -244,7 +243,9 @@ def _candidate_allowed(
         if pause_status == quota_route.REFUSAL_STATUS and not independence.same_vendor_engine(settings):
             if vendor_key(candidate_model, role_engine, settings) == vendor_key(dead, role_engine, settings):
                 return False
-            if model_identity.family(dead) in _KNOWN_FAMILIES and model_identity.shared_family(candidate_model, dead):
+            if model_identity.family(dead) in model_identity.FAMILIES and model_identity.shared_family(
+                candidate_model, dead
+            ):
                 return False
         if worker is not None:
             try:

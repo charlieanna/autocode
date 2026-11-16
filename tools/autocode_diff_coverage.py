@@ -132,7 +132,9 @@ def prepare(framework, command, tree, evidence_dir) -> dict | None:
     name = framework.name
     if name in ("unittest", "pytest"):
         invocation = python_tests.parse(command)
-        if invocation is None or invocation.kind not in ("unittest", "pytest"):
+        if invocation is None or invocation.script or invocation.kind not in ("unittest", "pytest"):
+            # The owned collector forks isolated interpreters. Wrapping only its
+            # parent cannot measure those tests; retain the explicit fallback.
             return None
         if not _probe([invocation.python, "-c", "import coverage"], tree):
             return None

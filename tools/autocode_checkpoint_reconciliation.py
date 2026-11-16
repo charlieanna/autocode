@@ -1,6 +1,7 @@
-"""Bound metadata-only recovery of an unfinished, positively stopped supervisor.
+"""Bound metadata-only reconciliation of an unfinished, positively stopped supervisor.
 
-No configuration, artifact adoption, retry or provider dispatch happens here.
+The source-read-only recovery owner may archive a cleanly stopped attempt under
+its existing allowance. No result adoption or provider dispatch happens here.
 Fresh process inspection is supplied by the interface/action under its run lock.
 """
 
@@ -13,10 +14,12 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_interrupted_review_proof as interrupted_review
     from . import autocode_liveness as liveness
     from . import autocode_util as util
     from . import autocode_visual_profile as visual_profile
 except ImportError:
+    import autocode_interrupted_review_proof as interrupted_review
     import autocode_liveness as liveness
     import autocode_util as util
     import autocode_visual_profile as visual_profile
@@ -55,22 +58,27 @@ def require_binding(state: RunState, expected):
         raise ValueError("The retained checkpoint changed; refresh its status before reconciling supervision")
 
 
-def offer(state: RunState, inspection, *, controller=None, stop_pending=False):
+def offer(state: RunState, inspection, *, controller=None, stop_pending=False, workspace=None):
     active = state.get("active_stage")
+    retained = state.get("status") == "PAUSED_UNCERTAIN_STAGE" and interrupted_review.proof(
+        state, workspace or state.get("workspace"), inspection
+    )
     if (
         (state.get("execution") or {}).get("mode") == "durable_local"
         # A stop already applied or still in the inbox comes first: the CLI refuses to reconcile under it.
         or stop_pending
         or any(row.get("kind") == "stop" for row in state.get("applied_interventions") or [])
         or state.get("ui_run")
-        or state.get("status") != "RUNNING"
+        or (state.get("status") != "RUNNING" and not retained)
         or not isinstance(active, dict)
         or active.get("finished_at")
         or state.get("active_runner_check")
         or type(active.get("iteration")) is not int
         or not isinstance(active.get("output"), str)
         or not active["output"]
-        or (controller is not None and controller.get("kind") != "ended")
+        or (
+            controller is not None and controller.get("kind") not in (("ended", "boundary") if retained else ("ended",))
+        )
     ):
         return None
     try:

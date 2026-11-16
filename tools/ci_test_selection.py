@@ -1155,6 +1155,8 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         (
             "tools/autocode_validation_exhaustion_recovery.py",
             "tools/autocode_validation_scope_recovery.py",
+            "tests/test_validation_scope_recovery.py",
+            "tests/operational_fixtures.py",
             "tools/autocode_validation_rounds.py",
             "tools/autocode_resolver_human.py",
             "tools/autocode_action_authority.py",
@@ -1297,7 +1299,13 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tests.test_coordination_gate_cli",),
     ),
     (
-        ("tools/autocode_gate_chat.py", "tools/prompts/gate-chat.md", "tools/autocode_chat_client.py"),
+        (
+            "tools/autocode_gate_chat.py",
+            "tools/prompts/gate-chat.md",
+            "tools/autocode_chat_client.py",
+            "tools/autocode_answer_options.py",
+            "tools/autocode_replay_view.py",
+        ),
         ("tests.test_gate_chat_cli",),
     ),
     (
@@ -1476,6 +1484,10 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         (*PUBLIC_FLOW_CONSUMERS, "tests.test_subprocess"),
     ),
     (("tools/autocode_launch", "tools/autocode_input_preflight"), ("tests.test_launch_state_cli",)),
+    (
+        ("tools/autocode_action_decisions", "tools/autocode_operational_admission", "tools/autocode_run_actions"),
+        ("tests.test_rejected_machinery_input",),
+    ),
     (
         ("tools/autocode_completion", "tools/autocode_milestone", "tools/units/autoreview"),
         ("tests.test_completion_properties", "tests.test_completion_status"),

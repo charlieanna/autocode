@@ -8,6 +8,7 @@ import autocode as runner
 import autocode_support as support
 
 from . import test_autocode, test_subprocess
+from .operational_fixtures import assert_operational_block
 
 
 class FailureRetryTests(unittest.TestCase):
@@ -251,16 +252,7 @@ class FailureRetryCLITests(unittest.TestCase):
         )
         self.launch([*args, "--retry-failed-stage"], 2)
         _, retried = self.saved()
-        import autocode_resolver_human as human
-
-        public = human.current(retried)
-        self.assertEqual("WAITING_FOR_USER", retried["status"])
-        self.assertEqual(
-            "PAUSED_REPEATED_FAILURE",
-            retried["resolver"]["human_escalations"][public["request_id"]]["identity"]["proposal"]["origin"][
-                "pause_status"
-            ],
-        )
+        assert_operational_block(self, retried, "PAUSED_REPEATED_FAILURE")
         self.assertEqual(4, retried["failure_history"][record["failure_key"]]["count"])
         self.assertEqual(["tester"], [row["stage"] for row in model_stages(retried["stages"])[count:]])
         count = len(model_stages(retried["stages"]))

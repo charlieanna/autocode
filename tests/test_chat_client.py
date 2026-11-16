@@ -630,7 +630,7 @@ class ConversationTests(unittest.TestCase):
     def test_saved_progress_recovery_continues_without_a_human_confirmation(self):
         state = {"status": "PAUSED_BUDGET"}
         with mock.patch(
-            "autocode_run_view.recovery_progress.routine_resume",
+            "autocode_run_view.recovery_progress.pending",
             return_value={"remaining_count": 1},
         ):
             view = {"status": state["status"], **run_view.action(state, run_dir=RUN, workspace=WORKSPACE)}

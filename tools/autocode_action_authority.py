@@ -27,6 +27,7 @@ import sys
 try:
     from . import autocode_acceptance_recovery as acceptance_recovery
     from . import autocode_acceptance_verification_retry as acceptance_retry
+    from . import autocode_action_retained_recovery as retained_recovery
     from . import autocode_goal_lifecycle as lifecycle
     from . import autocode_goals as goals
     from . import autocode_interventions as interventions
@@ -34,25 +35,22 @@ try:
     from . import autocode_limit_events as limit_events
     from . import autocode_member_stop as member_stop
     from . import autocode_milestones as milestones
-    from . import autocode_no_progress_recovery as no_progress_recovery
     from . import autocode_operational_information as operational_information
     from . import autocode_pause_authority as pause_authority
     from . import autocode_planning as planning
     from . import autocode_planning_review_usage as review_usage
     from . import autocode_progressive_state as progressive
-    from . import autocode_recovery_progress as recovery_progress
     from . import autocode_resolver_human as resolver_human
     from . import autocode_resolver_runtime as resolver_runtime
     from . import autocode_result_application as result_application
     from . import autocode_scope_pause as scope_pause
-    from . import autocode_source_scope as source_scope
     from . import autocode_stop as stop
     from . import autocode_support as support
-    from . import autocode_validation_exhaustion_recovery as validation_recovery
     from . import autocode_verify as verify
 except ImportError:
     import autocode_acceptance_recovery as acceptance_recovery
     import autocode_acceptance_verification_retry as acceptance_retry
+    import autocode_action_retained_recovery as retained_recovery
     import autocode_goal_lifecycle as lifecycle
     import autocode_goals as goals
     import autocode_interventions as interventions
@@ -60,21 +58,17 @@ except ImportError:
     import autocode_limit_events as limit_events
     import autocode_member_stop as member_stop
     import autocode_milestones as milestones
-    import autocode_no_progress_recovery as no_progress_recovery
     import autocode_operational_information as operational_information
     import autocode_pause_authority as pause_authority
     import autocode_planning as planning
     import autocode_planning_review_usage as review_usage
     import autocode_progressive_state as progressive
-    import autocode_recovery_progress as recovery_progress
     import autocode_resolver_human as resolver_human
     import autocode_resolver_runtime as resolver_runtime
     import autocode_result_application as result_application
     import autocode_scope_pause as scope_pause
-    import autocode_source_scope as source_scope
     import autocode_stop as stop
     import autocode_support as support
-    import autocode_validation_exhaustion_recovery as validation_recovery
     import autocode_verify as verify
 
 
@@ -222,52 +216,10 @@ def settle(runner, args, parser, state: RunState, state_path, run_dir, workspace
     ):
         print(f"{state['status']}: {hold['reason']}")
         return 2
-    if (
-        args.resume_paused
-        and not decision_action
-        and not explicit_recovery_requested(args, state)
-        and validation_recovery.pending(state)
-        and validation_recovery.settle(
-            state,
-            source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)["revision"],
-            at=runner.now(),
-        )
-    ):
-        runner.write_json(state_path, state)
-        print(state.get("stop_reason") or state.get("next_action"))
-        return 2
-    no_progress_reconciled = False
-    if (
-        args.resume_paused
-        and not decision_action
-        and not explicit_recovery_requested(args, state)
-        and no_progress_recovery.pending_legacy(state)
-    ):
-        wave = (
-            runner.dispatch.select(state)
-            if state.get("next_stage") == "orchestrator" and hasattr(runner, "dispatch")
-            else None
-        )
-        settled = no_progress_recovery.reconcile_legacy(runner, state, run_dir, workspace, wave=wave)
-        if settled == "ended":
-            print(state.get("stop_reason") or state.get("next_action"))
-            return 2
-        if settled == "continue":
-            no_progress_reconciled = True
-            decided.evidence_reconciled = True
-    if (
-        args.resume_paused
-        and not decision_action
-        and not explicit_recovery_requested(args, state)
-        and recovery_progress.reconcile(
-            state,
-            issued=resolver_human.current(state),
-            approved=goals.approved(state),
-            supersede=resolver_human.supersede_operational,
-            now=runner.now,
-        )
-    ):
-        runner.write_json(state_path, state)
+    if args.resume_paused and not decision_action and not explicit_recovery_requested(args, state):
+        handled, code = retained_recovery.settle(runner, args, parser, state, state_path, run_dir, workspace, decided)
+        if handled and code is not None:
+            return code
     active = state.get("active_stage") or {}
     if not decision_action and active and support.failure_status(active.get("events", "")) == "PAUSED_RATE_LIMIT":
         prior = resolver_human.current(state)
@@ -288,7 +240,7 @@ def settle(runner, args, parser, state: RunState, state_path, run_dir, workspace
             runner.write_json(state_path, state)
             print(lifecycle.render(state))
             return 2
-    specific_recovery = no_progress_reconciled
+    specific_recovery = decided.evidence_reconciled
     if (
         args.resume_paused
         and not decision_action

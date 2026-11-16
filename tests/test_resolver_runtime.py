@@ -11,6 +11,7 @@ from contextlib import ExitStack, contextmanager, nullcontext, redirect_stderr, 
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import autocode_operational_disposition as disposition
 import autocode_run_view as run_view
 import autocode_util as util
 from goal_fixtures import approve_fixture, assert_operational_wait, body, envelope
@@ -1207,8 +1208,9 @@ class OperationalDiagnosisTests(unittest.TestCase):
                     [(row["stage"], row["recovery_novelty"]["reason"]) for row in launches],
                 )
                 self.assertEqual(launched, saved["resolver"]["diagnostic_calls"])
-                self.assertEqual("WAITING_FOR_USER", saved["status"])
-                self.assertIn(reason, saved["stop_reason"])
+                pause = "PAUSED_PROVIDER_CAPACITY" if failure == "capacity" and cap else "PAUSED_REPEATED_FAILURE"
+                identity = assert_operational_block(self, saved, pause)
+                self.assertIn(reason, json.dumps(disposition.diagnostic(saved, identity)))
 
     def test_cli_new_iteration_source_and_blocker_do_not_reset_lifetime_cap(self):
         blockers = []
@@ -1283,8 +1285,10 @@ class OperationalDiagnosisTests(unittest.TestCase):
             for _ in range(2):
                 self.assertEqual(2, self.cli())
                 self.state = support.read(self.run / "state.json")
-                self.assertIn("Operational diagnostic budget exhausted for this run (2/2)", self.state["stop_reason"])
-                self.assertNotIn("No causal progress", self.state["stop_reason"])
+                identity = assert_operational_block(self, self.state, "PAUSED_REPEATED_FAILURE")
+                detail = json.dumps(disposition.diagnostic(self.state, identity))
+                self.assertIn("Operational diagnostic budget exhausted for this run (2/2)", detail)
+                self.assertNotIn("No causal progress", detail)
                 self.assertEqual(2, self.state["resolver"]["diagnostic_calls"])
         self.assertEqual(2, len(launches))
 
