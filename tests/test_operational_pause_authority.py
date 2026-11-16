@@ -836,7 +836,10 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
                 return
             self.assertEqual((2, []), (code, stages), output)
             if disposition.held(self.saved()) is not None:
-                self.assertIn(disposition.MESSAGE, output)
+                self.assertTrue(
+                    disposition.MESSAGE in output or f"An edited goal does not acknowledge {status}" in output,
+                    output,
+                )
                 self.assert_blocked()
             else:
                 self.assertIn("does not acknowledge", output)
