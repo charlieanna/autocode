@@ -38,6 +38,8 @@ interface ChatMessage {
   type?: string;
   text?: string;
   runKey?: string;
+  /** Display-only read sequence; echoed so a late comparison cannot replace a newer one. */
+  requestId?: number;
   hasSelectedRun?: boolean;
   selectedRun?: unknown;
   context?: string;
@@ -1047,9 +1049,9 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     const key = tab.key;
     try {
       const comparison = await this.controller.allChanges(run);
-      void this.view?.webview.postMessage({ type: "all_changes", runKey: key, comparison });
+      void this.view?.webview.postMessage({ type: "all_changes", runKey: key, requestId: message.requestId, comparison });
     } catch (error) {
-      void this.view?.webview.postMessage({ type: "all_changes", runKey: key, error: messageOf(error) });
+      void this.view?.webview.postMessage({ type: "all_changes", runKey: key, requestId: message.requestId, error: messageOf(error) });
     }
   }
 

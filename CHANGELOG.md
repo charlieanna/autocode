@@ -11,6 +11,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **An open VS Code result diff follows newly saved code**: comparisons are bound to the public checkpoint identities, so a later Builder result refreshes an already opened diff. Superseded reads and errors cannot overwrite it, and unchanged status polls do not repeat the read.
+
 - **Retained recovery checkpoints reach their evidence owners**: ordinary continuation selects observations from the owners themselves, including old validation limits, verified acceptance-test corrections and planning-only recovery counters. An obsolete machinery-question token is not required to inspect retained evidence. Each continuing outcome is recorded and revalidated before dispatch; spent limits, uncertain work and changed evidence retain their existing boundaries. Already committed planning feedback reaches the ordinary resume guards even when a queued intervention left it paused, without replaying its owner or granting early dispatch. The status view and admission also share the authenticated-incident check, so incomplete evidence cannot advertise a recovery command that Core will reject.
 
 - **Archived completion recovery survives dispatch to its verification stage**: the final work guard now accepts the normal transition to Running for an already applied, evidence-bound recovery. Both abandoned reviews and timed-out completion validation previously rejected their own valid recovery after this transition. Source, task, contract, archive and spending checks remain in force, and Running alone cannot select a recovery.
