@@ -69,6 +69,28 @@ class ShortlistTests(unittest.TestCase):
         self.assertTrue(rows["x/gemini-3"]["suggested"], "'mini' inside a word is not a mini variant")
         self.assertTrue(rows["x/unknown-1"]["suggested"], "an unknown field never drops a model")
 
+    def test_a_router_is_never_suggested_and_each_lab_counts_as_one_vendor(self):
+        # A provider's listing on 2026-11-16: routers beside Claude, GPT, Gemini and Kimi models.
+        models = [
+            "auto",
+            "auto-frontier",
+            "openai/auto-openai-advanced",
+            "claude-opus-5-5",
+            "gpt-6.1-sol",
+            "gemini-3.8-flash",
+            "gemini-3.1-pro-preview",
+            "gemini-2.5-pro",
+            "kimi-k3.1",
+        ]
+        rows = {row["model"]: row for row in shortlist.shortlist([offered(m, "pay per token") for m in models])}
+        for model in ("auto", "auto-frontier", "openai/auto-openai-advanced"):
+            self.assertFalse(rows[model]["suggested"], model)
+            self.assertIn("router", rows[model]["reason"])
+        self.assertEqual("gemini", rows["gemini-3.8-flash"]["vendor"])
+        self.assertTrue(rows["gemini-3.1-pro-preview"]["suggested"])
+        gemini = [row for row in rows.values() if row["vendor"] == "gemini" and row["suggested"]]
+        self.assertLessEqual(len(gemini), shortlist.PER_VENDOR)
+
     def test_one_model_reached_two_ways_keeps_the_subscription_route(self):
         rows = {
             row["model"]: row
