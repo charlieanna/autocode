@@ -87,6 +87,57 @@ class BuilderCaptureContextTests(unittest.TestCase):
             self.assertNotIn("ready_capture_batch", packet)
             self.assertIn("capture_command", packet)
 
+    def test_timed_out_builder_batch_withholds_batch_until_source_revision_changes(self):
+        offered = self.packet()["ready_capture_batch"]["command"]
+        self.assertGreater(len(offered), 240)
+        run_dir = self.root / ".autocode/runs/run"
+        it_dir = run_dir / "iterations/001"
+        evidence_dir = run_dir / "evidence"
+        it_dir.mkdir(parents=True)
+        evidence_dir.mkdir(parents=True)
+        token = "abcdef0123456789" * 2
+        (evidence_dir / f"ready-{token}-1.json").write_text(
+            json.dumps(
+                {
+                    "command": shlex.split(self.commands[0]),
+                    "capture_context": {"source_revision": "source", "attempt": "001/builder-01"},
+                }
+            )
+        )
+        before_ref = it_dir / "builder-01.before.json"
+        before_ref.write_text(json.dumps({"revision": "source"}))
+        events = it_dir / "builder-01.jsonl"
+        events.write_text(
+            json.dumps(
+                {"type": "item.started", "item": {"id": "c-batch", "type": "command_execution", "command": offered}}
+            )
+            + "\n"
+        )
+        self.state["stages"] = [
+            {
+                "stage": "builder",
+                "iteration": 1,
+                "timed_out": True,
+                "output": str(it_dir / "builder-01.json"),
+                "before_ref": str(before_ref),
+                "events": str(events),
+            }
+        ]
+        withheld_pkt = self.packet()
+        self.assertNotIn("ready_capture_batch", withheld_pkt)
+        self.assertIn("capture_command", withheld_pkt)
+        withheld = withheld_pkt["ready_capture_batch_withheld"]
+        self.assertEqual([self.commands[1]], withheld["timed_out_commands"])
+        self.assertEqual([self.commands[0]], withheld["completed_batch_commands"])
+
+        with patch.object(
+            context.source_scope, "snapshot", return_value={"revision": "source-v2", "head": "head", "files": {}}
+        ):
+            prompt, _ = context.context_packet(self.state, "builder", run_dir / "state.json")
+        fresh_pkt = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertIn("ready_capture_batch", fresh_pkt)
+        self.assertNotIn("ready_capture_batch_withheld", fresh_pkt)
+
 
 class BuilderNativeBatchTests(unittest.TestCase):
     def test_invalid_native_scratch_and_unsafe_marker_are_not_read(self):

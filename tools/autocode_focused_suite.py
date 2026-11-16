@@ -27,17 +27,27 @@ from pathlib import PurePosixPath
 
 try:
     from . import autocode_command_receipt as command_receipt
+    from . import autocode_plan_proof_command as plan_command
     from . import autocode_python_test_roles as policy
     from . import autocode_suite_definition_inputs as definition_inputs
     from . import autocode_test_role_inventory as inventory
 except ImportError:
     import autocode_command_receipt as command_receipt
+    import autocode_plan_proof_command as plan_command
     import autocode_python_test_roles as policy
     import autocode_suite_definition_inputs as definition_inputs
     import autocode_test_role_inventory as inventory
 
-VERSION = 3
+VERSION = 4
 DECISION = "focused_suite"
+MAX_FOCUSED_FILES = 64
+MAX_OMITTED_SAMPLE = 20
+
+SCOPE_FULL_CLOSURE = "full_closure"
+SCOPE_DIRECT_CONSUMERS = "direct_consumers"
+SCOPE_APPROVED_AND_NAMED = "approved_and_named"
+SCOPE_CHANGED_AND_NAMED = "changed_and_named"
+
 # What the whole suite did on the original code (``whole_suite_outcome``). A record without it is a timeout.
 TIMED_OUT = "timed_out"
 NO_PASSING_TEST = "no_passing_test"
@@ -63,6 +73,17 @@ def _named_after(product: str) -> frozenset[str]:
     )
 
 
+def _python_aliases(paths) -> dict[str, set[str]]:
+    aliases: dict[str, set[str]] = {}
+    for path in paths:
+        parts = PurePosixPath(path).with_suffix("").parts
+        if parts[-1] == "__init__":
+            parts = parts[:-1]
+        for start in range(len(parts)):
+            aliases.setdefault(".".join(parts[start:]), set()).add(path)
+    return aliases
+
+
 def _importing_tests(base_files, changes, roles, read):
     """Conservative reverse import reachability over pinned original Python files.
 
@@ -74,13 +95,8 @@ def _importing_tests(base_files, changes, roles, read):
     if not products:
         return set()
     paths = {path for path in base_files if path.endswith(".py")} | products
-    aliases, importers = {}, {}
-    for path in paths:
-        parts = PurePosixPath(path).with_suffix("").parts
-        if parts[-1] == "__init__":
-            parts = parts[:-1]
-        for start in range(len(parts)):
-            aliases.setdefault(".".join(parts[start:]), set()).add(path)
+    aliases = _python_aliases(paths)
+    importers: dict[str, set[str]] = {}
     affected = set(products)
     for path in paths & set(base_files):
         modules, uncertain = policy._imports(path, read(path))
@@ -98,9 +114,26 @@ def _importing_tests(base_files, changes, roles, read):
     return {path for path in affected & set(base_files) if roles.role(path) == policy.TEST}
 
 
-def nearest_tests(base_files, changes, roles, *, read=None) -> list[str]:
-    """The original code's test files nearest the change, sorted."""
-    base_files = frozenset(base_files)
+def _direct_importing_tests(base_files, changes, roles, read) -> set[str]:
+    """Original Python tests that directly import a changed product without transitive/helper expansion."""
+    products = {path for path in changes if path.endswith(".py") and roles.role(path) == policy.PRODUCT}
+    if not products:
+        return set()
+    aliases = _python_aliases(products)
+    direct: set[str] = set()
+    for path in base_files:
+        if not path.endswith(".py") or roles.role(path) != policy.TEST:
+            continue
+        modules, _uncertain = policy._imports(path, read(path))
+        for module in modules:
+            key = module.lstrip(".") if module.startswith(".") else module
+            if key and key in aliases:
+                direct.add(path)
+                break
+    return direct
+
+
+def _changed_and_named(base_files, changes, roles) -> set[str]:
     tests = {
         path
         for path, status in changes.items()
@@ -114,28 +147,174 @@ def nearest_tests(base_files, changes, roles, *, read=None) -> list[str]:
         )
     )
     tests.update(path for path in base_files if PurePosixPath(path).name in names and roles.role(path) == policy.TEST)
+    return tests
+
+
+def _named_in_command(command: str, files: set[str]) -> set[str]:
+    named = set(plan_command.test_files(command, files))
+    words = command.split()
+    if len(words) > 3 and words[0] == "cd" and words[2] == "&&":
+        folder = words[1].removeprefix("./").strip("/") + "/"
+        inside = {path[len(folder) :]: path for path in files if path.startswith(folder)}
+        named |= {inside[name] for name in plan_command.test_files(" ".join(words[3:]), inside)}
+    return named
+
+
+def _approved_plan_tests(base_files, roles, goal_contract) -> set[str]:
+    """Original test files explicitly targeted by approved plan commands (never whole-suite commands)."""
+    if not goal_contract:
+        return set()
+    original_tests = {path for path in base_files if roles.role(path) == policy.TEST}
+    if not original_tests:
+        return set()
+    found: set[str] = set()
+    for command in plan_command.approved_test_commands(goal_contract):
+        selected = _named_in_command(command, original_tests)
+        if 0 < len(selected) < len(original_tests):
+            found |= selected
+    return found
+
+
+def nearest_tests(base_files, changes, roles, *, read=None) -> list[str]:
+    """The original code's test files nearest the change, sorted."""
+    base_files = frozenset(base_files)
+    tests = _changed_and_named(base_files, changes, roles)
     if read is not None:
         tests.update(_importing_tests(base_files, changes, roles, read))
     return sorted(tests)
 
 
-def choose(framework, base_files, changes, roles, *, read=None) -> dict | None:
-    """The focused suite for a whole detected suite that timed out, or None when there is none."""
+def candidates(
+    framework,
+    base_files,
+    changes,
+    roles,
+    *,
+    read=None,
+    goal_contract=None,
+    max_files: int = MAX_FOCUSED_FILES,
+) -> list[dict]:
+    """Ordered, deduplicated focused fallback tiers from broadest to narrowest trusted scope.
+
+    Preserves full transitive + computed import protection whenever within ``max_files`` (or when no
+    narrower non-empty tier exists). Drops over-broad leading tiers while a narrower valid tier remains.
+    """
     if framework is None:
-        return None
-    tests = nearest_tests(base_files, changes, roles, read=read)
-    command = framework.targeted(roles.selectors(tests)) if tests else None
-    if not command or command == framework.suite:
-        return None
-    return {"command": command, "tests": tests}
+        return []
+    base_files = frozenset(base_files)
+    changed_named = _changed_and_named(base_files, changes, roles)
+    approved_named = changed_named | _approved_plan_tests(base_files, roles, goal_contract)
+    direct = approved_named | (_direct_importing_tests(base_files, changes, roles, read) if read is not None else set())
+    full = direct | (_importing_tests(base_files, changes, roles, read) if read is not None else set())
+
+    raw_tiers: list[tuple[str, list[str]]] = [(SCOPE_FULL_CLOSURE, sorted(full))]
+    if direct != full:
+        raw_tiers.append((SCOPE_DIRECT_CONSUMERS, sorted(direct)))
+    if approved_named != changed_named:
+        raw_tiers.append((SCOPE_APPROVED_AND_NAMED, sorted(approved_named)))
+    raw_tiers.append((SCOPE_CHANGED_AND_NAMED, sorted(changed_named)))
+    entries: list[dict] = []
+    seen_commands: set[str] = set()
+    for scope, tests in raw_tiers:
+        if not tests:
+            continue
+        command = framework.targeted(roles.selectors(tests))
+        if not command or command == framework.suite or command in seen_commands:
+            continue
+        seen_commands.add(command)
+        omitted = sorted(full - set(tests))
+        entries.append(
+            {
+                "command": command,
+                "tests": tests,
+                "selection_scope": scope,
+                "omitted_tests": omitted,
+            }
+        )
+    while len(entries) > 1 and len(entries[0]["tests"]) > max_files:
+        entries.pop(0)
+    return entries
 
 
-def choose_from_git(framework, workspace, base, changes, roles):
-    """Use the original tree's imports without opening candidate-controlled source or links."""
+def candidates_from_git(
+    framework,
+    workspace,
+    base,
+    changes,
+    roles,
+    *,
+    goal_contract=None,
+    max_files: int = MAX_FOCUSED_FILES,
+) -> list[dict]:
+    """Build bounded fallback tiers from pinned original git blobs."""
     original = inventory.entries(workspace, base)
     blobs = {path: (value[0], value[2]) for path, value in original.items()}
     with definition_inputs.blob_reader(workspace, blobs, None) as read:
-        return choose(framework, original, changes, roles, read=read)
+        return candidates(
+            framework,
+            original,
+            changes,
+            roles,
+            read=read,
+            goal_contract=goal_contract,
+            max_files=max_files,
+        )
+
+
+def choose(
+    framework,
+    base_files,
+    changes,
+    roles,
+    *,
+    read=None,
+    goal_contract=None,
+    max_files: int = MAX_FOCUSED_FILES,
+) -> dict | None:
+    """The focused suite for a whole detected suite that timed out, or None when there is none."""
+    tiers = candidates(
+        framework,
+        base_files,
+        changes,
+        roles,
+        read=read,
+        goal_contract=goal_contract,
+        max_files=max_files,
+    )
+    if not tiers:
+        return None
+    chosen = dict(tiers[0])
+    if len(tiers) > 1:
+        chosen["narrower_tiers"] = tiers[1:]
+    return chosen
+
+
+def choose_from_git(
+    framework,
+    workspace,
+    base,
+    changes,
+    roles,
+    *,
+    goal_contract=None,
+    max_files: int = MAX_FOCUSED_FILES,
+) -> dict | None:
+    """Use the original tree's imports without opening candidate-controlled source or links."""
+    tiers = candidates_from_git(
+        framework,
+        workspace,
+        base,
+        changes,
+        roles,
+        goal_contract=goal_contract,
+        max_files=max_files,
+    )
+    if not tiers:
+        return None
+    chosen = dict(tiers[0])
+    if len(tiers) > 1:
+        chosen["narrower_tiers"] = tiers[1:]
+    return chosen
 
 
 def timed_out(baseline) -> bool:
@@ -185,7 +364,16 @@ def framework_for(framework, command):
     return focused
 
 
-def record(focus, whole, timeout) -> dict:
+_SCOPE_LABELS = {
+    SCOPE_DIRECT_CONSUMERS: (
+        "direct Python importers, approved plan selectors, filename matches, and changed original tests"
+    ),
+    SCOPE_APPROVED_AND_NAMED: "approved plan selectors, filename matches, and changed original tests",
+    SCOPE_CHANGED_AND_NAMED: "changed original tests and tests named after changed product files",
+}
+
+
+def record(focus, whole, timeout, *, timed_out_focus=None) -> dict:
     """The evidence for the decision: what the whole suite did, what replaced it, and why."""
     limit = f"{timeout} seconds" if timeout else "its time limit"
     outcome = TIMED_OUT if timed_out(whole) else NO_PASSING_TEST
@@ -194,7 +382,10 @@ def record(focus, whole, timeout) -> dict:
         if outcome == TIMED_OUT
         else "ran no test that passed on the original code"
     )
-    return {
+    scope = focus.get("selection_scope") or SCOPE_FULL_CLOSURE
+    omitted = list(focus.get("omitted_tests") or ())
+    tests = list(focus["tests"])
+    result: dict = {
         "version": VERSION,
         "decision": DECISION,
         "whole_suite": whole["command"],
@@ -202,18 +393,59 @@ def record(focus, whole, timeout) -> dict:
         "whole_suite_outcome": outcome,
         "timeout_seconds": timeout,
         "command": focus["command"],
-        "tests": list(focus["tests"]),
-        "reason": (
+        "tests": tests,
+        "selection_scope": scope,
+    }
+    if scope == SCOPE_FULL_CLOSURE and not omitted and timed_out_focus is None:
+        result["reason"] = (
             f"The detected whole suite {happened}, so existing "
             "behavior was checked with the original tests selected by changed tests, filenames and Python "
-            "imports (including transitive and uncertain imports): " + ", ".join(focus["tests"])
-        ),
-    }
+            "imports (including transitive and uncertain imports): " + ", ".join(tests)
+        )
+        return result
+
+    scope_desc = _SCOPE_LABELS.get(scope, scope)
+    gap_parts = []
+    if timed_out_focus is not None:
+        tf_scope = timed_out_focus.get("selection_scope") or SCOPE_FULL_CLOSURE
+        tf_count = len(timed_out_focus.get("tests") or ())
+        result["timed_out_focused_suite"] = {
+            "command": timed_out_focus["command"],
+            "selection_scope": tf_scope,
+            "tests_count": tf_count,
+        }
+        gap_parts.append(
+            f"the broader {tf_scope} fallback ({tf_count} tests: {timed_out_focus['command']}) also timed out on the original code"
+        )
+    if omitted:
+        gap_parts.append(
+            f"{len(omitted)} original test file(s) from broader transitive or computed-import reachability "
+            "were not re-run in this bounded fallback"
+        )
+    gap = "; ".join(gap_parts) if gap_parts else f"selection narrowed to {scope}"
+    result["omitted_tests_count"] = len(omitted)
+    result["omitted_tests_sample"] = omitted[:MAX_OMITTED_SAMPLE]
+    result["verification_gap"] = gap
+    result["reason"] = (
+        f"The detected whole suite {happened}, so existing behavior was checked with the bounded {scope} "
+        f"fallback ({scope_desc}): {', '.join(tests)}. Verification gap: {gap}."
+    )
+    return result
 
 
 def review_reason(fallback) -> str:
     happened = "ran no test that passed" if fallback.get("whole_suite_outcome") == NO_PASSING_TEST else "timed out"
-    return (
+    base = (
         "the no-regression check ran only the original tests nearest the change, because the whole suite "
         f"{happened} on the original code: " + fallback["command"]
     )
+    scope = fallback.get("selection_scope")
+    omitted_count = fallback.get("omitted_tests_count")
+    if scope and scope != SCOPE_FULL_CLOSURE:
+        detail = f"bounded {scope}"
+        if isinstance(omitted_count, int) and omitted_count > 0:
+            detail += f"; {omitted_count} broader reachability test(s) not re-run"
+        if fallback.get("timed_out_focused_suite"):
+            detail += "; broader focused tier also timed out"
+        return f"{base} ({detail})"
+    return base
