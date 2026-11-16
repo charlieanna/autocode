@@ -26,6 +26,7 @@ import sys
 
 try:
     from . import autocode_accepted_source as accepted_source
+    from . import autocode_action_retained_recovery as retained_recovery
     from . import autocode_classification_recovery as classification_recovery
     from . import autocode_interrupted_review_recovery as interrupted_review
     from . import autocode_job_failure as job_failure
@@ -50,6 +51,7 @@ try:
     from . import autocode_verification_failure as verification_failure
 except ImportError:
     import autocode_accepted_source as accepted_source
+    import autocode_action_retained_recovery as retained_recovery
     import autocode_classification_recovery as classification_recovery
     import autocode_interrupted_review_recovery as interrupted_review
     import autocode_job_failure as job_failure
@@ -191,6 +193,7 @@ def operations(args, state: RunState | None = None):
     # too; an operator's resume flag adds nothing to that proof.
     if (
         not selected
+        and owned_operations.observation_available(state)
         and not any(owned_operations.user_actions(args).values())
         and not any(
             (
@@ -203,12 +206,6 @@ def operations(args, state: RunState | None = None):
                 getattr(args, "_explicit_budget_flags", None),
             )
         )
-        and state is not None
-        and (
-            resolver_runtime.reconsideration_request(state)
-            or (state.get("recovery_context") or {}).get("attempt_id")
-            and state.get("next_stage") == "review_completion"
-        )
     ):
         selected.append(OPERATIONS["observe"])
     return tuple(selected)
@@ -216,6 +213,9 @@ def operations(args, state: RunState | None = None):
 
 def observe(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
     """Only the existing read-only recovery owners may establish a plain resume."""
+    handled, code = retained_recovery.settle(runner, args, parser, state, state_path, run_dir, workspace, decided)
+    if handled:
+        return code
     if resolver_runtime.reconsider_operational_request(runner, state, run_dir, workspace):
         decided.operational_selection = "planning_reserve"
         proof = resolver_runtime.validate_operational_grant(state, state.get("next_stage"), workspace)
@@ -712,8 +712,19 @@ OPERATIONS = owned_operations.register(
     owned_operations.Operation("failure_retry", retry_failure, validate_failure_retry),
     owned_operations.Operation("resolver_retry", retry_failure, validate_resolver_retry, preserve_request=True),
     owned_operations.Operation("bound", acknowledge_bound, validate_bound, request_bound=False, frontier_bound=False),
-    owned_operations.Operation("observe", observe, owned_operations.no_work, preserve_request=True),
-    owned_operations.Operation("planning_reserve", observe, validate_reserve),
-    owned_operations.Operation("archive_completion", observe, validate_archive),
+    owned_operations.Operation(
+        "observe", observe, owned_operations.no_work, request_bound=False, preserve_request=True
+    ),
+    owned_operations.Operation(
+        "planning_reserve", observe, validate_reserve, observes=resolver_runtime.reconsideration_request
+    ),
+    owned_operations.Operation(
+        "archive_completion",
+        observe,
+        validate_archive,
+        observes=lambda state: (
+            (state.get("recovery_context") or {}).get("attempt_id") and state.get("next_stage") == "review_completion"
+        ),
+    ),
     owned_operations.Operation("archive_timeout", observe, validate_timeout_archive),
 )

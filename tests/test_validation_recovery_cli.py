@@ -6,12 +6,12 @@ import unittest
 from copy import deepcopy
 from unittest.mock import patch
 
-import autocode as runner
 import autocode_resolver_human as human
 import autocode_source_scope as source_scope
 import autocode_support as support
 
 from . import test_planning, test_subprocess
+from .operational_fixtures import legacy_publication
 
 
 class RetainedValidationCLI(unittest.TestCase):
@@ -56,12 +56,7 @@ class RetainedValidationCLI(unittest.TestCase):
             "impact": "Validation made no progress",
         }
         with patch.object(human, "_binding", return_value=binding):
-            self.assertTrue(
-                runner.resolver_runtime.record_operational_exhaustion(
-                    runner, state, run, support.Paused("PAUSED_RESOLVER", "Validation exhausted"), request=request
-                )
-            )
-            self.assertEqual("escalate", human.evaluate(state))
+            legacy_publication(state, run, pause="PAUSED_RESOLVER", request=request)
         # Write historical bytes without today's writer normalizing the obsolete
         # runtime token; that upgrade is exactly what the public action exercises.
         (run / "state.json").write_text(json.dumps(state))

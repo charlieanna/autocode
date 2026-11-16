@@ -47,10 +47,6 @@ def presentation(state: RunState, *, include_hold=False):
                 "Saved work and evidence are retained; no result was accepted."
             ),
         }
-    if (
-        recovery_progress.routine_resume(state, state.get("resolver_human_request"))
-        or validation.pending(state)
-        or no_progress.pending_legacy(state)
-    ):
+    if recovery_progress.pending(state) or validation.pending(state) or no_progress.pending_legacy(state):
         return None
     return hold.presentation(state)

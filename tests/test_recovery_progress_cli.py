@@ -1,27 +1,29 @@
 """Resume a legacy planning-only hold through the public CLI."""
 
 import json
+import shlex
 import unittest
 
-import autocode as runner
 import autocode_route_fit as route_fit
-import autocode_support as support
 
-from . import test_planning, test_subprocess
+from . import test_subprocess
+from .operational_fixtures import legacy_publication
 
 
 class PlanningRecoveryCLITests(unittest.TestCase):
     setUp = test_subprocess.SubprocessFlow.setUp
     launch = test_subprocess.SubprocessFlow.launch
     saved = test_subprocess.SubprocessFlow.saved
-    prepare = test_planning.NativeJointFlow.prepare
-    draft = test_planning.JointFlow.draft
-    new_run_engine_args = test_planning.NativeJointFlow.new_run_engine_args
+    new_run_engine_args = ("--engine", "codex")
 
     def legacy_hold(self):
-        run, state = self.draft()
+        self.env["AUTOCODE_FIXTURE_MODE"] = "no-human"
+        self.launch(["Build greeting", "--chat"], 2, answers="CLI\nno\n")
+        run, state = self.saved()
         self.launch(["--run-dir", str(run), "--approve-goal", state["displayed_goal"]], 0)
         _, state = self.saved()
+        self.assertFalse(state.get("active_stage"))
+        self.assertFalse(any(row.get("stage") in ("orchestrator", "builder") for row in state["stages"]))
         # A saved checkpoint from before the accounting fix: planning used
         # recovery credits but no Builder has ever been dispatched.
         state.update(no_progress_batches=3, automatic_recoveries_since_resume=2, consecutive_timeout_recoveries=0)
@@ -34,22 +36,20 @@ class PlanningRecoveryCLITests(unittest.TestCase):
             }
             for i in range(3)
         ]
-        runner.resolver_runtime.record_operational_exhaustion(
-            runner,
-            state,
-            run,
-            support.Paused("PAUSED_NO_PROGRESS", "Repeated unchanged implementation batches require review"),
-        )
-        runner.write_json(run / "state.json", state)
+        state["stop_reason"] = "Repeated unchanged implementation batches require review"
+        legacy_publication(state, run, pause="PAUSED_NO_PROGRESS")
+        (run / "state.json").write_text(json.dumps(state))
         return run
 
     def test_resume_reaches_builder_without_granting_more_timeout_recoveries(self):
         run = self.legacy_hold()
         before = json.loads(self.launch(["--run-dir", str(run), "--status"], 0).stdout)
-        self.launch(["--run-dir", str(run), "--resume-paused", "--no-chat", "--pause-after-stage"], 2)
+        self.assertEqual({"kind": "continue", "action": "--resume-paused"}, before["view"]["needs"])
+        self.assertIsNone(before["view"]["chat"]["input"])
+        self.launch([*shlex.split(before["view"]["next_command"])[1:], "--pause-after-stage"], 2)
         view = json.loads(self.launch(["--run-dir", str(run), "--status"], 0).stdout)["view"]
-        self.assertEqual("builder", view["next_stage"])
         self.assertEqual("PAUSED_REQUESTED", view["status"])
+        self.assertEqual("builder", view["next_stage"])
         self.launch(["--run-dir", str(run), "--resume-paused", "--no-chat", "--pause-after-stage"], 2)
         self.assertTrue((self.project / "greet.py").is_file())
         after = json.loads(self.launch(["--run-dir", str(run), "--status"], 0).stdout)
@@ -62,7 +62,8 @@ class PlanningRecoveryCLITests(unittest.TestCase):
     def test_invalid_retry_does_not_apply_accounting_correction(self):
         run = self.legacy_hold()
         result = self.launch(["--run-dir", str(run), "--resume-paused", "--retry-failed-stage", "--no-chat"], 2)
-        self.assertIn("Input rejected:", result.stderr)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("Saved work, attempts and evidence are kept", result.stderr)
         self.assertFalse((self.project / "greet.py").exists())
         self.assertFalse(
             any(
