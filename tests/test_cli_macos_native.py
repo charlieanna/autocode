@@ -146,7 +146,7 @@ class CliMacOsNativeTests(unittest.TestCase):
                     _state_path,
                     run,
                     workspace,
-                    SimpleNamespace(gate=None, retained_report=None, information_admitted=False),
+                    runner.run_actions.Decided(),
                 )
                 if state.get("pending_report_repair"):
                     _base.execute_report_repair(state, run, workspace)
