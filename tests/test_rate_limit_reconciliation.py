@@ -8,6 +8,7 @@ import autocode as runner
 import autocode_support as support
 
 from . import test_autocode
+from .operational_fixtures import assert_operational_block
 
 
 class RateLimitReconciliationTests(unittest.TestCase):
@@ -46,7 +47,7 @@ class RateLimitReconciliationTests(unittest.TestCase):
         self.state.update(active_stage=record, next_stage="draft_plan", status="RUNNING", sessions={"planner": "old"})
         return record
 
-    def test_rate_limit_is_archived_and_escalated_without_provider_replay(self):
+    def test_rate_limit_is_archived_and_held_without_provider_replay(self):
         self.attempt()
         self.assertTrue(runner.reconcile_rate_limited_stage(self.state, self.run, self.root))
         self.assertNotIn("active_stage", self.state)
@@ -57,11 +58,9 @@ class RateLimitReconciliationTests(unittest.TestCase):
         error = support.Paused("PAUSED_RATE_LIMIT", self.state["stop_reason"])
         self.assertTrue(runner.resolver_runtime.record_operational_exhaustion(runner, self.state, self.run, error))
         runner.write_json(self.run / "state.json", self.state)
-        public = runner.resolver_human.current(self.state)
-        self.assertEqual("operational_exhaustion", public["scope"])
-        origin = self.state["resolver"]["human_escalations"][public["request_id"]]["identity"]["proposal"]["origin"]
-        self.assertEqual("PAUSED_RATE_LIMIT", origin["pause_status"])
-        self.assertEqual("provider_or_spending_guard", origin["budget"]["category"])
+        receipt = assert_operational_block(self, self.state, "PAUSED_RATE_LIMIT")
+        evidence = self.state["resolver"]["operational_receipts"][receipt]["receipt"]["evidence"]
+        self.assertEqual("provider_or_spending_guard", evidence["budget"]["category"])
 
     def test_changed_source_never_autoarchives(self):
         self.attempt(changed=True)
