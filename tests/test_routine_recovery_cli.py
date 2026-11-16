@@ -4,7 +4,10 @@ import json
 import unittest
 from datetime import datetime, timedelta
 
+import autocode_util as util
+
 from . import test_recovery_advice_conformance as fixture
+from .operational_fixtures import legacy_publication
 
 
 class RoutineRecoveryCLITests(unittest.TestCase):
@@ -13,7 +16,6 @@ class RoutineRecoveryCLITests(unittest.TestCase):
     saved = fixture.RecoveryAdviceConformanceTests.saved
     new_run_engine_args = ("--engine", "codex")
     base_checkpoint = fixture.RecoveryAdviceConformanceTests.base_checkpoint
-    publish = fixture.RecoveryAdviceConformanceTests.publish
 
     def historical_hold(self, *, explicit_time_cap=False):
         self.run, stopped = self.base_checkpoint()
@@ -47,7 +49,11 @@ class RoutineRecoveryCLITests(unittest.TestCase):
             stopped["settings"]["limits"]["max_seconds"] = 1
             stopped["settings"].setdefault("budget_origins", {})["max_seconds"] = "user_explicit"
             stopped["active_seconds"] = 2
-        self.publish(stopped, "PAUSED_TIMEOUT_RECOVERY", "Old run-wide recovery slots exhausted")
+        # This is an old published slot hold, not a newly exhausted run. Preserve
+        # its original publication instead of asking today's writer to create it.
+        stopped["stop_reason"] = "Old run-wide recovery slots exhausted"
+        legacy_publication(stopped, self.run, pause="PAUSED_TIMEOUT_RECOVERY")
+        util.atomic_json(self.run / "state.json", stopped)
         self.env.pop("AUTOCODE_FIXTURE_QUOTA_STAGE", None)
 
     def envelope(self):

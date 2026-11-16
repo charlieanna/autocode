@@ -686,7 +686,7 @@ def _selector_close(framework_name: str, command: str, subset: list[str], all_te
     if not subset or set(subset) == set(all_tests):
         return list(all_tests)
     inner = package_scope.within(command) or command
-    invocation = python_tests.parse(inner)
+    invocation = python_tests.parse(inner, include_owned=True)
     if invocation is None:
         return list(all_tests)
     if framework_name == "pytest":
@@ -694,7 +694,7 @@ def _selector_close(framework_name: str, command: str, subset: list[str], all_te
         closed = {test for test in all_tests if any(needle and needle in test.casefold() for needle in needles)}
         return sorted(set(subset) | closed)
     if framework_name == "unittest":
-        if invocation.arguments and invocation.arguments[0] == "discover":
+        if invocation.discovers:
             selectors = [test.replace("::", ".") for test in subset]
             closed = {test for test in all_tests if any(sel in test.replace("::", ".") for sel in selectors)}
             return sorted(set(subset) | closed)
@@ -721,7 +721,7 @@ def select(
     tests = sorted(dict.fromkeys(tests))
     tree_path = Path(tree)
     inner = package_scope.within(command) or command
-    parsed = python_tests.parse(inner)
+    parsed = python_tests.parse(inner, include_owned=True)
     package_entry = package_scope.entered(command)
     package_dir = package_entry[0] if package_entry else None
 
@@ -790,7 +790,8 @@ def select(
             narrowed = proof_stability.narrow(framework_name, command, closed, directory=package_dir)
             narrow_cache[key] = (
                 narrowed
-                if narrowed and python_tests.parse(package_scope.within(narrowed) or narrowed) is not None
+                if narrowed
+                and python_tests.parse(package_scope.within(narrowed) or narrowed, include_owned=True) is not None
                 else None
             )
         if narrow_cache[key] is None:

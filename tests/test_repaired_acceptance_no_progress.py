@@ -10,7 +10,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import autocode as runner
 import autocode_acceptance_tests as acceptance_tests
 import autocode_acceptance_tests_job as acceptance_job
 import autocode_acceptance_verification_retry as acceptance_retry
@@ -24,9 +23,11 @@ import autocode_source_scope as source_scope
 import autocode_stop as stop
 import autocode_support as support
 import autocode_util as util
+from goal_fixtures import GREETING_TESTS
 from goal_fixtures import body as fixture_body
 
 from . import test_no_progress_recovery, test_subprocess
+from .operational_fixtures import legacy_publication
 
 
 def _git(repo: Path, *args: str) -> None:
@@ -79,11 +80,13 @@ def _seed_acceptance_proof(
     insert_writer_at: int | None = None,
     writer_task_id: str = "T1",
     writer_finished_at: str = "2026-11-14T10:15:00+00:00",
+    test_path: str = "tests/test_c1.py",
+    test_content: bytes = b"def test_c1_greeting():\n    assert True\n",
 ) -> dict:
     tests_dir = workspace / "tests"
     tests_dir.mkdir(exist_ok=True)
-    test_file = tests_dir / "test_c1.py"
-    content = b"def test_c1_greeting():\n    assert True\n"
+    test_file = workspace / test_path
+    content = test_content
     archive_dir = run_dir / "acceptance-archive"
     archive_dir.mkdir(parents=True, exist_ok=True)
     archive_file = archive_dir / "test_c1.py"
@@ -108,7 +111,7 @@ def _seed_acceptance_proof(
     contract_hash = state["goal_contract"]["hash"]
     value = {
         "summary": "Prepared independent C1 test",
-        "tests": [{"case_id": "C1", "file": "tests/test_c1.py", "test_name": "test_c1_greeting"}],
+        "tests": [{"case_id": "C1", "file": test_path, "test_name": "test_c1_greeting"}],
         "already_passing": [],
         "cannot_write": [],
         "tests_run": [],
@@ -129,7 +132,7 @@ def _seed_acceptance_proof(
         "role": "tester",
         "accounted": True,
         "exit_code": 0,
-        "changed_files": ["tests/test_c1.py"],
+        "changed_files": [test_path],
         "contract_hash": contract_hash,
         "task_id": writer_task_id,
         "source_revision": snap["revision"],
@@ -149,7 +152,7 @@ def _seed_acceptance_proof(
         "source_revision": snap["revision"],
         "output": str(artifacts["output"]),
         "case_ids": ["C1"],
-        "files": {"tests/test_c1.py": {"sha256": file_sha, "archive": str(archive_file)}},
+        "files": {test_path: {"sha256": file_sha, "archive": str(archive_file)}},
     }
     acc_state = state.setdefault(acceptance_tests.KEY, {"receipts": {}})
     acc_state.setdefault("receipts", {})[bkey] = receipt
@@ -468,20 +471,41 @@ class RepairedAcceptanceNoProgressCLITests(unittest.TestCase):
             *state.get("stages", []),
             *(_builder_row(i, output_dir=self.run, contract_hash=contract_hash, task_id=task_id) for i in (1, 2, 3)),
         ]
+        # Historical Builder attempts retain their real assignment snapshots.
+        # Omitting these makes the later Builder fail for unrelated missing evidence.
+        snapshot = source_scope.snapshot(self.project, state, base_snapshot=support.snapshot)
+        for row in state["stages"]:
+            if row.get("stage") == "builder" and not row.get("before_ref"):
+                path = self.run / (Path(row["output"]).stem + ".before.json")
+                util.atomic_json(path, snapshot)
+                row.update(before_ref=str(path), after_ref=str(path))
         if with_proof:
-            _seed_acceptance_proof(state, self.project, self.run, with_retry_record=True, writer_task_id=task_id)
+            _seed_acceptance_proof(
+                state,
+                self.project,
+                self.run,
+                with_retry_record=True,
+                writer_task_id=task_id,
+                test_path="test_greeting.py",
+                test_content=GREETING_TESTS.encode(),
+            )
 
+        state["stop_reason"] = "Repeated unchanged implementation batches require review"
         binding = {**human._binding(state), "runtime_sources": "previous-runtime"}
         with patch.object(human, "_binding", return_value=binding):
-            self.assertTrue(
-                runner.resolver_runtime.record_operational_exhaustion(
-                    runner,
-                    state,
-                    self.run,
-                    support.Paused("PAUSED_NO_PROGRESS", "Repeated unchanged implementation batches require review"),
-                )
+            legacy_publication(
+                state,
+                self.run,
+                pause="PAUSED_NO_PROGRESS",
+                request={
+                    "kind": "blocker",
+                    "discovered": "Repeated unchanged implementation batches require review",
+                    "impact": "Saved attempts retained",
+                    "decision_needed": "Provide corrective information or leave paused",
+                    "options": ["Provide information", "Leave paused"],
+                    "proposed_delta": "",
+                },
             )
-            self.assertEqual("escalate", human.evaluate(state))
         (self.run / "state.json").write_text(json.dumps(state), encoding="utf-8")
         retained_req = human.retained(state)
         self.assertIsNotNone(retained_req)
@@ -509,7 +533,15 @@ class RepairedAcceptanceNoProgressCLITests(unittest.TestCase):
         escalation = after["resolver"]["human_escalations"][legacy_request["request_id"]]
         self.assertEqual("superseded", escalation["status"])
         self.assertTrue((self.project / "greet.py").is_file())
-        self.assertTrue((self.run / "resolver" / "no-progress-proof-recovery-2.json").is_file())
+        self.assertEqual("PAUSED_REQUESTED", after["status"], after.get("stop_reason"))
+        receipts = [
+            row
+            for row in after["resolver"]["operational_receipts"].values()
+            if row["receipt"]["scope"] == no_progress_recovery.RECOVERY_SCOPE
+        ]
+        self.assertEqual(1, len(receipts))
+        self.assertEqual(4, receipts[0]["receipt"]["evidence"]["to"])
+        self.assertTrue(list((self.run / "resolver").glob("no-progress-proof-recovery-*.json")))
 
     def test_pre_fix_waiting_checkpoint_without_proof_ends_could_not_finish_without_provider(self):
         self._seed_legacy_waiting_hold(with_proof=False)

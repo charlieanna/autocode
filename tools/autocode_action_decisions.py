@@ -36,6 +36,7 @@ try:
     from . import autocode_goals as goals
     from . import autocode_internal_failure_view as internal_failure_view
     from . import autocode_operational_admission as operational_admission
+    from . import autocode_operational_disposition as operational_disposition
     from . import autocode_operational_outcome as owner_outcome
     from . import autocode_owned_operations as owned_operations
     from . import autocode_package_writes as package_writes
@@ -66,6 +67,7 @@ except ImportError:
     import autocode_goals as goals
     import autocode_internal_failure_view as internal_failure_view
     import autocode_operational_admission as operational_admission
+    import autocode_operational_disposition as operational_disposition
     import autocode_operational_outcome as owner_outcome
     import autocode_owned_operations as owned_operations
     import autocode_package_writes as package_writes
@@ -218,7 +220,18 @@ def deferred_approval(status_before, state: RunState):
 
 
 def preflight(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
-    """Reject an ineligible approval before recovery can consume a retained report."""
+    """Reject ineligible decisions before recovery can migrate their checkpoint."""
+    if (
+        any(getattr(args, name, None) for name in ("answer", "delegate", "delegate_all"))
+        and not resolver_human.current(state)
+        and operational_disposition.held(state) is not None
+    ):
+        # An old machinery question is evidence, never a question the person
+        # can answer. Metadata admission must not normalize it into scheduled
+        # recovery before the ordinary input handler rejects the same answer.
+        return runner.status_command.reject_input(
+            runner, state, workspace, run_dir, ValueError(operational_disposition.MESSAGE)
+        )
     if (
         getattr(args, "approve_goal", None)
         and not changeset_barrier.held_approval(state)

@@ -82,6 +82,7 @@ def project(state: RunState) -> list[dict[str, Any]]:
         ),
         *_report_repairs(state),
         *_test_role_corrections(state),
+        *_interrupted_reviews(state),
         *_sent_back(state),
         *_retained_candidates(state),
         *investigations,
@@ -444,4 +445,20 @@ def _test_role_corrections(state: RunState):
                 action="AutoCode retained the original tests and command, excluded proven product entries, and retired the old proof. Fresh verification remains required.",
                 by="AutoCode",
                 detail=summary["reason"],
+            )
+
+
+def _interrupted_reviews(state: RunState):
+    for event in state.get("user_events") or []:
+        if isinstance(event, dict) and event.get("kind") == "automatic_interruption_recovery":
+            yield _entry(
+                "interrupted_attempt",
+                event.get("at"),
+                event.get("stage"),
+                state,
+                headline="Interrupted attempt retained",
+                problem="The controller stopped before the attempt finished.",
+                action="AutoCode confirmed cleanup and unchanged inputs, retained the attempt and its usage, and scheduled a fresh attempt under the saved model and limits.",
+                by="AutoCode",
+                handled=False,
             )

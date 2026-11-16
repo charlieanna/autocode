@@ -95,10 +95,14 @@ class ReviewerRequestedRevisionCliTests(unittest.TestCase):
             shown,
         )
 
-    def test_a_constraint_that_repeats_the_brief_still_needs_the_person(self):
+    def test_a_constraint_that_repeats_the_brief_cannot_be_rewritten_by_the_planner(self):
         run, view = self.reviewed_revision(quote_brief=True)
-        self.assertNotEqual("approve_plan", view["needs"]["kind"], "the brief's own words are not the Planner's")
+        self.assertFalse(view["done"])
+        self.assertIsNone(view["needs"], "a rejected revision is not a person decision")
+        self.assertIsNone(view["next_command"])
+        self.assertEqual("blocked", view["recovery"]["category"])
         state = json.loads((run.run_dir / "state.json").read_text())
+        self.assertIn("Python standard library only", state["goal_contract"]["body"]["constraints"])
         self.assertTrue(
             any(
                 "repeats the person's own words" in json.dumps(row)

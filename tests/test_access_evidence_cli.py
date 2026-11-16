@@ -13,6 +13,7 @@ from pathlib import Path
 import autocode_taskrun as taskrun
 
 from tests import test_subprocess
+from tests.operational_fixtures import assert_operational_block
 from tests.test_provider_credentials import CANARY, WRAPPER, provider_config
 from tests.test_taskrun import BRIEF, HERE
 
@@ -139,13 +140,18 @@ class AccessEvidenceCLI(unittest.TestCase):
             run.answer(question["id"], view["chat"]["review"]["answer"], resolver_token=view["needs"]["resolver_token"])
             view = run.advance_until_input()
         if failure:
-            self.assertEqual("WAITING_FOR_USER", view["status"], view.get("stop_reason"))
-            self.assertIn("no automatic replay", view["stop_reason"])
-            self.assertNotEqual("approve_plan", view["needs"]["kind"])
-            if failure == "auth":
-                self.assertIn("provider authentication failed (HTTP 401)", view["stop_reason"])
             if failure == "budget":
+                self.assertEqual("WAITING_FOR_USER", view["status"], view.get("stop_reason"))
+                self.assertIn("no automatic replay", view["stop_reason"])
+                self.assertNotEqual("approve_plan", view["needs"]["kind"])
                 self.assertIn("provider_or_spending_guard", view["stop_reason"])
+            else:
+                state = json.loads((run.run_dir / "state.json").read_text())
+                receipt = assert_operational_block(self, state, "PAUSED_PROVIDER_UNCERTAIN")
+                rationale = state["resolver"]["operational_receipts"][receipt]["decision"]["rationale"]
+                self.assertIn("no automatic replay", rationale)
+                if failure == "auth":
+                    self.assertIn("provider authentication failed (HTTP 401)", rationale)
         else:
             self.assertEqual("approve_plan", view["needs"]["kind"], view.get("stop_reason"))
         if worktree:

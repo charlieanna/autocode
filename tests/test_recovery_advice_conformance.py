@@ -89,15 +89,25 @@ class RecoveryAdviceConformanceTests(unittest.TestCase):
         )
         return moved or (probe is not None and probe.exists())
 
-    def test_timeout_exhaustion_advertises_only_accepted_actions(self):
+    def test_timeout_exhaustion_is_actionless_but_keeps_an_explicit_operator_grant(self):
         state = self.timeout_exhausted_checkpoint()
         flags, published = self.advertised_commands(state)
-        self.assertIn("--grant-recovery", flags)
+        self.assertEqual(set(), flags)
+        self.assertIsNone(published)
         self.assertNotIn("--retry-failed-stage", flags)
         result = self.launch(["--run-dir", str(self.run), "--resume-paused", "--grant-recovery", "1", "--no-chat"], 2)
         self.assertNotIn("Input rejected", result.stderr)
         self.assertNotIn("requires a run paused for exhausted timeout recovery", result.stderr)
-        self.assertTrue(self.progress(state), "the advertised grant must move the run")
+        self.assertTrue(self.progress(state), "an explicit operator grant must be recorded")
+        after = self.saved()[1]
+        grant = after["recovery_grants"][-1]
+        self.assertEqual((1, 3, 2), (grant["amount"], grant["previous_count"], grant["remaining_count"]))
+        self.assertIn("(3 -> 2 counted); history retained", result.stdout)
+        self.assertEqual(state["settings"], after["settings"])
+        prior = [row for row in state["stages"] if not row.get("runner_owned")]
+        current = [row for row in after["stages"] if not row.get("runner_owned")]
+        self.assertEqual(prior, current[: len(prior)], "resuming must retain every earlier attempt")
+        self.assertEqual(state["automatic_timeout_recoveries"], after["automatic_timeout_recoveries"])
 
     def test_explicit_time_cap_never_advertises_grant_and_bound_change_resumes_once(self):
         state = self.explicit_time_cap_checkpoint()

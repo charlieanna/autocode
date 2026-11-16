@@ -2,6 +2,7 @@
 
 import unittest
 from copy import deepcopy
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 import autocode_contract_identity as contracts
@@ -11,6 +12,8 @@ import autocode_stop as stop
 import autocode_util as util
 import autocode_validation_exhaustion_recovery as recovery
 import autocode_validation_rounds as rounds
+
+from .operational_fixtures import legacy_publication
 
 
 def legacy_checkpoint(*, scope="operational_exhaustion", origin=None, request=None):
@@ -29,6 +32,7 @@ def legacy_checkpoint(*, scope="operational_exhaustion", origin=None, request=No
         "settings": {"roles": {"tester": {"model": "saved-model"}}, "limits": {"max_seconds": 20}},
         "automatic_recoveries_since_resume": 2,
         "stages": [],
+        "iteration": 1,
     }
     frontier = {
         "contract_hash": contract["hash"],
@@ -41,23 +45,24 @@ def legacy_checkpoint(*, scope="operational_exhaustion", origin=None, request=No
         {"attempt": {"task_id": f"task-{i}", "after_validation": f"v{i}"}, "frontier": deepcopy(frontier), "at": "then"}
         for i in (0, 1)
     ]
-    human.queue(
-        state,
-        scope,
-        origin or {"stage": "tester", "pause_status": "PAUSED_RESOLVER"},
-        request=request
-        or {
-            "kind": "blocker",
-            "finding_ids": ["F-1"],
-            "decision_needed": "Legacy machinery question",
-            "impact": "Validation exhausted",
-        },
-    )
-    with (
-        patch.object(human, "_binding", return_value={"runtime_sources": "previous", "interruptions": {}}),
-        patch.object(human, "_decision", return_value=("escalate", "Retained internal stop")),
-    ):
-        human.evaluate(state)
+    origin = origin or {"stage": "tester", "pause_status": "PAUSED_RESOLVER"}
+    state.update(status=origin["pause_status"], next_stage=origin["stage"])
+    with TemporaryDirectory() as directory:
+        state["run_dir"] = directory
+        binding = {**human._binding(state), "runtime_sources": "previous"}
+        with patch.object(human, "_binding", return_value=binding):
+            legacy_publication(
+                state,
+                directory,
+                scope=scope,
+                request=request
+                or {
+                    "kind": "blocker",
+                    "finding_ids": ["F-1"],
+                    "decision_needed": "Legacy machinery question",
+                    "impact": "Validation exhausted",
+                },
+            )
     return state
 
 

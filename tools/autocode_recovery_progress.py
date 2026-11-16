@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_contract_identity as contracts
     from . import autocode_recovery_accounting as accounting
+    from . import autocode_resolver_human as human
     from . import autocode_roles as roles
 except ImportError:
+    import autocode_contract_identity as contracts
     import autocode_recovery_accounting as accounting
+    import autocode_resolver_human as human
     import autocode_roles as roles
 
 PLANNING = frozenset(roles.ALL_PLANNING_STAGES)
@@ -131,3 +136,16 @@ def reconcile(state: RunState, *, issued, approved, supersede, now):
     state.update({"no_progress_batches": 0, "status": "RUNNING", "phase": "READY_TO_EXECUTE"})
     state.pop("stop_reason", None)
     return True
+
+
+def pending(state: RunState):
+    """One pure offer for readers and admission, using the correction owner's policy."""
+    if state.get("active_runner_check") or state.get("pause_requested"):
+        return False
+    return reconcile(
+        deepcopy(state),
+        issued=human.retained(state),
+        approved=contracts.approved(state),
+        supersede=lambda *_: True,
+        now=lambda: "observation",
+    )

@@ -19,6 +19,7 @@ from goal_fixtures import body
 
 from . import test_autocode as base
 from . import test_subprocess
+from .operational_fixtures import assert_operational_block
 from .test_opencode import event, terminal
 
 runner, support = base.runner, base.s
@@ -2802,7 +2803,7 @@ raise SystemExit(subprocess.run([sys.executable, {str(real)!r}, *sys.argv[1:]], 
     # test_terminal_error_is_durably_queued_without_replaying_implementation and the
     # tampering tests.
 
-    def test_cli_changed_source_escalates_without_replaying_repair(self):
+    def test_cli_changed_source_stays_actionless_without_replaying_repair(self):
         self.timeout_provider("changed")
         # Advance the actual monitor clock only for the completed report repair.
         # A two-second limit on every stage can time out discovery first when
@@ -2829,11 +2830,19 @@ raise SystemExit(subprocess.run([sys.executable, {str(real)!r}, *sys.argv[1:]], 
         )
         self.entry = [sys.executable, str(wrapper)]
         self.launch(["Build greeting", "--no-chat"], 2)
-        _, state = self.saved()
-        self.assertEqual("WAITING_FOR_USER", state["status"])
-        self.assertEqual("operational_exhaustion", runner.resolver_human.current(state)["scope"])
+        run, state = self.saved()
+        assert_operational_block(self, state, "PAUSED_RESOLVER_OPERATIONAL")
         self.assertEqual(1, state["pending_report_repair"]["attempts"])
         self.assertTrue(state["active_stage"]["timed_out"])
+        self.assertEqual("changed source", (self.project / "unexpected.txt").read_text())
+        probe = self.root / "unexpected-repair-replay.jsonl"
+        self.env["AUTOCODE_REGISTRY_LAUNCH_PROBE"] = str(probe)
+        self.launch(["--run-dir", str(run), "--resume-paused", "--no-chat"], 2)
+        after = self.saved()[1]
+        assert_operational_block(self, after, "PAUSED_RESOLVER_OPERATIONAL")
+        self.assertFalse(probe.exists(), "changed source cannot authorize another repair attempt")
+        for key in ("settings", "pending_report_repair", "active_stage"):
+            self.assertEqual(state[key], after[key], key)
         self.assertEqual("changed source", (self.project / "unexpected.txt").read_text())
 
     # Superseded: the rejected_report repair flow replaced the original_report

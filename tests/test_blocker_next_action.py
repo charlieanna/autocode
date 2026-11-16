@@ -22,6 +22,7 @@ import autocode_resolver_human as human
 import autocode_run_view as run_view
 
 from . import test_resolver_human, test_subprocess
+from .operational_fixtures import legacy_publication, legacy_response
 
 COMMAND = recovery_limits.RESPONSE_COMMAND
 ADVICE = recovery_limits.CONTRACT_DECISION_ADVICE
@@ -71,71 +72,43 @@ class BlockerNeedTests(unittest.TestCase):
         self.assertEqual(("answer", "blocker", COMMAND), (need["kind"], need["resolver_scope"], need["action"]))
         self.assertTrue(need["resolver_request_id"] and need["resolver_token"])
 
-    def test_an_operational_request_names_the_same_response(self):
+    def no_machinery_offer(self):
+        before = copy.deepcopy(self.state)
+        view = run_view.view(self.state)
+        self.assertIsNone(view["needs"])
+        self.assertIsNone(view["next_command"])
+        self.assertIsNone(view["chat"]["input"])
+        self.assertNotIn("retry_failed_stage", self.card_actions())
+        self.assertFalse(view["done"])
+        self.assertEqual(before, self.state, "display does not spend allowance or alter evidence")
+
+    def test_an_operational_request_offers_no_person_response(self):
         self.contract()
         self.publish_operational()
-        need = self.needs()
-        self.assertEqual(
-            ("answer", "operational_exhaustion", COMMAND), (need["kind"], need["resolver_scope"], need["action"])
-        )
+        self.no_machinery_offer()
 
     def publish_no_progress(self, *, held=True):
-        """A recovery novelty hold published as an operational request, as after an abandoned repair (#1012)."""
+        """An authenticated historical machinery publication remains readable."""
         self.contract()
         self.state.update(status="PAUSED_NO_PROGRESS", next_stage="resolve")
+        self.state["settings"].setdefault("budget_origins", {})["no_progress_batches"] = "runner_default"
         if held:
             self.state["resolution_request"] = {"novelty_hold": {"stage": "resolve", "incident_id": "incident"}}
-        self.state["resolver"] = {
-            "operational_diagnostics": ["op-receipt"],
-            "operational_receipts": {
-                "op-receipt": {
-                    "stage": "resolver",
-                    "runner_owned": True,
-                    "decision": {"action": "hold"},
-                    "receipt": {"evaluation_binding": human._binding(self.state)},
-                }
-            },
-        }
-        human.queue(
-            self.state,
-            "operational_exhaustion",
-            {"stage": "resolve", "pause_status": "PAUSED_NO_PROGRESS"},
-            request=self.request(),
-            evidence={"resolver_receipt_id": "op-receipt"},
-        )
-        self.assertEqual("escalate", human.evaluate(self.state))
+        legacy_publication(self.state, self.state["run_dir"], request=self.request())
 
-    def test_a_novelty_hold_also_names_its_one_scoped_retry(self):
+    def test_a_novelty_hold_does_not_ask_the_person_to_retry(self):
         self.publish_no_progress()
-        need = self.needs()
-        self.assertEqual(("PAUSED_NO_PROGRESS", COMMAND), (need["pause_origin"], need["action"]))
-        self.assertEqual("--resume-paused --retry-failed-stage", need["retry_action"])
+        self.no_machinery_offer()
 
-    def test_no_scoped_retry_without_a_hold_or_with_an_unsettled_attempt(self):
+    def test_no_person_retry_with_or_without_a_hold_or_with_an_unsettled_attempt(self):
         self.publish_no_progress(held=False)
-        self.assertNotIn("retry_action", self.needs())
+        self.no_machinery_offer()
         self.publish_no_progress()
         self.state["uncertain_artifacts"] = ["iterations/002/builder-01.json"]
-        self.assertNotIn("retry_action", self.needs())
+        self.no_machinery_offer()
 
     def card_actions(self):
         return {row["id"]: row for row in run_view.view(self.state)["recovery"]["actions"]}
-
-    def test_the_recovery_card_offers_the_held_steps_scoped_retry(self):
-        # The card runs the same flags needs.retry_action names, so a client never maps kinds (#730).
-        self.publish_no_progress()
-        actions = self.card_actions()
-        self.assertIn("decision", actions)
-        retry = actions["retry_failed_stage"]
-        self.assertEqual(self.needs()["retry_action"], " ".join(retry["args"]))
-        self.assertEqual(["--resume-paused", "--retry-failed-stage"], retry["args"])
-
-    def test_the_card_offers_no_scoped_retry_without_a_hold_or_with_an_unsettled_attempt(self):
-        self.publish_no_progress(held=False)
-        self.assertNotIn("retry_failed_stage", self.card_actions())
-        self.publish_no_progress()
-        self.state["uncertain_artifacts"] = ["iterations/002/builder-01.json"]
-        self.assertNotIn("retry_failed_stage", self.card_actions())
 
     def hold_before_publication(self):
         """The #1770 live hold: the novelty hold is queued, but no request is published yet."""
@@ -152,47 +125,23 @@ class BlockerNeedTests(unittest.TestCase):
         self.assertEqual("RESOLVER_PENDING", self.state["status"])
         self.assertIsNone(human.current(self.state))
 
-    def test_an_unpublished_novelty_hold_names_the_scoped_retry_not_a_plain_resume(self):
-        # The view used to offer --resume-paused here, which only re-held the run (#1770).
+    def test_an_unpublished_novelty_hold_does_not_offer_machinery_controls(self):
         self.hold_before_publication()
-        view = run_view.view(self.state)
-        need = view["needs"]
-        self.assertEqual("resume", need["kind"])
-        self.assertEqual(recovery_limits.SCOPED_RETRY, need["action"])
-        self.assertEqual(recovery_limits.SCOPED_RETRY, need["retry_action"])
-        self.assertIn("--retry-failed-stage", view["next_command"])
-        retry = {row["id"]: row for row in view["recovery"]["actions"]}["retry_failed_stage"]
-        self.assertEqual(["--resume-paused", "--retry-failed-stage"], retry["args"])
-        self.assertIn("one more attempt", retry["effect"])
+        self.no_machinery_offer()
 
-    def test_an_unpublished_hold_that_cannot_take_the_retry_says_what_comes_first(self):
-        # Each refusal is the CLI's own reason (autocode_resolver_recovery.authorize_retry).
-        cases = {
-            "uncertain attempt": (
-                lambda: self.state.update(uncertain_artifacts=["iterations/002/resolver-02.json"]),
-                recovery_limits.UNSETTLED_REFUSAL,
-            ),
-            "different pending decision": (
-                lambda: self.state[human.PRIVATE].update(scope="blocker"),
-                "A different pending decision cannot grant a recovery retry",
-            ),
-        }
-        for name, (change, reason) in cases.items():
-            with self.subTest(name):
-                self.setUp()  # a fresh run per case
-                self.hold_before_publication()
-                change()
-                need = self.needs()
-                self.assertNotEqual("answer", need["kind"])
-                self.assertNotIn("retry_action", need)
-                self.assertNotEqual(recovery_limits.SCOPED_RETRY, need.get("action"))
-                self.assertEqual(reason, need["retry_unavailable"])
-                self.assertNotIn("retry_failed_stage", self.card_actions())
+    def test_unsettled_attempts_and_other_decisions_still_refuse_operator_retry(self):
         self.hold_before_publication()
-        self.state["resolution_request"] = {}  # no novelty hold: nothing to retry or explain
-        need = self.needs()
-        self.assertNotIn("retry_action", need)
-        self.assertNotIn("retry_unavailable", need)
+        self.state["uncertain_artifacts"] = ["iterations/002/resolver-02.json"]
+        self.assertEqual(recovery_limits.UNSETTLED_REFUSAL, recovery_limits.scoped_retry_refusal(self.state, None))
+        self.no_machinery_offer()
+        self.hold_before_publication()
+        self.state.pop("uncertain_artifacts", None)
+        self.state[human.PRIVATE].update(scope="blocker")
+        self.assertEqual(
+            "A different pending decision cannot grant a recovery retry",
+            recovery_limits.scoped_retry_refusal(self.state, None),
+        )
+        self.assertNotIn("retry_failed_stage", self.card_actions())
 
     def test_a_different_pending_decision_is_shown_before_any_recovery_retry(self):
         self.hold_before_publication()
@@ -242,7 +191,8 @@ class BlockerNeedTests(unittest.TestCase):
     def test_the_view_and_the_cli_share_one_admission_rule(self):
         # A published request of another kind refuses in both, with the same reason.
         self.publish_no_progress()
-        public = human.current(self.state)
+        public = human.retained(self.state)
+        self.no_machinery_offer()
         self.assertIsNone(recovery_limits.scoped_retry_refusal(self.state, public))
         public = {**public, "scope": "blocker"}
         self.assertEqual(
@@ -285,21 +235,13 @@ class BlockerNeedTests(unittest.TestCase):
         human.respond_operational(self.state, public["request_id"], public["request_token"], "leave_paused")
         self.assertEqual(human.RESPONSE_RECEIVED, self.state["stop_reason"])
 
-    def test_operational_information_is_not_given_the_contract_path(self):
-        # An exhausted operational recovery is re-evaluated (#486); a contract edit is not its path.
+    def test_historical_operational_information_is_not_given_the_contract_path(self):
         self.contract()
         public = self.publish_operational()
-        human.respond_operational(
-            self.state,
-            public["request_id"],
-            public["request_token"],
-            "provide_information",
-            "The provider incident has been investigated",
-        )
-        self.assertEqual(human.RESPONSE_RECEIVED, self.state["stop_reason"])
-        human.review_operational_response(self.state)
+        legacy_response(self.state, public, text="The provider incident has been investigated")
         self.assertEqual("operational_exhaustion", human.held_response_scope(self.state))
         self.assertEqual("", human.contract_decision_advice("operational_exhaustion"))
+        self.no_machinery_offer()
 
     def test_no_held_response_has_no_scope(self):
         self.assertIsNone(human.held_response_scope(self.state))
