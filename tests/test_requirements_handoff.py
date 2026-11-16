@@ -411,6 +411,33 @@ class RequirementsHandoffTests(unittest.TestCase):
                     )
                 check.assert_called_once()
 
+    def test_retired_triage_shortcut_is_inactive_for_live_runs_and_preserved_for_replay(self):
+        triage_ready = report(
+            summary="Triage: no blocking questions",
+            intended_outcome="Add export",
+            ready=True,
+            open_questions=[],
+        )
+        with self.assertRaisesRegex(ValueError, "needs an outcome"):
+            self.accept(dict(triage_ready), settings={"requirements_triage": True, "joint_planning": True})
+
+        replay_settings = {
+            "requirements_triage": True,
+            "joint_planning": True,
+            "replay_recording": {"path": "recording.json"},
+        }
+        replayed_ready, queued_ready = self.accept(dict(triage_ready), settings=dict(replay_settings))
+        self.assertEqual("ready", replayed_ready["requirements_triage"]["outcome"])
+        self.assertEqual("requirements_gather", replayed_ready["next_stage"])
+        self.assertEqual([], queued_ready)
+
+        replayed_ask, queued_ask = self.accept(
+            {**triage_ready, "ready": False, "open_questions": [QUESTION]},
+            settings=dict(replay_settings),
+        )
+        self.assertEqual("questions", replayed_ask["requirements_triage"]["outcome"])
+        self.assertEqual([[QUESTION]], [row["questions"] for row in queued_ask])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,11 +1,4 @@
-"""The first Requirements pass asks its blocking questions early (#2940).
-
-The unit tests cover brief sizing, explicit and saved choices, ordinary questions-only
-acceptance and the floor effort decision. Linux CLI tests drive the task-run interface
-with the scenario fake provider. Small briefs produce one ordinary handoff; explicitly
-enabled triage still asks or returns ready before the full pass. Both paths retain the
-clarification and exact-plan approval boundaries.
-"""
+"""Compatibility and saved-run replay coverage for the retired Requirements triage pass (#2940, #3652)."""
 
 from __future__ import annotations
 
@@ -52,7 +45,11 @@ LARGE_BRIEF = "Build a greeting CLI. " + "Keep the supplied behavior. " * 31
 def state(**extra):
     current = {
         "task": "Build a greeting CLI",
-        "settings": {"requirements_triage": True, "joint_planning": True},
+        "settings": {
+            "requirements_triage": True,
+            "joint_planning": True,
+            "replay_recording": {"path": "recording.json"},
+        },
         "stages": [],
     }
     current.update(extra)
@@ -60,52 +57,42 @@ def state(**extra):
 
 
 class SettingTests(unittest.TestCase):
-    def test_the_cli_preserves_explicit_choices_and_explains_the_size_default(self):
+    def test_the_cli_accepts_compatibility_flags_and_documents_retirement(self):
         parser = argparse.ArgumentParser()
         triage.add_argument(parser)
         self.assertIsNone(parser.parse_args([]).requirements_triage)
         self.assertTrue(parser.parse_args(["--requirements-triage"]).requirements_triage)
         self.assertFalse(parser.parse_args(["--no-requirements-triage"]).requirements_triage)
         help_text = " ".join(parser.format_help().split())
-        self.assertIn("small briefs run the ordinary Requirements pass directly", help_text)
-        self.assertIn("Defaults to larger briefs", help_text)
+        self.assertIn("compatibility no-op", help_text)
+        self.assertIn("unified citation-verified Requirements pass", help_text)
 
     def test_packaged_imports_use_the_same_default(self):
         packaged = importlib.import_module("tools.autocode_requirements_triage")
-        self.assertFalse(packaged.new_run_setting(None, True, False, task="Fix the greeting punctuation"))
+        self.assertFalse(packaged.new_run_setting(None, True, False, task=LARGE_BRIEF))
 
-    def test_on_by_default_for_a_larger_new_joint_default_flow_run(self):
-        self.assertTrue(triage.new_run_setting(None, True, False), "an unknown brief retains the existing default")
-        self.assertTrue(triage.new_run_setting(None, True, False, task=LARGE_BRIEF))
-        for joint, v2 in ((False, False), (True, True)):
-            with self.subTest(joint=joint, v2=v2):
-                self.assertFalse(triage.new_run_setting(None, joint, v2, task=LARGE_BRIEF))
-        self.assertFalse(triage.new_run_setting(False, True, False, task=LARGE_BRIEF))
-        for joint, v2 in ((False, False), (False, True), (True, True)):
-            with self.subTest(requested=True, joint=joint, v2=v2):
-                self.assertRaises(ValueError, triage.new_run_setting, True, joint, v2, task=LARGE_BRIEF)
+    def test_all_new_runs_use_the_unified_pass_regardless_of_size_or_flag(self):
+        for requested in (None, True, False):
+            for joint in (True, False):
+                for v2 in (True, False):
+                    for task in (None, "Fix punctuation", LARGE_BRIEF, "word " * 121, "1. task\n" * 9):
+                        with self.subTest(requested=requested, joint=joint, v2=v2, task=bool(task)):
+                            self.assertFalse(triage.new_run_setting(requested, joint, v2, task=task))
 
-    def test_small_briefs_default_to_one_full_pass_and_explicit_choices_win(self):
-        for task in ("Fix the greeting punctuation", "word " * 120, "1. task\n" * 8):
-            with self.subTest(task=task):
-                self.assertFalse(triage.new_run_setting(None, True, False, task=task))
-                self.assertTrue(triage.new_run_setting(True, True, False, task=task))
-        for task in ("word " * 121, "1. task\n" * 9):
-            with self.subTest(task=task):
-                self.assertTrue(triage.new_run_setting(None, True, False, task=task))
-                self.assertFalse(triage.new_run_setting(False, True, False, task=task))
-
-    def test_a_resume_cannot_change_the_saved_flow(self):
-        saved = {"requirements_triage": True}
-        self.assertFalse(triage.resume_refused(saved, None))
-        self.assertFalse(triage.resume_refused(saved, True))
-        self.assertTrue(triage.resume_refused(saved, False))
-        self.assertTrue(triage.resume_refused({}, True))
+    def test_resume_never_refuses_compatibility_flags(self):
+        for saved in ({}, {"requirements_triage": True}, {"requirements_triage": False}):
+            for requested in (None, True, False):
+                with self.subTest(saved=saved, requested=requested):
+                    self.assertFalse(triage.resume_refused(saved, requested))
 
 
 class DueTests(unittest.TestCase):
-    def test_due_only_for_the_first_dispatch_of_a_fresh_joint_default_flow_run(self):
+    def test_due_only_when_replaying_the_first_dispatch_of_a_recorded_triage_run(self):
         self.assertTrue(triage.due(state()))
+        self.assertFalse(
+            triage.due(state(settings={"requirements_triage": True, "joint_planning": True})),
+            "live and scripted runs never dispatch triage (#3652)",
+        )
         for key in (
             triage.SETTING,
             "requirements_handoff",
@@ -119,42 +106,27 @@ class DueTests(unittest.TestCase):
         with self.subTest(key="answers"):
             self.assertFalse(triage.due(state(answers={"Q1": {"text": "Both"}})))
         for settings in (
-            {"requirements_triage": False, "joint_planning": True},
-            {"requirements_triage": True, "joint_planning": False},
-            {"requirements_triage": True, "joint_planning": True, "planning_flow": "v2"},
-            {"requirements_triage": True, "joint_planning": True, "spec_first": True},
+            {"requirements_triage": False, "joint_planning": True, "replay_recording": {"path": "r.json"}},
+            {"requirements_triage": True, "joint_planning": False, "replay_recording": {"path": "r.json"}},
+            {
+                "requirements_triage": True,
+                "joint_planning": True,
+                "planning_flow": "v2",
+                "replay_recording": {"path": "r.json"},
+            },
+            {
+                "requirements_triage": True,
+                "joint_planning": True,
+                "spec_first": True,
+                "replay_recording": {"path": "r.json"},
+            },
         ):
             with self.subTest(settings=settings):
                 self.assertFalse(triage.due(state(settings=settings)))
 
 
-class PromptTests(unittest.TestCase):
-    def test_the_accepted_design_reference_remains_a_read_only_triage_input(self):
-        reference = "https://www.figma.com/design/Alpha123/Alpha?node-id=1-2"
-        current = state(workspace="/project")
-        current["task"] += "\nAccepted UI brief: blue navigation and a compact message card."
-        current["settings"]["figma_file"] = reference
-        before = json.loads(json.dumps(current))
-        rendered = triage.prompt(current, {"files": ["README.md"]}, "codex")
-        packet = json.loads(rendered.split("CURRENT HANDOFF DATA\n", 1)[1])
-        self.assertIn("figma_file", packet)
-        self.assertEqual(reference, packet["figma_file"])
-        self.assertEqual(current["task"], packet["task"])
-        self.assertIn("Do not\ninspect repository files for this pass", rendered)
-        self.assertEqual(before, current)
-
-    def test_components_without_an_accepted_reference_receive_none(self):
-        for reference in (None, ""):
-            with self.subTest(reference=reference):
-                current = state(workspace="/project")
-                current["settings"]["figma_file"] = reference
-                rendered = triage.prompt(current, {}, "codex")
-                packet = json.loads(rendered.split("CURRENT HANDOFF DATA\n", 1)[1])
-                self.assertNotIn("figma_file", packet)
-
-
 class SchemaTests(unittest.TestCase):
-    def test_the_triage_request_schema_accepts_both_answer_shapes(self):
+    def test_the_replay_answer_schema_accepts_both_answer_shapes(self):
         full = {
             "type": "object",
             "required": ["summary", "intended_outcome", "required_behaviors", "acceptance_tests"],
@@ -165,7 +137,7 @@ class SchemaTests(unittest.TestCase):
                 "acceptance_tests": {"type": "array", "items": {"type": "string"}},
             },
         }
-        relaxed = triage.request_schema(full)
+        relaxed = triage.answer_schema(full)
         self.assertEqual(["summary", "intended_outcome"], relaxed["required"])
         self.assertEqual({"type": "boolean"}, relaxed["properties"]["ready"])
         self.assertIn("required_behaviors", relaxed["properties"], "a full report's fields stay known")
@@ -371,6 +343,7 @@ class EffortTests(unittest.TestCase):
                 settings={
                     "requirements_triage": True,
                     "joint_planning": True,
+                    "replay_recording": {"path": "recording.json"},
                     "roles": {"requirements": {"model": "m", "reasoning_effort": configured}},
                     "declared_variants": {"m": declared} if declared else None,
                 }
@@ -431,20 +404,19 @@ class TriageCliTests(unittest.TestCase):
     def saved(self, run):
         return json.loads((Path(run.run_dir) / "state.json").read_text(encoding="utf-8"))
 
-    def test_the_triage_pass_asks_before_the_full_report_and_the_answer_funds_it(self):
+    def test_the_compatibility_triage_flag_uses_the_unified_first_pass_and_asks_blocking_questions(self):
         run, view = self.start(*JOINT, "--requirements-triage", fault="clarifying_requirements")
         need = view.get("needs") or {}
         self.assertEqual("answer", need.get("kind"), {key: view.get(key) for key in ("status", "next_stage", "needs")})
         self.assertEqual([clarifying.QUESTION_ID], [row["id"] for row in need["questions"]])
-        self.assertEqual(["requirements_gather"], self.stages(run), "only the triage dispatch has run")
-        marker = self.saved(run)[triage.SETTING]
-        self.assertEqual("questions", marker["outcome"])
+        self.assertEqual(["requirements_gather"], self.stages(run), "one unified Requirements pass ran")
+        self.assertNotIn(triage.SETTING, self.saved(run))
         timing = view.get("interaction_timing") or {}
         self.assertIsNotNone(timing.get("first_question_at"), "the question is marked before any planning dispatch")
         run.answer(clarifying.QUESTION_ID, "Both", resolver_token=need["resolver_token"])
         view = run.advance_until_input()
         self.assertEqual("approve_plan", (view.get("needs") or {}).get("kind"), view.get("needs"))
-        self.assertEqual(2, self.stages(run).count("requirements_gather"), "the triage pass, then the full report")
+        self.assertEqual(2, self.stages(run).count("requirements_gather"), "clarification pass, then answered report")
         self.assertIn("draft_plan", self.stages(run))
 
     def test_a_fresh_fake_run_with_no_blocking_question_runs_the_full_report_at_once(self):
@@ -455,13 +427,11 @@ class TriageCliTests(unittest.TestCase):
         self.assertFalse(view["done"])
         self.assertNotIn("builder", self.stages(run), "implementation still needs exact plan approval")
 
-    def test_an_explicit_triage_choice_keeps_the_ready_then_full_flow(self):
+    def test_an_explicit_triage_flag_runs_one_unified_full_pass_instead_of_two(self):
         run, view = self.start(*JOINT, "--requirements-triage")
         self.assertEqual("approve_plan", (view.get("needs") or {}).get("kind"), view.get("needs"))
-        self.assertEqual(
-            2, self.stages(run).count("requirements_gather"), "the ready triage pass, then the full report"
-        )
-        self.assertEqual("ready", self.saved(run)[triage.SETTING]["outcome"])
+        self.assertEqual(1, self.stages(run).count("requirements_gather"), "compatibility no-op: one full pass")
+        self.assertNotIn(triage.SETTING, self.saved(run))
 
     def test_a_small_ambiguous_brief_still_asks_and_uses_the_answer(self):
         run, view = self.start(*JOINT, fault="clarifying_requirements")

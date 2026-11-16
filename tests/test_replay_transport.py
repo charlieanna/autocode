@@ -2507,5 +2507,101 @@ class CurrentProofRefusalTests(unittest.TestCase):
         self.assertEqual(original, self.state)
 
 
+class LegacyTriageReplaySettingsTests(unittest.TestCase):
+    def _tape(self, dispatches, artifacts=None):
+        payloads = artifacts or {}
+        return SimpleNamespace(
+            document={"dispatches": dispatches},
+            artifact=lambda key: json.dumps(payloads[key]).encode("utf-8"),
+        )
+
+    def _base(self, effort="high", **extra):
+        return {
+            "joint_planning": True,
+            "replay_recording": {"checks": "fresh"},
+            "roles": {"requirements": {"model": "gpt-6-astra", "reasoning_effort": effort}},
+            **extra,
+        }
+
+    def test_pre_3652_recordings_restore_triage_from_effort_or_report_without_touching_full_gather(self):
+        # Non-requirements or spec_first dispatches leave settings untouched.
+        empty = self._base()
+        transport._apply_legacy_triage_settings(self._tape([{"stage": "draft_plan", "report_only": False}]), empty)
+        self.assertNotIn("requirements_triage", empty)
+
+        spec_first = self._base(spec_first=True)
+        transport._apply_legacy_triage_settings(
+            self._tape(
+                [{"stage": "requirements_gather", "report_only": False, "reasoning_effort": "low", "report": None}]
+            ),
+            spec_first,
+        )
+        self.assertNotIn("requirements_triage", spec_first)
+
+        # Lowered first-pass effort restores requirements_triage and synthesizes declared_variants.
+        lowered = self._base()
+        transport._apply_legacy_triage_settings(
+            self._tape(
+                [{"stage": "requirements_gather", "report_only": False, "reasoning_effort": "low", "report": None}]
+            ),
+            lowered,
+        )
+        self.assertTrue(lowered["requirements_triage"])
+        self.assertEqual({"gpt-6-astra": ["low", "high"]}, lowered["declared_variants"])
+
+        # Floor-configured routes (low == low) inspect the triage report (including a report_only repair).
+        repaired_floor = self._base(effort="low")
+        transport._apply_legacy_triage_settings(
+            self._tape(
+                [
+                    {"stage": "requirements_gather", "report_only": False, "reasoning_effort": "low", "report": None},
+                    {
+                        "stage": "requirements_gather_report_repair",
+                        "original_stage": "requirements_gather",
+                        "report_only": True,
+                        "reasoning_effort": "low",
+                        "report": "triage.json",
+                    },
+                ],
+                {"triage.json": {"ready": True, "open_questions": []}},
+            ),
+            repaired_floor,
+        )
+        self.assertTrue(repaired_floor["requirements_triage"])
+        self.assertNotIn("declared_variants", repaired_floor)
+
+        # Full non-triage requirements_gather at floor effort stays non-triage across subsequent stages.
+        full_floor = self._base(effort="low")
+        transport._apply_legacy_triage_settings(
+            self._tape(
+                [
+                    {
+                        "stage": "requirements_gather",
+                        "report_only": False,
+                        "reasoning_effort": "low",
+                        "report": "full.json",
+                    },
+                    {"stage": "requirements_gather", "report_only": False, "reasoning_effort": "low", "report": None},
+                    {"stage": "draft_plan", "report_only": False, "reasoning_effort": "low", "report": None},
+                ],
+                {"full.json": {"requirements": ["R1"], "open_questions": []}},
+            ),
+            full_floor,
+        )
+        self.assertNotIn("requirements_triage", full_floor)
+
+        full_then_plan = self._base(effort="low")
+        transport._apply_legacy_triage_settings(
+            self._tape(
+                [
+                    {"stage": "requirements_gather", "report_only": False, "reasoning_effort": "low", "report": None},
+                    {"stage": "draft_plan", "report_only": False, "reasoning_effort": "low", "report": None},
+                ]
+            ),
+            full_then_plan,
+        )
+        self.assertNotIn("requirements_triage", full_then_plan)
+
+
 if __name__ == "__main__":
     unittest.main()

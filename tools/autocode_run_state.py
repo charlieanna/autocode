@@ -647,9 +647,8 @@ class RunState(TypedDict, total=False):
     requirements_body: Any
     requirements_handoff: Any
     requirements_history: Any
-    # The triage pass record (#2940): requirements_handoff's triage branch writes {pass, outcome,
-    # questions, at}; the planning unit's prepare and the CLI's effort launch read it to run only
-    # the first requirements_gather dispatch as triage.
+    # Retired triage pass record (#2940, #3652): preserved for loading and replaying saved runs
+    # whose first Requirements pass recorded {pass, outcome, questions, at}.
     requirements_triage: Any
     # The chat reading-time overlap (#3233 part 1): chat_checkpoint writes the current background
     # full-Requirements pass {at, status running|adopting|kept|discarded, reason, questions,
