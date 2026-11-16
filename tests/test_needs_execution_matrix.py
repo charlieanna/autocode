@@ -30,6 +30,7 @@ import autocode_support as support
 import autocode_taskrun as taskrun
 import goal_fixtures
 
+from .operational_fixtures import assert_operational_block
 from .test_needs_contract import NEED_BUILDERS, documented_kinds, emitted_kinds
 
 KIND_CASES = {
@@ -695,6 +696,8 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
                 evidence={"diagnosis": "Contradictory criterion", "output": str(evidence)},
             )
         self.save()
+        if scope == "operational_exhaustion":
+            return self.run.status()
         return self.shown("answer", scope=scope)
 
     def respond_information(self, scope, text):
@@ -726,104 +729,74 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
         self.assertIn("--approve-goal", after["needs"]["reason"])
 
     def test_operational_information_holds_existing_allowances(self):
-        after = self.respond_information("operational_exhaustion", "The environment was repaired; keep existing limits")
-        self.assertEqual("PAUSED_TIMEOUT_RECOVERY", after["status"])
-        self.assertEqual("pending", after["information_review"]["status"])
-        self.assertIn("no execution, approval or additional allowance was authorized", after["stop_reason"])
+        before = self.operational("operational_exhaustion")
+        saved = support.read(self.directory / "state.json")
+        assert_operational_block(self, saved, "PAUSED_TIMEOUT_RECOVERY")
+        self.assertIsNone(before["needs"])
+        self.assertIsNone(before["next_command"])
+        self.assertIsNone(before["chat"]["input"])
+        self.assertEqual(3, saved["automatic_recoveries_since_resume"])
+        self.assertEqual(17, saved["active_seconds"])
+        self.assertEqual(self.state["settings"]["limits"], saved["settings"]["limits"])
+        # Reading a held run neither grants allowance nor offers a machinery question.
+        after = self.run.status()
+        self.assertEqual(self.protected(before), self.protected(after))
+        self.assertEqual(saved, support.read(self.directory / "state.json"))
+        self.provider.assert_not_called()
 
-    def test_exhausted_timeout_recovery_with_pending_resolve_grants_via_status_and_resume(self):
-        # Covers both published WAITING_FOR_USER (even with next_stage="resolve" + resolution_request)
-        # and saved RESOLVER_PENDING with an authenticated runner hold receipt, using both
-        # status's named command and `autocode resume --grant-recovery 1`.
-        for mode in (
-            "waiting_status_offer",
-            "waiting_resume_flag",
-            "resolver_pending_status_offer",
-            "resolver_pending_resume_flag",
-        ):
-            with self.subTest(mode=mode):
-                self.setUp()
-                self.draft(approve=True)
-                self.state.update(
-                    status="PAUSED_TIMEOUT_RECOVERY",
-                    next_stage="resolve",
-                    resolution_request={"reason": "need diagnosis"},
-                    automatic_recoveries_since_resume=3,
-                    consecutive_timeout_recoveries=3,
-                    active_seconds=17,
+    def test_exhausted_timeout_recovery_with_pending_resolve_grants_via_explicit_operator_cli(self):
+        # The product never asks a person to grant machinery recovery. The existing
+        # explicit operator command still preserves its bounded, audited authority.
+        self.draft(approve=True)
+        self.state.update(
+            status="PAUSED_TIMEOUT_RECOVERY",
+            next_stage="resolve",
+            resolution_request={"reason": "need diagnosis"},
+            automatic_recoveries_since_resume=3,
+            consecutive_timeout_recoveries=3,
+            active_seconds=17,
+        )
+        self.assertTrue(
+            runner.resolver_runtime.record_operational_exhaustion(
+                runner,
+                self.state,
+                self.directory,
+                support.Paused("PAUSED_TIMEOUT_RECOVERY", "Recovery allowance exhausted"),
+            )
+        )
+        self.save()
+        before = self.run.status()
+        assert_operational_block(self, support.read(self.directory / "state.json"), "PAUSED_TIMEOUT_RECOVERY")
+        self.assertIsNone(before["needs"])
+        self.assertIsNone(before["next_command"])
+        admitted = []
+
+        def fake_drive(loop_state, _dispatch, **_kwargs):
+            admitted.append(
+                (
+                    loop_state["status"],
+                    loop_state["automatic_recoveries_since_resume"],
+                    loop_state["consecutive_timeout_recoveries"],
+                    loop_state.get("resolver_human_proposal"),
+                    human.current(loop_state),
                 )
-                self.assertTrue(
-                    runner.resolver_runtime.record_operational_exhaustion(
-                        runner,
-                        self.state,
-                        self.directory,
-                        support.Paused("PAUSED_TIMEOUT_RECOVERY", "Recovery allowance exhausted"),
-                    )
-                )
-                if mode.startswith("waiting"):
-                    self.save()
-                    before = self.shown("answer", scope="operational_exhaustion")
-                    row, named = client_actions.bound_offer(before, self.workspace, self.directory)
-                    self.assertEqual("grant_recovery", row["id"])
-                    command = client_actions.fill_offer(before, row, named, "1")
-                else:
-                    # Simulate an already-saved RESOLVER_PENDING run (PUBLIC unset, PRIVATE + runner hold receipt set).
-                    support.atomic_json(self.directory / "state.json", self.state)
-                    explain = self.cli([*self.run.command, "--run-dir", str(self.directory), "--explain"], env=self.env)
-                    self.assertEqual(0, explain.returncode, explain.stdout + explain.stderr)
-                    explain_text = explain.stdout + explain.stderr
-                    self.assertIn("Automatic recovery reached its allowance", explain_text)
-                    self.assertIn("--resume-paused --grant-recovery N", explain_text)
-                    before = self.shown("resume")
-                    self.assertEqual("RESOLVER_PENDING", before["status"])
-                    self.assertEqual("PAUSED_TIMEOUT_RECOVERY", before["needs"]["pause_origin"])
-                    self.assertEqual("--resume-paused --grant-recovery N", before["needs"]["action"])
-                    named = client_actions.named(before, self.workspace, self.directory)
-                    command = client_actions.fill(before, named, {"grant_recovery": "1"})
+            )
+            loop_state["status"] = "PAUSED_BUDGET"
+            loop_state["stop_reason"] = "Stopped cleanly in fixture loop"
+            runner.write_json(self.directory / "state.json", loop_state)
+            raise runner.orchestrator.LoopExit(2)
 
-                admitted = []
-
-                def fake_drive(loop_state, _dispatch, **_kwargs):
-                    admitted.append(
-                        (
-                            loop_state["status"],
-                            loop_state["automatic_recoveries_since_resume"],
-                            loop_state["consecutive_timeout_recoveries"],
-                            loop_state.get("resolver_human_proposal"),
-                            human.current(loop_state),
-                        )
-                    )
-                    loop_state["status"] = "PAUSED_BUDGET"
-                    loop_state["stop_reason"] = "Stopped cleanly in fixture loop"
-                    runner.write_json(self.directory / "state.json", loop_state)
-                    raise runner.orchestrator.LoopExit(2)
-
-                if mode.endswith("status_offer"):
-                    argv = [*self.run.command, *self.place, *command.argv]
-                    env = {**self.env, **command.env}
-                else:
-                    argv = [
-                        *self.run.command,
-                        "resume",
-                        "--run-dir",
-                        str(self.directory),
-                        "--grant-recovery",
-                        "1",
-                        "--no-chat",
-                    ]
-                    env = dict(self.env)
-                with patch.object(runner.orchestrator, "drive", side_effect=fake_drive):
-                    result = self.cli(argv, env=env, advancing=True)
-                self.assertEqual(2, result.returncode, result.stdout + result.stderr)
-                self.assertNotIn("Input rejected:", result.stdout + result.stderr)
-                self.assertNotIn("requires PAUSED_TIMEOUT_RECOVERY", result.stdout + result.stderr)
-                self.assertEqual([("RUNNING", 2, 0, None, None)], admitted)
-                after = self.run.status()
-                self.assertEqual(
-                    self.protected(before)["approved_contract"], self.protected(after)["approved_contract"]
-                )
-                saved = support.read(self.directory / "state.json")
-                self.assertIn("recovery_grant", [e["kind"] for e in saved["user_events"]])
+        argv = [*self.run.command, "resume", "--run-dir", str(self.directory), "--grant-recovery", "1", "--no-chat"]
+        with patch.object(runner.orchestrator, "drive", side_effect=fake_drive):
+            result = self.cli(argv, env=self.env, advancing=True)
+        self.assertEqual(2, result.returncode, result.stdout + result.stderr)
+        self.assertNotIn("Input rejected:", result.stdout + result.stderr)
+        self.assertEqual([("RUNNING", 2, 0, None, None)], admitted)
+        after = self.run.status()
+        self.assertEqual(self.protected(before)["approved_contract"], self.protected(after)["approved_contract"])
+        saved = support.read(self.directory / "state.json")
+        self.assertIn("recovery_grant", [e["kind"] for e in saved["user_events"]])
+        self.provider.assert_not_called()
 
     def test_exact_job_retry_checks_source_and_current_token(self):
         (self.workspace / "docs").mkdir(exist_ok=True)

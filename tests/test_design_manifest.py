@@ -2628,10 +2628,14 @@ class DesignManifestCliTests(unittest.TestCase):
         self.path, self.body = inventory_bundle(self.root / "exports-uncovered-plan")
         self.scope_inventory_to_fixture_task()
         self.env["FAKE_DESIGN_OMIT_PLAN_CASE"] = "1"
-        view = self.start().status()
+        run = self.start()
+        view = run.status()
         self.assertFalse(view["done"])
-        self.assertNotEqual("approve_plan", view["needs"]["kind"])
-        self.assertIn("every approved design case", view["stop_reason"])
+        self.assertNotEqual("approve_plan", (view["needs"] or {}).get("kind"))
+        self.assertIsNone(view["needs"])
+        saved = json.loads((run.run_dir / "state.json").read_text())
+        receipts = saved["resolver"]["operational_receipts"]
+        self.assertIn("every approved design case", json.dumps(receipts))
 
     def test_public_native_intake_collects_both_files_before_plan_approval_and_survives_restart(self):
         self.path, self.body = inventory_bundle(self.root / "native-exports")
@@ -2829,7 +2833,9 @@ class DesignManifestCliTests(unittest.TestCase):
             )
             runner.write_json(state_path, state)
         paused = run.status()
-        self.assertEqual("WAITING_FOR_USER", paused["status"], paused)
+        self.assertEqual("PAUSED_RATE_LIMIT", paused["status"])
+        self.assertIsNone(paused["needs"])
+        self.assertIsNone(paused["next_command"])
         prompts = (self.root / "prompts.jsonl").read_text()
         replacement = self.root / "paused-replacement"
         shutil.copytree(self.path.parent, replacement)
@@ -2841,11 +2847,13 @@ class DesignManifestCliTests(unittest.TestCase):
         }
         candidate = replacement / "manifest-v2.json"
         candidate.write_text(json.dumps(body))
-        with self.assertRaisesRegex(taskrun.TaskRunError, "does not acknowledge PAUSED_RATE_LIMIT"):
+        with self.assertRaisesRegex(taskrun.TaskRunError, "could not safely continue its internal recovery"):
             run.revise_design(candidate, old["design"]["manifest_hash"], "Updated one source frame")
         held = run.resume_paused()
         self.assertEqual(old["design"]["manifest_hash"], held["design"]["manifest_hash"])
-        self.assertEqual("WAITING_FOR_USER", held["status"], held)
+        self.assertEqual("PAUSED_RATE_LIMIT", held["status"])
+        self.assertIsNone(held["needs"])
+        self.assertIsNone(held["next_command"])
         self.assertEqual(prompts, (self.root / "prompts.jsonl").read_text(), "no provider may launch past the pause")
 
     def test_invalid_manifest_is_refused_before_any_provider_call_or_run_allocation(self):
