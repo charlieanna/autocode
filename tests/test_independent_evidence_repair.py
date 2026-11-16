@@ -25,6 +25,10 @@ class IndependentEvidenceRepairTests(unittest.TestCase):
         output.write_text('{"verdict": "FAIL"}\n')
         archived = root / "accepted-tests"
         archived.write_text("existing independent assertions\n")
+        source = root / product
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text("def bind():\n    return bound_report\n")
+        source_hash = hashlib.sha256(source.read_bytes()).hexdigest()
         state = approved(
             {"C1": "test: test_c1_binding", "C2": "guard: test_c2_ordinary"},
             iteration=3,
@@ -38,12 +42,12 @@ class IndependentEvidenceRepairTests(unittest.TestCase):
         )
         state["goal_contract"]["revision"] = 1
         assessment = evidence.assess(
-            [{"path": product, "sha256": "a" * 64, "lines": [2]}],
+            [{"path": product, "sha256": source_hash, "lines": [2]}],
             None,
             None,
             source_revision="source-one",
             proof_context="proof-one",
-            texts={product: {"sha256": "a" * 64, "lines": {"2": "return bound_report"}}},
+            texts={product: {"sha256": source_hash, "lines": {"2": "return bound_report"}}},
         )
         state["regression_proof"] = {
             "verdict": "PASS",
@@ -188,6 +192,11 @@ class IndependentEvidenceRepairTests(unittest.TestCase):
                     altered = copy.deepcopy(state)
                     altered["stages"][0][key] = value
                     self.assertEqual([], acceptance.due(altered))
+            for records in ([], [state["stages"][0], state["stages"][0]]):
+                with self.subTest(records=len(records)):
+                    altered = copy.deepcopy(state)
+                    altered["stages"] = records
+                    self.assertEqual([], acceptance.due(altered))
             for key, value in (
                 ("proof_context", "other"),
                 ("sha256", "b" * 64),
@@ -233,6 +242,23 @@ class IndependentEvidenceRepairTests(unittest.TestCase):
             state, record = self.fixture(Path(directory))
             self.assertEqual(["C1", "C2"], [case["id"] for case in acceptance.due(state)])
             Path(record["output"]).write_text("different review bytes")
+            self.assertEqual([], acceptance.due(state))
+            Path(record["output"]).unlink()
+            self.assertEqual([], acceptance.due(state))
+
+    def test_reviewed_product_bytes_must_still_match_before_repair_is_routed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state, _ = self.fixture(root)
+            product = root / "src/bind.py"
+            product.parent.mkdir(exist_ok=True)
+            product.write_text("def bind():\n    return bound_report\n")
+            digest = hashlib.sha256(product.read_bytes()).hexdigest()
+            state["workspace"] = str(root)
+            state["regression_proof"]["changed_code_evidence"]["obligations"][0]["sha256"] = digest
+            state["validation"]["changed_code_decisions"][0]["sha256"] = digest
+            self.assertEqual(["C1", "C2"], [case["id"] for case in acceptance.due(state)])
+            product.write_text("def bind():\n    return another_report\n")
             self.assertEqual([], acceptance.due(state))
 
     def test_qualified_strengthening_fulfills_once_and_preserves_the_previous_receipt(self):
