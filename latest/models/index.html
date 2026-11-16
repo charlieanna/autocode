@@ -525,6 +525,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Choosing models automatically">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ranking-your-own-models-by-measurement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ranking your own models by measurement
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2016,6 +2033,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Choosing models automatically">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ranking-your-own-models-by-measurement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ranking your own models by measurement
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2144,7 +2178,7 @@
 
 
 <h1 id="models-roles-and-escalation">Models, roles, and escalation<a class="headerlink" href="#models-roles-and-escalation" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/f1f2f870e599fc111f54abb9b7b03e85189f559b/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/7fe16cc594b529c58dd6305077f92ea103456d21/README.md">← Back to README</a></p>
 <h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
 <p>Every stage of a run has a <strong>role</strong>. Role names describe responsibilities, not
 mandatory models — each role can select any provider/model from <code>opencode models</code>
@@ -2316,7 +2350,7 @@ review allowance leaves room for it (a large plan, <code>plan_review_call_limit<
 final review and the Planner never climbs. If the stronger revision is still blocked, the
 final review returns the open concerns to you as blocking questions.</p>
 <p>Two scripted scenarios check these rows end to end, through <code>autocode --status --json</code>
-(<a href="https://github.com/charlieanna/autocode/blob/f1f2f870e599fc111f54abb9b7b03e85189f559b/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
+(<a href="https://github.com/charlieanna/autocode/blob/7fe16cc594b529c58dd6305077f92ea103456d21/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
 attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
 Sol XHigh, one attempt with its cost, <code>passed</code>, and the run completes; <code>escalation_outcomes</code>
 stamps that attempt and the ordinary retry before it <code>passed</code> too. In <code>escalation-ladder-end</code>
@@ -2535,6 +2569,25 @@ with <code>autocode models --selection --provider NAME</code>; this reads local 
 launch prints why and uses the fixed routes, and <code>--auto-select</code> refuses. <code>autocode doctor</code>
 shows the installed version's row; a new version qualifies once
 <code>tools/provider_conformance.py</code> has passed on it and its row is added.</p>
+<h3 id="ranking-your-own-models-by-measurement">Ranking your own models by measurement<a class="headerlink" href="#ranking-your-own-models-by-measurement" title="Permanent link">&para;</a></h3>
+<p>Automatic selection ranks only the models it has evidence for. Until now that was the shipped
+qualification table, so an account whose models are not in it got no ranked choice
+(<a href="https://github.com/charlieanna/autocode/issues/3630">#3630</a>). AutoCode can now keep a measured
+ranking of your own models, in <code>~/.config/autocode/measured-routes.json</code> beside <code>stages.toml</code>.
+Selection, the quota fallback and <code>autocode models --selection</code> all read it from that one place:</p>
+<ul>
+<li>once a stage has been measured, only the models that qualified are chosen automatically, best
+  first, each at the lowest level that qualified, and a quota stop moves only among them;</li>
+<li>when none qualified, AutoCode does not fall back to a model nobody measured: you choose the
+  stage's model yourself (you can always name any model for a stage);</li>
+<li>for a stage nobody has measured, the shipped table applies as before.</li>
+</ul>
+<p>The parts in place are the free shortlist (<code>autocode_model_shortlist</code>: what to suggest measuring,
+read from the tool's own listing with no model call), the Requirements requests and their
+mechanical grader (<code>autocode_requirements_probe</code>, run against the small project in
+<code>tools/fixtures/requirements_probe</code>) and the recorded ranking (<code>autocode_measured_routes</code>). A model
+qualifies for Requirements when it has run all nine requests and passed at least six. Running the
+probe on the models you tick, after you approve the cost, comes next; nothing runs a probe yet.</p>
 <p>OpenCode and Kilo reasoning variants come from their local verbose model listings.
 An unsupported qualified level is omitted so the model uses its default. When older
 tools cannot report variants, the recorded qualification level is used. Preflight

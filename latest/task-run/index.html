@@ -1812,7 +1812,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/f1f2f870e599fc111f54abb9b7b03e85189f559b/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/7fe16cc594b529c58dd6305077f92ea103456d21/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -3125,7 +3125,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/f1f2f870e599fc111f54abb9b7b03e85189f559b/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/7fe16cc594b529c58dd6305077f92ea103456d21/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3281,7 +3281,7 @@ TaskRun consume it. Cross-run coordinators use public child reports, never child
 </tr>
 <tr>
 <td>Answer</td>
-<td><code>autocode --answer QUESTION_ID=TEXT --resolver-token TOKEN</code> (<code>--answer</code> repeatable); a question with <code>options</code> takes only one of its option labels or its <code>proposed_default</code>, exactly</td>
+<td><code>autocode --answer QUESTION_ID=TEXT --resolver-token TOKEN</code> (<code>--answer</code> repeatable; <code>TaskRun.answer_many(...)</code> batches multiple open answers into one invocation); a question with <code>options</code> accepts custom free-text when <code>allow_custom</code> is <code>true</code> (#3650), and otherwise takes only one of its option labels or its <code>proposed_default</code>, matched modulo formatting</td>
 <td>0 saved, 2 rejected</td>
 </tr>
 <tr>
@@ -3381,13 +3381,21 @@ before an earlier answer is rejected. Without <code>resolver_token</code>,
 <code>TaskRun.answer()</code> reads the status view and uses the current request's token
 after checking that the request lists the question. When a person chose the
 answer, pass the token of the view they saw, so it cannot apply to a request
-they never saw. A question that lists <code>options</code> is a choice AutoCode acts on, so its
-answer must be one of those labels or the question's <code>proposed_default</code>, matched exactly
-apart from surrounding spaces (#1013). Any other text is rejected with the valid labels
+they never saw. When multiple questions are open, <code>next_command</code> emits one
+<code>--answer ID=ANSWER</code> slot per pending question so clients and <code>TaskRun.answer_many()</code>
+submit the batch in one invocation (#3650). Each projected question carries boolean
+<code>allow_custom</code>: product and assumption clarifications set <code>allow_custom: true</code> and
+accept custom free-text directly through <code>--answer ID=TEXT</code> without wiping sibling
+pending questions, while operational, route, effort, scope and rewording questions
+set <code>allow_custom: false</code> and require one of <code>options</code> or <code>proposed_default</code>, matched
+modulo formatting (#1013). On a strict choice question, any other text is rejected with the valid labels
 (<code>Input rejected:</code>, exit 2; <code>TaskRun.answer()</code> raises): nothing is saved, the token stays
 current, and something the options do not cover goes in <code>--feedback</code> (<code>/feedback</code> in
 <code>--chat</code>, which asks again after a rejected answer). A question without options takes any
-nonempty text. The terminal CLI also shows the remaining question IDs and
+nonempty text. When the current turn has an accepted Requirements handoff, <code>view.requirements</code>
+projects <code>{handoff_ref, intended_outcome, requirements, proposed_assumptions, acceptance_tests, conflicts}</code>
+(<code>null</code> otherwise), and <code>--delegate-all</code> / <code>--reject-assumption</code> bind <code>--review-token</code> to
+<code>handoff_ref</code> before a goal contract exists (#3650). The terminal CLI also shows the remaining question IDs and
 the exact <code>--answer</code> command on stderr after each successful answer and on <code>--status</code>; that
 command names <code>--resolver-token -</code>, which reads the current token from the run it names, so the
 value never appears in a terminal, a log or a relayed message (#2958). <code>--status</code>
@@ -3933,7 +3941,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/f1f2f870e599fc111f54abb9b7b03e85189f559b/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/7fe16cc594b529c58dd6305077f92ea103456d21/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
@@ -4583,6 +4591,12 @@ not one that is <code>working</code>. Its failure, interruption or rejected answ
 the public usage attempts. A queued job is not labeled <code>next</code> while that retained
 attempt still awaits reconciliation. This display distinction grants no result,
 cleanup, retry, route or completion authority.</p>
+<p>A prepared slot, chosen stage and start timestamp precede process launch and do
+not establish <code>ran</code>. A recorded provider PID or settled legacy attempt establishes
+that launch; <code>working</code> additionally requires the same fresh, positively supervised
+activity observation used by progress, the chat notice and model-choice wording.
+Unknown, stopped or unowned activity keeps its existing liveness and unresolved
+accounting facts. It never becomes an invented exit, finish or successful result.</p>
 <p><code>proxied_requirements</code> lists the requirements the current plan proves only on a stand-in
 (#2068): the user-visible result is rendered by code outside this checkout, so the plan's
 criteria prove an internal value the result is believed to depend on. Each row has
@@ -4612,8 +4626,8 @@ run is waiting for:</p>
 <tr>
 <td><code>answer</code></td>
 <td>answers to clarifying questions or a decision</td>
-<td><code>questions</code> (id, question, why, options, proposed_default), <code>request_kind</code>; for a question Resolver published, also <code>resolver_request_id</code>, <code>resolver_token</code> and <code>resolver_scope</code>; with <code>resolver_scope</code> <code>blocker</code> or <code>operational_exhaustion</code> (and no <code>route</code>), <code>action</code> is the response command; when <code>pause_origin</code> is <code>PAUSED_NO_PROGRESS</code> because a repeated incident was held, also <code>retry_action</code> (<code>--resume-paused --retry-failed-stage</code>), the one scoped retry the hold admits after inspection</td>
-<td>Answer, with the current <code>resolver_token</code>; the questions left return under a new one. A question with <code>options</code> takes exactly one of those labels or its <code>proposed_default</code>; free text answers only a question without options. A <code>blocker</code> or <code>operational_exhaustion</code> request refuses <code>--answer</code> and takes <code>action</code> (<code>respond_operational()</code>), or, after inspection, <code>retry_action</code> (<code>retry_failed_stage()</code>)</td>
+<td><code>questions</code> (id, question, why, options, proposed_default, allow_custom), <code>request_kind</code>; for a question Resolver published, also <code>resolver_request_id</code>, <code>resolver_token</code> and <code>resolver_scope</code>; with <code>resolver_scope</code> <code>blocker</code> or <code>operational_exhaustion</code> (and no <code>route</code>), <code>action</code> is the response command; when <code>pause_origin</code> is <code>PAUSED_NO_PROGRESS</code> because a repeated incident was held, also <code>retry_action</code> (<code>--resume-paused --retry-failed-stage</code>), the one scoped retry the hold admits after inspection</td>
+<td>Answer, with the current <code>resolver_token</code> (<code>next_command</code> lists every open <code>--answer ID=ANSWER</code>); remaining questions return under a new token. A question with <code>options</code> accepts free text when <code>allow_custom</code> is <code>true</code>, and otherwise takes one of those labels or its <code>proposed_default</code>. A <code>blocker</code> or <code>operational_exhaustion</code> request refuses <code>--answer</code> and takes <code>action</code> (<code>respond_operational()</code>), or, after inspection, <code>retry_action</code> (<code>retry_failed_stage()</code>)</td>
 </tr>
 <tr>
 <td><code>review</code></td>
