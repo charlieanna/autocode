@@ -1596,6 +1596,35 @@ class UnicodeKernelTests(unittest.TestCase):
                     self.assertEqual("protected sentinel\n", protected.read_text())
 
 
+@unittest.skipUnless(sys.platform == "linux" and NATIVE, "requires supported Linux metadata custody")
+class FixtureIsolationTests(unittest.TestCase):
+    def test_kernel_fixture_runs_while_an_unrelated_metadata_owner_holds_admission(self):
+        import fcntl
+
+        import autocode_metadata_custody as custody
+
+        with tempfile.TemporaryDirectory() as shared, patch.dict(os.environ, {"XDG_STATE_HOME": shared}):
+            root = custody._root(None)
+            root.mkdir(parents=True, mode=0o700)
+            lock = root / "admission.lock"
+            lock.touch(mode=0o600)
+            with lock.open("r+b") as held:
+                fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fixture = KernelTests()
+                try:
+                    fixture.setUp()
+                    result = containment.captured.run_metadata(
+                        [sys.executable, "-c", "print('isolated fixture')"],
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                    )
+                    self.assertEqual(0, result.returncode, result.stderr)
+                    self.assertEqual("isolated fixture\n", result.stdout)
+                finally:
+                    fixture.doCleanups()
+
+
 @unittest.skipUnless(NATIVE, f"requires a real kernel sandbox: {NATIVE_PROBLEM}")
 class KernelTests(unittest.TestCase):
     def setUp(self):
@@ -1604,6 +1633,9 @@ class KernelTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(prefix="containment-tests-", dir=parent)
         self.addCleanup(self.temp.cleanup)
         self.home = Path(self.temp.name)
+        # Metadata custody belongs to Core's ambient configuration, not a
+        # tool's child environment. Concurrent fixtures must own separate stores.
+        self.enterContext(patch.dict(os.environ, {"XDG_STATE_HOME": str(self.home / "state")}))
         self.workspace = self.home / "project"
         self.workspace.mkdir()
         self.source = self.workspace / "source.py"
