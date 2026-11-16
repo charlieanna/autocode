@@ -27,6 +27,7 @@ import sys
 try:
     from . import autocode_accepted_source as accepted_source
     from . import autocode_classification_recovery as classification_recovery
+    from . import autocode_interrupted_review_recovery as interrupted_review
     from . import autocode_job_failure as job_failure
     from . import autocode_job_route as job_route
     from . import autocode_limit_events as limit_events
@@ -50,6 +51,7 @@ try:
 except ImportError:
     import autocode_accepted_source as accepted_source
     import autocode_classification_recovery as classification_recovery
+    import autocode_interrupted_review_recovery as interrupted_review
     import autocode_job_failure as job_failure
     import autocode_job_route as job_route
     import autocode_limit_events as limit_events
@@ -73,7 +75,7 @@ except ImportError:
 
 
 def reconcile_checkpoint(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
-    """Publish an uncertain-stage pause under the run lock; never enter a provider/recovery dispatcher."""
+    """Settle a proven read-only interruption or retain the uncertainty; never launch a provider."""
     if getattr(args, "reconcile_only", None) is None:
         return None
     try:
@@ -88,6 +90,9 @@ def reconcile_checkpoint(runner, args, parser, state: RunState, state_path, run_
         changed = reconciliation.decision(state, args.reconcile_only, fresh)
     except ValueError as error:
         parser.error(str(error))  # Refusal must not overwrite a still-running checkpoint.
+    if interrupted_review.settle(runner, state, run_dir, workspace, fresh):
+        print("Stopped read-only attempt archived; the run can continue under its saved limits and model choices.")
+        return 0
     state.update(changed)
     runner.write_json(state_path, state)
     print(state["stop_reason"])

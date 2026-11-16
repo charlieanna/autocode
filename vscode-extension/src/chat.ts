@@ -7,7 +7,7 @@
 import * as vscode from "vscode";
 import { randomBytes } from "node:crypto";
 import { RunController, type RunRef } from "./controller";
-import { requiresConfirmation } from "./core/next-command";
+import { parseNamedCommand, requiresConfirmation } from "./core/next-command";
 import { chosenMode, type RunModes } from "./core/modes";
 import { isWorking, RunStarting, waitsForFolder, type StatusView } from "./core/view";
 import { transitionNotice, waitsForPerson } from "./notify";
@@ -31,7 +31,7 @@ const ADVANCE_LIMIT = 8;
 
 /** What a continue that made progress changes, as TaskRun.advance_until_input compares it. */
 function advanceIdentity(view: StatusView): string {
-  return JSON.stringify([view.status, view.next_stage ?? null, view.iteration ?? null, view.phase ?? null, view.run_dir ?? null]);
+  return JSON.stringify([view.status, view.next_stage ?? null, view.iteration ?? null, view.phase ?? null, view.run_dir ?? null, view.next_command ?? null]);
 }
 
 interface ChatMessage {
@@ -82,6 +82,8 @@ interface ChatTab {
   starting: boolean;
   launching: boolean;
   continuePending?: boolean;
+  /** A metadata-only recovery offer is taken once per exact checkpoint, never on every poll. */
+  reconciledOffer?: string;
   /** What a run's start is doing before its first status view, in the core's words (#3079). */
   startingLabel: string;
   /** A chat that has not started: the stages it will run, with its own picks (`stages list --json`). */
@@ -934,10 +936,20 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
 
   // A failed startup read or a held folder must not lose the first message's automatic continuation.
   private async continueWhenReady(tab: ChatTab, before: StatusView | undefined, now: StatusView): Promise<void> {
-    if (!tab.run || (!tab.continuePending && (!before || !waitsForFolder(before)))) return;
+    if (!tab.run) return;
+    let reconcile: string | undefined;
+    if (now.needs?.kind === "continue" && now.next_command && !isWorking(now)) {
+      try {
+        const named = parseNamedCommand(now.next_command, tab.run);
+        if (named.argv.length === 2 && named.argv[0] === "--reconcile-only") reconcile = now.next_command;
+      } catch { /* A malformed or foreign command remains a client gap; it is never taken automatically. */ }
+    }
+    if (!tab.continuePending && (!before || !waitsForFolder(before))
+        && (!reconcile || reconcile === tab.reconciledOffer)) return;
     if (waitsForFolder(now) || this.busy.has(tab.key) || tab.starting) return;
     tab.continuePending = false;
     if (now.done || now.needs?.kind !== "continue" || isWorking(now)) return;
+    if (reconcile) tab.reconciledOffer = reconcile;
     const run = tab.run;
     const key = tab.key;
     this.busy.add(key);
