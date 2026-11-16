@@ -13,10 +13,12 @@ import autocode_command_receipt as command_receipt
 import autocode_command_supervision as command_supervision
 import autocode_process as processes
 import autocode_regression as regression
+import autocode_run_view as run_view
 import autocode_runner_check as runner_check
 import autocode_status as status
 import autocode_uncertain_cleanup as uncertain_cleanup
 import autocode_util as util
+import autocode_verification_recovery as verification_recovery
 
 from tests.test_verify import REFERENCE, Project, isolated_python
 
@@ -177,7 +179,7 @@ class RunnerCheckTests(unittest.TestCase):
         saved = json.loads(self.path.read_text()) if self.path.exists() else {}
         self.assertNotIn("active_runner_check", saved)
 
-    def _automatic_hold(self):
+    def _automatic_hold(self, *, proof=None, log_parts=()):
         metadata = self._hold(
             phase="uncertain", cleanup_error="SessionScanIncomplete: changing PID scan", cause="controller_finished"
         )
@@ -185,11 +187,12 @@ class RunnerCheckTests(unittest.TestCase):
         metadata["owner"] = processes.identity(processes.process_table({pid})[pid])
         metadata["provider"].update(group=metadata["provider"]["pid"], session=metadata["provider"]["pid"])
         receipt = json.loads(Path(metadata["receipt"]).read_text())
-        proof = self.run / "proof"
-        directory = proof / "command-supervision" / ("a" * 32)
+        proof = proof or self.run / "proof"
+        log_dir = proof.joinpath(*log_parts)
+        directory = log_dir / "command-supervision" / ("a" * 32)
         directory.mkdir(parents=True)
-        (proof / "scratch").mkdir()
-        output = proof / "captured.log"
+        (proof / "scratch" / "candidate").mkdir(parents=True)
+        output = log_dir / "captured.log"
         output.write_text("partial output")
         path = directory / "supervision.json"
         metadata["receipt"] = str(path)
@@ -203,11 +206,97 @@ class RunnerCheckTests(unittest.TestCase):
                 "schema": 1,
                 "command": check["command"],
                 "output": str(output),
-                "cwd": str(proof / "scratch"),
+                "cwd": str(proof / "scratch" / "candidate"),
                 "supervision": metadata,
             },
         )
         return metadata, path
+
+    def test_automatic_cleanup_binds_nested_evidence_to_its_own_proof_scratch(self):
+        def settle(tree, **_):
+            tree.groups.clear()
+            tree.sessions.clear()
+            tree.session_admissions.clear()
+            return []
+
+        for index, parts in enumerate((("mutation-check",), ("reports", "commands"))):
+            with self.subTest(log_parts=parts):
+                proof = self.run / "regression" / f"proof-{index}"
+                _, receipt = self._automatic_hold(proof=proof, log_parts=parts)
+                saved = receipt.read_bytes()
+                revision = f"revision-{index}"
+                with patch.object(processes, "settled_sample", side_effect=settle):
+                    self.assertTrue(
+                        runner_check.auto_recover(
+                            self.state,
+                            self.run,
+                            self._persist,
+                            source_revision=revision,
+                            source_current=lambda: revision,
+                        )
+                    )
+                self.assertNotIn("active_runner_check", self.state)
+                self.assertNotIn("regression_proof", self.state, "interrupted cleanup is not passing proof")
+                self.assertEqual(saved, receipt.read_bytes())
+                self.assertEqual("runner_check_auto_recovered", self.state["user_events"][-1]["kind"])
+
+    def test_automatic_cleanup_refuses_scratch_from_a_different_proof(self):
+        proof = self.run / "regression" / "proof-a"
+        _, receipt = self._automatic_hold(proof=proof, log_parts=("reports",))
+        other = self.run / "regression" / "proof-b" / "scratch" / "candidate"
+        other.mkdir(parents=True)
+        admission_path = receipt.parent / "admission.json"
+        admission = util.read(admission_path)
+        admission["cwd"] = str(other)
+        util.atomic_json(admission_path, admission)
+        before = copy.deepcopy(self.state)
+        with patch.object(processes, "settled_sample") as scan:
+            self.assertFalse(
+                runner_check.auto_recover(
+                    self.state, self.run, self._persist, source_revision="revision", source_current=lambda: "revision"
+                )
+            )
+        self.assertEqual(before, self.state)
+        scan.assert_not_called()
+
+    def test_root_level_regression_log_keeps_its_existing_scratch_binding(self):
+        self._automatic_hold(proof=self.run / "regression")
+
+        def settle(tree, **_):
+            tree.groups.clear()
+            tree.sessions.clear()
+            tree.session_admissions.clear()
+            return []
+
+        with patch.object(processes, "settled_sample", side_effect=settle):
+            self.assertTrue(
+                runner_check.auto_recover(
+                    self.state, self.run, self._persist, source_revision="revision", source_current=lambda: "revision"
+                )
+            )
+        self.assertNotIn("regression_proof", self.state)
+        self.assertNotIn("active_runner_check", self.state)
+
+    def test_command_binding_refuses_an_unrelated_scratch_root(self):
+        proof = self.run / "regression" / "proof-a"
+        self._automatic_hold(proof=proof, log_parts=("reports",))
+        other = self.run / "regression" / "proof-b" / "scratch"
+        other.mkdir(parents=True)
+        check = self.state["active_runner_check"]
+        with self.assertRaises(command_receipt.OwnershipUncertain):
+            verification_recovery.bind_command(Path(check["output"]).parent, check, scratch_root=other)
+
+    def test_unsettled_cleanup_is_reported_as_blocked_without_a_machinery_question(self):
+        self._automatic_hold()
+        self.state["status"] = "PAUSED_VERIFICATION_UNCERTAIN"
+        view = run_view.view(self.state, run_dir=self.run, workspace=self.project.root)
+        self.assertFalse(view["done"])
+        self.assertEqual("resume", view["needs"]["kind"], "the operator's public recheck remains available")
+        self.assertIn("--resume-paused", view["next_command"])
+        self.assertEqual("blocked", view["recovery"]["category"])
+        self.assertIsNone(view["chat"]["input"])
+        self.assertNotIn("inspect the pause", str(view["chat"]).lower())
+        self.assertIn("could not confirm", view["recovery"]["what_happened"])
 
     def test_uncertain_cleanup_is_rechecked_and_retried_without_counting_as_proof(self):
         self.project.write(REFERENCE)

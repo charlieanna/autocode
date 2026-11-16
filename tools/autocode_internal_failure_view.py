@@ -37,6 +37,16 @@ def presentation(state: RunState, *, include_hold=False):
     specific = blocked.presentation(state) or startup.presentation(state)
     if specific or not include_hold:
         return specific
+    check = state.get("active_runner_check")
+    if state.get("status") == "PAUSED_VERIFICATION_UNCERTAIN" and isinstance(check, dict) and check.get("supervision"):
+        return {
+            "title": "AutoCode could not verify cleanup",
+            "category": "blocked",
+            "what_happened": (
+                "AutoCode could not confirm that an internal verification command stopped safely. "
+                "Saved work and evidence are retained; no result was accepted."
+            ),
+        }
     if (
         recovery_progress.routine_resume(state, state.get("resolver_human_request"))
         or validation.pending(state)
