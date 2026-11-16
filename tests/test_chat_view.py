@@ -319,12 +319,12 @@ class ChatViewTests(unittest.TestCase):
         )
 
     def test_running_notice_gates_on_live_supervision_only(self):
+        state = {"active_stage": {"stage": "builder", "pid": 103}}
         self.assertEqual(
-            "Working on your request…", chat.notice({"status": "RUNNING", "liveness": {"kind": "supervised"}})
+            "Working on your request…",
+            chat.notice({"status": "RUNNING", "liveness": {"kind": "supervised"}}, state=state),
         )
-        self.assertEqual(
-            "Working on your request…", chat.notice({"status": "RUNNING", "liveness": {"kind": "unsupervised"}})
-        )
+        self.assertIsNone(chat.notice({"status": "RUNNING", "liveness": {"kind": "unsupervised"}}, state=state))
         self.assertIsNone(chat.notice({"status": "RUNNING", "liveness": {"kind": "unknown"}}))
         self.assertIsNone(chat.notice({"status": "RUNNING", "liveness": {"kind": "stopped"}}))
         self.assertIsNone(chat.notice({"status": "RUNNING"}))

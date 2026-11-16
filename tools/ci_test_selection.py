@@ -126,6 +126,23 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "tests.test_retained_attempt_display",
         ),
     ),
+    (
+        "tools/autocode_stage_activity.py",
+        (
+            "tests.test_retained_attempt_display",
+            "tests.test_stage_pipeline",
+            "tests.test_stage_decisions",
+            "tests.test_progress_view",
+            "tests.test_liveness",
+            "tests.test_run_stage_models",
+            "tests.test_chat_view",
+            "tests.test_chat_progress",
+            "tests.test_json_contract",
+            "tests.test_json_status_observer_cli",
+            *CORE_CONSUMERS,
+            *PUBLIC_FLOW_CONSUMERS,
+        ),
+    ),
     ("tests/test_changed_code_evidence_cli.py", ("tests.test_mutation_continuation_cli",)),
     (
         "tests/metadata_capture_fixture.py",

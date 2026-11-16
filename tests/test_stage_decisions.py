@@ -13,7 +13,7 @@ LOWERED = {"level": "medium", "ceiling": "high", "lowered": True, "reason": "sma
 
 
 def launched(*stages, **extra):
-    return [{"stage": stage, "iteration": 1, **extra} for stage in stages]
+    return [{"stage": stage, "iteration": 1, "pid": 103, **extra} for stage in stages]
 
 
 def rows(state):
@@ -26,12 +26,12 @@ class RunRowsTests(unittest.TestCase):
             "stages": [
                 *launched("requirements_gather", "draft_plan", "review_plan", "builder"),
                 {"stage": "regression_proof"},  # a runner check, not a stage with a job
-                {"stage": "tester"},
+                *launched("tester"),
                 {"stage": "tester_report_repair", "report_only": True},  # a repair is not a launch of its own
-                {"stage": "builder", "effort_choice": LOWERED},
+                *launched("builder", effort_choice=LOWERED),
                 {"stage": "resolver"},  # the runner's own recovery step
             ],
-            "active_stage": {"stage": "tester"},
+            "active_stage": launched("tester")[0],
         }
         shown = stage_decisions.view(state)
         self.assertEqual(

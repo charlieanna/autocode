@@ -25,8 +25,10 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_attempt_ledger as attempt_ledger
+    from . import autocode_stage_activity as stage_activity
 except ImportError:
     import autocode_attempt_ledger as attempt_ledger
+    import autocode_stage_activity as stage_activity
 
 COMPLETE = ("TASK_COMPLETE", "COMPLETE")
 # What each `needs.kind` asks of a person, and the headline while it waits.
@@ -82,6 +84,7 @@ def progress(
     following: str | None = None,
     controller_running: bool = False,
     internal_failure=None,
+    liveness=None,
 ) -> dict:
     """The progress projection of one run.
 
@@ -95,6 +98,8 @@ def progress(
               (#1711: a finished Builder must not keep the headline across a Builder→Tester handoff)
     controller_running  the run's own controller is alive (autocode_controller_owner "running"), so a
               stage it names next is being started, not waiting for anyone
+    liveness  the same fresh classified stage observation as the public view; an open accounting
+              slot or a saved timestamp alone never establishes working activity
     """
     status = state.get("status", "")
     done = status in COMPLETE
@@ -105,7 +110,8 @@ def progress(
         body = {}
     active = _mapping(state.get("active_stage"))
     open_record = attempt_ledger.running_stage(state)
-    tasks = _tasks(state, body, set(accepted or ()), done, running=bool(open_record) and not stopped and not finished)
+    working = stage_activity.working_stage(state, liveness)
+    tasks = _tasks(state, body, set(accepted or ()), done, running=bool(working) and not stopped and not finished)
     requirements = _requirements(state, contract if not earlier else {}, body, set(reviewed or ()), legacy=not earlier)
     if earlier:
         tasks["label"] = "no task list yet for this request"
@@ -136,9 +142,11 @@ def progress(
         # A failed or interrupted attempt can remain here awaiting reconciliation.
         # Its recorded end is not a saved successful report or confirmed cleanup.
         headline = f"{stage} attempt ended"
-    elif stage and open_record:
-        writing_first = open_record.get("stage") == TESTS_FIRST_STAGE
+    elif stage and working:
+        writing_first = working.get("stage") == TESTS_FIRST_STAGE
         headline = f"{stage} writing tests first" if writing_first else f"{stage} working"
+    elif stage and open_record:
+        headline = f"{stage}: activity could not be confirmed."
     elif (check := _mapping(state.get("active_runner_check"))).get("summary"):
         # Between two stages the runner checks the saved work itself (the Tester's tests, the
         # regression proof). Naming the next job there showed "Next: Tester" for minutes while

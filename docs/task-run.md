@@ -2575,6 +2575,13 @@ the public usage attempts. A queued job is not labeled `next` while that retaine
 attempt still awaits reconciliation. This display distinction grants no result,
 cleanup, retry, route or completion authority.
 
+A prepared slot, chosen stage and start timestamp precede process launch and do
+not establish `ran`. A recorded provider PID or settled legacy attempt establishes
+that launch; `working` additionally requires the same fresh, positively supervised
+activity observation used by progress, the chat notice and model-choice wording.
+Unknown, stopped or unowned activity keeps its existing liveness and unresolved
+accounting facts. It never becomes an invented exit, finish or successful result.
+
 `proxied_requirements` lists the requirements the current plan proves only on a stand-in
 (#2068): the user-visible result is rendered by code outside this checkout, so the plan's
 criteria prove an internal value the result is believed to depend on. Each row has

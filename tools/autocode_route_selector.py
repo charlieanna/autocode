@@ -35,6 +35,7 @@ from functools import lru_cache
 from pathlib import Path
 
 try:
+    from . import autocode_measured_routes as measured_routes
     from . import autocode_model_identity as model_identity
     from . import autocode_prices as prices
     from . import autocode_role_route as role_route
@@ -42,6 +43,7 @@ try:
     from . import autocode_route_evidence as route_evidence
     from . import autocode_verifier_independence as independence
 except ImportError:
+    import autocode_measured_routes as measured_routes
     import autocode_model_identity as model_identity
     import autocode_prices as prices
     import autocode_role_route as role_route
@@ -141,6 +143,8 @@ def _valid_run(run, role=None, model=None):
 
 
 def evidence_summary(entry):
+    if entry.get("provenance") == "measured":
+        return entry["evidence"]
     return route_evidence.summary(entry)
 
 
@@ -183,9 +187,21 @@ def table():
 
 
 def qualified(role):
-    """The table's entries for ``role``, in file order; () when the table names none."""
-    entries = table()["roles"].get(role)
-    return tuple(entries) if isinstance(entries, list) else ()
+    """The entries for ``role``: the person's measured ranking first, then the shipped table's.
+
+    The one place every route policy reads (#3630): selection, the quota fallback in
+    ``autocode_route_pool`` and the model listing. Once the person's probe has measured models for
+    this role, only the ones that qualified are eligible, in their measured order
+    (``autocode_measured_routes``): the ranking and the quota fallback cover only measured models,
+    and AutoCode never moves the stage onto a model nobody measured (owner direction on #3630,
+    2026-11-15). When none qualified the role has no automatic route, so selection stops and the
+    person chooses its model. Without a measurement for the role, the shipped table's entries.
+    """
+    document = measured_routes.load()
+    if measured_routes.measured(role, document):
+        return tuple(measured_routes.entries(role, document))
+    shipped = table()["roles"].get(role)
+    return tuple(shipped) if isinstance(shipped, list) else ()
 
 
 def _label(role):

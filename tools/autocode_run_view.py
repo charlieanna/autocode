@@ -357,6 +357,7 @@ def view(
     task = state.get("current_task") or {}
     active = state.get("active_stage")
     supervision = active.get("supervision") if isinstance(active, dict) else None
+    stage_liveness = liveness_policy.classify(supervision, liveness)
     check = state.get("active_runner_check")
     check_supervision = check.get("supervision") if isinstance(check, dict) else None
     # Saved stage records, then the running stage, so the running one is read first; a corrupt list reads empty.
@@ -405,7 +406,7 @@ def view(
         "pause_category_label": next_action["pause_category_label"],
         "status": status,
         "next_command": next_action["next_command"],
-        "liveness": liveness_policy.classify(supervision, liveness),
+        "liveness": stage_liveness,
         "done": status in COMPLETE and not simulated and not invalid_replay,
         "needs": need,
         "recovery": recovery,
@@ -449,7 +450,7 @@ def view(
         "stage_policy": stage_policy.view(state),
         # Every stage the run launched and every stage a saved decision skipped, with the reason and what covers
         # it (autocode_stage_decisions.view): one place for why a stage ran or did not; it grants nothing.
-        "stage_decisions": stage_decisions.view(state),
+        "stage_decisions": stage_decisions.view(state, liveness=stage_liveness),
         # Which request of the conversation the run is on: 1, then one more per --follow-up
         # (autocode_follow_up).
         "turn": len(state.get("turns") or []) + 1,
@@ -492,7 +493,7 @@ def view(
         "route_assignments": quota_route.assignments(state),
         # Whether a person may change this started run's stage models now, why not, and the read-only
         # list whose `set` arrays change one between stages (autocode_run_stage_models); None before routes.
-        "stage_models": run_stage_models.offer(state, run_dir=run_dir),
+        "stage_models": run_stage_models.offer(state, run_dir=run_dir, liveness=stage_liveness),
         # At a pause the person requested while the approved plan is being built: the named action that reports
         # where the code departs from that plan without revising it, and the reports kept for the reviewers
         # (autocode_implementation_discrepancy, #3045). None when there is neither.
