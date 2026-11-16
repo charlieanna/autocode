@@ -67,6 +67,8 @@ def record(state: RunState, *, timestamp=None):
     stage = active.get("stage") or state.get("next_stage") or ""
     role = role_name(stage, state) or "Runner"
     task = state.get("current_task") or {}
+    turn = (state.get("turns") or [{}])[-1]
+    task_label = task.get("objective") or turn.get("say") or "Working on the task."
     activity = active.get("activity") or {}
     batch = state.get("orchestration_batch") or {}
     workers = [(w.get("milestone_id"), w.get("status")) for w in batch.get("workers", [])]
@@ -81,7 +83,7 @@ def record(state: RunState, *, timestamp=None):
                 stage,
                 state.get("iteration"),
                 task.get("id"),
-                task.get("objective"),
+                task_label,
                 bool(active),
                 active.get("started_at"),
                 active.get("name"),
@@ -152,7 +154,7 @@ def record(state: RunState, *, timestamp=None):
         text = check["summary"] + ". This check runs locally before the Validator; no model is active."
     else:
         shown = _model(active) if active else None
-        text = f"{role}{' started' if active else ' queued'}: " + (task.get("objective") or "Working on the task.")
+        text = f"{role}{' started' if active else ' queued'}: " + task_label
         if shown:
             text += f" [{shown}]"
         if activity:

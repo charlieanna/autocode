@@ -21,6 +21,7 @@ from unittest.mock import Mock, patch
 import autocode as runner
 import autocode_action_recovery as recovery_actions
 import autocode_builder_failure as builder_failure
+import autocode_follow_up as follow_up
 import autocode_native_calls as callers
 import autocode_native_invocation as invocation
 import autocode_taskrun as taskrun
@@ -157,6 +158,13 @@ class NativeRepairFixture(unittest.TestCase):
 
 
 class RejectionQueuesTheBoundedRepair(NativeRepairFixture):
+    def test_follow_up_does_not_let_a_finished_assignment_block_planning_report_repair(self):
+        self.state.update(status="TASK_COMPLETE", current_task={"id": "previous", "objective": "Old work"})
+        follow_up.accept(self.state, "New work", self.root, "2026-11-15T00:00:00+00:00")
+        pending = self.queue()
+        self.assertEqual("plan_review", pending["original"]["stage"])
+        self.assertEqual("previous", self.state["task_archive"][-1]["id"])
+
     def test_malformed_completed_planning_report_queues_report_only_repair(self):
         record = self.record()
         with self.assertRaises(runner.ReportRepairQueued):
