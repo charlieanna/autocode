@@ -83,10 +83,12 @@ try:
     from . import autocode_project_notes_lifecycle as project_notes
     from . import autocode_recovery_accounting as recovery_accounting
     from . import autocode_rejection_retry as rejection_retry
+    from . import autocode_report_repair_route as report_repair_route
     from . import autocode_resolve_repair_job as resolve_repair_job
     from . import autocode_roles as roles
     from . import autocode_run_status as run_status
     from . import autocode_stage_access as stage_access
+    from . import autocode_stop as stop
     from . import autocode_stray_writes as stray_writes
     from .autocode_investigation_policy import MAX_CALLS as MAX_CALLS
     from .autocode_investigation_policy import enabled, max_calls
@@ -102,10 +104,12 @@ except ImportError:
     import autocode_project_notes_lifecycle as project_notes
     import autocode_recovery_accounting as recovery_accounting
     import autocode_rejection_retry as rejection_retry
+    import autocode_report_repair_route as report_repair_route
     import autocode_resolve_repair_job as resolve_repair_job
     import autocode_roles as roles
     import autocode_run_status as run_status
     import autocode_stage_access as stage_access
+    import autocode_stop as stop
     import autocode_stray_writes as stray_writes
     from autocode_investigation_policy import MAX_CALLS as MAX_CALLS
     from autocode_investigation_policy import enabled, max_calls
@@ -152,6 +156,14 @@ BOUNDARY_LIMITS = frozenset(
         "PAUSED_ITERATION_LIMIT",
         planning_calls.STATUS,
         "PAUSED_TRANSPORT_CHANGED",
+    }
+)
+_INTERVENTION_PAUSES = frozenset(
+    {
+        "PAUSED_REQUESTED",
+        "PAUSED_INTERVENTION",
+        "PAUSED_INTERVENTION_PENDING",
+        "PAUSED_INTERVENTION_ACK",
     }
 )
 PLANNING = roles.ALL_PLANNING_STAGES
@@ -644,9 +656,7 @@ def cited_files(value: dict, workspace, run_dir) -> dict[str, Path]:
 def release_route(state: RunState) -> dict:
     """The Investigator's route exists only while it runs: saved roles are re-validated on resume
     (e.g. native Codex runs refuse a non-Codex role), and a pinned route may be an OpenCode one."""
-    settings = state.get("settings") or {}
-    (settings.get("transport_identities") or {}).pop(f"role:{ROUTE}", None)
-    return (settings.get("roles") or {}).pop(ROUTE, None) or {}
+    return report_repair_route.release(state, ROUTE)
 
 
 def apply(
@@ -1087,8 +1097,10 @@ def drive(
             if repair_req and not repair_req.get("in_force") and state.get("next_stage") == resolve_repair_job.STAGE:
                 if state.get("active_stage"):
                     raise
-                if status == "PAUSED_REQUESTED" or (
-                    status in BOUNDARY_LIMITS and not resolve_repair_job.launched(state, repair_req)
+                if (
+                    status in _INTERVENTION_PAUSES
+                    or stop.applied_stop(state)
+                    or (status in BOUNDARY_LIMITS and not resolve_repair_job.launched(state, repair_req))
                 ):
                     resolve_repair_job.release_route(state)
                     raise
@@ -1106,9 +1118,13 @@ def drive(
                     raise
                 # A requested checkpoint preserves the queued investigation,
                 # including a report repair; it is not an Investigator failure.
-                if status == "PAUSED_REQUESTED" or (
-                    status in BOUNDARY_LIMITS
-                    and (not launched(state, current) or classification_recovery.pending_repair(state, current))
+                if (
+                    status in _INTERVENTION_PAUSES
+                    or stop.applied_stop(state)
+                    or (
+                        status in BOUNDARY_LIMITS
+                        and (not launched(state, current) or classification_recovery.pending_repair(state, current))
+                    )
                 ):
                     release_route(state)
                     raise
