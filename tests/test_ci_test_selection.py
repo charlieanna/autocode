@@ -29,6 +29,27 @@ class AccessTransportConsumerTests(unittest.TestCase):
         kept, _ = run_suite.drop_slow(selected, dict.fromkeys(consumers, "30s"))
         self.assertEqual(consumers, set(kept))
 
+    def test_nullable_public_observations_keep_each_client_and_protected_action_consumer_when_slow(self):
+        consumers = {
+            "tests.test_actionless_consumers",
+            "tests.test_issue",
+            "tests.test_multicomponent",
+            "tests.test_demo",
+            "tests.test_conformance_actionless",
+            "tests.test_taskrun_no_action",
+            "tests.test_taskrun_recovery",
+        }
+        for path in (
+            "tools/autocode_issue.py",
+            "tools/autocode_multicomponent.py",
+            "tools/autocode_demo.py",
+            "scenarios/harness/driver.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {**dict.fromkeys(consumers, ""), "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, dict.fromkeys(consumers, "30s"))
+                self.assertEqual(consumers, set(kept))
+
     def test_conformance_harness_keeps_actionless_and_existing_allowance_contracts(self):
         consumers = {"tests.test_conformance_actionless", "tests.test_planning_allowance_cli"}
         selected = run_suite.select_tests(
@@ -1232,6 +1253,25 @@ class DynamicDependenciesTests(unittest.TestCase):
                 selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
                 kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
                 self.assertEqual([consumer], list(kept))
+
+    def test_question_and_replay_producers_select_gate_and_replay_consumers_even_when_slow(self):
+        consumers = {
+            "tests.test_gate_chat_cli",
+            "tests.test_replay_recording",
+            "tests.test_saved_run_replay_cli",
+        }
+        for path in (
+            "tools/autocode_run_view.py",
+            "tools/autocode_answer_options.py",
+            "tools/autocode_replay_view.py",
+            "tools/autocode_replay_recording.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests(
+                    [path], {**{name: "" for name in consumers}, "tests.test_unrelated": ""}
+                )
+                kept, _ = run_suite.drop_slow(selected, {name: "30s" for name in consumers})
+                self.assertEqual(consumers, set(kept))
 
     def test_kilo_launch_and_native_hook_keep_the_progress_consumer_even_when_slow(self):
         consumer = "tests.test_kilo_progress"

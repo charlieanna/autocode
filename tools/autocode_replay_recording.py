@@ -1476,6 +1476,22 @@ def match_action(recording, action, view):
     needs = view.get("needs") or {}
     selected = {key: needs.get(key) for key in ("kind", "stage", "questions", "scope", "criteria") if key in needs}
     expected = action["match"]
+    recorded_questions = expected.get("questions")
+    selected_questions = selected.get("questions")
+    if isinstance(recorded_questions, list) and isinstance(selected_questions, list):
+        # Pre-#3685 recordings omitted allow_custom on recorded question projections; compare
+        # allow_custom strictly when recorded while keeping 5-key bundles replayable (#3650).
+        selected = {
+            **selected,
+            "questions": [
+                {k: v for k, v in row.items() if k != "allow_custom" or "allow_custom" in exp}
+                if isinstance(row, dict) and isinstance(exp, dict)
+                else row
+                for row, exp in zip(selected_questions, recorded_questions, strict=True)
+            ]
+            if len(selected_questions) == len(recorded_questions)
+            else selected_questions,
+        }
     if action["kind"] == "approve_plan":
         plan = view.get("displayed_plan") or {}
         selected["plan"] = {

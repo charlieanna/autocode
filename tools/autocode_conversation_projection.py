@@ -24,11 +24,11 @@ except ImportError:
 REVIEW_STAGES = ("review_plan", "finalize_plan", "plan_review", "plan_finalize")
 
 
-def _records(state: RunState, planning, *, current_cycle):
+def records(state: RunState, planning, *, current_cycle):
     reports = dict(planning.get("reports") or {})
     if current_cycle and isinstance(state.get("requirements_handoff"), dict):
         reports.setdefault("requirements_gather", state["requirements_handoff"])
-    records = []
+    rows = []
     for stage, accepted in reports.items():
         if not isinstance(accepted, dict) or not isinstance(accepted.get("report"), dict):
             continue
@@ -41,7 +41,7 @@ def _records(state: RunState, planning, *, current_cycle):
             {},
         )
         route = record.get("launch_route") or {}
-        records.append(
+        rows.append(
             {
                 "stage": stage,
                 "role": roles.screen_name(stage, state),
@@ -59,7 +59,7 @@ def _records(state: RunState, planning, *, current_cycle):
                 else "saved_without_launch_attribution",
             }
         )
-    return records
+    return rows
 
 
 def project(
@@ -123,13 +123,13 @@ def _project(
         if not row["applied"] and not row.get("superseded_by") and row["message_id"] not in applied
     ]
     planning = state.get("planning") or {}
-    records = _records(state, planning, current_cycle=True)
+    saved = records(state, planning, current_cycle=True)
     history = [
-        _records(state, cycle, current_cycle=False)
+        records(state, cycle, current_cycle=False)
         for cycle in state.get("planning_history", [])
         if isinstance(cycle, dict)
     ]
-    review_records = [row for row in records if row["stage"] in REVIEW_STAGES]
+    review_records = [row for row in saved if row["stage"] in REVIEW_STAGES]
     reviewed = bool(
         displayed_plan
         and planning.get("final_token") == displayed_plan["token"]
@@ -202,7 +202,7 @@ def _project(
             for key, row in core["refreshes"].items()
         },
         "declared_seed_routes": deepcopy(journal["conversation"]["configured_routes"]),
-        "planning_records": records,
+        "planning_records": saved,
         "planning_history": history,
         "draft_history": drafts,
         "current_draft": draft,

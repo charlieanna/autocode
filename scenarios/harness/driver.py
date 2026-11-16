@@ -533,7 +533,7 @@ class Driver:
 
         The person decides to continue such a run; the view names `--resume-paused` for it."""
         view = self.view()
-        if view["needs"]["kind"] == "resume" and (view.get("controller") or {}).get("completed_stage"):
+        if (view["needs"] or {}).get("kind") == "resume" and (view.get("controller") or {}).get("completed_stage"):
             self.call("resume", "--resume-paused")
 
     def until_stopped(self, say_at: str | None = None) -> dict:
@@ -572,7 +572,11 @@ class Driver:
                 self.call("resume")
                 after = self.view()
                 keys = ("status", "next_stage", "iteration", "phase")
-                if not after["done"] and all(after[key] == view[key] for key in keys):
+                if (
+                    not after["done"]
+                    and (after["needs"] or {}).get("kind") == "continue"
+                    and all(after[key] == view[key] for key in keys)
+                ):
                     raise DriveError(f"no progress at {view['status']!r} (next_stage={view['next_stage']!r})")
                 pending_view = after
             else:
