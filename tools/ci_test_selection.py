@@ -34,6 +34,40 @@ CORE_CONSUMERS = (
     "tests.test_inprocess_cli",
 )
 PUBLIC_FLOW_CONSUMERS = ("tests.test_launch_state_cli", "tests.test_completion_status")
+OPERATIONAL_CONSUMERS = (
+    "tests.test_operational_disposition",
+    "tests.test_operational_exhaustion_public_contract",
+    "tests.test_operational_information",
+    "tests.test_operational_pause_authority",
+    "tests.test_operational_reconsideration",
+    "tests.test_operational_recovery",
+    "tests.test_human_publication",
+    "tests.test_resolver_human",
+    "tests.test_resolver_runtime",
+    "tests.test_startup_timeout_person_view",
+    "tests.test_pause_authority",
+    "tests.test_goals",
+    "tests.test_operational_block",
+    "tests.test_metadata_operational_block",
+    "tests.test_model_listing_failure",
+    "tests.test_model_listing_failure_cli",
+    "tests.test_verification_preparation_failure",
+    "tests.test_repaired_acceptance_no_progress",
+    "tests.test_operational_hold",
+    "tests.test_approval_provenance_cli",
+    "tests.test_dispatch",
+    "tests.test_planning",
+    "tests.test_quota_worker",
+    "tests.test_finalizer_timeouts",
+    "tests.test_activity_runtime",
+    "tests.test_autocode",
+    "tests.test_member_stop_settings",
+    "tests.test_subprocess",
+    "tests.test_unlimited_iterations",
+    "tests.test_completion_timeout_recovery",
+    "tests.test_milestone_checkpoints",
+    "tests.test_saved_run_replay_cli",
+)
 REFUSAL_CONSUMERS = (
     "tests.test_session_boundary",
     "tests.test_process_session_admission",
@@ -93,6 +127,7 @@ SCENARIO_SELECTION_INPUTS = {
 # Prefixes deliberately include resource fragments, whose callers generally do
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("tests/operational_fixtures.py", OPERATIONAL_CONSUMERS),
     (
         "tools/ci_tested_source.py",
         ("tests.test_ci_tested_source", "tests.test_attribute_failure", "tests.test_attribute_failure_source"),
@@ -663,6 +698,20 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # that previously broke master would remain. These are fake-provider consumers,
 # never a request to qualify against live models.
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    # Saved operational facts have public/recovery consumers beyond their import graph.
+    (
+        (
+            "tools/autocode_operational_disposition.py",
+            "tools/autocode_operational_admission.py",
+            "tools/autocode_operational_outcome.py",
+            "tools/autocode_operational_receipt_identity.py",
+            "tools/autocode_operational_hold.py",
+            "tools/autocode_owned_operations.py",
+            "tools/autocode_recovery_accounting.py",
+        ),
+        OPERATIONAL_CONSUMERS,
+    ),
+    (("tools/autocode_util.py",), ("tests.test_util_digest_prefix",)),
     # Captured commands execute this private helper by file path, beyond Python imports.
     (
         (
@@ -1068,6 +1117,7 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
         (
             "tools/autocode_args.py",
+            "tools/autocode_owned_operations.py",
             "tools/autocode_job_args.py",
             "tools/autocode_job_failure.py",
             "tools/autocode_action_recovery.py",
@@ -1152,6 +1202,7 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
             "tools/autocode_recovery_grants.py",
             "tools/autocode_run_view.py",
             "tools/autocode_args.py",
+            "tools/autocode_owned_operations.py",
             "tools/autocode_control_tokens.py",
             "tools/autocode_pause_command.py",
         ),
@@ -1166,6 +1217,7 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
             "tools/autocode_run_setup.py",
             "tools/autocode_run_view.py",
             "tools/autocode_args.py",
+            "tools/autocode_owned_operations.py",
             "tools/autocode_control_tokens.py",
         ),
         ("tests.test_checkpoint_reconciliation",),
@@ -1212,6 +1264,7 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
             "tools/autocode_action_authority.py",
             "tools/autocode_run_setup.py",
             "tools/autocode_args.py",
+            "tools/autocode_owned_operations.py",
             "tests/test_repeated_tester_timeout_cli.py",
         ),
         ("tests.test_standalone_limit_pause_cli",),
@@ -1263,6 +1316,7 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         (
             "tools/autocode_run_modes.py",
             "tools/autocode_args.py",
+            "tools/autocode_owned_operations.py",
             "tools/autocode_adaptive_planning.py",
             "tools/autocode_requirements_review.py",
         ),

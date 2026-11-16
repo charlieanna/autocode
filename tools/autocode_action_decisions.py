@@ -34,6 +34,10 @@ try:
     from . import autocode_goal_file as goal_file
     from . import autocode_goal_lifecycle as lifecycle
     from . import autocode_goals as goals
+    from . import autocode_internal_failure_view as internal_failure_view
+    from . import autocode_operational_admission as operational_admission
+    from . import autocode_operational_outcome as owner_outcome
+    from . import autocode_owned_operations as owned_operations
     from . import autocode_package_writes as package_writes
     from . import autocode_pause_authority as pause_authority
     from . import autocode_pause_command as pause_command
@@ -60,6 +64,10 @@ except ImportError:
     import autocode_goal_file as goal_file
     import autocode_goal_lifecycle as lifecycle
     import autocode_goals as goals
+    import autocode_internal_failure_view as internal_failure_view
+    import autocode_operational_admission as operational_admission
+    import autocode_operational_outcome as owner_outcome
+    import autocode_owned_operations as owned_operations
     import autocode_package_writes as package_writes
     import autocode_pause_authority as pause_authority
     import autocode_pause_command as pause_command
@@ -75,6 +83,39 @@ except ImportError:
     import autocode_support as support
     import autopilot
     from autocode_action_resolver import OPERATIONAL_NOT_ANSWER
+
+
+METADATA_ACTIONS = frozenset(
+    {
+        "--show-goal",
+        "--answer/--delegate",
+        "--delegate-all",
+        "--reject-assumption",
+        "--approve-goal",
+        "--edit-goal",
+        "--goal-file",
+        "--approve-review",
+        "--reject-review",
+        "--reconcile-review",
+        "--feedback",
+        "--follow-up",
+        "--planning-review-call-limit",
+        "--close-finding",
+    }
+)
+
+
+def operation(args):
+    """Declare this family's exact metadata actions, using the parser's inventory.
+
+    Completion acceptance performs independent work and is deliberately absent.
+    The same ordinary handler still authenticates every token and saved input.
+    """
+    selected = [name for name, present in owned_operations.user_actions(args).items() if present]
+    if len(selected) != 1 or selected[0] not in METADATA_ACTIONS:
+        return None
+    name = "planning_limit" if selected[0] == "--planning-review-call-limit" else "planning_input"
+    return owned_operations.for_actions(OPERATIONS[name], selected[0])
 
 
 def _edited_goal(runner, path):
@@ -198,6 +239,8 @@ def preflight(runner, args, parser, state: RunState, state_path, run_dir, worksp
 
 def apply(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
     """Apply the user's decisions together and save them; go on to the build only when --resume-paused asked."""
+    if owned_operations.only_action(args, "--planning-review-call-limit"):
+        return apply_user_action(runner, args, parser, state, state_path, run_dir, workspace, decided)
     # Recheck after settings/checkpoint activation and before an old draft can be approved or displayed.
     # Explicit draft corrections retain their existing ingress instead of being pre-empted by recovery.
     if not any(
@@ -234,251 +277,279 @@ def apply(runner, args, parser, state: RunState, state_path, run_dir, workspace,
             decided.dispatch = True
             return None
         return 0
-    user_action = any(
-        (
-            args.show_goal,
-            args.answer,
-            args.delegate,
-            args.delegate_all,
-            args.reject_assumption,
-            args.approve_goal,
-            args.edit_goal,
-            args.goal_file,
-            args.approve_review,
-            args.reject_review,
-            args.reconcile_review,
-            args.feedback is not None,
-            args.follow_up is not None,
-            args.accept_completion,
-            args.planning_review_call_limit is not None,
-            bool(args.close_finding),
-        )
-    )
-    if user_action:
-        try:
-            conversation_action = conversation_policy.load_action(state, run_dir, args)
-        except (ValueError, OSError) as error:
-            return runner.status_command.reject_input(runner, state, workspace, run_dir, error)
-        if conversation_action and conversation_action.get("acknowledged"):
-            print("Conversation request was already saved; nothing changed and no provider launched.")
-            return 0
-        metadata = runner.intervention_metadata(workspace, run_dir, state)
-        if metadata["pending_count"] or metadata["inbox_error"]:
-            raise support.Paused(
-                "PAUSED_INTERVENTION_PENDING",
-                "Queued intervention must be applied before approval, review, or completion",
-            )
-        candidate = copy.deepcopy(state)
-        require_current_inputs = bool(
-            args.approve_review or args.reject_review or args.reconcile_review or args.accept_completion
-        )
-        try:
-            if require_current_inputs:
-                runner.launch_inputs.guard(candidate, workspace, run_dir)
-            if (
-                args.approve_goal
-                and changeset_barrier.held_approval(candidate)
-                and args.approve_goal == goals.token(candidate["goal_contract"])
-                and not resolver_human.current(candidate)
-            ):
-                # The earlier per-run approval consumed its request, but the set
-                # never released (or was invalidated). Issue the ordinary exact-plan
-                # boundary again; do not bypass AutoResolver authority for retries.
-                resolver_human.queue(
-                    candidate,
-                    "goal_approval",
-                    changeset_barrier.reapproval_origin(candidate),
-                    status="AWAITING_GOAL_APPROVAL",
-                    next_stage=candidate.get("next_stage"),
-                )
-                runner.normalize_human_boundary(candidate, run_dir)
-            published = resolver_human.current(candidate)
-            if not published and candidate.get("status") == "TASK_COMPLETE":
-                follow_up.refuse_on_finished(args)  # only --follow-up reopens a finished run
-            if args.answer or args.delegate:
-                if not published or not args.resolver_token:
-                    # #909: name the exact command, refreshed from the current need and runnable
-                    # as shown: its selector reads this run's own token, so nothing prints a value.
-                    raise ValueError(
-                        "Answers require the current --resolver-token; --resolver-token - reads it from this run"
-                        + pause_command.recovery(candidate.get("needs"), run_dir=run_dir, workspace=workspace)
-                    )
-                try:
-                    resolver_human.require_response(candidate, published["request_id"], args.resolver_token)
-                except ValueError:
-                    # A saved-state change after display strands the shown token;
-                    # the operator still answered this exact request content.
-                    fresh = resolver_human.rebind_stale(candidate, None, args.resolver_token)
-                    if fresh is None:
-                        raise
-                    published = fresh
-                if published["scope"] in ("blocker", "operational_exhaustion"):
-                    raise ValueError(OPERATIONAL_NOT_ANSWER)
-            if args.approve_goal and (not published or published["scope"] != "goal_approval"):
-                raise ValueError("Goal approval requires a current AutoResolver-issued plan request")
-            if args.approve_review and (not published or published["scope"] != "human_review"):
-                replay = all(
-                    isinstance(candidate.get("human_reviews", {}).get(cid), dict)
-                    and candidate["human_reviews"][cid].get("token") == args.review_token
-                    and candidate["human_reviews"][cid] in candidate.get("user_events", [])
-                    for cid in args.approve_review
-                )
-                issued = any(
-                    entry.get("status") == "consumed"
-                    and entry.get("identity", {}).get("proposal", {}).get("scope") == "human_review"
-                    and entry["identity"]["proposal"].get("evidence", {}).get("review_token") == args.review_token
-                    and set(args.approve_review)
-                    <= set(goals.requested_review_criteria(candidate, entry["identity"]["proposal"]["request"]))
-                    for entry in cast(dict, candidate.get("resolver", {})).get("human_escalations", {}).values()
-                )
-                if not (replay and issued):
-                    raise ValueError("Artifact acceptance requires a current AutoResolver-issued review request")
-            if args.reject_review and (not published or published["scope"] != "human_review"):
-                raise ValueError("Artifact rejection requires a current AutoResolver-issued review request")
-            if args.planning_review_call_limit is not None:
-                planning.set_review_call_limit(candidate, args.planning_review_call_limit)
-            for item in args.answer:
-                question, sep, response = item.partition("=")
-                if not sep:
-                    raise ValueError("--answer uses QUESTION_ID=TEXT")
-                request = cast(dict, candidate.get("user_request", {}))
-                if goals.is_operational_response(request):
-                    goals.resolve_permission(candidate, question, response)
-                elif (
-                    request.get("kind") == "blocker"
-                    and response == (request.get("options") or [None])[0]
-                    and response.startswith("Reconcile ")
-                ):
-                    runner.launch_inputs.guard(candidate, workspace, run_dir)
-                    require_current_inputs = True
-                    lifecycle.resolve_passing_checkpoint(candidate, question, response)
-                else:
-                    goals.answer(candidate, question, response)
-            for question in args.delegate:
-                goals.answer(candidate, question, "accept default", delegated=True)
-            if args.delegate_all:
-                goals.delegate_all(candidate, args.review_token)
-            requirements_review.after_answers(candidate, queue=resolver_human.queue)
-            requirements_chat.start_after_approval(candidate)
-            for assumption_id in args.reject_assumption:
-                goals.reject_assumption(candidate, assumption_id, args.review_token)
-            if args.feedback is not None:
-                # The answered semantic blocker's own authority is the pause-authority predicate;
-                # goals.feedback admits it through this pass, never on its own (#2434).
-                semantic_hold = pause_authority.answered_blocker_decision(candidate)
-                refusal = pause_authority.feedback_refusal(candidate)
-                if refusal:
-                    raise ValueError(refusal)
-                goals.feedback(
-                    candidate,
-                    args.feedback,
-                    semantic_hold=semantic_hold,
-                    requested_hold=pause_authority.requested_feedback(candidate),
-                )
-            requirements_chat.adopt_reply(candidate)
-            if args.follow_up is not None:
-                follow_up.accept(candidate, args.follow_up, workspace, runner.now())
-            if args.edit_goal:
-                refusal = pause_authority.correction_refusal(candidate, "An edited goal")
-                if refusal:
-                    raise ValueError(refusal)
-                lifecycle.install_draft(candidate, _edited_goal(runner, args.edit_goal), origin="user_cli_edit")
-                planning_artifacts.prepare_user_cli_edit(candidate, run_dir=run_dir)
-            if args.goal_file:
-                # The person's own edit, as --edit-goal, held to a planner draft's checks too (#720).
-                refusal = pause_authority.correction_refusal(candidate, "A plan file")
-                if refusal:
-                    raise ValueError(refusal)
-                plan = goal_file.read(args.goal_file)
-                goal_file.check(candidate, plan.body, coverage=planning.traces_coverage(plan.body))
-                lifecycle.install_draft(candidate, plan.body, origin="user_cli_edit")
-                goal_file.record(candidate, args.goal_file, plan)
-                planning_artifacts.prepare_user_cli_edit(candidate, run_dir=run_dir, label="--goal-file")
-            if args.approve_goal:
-                if not changeset_barrier.held_approval(candidate):
-                    getattr(runner, "approve_goal", lifecycle.approve)(candidate, args.approve_goal)
-                changeset_barrier.approve(candidate, args.approve_goal, getattr(args, "changeset_token", None))
-            for criterion in args.approve_review:
-                goals.approve_review(
-                    candidate,
-                    criterion,
-                    args.review_token,
-                    source_scope.snapshot(workspace, state, base_snapshot=support.snapshot),
-                )
-            if args.reject_review:
-                refusal = pause_authority.feedback_refusal(candidate)
-                if refusal:
-                    raise ValueError(refusal)
-                review_rejection.reject(
-                    candidate,
-                    args.reject_review,
-                    args.review_token,
-                    source_scope.snapshot(workspace, state, base_snapshot=support.snapshot),
-                    args.review_note,
-                )
-            if args.reconcile_review:
-                criterion, separator, answer_id = args.reconcile_review.partition("=")
-                if not separator or not criterion or not answer_id:
-                    raise ValueError("--reconcile-review uses CRITERION_ID=ANSWER_ID")
-                goals.reconcile_legacy_review(
-                    candidate,
-                    criterion,
-                    answer_id,
-                    args.review_token,
-                    source_scope.snapshot(workspace, state, base_snapshot=support.snapshot),
-                )
-            if args.accept_completion:
-                runner.accept_completion(candidate, workspace, run_dir=run_dir)
-                # No judging dispatch precedes it, so a package run's check runs here, once its own guards
-                # (a finished run, recorded checks, an unapproved goal, missing evidence) have spoken:
-                # closing the finding with --close-finding accepts nothing (#711). A refusal discards the
-                # candidate, completion included.
-                package_writes.refuse(candidate, workspace)
-                acceptance.refuse(candidate, workspace, run_dir=run_dir)
-            if args.close_finding:
-                finding_close.close(
-                    candidate,
-                    args.close_finding,
-                    args.close_reason,
-                    current=resolver_human.current,
-                    supersede=resolver_human.supersede_operational,
-                )
-            # Who approved, before the request is consumed so its response copies it (#722).
-            approval_provenance.stamp(
-                state, candidate, approval_provenance.invocation(sys.argv[1:], claimed_as=args.claimed_as)
-            )
-            if published and any(
-                (args.answer, args.delegate, args.approve_goal, args.approve_review, args.reject_review)
-            ):
-                runner.finish_human_action(candidate, published)
-        except (ValueError, KeyError) as error:
-            conversation_policy.reject(run_dir, conversation_action, error)
-            return runner.status_command.reject_input(runner, state, workspace, run_dir, error)
-        try:
-            conversation_policy.acknowledge(state, candidate, conversation_action)
-            with conversation_policy.saved_action(state, run_dir, args, conversation_action):
-                runner.normalize_human_boundary(candidate, run_dir)
-                rendered = lifecycle.present(candidate, run_dir)
-                autopilot.publish_handoffs(candidate, run_dir)
-                runner.commit_user_action(state, candidate, run_dir, require_current_inputs=require_current_inputs)
-        except ValueError as error:
-            return runner.status_command.reject_input(runner, state, workspace, run_dir, error)
-        print(rendered)
-        if args.goal_file:
-            print(goal_file.summary(state, args.goal_file))
-            # Chat everywhere (#1731): the loaded plan is reviewed, discussed and approved in the run's conversation.
-            print(f"Review it and approve it in chat: autocode chat --workspace {workspace} --run-dir {run_dir}")
-        if args.answer:
-            view = runner.run_view.view(state, run_dir=run_dir, workspace=workspace)
-            print(answer_output.summary(view, after_answer=True), file=sys.stderr)
-        if resume_dispatch_requested(args, state):
-            # --resume-paused asked this invocation to continue: the answer or
-            # approval cleared the human gate and the frontier is dispatchable,
-            # so fall through to the build loop instead of exiting (#509).
-            if revalidate_on_resume(state, workspace, review_stage=runner.workflow.review_stage):
-                runner.write_json(state_path, state)
-            print("Resumed: dispatching the next stage.", flush=True)
-            decided.dispatch = True
-            return None
-        print(f"Saved; no agent launched by this action. {run_finder.continue_hint(run_dir, state, args.unit)}.")
+    if operation(args) is not None or args.accept_completion:
+        return apply_user_action(runner, args, parser, state, state_path, run_dir, workspace, decided)
+
+
+def apply_user_action(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
+    """The existing atomic input/settings transaction, without ambient draft repair."""
+    try:
+        conversation_action = conversation_policy.load_action(state, run_dir, args)
+    except (ValueError, OSError) as error:
+        return runner.status_command.reject_input(runner, state, workspace, run_dir, error)
+    if conversation_action and conversation_action.get("acknowledged"):
+        print("Conversation request was already saved; nothing changed and no provider launched.")
         return 0
+    metadata = runner.intervention_metadata(workspace, run_dir, state)
+    if metadata["pending_count"] or metadata["inbox_error"]:
+        raise support.Paused(
+            "PAUSED_INTERVENTION_PENDING",
+            "Queued intervention must be applied before approval, review, or completion",
+        )
+    candidate = copy.deepcopy(state)
+    require_current_inputs = bool(
+        args.approve_review or args.reject_review or args.reconcile_review or args.accept_completion
+    )
+    try:
+        if require_current_inputs:
+            runner.launch_inputs.guard(candidate, workspace, run_dir)
+        if (
+            args.approve_goal
+            and changeset_barrier.held_approval(candidate)
+            and args.approve_goal == goals.token(candidate["goal_contract"])
+            and not resolver_human.current(candidate)
+        ):
+            # The earlier per-run approval consumed its request, but the set
+            # never released (or was invalidated). Issue the ordinary exact-plan
+            # boundary again; do not bypass AutoResolver authority for retries.
+            resolver_human.queue(
+                candidate,
+                "goal_approval",
+                changeset_barrier.reapproval_origin(candidate),
+                status="AWAITING_GOAL_APPROVAL",
+                next_stage=candidate.get("next_stage"),
+            )
+            runner.normalize_human_boundary(candidate, run_dir)
+        published = resolver_human.current(candidate)
+        if not published and candidate.get("status") == "TASK_COMPLETE":
+            follow_up.refuse_on_finished(args)  # only --follow-up reopens a finished run
+        if args.answer or args.delegate:
+            if not published or not args.resolver_token:
+                # #909: name the exact command, refreshed from the current need and runnable
+                # as shown: its selector reads this run's own token, so nothing prints a value.
+                raise ValueError(
+                    "Answers require the current --resolver-token; --resolver-token - reads it from this run"
+                    + pause_command.recovery(candidate.get("needs"), run_dir=run_dir, workspace=workspace)
+                )
+            try:
+                resolver_human.require_response(candidate, published["request_id"], args.resolver_token)
+            except ValueError:
+                # A saved-state change after display strands the shown token;
+                # the operator still answered this exact request content.
+                fresh = resolver_human.rebind_stale(candidate, None, args.resolver_token)
+                if fresh is None:
+                    raise
+                published = fresh
+            if published["scope"] in ("blocker", "operational_exhaustion"):
+                raise ValueError(OPERATIONAL_NOT_ANSWER)
+        if args.approve_goal and (not published or published["scope"] != "goal_approval"):
+            raise ValueError("Goal approval requires a current AutoResolver-issued plan request")
+        if args.approve_review and (not published or published["scope"] != "human_review"):
+            replay = all(
+                isinstance(candidate.get("human_reviews", {}).get(cid), dict)
+                and candidate["human_reviews"][cid].get("token") == args.review_token
+                and candidate["human_reviews"][cid] in candidate.get("user_events", [])
+                for cid in args.approve_review
+            )
+            issued = any(
+                entry.get("status") == "consumed"
+                and entry.get("identity", {}).get("proposal", {}).get("scope") == "human_review"
+                and entry["identity"]["proposal"].get("evidence", {}).get("review_token") == args.review_token
+                and set(args.approve_review)
+                <= set(goals.requested_review_criteria(candidate, entry["identity"]["proposal"]["request"]))
+                for entry in cast(dict, candidate.get("resolver", {})).get("human_escalations", {}).values()
+            )
+            if not (replay and issued):
+                raise ValueError("Artifact acceptance requires a current AutoResolver-issued review request")
+        if args.reject_review and (not published or published["scope"] != "human_review"):
+            raise ValueError("Artifact rejection requires a current AutoResolver-issued review request")
+        if args.planning_review_call_limit is not None:
+            planning.set_review_call_limit(candidate, args.planning_review_call_limit)
+        for item in args.answer:
+            question, sep, response = item.partition("=")
+            if not sep:
+                raise ValueError("--answer uses QUESTION_ID=TEXT")
+            request = cast(dict, candidate.get("user_request", {}))
+            if goals.is_operational_response(request):
+                goals.resolve_permission(candidate, question, response)
+            elif (
+                request.get("kind") == "blocker"
+                and response == (request.get("options") or [None])[0]
+                and response.startswith("Reconcile ")
+            ):
+                runner.launch_inputs.guard(candidate, workspace, run_dir)
+                require_current_inputs = True
+                lifecycle.resolve_passing_checkpoint(candidate, question, response)
+            else:
+                goals.answer(candidate, question, response)
+        for question in args.delegate:
+            goals.answer(candidate, question, "accept default", delegated=True)
+        if args.delegate_all:
+            goals.delegate_all(candidate, args.review_token)
+        requirements_review.after_answers(candidate, queue=resolver_human.queue)
+        requirements_chat.start_after_approval(candidate)
+        for assumption_id in args.reject_assumption:
+            goals.reject_assumption(candidate, assumption_id, args.review_token)
+        if args.feedback is not None:
+            # The answered semantic blocker's own authority is the pause-authority predicate;
+            # goals.feedback admits it through this pass, never on its own (#2434).
+            semantic_hold = pause_authority.answered_blocker_decision(candidate)
+            refusal = pause_authority.feedback_refusal(candidate)
+            if refusal:
+                raise ValueError(refusal)
+            goals.feedback(
+                candidate,
+                args.feedback,
+                semantic_hold=semantic_hold,
+                requested_hold=pause_authority.requested_feedback(candidate),
+            )
+        requirements_chat.adopt_reply(candidate)
+        if args.follow_up is not None:
+            follow_up.accept(candidate, args.follow_up, workspace, runner.now())
+        if args.edit_goal:
+            refusal = pause_authority.correction_refusal(candidate, "An edited goal")
+            if refusal:
+                raise ValueError(refusal)
+            lifecycle.install_draft(candidate, _edited_goal(runner, args.edit_goal), origin="user_cli_edit")
+            planning_artifacts.prepare_user_cli_edit(candidate, run_dir=run_dir)
+        if args.goal_file:
+            # The person's own edit, as --edit-goal, held to a planner draft's checks too (#720).
+            refusal = pause_authority.correction_refusal(candidate, "A plan file")
+            if refusal:
+                raise ValueError(refusal)
+            plan = goal_file.read(args.goal_file)
+            goal_file.check(candidate, plan.body, coverage=planning.traces_coverage(plan.body))
+            lifecycle.install_draft(candidate, plan.body, origin="user_cli_edit")
+            goal_file.record(candidate, args.goal_file, plan)
+            planning_artifacts.prepare_user_cli_edit(candidate, run_dir=run_dir, label="--goal-file")
+        if args.approve_goal:
+            if not changeset_barrier.held_approval(candidate):
+                getattr(runner, "approve_goal", lifecycle.approve)(candidate, args.approve_goal)
+            changeset_barrier.approve(candidate, args.approve_goal, getattr(args, "changeset_token", None))
+        for criterion in args.approve_review:
+            goals.approve_review(
+                candidate,
+                criterion,
+                args.review_token,
+                source_scope.snapshot(workspace, state, base_snapshot=support.snapshot),
+            )
+        if args.reject_review:
+            refusal = pause_authority.feedback_refusal(candidate)
+            if refusal:
+                raise ValueError(refusal)
+            review_rejection.reject(
+                candidate,
+                args.reject_review,
+                args.review_token,
+                source_scope.snapshot(workspace, state, base_snapshot=support.snapshot),
+                args.review_note,
+            )
+        if args.reconcile_review:
+            criterion, separator, answer_id = args.reconcile_review.partition("=")
+            if not separator or not criterion or not answer_id:
+                raise ValueError("--reconcile-review uses CRITERION_ID=ANSWER_ID")
+            goals.reconcile_legacy_review(
+                candidate,
+                criterion,
+                answer_id,
+                args.review_token,
+                source_scope.snapshot(workspace, state, base_snapshot=support.snapshot),
+            )
+        if args.accept_completion:
+            runner.accept_completion(candidate, workspace, run_dir=run_dir)
+            # No judging dispatch precedes it, so a package run's check runs here, once its own guards
+            # (a finished run, recorded checks, an unapproved goal, missing evidence) have spoken:
+            # closing the finding with --close-finding accepts nothing (#711). A refusal discards the
+            # candidate, completion included.
+            package_writes.refuse(candidate, workspace)
+            acceptance.refuse(candidate, workspace, run_dir=run_dir)
+        if args.close_finding:
+            finding_close.close(
+                candidate,
+                args.close_finding,
+                args.close_reason,
+                current=resolver_human.current,
+                supersede=resolver_human.supersede_operational,
+            )
+        # Who approved, before the request is consumed so its response copies it (#722).
+        approval_provenance.stamp(
+            state, candidate, approval_provenance.invocation(sys.argv[1:], claimed_as=args.claimed_as)
+        )
+        if published and any((args.answer, args.delegate, args.approve_goal, args.approve_review, args.reject_review)):
+            runner.finish_human_action(candidate, published)
+    except (ValueError, KeyError) as error:
+        conversation_policy.reject(run_dir, conversation_action, error)
+        return runner.status_command.reject_input(runner, state, workspace, run_dir, error)
+    try:
+        conversation_policy.acknowledge(state, candidate, conversation_action)
+        with conversation_policy.saved_action(state, run_dir, args, conversation_action):
+            runner.normalize_human_boundary(candidate, run_dir)
+            rendered = lifecycle.present(candidate, run_dir)
+            autopilot.publish_handoffs(candidate, run_dir)
+            runner.commit_user_action(state, candidate, run_dir, require_current_inputs=require_current_inputs)
+    except ValueError as error:
+        return runner.status_command.reject_input(runner, state, workspace, run_dir, error)
+    if args.planning_review_call_limit is not None:
+        operational_admission.checked(
+            runner, state, run_dir, decided, "planning_limit", {"limit": planning.review_call_limit(state)}
+        )
+    print(rendered)
+    if args.goal_file:
+        print(goal_file.summary(state, args.goal_file))
+        # Chat everywhere (#1731): the loaded plan is reviewed, discussed and approved in the run's conversation.
+        print(f"Review it and approve it in chat: autocode chat --workspace {workspace} --run-dir {run_dir}")
+    if args.answer:
+        view = runner.run_view.view(state, run_dir=run_dir, workspace=workspace)
+        print(answer_output.summary(view, after_answer=True), file=sys.stderr)
+    if resume_dispatch_requested(args, state):
+        # --resume-paused asked this invocation to continue: the answer or
+        # approval cleared the human gate and the frontier is dispatchable,
+        # so fall through to the build loop instead of exiting (#509).
+        if revalidate_on_resume(state, workspace, review_stage=runner.workflow.review_stage):
+            runner.write_json(state_path, state)
+        print("Resumed: dispatching the next stage.", flush=True)
+        decided.dispatch = True
+        return None
+    if internal_failure_view.presentation(state, include_hold=True):
+        print("Saved; internal recovery remains blocked. No agent launched by this action.")
+    else:
+        print(f"Saved; no agent launched by this action. {run_finder.continue_hint(run_dir, state, args.unit)}.")
+    return 0
+
+
+def validate_input(runner, args, state: RunState, run_dir, workspace, decided, row, observed, *, final):
+    return observed.get("proof") if operational_admission.planning_frontier(state, row, observed) else None
+
+
+def validate_planning_limit(runner, args, state: RunState, run_dir, workspace, decided, row, observed, *, final):
+    proof = owner_outcome.proof(state, observed)
+    if (
+        not isinstance(proof, dict)
+        or not planning.enabled(state)
+        or any(state.get(key) for key in ("active_stage", "pending_report_repair", "uncertain_artifacts"))
+    ):
+        return None
+    event = next(
+        (
+            event
+            for event in reversed(state.get("user_events") or [])
+            if isinstance(event, dict) and event.get("kind") == "planning_budget_change"
+        ),
+        None,
+    )
+    if not (
+        event
+        and event.get("actor") == "user_cli"
+        and event.get("limit") == proof.get("limit") == planning.review_call_limit(state)
+        and event.get("calls_used") == (state.get("planning") or {}).get("plan_review_calls")
+        and event.get("stage") == state.get("next_stage")
+        and event.get("contract_token") == goals.token(state.get("goal_contract"))
+    ):
+        return None
+    return owner_outcome.answer(state, proof, {"event": event}, fields=("planning",), members=(("user_events", event),))
+
+
+OPERATIONS = owned_operations.register(
+    owned_operations.Operation("planning_input", apply, validate_input, request_bound=False, frontier_bound=False),
+    owned_operations.Operation("planning_limit", apply_user_action, validate_planning_limit),
+)

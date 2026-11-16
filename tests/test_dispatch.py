@@ -18,9 +18,10 @@ import autocode_goals as g
 import autocode_milestones as m
 import autocode_recovery_view as recovery
 import autocode_support as s
-from goal_fixtures import assert_operational_wait, body, envelope
+from goal_fixtures import body, envelope
 
 from . import test_goals, test_subprocess
+from .operational_fixtures import assert_operational_block
 
 
 class TaskForTests(unittest.TestCase):
@@ -919,8 +920,7 @@ class DispatchCliTests(unittest.TestCase):
         self.env["AUTOCODE_BUILDER_FAIL"] = "M2"
         self.launch(["Produce two outputs and combine", "--max-parallel-builders", "2", "--chat"], 2, answers="yes\n")
         run, state = self.saved()
-        # An exhausted operational pause is now surfaced as an AutoResolver operational request.
-        assert_operational_wait(self, state, "PAUSED_ORCHESTRATOR_WORKER")
+        assert_operational_block(self, state, "PAUSED_ORCHESTRATOR_WORKER")
         first = (self.root / "barrier/M1").read_bytes()
         self.env.pop("AUTOCODE_BUILDER_FAIL")
         self.launch(["--run-dir", str(run), "--resume-paused", "--retry-builder", "M2", "--no-chat"], 0)

@@ -22,12 +22,14 @@ if TYPE_CHECKING:
 try:
     from . import autocode_metadata_custody as custody
     from . import autocode_operational_block_view as block_view
+    from . import autocode_operational_receipt_identity as receipt_identity
     from . import autocode_run_status as run_status
     from . import autocode_stop as stop
     from . import autocode_util as util
 except ImportError:
     import autocode_metadata_custody as custody
     import autocode_operational_block_view as block_view
+    import autocode_operational_receipt_identity as receipt_identity
     import autocode_run_status as run_status
     import autocode_stop as stop
     import autocode_util as util
@@ -132,11 +134,11 @@ def _append(state: RunState, record):
     # A local diagnostic ordinal, not a model-citable or replay approval token.
     # Saved family nonces only locate original kernel evidence. A recorded
     # model answer cannot rebind them or discharge this denial.
-    identity = "operational-block-" + str(len(identities) + 1)
+    identity = receipt_identity.ordinal(record["receipt"]["scope"], len(identities) + 1)
     ordinal = len(identities) + 1
     while identity in records:
         ordinal += 1
-        identity = "operational-block-" + str(ordinal)
+        identity = receipt_identity.ordinal(record["receipt"]["scope"], ordinal)
     record["receipt"]["id"] = identity
     records[identity] = deepcopy(record)
     identities.append(identity)

@@ -54,6 +54,7 @@ if TYPE_CHECKING:
 try:
     from . import autocode_findings as findings_ledger
     from . import autocode_member_stop as member_stop
+    from . import autocode_operational_disposition as disposition
     from . import autocode_quota_route as quota_route
     from . import autocode_source_scope as source_scope
     from . import autocode_util as util
@@ -61,6 +62,7 @@ try:
 except ImportError:
     import autocode_findings as findings_ledger
     import autocode_member_stop as member_stop
+    import autocode_operational_disposition as disposition
     import autocode_quota_route as quota_route
     import autocode_source_scope as source_scope
     import autocode_util as util
@@ -162,6 +164,8 @@ def schedule(state: RunState, event, entry, frontier):
     binding and the request's evidence pins. A request is answered once; it is never rearmed.
     """
     proposal = (entry.get("identity") or {}).get("proposal") or {}
+    if disposition.refused(state, proposal):
+        return None
     if event.get("action") != "provide_information" or proposal.get("scope") != "operational_exhaustion":
         return None
     resolver = state["resolver"]
@@ -432,6 +436,9 @@ def reevaluate(runner, state: RunState, run_dir, workspace, *, resume):
     record = _current_record(state)
     if record is None:
         return None
+    entry = ((state.get("resolver") or {}).get("human_escalations") or {}).get(record.get("request_id")) or {}
+    if disposition.refused(state, (entry.get("identity") or {}).get("proposal")):
+        return Outcome("hold", disposition.MESSAGE)
     human = runner.resolver_human
     status = record.get("status")
     if status in ("held", "admitted"):
@@ -596,6 +603,11 @@ def retired(state: RunState):
     request, which cannot be answered again, would be #486 again.
     """
     record = _current_record(state)
+    resolver = state.get("resolver") or {}
+    request_id = record.get("request_id") if record else _unscheduled(state)
+    entry = (resolver.get("human_escalations") or {}).get(request_id) or {}
+    if disposition.refused(state, (entry.get("identity") or {}).get("proposal")):
+        return None
     if record is None:
         rid = _unscheduled(state)
         if rid is None:
@@ -616,6 +628,9 @@ def projection(state: RunState):
     """The status view's read of the current review; plain saved data, never authority."""
     record = _current_record(state)
     if record is None:
+        return None
+    entry = ((state.get("resolver") or {}).get("human_escalations") or {}).get(record.get("request_id")) or {}
+    if disposition.refused(state, (entry.get("identity") or {}).get("proposal")):
         return None
     decision = record.get("decision") if isinstance(record.get("decision"), dict) else {}
     status, reason = record.get("status"), decision.get("message") or record.get("retired_reason")

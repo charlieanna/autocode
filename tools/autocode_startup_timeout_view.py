@@ -12,28 +12,31 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
-    from . import autocode_pause_authority as pause_authority
-    from . import autocode_resolver_human as resolver_human
+    from . import autocode_operational_disposition as disposition
+    from . import autocode_stop as stop
 except ImportError:
-    import autocode_pause_authority as pause_authority
-    import autocode_resolver_human as resolver_human
+    import autocode_operational_disposition as disposition
+    import autocode_stop as stop
 
 
 def presentation(state: RunState):
-    request = state.get(resolver_human.PUBLIC) or {}
-    if (
-        state.get("status") != "WAITING_FOR_USER"
-        or not isinstance(request, dict)
-        or request.get("scope") != "operational_exhaustion"
-    ):
+    if stop.applied_stop(state):
         return None
-    origin = pause_authority.held_origin(state)
-    if origin.get("pause_status") != "PAUSED_TIMEOUT_RECOVERY":
+    return _startup(state)
+
+
+def _startup(state: RunState):
+    held = disposition.held(state)
+    if held is None:
+        return None
+    detail = disposition.original_detail(state, held)
+    evidence, binding = detail.get("evidence") or {}, detail.get("evaluation_binding") or {}
+    if evidence.get("status") != "PAUSED_TIMEOUT_RECOVERY":
         return None
     attempts = state.get("automatic_timeout_recoveries") or []
     if not isinstance(attempts, list) or len(attempts) < 3:
         return None
-    stage = origin.get("stage")
+    stage = evidence.get("stage")
     if not stage or any(
         not isinstance(row, dict)
         or row.get("stage") != stage
@@ -43,11 +46,6 @@ def presentation(state: RunState):
         for row in attempts[-3:]
     ):
         return None
-    retained = resolver_human.retained(state)
-    if retained is None:
-        return None
-    entry = (state.get("resolver") or {}).get("human_escalations", {}).get(retained["request_id"], {})
-    binding = (entry.get("identity") or {}).get("binding") or {}
     if (binding.get("accounting") or {}).get("automatic_timeout_recoveries") != attempts:
         return None
     return {

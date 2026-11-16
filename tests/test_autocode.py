@@ -30,9 +30,10 @@ import autocode_run_view as run_view
 import autocode_stage_context as stage_context
 import autocode_support as s
 import autopilot
-from goal_fixtures import approve_fixture, assert_operational_wait, envelope
+from goal_fixtures import approve_fixture, envelope
 
 from . import LOGIN_SHELL
+from .operational_fixtures import assert_operational_block
 
 
 class DetachedOutputTest(unittest.TestCase):
@@ -1957,8 +1958,7 @@ class RetrofitTest(unittest.TestCase):
         ):
             self.assertEqual(2, runner.main())
         saved = s.read(self.run / "state.json")
-        # The exhausted Builder lane now waits on an operational AutoResolver request.
-        assert_operational_wait(self, saved, "PAUSED_BUILDER_RETRY_LIMIT")
+        assert_operational_block(self, saved, "PAUSED_BUILDER_RETRY_LIMIT")
         self.assertEqual("builder", saved["next_stage"])
         self.assertNotIn("active_stage", saved)
 

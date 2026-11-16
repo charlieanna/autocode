@@ -290,8 +290,14 @@ class LifecycleAttacks(AdversarialCase):
             )
             self.assert_completed(view)
         else:
-            self.assertIsNotNone(view["needs"], view)
             self.assertNotEqual("TASK_COMPLETE", view["status"])
+            self.assertEqual(1, len(self.trace("stage_enter", "builder")), "An uncertain Builder is not replayed")
+            # Exhausted internal recovery is the core's to report, not a person's to repair: it
+            # stops with no action and no machinery question, and names no flag to type.
+            self.assertEqual("blocked", view["recovery"]["category"], view)
+            self.assertIsNone(view["needs"], view)
+            self.assertIsNone(view["next_command"], view)
+            self.assertNotIn("--", view["stop_reason"] or "", view)
         self.assertEqual(1, len(self.trace("attack_injected", "builder")))
 
     def test_finished_orphan_report_resumes_without_second_builder(self):

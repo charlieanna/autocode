@@ -7,8 +7,10 @@ authorize a retry, mutate the contract, grant permission, or declare success.
 from __future__ import annotations
 
 try:
+    from . import autocode_operational_receipt_identity as receipt_identity
     from . import autocode_prompts as prompts
 except ImportError:
+    import autocode_operational_receipt_identity as receipt_identity
     import autocode_prompts as prompts
 
 
@@ -33,6 +35,7 @@ try:
     from . import autocode_failures as failures
     from . import autocode_goals as goals
     from . import autocode_member_stop as member_stop
+    from . import autocode_operational_disposition as disposition
     from . import autocode_pause_authority as pause_authority
     from . import autocode_progressive_state as progressive
     from . import autocode_quota_route as quota_route
@@ -43,11 +46,13 @@ try:
     from . import autocode_resolver_recovery as recovery
     from . import autocode_run_status as run_status
     from . import autocode_support as support
+    from . import autocode_util as util
     from . import autocode_worker_quota as worker_quota
 except ImportError:
     import autocode_failures as failures
     import autocode_goals as goals
     import autocode_member_stop as member_stop
+    import autocode_operational_disposition as disposition
     import autocode_pause_authority as pause_authority
     import autocode_progressive_state as progressive
     import autocode_quota_route as quota_route
@@ -58,6 +63,7 @@ except ImportError:
     import autocode_resolver_recovery as recovery
     import autocode_run_status as run_status
     import autocode_support as support
+    import autocode_util as util
     import autocode_worker_quota as worker_quota
 
 
@@ -381,6 +387,33 @@ def operational_boundary(runner, state: RunState, run_dir, workspace, *, persist
     return True
 
 
+def reconsideration_request(state: RunState):
+    """The planning owner's existing saved request predicate; grants no credit."""
+    try:
+        public = human.current(state) or human.recovery_request(state)
+        if not public or public["scope"] != "operational_exhaustion":
+            return None
+        saved = state.get("resolver") or {}
+        entry = saved["human_escalations"][public["request_id"]]
+        proposal = entry["identity"]["proposal"]
+        if (
+            proposal["origin"].get("pause_status") != "PAUSED_PLANNING_BUDGET"
+            or proposal["origin"].get("stage") != state.get("next_stage")
+            or entry.get("response")
+            or saved.get("pending_human_response")
+            or saved.get("human_response_frontier")
+            or any(response.get("request_id") == public["request_id"] for response in saved.get("human_responses", []))
+            or state.get(human.PRIVATE)
+            or any(state.get(key) for key in ("active_stage", "uncertain_artifacts", "pending_report_repair"))
+            or (state.get("goal_contract") or {}).get("body", {}).get("open_blocking_questions")
+            or (state.get("pause_intent") and not state["pause_intent"].get("acknowledged_at"))
+        ):
+            return None
+        return public
+    except (KeyError, TypeError, ValueError, OSError, AttributeError):
+        return None
+
+
 def reconsider_operational_request(runner, state: RunState, run_dir, workspace):
     """Withdraw an unanswered planning-cap ask only with proven existing credit.
 
@@ -389,27 +422,7 @@ def reconsider_operational_request(runner, state: RunState, run_dir, workspace):
     """
     try:
         with runner.interventions.admission(run_dir):
-            public = human.current(state)
-            if not public or public["scope"] != "operational_exhaustion":
-                return False
-            saved = state.get("resolver") or {}
-            entry = saved["human_escalations"][public["request_id"]]
-            proposal = entry["identity"]["proposal"]
-            if (
-                proposal["origin"].get("pause_status") != "PAUSED_PLANNING_BUDGET"
-                or proposal["origin"].get("stage") != state.get("next_stage")
-                or entry.get("response")
-                or saved.get("pending_human_response")
-                or saved.get("human_response_frontier")
-                or any(
-                    response.get("request_id") == public["request_id"] for response in saved.get("human_responses", [])
-                )
-                or state.get(human.PRIVATE)
-                or any(state.get(key) for key in ("active_stage", "uncertain_artifacts", "pending_report_repair"))
-                or (state.get("goal_contract") or {}).get("body", {}).get("open_blocking_questions")
-                or (state.get("pause_intent") and not state["pause_intent"].get("acknowledged_at"))
-                or (Path(run_dir) / "pause-requested").exists()
-            ):
+            if reconsideration_request(state) is None or (Path(run_dir) / "pause-requested").exists():
                 return False
             candidate = copy.deepcopy(state)
             if not human.supersede_operational(
@@ -425,6 +438,8 @@ def reconsider_operational_request(runner, state: RunState, run_dir, workspace):
             cast(dict, state).clear()
             state.update(candidate)
             return True
+    except util.JSONCommitUncertain:
+        raise
     except (support.Paused, KeyError, TypeError, ValueError, OSError, RuntimeError):
         # A failed speculative proof never withdraws or republishes the old ask.
         return False
@@ -433,15 +448,7 @@ def reconsider_operational_request(runner, state: RunState, run_dir, workspace):
 def _operational_receipt(state: RunState, run_dir, action, detail, evidence):
     state["run_dir"] = str(Path(run_dir).resolve())
     binding = human._binding(state)
-    identity = support.digest(
-        {
-            "scope": "operational_diagnostic",
-            "action": action,
-            "detail": detail,
-            "evidence": evidence,
-            "binding": binding,
-        }
-    )
+    identity = receipt_identity.diagnostic(action, detail, evidence, binding)
     saved = state.setdefault("resolver", {})
     receipts = saved.setdefault("operational_receipts", {})
     if identity in receipts:
@@ -541,6 +548,8 @@ def record_operational_exhaustion(runner, state: RunState, run_dir, error, *, re
     (autocode_validation_rounds). The runner composes it from its own records, which may quote
     saved rejection reasons; no model proposes or edits it.
     """
+    if disposition.stop.applied_stop(state):
+        return False
     if error.status == "PAUSED_BUILDER_RETRY_LIMIT" and recovery.known_builder_pause(state):
         return False
     if progressive.retained_review_budget_pause(state, error.status):
@@ -568,58 +577,8 @@ def record_operational_exhaustion(runner, state: RunState, run_dir, error, *, re
         error = support.Paused(error.status, held)
     if request is None:
         error = _asked_again(state, error)
-    kind = {
-        "PAUSED_ITERATION_LIMIT": "iteration_ceiling",
-        "PAUSED_TIME_LIMIT": "max_seconds",
-        "PAUSED_COST_LIMIT": "max_cost_usd",
-        "PAUSED_PLANNING_BUDGET": "planning_review_call_limit",
-        "PAUSED_MILESTONE_TIME_LIMIT": "milestone_max_seconds",
-        "PAUSED_NO_PROGRESS": "no_progress_batches",
-    }.get(error.status)
-    settings = state.get("settings", {})
-    origin = settings.get("budget_origins", {}).get(kind, "unknown")
-    limit = settings.get("limits", {}).get(kind)
-    if kind == "planning_review_call_limit":
-        planning: dict = state.get("planning", {})
-        origin = planning.get(
-            "review_call_limit_origin", "runner_default" if "review_call_limit" not in planning else "unknown"
-        )
-        limit = planning.get("review_call_limit", 2)
-    elif kind == "milestone_max_seconds":
-        limit = settings.get("milestone_checkpoints", {}).get("max_seconds")
-    category = (
-        (
-            "no_progress"
-            if error.status == "PAUSED_NO_PROGRESS"
-            else "internal_default"
-            if origin in ("runner_default", "resolver_delegated")
-            else "explicit_user_cap"
-            if origin == "user_explicit"
-            else "protected_saved_limit"
-        )
-        if kind
-        else (
-            "provider_or_spending_guard"
-            if error.status in ("PAUSED_BUDGET", "PAUSED_RATE_LIMIT")
-            else "provider_content_filter"
-            if error.status == quota_route.REFUSAL_STATUS
-            else "operational_recovery"
-        )
-    )
-    budget = {"category": category, "kind": kind, "origin": origin, "limit": limit}
-    receipt = _operational_receipt(
-        state,
-        run_dir,
-        "hold",
-        "AutoResolver cannot safely resolve this blocker under the current authority. " + str(error),
-        {
-            "status": error.status,
-            "stage": state.get("next_stage"),
-            "budget": budget,
-            "plan_review_calls": cast(dict, state.get("planning", {})).get("plan_review_calls"),
-            "recovery_calls_used": cast(dict, state.get("planning", {})).get("recovery_review_calls_used", 0),
-        },
-    )
+    budget = disposition.budget(state, error.status)
+    kind, category = budget["kind"], budget["category"]
     attempts = sum(
         len(cast(dict, state).get(name, []))
         for name in ("automatic_timeout_recoveries", "automatic_capacity_recoveries", "automatic_permission_recoveries")
@@ -696,6 +655,33 @@ def record_operational_exhaustion(runner, state: RunState, run_dir, error, *, re
     if route:
         decision += " " + quota_route.advice(route, None if parallel else cast(dict, stopped)["attempt_id"])
         options.insert(0, quota_route.option(route))
+    facts = {
+        "status": error.status,
+        "stage": state.get("next_stage"),
+        "budget": budget,
+        "plan_review_calls": cast(dict, state.get("planning", {})).get("plan_review_calls"),
+        "recovery_calls_used": cast(dict, state.get("planning", {})).get("recovery_review_calls_used", 0),
+    }
+    proposal = {
+        "scope": disposition.SCOPE,
+        "origin": {"pause_status": error.status, "stage": facts["stage"], "budget": budget},
+        "questions": [route] if route else [],
+    }
+    facts.update(disposition=disposition.classify(proposal), questions=copy.deepcopy(proposal["questions"]))
+    machinery = facts["disposition"] in ("machinery", "invalid")
+    receipt = _operational_receipt(
+        state,
+        run_dir,
+        "blocked" if machinery else "hold",
+        "AutoResolver cannot safely resolve this blocker under the current authority. " + str(error),
+        facts,
+    )
+    if machinery:
+        # The cause is written for the core's own recovery owners and can name an operator
+        # flag (--abandon-stage); it stays in the receipt above. The person sees only that
+        # AutoCode stopped and kept its work, since nothing here is theirs to act on.
+        run_status.pause(state, error.status, disposition.MESSAGE)
+        return True
     request = request or {
         "kind": "blocker",
         "discovered": str(error),

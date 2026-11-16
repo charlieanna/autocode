@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_member_stop as member_stop
+    from . import autocode_operational_disposition as disposition
     from . import autocode_operational_information as information
     from . import autocode_pause_command as pause_command
     from . import autocode_recovery_limits as recovery_limits
@@ -35,6 +36,7 @@ try:
     from .autocode_goals import RESOLVER_PROPOSAL_KEY, RESOLVER_REQUEST_KEY
 except ImportError:
     import autocode_member_stop as member_stop
+    import autocode_operational_disposition as disposition
     import autocode_operational_information as information
     import autocode_pause_command as pause_command
     import autocode_recovery_limits as recovery_limits
@@ -274,7 +276,10 @@ def _questions(proposal, key, reason):
 
 def _evidence_valid(proposal):
     try:
-        pins = proposal.get("evidence", {}).get("hashes", {})
+        evidence = proposal.get("evidence", {})
+        if not isinstance(evidence, dict):
+            return False
+        pins = evidence.get("hashes", {})
         if not isinstance(pins, dict):
             return False
         return all(
@@ -394,7 +399,9 @@ def _decision(state: RunState, proposal):
             return "reject", "Only the resolver intake adapter can publish a project-free question"
         return "escalate", "The resolver needs user intent before a project or contract can be established"
     evidence = proposal["evidence"]
-    if evidence.get("recovery_available"):
+    if disposition.refused(state, proposal):
+        return "hold", disposition.MESSAGE
+    if scope != disposition.SCOPE and evidence.get("recovery_available"):
         return "recover", "A permitted bounded recovery remains; do not ask the user yet"
     # These references must be constructed from recorded runner evidence, not
     # copied from model output. Their concrete pins are rechecked by the caller.
@@ -562,6 +569,8 @@ def rebind_stale(state: RunState, request_id, request_token):
             continue
         if entry.get("status") == "consumed":
             return None
+        if disposition.refused(state, identity.get("proposal")):
+            return None
         live = current(state)
         if entry.get("status") == "superseded":
             proposal = identity["proposal"]
@@ -645,17 +654,33 @@ def retained(state: RunState):
     return copy.deepcopy(public)
 
 
-def current(state: RunState):
-    """Read-only receipt and fresh frontier verification for answer authority."""
+def _fresh_retained(state: RunState, *, recovery=False):
+    """One saved publication/frontier answer for public and Core-only readers."""
     public = retained(state)
     if public:
         try:
             identity = state["resolver"]["human_escalations"][public["request_id"]]["identity"]
-            if identity["binding"] == _binding(state) and _evidence_valid(identity["proposal"]):
+            proposal = identity["proposal"]
+            allowed = (
+                public["scope"] == disposition.SCOPE and disposition.saved_disposition(state, proposal) == "machinery"
+                if recovery
+                else not disposition.refused(state, proposal)
+            )
+            if allowed and identity["binding"] == _binding(state) and _evidence_valid(proposal):
                 return public
         except (KeyError, TypeError, ValueError, AttributeError):
             return None
     return None
+
+
+def current(state: RunState):
+    """Read-only receipt and fresh frontier verification for answer authority."""
+    return _fresh_retained(state)
+
+
+def recovery_request(state: RunState):
+    """Core may inspect an authentic old machinery ask without republishing it."""
+    return _fresh_retained(state, recovery=True)
 
 
 def queued_operational(state: RunState):
@@ -803,6 +828,8 @@ def restage_pending(state: RunState):
         ):
             return False
         proposal = identity["proposal"]
+    if disposition.refused(state, proposal):
+        return False
     if (
         not isinstance(proposal, dict)
         or proposal.get("version") != VERSION
@@ -953,6 +980,8 @@ def require_response(state: RunState, request_id, request_token):
     # superseded it.
     entry = cast(dict, state.get("resolver", {})).get("human_escalations", {}).get(request_id) or {}
     identity = entry.get("identity") or {}
+    if disposition.refused(state, identity.get("proposal")):
+        raise ValueError(disposition.MESSAGE)
     if (
         entry.get("status") in ("pending", "superseded")
         and identity.get("issuer") == "resolver"
@@ -1033,6 +1062,8 @@ def release_stranded_operational(state: RunState):
     receipt. A scheduled internal diagnosis, or input still pending, leaves it alone.
     """
     proposal = state.get(PRIVATE) or {}
+    if disposition.refused(state, proposal):
+        return False
     pause = str((proposal.get("origin") or {}).get("pause_status") or "")
     if (
         proposal.get("scope") != "operational_exhaustion"
@@ -1056,6 +1087,8 @@ def release_stranded_operational(state: RunState):
 def respond_operational(state: RunState, request_id, request_token, action, text=""):
     """Store human input for the resolver; this is not retry or approval consent."""
     old = cast(dict, state.get("resolver", {})).get("human_escalations", {}).get(request_id, {})
+    if disposition.refused(state, (old.get("identity") or {}).get("proposal")):
+        raise ValueError(disposition.MESSAGE)
     if old.get("status") == "consumed":
         response = old.get("response") or {}
         if (
@@ -1140,6 +1173,8 @@ def review_operational_response(state: RunState):
     entry = resolver.get("human_escalations", {}).get(event.get("request_id"), {})
     if entry.get("status") != "consumed" or entry.get("response") != event or event.get("actor") != "user_cli":
         raise ValueError("Operational guidance lacks its consumed AutoResolver request")
+    if disposition.refused(state, (entry.get("identity") or {}).get("proposal")):
+        return None
     resolution = {
         "request_id": event["request_id"],
         "at": support.now(),

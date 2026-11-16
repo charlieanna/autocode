@@ -11,6 +11,7 @@ import json
 import subprocess
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import autocode as runner
 import autocode_source_scope as source_scope
@@ -26,7 +27,7 @@ class OperationalInformationCLITests(unittest.TestCase):
     saved = test_subprocess.SubprocessFlow.saved
     new_run_engine_args = ("--engine", "codex")
 
-    def checkpoint(self, status, reason, edit=None, **fields):
+    def checkpoint(self, status, reason, edit=None, *, legacy=False, **fields):
         """A run AutoResolver stopped with a published operational_exhaustion request."""
         self.env["AUTOCODE_FIXTURE_MODE"] = "no-human"
         self.env["AUTOCODE_FIXTURE_QUOTA_STAGE"] = "review_completion"
@@ -37,15 +38,86 @@ class OperationalInformationCLITests(unittest.TestCase):
         if edit:
             edit(stopped)
         stopped.update(status=status, stop_reason=reason, **fields)
-        self.assertTrue(
-            runner.resolver_runtime.record_operational_exhaustion(
-                runner, stopped, self.run, support.Paused(status, reason)
+        cached = None
+        if legacy:
+            budget = runner.resolver_runtime.disposition.budget(stopped, status)
+            receipt = runner.resolver_runtime._operational_receipt(
+                stopped,
+                self.run,
+                "hold",
+                reason,
+                {"status": status, "stage": stopped.get("next_stage"), "budget": budget},
             )
-        )
+            human = runner.resolver_human
+            human.queue(
+                stopped,
+                "operational_exhaustion",
+                {"stage": stopped.get("next_stage"), "pause_status": status, "budget": budget},
+                request={
+                    "kind": "blocker",
+                    "discovered": reason,
+                    "impact": "Recovery exhausted",
+                    "decision_needed": "Provide corrective information",
+                    "options": ["Provide corrective information", "Leave paused"],
+                },
+                evidence={"resolver_receipt_id": receipt},
+                next_stage=stopped.get("next_stage"),
+            )
+            proposal = copy.deepcopy(stopped[human.PRIVATE])
+            identity = {
+                "version": human.VERSION,
+                "issuer": "resolver",
+                "binding": human._binding(stopped),
+                "proposal": proposal,
+                "action": "escalate",
+                "reason": "Legacy operational hold",
+            }
+            stopped["resolver"].setdefault("human_escalations", {})
+            human._publish(stopped, identity)
+            # Only this fixture reconstructs the historical public offer. The
+            # new CLI is always invoked with its real policy, and must refuse it.
+            with (
+                patch.object(runner.resolver_runtime.disposition, "refused", return_value=False),
+                patch.object(runner.resolver_runtime.disposition, "presentation", return_value=None),
+            ):
+                cached = runner.run_view.view(stopped, run_dir=self.run, workspace=self.project)
+        else:
+            self.assertTrue(
+                runner.resolver_runtime.record_operational_exhaustion(
+                    runner, stopped, self.run, support.Paused(status, reason)
+                )
+            )
         runner.write_json(self.run / "state.json", stopped)
         view = self.status()
-        self.assertEqual("operational_exhaustion", view["needs"]["resolver_scope"])
-        return view
+        if cached is not None or runner.resolver_runtime.disposition.presentation(stopped):
+            self.assert_blocked(view)
+        else:
+            self.assertEqual("operational_exhaustion", view["needs"]["resolver_scope"])
+        return cached if cached is not None else view
+
+    def assert_blocked(self, view):
+        self.assertIsNone(view["needs"])
+        self.assertIsNone(view["next_command"])
+        self.assertIsNone(view["chat"]["input"])
+        self.assertEqual("blocked", view["recovery"]["category"])
+        self.assertFalse(view["done"])
+
+    def refuse_cached_information(self, view, text="The environment was repaired"):
+        before = (self.run / "state.json").read_bytes()
+        code, launched, output = self.invoke(
+            "--resolver-request",
+            view["needs"]["resolver_request_id"],
+            "--resolver-token",
+            view["needs"]["resolver_token"],
+            "--resolver-response",
+            "provide_information",
+            "--resolver-message",
+            text,
+        )
+        self.assertEqual((2, False), (code, launched), output)
+        self.assertEqual(before, (self.run / "state.json").read_bytes())
+        self.assert_blocked(self.status())
+        self.assertEqual([], self.evaluations())
 
     def issue_checkpoint(self, edit=None, **fields):
         """#486's run: two operational recoveries, then PAUSED_RESOLVER_OPERATIONAL."""
@@ -54,6 +126,7 @@ class OperationalInformationCLITests(unittest.TestCase):
             "PAUSED_RESOLVER_OPERATIONAL",
             "AutoResolver exhausted its operational recoveries",
             edit,
+            legacy=True,
             automatic_permission_recoveries=recoveries,
             **fields,
         )
@@ -124,33 +197,18 @@ class OperationalInformationCLITests(unittest.TestCase):
 
         return edit
 
-    def test_operator_information_does_not_grant_retry_and_rejects_changed_replay(self):
-        view = self.issue_checkpoint()
-        self.assertEqual("blocked", view["recovery"]["category"])
-        self.assertIsNone(view["chat"]["input"], "internal recovery is not a person-facing question")
-        words = [
-            "--resolver-request",
-            view["needs"]["resolver_request_id"],
-            "--resolver-token",
-            view["needs"]["resolver_token"],
-            "--resolver-response",
-            "provide_information",
-            "--resolver-message",
-            "The operator inspected the blocked run",
-        ]
-        env = {}
+    def test_cached_chat_offer_cannot_submit_machinery_information(self):
+        cached = self.issue_checkpoint()
+        self.assertEqual("blocked", self.status()["recovery"]["category"])
+        self.assertIsNone(self.status()["chat"]["input"], "internal recovery is not a person-facing question")
+        client = object.__new__(ConformanceDriver)
+        client.project, client.run_dir = self.project, self.run
+        words, env, _ = client.message_command(cached, "The operator inspected the blocked run")
+        before = (self.run / "state.json").read_bytes()
         code, launched, output = self.invoke(*words, env=env)
-        self.assertEqual((0, False), (code, launched), output)
-        held = self.status()
-        self.assertFalse(held["done"])
-        self.assertEqual("pending", held["information_review"]["status"])
-        self.assertIsNone(held["chat"]["input"])
-        code, launched, output = self.invoke(*words, env=env)
-        self.assertEqual((0, False), (code, launched), output)
-        self.assertIn("already received", output)
-        code, launched, output = self.invoke(*words[:-1], "Different response", env=env)
         self.assertEqual((2, False), (code, launched), output)
-        self.assertIn("Input rejected:", output)
+        self.assertEqual(before, (self.run / "state.json").read_bytes())
+        self.refuse_cached_information(cached)
 
     def test_accepted_information_is_reevaluated_exactly_once(self):
         def explicit_cap(state):
@@ -238,108 +296,81 @@ class OperationalInformationCLITests(unittest.TestCase):
         self.assertEqual(expected, after, "Only the explicitly selected total changes")
 
     def test_stale_or_replayed_information_launches_nothing(self):
-        view = self.issue_checkpoint()
-        state_file = self.run / "state.json"
-        before = state_file.read_bytes()
-        forged = view["needs"]["resolver_token"][:-4] + "beef"
-        self.inform(view, "The temporary directory is valid", token=forged, expected=2)
-        self.assertEqual(before, state_file.read_bytes())
-        self.inform(view, "The temporary directory is valid")
-        scheduled = self.status()["information_review"]
-        self.assertEqual("pending", scheduled["status"])
-        # A replay of the same response changes nothing; a different one is refused.
-        self.inform(view, "The temporary directory is valid")
-        self.assertEqual(scheduled, self.status()["information_review"])
-        self.inform(view, "Launch the Builder now", expected=2)
-        # Stale: the source changed after the response, so it is not evaluated against it.
+        cached = self.issue_checkpoint()
+        before = (self.run / "state.json").read_bytes()
+        forged = cached["needs"]["resolver_token"][:-4] + "beef"
+        self.inform(cached, "The temporary directory is valid", token=forged, expected=2)
+        self.assertEqual(before, (self.run / "state.json").read_bytes())
+        self.refuse_cached_information(cached)
+        self.refuse_cached_information(cached, "Launch the Builder now")
         (self.project / "greet.py").write_text("# edited while paused\n")
+        self.refuse_cached_information(cached)
         code, launched, output = self.resume()
         self.assertEqual((2, False), (code, launched), output)
-        self.assertIn("did not re-evaluate", output)
-        self.assertEqual("stale", self.status()["information_review"]["status"])
-        code, launched, output = self.resume()
-        self.assertEqual((2, False), (code, launched), output)
+        self.assert_blocked(self.status())
         self.assertEqual([], self.evaluations())
 
     def test_information_bound_to_altered_evidence_launches_nothing(self):
-        answered = self.issue_checkpoint()
-        self.inform(answered, "The temporary directory is valid")
+        cached = self.issue_checkpoint()
         for receipt in (self.run / "resolver").glob("*.json"):
             receipt.write_text(receipt.read_text() + "\n")
-        code, launched, output = self.resume()
-        self.assertEqual((2, False), (code, launched), output)
-        self.assertIn("evidence changed", output)
-        # Only the records changed, not the run: holding on the answered request would be #486
-        # again, so AutoResolver asks again for this frontier, launching nothing.
-        view = self.status()
-        self.assertEqual("answer", view["needs"]["kind"], view["needs"])
-        self.assertNotEqual(answered["needs"]["resolver_request_id"], view["needs"]["resolver_request_id"])
-        self.assertIn("the request's recorded evidence changed", view["stop_reason"])
-        self.assertEqual(
-            "stale",
-            self.saved()[1]["resolver"]["information_reviews"][answered["needs"]["resolver_request_id"]]["status"],
-        )
-        code, launched, output = self.resume()
-        self.assertEqual((2, False), (code, launched), output)
-        self.assertEqual(view["needs"], self.status()["needs"])
-        self.assertEqual([], self.evaluations())
-        # Sending the old answer again changes nothing and points at the request that is waiting.
-        state_file = self.run / "state.json"
-        before = state_file.read_bytes()
-        result = self.inform(answered, "The temporary directory is valid")
-        self.assertIn("already received this response", result.stdout)
-        self.assertIn(f"answer request {view['needs']['resolver_request_id']}", result.stdout)
-        self.assertNotIn("re-evaluates the response once", result.stdout)
-        self.assertEqual(before, state_file.read_bytes())
-        # The fresh request takes information like any other and schedules its own one evaluation.
-        self.inform(view, "The temporary directory is valid")
-        review = self.status()["information_review"]
-        self.assertEqual((view["needs"]["resolver_request_id"], "pending"), (review["request_id"], review["status"]))
-
-    def test_information_accepted_before_reevaluation_existed_is_asked_again(self):
-        # The issue's own run: an older AutoCode consumed the response and scheduled no review. The
-        # consumed request cannot be answered again, so holding on it would be #486 again.
-        answered = self.issue_checkpoint()
-        self.inform(answered, "The temporary directory is valid")
-        run, older = self.saved()
-        del older["resolver"]["information_reviews"]
-        runner.write_json(run / "state.json", older)
-        for args in (("--resume-paused",), ()):
-            code, launched, output = self.invoke(*args)
+        self.refuse_cached_information(cached)
+        for _ in range(2):
+            code, launched, output = self.resume()
             self.assertEqual((2, False), (code, launched), output)
-            self.assertNotIn("retained the human guidance", output)
-            view = self.status()
-            self.assertEqual("answer", view["needs"]["kind"], view["needs"])
-            self.assertNotEqual(answered["needs"]["resolver_request_id"], view["needs"]["resolver_request_id"])
-            self.assertIn("did not re-evaluate", view["stop_reason"])
+            self.assert_blocked(self.status())
         self.assertEqual([], self.evaluations())
-        # The fresh request takes the information again and schedules its one evaluation.
-        self.inform(view, "The temporary directory is valid")
-        review = self.status()["information_review"]
-        self.assertEqual((view["needs"]["resolver_request_id"], "pending"), (review["request_id"], review["status"]))
+
+    def test_old_unscheduled_information_never_creates_a_fresh_machinery_question(self):
+        cached = self.issue_checkpoint()
+        run, old = self.saved()
+        needs = cached["needs"]
+        event = {
+            "actor": "user_cli",
+            "request_id": needs["resolver_request_id"],
+            "request_token": needs["resolver_token"],
+            "action": "provide_information",
+            "text": "The environment was repaired",
+            "at": support.now(),
+        }
+        entry = old["resolver"]["human_escalations"][event["request_id"]]
+        entry.update(status="consumed", response=copy.deepcopy(event))
+        old["resolver"]["human_responses"] = [copy.deepcopy(event)]
+        old.update(status="PAUSED_RESOLVER_OPERATIONAL", pending_questions=[])
+        old.pop(runner.resolver_human.PUBLIC, None)
+        old.pop("user_request", None)
+        old["resolver"]["human_response_frontier"] = {
+            "binding": runner.resolver_human._binding(old),
+            "pause_status": old["status"],
+            "request_id": event["request_id"],
+        }
+        old["resolver"].pop("information_reviews", None)
+        runner.write_json(run / "state.json", old)
+        self.refuse_cached_information(cached, event["text"])
+        for flags in ((), ("--resume-paused",)):
+            code, launched, output = self.invoke(*flags)
+            self.assertEqual((2, False), (code, launched), output)
+            self.assert_blocked(self.status())
+        self.assertEqual([], self.evaluations())
 
     def assert_held_for_a_grant_once(self, checkpoint):
-        self.inform(checkpoint, "The provider was slow; it is healthy again")
-        code, launched, output = self.resume()
-        self.assertEqual((2, False), (code, launched), output)
-        view = self.status()
-        review = view["information_review"]
-        self.assertEqual(("held", "hold"), (review["status"], review["decision"]))
-        self.assertEqual(
-            ("resume", "--resume-paused --grant-recovery N"), (view["needs"]["kind"], view["needs"]["action"])
-        )
-        self.assertIn("--grant-recovery N", view["stop_reason"])
-        # Not repeated: the next resume restates the decision; nothing is evaluated or asked again.
-        code, launched, output = self.resume()
-        self.assertEqual((2, False), (code, launched), output)
-        self.assertIn(view["stop_reason"], output)
-        again = self.status()
-        self.assertEqual(
-            (view["stop_reason"], review, "resume"),
-            (again["stop_reason"], again["information_review"], again["needs"]["kind"]),
-        )
-        self.assertEqual(1, len(self.evaluations()))
-        # The control it names is accepted here and moves the run.
+        self.assert_blocked(checkpoint)
+        _, before = self.saved()
+        for _ in range(2):
+            code, launched, output = self.resume()
+            self.assertEqual((2, False), (code, launched), output)
+            self.assert_blocked(self.status())
+        _, after = self.saved()
+        for key in (
+            "automatic_recoveries_since_resume",
+            "automatic_timeout_recoveries",
+            "consecutive_timeout_recoveries",
+            "settings",
+        ):
+            self.assertEqual(before.get(key), after.get(key), key)
+        self.assertEqual([], self.evaluations())
+        # The existing explicit control still validates and grants exactly once;
+        # no machinery question or information review is needed for that proof.
         code, launched, output = self.resume("--grant-recovery", "1")
         self.assertNotIn("Input rejected", output)
         self.assertTrue(launched, output)
@@ -357,31 +388,36 @@ class OperationalInformationCLITests(unittest.TestCase):
             )
         )
 
-    def test_a_spent_allowance_behind_another_stop_names_the_grant_it_accepts(self):
-        # AutoResolver runs the admission guard itself and finds the spent automatic-recovery allowance.
-        self.assert_held_for_a_grant_once(self.issue_checkpoint(automatic_recoveries_since_resume=3))
+    def test_spent_allowance_cannot_make_machinery_information_answerable(self):
+        cached = self.issue_checkpoint(automatic_recoveries_since_resume=3)
+        _, before = self.saved()
+        self.refuse_cached_information(cached)
+        code, launched, output = self.resume()
+        self.assertEqual((2, False), (code, launched), output)
+        _, after = self.saved()
+        for key in (
+            "automatic_recoveries_since_resume",
+            "automatic_permission_recoveries",
+            "automatic_timeout_recoveries",
+            "settings",
+            "goal_contract",
+        ):
+            self.assertEqual(before.get(key), after.get(key), key)
+        self.assertFalse(after.get("recovery_grants"))
 
     def assert_spent_report_repair_held(self, status, reason):
-        view = self.checkpoint(status, reason, self.pending_repair(2))
+        cached = self.checkpoint(status, reason, self.pending_repair(2), legacy=True)
         self.env.pop("AUTOCODE_FIXTURE_QUOTA_STAGE")
         _, before = self.saved()
-        self.inform(view, "The workspace is fine now")
-        # A report that failed validation twice is not a cause outside the run: information cannot
-        # buy the fresh Builder attempt the spent repair allowance stopped.
+        self.refuse_cached_information(cached, "The workspace is fine now")
         for _ in range(2):
             code, launched, output = self.resume()
             self.assertEqual((2, False), (code, launched), output)
-            view = self.status()
-            self.assertEqual(
-                (status, "held", "resume"),
-                (view["status"], view["information_review"]["status"], view["needs"]["kind"]),
-            )
-            self.assertIn("report-only repairs for this attempt are spent", view["stop_reason"])
-            self.assertNotIn("continues", view["stop_reason"])
+            self.assert_blocked(self.status())
             _, after = self.saved()
-            for key in ("pending_report_repair", "report_repair_archive", "sessions"):
+            for key in ("pending_report_repair", "report_repair_archive", "sessions", "settings"):
                 self.assertEqual(before.get(key), after.get(key), key)
-        self.assertEqual(1, len(self.evaluations()))
+        self.assertEqual([], self.evaluations())
 
     def test_a_spent_report_repair_allowance_is_held_for_the_operator(self):
         self.assert_spent_report_repair_held(
@@ -414,29 +450,33 @@ class OperationalInformationCLITests(unittest.TestCase):
             state["settings"]["report_repair"] = {"max_attempts": 2}
             state["pending_report_repair"] = {"attempts": 2, "original": record}
 
-        view = self.checkpoint("PAUSED_REPEATED_FAILURE", "Repeated invalid source trace", failed_planning)
-        self.inform(view, "Retain the validated contract; correct only contradictory source trace metadata")
-        self.assertEqual((2, False), self.resume()[:2])
-        held = self.status()
-        self.assertEqual("held", held["information_review"]["status"])
-        self.assertEqual("--resume-paused", held["needs"]["action"])
+        cached = self.checkpoint(
+            "PAUSED_REPEATED_FAILURE", "Repeated invalid source trace", failed_planning, legacy=True
+        )
+        self.refuse_cached_information(
+            cached, "Retain the validated contract; correct only contradictory source trace metadata"
+        )
         _, before = self.saved()
-        client = object.__new__(ConformanceDriver)
-        client.project, client.run_dir = self.project, self.run
-        words, env, _ = client.named_command(held)
-        code, launched, output = self.invoke(*words, env=env)
+        self.assertEqual((2, False), self.resume()[:2])
+        self.assert_blocked(self.status())
+        _, held = self.saved()
+        self.assertEqual(before["pending_report_repair"], held["pending_report_repair"])
+        # One exact scoped retry first reconciles the recorded terminal repair,
+        # then obtains real retry authorization. A stale final plan token must
+        # still prevent dispatch and retirement of the retained incident.
+        code, launched, output = self.resume("--retry-failed-stage", "--expected-goal-token", "r0:stale")
         self.assertEqual((2, False), (code, launched), output)
-        after = self.status()
-        self.assertIn("Spent planning repair reconciled", output)
-        self.assertEqual("PAUSED_REPEATED_FAILURE", after["status"])
-        retry, _, _ = client.named_command(after)
-        self.assertIn("--retry-failed-stage", retry)
         _, saved = self.saved()
         self.assertEqual(before["pending_report_repair"], saved["report_repair_archive"][-1]["repair"])
         self.assertNotIn("pending_report_repair", saved)
-        for key in ("failure_history", "stages", "sessions", "settings", "planning", "failure_retry_authorizations"):
+        self.assertTrue(saved.get("failure_retry_authorizations"), "archival alone is not authorization")
+        for key in ("failure_history", "sessions", "settings", "planning"):
             self.assertEqual(before.get(key), saved.get(key), key)
-        self.assertEqual(1, len(self.evaluations()))
+        self.assertTrue(
+            all(row in saved["stages"] for row in before["stages"]), "all original observations are retained"
+        )
+        self.assert_blocked(self.status())
+        self.assertEqual([], self.evaluations())
 
     def test_a_spent_report_repair_behind_a_resolver_stop_is_held(self):
         # resolver_runtime.boundary publishes an exhausted report repair as PAUSED_RESOLVER.
@@ -484,30 +524,19 @@ class OperationalInformationCLITests(unittest.TestCase):
             ]
             state.update(next_stage="tester")
 
-        view = self.checkpoint("PAUSED_RESOLVER", "Validation-only rounds made no progress on F-1", stalled)
+        cached = self.checkpoint(
+            "PAUSED_RESOLVER", "Validation-only rounds made no progress on F-1", stalled, legacy=True
+        )
         self.env.pop("AUTOCODE_FIXTURE_QUOTA_STAGE")
         _, before = self.saved()
-        self.inform(view, "The Validator environment is fixed")
-        # The rounds limit is the run's own bound: information closes no finding, so it is held.
+        self.refuse_cached_information(cached, "The Validator environment is fixed")
         code, launched, output = self.resume()
         self.assertEqual((2, False), (code, launched), output)
-        view = self.status()
-        self.assertEqual(("PAUSED_RESOLVER", "held"), (view["status"], view["information_review"]["status"]))
-        self.assertIn("validation-only rounds at source", view["stop_reason"])
-        self.assertIn("--close-finding", view["stop_reason"])
-        self.assertNotIn("continues", view["stop_reason"])
+        self.assert_blocked(self.status())
         _, after = self.saved()
-        self.assertEqual(before["validation_only_rounds"], after["validation_only_rounds"])
-        # Closing the finding changes the cause: the run asks again, and information sent then continues.
-        self.assertEqual(0, self.invoke("--close-finding", "F-1", "--close-reason", "Duplicate of a settled one")[0])
-        code, launched, output = self.resume()
-        self.assertEqual((2, False), (code, launched), output)
-        asked = self.status()
-        self.assertEqual("answer", asked["needs"]["kind"], asked["needs"])
-        self.inform(asked, "F-1 was a duplicate")
-        code, launched, output = self.resume()
-        self.assertTrue(launched, output)
-        self.assertEqual("admitted", self.status()["information_review"]["status"])
+        for key in ("validation_only_rounds", "findings_ledger", "settings", "goal_contract"):
+            self.assertEqual(before.get(key), after.get(key), key)
+        self.assertEqual([], self.evaluations())
 
     def test_a_held_content_filter_stop_names_a_model_change(self):
         # The content filter refused the Tester's model; it would likely refuse again (#464/#465).
@@ -537,103 +566,69 @@ class OperationalInformationCLITests(unittest.TestCase):
         self.assertIn("Tester: started; model=gpt-6-luna", output)
         self.assertNotIn("Tester: started; model=gpt-5.6-sol", output)
 
-    def test_an_explicit_control_leaves_pending_information_unevaluated(self):
-        self.inform(
-            self.checkpoint(
-                "PAUSED_TIMEOUT_RECOVERY",
-                "Automatic recovery budget exhausted; no further provider will launch.",
-                automatic_recoveries_since_resume=3,
-                consecutive_timeout_recoveries=3,
-                automatic_timeout_recoveries=[
-                    {"stage": "builder", "timeout_reason": "idle watchdog"} for _ in range(3)
-                ],
-            ),
-            "The provider was slow; it is healthy again",
+    def test_an_explicit_control_needs_no_machinery_information_review(self):
+        checkpoint = self.checkpoint(
+            "PAUSED_TIMEOUT_RECOVERY",
+            "Automatic recovery budget exhausted; no further provider will launch.",
+            automatic_recoveries_since_resume=3,
+            consecutive_timeout_recoveries=3,
+            automatic_timeout_recoveries=[{"stage": "builder", "timeout_reason": "idle watchdog"} for _ in range(3)],
         )
+        self.assert_blocked(checkpoint)
         self.env.pop("AUTOCODE_FIXTURE_QUOTA_STAGE")
         code, launched, output = self.resume("--grant-recovery", "1")
         self.assertTrue(launched, output)
         self.assertEqual("TASK_COMPLETE", self.status()["status"], output)
         self.assertEqual([], self.evaluations())
-        # The finished run is reported as finished; the unused information neither holds nor runs it.
         for args in ((), ("--resume-paused",)):
             code, launched, output = self.invoke(*args)
             self.assertEqual((0, False), (code, launched), output)
             self.assertNotIn("re-evaluate", output)
+        self.assertIsNone(self.status()["information_review"])
         self.assertEqual([], self.evaluations())
-        # The view does not call it pending: no resume will ever evaluate it.
-        review = self.status()["information_review"]
-        self.assertEqual(("superseded", None), (review["status"], review["action"]))
 
-    def test_an_admitted_decision_continues_through_the_guarded_admission_path(self):
+    def test_old_information_never_bypasses_normal_admission_guards(self):
         def earlier_incident(state):
             state.setdefault("resolver", {})["attempts"] = {"earlier-incident": 3}
 
-        self.inform(
-            self.issue_checkpoint(earlier_incident), "The workspace temporary directory and interpreter are valid"
-        )
-        _, answered = self.saved()
-        # AutoResolver admits a continuation, but the normal admission checks still run before a
-        # launch: a changed local transport stops it with no provider call.
+        cached = self.issue_checkpoint(earlier_incident)
+        self.refuse_cached_information(cached)
+        _, before = self.saved()
         code, launched, output = self.resume(env={"OPENAI_BASE_URL": "https://example.invalid"})
         self.assertEqual((2, False), (code, launched), output)
-        self.assertIn("continues through the normal admission checks", output)
-        view = self.status()
-        self.assertEqual("PAUSED_TRANSPORT_CHANGED", view["status"])
-        self.assertEqual(
-            ("admitted", "continue"), (view["information_review"]["status"], view["information_review"]["decision"])
-        )
-        # Admitting information renewed no allowance: the per-incident AutoResolver attempts an
-        # operator's own resume would clear still stand.
-        _, admitted = self.saved()
-        self.assertEqual({"earlier-incident": 3}, admitted["resolver"]["attempts"])
-        self.assertFalse(
-            [
-                event
-                for event in admitted.get("user_events", [])
-                if event.get("kind") in ("resolver_resume_epoch", "report_repair_resume_epoch")
-            ]
-        )
-        # With the transport restored the run continues on that one decision, never evaluated again.
-        self.env.pop("AUTOCODE_FIXTURE_QUOTA_STAGE")
+        self.assert_blocked(self.status())
         code, launched, output = self.resume()
-        self.assertTrue(launched, output)
-        _, resumed = self.saved()
-        ran = [row["stage"] for row in resumed["stages"][len(answered["stages"]) :] if not row.get("runner_owned")]
-        self.assertEqual("tester", ran[0], ran)
-        self.assertEqual(1, len(self.evaluations()))
-        # Information granted nothing: recovery history, counts, limits and approval are those of the stop.
+        self.assertEqual((2, False), (code, launched), output)
+        _, after = self.saved()
+        self.assertEqual({"earlier-incident": 3}, after["resolver"]["attempts"])
         for key in (
             "automatic_permission_recoveries",
             "automatic_timeout_recoveries",
             "automatic_recoveries_since_resume",
             "goal_contract",
         ):
-            self.assertEqual(answered.get(key), resumed.get(key), key)
-        self.assertEqual(answered["settings"]["limits"], resumed["settings"]["limits"])
-        self.assertFalse(resumed.get("recovery_grants"))
+            self.assertEqual(before.get(key), after.get(key), key)
+        self.assertEqual(before["settings"]["limits"], after["settings"]["limits"])
+        self.assertEqual([], self.evaluations())
 
-    def test_an_admitted_continuation_renews_no_report_repair_allowance(self):
-        # One of the two report-only repairs is used. Information admits the continuation but never
-        # renews that allowance; the operator's own resume at other pauses does.
-        self.inform(
-            self.issue_checkpoint(self.pending_repair(1)), "The workspace temporary directory and interpreter are valid"
-        )
-        code, launched, output = self.resume(env={"OPENAI_BASE_URL": "https://example.invalid"})
+    def test_refused_information_preserves_report_repair_allowance(self):
+        cached = self.issue_checkpoint(self.pending_repair(1))
+        _, before = self.saved()
+        self.refuse_cached_information(cached)
+        code, launched, output = self.resume()
         self.assertEqual((2, False), (code, launched), output)
-        view = self.status()
-        self.assertEqual(
-            ("PAUSED_TRANSPORT_CHANGED", "admitted"), (view["status"], view["information_review"]["status"])
-        )
-        _, admitted = self.saved()
-        self.assertEqual(1, admitted["pending_report_repair"]["attempts"])
+        _, after = self.saved()
+        self.assertEqual(1, after["pending_report_repair"]["attempts"])
+        for key in ("pending_report_repair", "report_repair_archive", "sessions", "settings"):
+            self.assertEqual(before.get(key), after.get(key), key)
         self.assertFalse(
             [
                 event
-                for event in admitted.get("user_events", [])
+                for event in after.get("user_events", [])
                 if event.get("kind") in ("resolver_resume_epoch", "report_repair_resume_epoch")
             ]
         )
+        self.assertEqual([], self.evaluations())
 
 
 if __name__ == "__main__":

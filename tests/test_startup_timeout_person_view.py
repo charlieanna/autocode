@@ -12,18 +12,20 @@ from pathlib import Path
 from unittest.mock import patch
 
 import autocode as runner
+import autocode_operational_disposition as disposition
 import autocode_resolver_human as human
 import autocode_run_view as run_view
 import autocode_support as support
 
 from . import test_resolver_human as fixture
+from .operational_fixtures import legacy_publication
 
 
 class StartupTimeoutPersonViewTests(unittest.TestCase):
     setUp = fixture.ResolverHumanTests.setUp
     contract = fixture.ResolverHumanTests.contract
 
-    def exhausted(self, *, stall="before_first_event", pause="PAUSED_TIMEOUT_RECOVERY"):
+    def exhausted(self, *, stall="before_first_event", pause="PAUSED_TIMEOUT_RECOVERY", legacy=False):
         self.state.update(
             sessions={},
             status=pause,
@@ -37,11 +39,18 @@ class StartupTimeoutPersonViewTests(unittest.TestCase):
         )
         run = Path(self.state["run_dir"])
         error = support.Paused(pause, "Provider startup did not respond after bounded attempts")
-        self.assertTrue(runner.resolver_runtime.record_operational_exhaustion(runner, self.state, run, error))
+        if legacy:
+            legacy_publication(self.state, run, pause=pause)
+        else:
+            self.assertTrue(runner.resolver_runtime.record_operational_exhaustion(runner, self.state, run, error))
         with contextlib.redirect_stderr(io.StringIO()):
-            runner.write_json(run / "state.json", self.state)
+            if legacy:
+                # Retain the authentic old publisher's bytes. Today's writer
+                # intentionally withdraws this obsolete machinery publication.
+                support.atomic_json(run / "state.json", self.state)
+            else:
+                runner.write_json(run / "state.json", self.state)
         saved = support.read(run / "state.json")
-        self.assertIsNotNone(human.current(saved))
         return saved, run
 
     def test_exhausted_startup_reports_blocked_without_a_machinery_question(self):
@@ -106,7 +115,7 @@ class StartupTimeoutPersonViewTests(unittest.TestCase):
         self.assertIsNone(view["next_command"])
 
     def test_a_stale_but_authenticated_request_is_still_reported_without_asking(self):
-        saved, run = self.exhausted()
+        saved, run = self.exhausted(legacy=True)
         saved["active_seconds"] += 1
         self.assertIsNone(human.current(saved))
         self.assertIsNotNone(human.retained(saved))
@@ -119,17 +128,26 @@ class StartupTimeoutPersonViewTests(unittest.TestCase):
 
         saved, _ = self.exhausted()
         self.assertIsNotNone(startup_view.presentation(saved))
-        saved[human.PUBLIC]["request"]["discovered"] = "tampered"
+        original = disposition.held(saved)["receipt"]["id"]
+        saved["resolver"]["operational_receipts"][original]["receipt"]["evidence"]["status"] = "tampered"
         self.assertIsNone(startup_view.presentation(saved))
+        view = run_view.view(saved)
+        self.assertEqual("blocked", view["recovery"]["category"])
+        self.assertIsNone(view["needs"])
+        self.assertIsNone(view["next_command"])
 
     def test_altered_timeout_history_cannot_be_classified_by_an_old_receipt(self):
         import autocode_startup_timeout_view as startup_view
 
-        saved, _ = self.exhausted(stall="during_reasoning_or_output")
+        saved, _ = self.exhausted(stall="during_reasoning_or_output", legacy=True)
         for row in saved["automatic_timeout_recoveries"]:
             row["stall_phase"] = "before_first_event"
         self.assertIsNotNone(human.retained(saved), "the old receipt remains readable")
         self.assertIsNone(startup_view.presentation(saved), "unbound state cannot classify the old stop")
+        view = run_view.view(saved)
+        self.assertEqual("blocked", view["recovery"]["category"])
+        self.assertIsNone(view["needs"])
+        self.assertIsNone(view["next_command"])
 
     def test_other_operational_stops_and_explicit_time_limits_keep_their_existing_actions(self):
         for stall, pause in (
@@ -141,8 +159,13 @@ class StartupTimeoutPersonViewTests(unittest.TestCase):
                 self.setUp()
                 saved, run = self.exhausted(stall=stall, pause=pause)
                 view = run_view.view(saved, run_dir=run, workspace=Path(saved["workspace"]))
-                self.assertEqual("answer", view["needs"]["kind"])
-                self.assertIsNotNone(view["next_command"])
+                if pause == "PAUSED_TIME_LIMIT":  # This fixture retains its unknown saved bound origin.
+                    self.assertEqual("answer", view["needs"]["kind"])
+                    self.assertIsNotNone(view["next_command"])
+                else:
+                    self.assertIsNone(view["needs"])
+                    self.assertIsNone(view["next_command"])
+                    self.assertEqual("blocked", view["recovery"]["category"])
 
 
 if __name__ == "__main__":

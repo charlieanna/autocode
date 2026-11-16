@@ -213,8 +213,41 @@ def slug(task: str) -> str:
     return (value or "task")[:48]
 
 
+def _canonical_json(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+
+
 def digest(value):
-    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    return hashlib.sha256(_canonical_json(value)).hexdigest()
+
+
+def digest_prefixes(values, *, observe_value=None):
+    """Canonical list-prefix digests in order, serializing each value once."""
+    if not isinstance(values, list):
+        return
+    stream = hashlib.sha256(b"[")
+    for index in range(len(values) + 1):
+        candidate = stream.copy()
+        candidate.update(b"]")
+        yield index, candidate.hexdigest()
+        if index < len(values):
+            if index:
+                stream.update(b",")
+            encoded = _canonical_json(values[index])
+            if observe_value is not None:
+                observe_value(index, encoded)
+            stream.update(encoded)
+
+
+def digest_prefix_length(values, expected):
+    """Longest exact canonical-list prefix, serializing each value only once."""
+    if not isinstance(values, list) or not isinstance(expected, str):
+        return None
+    matched = None
+    for index, digest in digest_prefixes(values):
+        if digest == expected:
+            matched = index
+    return matched
 
 
 # Token shapes that must never leave the run directory in an export (#712).
