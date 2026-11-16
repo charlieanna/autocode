@@ -240,14 +240,13 @@ class QuestionsPauseChatTests(CliFixture):
         )
 
     def test_overlap_offered_choice_exact_and_whitespace_answers(self):
-        # The keep decision compares the literal typed reply before canonicalization: the exact
-        # offered default keeps the one background call, whitespace-different input discards it
-        # and the ordinary pass saves the accepted canonical value; /default explicitly selects
-        # the offered default and may adopt.
-        for typed, keeps in (
-            (fixture.QUESTION_DEFAULT, True),
-            (" " + fixture.QUESTION_DEFAULT + " ", False),
-            ("/default", True),
+        # Canonicalized answers match the offered default (#3651): surrounding whitespace and /default
+        # keep the background call, while case-distinct free text on an optionless question discards it.
+        for typed, expected_saved, keeps in (
+            (fixture.QUESTION_DEFAULT, fixture.QUESTION_DEFAULT, True),
+            (" " + fixture.QUESTION_DEFAULT + " ", fixture.QUESTION_DEFAULT, True),
+            (fixture.QUESTION_DEFAULT.lower(), fixture.QUESTION_DEFAULT.lower(), False),
+            ("/default", fixture.QUESTION_DEFAULT, True),
         ):
             with self.subTest(typed=typed):
                 self.setUp()
@@ -263,7 +262,7 @@ class QuestionsPauseChatTests(CliFixture):
                         self.state()["requirements_handoff"]["report"]["summary"],
                     )
                 else:
-                    self.assertEqual({fixture.QUESTION_ID: fixture.QUESTION_DEFAULT}, calls[-1]["saved"])
+                    self.assertEqual({fixture.QUESTION_ID: expected_saved}, calls[-1]["saved"])
                     self.assertIn(fixture.QUESTION_ID, calls[-1]["answered"])
                 self.assertEqual(
                     "kept" if keeps else "discarded",
@@ -850,6 +849,49 @@ class OverlapUnitTests(unittest.TestCase):
             queue=mock.Mock(),
         )
 
+    def test_canonical_answer_matching_and_digest_normalize_options_and_whitespace(self):
+        import autocode_requirements_overlap as overlap
+
+        question = {
+            "id": "Q1",
+            "question": "How should callers invoke it?",
+            "why": "Selects the public surface.",
+            "options": ["Command line", "A web’s endpoint"],
+            "proposed_default": "  `command   line`  ",
+        }
+        self.assertEqual({"Q1": "Command line"}, overlap.assumed_defaults([question]))
+        expected_digest = overlap.answers_digest({"Q1": "Command line"}, questions=[question])
+        for variant in ("Command line", "command line", "COMMAND LINE", "  'Command   line'  ", "`Command line`"):
+            with self.subTest(variant=variant):
+                matched, reason = overlap.answers_match([question], {"Q1": {"text": variant, "question": question}})
+                self.assertTrue(matched, reason)
+                self.assertEqual(
+                    expected_digest,
+                    overlap.answers_digest({"Q1": {"text": variant, "question": question}}),
+                )
+                state = self.state(
+                    answers={"Q1": {"text": variant, "question": question}},
+                    report=self.report(open_questions=[question]),
+                )
+                handoff.accept(
+                    state,
+                    self.report(assumed_answers_digest=expected_digest),
+                    {"output": None},
+                    check_code_refs=mock.Mock(),
+                    queue=mock.Mock(),
+                )
+        matched, _ = overlap.answers_match([question], {"Q1": {"text": "a web's endpoint", "question": question}})
+        self.assertFalse(matched)
+        free_text = {
+            "id": "Q2",
+            "question": "What prefix should log lines use?",
+            "why": "Shown to operators.",
+            "options": [],
+            "proposed_default": "AutoCode",
+        }
+        self.assertTrue(overlap.answers_match([free_text], {"Q2": "  AutoCode  "})[0])
+        self.assertFalse(overlap.answers_match([free_text], {"Q2": "autocode"})[0])
+
     def test_ac12_defaultless_question_keeps_today_behavior(self):
         questions = [self.question("Q_A", "Command line"), self.question("Q_B", "")]
         state = self.state(report=self.report(open_questions=list(questions)))
@@ -1427,28 +1469,33 @@ class FastProofTests(unittest.TestCase):
         self.assertEqual("kept", (state.get("requirements_overlap") or {}).get("status"))
         self.assertEqual(1, len(self.speculative(state)))
         self.assertEqual("kept", self.speculative(state)[0]["outcome"])
-        for typed, keeps in (
-            (self.DEFAULT, True),
-            (self.DEFAULT.lower(), False),
-            (" " + self.DEFAULT + " ", False),
-            ("/default", True),
+        for options, default, typed, expected_saved, keeps in (
+            ((self.DEFAULT, self.DIFFERENT), self.DEFAULT, self.DEFAULT, self.DEFAULT, True),
+            ((self.DEFAULT, self.DIFFERENT), self.DEFAULT, self.DEFAULT.lower(), self.DEFAULT, True),
+            ((self.DEFAULT, self.DIFFERENT), self.DEFAULT, " " + self.DEFAULT + " ", self.DEFAULT, True),
+            ((self.DEFAULT, self.DIFFERENT), self.DEFAULT, f"`{self.DEFAULT}`", self.DEFAULT, True),
+            ((self.DEFAULT, self.DIFFERENT), self.DEFAULT.lower(), self.DEFAULT, self.DEFAULT, True),
+            ((self.DEFAULT, self.DIFFERENT), self.DEFAULT.lower(), "/default", self.DEFAULT.lower(), True),
+            ((self.DEFAULT, self.DIFFERENT), self.DEFAULT, "/default", self.DEFAULT, True),
+            ((self.DEFAULT, self.DIFFERENT), self.DEFAULT, self.DIFFERENT.lower(), self.DIFFERENT, False),
+            ((), self.DEFAULT, self.DEFAULT.lower(), self.DEFAULT.lower(), False),
         ):
-            with self.subTest(offered_choice=typed):
+            with self.subTest(options=options, default=default, offered_choice=typed):
                 self.setUp()
-                question = self.question(options=(self.DEFAULT, self.DIFFERENT))
+                question = self.question(default=default, options=options)
                 state = self.paused(questions=[question])
                 outcome = self.chat(state, typed + "\n")
                 self.assertEqual(1, len(outcome.dispatch.calls), "the background call dispatched before the answer")
                 if keeps:
-                    self.assertEqual(1, len(outcome.commit), "the exact offered default keeps the background report")
+                    self.assertEqual(1, len(outcome.commit), "canonicalized default choice keeps the background report")
                     self.assertEqual("kept", state["requirements_overlap"]["status"])
                 else:
-                    self.assertEqual([], outcome.commit, "a case-only or whitespace difference never adopts the report")
+                    self.assertEqual([], outcome.commit, "a different choice or case-distinct free text discards it")
                     self.assertEqual("discarded", state["requirements_overlap"]["status"])
                     self.assertEqual(
-                        self.DEFAULT,
+                        expected_saved,
                         self.saved_answers(state)[question["id"]],
-                        "the accepted answer keeps its canonical offered choice",
+                        "the accepted answer keeps its canonical value",
                     )
                     self.assertEqual(
                         "requirements_gather", state["next_stage"], "the ordinary pass runs after the answer"
