@@ -13,6 +13,7 @@ import autocode as runner
 import autocode_action_recovery as actions
 import autocode_checkpoint_reconciliation as reconciliation
 import autocode_interrupted_review_recovery as recovery
+import autocode_launch_binding as launch_binding
 import autocode_recovery_history as history
 import autocode_run_view as run_view
 import autocode_source_scope as source_scope
@@ -143,6 +144,28 @@ class InterruptedReviewTests(unittest.TestCase):
         self.reconcile()
         self.assertEqual("tester", self.state["next_stage"])
         self.assertNotIn("validation", self.state)
+
+    def test_unreadable_or_incomplete_source_receipt_never_authorizes_recovery(self):
+        path = Path(self.record["before_ref"])
+        before = copy.deepcopy(self.state)
+        for contents in (None, "not JSON", '{"files": {}}', "null"):
+            with self.subTest(contents=contents):
+                if contents is None:
+                    path.unlink()
+                else:
+                    path.write_text(contents)
+                self.assertIsNone(recovery.proof(self.state, self.workspace, self.fresh))
+                self.assertEqual(before, self.state)
+
+    def test_legacy_binding_never_invents_identity_from_missing_or_corrupt_snapshot(self):
+        path = self.run / "legacy.before.json"
+        for contents in (None, "not JSON", "null", '{"files": {}}'):
+            with self.subTest(contents=contents):
+                if contents is not None:
+                    path.write_text(contents)
+                record = {"before_ref": str(path)}
+                self.assertIsNone(launch_binding.preserved_launch_binding(record))
+                self.assertEqual({"before_ref": str(path)}, record)
 
     def test_decision_is_independent_of_provider_and_review_role(self):
         for stage, planning in (
