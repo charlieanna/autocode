@@ -2144,7 +2144,7 @@
 
 
 <h1 id="models-roles-and-escalation">Models, roles, and escalation<a class="headerlink" href="#models-roles-and-escalation" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/b59cfa68019039f5da4024b8b94136a0f75bab02/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/1f0a680537bf6c72a4cd8a61e8f277a48d9ef0a8/README.md">← Back to README</a></p>
 <h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
 <p>Every stage of a run has a <strong>role</strong>. Role names describe responsibilities, not
 mandatory models — each role can select any provider/model from <code>opencode models</code>
@@ -2291,12 +2291,16 @@ struggle's, though: a climb a later climb replaced takes the struggle's end too 
 its row reads <code>failed_again</code>, and so does an ordinary retry, which has no row. Before
 the struggle ends the stamp is <code>open</code> while the row may already read <code>passed</code>;
 completing the run or accepting completion via <code>--accept-completion</code> stamps open entries <code>passed</code>.
-The default GLM Builder, any GLM Tester or Completion Reviewer, and the Plan Reviewer
-are on no ladder: they keep their configured route, and a verifier that keeps
-struggling pauses the run instead. The Builder instead gets its
-<a href="#builder-retry-policy">retry policy</a>'s one stronger attempt. If you configure the
-Builder on <code>openai/gpt-6-sol</code> (with GLM checkers), it climbs Sol Medium → High → XHigh
-→ Max. No role other than the Resolver escalates onto GPT-6 Astra.</p>
+The default OpenAI static ladders cover <code>openai/gpt-6-sol</code> and <code>openai/gpt-6-astra</code>; for any
+other <code>runner_default</code>, <code>auto_selected</code>, or <code>stage_choice</code> route whose backend declares reasoning
+variants (<code>declared_variants</code> or <code>certified_variants</code>), <code>autocode_route_ladder</code> climbs one offered
+level along <code>low → medium → high → xhigh → max</code> on the same model before pausing or switching
+routes (#3669). Likewise, a saved <code>stage_choice</code> Builder effort acts as a ceiling
+(<code>autocode_light_builder</code>): bounded leaf tasks (<code>1..4</code> non-sensitive files, including parallel
+milestone workers) start one offered level below ceiling, Attempt 2 restores the ceiling, and
+Attempt 3+ or hard tasks (<code>6+</code> files or <code>sensitive-paths</code>) climb one offered level above ceiling,
+followed by the <a href="#builder-retry-policy">retry policy</a>'s cross-model stronger attempt when configured.
+No role other than the Resolver escalates onto GPT-6 Astra.</p>
 <p>The Planner has one stronger attempt of its own (<code>autocode_planner_escalation</code>, owner
 decision 2026-10-23). In an adaptive run, when the Plan Reviewer's second challenge in a
 planning cycle still has a blocking concern about the revised plan, the next revision runs
@@ -2312,7 +2316,7 @@ review allowance leaves room for it (a large plan, <code>plan_review_call_limit<
 final review and the Planner never climbs. If the stronger revision is still blocked, the
 final review returns the open concerns to you as blocking questions.</p>
 <p>Two scripted scenarios check these rows end to end, through <code>autocode --status --json</code>
-(<a href="https://github.com/charlieanna/autocode/blob/b59cfa68019039f5da4024b8b94136a0f75bab02/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
+(<a href="https://github.com/charlieanna/autocode/blob/1f0a680537bf6c72a4cd8a61e8f277a48d9ef0a8/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
 attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
 Sol XHigh, one attempt with its cost, <code>passed</code>, and the run completes; <code>escalation_outcomes</code>
 stamps that attempt and the ordinary retry before it <code>passed</code> too. In <code>escalation-ladder-end</code>
