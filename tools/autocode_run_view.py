@@ -73,6 +73,7 @@ try:
     from . import autocode_plan_file as plan_file
     from . import autocode_plan_file_origin as plan_file_origin
     from . import autocode_plan_retention as plan_retention
+    from . import autocode_plan_review_view as plan_review_view
     from . import autocode_planning_calls as planning_calls
     from . import autocode_planning_review_usage as review_usage
     from . import autocode_progressive_plan as progressive_rules
@@ -142,6 +143,7 @@ except ImportError:
     import autocode_plan_file as plan_file
     import autocode_plan_file_origin as plan_file_origin
     import autocode_plan_retention as plan_retention
+    import autocode_plan_review_view as plan_review_view
     import autocode_planning_calls as planning_calls
     import autocode_planning_review_usage as review_usage
     import autocode_progressive_plan as progressive_rules
@@ -432,6 +434,9 @@ def view(
         # How much planning the run chose and why (autocode_adaptive_planning.view, #697): whether recognition
         # skipped Requirements as clear, the plan's size, the review allowance and an early approval.
         "planning_depth": adaptive_planning.view(state),
+        # The Plan Reviewer's latest accepted verdict, its blocking concern ids and its concerns
+        # (autocode_plan_review_view); null before a review. Display only.
+        "plan_review": plan_review_view.project(state),
         # Which planning path a bug-fix run took and why (autocode_stage_policy.view, #2021): the compact path's
         # omitted Planner draft and what covers it, or the full path's reasons; null when the run never decided.
         "stage_policy": stage_policy.view(state),
