@@ -210,15 +210,14 @@ def next_steps(record: dict, view: dict) -> list[str]:
     where = f"--workspace {record['worktree']} --run-dir {record['run_dir']}"
     ref = f"{record['owner']}/{record['repo']}#{record['number']}"
     if view.get("done"):
-        # A finished run has no needs record at all: run_view.needs() returns None when
-        # complete, so this must be decided before the guard below or every completed
-        # run raises "Incomplete run view has no needs record".
         return [
             "The run is complete.",
             f"  Commit and write the PR body:  autocode issue pr {ref}",
             f"  Then push and open a draft PR: autocode issue pr {ref} --open",
         ]
     need = view.get("needs")
+    if "needs" in view and need is None:
+        return [view.get("stop_reason") or "AutoCode names no action for this run."]
     if not isinstance(need, dict):
         raise ValueError("Incomplete run view has no needs record")
     kind = need["kind"]
@@ -410,7 +409,7 @@ def cmd_continue(args) -> int:
     record = load(project, _ref(args, project))
     run = task_run(record)
     view = run.status()
-    if not view["done"] and view["needs"]["kind"] == "continue":
+    if not view["done"] and (view["needs"] or {}).get("kind") == "continue":
         view = run.advance_until_input()
     sys.stdout.write(report(record, converse(args, record, view)))
     return 0
@@ -441,7 +440,7 @@ def cmd_plan(args) -> int:
     ref = f"{record['owner']}/{record['repo']}#{record['number']}"
     run = task_run(record)
     view = run.status()
-    if view["done"] or view["needs"]["kind"] != "approve_plan":
+    if view["done"] or (view["needs"] or {}).get("kind") != "approve_plan":
         raise IssueError(
             f"the run is not waiting for its plan to be approved (status {view['status']}); a plan pull request "
             "is for the plan AutoCode shows for approval.\n" + "\n".join(next_steps(record, view))

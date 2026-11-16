@@ -450,11 +450,14 @@ class MultiComponentBuild:
     def _drive(self, run: TaskRun, auto_approve: bool) -> dict:
         view = run.status()
         while not view["done"]:
-            kind = view["needs"]["kind"]
+            need = view["needs"]
+            if need is None:
+                break
+            kind = need["kind"]
             if kind == "continue":
                 view = run.advance_until_input(self.max_advances)
             elif auto_approve and kind != "resume":
-                view = _serve(run, view["needs"])
+                view = _serve(run, need)
             else:
                 break
         return view

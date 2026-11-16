@@ -34,6 +34,15 @@ CORE_CONSUMERS = (
     "tests.test_inprocess_cli",
 )
 PUBLIC_FLOW_CONSUMERS = ("tests.test_launch_state_cli", "tests.test_completion_status")
+ACTIONLESS_CONSUMERS = (
+    "tests.test_actionless_consumers",
+    "tests.test_issue",
+    "tests.test_multicomponent",
+    "tests.test_demo",
+    "tests.test_conformance_actionless",
+    "tests.test_taskrun_no_action",
+    "tests.test_taskrun_recovery",
+)
 OPERATIONAL_CONSUMERS = (
     "tests.test_operational_disposition",
     "tests.test_operational_exhaustion_public_contract",
@@ -524,6 +533,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "scenarios/harness/conformance.py",
         ("tests.test_planning_allowance_cli", "tests.test_conformance_actionless"),
     ),
+    ("scenarios/harness/driver.py", ACTIONLESS_CONSUMERS),
     (
         "scenarios/harness/fake_codex.py",
         (
@@ -698,6 +708,14 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # that previously broke master would remain. These are fake-provider consumers,
 # never a request to qualify against live models.
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (
+        (
+            "tools/autocode_issue.py",
+            "tools/autocode_multicomponent.py",
+            "tools/autocode_demo.py",
+        ),
+        ACTIONLESS_CONSUMERS,
+    ),
     # Saved operational facts have public/recovery consumers beyond their import graph.
     (
         (
