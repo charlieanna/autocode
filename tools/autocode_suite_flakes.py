@@ -37,17 +37,23 @@ verify's own tree and suite helpers, and imports nothing from it.
 
 from __future__ import annotations
 
+import contextlib
+import subprocess
 from pathlib import Path
 
 try:
     from . import autocode_command_receipt as command_receipt
+    from . import autocode_project_suite_health as project_suite_health
     from . import autocode_proof_stability as proof_stability
     from . import autocode_test_cases as test_cases
+    from . import autocode_util as util
     from . import autocode_verification_schedule as schedule
 except ImportError:
     import autocode_command_receipt as command_receipt
+    import autocode_project_suite_health as project_suite_health
     import autocode_proof_stability as proof_stability
     import autocode_test_cases as test_cases
+    import autocode_util as util
     import autocode_verification_schedule as schedule
 
 RERUNS = proof_stability.REPEATS - 1
@@ -113,12 +119,16 @@ def _verdict(candidate, base) -> str:
     return "quarantined" if "fail" in base[1:] else "regression"
 
 
-def recheck(framework_name, command, tests, run, *, directory=None) -> dict | None:
+def recheck(framework_name, command, tests, run, *, directory=None, quarantined_entries=None) -> dict | None:
     """Rerun ``tests`` and decide each one; None when there is nothing to recheck.
 
     ``run(command, side, label)`` runs the narrowed command in the ``candidate`` or ``base`` tree and
     returns its receipt. The record lists every suspect's runs on each side (the first entry is the
     judged suite run) and which were quarantined.
+
+    When ``quarantined_entries`` supplies valid prior base+candidate flake evidence for a suspect
+    that still passes on a candidate rerun without missing results, the candidate check still runs
+    and deterministic failures still remain regressions, while redundant ``base`` reruns are skipped.
     """
     tests = list(tests)
     if not tests:
@@ -135,16 +145,49 @@ def recheck(framework_name, command, tests, run, *, directory=None) -> dict | No
     candidate_runs = [run(narrowed, "candidate", f"flake-candidate-{index}") for index in range(2, RERUNS + 2)]
     outcomes = {test: ["fail", *(proof_stability.outcome_of(r, test) for r in candidate_runs)] for test in tests}
     again = [test for test in tests if "pass" in outcomes[test][1:]]
+    known_map = quarantined_entries if isinstance(quarantined_entries, dict) else {}
+    known = {
+        test: known_map[test]
+        for test in again
+        if test in known_map and "missing" not in outcomes[test] and "fail" in (known_map[test].get("base_runs") or [])
+    }
+    need_base = [test for test in again if test not in known]
     base_runs = []
-    if again:
-        retry = proof_stability.narrow(framework_name, command, again, directory=directory) or narrowed
+    if need_base:
+        retry = proof_stability.narrow(framework_name, command, need_base, directory=directory) or narrowed
         base_runs = [run(retry, "base", f"flake-base-{index}") for index in range(2, RERUNS + 2)]
-    rows = []
+    rows, q_rows = [], []
     for test in tests:
-        base = ["pass", *(proof_stability.outcome_of(r, test) for r in base_runs)] if test in again else ["pass"]
+        if test in known:
+            entry = known[test]
+            base = list(entry["base_runs"])
+            verdict = _verdict(outcomes[test], base)
+            origin = str(entry.get("base_commit") or "")
+            row: dict = {
+                "test": test,
+                "candidate": outcomes[test],
+                "base": base,
+                "verdict": verdict,
+            }
+            if verdict == "quarantined":
+                row["source"] = "project_quarantine"
+                row["origin_base"] = origin
+                q_rows.append(
+                    {
+                        "test": test,
+                        "reason": str(entry.get("reason") or QUARANTINE_REASON),
+                        "source": "project_quarantine",
+                        "origin_base": origin,
+                    }
+                )
+            rows.append(row)
+            continue
+        base = ["pass", *(proof_stability.outcome_of(r, test) for r in base_runs)] if test in need_base else ["pass"]
         verdict = _verdict(outcomes[test], base)
         rows.append({"test": test, "candidate": outcomes[test], "base": base, "verdict": verdict})
-    return record(tests, rows, command=narrowed)
+        if verdict == "quarantined":
+            q_rows.append({"test": test, "reason": QUARANTINE_REASON})
+    return record(tests, rows, command=narrowed, quarantined_rows=q_rows)
 
 
 def _pre_existing_verdict(base, candidate) -> str:
@@ -155,43 +198,82 @@ def _pre_existing_verdict(base, candidate) -> str:
     return "flaky" if "pass" in candidate[1:] else "regression"
 
 
-def recheck_pre_existing(framework_name, command, tests, run, *, directory=None) -> dict | None:
+def recheck_pre_existing(framework_name, command, tests, run, *, directory=None, confirmed_entries=None) -> dict | None:
     """Rerun failures shared with the original code's suite run; None when there are none.
 
     ``run`` is ``recheck``'s. The original code runs first; only a test that passed there runs on the
-    candidate. Each row's first entry on each side is the judged suite run.
+    candidate. Each row's first entry on each side is the judged suite run. Tests already confirmed
+    deterministically failing every run on the same base commit (``confirmed_entries``) stay
+    pre-existing without repeating base reruns.
     """
     tests = list(tests)
     if not tests:
         return None
-    if len(tests) > MAX_SUSPECTS:
-        return pre_existing_record(
-            tests,
-            note=f"{len(tests)} tests failed on both the original code and the candidate, more than the "
-            f"{MAX_SUSPECTS} rechecked, so they stay pre-existing failures without a recheck",
-        )
-    narrowed = proof_stability.narrow(framework_name, command, tests, directory=directory)
-    if not narrowed:
-        return pre_existing_record(
-            tests,
-            note="this runner cannot select the tests that failed on both sides alone, so they stay "
-            "pre-existing failures without a recheck",
-        )
-    base_runs = [run(narrowed, "base", f"pre-existing-base-{index}") for index in range(2, RERUNS + 2)]
-    on_base = {test: ["fail", *(proof_stability.outcome_of(r, test) for r in base_runs)] for test in tests}
-    passed = [test for test in tests if "pass" in on_base[test][1:]]
-    candidate_runs = []
-    if passed:
-        retry = proof_stability.narrow(framework_name, command, passed, directory=directory) or narrowed
-        candidate_runs = [run(retry, "candidate", f"pre-existing-candidate-{index}") for index in range(2, RERUNS + 2)]
+    confirmed_map = confirmed_entries if isinstance(confirmed_entries, dict) else {}
+    known = {
+        test: confirmed_map[test]
+        for test in tests
+        if test in confirmed_map
+        and (confirmed_map[test].get("base_runs") or [])
+        and "pass" not in confirmed_map[test]["base_runs"][1:]
+        and "fail" in confirmed_map[test]["base_runs"]
+    }
+    unknown = [test for test in tests if test not in known]
+
+    note = None
+    narrowed = None
+    on_base: dict[str, list[str]] = {}
+    candidate_runs: list = []
+    passed: list[str] = []
+    if unknown:
+        if len(unknown) > MAX_SUSPECTS:
+            note = (
+                f"{len(unknown)} tests failed on both the original code and the candidate, more than the "
+                f"{MAX_SUSPECTS} rechecked, so they stay pre-existing failures without a recheck"
+            )
+        else:
+            narrowed = proof_stability.narrow(framework_name, command, unknown, directory=directory)
+            if not narrowed:
+                note = (
+                    "this runner cannot select the tests that failed on both sides alone, so they stay "
+                    "pre-existing failures without a recheck"
+                )
+            else:
+                base_runs = [run(narrowed, "base", f"pre-existing-base-{index}") for index in range(2, RERUNS + 2)]
+                on_base = {
+                    test: ["fail", *(proof_stability.outcome_of(r, test) for r in base_runs)] for test in unknown
+                }
+                passed = [test for test in unknown if "pass" in on_base[test][1:]]
+                if passed:
+                    retry = proof_stability.narrow(framework_name, command, passed, directory=directory) or narrowed
+                    candidate_runs = [
+                        run(retry, "candidate", f"pre-existing-candidate-{index}") for index in range(2, RERUNS + 2)
+                    ]
+
+    if note is not None and not known:
+        return pre_existing_record(tests, note=note)
+
     rows = []
     for test in tests:
+        if test in known:
+            rows.append(
+                {
+                    "test": test,
+                    "base": list(known[test]["base_runs"]),
+                    "candidate": ["fail"],
+                    "verdict": "pre_existing",
+                    "source": "project_baseline",
+                }
+            )
+            continue
+        if test not in on_base:
+            continue
         candidate = (
             ["fail", *(proof_stability.outcome_of(r, test) for r in candidate_runs)] if test in passed else ["fail"]
         )
         verdict = _pre_existing_verdict(on_base[test], candidate)
         rows.append({"test": test, "base": on_base[test], "candidate": candidate, "verdict": verdict})
-    return pre_existing_record(tests, rows, command=narrowed)
+    return pre_existing_record(tests, rows, command=narrowed, note=note)
 
 
 def pre_existing_record(tests, rows=(), *, command=None, note=None) -> dict:
@@ -212,17 +294,21 @@ def unmasked(recheck_record) -> list[str]:
     return list(((recheck_record or {}).get("pre_existing") or {}).get("regressed") or [])
 
 
-def record(tests, rows=(), *, command=None, note=None) -> dict:
+def record(tests, rows=(), *, command=None, note=None, quarantined_rows=None) -> dict:
     rows = list(rows)
+    if quarantined_rows is None:
+        quarantined_list = [
+            {"test": row["test"], "reason": QUARANTINE_REASON} for row in rows if row["verdict"] == "quarantined"
+        ]
+    else:
+        quarantined_list = list(quarantined_rows)
     return {
         "rule": RULE,
         "reruns": RERUNS,
         "suspects": list(tests),
         "command": command,
         "tests": rows,
-        "quarantined": [
-            {"test": row["test"], "reason": QUARANTINE_REASON} for row in rows if row["verdict"] == "quarantined"
-        ],
+        "quarantined": quarantined_list,
         "note": note,
     }
 
@@ -243,15 +329,41 @@ def explain(recheck_record) -> tuple[list[str], list[str]]:
     if not names:
         return notes, []
     rows = {row["test"]: row for row in recheck_record["tests"]}
-    detail = "; ".join(
-        f"{test} (candidate {', '.join(rows[test]['candidate'])}; original code {', '.join(rows[test]['base'])})"
-        for test in names
-    )
+
+    def format_entry(test: str) -> str:
+        row = rows[test]
+        suffix = (
+            f"; reused from project quarantine at {row['origin_base'][:8]}"
+            if row.get("source") == "project_quarantine" and row.get("origin_base")
+            else ""
+        )
+        return f"{test} (candidate {', '.join(row['candidate'])}; original code {', '.join(row['base'])}{suffix})"
+
+    detail = "; ".join(format_entry(test) for test in names)
     notes.append("Quarantined as flaky, not counted as preserved or as regressed: " + detail)
     return notes, [
         "suite tests that fail intermittently on the original code too were quarantined from the preservation "
         "check: " + ", ".join(names)
     ]
+
+
+def _git_changed_files(workspace, origin: str, current: str) -> set[str] | None:
+    if not origin or not current or origin.startswith("-") or current.startswith("-"):
+        return None
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(workspace), "diff", "--name-only", "-z", "--no-renames", origin, current],
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+            env=util.git_environment(),
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if completed.returncode != 0:
+        return None
+    return {path for path in completed.stdout.split("\0") if path}
 
 
 def for_proof(run, trees, on_candidate, comparable, helpers) -> list[str]:
@@ -262,8 +374,10 @@ def for_proof(run, trees, on_candidate, comparable, helpers) -> list[str]:
     baseline ran, ``base_patch`` applied), removed afterwards. A failure the original code's suite run
     shared is rechecked the other way round (``recheck_pre_existing``, base first, kept as the record's
     ``pre_existing``), and one it shows the change really breaks is added to the proof's failures.
-    The record is the proof's ``suite_flakes``;
-    its notes and review reasons join the proof's. Without a comparable base run nothing is rechecked.
+    The record is the proof's ``suite_flakes``; its notes and review reasons join the proof's.
+    Confirmed deterministic pre-existing base failures and intermittent base+candidate flaky tests
+    are persisted per project via ``autocode_project_suite_health`` (only without ``base_patch`` or
+    unpinned local inputs) and reused with staleness/edit invalidation across runs.
     """
     make_tree, run_suite, remove_tree = helpers
     framework, proof = run.framework, run.proof
@@ -276,9 +390,66 @@ def for_proof(run, trees, on_candidate, comparable, helpers) -> list[str]:
             texts += [] if status == "deleted" else [(Path(trees["candidate"]) / path).read_text(errors="replace")]
         except OSError:
             continue
+    project_eligible = run.base_patch is None and not (
+        run.ignored_inputs
+        and (
+            getattr(run.ignored_inputs, "generated", None)
+            or getattr(run.ignored_inputs, "vendor", None)
+            or getattr(run.ignored_inputs, "unverified", None)
+        )
+    )
+    proj_root: Path | None = None
+    known_quarantined: dict[str, dict] = {}
+    known_pre_existing: dict[str, dict] = {}
+    if project_eligible:
+        try:
+            proj_root = project_suite_health.project_root(run.dependencies_from or run.workspace)
+            known_quarantined = project_suite_health.active_quarantine(
+                proj_root,
+                framework.name,
+                run.commands["suite"],
+                run.base,
+                git_changed_files_fn=lambda a, b: _git_changed_files(run.workspace, a, b),
+            )
+            known_pre_existing = project_suite_health.confirmed_pre_existing(
+                proj_root,
+                base=run.base,
+                command=run.commands["suite"],
+                framework_name=framework.name,
+            )
+        except (OSError, ValueError):
+            proj_root = None
+            known_quarantined = {}
+            known_pre_existing = {}
+
     tests = suspects(on_candidate, comparable.get("receipt"), protected=named, changed_texts=texts)
     shared = masked(on_candidate, comparable.get("receipt"), protected=named, changed_texts=texts)
+
+    def clean_quarantine_passes() -> set[str]:
+        if not known_quarantined or not _complete(on_candidate) or not _complete(comparable.get("receipt")):
+            return set()
+        cand_passed = set(on_candidate["results"].get("passed") or [])
+        base_passed = set(comparable["receipt"]["results"].get("passed") or [])
+        return (cand_passed & base_passed & set(known_quarantined)) - set(named)
+
+    run_name = (
+        project_suite_health.run_name_from(Path(run.run_dir).parent.parent)
+        if Path(run.run_dir).parent.name == "regression"
+        else None
+    )
+
     if not tests and not shared:
+        clean_passed = clean_quarantine_passes()
+        if proj_root is not None and clean_passed:
+            with contextlib.suppress(OSError, ValueError):
+                project_suite_health.record_observations(
+                    proj_root,
+                    base=run.base,
+                    command=run.commands["suite"],
+                    framework_name=framework.name,
+                    clean_passed_tests=clean_passed,
+                    run_name=run_name,
+                )
         return []
     base_tree: list = []
 
@@ -305,14 +476,69 @@ def for_proof(run, trees, on_candidate, comparable, helpers) -> list[str]:
 
     directory = getattr(framework, "directory", None)
     try:
-        found = recheck(framework.name, run.commands["suite"], tests, rerun, directory=directory) or record([])
+        found = recheck(
+            framework.name,
+            run.commands["suite"],
+            tests,
+            rerun,
+            directory=directory,
+            quarantined_entries=known_quarantined,
+        ) or record([])
         found["pre_existing"] = recheck_pre_existing(
-            framework.name, run.commands["suite"], shared, rerun, directory=directory
+            framework.name,
+            run.commands["suite"],
+            shared,
+            rerun,
+            directory=directory,
+            confirmed_entries=known_pre_existing,
         )
     finally:
         if base_tree:
             remove_tree(run.workspace, base_tree[0])
     proof["suite_flakes"] = found
+    if proj_root is not None and command_receipt.completed(comparable.get("receipt")):
+        new_quarantine = [
+            {
+                "test": row["test"],
+                "base_runs": row["base"],
+                "candidate_runs": row["candidate"],
+                "reason": QUARANTINE_REASON,
+            }
+            for row in found.get("tests") or ()
+            if row.get("verdict") == "quarantined" and row.get("source") != "project_quarantine"
+        ]
+        pre_existing_rows = (found.get("pre_existing") or {}).get("tests") or ()
+        new_quarantine.extend(
+            {
+                "test": row["test"],
+                "base_runs": row["base"],
+                "candidate_runs": row["candidate"],
+                "reason": "fails intermittently on both the original code and the candidate",
+            }
+            for row in pre_existing_rows
+            if row.get("verdict") == "flaky"
+        )
+        new_pre_existing = [
+            {"test": row["test"], "base_runs": row["base"]}
+            for row in pre_existing_rows
+            if row.get("verdict") == "pre_existing"
+            and row.get("source") != "project_baseline"
+            and row.get("base")
+            and all(outcome == "fail" for outcome in row["base"])
+        ]
+        clean_passed = clean_quarantine_passes()
+        if new_quarantine or new_pre_existing or clean_passed:
+            with contextlib.suppress(OSError, ValueError):
+                project_suite_health.record_observations(
+                    proj_root,
+                    base=run.base,
+                    command=run.commands["suite"],
+                    framework_name=framework.name,
+                    quarantine_rows=new_quarantine,
+                    pre_existing_rows=new_pre_existing,
+                    clean_passed_tests=clean_passed,
+                    run_name=run_name,
+                )
     if unmasked(found):
         run.fail.append(UNMASKED + ": " + ", ".join(unmasked(found)[:20]))
     notes, reasons = explain(found)

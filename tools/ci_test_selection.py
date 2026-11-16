@@ -247,6 +247,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     *(
         (path, ("tests.test_changed_code_evidence_cli",))
         for path in (
+            "tools/autocode_affected_tests.py",
             "tools/autocode_changed_code_evidence.py",
             "tools/autocode_changed_code_measurement.py",
             "tools/autocode_changed_code_proof.py",
@@ -257,6 +258,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "tools/prompts/fragments/regression/changed-code-evidence.md",
             "tools/autocode_diff_coverage.py",
             "tools/autocode_mutation_check.py",
+            "tools/autocode_project_suite_health.py",
             "tools/autocode_regression.py",
             "tools/autocode_report_schema.py",
             "tools/autocode_role_schema.py",

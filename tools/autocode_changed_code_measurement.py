@@ -437,24 +437,38 @@ def mutation_envelope(report, *, source_revision, proof_context, receipts, root)
             entry.update(outcome="not_run", failed_tests=[], evidence=[])
             references = row.get("evidence")
             if eligible and row.get("source_sha256") == file.get("sha256") and _names(references):
-                observed = [
-                    _outcome(
-                        outputs.get(ref),
-                        selected,
-                        root,
-                        stopped=report.get("execution_policy") == mutation_results.STOP_POLICY,
-                    )
-                    for ref in references
-                ]
-                failed = sorted({name for outcome, names in observed if outcome == "killed" for name in names})
-                if (
-                    all(outcome == "killed" for outcome, _ in observed)
-                    and row.get("outcome") == "killed"
-                    and row.get("failed_tests") == failed
-                ):
-                    entry.update(outcome="killed", failed_tests=failed, evidence=list(references))
-                elif all(outcome == "survived" for outcome, _ in observed) and row.get("outcome") == "survived":
-                    entry.update(outcome="survived", evidence=list(references))
+                mutant_selected = row.get("selected_tests", selected)
+                rule = row.get("selection_rule")
+                valid_rule = rule is None or rule in ("all_selected_tests", "import_closure", "symbol_closure")
+                if not valid_rule:
+                    pass
+                elif mutant_selected == []:
+                    if (
+                        rule in ("import_closure", "symbol_closure")
+                        and references == [reference]
+                        and row.get("outcome") == "survived"
+                        and not row.get("failed_tests")
+                    ):
+                        entry.update(outcome="survived", evidence=list(references))
+                elif _names(mutant_selected) and set(mutant_selected) <= set(selected):
+                    observed = [
+                        _outcome(
+                            outputs.get(ref),
+                            mutant_selected,
+                            root,
+                            stopped=report.get("execution_policy") == mutation_results.STOP_POLICY,
+                        )
+                        for ref in references
+                    ]
+                    failed = sorted({name for outcome, names in observed if outcome == "killed" for name in names})
+                    if (
+                        all(outcome == "killed" for outcome, _ in observed)
+                        and row.get("outcome") == "killed"
+                        and row.get("failed_tests") == failed
+                    ):
+                        entry.update(outcome="killed", failed_tests=failed, evidence=list(references))
+                    elif all(outcome == "survived" for outcome, _ in observed) and row.get("outcome") == "survived":
+                        entry.update(outcome="survived", evidence=list(references))
             if entry["outcome"] == "not_run" and row.get("outcome") in ("timeout", "unsupported", "error"):
                 entry["outcome"] = row["outcome"]
             made.append(entry)
