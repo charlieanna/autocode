@@ -1,7 +1,7 @@
 """The measured ranking of a stage's models on the person's own accounts (#3630 step 5).
 
 The probe measures the models the person ticked (``autocode_model_shortlist``) and grades each
-answer mechanically (``autocode_requirements_probe``). This module keeps the result, in one file
+answer mechanically (``autocode_requirements_probe``, ``autocode_planner_probe``). This module keeps the result, in one file
 beside ``stages.toml`` (``~/.config/autocode/measured-routes.json``), and turns it into the
 qualification entries the selector reads. The selector (``autocode_route_selector.qualified``) is
 the one reader: automatic selection, the quota fallback in ``autocode_route_pool`` and the model
@@ -33,10 +33,12 @@ from pathlib import Path
 
 try:
     from . import autocode_model_identity as model_identity
+    from . import autocode_planner_probe as planner_probe
     from . import autocode_requirements_probe as requirements_probe
     from . import autocode_util as util
 except ImportError:
     import autocode_model_identity as model_identity
+    import autocode_planner_probe as planner_probe
     import autocode_requirements_probe as requirements_probe
     import autocode_util as util
 
@@ -44,8 +46,16 @@ SCHEMA_VERSION = 1
 FILE_NAME = "measured-routes.json"
 # Six of nine was the lowest score the owner accepted as a default on 2026-11-15 (GLM-5.3 low).
 QUALIFY_SHARE = Fraction(2, 3)
-# What each stage's probe asks, so a later probe version is not ranked against an older one.
-PROBES = {"requirements": ("requirements-v1", len(requirements_probe.REQUESTS))}
+# What each stage's probe asks, so a later probe version is not ranked against an older one, and the
+# time within which an answer counts as prompt when ranking.
+PROBES = {
+    "requirements": ("requirements-v1", len(requirements_probe.REQUESTS)),
+    "planner": ("planner-v1", len(planner_probe.REQUESTS)),
+}
+LATENCY_LIMITS = {
+    "requirements": requirements_probe.LATENCY_LIMIT_SECONDS,
+    "planner": planner_probe.TIME_LIMIT_SECONDS,
+}
 _LEVELS = {level: index for index, level in enumerate(util.EFFORTS)}
 
 
@@ -128,7 +138,7 @@ def rank(results, role="requirements") -> list:
         else:
             best = max(items, key=lambda item: ((item.get("summary") or {}).get("passed") or 0, -_level(item)))
             rows.append(_ranked(best, False, f"did not qualify: {_score(best)}"))
-    return sorted(rows, key=_order)
+    return sorted(rows, key=lambda row: _order(row, role))
 
 
 def entries(role, document=None) -> list:
@@ -202,14 +212,14 @@ def _ranked(item, qualified, reason):
     }
 
 
-def _order(row):
+def _order(row, role="requirements"):
     summary = row.get("summary") or {}
     seconds = summary.get("mean_seconds")
     cost = summary.get("cost_usd")
     return (
         not row["qualified"],
         -(summary.get("passed") or 0),
-        not (seconds is not None and seconds <= requirements_probe.LATENCY_LIMIT_SECONDS),
+        not (seconds is not None and seconds <= LATENCY_LIMITS[role]),
         cost if cost is not None else float("inf"),
         _LEVELS.get(row.get("effort"), len(_LEVELS)),
         row["model"],

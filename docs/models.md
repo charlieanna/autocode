@@ -330,6 +330,25 @@ A model runs the three quick requests first and the other six only when it passe
 the runner had to send back for repair counts against the model. Choosing the models in Stage
 models before setup is the next part.
 
+The Planner has its own probe (`autocode_planner_probe`): seven requests on the same project, from
+a one-line bug fix to a feature across several outputs, a cache design and a request that forbids
+editing a test file. Each runs to plan approval, which the probe never gives, and the plan is graded
+from what the run shows: the first report accepted, the Plan Reviewer's approval within two rounds,
+the files the request needs changed and none it forbids, a test for every criterion, a small plan
+for a small fix, and the run finished within 30 minutes. The Plan Reviewer is the measuring
+instrument, so you name it, and a candidate of its family gets the next one you name:
+
+```sh
+autocode probe --stage planner --measure openai/gpt-6.1-sol high --measure anthropic/claude-opus-5-5 medium \
+  --checker anthropic/claude-opus-5-5 high --checker openai/gpt-6.1-sol high \
+  --requirements zai-coding-plan/glm-5.3 low --max-cost-usd 30
+```
+
+A Planner qualifies when it has run all seven requests and passed at least five. Every request but
+the first runs on a copy whose unrelated failing test is fixed, so a Planner is not asked about a
+failure the request never mentioned. Whether a plan's approach is right still needs reading; the
+Plan Reviewer's approval stands in for it.
+
 OpenCode and Kilo reasoning variants come from their local verbose model listings.
 An unsupported qualified level is omitted so the model uses its default. When older
 tools cannot report variants, the recorded qualification level is used. Preflight
