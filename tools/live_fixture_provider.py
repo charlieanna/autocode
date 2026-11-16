@@ -810,7 +810,7 @@ def main() -> int:
     elif stage == "review_plan":
         draft = (data.get("goal_contract") or {}).get("body") or {}
         # A plan holding LIVE_FIXTURE_REVIEW_BLOCKS's text (a test's planted flaw) gets one blocking concern.
-        marker = os.environ.get("LIVE_FIXTURE_REVIEW_BLOCKS")
+        marker = os.environ.get("LIVE_FIXTURE_REVIEW_BLOCKS") or ""
         planted = bool(marker) and marker in json.dumps(draft)
         report = {
             "summary": "Handwritten plan review; " + ("one blocking concern" if planted else "no concerns"),
