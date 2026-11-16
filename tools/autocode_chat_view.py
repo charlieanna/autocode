@@ -183,7 +183,7 @@ def notice(public):
     """Explain the next human step without exposing the diagnostic dashboard."""
     status = public.get("status") or ""
     recovery = public.get("recovery") or {}
-    if recovery.get("category") == "blocked":
+    if recovery.get("category") in ("blocked", "stopped"):
         return recovery.get("what_happened")
     if status == "PAUSED_TRANSPORT_CHANGED":
         return "Your model connection settings changed. Check Connections before continuing."

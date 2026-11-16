@@ -172,13 +172,22 @@ jobs:
           .venv/bin/python scenarios/harness/java_toolchain.py --root .scenario-runs/issue-696-java-toolchain
           echo "$PWD/.scenario-runs/issue-696-java-toolchain/bin" >> "$GITHUB_PATH"
 
+      - name: Prepare suite evidence directory
+        id: suite_evidence
+        if: needs.scope.outputs.suite == 'true'
+        run: |
+          evidence_directory="${RUNNER_TEMP:?}/autocode-suite-evidence"
+          mkdir -p "$evidence_directory"
+          echo "directory=$evidence_directory" >> "$GITHUB_OUTPUT"
+
       - name: Record the checkout the suite will test
         if: needs.scope.outputs.suite == 'true' && github.event_name == 'pull_request'
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          SUITE_EVIDENCE_DIR: ${{ steps.suite_evidence.outputs.directory }}
         run: |
-          .venv/bin/python tools/ci_tested_source.py --expected-head "$PR_HEAD" --event-base "$BASE" --out .suite-source.json || echo "Source capture unavailable; attribution will remain unresolved."
+          .venv/bin/python tools/ci_tested_source.py --expected-head "$PR_HEAD" --event-base "$BASE" --out "$SUITE_EVIDENCE_DIR/.suite-source.json" || echo "Source capture unavailable; attribution will remain unresolved."
 
       - name: Run the suite gate
         id: suite_gate
@@ -197,11 +206,12 @@ jobs:
           EVENT: ${{ github.event_name }}
           BASE: ${{ github.event.pull_request.base.sha }}
           PYTHONDONTWRITEBYTECODE: "1"
+          SUITE_EVIDENCE_DIR: ${{ steps.suite_evidence.outputs.directory }}
         run: |
           if [ "$EVENT" = pull_request ]; then
-            .venv/bin/python tools/run_suite.py --verbosity 2 --changed "$BASE" --failed-out .suite-failed.json
+            .venv/bin/python tools/run_suite.py --verbosity 2 --changed "$BASE" --failed-out "$SUITE_EVIDENCE_DIR/.suite-failed.json"
           else
-            .venv/bin/python tools/run_suite.py --verbosity 2 --failed-out .suite-failed.json
+            .venv/bin/python tools/run_suite.py --verbosity 2 --failed-out "$SUITE_EVIDENCE_DIR/.suite-failed.json"
           fi
 
       - name: Attribute red to base or head
@@ -216,11 +226,12 @@ jobs:
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ github.event.pull_request.number }}
+          SUITE_EVIDENCE_DIR: ${{ steps.suite_evidence.outputs.directory }}
         run: |
-          .venv/bin/python tools/attribute_failure.py --base "$BASE" --expected-head "$PR_HEAD" --tested-source .suite-source.json --failed .suite-failed.json --json .attribution.json | tee .attribution.md
-          if [ -s .attribution.md ]; then
-            cat .attribution.md >> "$GITHUB_STEP_SUMMARY"
-            gh pr comment "$PR" --body-file .attribution.md || echo "could not post the attribution comment"
+          .venv/bin/python tools/attribute_failure.py --base "$BASE" --expected-head "$PR_HEAD" --tested-source "$SUITE_EVIDENCE_DIR/.suite-source.json" --failed "$SUITE_EVIDENCE_DIR/.suite-failed.json" --json "$SUITE_EVIDENCE_DIR/.attribution.json" | tee "$SUITE_EVIDENCE_DIR/.attribution.md"
+          if [ -s "$SUITE_EVIDENCE_DIR/.attribution.md" ]; then
+            cat "$SUITE_EVIDENCE_DIR/.attribution.md" >> "$GITHUB_STEP_SUMMARY"
+            gh pr comment "$PR" --body-file "$SUITE_EVIDENCE_DIR/.attribution.md" || echo "could not post the attribution comment"
           else
             echo "Failure attribution is incomplete; no comment was posted." >> "$GITHUB_STEP_SUMMARY"
           fi
@@ -231,10 +242,10 @@ jobs:
         with:
           name: suite-attribution-${{ matrix.os }}
           path: |
-            .suite-source.json
-            .suite-failed.json
-            .attribution.json
-            .attribution.md
+            ${{ steps.suite_evidence.outputs.directory }}/.suite-source.json
+            ${{ steps.suite_evidence.outputs.directory }}/.suite-failed.json
+            ${{ steps.suite_evidence.outputs.directory }}/.attribution.json
+            ${{ steps.suite_evidence.outputs.directory }}/.attribution.md
           if-no-files-found: warn
           include-hidden-files: true
           retention-days: 7

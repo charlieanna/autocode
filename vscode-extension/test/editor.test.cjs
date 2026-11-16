@@ -2497,8 +2497,8 @@ test('a started chat changes a stage\'s model from the chat box between stages, 
   const working = 'A stage is working. Pause the chat, or wait until it asks you something, to change its models.';
   await ui.poll({ ...initial, stage_models: { changeable: false, reason: working, next_command: list } });
   assert.equal(chip.disabled, true, 'only between stages');
-  assert.equal(ui.document.getElementById('models-name').textContent, 'Models · after this stage',
-    'a greyed-out chip says when it comes back, not only on hover');
+  assert.equal(ui.document.getElementById('models-name').textContent, 'Models',
+    'a current refusal does not promise when availability will change');
   assert.equal(chip.title, working, 'the core says why not');
   await ui.poll(initial);
   assert.equal(chip.disabled, false, 'between stages again');
@@ -2515,7 +2515,7 @@ test('a paused uncertain check does not say models change after a running stage'
   const ui = await openChat(t, paused);
   const chip = ui.document.getElementById('models-picker');
   assert.equal(chip.disabled, true);
-  assert.equal(ui.document.getElementById('models-name').textContent, 'Models · unavailable');
+  assert.equal(ui.document.getElementById('models-name').textContent, 'Models');
   assert.equal(chip.title, reason);
 });
 
@@ -4148,6 +4148,46 @@ for (const surface of ['chat', 'Run details']) {
   });
 }
 
+for (const category of ['stopped', 'blocked', 'working', 'paused', 'done']) {
+  for (const surface of ['chat', 'Run details']) {
+    test(`public attempt evidence stays inspectable in ${surface} when ${category}`, async (t) => {
+      const terminal = ['stopped', 'blocked'].includes(category);
+      const view = {
+        status: terminal ? 'PAUSED_INTERVENTION' : category === 'done' ? 'DONE' : category === 'paused' ? 'PAUSED_TIME_LIMIT' : 'RUNNING',
+        done: category === 'done', needs: terminal ? null : { kind: 'continue' }, next_command: null,
+        next_stage: 'requirements_gather', pause_category: 'your_decision', pause_category_label: 'Your decision',
+        recovery: terminal ? { category, title: 'Retained outcome', what_happened: 'No continuation.',
+          actions: [{ kind: 'inspect', label: 'Inspect saved work' }] } : null,
+        usage: { accounting: { attempts: [{ job: 'Requirements', model: 'retained-failed-model',
+          exit_code: 1, active: false, finished_at: '2026-11-15T12:00:00Z', tokens: { input_tokens: 37 } }] } },
+      };
+      const launch = t.mock.method(cli, 'stream', async () => ok);
+      const ui = surface === 'chat' ? await openChat(t, view) : await openPanel(t, view);
+      if (surface === 'chat') ui.document.querySelector('#header-toggle').click();
+      const evidence = () => ui.document.querySelector('[data-section="usage"]');
+      assert.ok(evidence(), 'The existing public usage section must be inspectable on both surfaces');
+      for (const expected of ['Attempts', 'Requirements', 'exit 1', 'retained-failed-model', '37']) {
+        assert.ok(evidence().textContent.includes(expected), expected);
+      }
+      const changed = structuredClone(view);
+      changed.usage.accounting.attempts[0].exit_code = 7;
+      await ui.poll(changed);
+      assert.ok(evidence().textContent.includes('exit 7'), 'fresh public evidence replaces the previous outcome');
+      assert.ok(!evidence().textContent.includes('exit 1'));
+      if (surface === 'Run details') {
+        const meta = ui.document.querySelector('.meta').textContent;
+        assert.equal(meta.includes('next: requirements_gather'), ['working', 'paused'].includes(category));
+        assert.equal(meta.includes('pause: Your decision'), category === 'paused');
+      }
+      if (terminal) {
+        assert.equal(ui.document.querySelector('#take-action'), null);
+        if (surface === 'chat') assert.equal(ui.document.querySelector('#send-message').disabled, true);
+      }
+      assert.equal(launch.mock.callCount(), 0, 'inspection must not launch a task or provider');
+    });
+  }
+}
+
 for (const surface of ['chat', 'Run details']) {
   test(`durable Stop is explained in ${surface} without offering a resume`, async (t) => {
     const view = {
@@ -4693,6 +4733,7 @@ test('unestablished start failure rolls back provisional run, restores editable 
 });
 
 test('established run with subsequent status failure does not roll back run (#1539)', async (t) => {
+  t.mock.method(cli, 'stream', async () => ok);
   const ui = await openChat(t, null);
   ui.chat.show();
   await flush();
@@ -5203,6 +5244,7 @@ test('Chat #details toolbar button is disabled without an active run and enabled
 });
 
 test('Command palette run commands show "Select a run first." when no run is selected (#1543)', async (t) => {
+  t.mock.method(RunController.prototype, 'list', async () => ({ runs: [], diagnostics: [] }));
   t.mock.timers.enable({ apis: ['setInterval'] });
   const messages = [];
   t.mock.method(host.vscode.window, 'showInformationMessage', (msg) => { messages.push(msg); });
@@ -5283,6 +5325,7 @@ test('a deleted chat’s tab closes and leaves the other chats', async (t) => {
 });
 
 test('autocode.watchRun toggles watching off/on, switches watched runs, and updates status bar immediately (#1543)', async (t) => {
+  t.mock.method(RunController.prototype, 'list', async () => ({ runs: [], diagnostics: [] }));
   t.mock.timers.enable({ apis: ['setInterval'] });
   let statusVisible = false;
   let statusText = '';
@@ -5343,6 +5386,7 @@ test('autocode.watchRun toggles watching off/on, switches watched runs, and upda
 });
 
 test('delayed status resolution does not re-show unwatched run or replace newly watched run (#1543)', async (t) => {
+  t.mock.method(RunController.prototype, 'list', async () => ({ runs: [], diagnostics: [] }));
   t.mock.timers.enable({ apis: ['setInterval'] });
   let statusVisible = false;
   let statusText = '';
@@ -7747,4 +7791,116 @@ test('a send button held back by unanswered questions says so', async (t) => {
   field.dispatchEvent(new ui.window.Event('input'));
   assert.equal(take.disabled, false);
   assert.equal(take.title, '', 'the reason goes once the answer lands');
+});
+
+function recordedStageEvidence(context, path) {
+  const working = context === 'working';
+  const done = context === 'done';
+  const paused = context === 'paused';
+  return {
+    status: working ? 'RUNNING' : done ? 'TASK_COMPLETE' : context === 'blocked' ? 'PAUSED_PROCESS_CLEANUP' : 'PAUSED_INTERVENTION',
+    done,
+    summary: { state: paused ? 'needs_you' : context, label: context, sentence: 'Recorded state.' },
+    needs: paused ? { kind: 'resume', reason: 'Boundary pause requested' } : null,
+    next_command: paused ? `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --resume-paused` : null,
+    recovery: ['stopped', 'blocked'].includes(context) ? { category: context, title: context, what_happened: 'Recorded ending.',
+      retained: 'Recorded evidence remains available.', actions: context === 'stopped' ? [{ kind: 'inspect', label: 'Inspect evidence' }, { kind: 'new_conversation', label: 'New conversation' }] : [] } : null,
+    pipeline: [
+      { job: 'requirements', label: 'Requirements', state: working ? 'working' : 'ran', model: 'provider/requirements-model' },
+      { job: 'planner', label: 'Planner', state: working ? 'next' : 'pending', model: 'provider/planner-model', reasoning_effort: 'high' },
+      { job: 'builder', label: 'Builder', state: 'pending', model: 'provider/builder-model', reasoning_effort: 'medium' },
+      { job: 'tester', label: 'Tester', state: 'not_run' },
+    ],
+    routes: { builder: { job: 'Builder', model: 'provider/builder-model', reasoning_effort: 'medium' } },
+    escalations: [{ job: 'Builder', from: 'prior-model', to: 'provider/builder-model', trigger: 'prior failure', outcome: 'failure evidence retained' }],
+    stage_policy: { path, decisions: [{ stage: 'draft_plan', decision: 'included', reason: 'Recorded policy choice' }], reasons: [] },
+    chat: { messages: [], input: null },
+  };
+}
+
+for (const surface of ['chat', 'Run details']) {
+  for (const context of ['working', 'paused', 'stopped', 'blocked', 'done']) {
+    for (const path of ['full', 'compact']) {
+      test(`recorded stage evidence: ${surface}, ${context}, ${path} policy remains observation only`, async (t) => {
+        const launch = t.mock.method(cli, 'stream', async () => ok);
+        const value = recordedStageEvidence(context, path);
+        const ui = surface === 'chat' ? await openChat(t, value) : await openPanel(t, value);
+        if (surface === 'chat') ui.document.querySelector('#header-toggle').click();
+        const host = surface === 'chat' ? ui.document.querySelector('#header-details') : ui.document.querySelector('#app');
+        const stages = host.querySelector('[data-section="pipeline"]').textContent;
+        assert.match(stages, /Builder: not run; saved route: provider\/builder-model medium/);
+        assert.match(stages, /Tester: not run/);
+        if (context === 'working') {
+          assert.match(stages, /Requirements working/);
+          assert.match(stages, /Planner: next; saved route: provider\/planner-model high/);
+        } else assert.match(stages, /1 of 4 ran/);
+        const models = host.querySelector('[data-section="routes"]');
+        assert.equal(models.querySelector('.detail-title').textContent, 'Models');
+        assert.equal(models.querySelector('.detail-summary').textContent, '1 saved route');
+        assert.match(models.textContent, /Builder: provider\/builder-model · medium/);
+        assert.match(models.textContent, /failure evidence retained/);
+        assert.equal(host.querySelector('[data-section="path"] .detail-summary').textContent, path === 'full' ? 'Full planning path' : 'Compact planning path');
+        assert.doesNotMatch(host.textContent, /will run on|Models for the next attempts|every stage runs/);
+        assert.equal(launch.mock.callCount(), 0);
+      });
+    }
+  }
+
+  test(`recorded stage evidence: ${surface} applies readable detail styles to the actual nodes`, async (t) => {
+    const value = recordedStageEvidence('stopped', 'full');
+    const ui = surface === 'chat' ? await openChat(t, value) : await openPanel(t, value);
+    if (surface === 'chat') ui.document.querySelector('#header-toggle').click();
+    const host = surface === 'chat' ? ui.document.querySelector('#header-details') : ui.document.querySelector('#app');
+    const section = host.querySelector('[data-section="pipeline"]');
+    const head = section.querySelector('.detail-head');
+    assert.equal(ui.window.getComputedStyle(head).display, 'flex', 'section title and summary are laid out separately');
+    assert.equal(ui.window.getComputedStyle(head).gap, '8px', 'the summary has the same visible separation in each surface');
+    assert.equal(ui.window.getComputedStyle(head.querySelector('.detail-title')).fontWeight, '600');
+    assert.equal(ui.window.getComputedStyle(section.querySelector('.detail-line')).overflowWrap, 'anywhere', 'a long route wraps instead of stretching the pane');
+    const historical = host.querySelector('[data-section="routes"] .detail-line.sub');
+    assert.equal(ui.window.getComputedStyle(historical).paddingLeft, '12px', 'recorded route history retains its indentation');
+  });
+}
+
+
+for (const [context, status, done, working] of [
+  ['working', 'RUNNING', false, true],
+  ['paused', 'PAUSED_REPORT_ERROR', false, false],
+  ['blocked', 'PAUSED_PROCESS_CLEANUP', false, false],
+  ['stopped', 'PAUSED_INTERVENTION', false, false],
+  ['done', 'TASK_COMPLETE', true, false],
+  ['no-active-stage', 'WAITING_FOR_USER', false, false],
+  ['uncertain-check', 'PAUSED_VERIFICATION_UNCERTAIN', false, false],
+]) {
+  for (const reason of ['The last stage attempt still needs recovery. Its models cannot be changed yet.', null]) {
+    test(`model availability observation: ${context}, reason=${reason !== null}, never promises a later change`, async (t) => {
+      const list = ['stages', 'list', '--run-dir', run.runDir, '--json'];
+      const initial = { ...chatView(), status, done,
+        pipeline: context === 'no-active-stage' ? [] : [{ job: 'requirements', label: 'Requirements', state: working ? 'working' : 'ran' }],
+        stage_models: { changeable: false, reason, next_command: list } };
+      const launch = t.mock.method(cli, 'stream', async () => ok);
+      const ui = await openChat(t, initial);
+      const chip = ui.document.getElementById('models-picker');
+      assert.equal(chip.hidden, false, 'a valid Core list remains inspectable as an unavailable control');
+      assert.equal(chip.disabled, true, 'the current refusal remains authoritative');
+      assert.equal(ui.document.getElementById('models-name').textContent, 'Models', 'a present refusal cannot promise when availability will change');
+      assert.equal(chip.title, reason ?? "This chat's models cannot change now.", 'the original Core reason or existing fallback stays exact');
+      const before = ui.sent.length;
+      chip.click(); await flush();
+      assert.equal(ui.sent.length, before, 'the unavailable control sends no action or model-list request');
+      assert.equal(launch.mock.callCount(), 0);
+      await ui.poll({ ...initial, stage_models: null });
+      assert.equal(chip.hidden, true, 'absence of a Core offer remains absence of authority');
+    });
+  }
+}
+
+test('model availability observation: an invalid list stays hidden without a guessed model action', async (t) => {
+  const initial = { ...chatView(), stage_models: { changeable: false, reason: 'Unavailable.', next_command: ['--resume-paused'] } };
+  const ui = await openChat(t, initial);
+  const chip = ui.document.getElementById('models-picker');
+  assert.equal(chip.hidden, true);
+  const before = ui.sent.length;
+  chip.click(); await flush();
+  assert.equal(ui.sent.length, before);
 });
