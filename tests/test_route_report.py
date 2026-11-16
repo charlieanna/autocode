@@ -11,7 +11,9 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -100,6 +102,13 @@ class RouteLineTests(unittest.TestCase):
 
 
 class ConnectionRoutesTests(unittest.TestCase):
+    def setUp(self):
+        state = tempfile.TemporaryDirectory(prefix="autocode-route-report-state-")
+        self.addCleanup(state.cleanup)
+        environment = mock.patch.dict(os.environ, {"XDG_STATE_HOME": state.name})
+        environment.start()
+        self.addCleanup(environment.stop)
+
     def call(self, *argv):
         output = io.StringIO()
         with contextlib.redirect_stdout(output):

@@ -133,6 +133,99 @@ class DecideTests(unittest.TestCase):
         state["workflow"]["brief_size"] = "medium"
         self.assertEqual("not_small_clear", decide(state, "review_completion", "completion")["reason"])
 
+    def test_pinned_bugfix_and_multi_round_clarification_govern_small_clear_reviews(self):
+        import autocode_requirements_handoff as handoff
+        import autocode_workflows as workflows
+
+        def fresh_state(task="Fix off-by-one in slugify.py when input is empty."):
+            state = run_state(
+                version=3,
+                task_id="review-clarity",
+                task=task,
+                workspace="/fixture",
+                status="RUNNING",
+                phase="DISCOVERING",
+                answers={},
+                user_events=[],
+                requirements_history=[],
+            )
+            state["settings"]["adaptive_planning"] = True
+            state["settings"]["joint_planning"] = True
+            state["settings"]["roles"]["requirements"] = {"model": MIMO, "reasoning_effort": "high"}
+            workflows.begin_requirements(state)
+            return state
+
+        def report(*, clarity="clear", questions=(), task="Fix off-by-one in slugify.py when input is empty."):
+            return {
+                "summary": "Slugify fix requirements",
+                "intended_outcome": "Return empty string for empty input" if not questions else "",
+                "requirements": [{"id": "R1", "text": task, "source_quote": task}],
+                "required_behaviors": ["slugify('') returns ''"] if not questions else [],
+                "constraints": [],
+                "acceptance_tests": ["slugify('') == ''"] if not questions else [],
+                "source_refs": ["task"],
+                "proposed_assumptions": [],
+                "open_questions": list(questions),
+                "ignored_statements": [],
+                "conflicts": [],
+                "proposed_reframes": [],
+                "job": "bugfix",
+                "clarity": clarity,
+            }
+
+        # 1. --workflow bugfix pinned on CLI still judges & seals clarity="clear" and brief_size="small".
+        pinned = fresh_state()
+        workflows.pin(pinned, "bugfix")
+        handoff.accept(
+            pinned,
+            report(clarity="clear"),
+            {"output": "/fixture/req-1.json"},
+            check_code_refs=mock.Mock(),
+            queue=mock.Mock(),
+        )
+        choice = decide(pinned, "review_completion", "completion")
+        self.assertEqual(("medium", "high", True, "small_clear"), _key(choice))
+        self.assertEqual(("clear", "small", None), (choice["clarity"], choice["brief_size"], choice["plan_size"]))
+
+        # 2. Multi-round Q&A seals "vague" on Round 1 and keeps reviews at the saved ceiling after Round 2.
+        clarified = fresh_state("Fix slugify edge cases.")
+        question = {
+            "id": "Q1",
+            "question": "How should consecutive hyphens be handled?",
+            "why": "The request does not specify.",
+            "options": ["Collapse to one hyphen", "Preserve consecutive hyphens"],
+            "proposed_default": "Collapse to one hyphen",
+            "kind": "decision",
+            "category": "inputs_and_edge_cases",
+            "delegable": True,
+        }
+        handoff.accept(
+            clarified,
+            report(clarity="clear", questions=[question], task="Fix slugify edge cases."),
+            {"output": "/fixture/req-r1.json"},
+            check_code_refs=mock.Mock(),
+            queue=mock.Mock(),
+        )
+        clarified["answers"]["Q1"] = {"kind": "answer", "text": "Collapse to one hyphen", "question": question}
+        clarified["pending_questions"] = []
+        handoff.accept(
+            clarified,
+            report(clarity="clear", questions=(), task="Fix slugify edge cases."),
+            {"output": "/fixture/req-r2.json"},
+            check_code_refs=mock.Mock(),
+            queue=mock.Mock(),
+        )
+        kept = decide(clarified, "review_completion", "completion")
+        self.assertEqual(("high", "high", False, "not_small_clear"), _key(kept))
+        self.assertEqual("vague", kept["clarity"])
+
+        # 3. Saved-run compatibility: an older state.json without workflow.clarity keeps the ceiling safely.
+        legacy = run_state()
+        legacy["workflow"].pop("clarity", None)
+        self.assertEqual(
+            ("high", "high", False, "not_small_clear"), _key(decide(legacy, "review_completion", "completion"))
+        )
+
     def test_a_climbed_route_keeps_the_ceiling(self):
         state = run_state(reasoning_escalations=[{"role": "completion"}])
         self.assertEqual("climbed", decide(state, "review_completion", "completion")["reason"])

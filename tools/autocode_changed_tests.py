@@ -12,15 +12,18 @@ try:
     from . import autocode_cargo_tests as cargo_tests
     from . import autocode_go_tests as go_tests
     from . import autocode_rust_inline_tests as rust_inline_tests
+    from . import autocode_test_parts as test_parts
 except ImportError:
     import autocode_cargo_tests as cargo_tests
     import autocode_go_tests as go_tests
     import autocode_rust_inline_tests as rust_inline_tests
+    import autocode_test_parts as test_parts
 
 
 def inline_tests(workspace, base, tests, sources, changes) -> tuple[list[str], list[str]]:
-    """Promote modified/added ``.rs`` files with changed inline ``#[cfg(test)]`` blocks to runnable tests."""
-    return rust_inline_tests.partition_tests(workspace, base, tests, sources, changes)
+    """The changed test files and the code files whose tests written inside them changed (a doctest, a
+    Rust doc example or ``#[cfg(test)]`` module; autocode_test_parts), with the product files."""
+    return test_parts.partition(workspace, base, tests, sources, changes)
 
 
 def proving(workspace, base, tests, sources, changes, test_side, is_code) -> tuple[list[str], list[str]]:

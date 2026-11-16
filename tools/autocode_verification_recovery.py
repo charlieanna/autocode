@@ -94,10 +94,15 @@ def admission_identity(active):
     return util.digest(active["identity"])
 
 
-def bind_command(out, check, *, preparation_cwd=None):
+def bind_command(out, check, *, preparation_cwd=None, scratch_root=None):
     """Authenticate static command custody without requiring a stopped process."""
     if not isinstance(check, dict):
         hold("runner check is missing")
+    if scratch_root is not None:
+        scratch_root = Path(scratch_root)
+        scratch_root = owned_path(scratch_root, scratch_root.parent, directory=True)
+        if scratch_root.name != "scratch" or not out.is_relative_to(scratch_root.parent):
+            hold("scratch and command output do not belong to the same proof")
     output = owned_path(check["output"], out)
     if output.parent != out or not isinstance(check.get("command"), str) or not check["command"]:
         hold("runner output or command does not bind this scheduled attempt")
@@ -121,7 +126,7 @@ def bind_command(out, check, *, preparation_cwd=None):
         or admission.get("output") != str(output)
         or admission.get("supervision") != metadata
         or not cwd.is_absolute()
-        or (cwd != preparation_cwd if preparation_cwd else not cwd.is_relative_to(out / "scratch"))
+        or (cwd != preparation_cwd if preparation_cwd else not cwd.is_relative_to(scratch_root or out / "scratch"))
         or cwd != cwd.resolve()
         or any(parent.is_symlink() for parent in (cwd, *cwd.parents))
     ):

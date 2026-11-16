@@ -387,7 +387,7 @@ class RunState(TypedDict, total=False):
     # task and the source revision (#3045); written only by autocode_implementation_discrepancy.record, read there
     # for the reviewers' context packet (autocode_stage_context) and the status view's implementation_discrepancy.
     implementation_discrepancies: list
-    acceptance_tests: dict  # spec-first receipts, redirect, contract-bound pending test names and the runner's own Tester rewrites; route pins names, job writes receipts and rewrites; read by job/check/run_view
+    acceptance_tests: dict  # spec-first receipts/history, redirect, contract-bound pending test names/evidence repair and bounded Tester rewrites; route pins, job qualifies receipts; read by job/check/run_view
     # autocode_acceptance_verification_retry owns nested verification_retry and verification_retries:
     # pinned completed reports, local retry counts and preserved failures; dispatch and public resume consume them.
     criteria_revision: str | None  # hash of the criteria; follow_up clears it before a fresh plan

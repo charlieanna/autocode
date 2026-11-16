@@ -389,10 +389,24 @@ Path({str(self.root / "collected-result.json")!r}).write_text(json.dumps(result)
         worker_identity = self.known[worker["pid"]]
         self.assertEqual(worker["pid"], worker_identity["group"], "Worker is not detached from the command group")
         ancestors = psutil.Process(command["pid"]).parents()
-        owner = next((parent for parent in ancestors if parent.ppid() == self.driver.pid), None)
-        self.assertIsNotNone(owner, "Verification command has no disposable CLI owner")
-        self.assertIn(str(TOOLS / "autocode.py"), owner.cmdline())
+        # Captured-process reapers can separate the driver and CLI. Identify the
+        # exact CLI inside this driver's ancestry rather than by wrapper depth.
+        owned = []
+        for parent in ancestors:
+            if parent.pid == self.driver.pid:
+                break
+            owned.append(parent)
+        else:
+            self.fail("Verification command is outside the disposable driver's ancestry")
+        owners = [parent for parent in owned if str(TOOLS / "autocode.py") in parent.cmdline()]
+        self.assertEqual(1, len(owners), "Verification command must have one exact disposable CLI owner")
+        owner = owners[0]
         owner_identity = self.capture(owner.pid)
+        capture_reapers = [
+            self.capture(parent.pid)
+            for parent in owned
+            if str(TOOLS / "autocode_capture_reaper.py") in parent.cmdline()
+        ]
         for parent in ancestors:
             if parent.pid == self.driver.pid:
                 break
@@ -452,6 +466,21 @@ Path({str(self.root / "collected-result.json")!r}).write_text(json.dumps(result)
                 "supervision": self.metadata,
             },
         )
+        # Freeze owned capture wrappers too: their caller-loss cleanup must not
+        # supply the independent verification keeper's native absence evidence.
+        for captured in capture_reapers:
+            self.signal_identity(captured, signal.SIGSTOP)
+        deadline = time.monotonic() + 10
+        while capture_reapers:
+            table = processes.process_table({row["pid"] for row in capture_reapers})
+            if all(
+                processes.matches(row, table.get(row["pid"])) and table[row["pid"]]["state"] == psutil.STATUS_STOPPED
+                for row in capture_reapers
+            ):
+                break
+            if time.monotonic() >= deadline:
+                self.fail("Owned capture wrappers did not reach the stopped fault barrier")
+            threading.Event().wait(0.02)
         # SIGKILL the advancing caller first. Its finally block cannot clean the
         # CLI or test tree, leaving the independent command keeper as the oracle.
         self.driver.kill()
@@ -472,8 +501,13 @@ Path({str(self.root / "collected-result.json")!r}).write_text(json.dumps(result)
                 self.fail("Verification keeper never recorded owner-loss cleanup")
         else:
             receipt = None
-        after = self.public_status(run)
         live = processes.live_processes([self.known[command["pid"]], worker_identity])
+        for captured in capture_reapers:
+            current = processes.process_table({captured["pid"]}).get(captured["pid"])
+            self.assertTrue(processes.matches(captured, current) and current["state"] == psutil.STATUS_STOPPED)
+        for captured in capture_reapers:
+            self.signal_identity(captured, signal.SIGCONT)
+        after = self.public_status(run)
         self.retain(
             "after-owner-loss.json",
             {

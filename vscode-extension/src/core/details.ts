@@ -232,7 +232,10 @@ export function pipelineSteps(view: Row, now = Date.now()): PipelineStep[] {
 function stageDetail(step: PipelineStep): string {
   if (step.state === "skipped") return `${step.label}: ${step.detail}`;
   const parts: string[] = [];
-  if (step.route) parts.push(step.state === "pending" || step.state === "next" || step.state === "not_run" ? `will run on ${step.route}` : step.route);
+  const unrun = step.state === "pending" || step.state === "not_run";
+  if (unrun) parts.push("not run");
+  else if (step.state === "next") parts.push("next");
+  if (step.route) parts.push(unrun || step.state === "next" ? `saved route: ${step.route}` : step.route);
   if (step.runs) parts.push(step.why ? `${step.runs}, the last ${step.why === "answer rejected" ? "with its answer rejected" : step.why}` : step.runs);
   return parts.length ? `${step.label}: ${parts.join("; ")}` : step.label;
 }
@@ -643,7 +646,7 @@ function routesSection(view: Row): DetailSection | null {
     }
   }
   if (!lines.length) return null;
-  return { id: "routes", title: "Models for the next attempts", summary: `${Object.keys(mapping(view.routes)).length} routes`, lines };
+  return { id: "routes", title: "Models", summary: counted(Object.keys(mapping(view.routes)).length, "saved route", "saved routes"), lines };
 }
 
 // ---- Verification: `verification`, `delivery`, `review_result` -------------------------------
@@ -721,7 +724,7 @@ function pathSection(view: Row): DetailSection | null {
     lines.push(`Fell back at ${text(fallback.from) || "a review"}: ${text(fallback.reason) || "unknown reason"}`
       + (fallback.review_call_refunded === true ? "; the review call was refunded" : ""));
   }
-  const summary = path === "compact" ? "Compact: some planning left out" : path === "full" ? "Full: every stage runs" : "Unknown";
+  const summary = path === "compact" ? "Compact planning path" : path === "full" ? "Full planning path" : "Unknown";
   return { id: "path", title: "Planning path", summary, lines };
 }
 

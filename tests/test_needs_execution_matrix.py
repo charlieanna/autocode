@@ -171,6 +171,12 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
                 self.assertEqual(scope, view["needs"]["resolver_scope"])
         asked = view["progress"]["needs_you"]
         need = view["needs"]
+        if (view.get("recovery") or {}).get("category") == "blocked" and view["chat"]["input"] is None:
+            # The operator contract still exposes the existing named action, while
+            # the person-facing progress does not ask for internal machinery.
+            self.assertEqual("nothing needed from you", asked)
+            self.assertTrue(view.get("next_command"))
+            return view
         terms = {
             "approve_plan": ("approval",),
             "answer": ("answer",),

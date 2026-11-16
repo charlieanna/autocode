@@ -221,6 +221,24 @@ def brief_size(task: str) -> str:
     return "small" if words <= 120 and numbered <= 8 else "medium"
 
 
+def seal_clarity(state: RunState, report: dict, *, open_questions=()) -> str | None:
+    """Seal initial per-turn clarity and brief_size from the turn's first Requirements pass (#3651)."""
+    workflow = state.get("workflow")
+    if not isinstance(workflow, dict):
+        return None
+    workflow.setdefault("brief_size", brief_size(state.get("task") or ""))
+    if not adaptive.enabled(state):
+        return None
+    existing = workflow.get("clarity")
+    if existing in adaptive.CLARITY:
+        return str(existing)
+    judged = "vague" if list(open_questions or ()) else report.get("clarity")
+    if judged in adaptive.CLARITY:
+        workflow["clarity"] = judged
+        return str(judged)
+    return None
+
+
 def _start(state: RunState, value: dict, record: dict) -> None:
     """Save the job's kind and start the build pipeline's entry (``then``), or the Design Reviewer
     for a build of an approved design document."""
@@ -236,12 +254,13 @@ def _start(state: RunState, value: dict, record: dict) -> None:
         "output": record.get("output"),
         "then": then,
     }
-    if adaptive.enabled(state) and value.get("clarity"):
-        state["workflow"]["clarity"] = value["clarity"]
+    sealed_clarity = previous.get("clarity") if previous.get("clarity") in adaptive.CLARITY else value.get("clarity")
+    if adaptive.enabled(state) and sealed_clarity in adaptive.CLARITY:
+        state["workflow"]["clarity"] = sealed_clarity
     # A brief-only size signal available before planning (#1564): the plan does not exist yet, so
     # the durable plan_size finalization happens at first review admission. Reuses adaptive's
     # small/medium/large vocabulary, not a second one.
-    state["workflow"]["brief_size"] = brief_size(state.get("task") or "")
+    state["workflow"]["brief_size"] = previous.get("brief_size") or brief_size(state.get("task") or "")
     design = approved_design(state, value)
     if design:
         state["workflow"]["design_document"] = design

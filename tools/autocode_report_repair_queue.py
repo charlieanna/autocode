@@ -147,7 +147,9 @@ def queue(state: RunState, record, error, *, completed: Callable[[], bool]) -> b
             "contract_hash": (state.get("goal_contract") or {}).get("hash"),
             # The original report is bound once, when it is first rejected.
             # A later repair must not silently bind it to changed user input.
-            "revalidation_context": revalidation_binding.context(state, record["stage"]),
+            "revalidation_context": (
+                revalidation_binding.context(state, record["stage"]) if record.get("stage") else None
+            ),
             "pins": {
                 record[key]: util.file_hash(record[key])
                 for key in ("events", "before_ref", "after_ref", "schema")

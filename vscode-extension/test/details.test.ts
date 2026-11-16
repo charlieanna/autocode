@@ -330,7 +330,7 @@ test("the planning path and the stage decisions say what the core decided and wh
   ];
   const header = runHeader(view({ stage_policy: policy, stage_decisions: decisions }))!;
   assert.deepEqual([section(header, "path")!.summary, ...section(header, "path")!.lines], [
-    "Compact: some planning left out",
+    "Compact planning path",
     "Planner draft: omitted (the diagnosis is enough)",
     "  Covered by: the runner's draft from the diagnosis, the Plan Reviewer, something_new",
     "Fell back at review_plan: the review blocked the draft; the review call was refunded",
@@ -447,7 +447,7 @@ test("each stage shows the model, level, time, tokens and spend its own attempts
     "● Planner: claude-opus-5-5 high",
     "  Now: reading files",
     "  Latest: The CSV writer drops the header row",
-    "· Plan Reviewer: will run on claude-opus-5-5 medium",
+    "· Plan Reviewer: not run; saved route: claude-opus-5-5 medium",
   ]);
   // Before anything ran there is nothing to say under the table, and no total.
   const before = runHeader(view({ pipeline: [step("requirements", "Requirements", "next", { model: "claude-sonnet-5-5", reasoning_effort: "medium" })] }));
@@ -706,3 +706,44 @@ test("the reason a run waits for never shows a command to type", () => {
   const recorded = section(stopped, "where")?.lines.join("\n") ?? "";
   assert.doesNotMatch(recorded, /--resolver-request|AUTOCODE_RESOLVER_TOKEN|autocode resume/);
 });
+
+for (const context of ["working", "paused", "stopped", "blocked", "done"] as const) {
+  for (const path of ["full", "compact"] as const) {
+    test(`recorded stage evidence: ${context}, ${path} policy never promises unrun work`, () => {
+      const working = context === "working";
+      const value = view({
+        status: working ? "RUNNING" : context === "done" ? "TASK_COMPLETE" : "PAUSED_INTERVENTION",
+        done: context === "done",
+        summary: { state: context === "paused" ? "needs_you" : context, label: context, sentence: "Recorded state." },
+        pipeline: [
+          step("requirements", "Requirements", working ? "working" : "ran", { model: "provider/requirements-model" }),
+          step("planner", "Planner", working ? "next" : "pending", { model: "provider/planner-model", reasoning_effort: "high" }),
+          step("builder", "Builder", "pending", { model: "provider/builder-model", reasoning_effort: "medium" }),
+          step("tester", "Tester", "not_run"),
+          step("plan_reviewer", "Plan Reviewer", "skipped", { reason: "Recorded compact coverage" }),
+        ],
+        routes: { builder: { job: "Builder", model: "provider/builder-model", reasoning_effort: "medium" } },
+        escalations: [{ job: "Builder", from: "prior-model", to: "provider/builder-model", trigger: "prior failure", outcome: "failure evidence retained" }],
+        stage_policy: { path, decisions: [{ stage: "draft_plan", decision: "included", reason: "Recorded policy choice" }], reasons: [] },
+      });
+      const header = runHeader(value)!;
+      const stages = section(header, "pipeline")!;
+      assert.ok(stages.lines.includes("· Builder: not run; saved route: provider/builder-model medium"), stages.lines.join("\n"));
+      assert.ok(stages.lines.includes("· Tester: not run"), "absence of a configured route still says it has not run");
+      assert.ok(stages.lines.includes("– Plan Reviewer: skipped: Recorded compact coverage"));
+      assert.equal(header.pipeline[0]!.state, working ? "working" : "ran", "the Core's observed job state is preserved");
+      assert.equal(header.pipeline[1]!.state, working ? "next" : "pending");
+      assert.equal(stages.summary, working ? "Requirements working" : "1 of 5 ran");
+      assert.ok(stages.lines.includes(working ? "› Planner: next; saved route: provider/planner-model high" : "· Planner: not run; saved route: provider/planner-model high"));
+      const routes = section(header, "routes")!;
+      assert.equal(routes.title, "Models");
+      assert.equal(routes.summary, "1 saved route");
+      assert.ok(routes.lines.includes("Builder: provider/builder-model · medium"));
+      assert.ok(routes.lines.includes("  Outcome: failure evidence retained"), "recorded route history is retained");
+      const policy = section(header, "path")!;
+      assert.equal(policy.summary, path === "full" ? "Full planning path" : "Compact planning path");
+      assert.ok(policy.lines.includes("Planner draft: included (Recorded policy choice)"));
+      assert.doesNotMatch(header.sections.map((row) => [row.title, row.summary, ...row.lines].join("\n")).join("\n"), /will run on|Models for the next attempts|every stage runs/);
+    });
+  }
+}
