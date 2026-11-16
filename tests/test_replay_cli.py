@@ -12,7 +12,7 @@ from unittest.mock import Mock
 
 import autocode_replay_cli as cli
 import autocode_replay_view as replay_view
-from autocode_replay_recording import Recording, RecordingError
+from autocode_replay_recording import Recording, RecordingError, match_action
 from autocode_taskrun import TaskRun
 
 
@@ -286,6 +286,70 @@ class ReplayApprovalTest(unittest.TestCase):
                 with self.assertRaisesRegex(RecordingError, "operator request differs"):
                     cli._action(task, self.action(), current, tape())
                 task.approve_plan.assert_not_called()
+
+
+class ReplayQuestionPolicyTest(unittest.TestCase):
+    def exported(self, kind, question):
+        event = {
+            "kind": kind,
+            "at": "2026-11-16",
+            "question_id": question["id"],
+            "question": question,
+            "questions": [question],
+            "gate_kind": "requirements",
+            "text": "CLI",
+        }
+        return replay_view.project({"user_events": [event]})["actions"][0]
+
+    def test_each_question_action_matches_the_public_answer_policy(self):
+        for kind in ("gate_message", "answer", "delegated", "checkpoint_answer"):
+            for options, custom in (([], True), (["CLI", "Web"], True), (["CLI", "Web"], False)):
+                with self.subTest(kind=kind, options=options, custom=custom):
+                    question = {
+                        "id": "Q1",
+                        "question": "Which interface?",
+                        "why": "Choose scope",
+                        "options": options,
+                        "proposed_default": "CLI",
+                        "allow_custom": custom,
+                    }
+                    action = self.exported(kind, question)
+                    current = {"needs": {"kind": "answer", "questions": [question]}}
+                    self.assertEqual(action["payload"], match_action(None, action, current))
+
+    def test_old_event_questions_receive_the_same_derived_policy_as_status(self):
+        for kind, ident, custom in (
+            ("gate_message", "requirements-review-1", True),
+            ("answer", "Q1", True),
+            ("delegated", "route-builder", False),
+            ("checkpoint_answer", "checkpoint-1", False),
+        ):
+            with self.subTest(kind=kind):
+                question = {
+                    "id": ident,
+                    "question": "Proceed?",
+                    "why": "Choose scope",
+                    "options": ["CLI"],
+                    "proposed_default": "CLI",
+                }
+                action = self.exported(kind, question)
+                current = {"needs": {"kind": "answer", "questions": [{**question, "allow_custom": custom}]}}
+                self.assertEqual(action["payload"], match_action(None, action, current))
+
+    def test_changed_answer_policy_still_refuses_replay(self):
+        for custom in (False, True):
+            question = {
+                "id": "Q1",
+                "question": "Which interface?",
+                "why": "Choose scope",
+                "options": ["CLI", "Web"],
+                "proposed_default": "CLI",
+                "allow_custom": custom,
+            }
+            action = self.exported("answer", question)
+            current = {"needs": {"kind": "answer", "questions": [{**question, "allow_custom": not custom}]}}
+            with self.assertRaisesRegex(RecordingError, "operator request differs"):
+                match_action(None, action, current)
 
 
 if __name__ == "__main__":
