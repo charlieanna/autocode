@@ -29,9 +29,11 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_roles as roles
+    from . import autocode_stage_activity as stage_activity
     from . import autocode_stage_policy as stage_policy
 except ImportError:
     import autocode_roles as roles
+    import autocode_stage_activity as stage_activity
     import autocode_stage_policy as stage_policy
 
 RUN, SKIP = "run", "skip"
@@ -45,7 +47,7 @@ def _mapping(value) -> dict:
     return value if isinstance(value, dict) else {}
 
 
-def _launches(state: RunState) -> list[dict]:
+def _launches(state: RunState, liveness=None) -> list[dict]:
     """Saved launches, then the running one; report repairs and runner-only steps are left out."""
     stages = state.get("stages")
     records = [*(stages if isinstance(stages, list) else []), state.get("active_stage")]
@@ -57,6 +59,7 @@ def _launches(state: RunState) -> list[dict]:
         and not record["stage"].endswith("_report_repair")
         and not record.get("report_only")
         and roles.job_for_stage(record["stage"], state) is not None
+        and stage_activity.launched(record, liveness if record is state.get("active_stage") else None)
     ]
 
 
@@ -103,10 +106,10 @@ def _skips(state: RunState) -> list[tuple[str, str, str, tuple[str, ...]]]:
     return found
 
 
-def view(state: RunState) -> list[dict]:
+def view(state: RunState, *, liveness=None) -> list[dict]:
     """The status view's ``stage_decisions``: a ``run`` row per launched stage, a ``skip`` row per passed-over one."""
     rows: list[dict] = []
-    for record in _launches(state):
+    for record in _launches(state, liveness):
         row = next((row for row in rows if row["stage"] == record["stage"]), None)
         if row is None:
             row = _row(state, record["stage"], RUN)

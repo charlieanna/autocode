@@ -46,6 +46,7 @@ def checked(*rows, revision="r2", output="tester-2", contract_hash="h1"):
 
 
 def project(saved, accepted=(), stage="Builder", **options):
+    options.setdefault("liveness", {"kind": "supervised", "receipt": {"provider": {"pid": 103}}})
     return progress_view.progress(saved, accepted=accepted, stage=stage, needs=run_view.needs(saved), **options)
 
 

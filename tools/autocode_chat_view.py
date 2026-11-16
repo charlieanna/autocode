@@ -26,6 +26,7 @@ try:
     from . import autocode_requirements_review as requirements_review
     from . import autocode_run_status as run_status
     from . import autocode_scope_question as scope_question
+    from . import autocode_stage_activity as stage_activity
 except ImportError:
     import autocode_acceptance_tests_job as acceptance_tests_job
     import autocode_chat_history as history
@@ -36,6 +37,7 @@ except ImportError:
     import autocode_requirements_review as requirements_review
     import autocode_run_status as run_status
     import autocode_scope_question as scope_question
+    import autocode_stage_activity as stage_activity
 
 
 # The id prefix of the Requirements question the chat is waiting on; the rest names the question.
@@ -179,7 +181,7 @@ def tester_disagreement(public) -> str:
     return text + " Tell me how the plan should change; the Tester then runs again on the revised plan."
 
 
-def notice(public):
+def notice(public, *, state=None):
     """Explain the next human step without exposing the diagnostic dashboard."""
     status = public.get("status") or ""
     recovery = public.get("recovery") or {}
@@ -213,8 +215,7 @@ def notice(public):
     if status.startswith("PAUSED"):
         return stopped(public)
     if status == "RUNNING":
-        liveness = public.get("liveness") or {}
-        if isinstance(liveness, dict) and liveness.get("kind") in ("supervised", "unsupervised"):
+        if stage_activity.working_stage(state or {}, public.get("liveness")) is not None:
             return "Working on your request…"
         return None
     return None
@@ -501,7 +502,7 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
         "context": context_token,
         "input": message_input,
         "review": review,
-        "notice": notice(public),
+        "notice": notice(public, state=state),
         "phase": "requirements"
         if requirements_chat.enabled(state) and state.get("next_stage") in ("requirements_gather", "draft_plan")
         else None,
