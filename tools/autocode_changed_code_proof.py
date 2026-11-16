@@ -218,7 +218,7 @@ def selected_tests(framework, result):
         tests = sorted(((checks.get(label) or {}).get("results") or {}).get("passed") or [])
         choices.append((package, command, tests))
         narrowed = proof_stability.narrow(name, command, tests) if command and tests else None
-        if narrowed and python_tests.parse(narrowed) is not None:
+        if narrowed and python_tests.parse(narrowed, include_owned=True) is not None:
             return package, command, tests
     return choices[-1]
 

@@ -77,7 +77,7 @@ def isolated(command, cache) -> str:
     for child interpreters that ignore this environment. A new collection starts with a fresh cache.
     ``PYTHONDONTWRITEBYTECODE=`` overrides ``test_environment``'s ``1`` so Python populates ``cache``.
     """
-    invocation = python_tests.parse(command)
+    invocation = python_tests.parse(command, include_owned=True)
     prefix = [
         word
         for word in (list(invocation.prefix) or ["env"])
@@ -241,7 +241,7 @@ def _collect(
     if not tests:
         return record("no judged test is named after a due case, so the mutation check ran no test")
     narrowed = proof_stability.narrow(framework_name, command, tests)
-    if not narrowed or python_tests.parse(narrowed) is None:
+    if not narrowed or python_tests.parse(narrowed, include_owned=True) is None:
         return record("this runner cannot select the proving tests alone, so the mutation check ran no test")
     root = Path(tree).resolve()
     rows, planned = [], []

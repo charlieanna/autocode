@@ -36,6 +36,15 @@ class CollectorSelectionTests(unittest.TestCase):
             "results": python_tests.unittest_results(result.stderr, component=True),
         }
 
+    def test_named_selection_does_not_claim_file_targeting_for_home_discovery(self):
+        command = self.command("--root", ".", "--components", "one-service")
+        self.assertIsNone(python_tests.parse(command), "module-only consumers must not reinterpret an owned script")
+        invocation = python_tests.parse(command, include_owned=True)
+        self.assertIsNone(invocation.targeted(["components/one-service/test_answer.py"]))
+        self.assertIsNotNone(
+            stability.narrow("unittest", command, ["components.one-service.test_answer.Answer.test_selected"])
+        )
+
     def test_parent_hook_and_root_tests_keep_their_own_collection(self):
         (self.root / "components").mkdir()
         (self.root / "components/__init__.py").write_text(

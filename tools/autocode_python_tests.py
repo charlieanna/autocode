@@ -294,7 +294,9 @@ class Invocation:
         original suite, which still supplies named base/candidate results.
         """
         if self.script:
-            return self.render()  # Keep the collector's package hooks and isolated import contexts.
+            # Named-test filtering is supported; selecting files would bypass hooks
+            # or pretend the whole suite establishes where an individual file loads.
+            return None
         if self.kind != "pytest":
             return self._targeted_unittest(files)
         values = {
@@ -370,7 +372,12 @@ class Invocation:
         return shlex.join([*self.prefix, self.python, "-m", "unittest", "-v", *kept, *files])
 
 
-def parse(command):
+def parse(command, *, include_owned=False):
+    """Parse module invocations; selection-aware consumers may opt into owned collectors.
+
+    File discovery, widening and rewrite consumers retain their module-only contract.
+    Recognizing a script for named selection does not give it those capabilities.
+    """
     """Accept Python directly or behind env with literal NAME=value assignments."""
     if not isinstance(command, str) or re.search(r"[;&|<>`$\n]", command):
         return None
@@ -385,7 +392,8 @@ def parse(command):
             offset += 1
     tail = words[offset:]
     if (
-        len(tail) >= 2
+        include_owned
+        and len(tail) >= 2
         and re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", Path(tail[0]).name)
         and Path(tail[1]).is_absolute()
         and Path(tail[1]).resolve() == Path(__file__).with_name("autocode_component_tests.py").resolve()

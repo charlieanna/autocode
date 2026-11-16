@@ -187,7 +187,7 @@ def narrow(framework_name, command, test_ids, *, directory=None) -> str | None:
         return package_scope.command(directory, narrowed) if narrowed else None
     if not command or not test_ids or SHELL.search(command):
         return None
-    invocation = python_tests.parse(command)
+    invocation = python_tests.parse(command, include_owned=True)
     if invocation and invocation.kind == "unittest":
         selectors = [test.replace("::", ".") for test in test_ids]
         if invocation.discovers:

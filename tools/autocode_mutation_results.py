@@ -14,7 +14,7 @@ STOP_POLICY = "stop_after_selected_failure_v1"
 
 def stop_command(command):
     """Keep collection and selectors, adding the runner's early-stop option first."""
-    invocation = python_tests.parse(command)
+    invocation = python_tests.parse(command, include_owned=True)
     arguments = list(invocation.arguments)
     if "--" in arguments:
         return command  # Do not reinterpret a positional argument as a runner option.
@@ -30,7 +30,7 @@ def stops_after_failure(command):
     # A package's run enters its directory first (``cd PACKAGE && RUNNER``, autocode_package_scope.command):
     # the runner inside is the one that stops. Read as the whole command, it was no runner at all, so every
     # mutant a package's test caught counted as not run and each changed line there was left without evidence.
-    invocation = python_tests.parse(package_scope.within(command))
+    invocation = python_tests.parse(package_scope.within(command), include_owned=True)
     if invocation is None:
         return False
     arguments = list(invocation.arguments)
