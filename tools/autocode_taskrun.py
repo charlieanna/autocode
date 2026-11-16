@@ -543,13 +543,19 @@ class TaskRun:
 
     def advance_until_input(self, max_calls: int = 20) -> dict:
         """Advance while the run needs nothing from the caller."""
+
+        def continues(current):
+            return not current["done"] and current["needs"] is not None and current["needs"]["kind"] == "continue"
+
         view = self.status()
         for _ in range(max_calls):
-            if view["done"] or view["needs"]["kind"] != "continue":
+            if not continues(view):
                 return view
             # A run that moved to its own worktree to build (autocode_build_worktree) has progressed too.
             before = (view["status"], view["next_stage"], view["iteration"], view["phase"], view.get("run_dir"))
             view = self._advance(view)
+            if not continues(view):
+                return view
             if (view["status"], view["next_stage"], view["iteration"], view["phase"], view.get("run_dir")) == before:
                 raise TaskRunError(f"no progress at {view['status']} (next stage {view['next_stage']})")
         raise TaskRunError(f"still not stopped after {max_calls} relaunches")
