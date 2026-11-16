@@ -5,15 +5,13 @@ In check mode (``run is None``) only the delivery is scored: the greeting is rig
 the greeting tests are the seed's, so the controls reject the seed and every broken overlay and accept the reference.
 With a run it also checks, from the scripted run's trace and the public status view, that:
 
-- the Tester ran the same check twice and it failed both times, and the run then stopped without a third Builder
-  attempt or a paid diagnosis;
-- the stop names that check and says there was no progress on it, and is not a budget stop;
+- the Tester failed the same check every time, and the run ended after the Builder's ladder (an ordinary attempt,
+  then the stronger attempt a repeat goes to) with no paid diagnosis and no stage after the last review;
+- AutoCode ended the run itself (#2485): the stop names that check, asks the person nothing (no needs, no command)
+  and is not a budget stop. Before #2485 the run held for a person to authorize a retry, and its stop stated the
+  spend and time left for that decision; no person decides now, so the view's cost carries them;
 - the run stopped with budget left: the view's cost shows the scenario's cap and less spent, and the run's active
-  time is under its time budget. A scripted run never comes near either bound, so this reads only that the stop
-  reports what is left. A loop that keeps spending fails the first item's checks: a third attempt or a diagnosis;
-- the stop's own text states that spend and that cap, as the view's cost has them, and the run's active time and
-  its time limit, as the run saved them, so a person deciding whether to retry sees what is left without asking for
-  the status.
+  time is under its time budget. A loop that keeps spending fails the ladder check.
 """
 
 import hashlib
@@ -66,8 +64,8 @@ def check(project, scenario, run=None):
     testers = [row for row in rows if row["stage"] == "tester"]
     checks.append(
         Check(
-            "same_check_failed_twice",
-            len(testers) == 2
+            "same_check_failed_every_time",
+            len(testers) >= 2
             and all(row["command"] == scenario.fake_check and row["exit_code"] not in (0, None) for row in testers),
             repr([(row["command"], row["exit_code"]) for row in testers]),
         )
@@ -75,25 +73,34 @@ def check(project, scenario, run=None):
     stages = [
         stage
         for stage in run.get("model_stages") or []
-        if stage in ("builder", "tester", "review_completion", "resolve")
+        if stage in ("builder", "tester", "review_completion", "resolve", "investigate_stuck")
     ]
+    # The Builder's ladder: one ordinary attempt, and a repeat goes straight to the stronger attempt (#611);
+    # the run then ends. No paid diagnosis, and no stage after the last review.
     checks.append(
         Check(
-            "stopped_without_another_attempt",
-            stages == ["builder", "tester", "review_completion"] * 2,
+            "ended_after_the_ladder_without_a_diagnosis",
+            2 <= stages.count("builder") <= 3
+            and "investigate_stuck" not in stages
+            and bool(stages)
+            and stages[-1] == "review_completion",
             f"stages after planning: {stages}",
         )
     )
     reason = str(view.get("stop_reason") or "")
     origin = str((view.get("needs") or {}).get("pause_origin") or "")
+    # #2485: AutoCode ends the run itself with a recorded outcome that names the failing check; a person is
+    # asked nothing (no needs, no command), and it is not a budget stop.
     checks.append(
         Check(
-            "stop_names_the_check_and_no_progress",
+            "ended_naming_the_check_and_asking_nothing",
             view.get("done") is not True
-            and f"({scenario.fake_check})" in reason
-            and "no causal progress for the same incident" in reason.lower()
+            and reason.startswith("AutoCode could not finish this task: ")
+            and scenario.fake_check in reason
+            and view.get("needs") is None
+            and not view.get("next_command")
             and not any(re.search(r"(BUDGET|LIMIT|TIMEOUT)$", word) for word in (status, origin)),
-            f"status {status!r}; origin {origin!r}; stop {reason[:300]!r}",
+            f"status {status!r}; origin {origin!r}; needs {view.get('needs')!r}; stop {reason[:300]!r}",
         )
     )
     cost = view.get("cost") or {}
@@ -113,31 +120,6 @@ def check(project, scenario, run=None):
             and isinstance(allowed, (int, float))
             and active < allowed,
             f"cost spent {spent} of cap {cost.get('cap_usd')} (scenario {cap}); active {active} s of {allowed} s",
-        )
-    )
-    stated = re.search(r"Cost: (?:at least )?\$([\d,]+\.\d+) so far.*?; cap \$([\d,]+\.\d+)\.", reason)
-    checks.append(
-        Check(
-            "stop_states_spend_and_cap",
-            stated is not None
-            and cap is not None
-            and isinstance(spent, (int, float))
-            and abs(float(stated[1].replace(",", "")) - spent) <= 0.005 + 1e-9
-            and float(stated[2].replace(",", "")) == cap,
-            f"stop {stated[0] if stated else reason[-300:]!r}; view spent {spent}, cap {cost.get('cap_usd')}",
-        )
-    )
-    # The stop shows seconds to one decimal place; no stage runs after the hold, so the saved time is the stated one.
-    timed = re.search(r"Active time: ([\d,.]+) s of the ([\d,.]+) s limit\.", reason)
-    checks.append(
-        Check(
-            "stop_states_active_time_and_limit",
-            timed is not None
-            and isinstance(active, (int, float))
-            and isinstance(allowed, (int, float))
-            and abs(float(timed[1].replace(",", "")) - active) <= 0.05 + 1e-9
-            and float(timed[2].replace(",", "")) == allowed,
-            f"stop {timed[0] if timed else reason[-300:]!r}; saved active {active} s of {allowed} s",
         )
     )
     return checks
