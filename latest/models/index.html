@@ -2178,7 +2178,7 @@
 
 
 <h1 id="models-roles-and-escalation">Models, roles, and escalation<a class="headerlink" href="#models-roles-and-escalation" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/6b4cb37c7b798b772d0d4ba19ade669556db68cf/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/ad720739d6ccdad6f5f9fe53557fade2ba396a21/README.md">← Back to README</a></p>
 <h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
 <p>Every stage of a run has a <strong>role</strong>. Role names describe responsibilities, not
 mandatory models — each role can select any provider/model from <code>opencode models</code>
@@ -2350,7 +2350,7 @@ review allowance leaves room for it (a large plan, <code>plan_review_call_limit<
 final review and the Planner never climbs. If the stronger revision is still blocked, the
 final review returns the open concerns to you as blocking questions.</p>
 <p>Two scripted scenarios check these rows end to end, through <code>autocode --status --json</code>
-(<a href="https://github.com/charlieanna/autocode/blob/6b4cb37c7b798b772d0d4ba19ade669556db68cf/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
+(<a href="https://github.com/charlieanna/autocode/blob/ad720739d6ccdad6f5f9fe53557fade2ba396a21/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
 attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
 Sol XHigh, one attempt with its cost, <code>passed</code>, and the run completes; <code>escalation_outcomes</code>
 stamps that attempt and the ordinary retry before it <code>passed</code> too. In <code>escalation-ladder-end</code>
@@ -2596,6 +2596,21 @@ answered, so nothing is planned or built, and each run's own money cap is what t
 A model runs the three quick requests first and the other six only when it passes them. A report
 the runner had to send back for repair counts against the model. Choosing the models in Stage
 models before setup is the next part.</p>
+<p>The Planner has its own probe (<code>autocode_planner_probe</code>): seven requests on the same project, from
+a one-line bug fix to a feature across several outputs, a cache design and a request that forbids
+editing a test file. Each runs to plan approval, which the probe never gives, and the plan is graded
+from what the run shows: the first report accepted, the Plan Reviewer's approval within two rounds,
+the files the request needs changed and none it forbids, a test for every criterion, a small plan
+for a small fix, and the run finished within 30 minutes. The Plan Reviewer is the measuring
+instrument, so you name it, and a candidate of its family gets the next one you name:</p>
+<pre><code class="language-sh">autocode probe --stage planner --measure openai/gpt-6.1-sol high --measure anthropic/claude-opus-5-5 medium \
+  --checker anthropic/claude-opus-5-5 high --checker openai/gpt-6.1-sol high \
+  --requirements zai-coding-plan/glm-5.3 low --max-cost-usd 30
+</code></pre>
+<p>A Planner qualifies when it has run all seven requests and passed at least five. Every request but
+the first runs on a copy whose unrelated failing test is fixed, so a Planner is not asked about a
+failure the request never mentioned. Whether a plan's approach is right still needs reading; the
+Plan Reviewer's approval stands in for it.</p>
 <p>OpenCode and Kilo reasoning variants come from their local verbose model listings.
 An unsupported qualified level is omitted so the model uses its default. When older
 tools cannot report variants, the recorded qualification level is used. Preflight
