@@ -6,7 +6,7 @@ new attempt remains subject to the ordinary stage, model and spending gates.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -48,7 +48,7 @@ def _settle(runner, state: RunState, run_dir, workspace, inspection):
     evidence = proof(state, workspace, inspection)
     if evidence is None:
         return False
-    record = state["active_stage"]
+    record = cast(dict, state["active_stage"])  # The proof checked the active record under the writer lock.
     selected = records.attempt_id(record)
     stage = record["stage"]
     reason = (

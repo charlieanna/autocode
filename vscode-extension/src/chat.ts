@@ -935,8 +935,8 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   }
 
   // A failed startup read or a held folder must not lose the first message's automatic continuation.
-  private async continueWhenReady(tab: ChatTab, before: StatusView | undefined, now: StatusView): Promise<void> {
-    if (!tab.run) return;
+  private async continueWhenReady(tab: ChatTab, before: StatusView | undefined, now: StatusView | null): Promise<void> {
+    if (!tab.run || !now) return;
     let reconcile: string | undefined;
     if (now.needs?.kind === "continue" && now.next_command && !isWorking(now)) {
       try {
