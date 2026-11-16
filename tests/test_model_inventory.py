@@ -161,13 +161,17 @@ class NativeStartupInventoryTests(unittest.TestCase):
             "Greeting tool",
             command=[sys.executable, str(bootstrap), str(repo / "tools/autocode.py")],
             options=("--evidence-provenance", "fake", "--allow-uncontained-tools"),
-            start_options=("--pause-after-stage",),
+            # Requirements questions hold dispatch independently of a stage pause.
+            # Stop before the Planner so resuming must probe admission anew.
+            start_options=("--skip-requirements", "--pause-after-stage"),
             env=self.env,
             cwd=self.root,
             timeout=60,
         )
         self.assertEqual(["models"], observations.read_text().splitlines())
         started = run.status()
+        self.assertEqual("PAUSED_REQUESTED", started["status"])
+        self.assertEqual("resume", started["needs"]["kind"])
         attempts = started["usage"]["accounting"]["attempts"]
         self.assertTrue(attempts, "The real CLI reached its first fixture provider dispatch")
         self.assertIsNone(started["interaction_timing"]["first_builder_at"])
