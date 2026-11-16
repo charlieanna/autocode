@@ -348,6 +348,15 @@ class RunViewTests(unittest.TestCase):
             [{"id": "R1", "text": "Print Hello NAME", "source_quote": "greeting CLI"}], req_view["requirements"]
         )
         self.assertEqual(["greet.py Ana -> Hello, Ana"], req_view["acceptance_tests"])
+        self.assertEqual((None, None), (req_view["job"], req_view["clarity"]), "a report that named none")
+        named = copy.deepcopy(state)
+        named["requirements_handoff"]["report"].update({"job": "bugfix", "clarity": "clear"})
+        self.assertEqual(
+            ("bugfix", "clear"),
+            (run_view.view(named)["requirements"]["job"], run_view.view(named)["requirements"]["clarity"]),
+        )
+        named["requirements_handoff"]["report"].update({"job": "invent", "clarity": "maybe"})
+        self.assertEqual((None, None), tuple(run_view.view(named)["requirements"][k] for k in ("job", "clarity")))
         self.assertEqual(["README says exit 1 while brief leaves exit code unspecified"], req_view["conflicts"])
         self.assertEqual(1, len(req_view["proposed_assumptions"]))
         self.assertEqual("A1", req_view["proposed_assumptions"][0]["id"])

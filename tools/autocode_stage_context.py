@@ -13,10 +13,12 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_changed_code_review as changed_code_review
     from . import autocode_execution_prompt as execution_prompt
     from . import autocode_prompt_layout as prompt_layout
     from . import autocode_prompts as prompts
 except ImportError:
+    import autocode_changed_code_review as changed_code_review
     import autocode_execution_prompt as execution_prompt
     import autocode_prompt_layout as prompt_layout
     import autocode_prompts as prompts
@@ -283,6 +285,12 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
         proof = regression.handoff(state)
         if proof:
             base["regression_proof"] = proof
+            if stage in ("tester", "review_checkpoint"):
+                citation = changed_code_review.proof_reference(
+                    state.get("regression_proof") or {}, (state.get("regression_proof") or {}).get("source_revision")
+                )
+                if citation:
+                    base["changed_code_citation_context"] = citation
             proof_note = regression.PROMPT_NOTES["passed" if proof["verdict"] == "PASS" else "open"][
                 "validator" if stage == "tester" else "owner"
             ] + regression.mutation_note(proof)

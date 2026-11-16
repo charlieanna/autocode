@@ -44,6 +44,8 @@ State keys written here:
     task: rewritten to the follow-up, followed by the earlier request (and what it wrote) as
         context, so every later stage reads what the user now wants. The original request stays
         in turns.
+    current_task, task_archive: the finished assignment moves to the existing archive when the
+        next turn starts, so it cannot be mistaken for that turn's assignment while planning.
 """
 
 from __future__ import annotations
@@ -192,6 +194,10 @@ def accept(state: RunState, text: str, workspace, now: str) -> None:
         f"{say}\n\nThis follows up an earlier request in the same conversation"
         f" ({previous['workflow'] or 'a finished job'}{_named(cast('list[str]', previous['wrote']))}): {previous['task']}",
     )
+    # A finished assignment is history, not work on the new request. Preserve it where
+    # later evidence and carry-forward readers already look, before any new stage sees it.
+    if state.get("current_task"):
+        state.setdefault("task_archive", []).append(state.pop("current_task"))
     # A completed human turn has its own default review allowance. Historical
     # charges remain archived; explicit run-wide limits and cumulative usage stay.
     planning_cycle.new_cycle(state, new_turn=True)
