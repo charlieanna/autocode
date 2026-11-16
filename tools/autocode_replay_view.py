@@ -134,6 +134,12 @@ def _projectable(state: RunState):
             event.get("question")
         ):
             return False
+        if (
+            event.get("kind") in ("answer", "delegated", "checkpoint_answer", "gate_message")
+            and event.get("questions") is not None
+            and not _dict_rows(event.get("questions"))
+        ):
+            return False
     validations = [state.get("validation") or {}]
     for entry in state.get("validation_archive") or []:
         if not _optional_dict(entry.get("validation")):
@@ -354,7 +360,8 @@ def _project(state: RunState, *, run_dir=None):
                 {"before_dispatch": anchor, "kind": "feedback", "match": match, "payload": {"text": event["text"]}}
             )
         elif kind in ("answer", "delegated", "checkpoint_answer"):
-            question = event.get("question") or {}
+            questions = event["questions"] if event.get("questions") else [event.get("question") or {}]
+            request_kind = "blocker" if kind == "checkpoint_answer" else None
             actions.append(
                 {
                     "before_dispatch": anchor,
@@ -362,9 +369,7 @@ def _project(state: RunState, *, run_dir=None):
                     "match": {
                         "kind": "answer",
                         "questions": [
-                            answer_options.question_view(
-                                question, request_kind="blocker" if kind == "checkpoint_answer" else None
-                            )
+                            answer_options.question_view(question, request_kind=request_kind) for question in questions
                         ],
                     },
                     "payload": {"question_id": event.get("question_id"), "text": event.get("text")},

@@ -842,6 +842,8 @@ def answer(state: RunState, question_id, text, *, delegated=False, source=None, 
         "text": q["proposed_default"] if delegated else text,
         "contract_token": token(contract) if contract else state.get("requirements_artifact_token", ""),
     }
+    if len(pending := state.get("pending_questions", ())) > 1:
+        event["questions"] = copy.deepcopy(pending)
     event.update({"source": source, "round": round} if source else {})  # --skip-requirements (#1731)
     if not delegated:
         # New user intent; delegation only accepts an already-proposed default.
