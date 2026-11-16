@@ -2354,7 +2354,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/ad720739d6ccdad6f5f9fe53557fade2ba396a21/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/fc9f9b4b2854babb75c3b7595af63e22d001e52d/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2606,7 +2606,7 @@ they do not represent charges.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/ad720739d6ccdad6f5f9fe53557fade2ba396a21/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/fc9f9b4b2854babb75c3b7595af63e22d001e52d/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -3115,7 +3115,7 @@ still require their own actions. Recovery eligibility and token checks are uncha
 </tr>
 <tr>
 <td><code>--reconcile-only TOKEN</code></td>
-<td>Metadata-only classification of an unfinished saved RUNNING attempt whose supervisor, keeper and provider are freshly confirmed dead. Take the exact action and private token offered by status; <code>-</code> reads <code>AUTOCODE_RECONCILE_ONLY_TOKEN</code>. A successful saved classification exits 0 while the run remains paused. Records an uncertain-stage pause without configuring, launching, adopting or retrying a provider. Retains work, usage, routes and limits. Refuses a changed checkpoint, live/unknown supervision, pending stop or native visual/durable service execution. Cannot combine with settings or other actions.</td>
+<td>Metadata-only reconciliation of an unfinished attempt whose owner, keeper and provider are freshly confirmed dead. Take the exact action and private token offered by status; <code>-</code> reads <code>AUTOCODE_RECONCILE_ONLY_TOKEN</code>. A clean controller-loss interruption of a source-read-only stage is archived under the existing recovery allowance when source and launch inputs still match; a fresh attempt then follows normal admission. Current independent evidence is retained, or the run returns to verification. Otherwise the uncertain-stage pause remains. The command exits 0 after saving metadata and never launches a provider or adopts the interrupted response. Retains work, usage, routes and limits. Refuses a changed checkpoint, live/unknown supervision, pending stop or native visual/durable execution. Cannot combine with settings or other actions.</td>
 </tr>
 <tr>
 <td><code>--abandon-stage '001/builder-01'</code></td>
@@ -3232,7 +3232,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/ad720739d6ccdad6f5f9fe53557fade2ba396a21/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/fc9f9b4b2854babb75c3b7595af63e22d001e52d/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -4322,7 +4322,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/ad720739d6ccdad6f5f9fe53557fade2ba396a21/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/fc9f9b4b2854babb75c3b7595af63e22d001e52d/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,
