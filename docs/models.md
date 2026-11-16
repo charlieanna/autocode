@@ -298,6 +298,27 @@ launch prints why and uses the fixed routes, and `--auto-select` refuses. `autoc
 shows the installed version's row; a new version qualifies once
 `tools/provider_conformance.py` has passed on it and its row is added.
 
+### Ranking your own models by measurement
+
+Automatic selection ranks only the models it has evidence for. Until now that was the shipped
+qualification table, so an account whose models are not in it got no ranked choice
+([#3630](https://github.com/charlieanna/autocode/issues/3630)). AutoCode can now keep a measured
+ranking of your own models, in `~/.config/autocode/measured-routes.json` beside `stages.toml`.
+Selection, the quota fallback and `autocode models --selection` all read it from that one place:
+
+- once a stage has been measured, only the models that qualified are chosen automatically, best
+  first, each at the lowest level that qualified, and a quota stop moves only among them;
+- when none qualified, AutoCode does not fall back to a model nobody measured: you choose the
+  stage's model yourself (you can always name any model for a stage);
+- for a stage nobody has measured, the shipped table applies as before.
+
+The parts in place are the free shortlist (`autocode_model_shortlist`: what to suggest measuring,
+read from the tool's own listing with no model call), the Requirements requests and their
+mechanical grader (`autocode_requirements_probe`, run against the small project in
+`tools/fixtures/requirements_probe`) and the recorded ranking (`autocode_measured_routes`). A model
+qualifies for Requirements when it has run all nine requests and passed at least six. Running the
+probe on the models you tick, after you approve the cost, comes next; nothing runs a probe yet.
+
 OpenCode and Kilo reasoning variants come from their local verbose model listings.
 An unsupported qualified level is omitted so the model uses its default. When older
 tools cannot report variants, the recorded qualification level is used. Preflight
