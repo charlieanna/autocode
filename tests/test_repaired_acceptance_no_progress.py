@@ -10,6 +10,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import autocode as runner
 import autocode_acceptance_tests as acceptance_tests
 import autocode_acceptance_tests_job as acceptance_job
 import autocode_acceptance_verification_retry as acceptance_retry
@@ -26,7 +27,6 @@ import autocode_util as util
 from goal_fixtures import body as fixture_body
 
 from . import test_no_progress_recovery, test_subprocess
-from .operational_fixtures import legacy_publication
 
 
 def _git(repo: Path, *args: str) -> None:
@@ -473,19 +473,15 @@ class RepairedAcceptanceNoProgressCLITests(unittest.TestCase):
 
         binding = {**human._binding(state), "runtime_sources": "previous-runtime"}
         with patch.object(human, "_binding", return_value=binding):
-            legacy_publication(
-                state,
-                self.run,
-                pause="PAUSED_NO_PROGRESS",
-                request={
-                    "kind": "blocker",
-                    "discovered": "Repeated unchanged implementation batches require review",
-                    "impact": "Saved attempts retained",
-                    "decision_needed": "Provide corrective information or leave paused",
-                    "options": ["Provide information", "Leave paused"],
-                    "proposed_delta": "",
-                },
+            self.assertTrue(
+                runner.resolver_runtime.record_operational_exhaustion(
+                    runner,
+                    state,
+                    self.run,
+                    support.Paused("PAUSED_NO_PROGRESS", "Repeated unchanged implementation batches require review"),
+                )
             )
+            self.assertEqual("escalate", human.evaluate(state))
         (self.run / "state.json").write_text(json.dumps(state), encoding="utf-8")
         retained_req = human.retained(state)
         self.assertIsNotNone(retained_req)
