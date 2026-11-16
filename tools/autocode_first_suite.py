@@ -11,12 +11,14 @@ try:
     from . import autocode_changed_tests as changed_tests
     from . import autocode_project_inventory as project_inventory
     from . import autocode_project_kinds as project_kinds
+    from . import autocode_test_support as test_support
     from . import autocode_util as util
     from . import autocode_verification_schedule as schedule
 except ImportError:
     import autocode_changed_tests as changed_tests
     import autocode_project_inventory as project_inventory
     import autocode_project_kinds as project_kinds
+    import autocode_test_support as test_support
     import autocode_util as util
     import autocode_verification_schedule as schedule
 
@@ -531,6 +533,10 @@ def flip(run, on_candidate) -> None:
             run.notes,
             run.allow_no_test,
         )
+        tests, sources, _ = run.roles.partition(run.changes) if run.roles is not None else ([], [None], [])
+        if tests and not sources:
+            # A change of test support alone (autocode_test_support): its files must still define no test.
+            test_support.check(tests, on_candidate, run.fail, run.notes, run.proof)
         return
     tests, proof = reloaded(run, on_candidate), run.proof
     if not tests or proof.get("fail_to_pass") is None:

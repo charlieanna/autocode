@@ -102,6 +102,7 @@ try:
     from . import autocode_test_homes as test_homes
     from . import autocode_test_parts as test_parts
     from . import autocode_test_role_inventory as role_inventory
+    from . import autocode_test_support as test_support
     from . import autocode_unloadable_tests as unloadable_tests
     from . import autocode_util as util
     from . import autocode_verification_preparation as preparation
@@ -147,6 +148,7 @@ except ImportError:
     import autocode_test_homes as test_homes
     import autocode_test_parts as test_parts
     import autocode_test_role_inventory as role_inventory
+    import autocode_test_support as test_support
     import autocode_unloadable_tests as unloadable_tests
     import autocode_util as util
     import autocode_verification_preparation as preparation
@@ -186,6 +188,7 @@ SUMMARY_KEYS = (
     "test_homes",
     "plan_command_roles",
     "listed_tests",
+    "test_support",
 )
 
 
@@ -1606,6 +1609,10 @@ def _proving(
         guards = test_cases.guard_names(due, framework.name if framework else None)
         ahead = [] if all_due else pending_tests.withheld(state, workspace, due)
         kept.append(out / "scratch" / "candidate")
+        # A bug fix the approved plan makes in test files alone: a fixture, a helper (autocode_test_support).
+        support_planned = goals.task_kind(state) == "bugfix" and test_support.planned(
+            state.get("goal_contract"), lambda path: roles.role(path) == role_policy.TEST
+        )
         proving_run = lambda test_side=(): verify.verify(  # noqa: E731
             workspace,
             base,
@@ -1634,6 +1641,7 @@ def _proving(
             withheld=ahead,
             replaced=superseded_tests.replaced(state),
             test_side=test_side,
+            support_from={"base_suite": base_suite, "planned": support_planned},
             **rooted(options),
         )
         # Files of the change that a command of the plan showed to be tests, where no rule names them.
