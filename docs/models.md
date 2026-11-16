@@ -407,7 +407,9 @@ The rules the choice keeps:
   different model families (`tools/autocode_verifier_independence.py`); when the
   connected accounts cannot provide that, the run stops before any work and says what
   is missing in account terms ("connect a second model family"), never by suggesting
-  `--single-model`. GLM, MiMo, Claude and OpenAI's GPT models are each one family, so no
+  `--single-model`. GLM, MiMo, Claude and OpenAI's GPT models are each one family, and so are
+  Gemini, Kimi, Grok, Qwen, DeepSeek, Llama, Mistral and MiniMax models
+  (`autocode_model_identity.FAMILIES`, owner request 2026-11-16), so no
   Claude model checks another Claude model's work, and no GPT model another GPT model's
   (Luna's build is never tested by Sol), on Kilo, OpenCode or a custom provider (owner
   decision, 2026-10-20). The built-in Claude Code and Codex engines reach only their own
