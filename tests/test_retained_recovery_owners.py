@@ -135,3 +135,40 @@ class RetainedOwnerTests(unittest.TestCase):
                     runner, None, state, self.run_dir, self.workspace, None, None, observed, final=True
                 )
             )
+
+    def test_accounting_owner_rederives_success_between_old_timeout_failures(self):
+        from .test_recovery_streak import legacy_state
+
+        state = legacy_state()
+        state.update(goal_contract=self.contract)
+        state["user_events"].append(self.approval)
+        self.assertTrue(
+            owners.progress.reconcile(
+                state,
+                issued={"request_id": "request", "scope": "operational_exhaustion"},
+                approved=True,
+                supersede=lambda *_: True,
+                now=lambda: "now",
+            )
+        )
+        proof = {"event": copy.deepcopy(state["user_events"][-1]), "source_revision": "revision"}
+
+        def validate(candidate):
+            return owners.validate_accounting(
+                runner, None, candidate, self.run_dir, self.workspace, None, None, {"result": proof}, final=True
+            )
+
+        with patch.object(owners, "_revision", return_value="revision"):
+            self.assertIsNotNone(validate(state))
+            for mutation in (
+                lambda candidate: candidate.update(automatic_recoveries_since_resume=0),
+                lambda candidate: candidate["stages"][0].update(rejected=True),
+                lambda candidate: candidate["user_events"].pop(),
+                lambda candidate: candidate["user_events"].pop(0),
+            ):
+                with self.subTest(mutation=mutation):
+                    changed = copy.deepcopy(state)
+                    mutation(changed)
+                    self.assertIsNone(validate(changed))
+        with patch.object(owners, "_revision", return_value="changed-revision"):
+            self.assertIsNone(validate(state))
