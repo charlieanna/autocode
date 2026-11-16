@@ -7,6 +7,7 @@ and keep every way of getting a failing test to pass by editing tests failing.""
 
 from __future__ import annotations
 
+import importlib.util
 import shutil
 import sys
 import unittest
@@ -155,10 +156,18 @@ class PureTests(unittest.TestCase):
         self.assertEqual([], test_support.proven(None, "r1"))
 
 
-class ProofTests(unittest.TestCase):
-    """Real proofs: the project's own failing tests must pass with the change, and nothing passing may fail."""
+HAS_PYTEST = importlib.util.find_spec("pytest") is not None
+UNITTEST = f"{PY} -m unittest discover -s tests -t ."
+DAY = "\n\ndef day():\n    return datetime.date({}, 1, 1)\n"
+U_SEED = {"dates.py": CODE, "tests/__init__.py": "", "tests/helpers.py": HELP, "tests/test_dates.py": UTEST}
+U_FIX = {"tests/helpers.py": HELP.replace("days=6", "days=7")}
 
-    def prove(self, seed, change, command=PYTEST, planned=None):
+
+class ProofTests(unittest.TestCase):
+    """Real proofs: the project's own failing tests must pass with the change, and nothing passing may fail.
+    Each rule is shown with unittest, which every interpreter has; pytest's own layouts where pytest is."""
+
+    def prove(self, seed, change, command=UNITTEST, planned=None):
         made = project(self, seed, ())
         made.write(change)
         state = run_state(made, contract(command, planned if planned is not None else change))
@@ -166,22 +175,24 @@ class ProofTests(unittest.TestCase):
             proof = regression.prove(state, made.root, made.root.parent / "run")
         return proof["verdict"], proof["failures"], proof
 
-    def test_a_fixture_fix_is_proven_by_the_tests_it_feeds(self):
-        verdict, failures, proof = self.prove(SEED, {"tests/conftest.py": CONF_FIX})
+    def test_a_helper_fix_is_proven_by_the_tests_it_feeds(self):
+        verdict, failures, proof = self.prove(U_SEED, U_FIX)
+        self.assertEqual(("PASS", []), (verdict, failures))
+        self.assertEqual(["tests.test_dates.T.test_week_is_seven_days"], proof["fail_to_pass"])
+        self.assertEqual(["tests/helpers.py"], proof["test_support"])
+        self.assertTrue(any("test support the approved plan names (tests/helpers.py)" in n for n in proof["notes"]))
+
+    @unittest.skipUnless(HAS_PYTEST, "pytest is not installed")
+    def test_so_is_a_pytest_fixture(self):
+        verdict, failures, proof = self.prove(SEED, {"tests/conftest.py": CONF_FIX}, PYTEST)
         self.assertEqual(("PASS", []), (verdict, failures))
         self.assertEqual(["tests.test_dates::test_week_is_seven_days"], proof["fail_to_pass"])
-        self.assertTrue(any("test support the approved plan names (tests/conftest.py)" in n for n in proof["notes"]))
 
-    def test_so_is_a_unittest_helper_module(self):
-        seed = {"dates.py": CODE, "tests/__init__.py": "", "tests/helpers.py": HELP, "tests/test_dates.py": UTEST}
-        change = {"tests/helpers.py": HELP.replace("days=6", "days=7")}
-        verdict, failures, _ = self.prove(seed, change, f"{PY} -m unittest discover -s tests -t .")
-        self.assertEqual(("PASS", []), (verdict, failures))
-
+    @unittest.skipUnless(HAS_PYTEST, "pytest is not installed")
     def test_so_is_a_test_data_file(self):
         seed = {**SEED, "tests/data/week.json": '["2024-03-01", "2024-03-07"]\n', "tests/test_dates.py": DATA_TEST}
         del seed["tests/conftest.py"]
-        verdict, failures, _ = self.prove(seed, {"tests/data/week.json": '["2024-03-01", "2024-03-08"]\n'})
+        verdict, failures, _ = self.prove(seed, {"tests/data/week.json": '["2024-03-01", "2024-03-08"]\n'}, PYTEST)
         self.assertEqual(("PASS", []), (verdict, failures))
 
     @unittest.skipUnless(shutil.which("node"), "node --test")
@@ -201,55 +212,55 @@ class ProofTests(unittest.TestCase):
         verdict, failures, _ = self.prove(seed, {"testdata/week.txt": "2024-03-01 2024-03-08\n"}, "go test ./...")
         self.assertEqual(("PASS", []), (verdict, failures))
 
+    @unittest.skipUnless(HAS_PYTEST, "pytest is not installed")
     def test_a_conftest_function_named_like_a_test_is_no_test(self):
         change = {"tests/conftest.py": CONF_FIX + "\n\ndef test_in_conftest():\n    assert True\n"}
-        self.assertEqual(("PASS", []), self.prove(SEED, change)[:2])
+        self.assertEqual(("PASS", []), self.prove(SEED, change, PYTEST)[:2])
 
-    def test_a_test_edited_with_the_fixture_is_still_refused(self):
-        change = {"tests/conftest.py": CONF_FIX, "tests/test_dates.py": TEST.replace("== 0", "== 0  # edited")}
-        self.assertEqual(("FAIL", [NO_PRODUCT]), self.prove(SEED, change)[:2])
+    def test_a_test_edited_with_the_helper_is_still_refused(self):
+        change = {**U_FIX, "tests/test_dates.py": UTEST.replace("(0,", "(0,  # edited\n")}
+        self.assertEqual(("FAIL", [NO_PRODUCT]), self.prove(U_SEED, change)[:2])
 
     def test_a_test_weakened_in_place_is_still_refused(self):
-        self.assertEqual(
-            ("FAIL", [NO_PRODUCT]), self.prove(SEED, {"tests/test_dates.py": TEST.replace("== 7", "== 6")})[:2]
-        )
+        change = {"tests/test_dates.py": UTEST.replace("assertEqual(7,", "assertEqual(6,")}
+        self.assertEqual(("FAIL", [NO_PRODUCT]), self.prove(U_SEED, change)[:2])
 
     def test_a_plan_that_names_product_code_too_keeps_the_rule(self):
-        change = {"tests/conftest.py": CONF_FIX}
-        planned = {**change, "dates.py": CODE}
-        self.assertEqual(("FAIL", [NO_PRODUCT]), self.prove(SEED, change, planned=planned)[:2])
+        self.assertEqual(("FAIL", [NO_PRODUCT]), self.prove(U_SEED, U_FIX, planned={**U_FIX, "dates.py": CODE})[:2])
 
     def test_a_helper_fix_that_breaks_a_passing_test_fails(self):
-        day = "\n\n@pytest.fixture\ndef day():\n    return datetime.date({}, 1, 1)\n"
-        seed = {**SEED, "tests/conftest.py": CONF + day.format(2024)}
-        seed["tests/test_dates.py"] = TEST + "\n\ndef test_day(day):\n    assert day.year == 2024\n"
-        verdict, failures, _ = self.prove(seed, {"tests/conftest.py": CONF_FIX + day.format(2023)})
+        test = UTEST.replace("import week", "import day, week") + (
+            "\n    def test_day(self):\n        self.assertEqual(2024, day().year)\n"
+        )
+        seed = {**U_SEED, "tests/helpers.py": HELP + DAY.format(2024), "tests/test_dates.py": test}
+        verdict, failures, _ = self.prove(seed, {"tests/helpers.py": U_FIX["tests/helpers.py"] + DAY.format(2023)})
         self.assertEqual("FAIL", verdict)
-        self.assertIn("Tests that pass on base fail on the candidate: tests.test_dates::test_day", failures)
+        self.assertIn("Tests that pass on base fail on the candidate: tests.test_dates.T.test_day", failures)
 
+    @unittest.skipUnless(HAS_PYTEST, "pytest is not installed")
     def test_a_helper_that_gains_a_collected_test_fails(self):
         seed = {"pyproject.toml": PYPROJECT + 'python_files = ["*.py"]\n', "dates.py": CODE}
         seed.update({"tests/helpers.py": HELP, "tests/test_dates.py": PTEST})
-        change = {"tests/helpers.py": HELP.replace("days=6", "days=7") + "\n\ndef test_helper():\n    assert True\n"}
-        verdict, failures, _ = self.prove(seed, change)
+        change = {"tests/helpers.py": U_FIX["tests/helpers.py"] + "\n\ndef test_helper():\n    assert True\n"}
+        verdict, failures, _ = self.prove(seed, change, PYTEST)
         self.assertEqual("FAIL", verdict)
         self.assertIn("define tests on the candidate (tests.helpers::test_helper)", failures[0])
 
     def test_a_helper_edit_that_fixes_nothing_fails(self):
-        verdict, failures, _ = self.prove(SEED, {"tests/conftest.py": CONF + "\n# touched\n"})
+        verdict, failures, _ = self.prove(U_SEED, {"tests/helpers.py": HELP + "\n# touched\n"})
         self.assertEqual("FAIL", verdict)
         self.assertIn("no test that fails on the original code passes with the change", failures[0])
 
 
 class OriginalGateTests(unittest.TestCase):
     """The original-test gate overlays the original test files on the candidate. Before, it put the original,
-    broken fixture back too, so a proven fixture fix could never pass it, and the Investigator asked the
-    person to exempt the fixture (task-kind survey, section 56)."""
+    broken helper back too, so a proven fix could never pass it, and the Investigator asked the person to
+    exempt the fixture (task-kind survey, section 56)."""
 
     def gate(self, change, *, proven=True):
-        made = project(self, SEED, ())
+        made = project(self, U_SEED, ())
         run_dir = made.root.parent / "run"
-        state = run_state(made, contract(PYTEST, change))
+        state = run_state(made, contract(UNITTEST, change))
         protected_oracles.reconcile(
             {},
             state["settings"],
@@ -257,7 +268,7 @@ class OriginalGateTests(unittest.TestCase):
             made.root,
             run_dir,
             is_test_path=verify.is_test_path,
-            discover_command=lambda: PYTEST,
+            discover_command=lambda: UNITTEST,
         )
         made.write(change)
         with mock.patch.object(verify.diff_coverage, "collect", return_value=None):
@@ -266,18 +277,18 @@ class OriginalGateTests(unittest.TestCase):
             state["regression_proof"] = {**state["regression_proof"], "source_revision": "an earlier candidate"}
         return protected_oracles.replay(state, made.root, run_dir, verify.scratch_run, timeout=300)
 
-    def test_a_proven_fixture_fix_keeps_its_fixture_under_the_original_tests(self):
-        result = self.gate({"tests/conftest.py": CONF_FIX})
-        self.assertEqual(("PASS", ["tests/conftest.py"]), (result["verdict"], result["test_support"]))
+    def test_a_proven_helper_fix_keeps_its_helper_under_the_original_tests(self):
+        result = self.gate(U_FIX)
+        self.assertEqual(("PASS", ["tests/helpers.py"]), (result["verdict"], result["test_support"]))
         self.assertEqual(0, result["original"]["exit_code"])
 
-    def test_a_proof_of_another_candidate_puts_the_original_fixture_back(self):
+    def test_a_proof_of_another_candidate_puts_the_original_helper_back(self):
         with self.assertRaisesRegex(ValueError, "original gate did not pass"):
-            self.gate({"tests/conftest.py": CONF_FIX}, proven=False)
+            self.gate(U_FIX, proven=False)
 
     def test_a_test_edited_to_pass_is_still_put_back(self):
         with self.assertRaisesRegex(ValueError, "original gate did not pass"):
-            self.gate({"tests/conftest.py": CONF_FIX, "tests/test_dates.py": TEST.replace("== 7", "== 6")})
+            self.gate({**U_FIX, "tests/test_dates.py": UTEST.replace("assertEqual(7,", "assertEqual(6,")})
 
 
 if __name__ == "__main__":
