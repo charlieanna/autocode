@@ -35,6 +35,7 @@ import autocode_run_view as run_view
 import autocode_support as support
 
 from . import test_subprocess
+from .operational_fixtures import save_legacy_checkpoint
 
 # Every pause AutoResolver publishes an operational_exhaustion request for.
 STATUSES = (
@@ -145,7 +146,7 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
                     runner, state, self.run_dir, support.Paused(state["status"], state["stop_reason"])
                 )
             )
-            if legacy and disposition.held(state) is not None:
+            if legacy:
                 # An authentic historical publication, rather than asking the
                 # current publisher to accept a machinery question. Attempts,
                 # usage and saved caps are exactly the pre-publication fixture.
@@ -188,7 +189,10 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
                     )
             if then:
                 then(state)
-            runner.write_json(self.run_dir / "state.json", state)
+            if legacy:
+                save_legacy_checkpoint(state, self.run_dir)
+            else:
+                runner.write_json(self.run_dir / "state.json", state)
         return self.saved()
 
     def checkpoint(self, status="PAUSED_RESOLVER_OPERATIONAL", edit=None, *, legacy=False):
@@ -269,7 +273,7 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
                     "provide_information",
                     "The temporary directory is valid",
                 )
-            runner.write_json(self.run_dir / "state.json", state)
+            save_legacy_checkpoint(state, self.run_dir)
             before = self.saved()
             result = self.invoke(
                 "--resolver-request",
@@ -569,10 +573,10 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
                     self.assertEqual(0, code, output)
                     continue
                 self.assertEqual((2, []), (code, stages), output)
-                if disposition.held(self.saved()) is not None:
-                    self.assertIn(disposition.MESSAGE, output)
-                else:
+                if "Input rejected:" in output:
                     self.assertIn("does not acknowledge", output)
+                else:
+                    self.assertIn(disposition.MESSAGE, output)
                 self.assert_held(self.invoke(env=STOP_AT_TESTER), status)
 
     def test_enabling_joint_planning_never_releases_an_operational_pause(self):
@@ -653,8 +657,9 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
                 self.assert_held(self.invoke("--resume-paused", env=STOP_AT_TESTER), status)
 
     def test_authority_given_while_a_pause_is_queued_survives_the_intervention(self):
-        # The acknowledgement is applied first; the queued pause then pauses a released run, and
-        # resuming that pause continues without acknowledging the bound again.
+        # A person-owned cap retains its acknowledgement ordering. A queued
+        # pause precedes machinery owners, whose explicit control remains usable
+        # afterward without consuming a grant behind the pause.
         cases = [
             (status, ("--resume-paused", *flag), None, answered)
             for (status, flag), answered in itertools.product(ACKNOWLEDGING.items(), (False, True))
@@ -677,8 +682,18 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
                 self.assert_held(self.invoke(*command, env=STOP_AT_TESTER), status, settled=False)
                 view = self.view()
                 self.assertEqual("PAUSED_INTERVENTION", view["status"])
-                self.assertNotIn("still holds the run", view["stop_reason"], "the acknowledged pause is not held")
-                self.assert_resumes(self.invoke("--resume-paused", env=STOP_AT_TESTER))
+                if disposition.held(self.saved()) is not None:
+                    # A queued pause wins before machinery owners run. Settings
+                    # may be saved, but a grant is not consumed behind the pause.
+                    self.assertIn("still holds the run", view["stop_reason"])
+                    if "--grant-recovery" in command:
+                        self.assertEqual(
+                            state["automatic_timeout_recoveries"], self.saved()["automatic_timeout_recoveries"]
+                        )
+                    self.assert_resumes(self.invoke(*command, env=STOP_AT_TESTER))
+                else:
+                    self.assertNotIn("still holds the run", view["stop_reason"], "the acknowledged pause is not held")
+                    self.assert_resumes(self.invoke("--resume-paused", env=STOP_AT_TESTER))
 
     def test_a_builder_retry_is_no_authority_until_it_is_checked(self):
         # --retry-builder is checked only after queued input is applied. Counted as the held pause's own
@@ -777,7 +792,7 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
                 ):
                     result = self.invoke(*command, "--resume-paused", env=STOP_AT_TESTER)
                     self.assert_held(result, status)
-                    if machinery:
+                    if machinery and command[0] == "--answer":
                         self.assertIn(disposition.MESSAGE, result[2])
                         self.assert_blocked()
                     else:

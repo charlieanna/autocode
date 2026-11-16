@@ -1,12 +1,14 @@
 """Authentic historical requests, never permission for today's machinery publisher."""
 
 import copy
+from pathlib import Path
 from unittest.mock import patch
 
 import autocode_operational_disposition as disposition
 import autocode_resolver_human as human
 import autocode_resolver_runtime as runtime
 import autocode_run_view as run_view
+import autocode_util as util
 
 
 def assert_operational_block(test, state, pause):
@@ -26,7 +28,9 @@ def assert_operational_block(test, state, pause):
     return row["receipt"]["id"]
 
 
-def legacy_publication(state, run_dir, *, pause=None, request=None, questions=None, budget=None):
+def legacy_publication(
+    state, run_dir, *, pause=None, request=None, questions=None, budget=None, scope="operational_exhaustion"
+):
     if pause is not None:
         state["status"] = pause
     status, stage = state["status"], state["next_stage"]
@@ -46,7 +50,7 @@ def legacy_publication(state, run_dir, *, pause=None, request=None, questions=No
     )
     human.queue(
         state,
-        "operational_exhaustion",
+        scope,
         {"pause_status": status, "stage": stage, "budget": budget},
         request=request
         or {
@@ -83,3 +87,13 @@ def legacy_response(state, public, action="provide_information", text="Cause ins
         event = human.respond_operational(state, public["request_id"], public["request_token"], action, text)
         human.review_operational_response(state)
     return event
+
+
+def save_legacy_checkpoint(state, run_dir):
+    """Write historical bytes without running today's human-boundary migration.
+
+    Tests of saved old requests must reach the real CLI with that old checkpoint.
+    The production writer normalizes it before the invocation being tested.
+    Atomic persistence retains fixture evidence; no production policy is patched.
+    """
+    util.atomic_json(Path(run_dir) / "state.json", state)

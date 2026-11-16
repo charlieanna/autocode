@@ -23,7 +23,7 @@ import autocode_run_view as run_view
 import autocode_support as support
 
 from . import test_resolver_human, test_subprocess
-from .operational_fixtures import legacy_publication, legacy_response
+from .operational_fixtures import legacy_publication, legacy_response, save_legacy_checkpoint
 
 
 class HumanPublicationTests(unittest.TestCase):
@@ -252,7 +252,7 @@ class HumanPublicationTests(unittest.TestCase):
         error = support.Paused("PAUSED_TIMEOUT_RECOVERY", f"Bounded recovery exhausted. {recovery_limits.GRANT_ADVICE}")
         self.assertTrue(runner.resolver_runtime.record_operational_exhaustion(runner, self.state, run, error))
         self.assertEqual("PAUSED_TIMEOUT_RECOVERY", self.state["status"])
-        self.assertEqual(1, self.state["stop_reason"].count(recovery_limits.GRANT_ADVICE))
+        self.assertNotIn(recovery_limits.GRANT_ADVICE, self.state["stop_reason"])
         with contextlib.redirect_stderr(io.StringIO()):
             runner.write_json(run / "state.json", self.state)
         saved = support.read(run / "state.json")
@@ -264,7 +264,8 @@ class HumanPublicationTests(unittest.TestCase):
         self.assertIsNone(view["needs"])
         self.assertIsNone(view["next_command"])
         self.assertIsNone(view["chat"]["input"])
-        self.assertEqual(1, view["stop_reason"].count(recovery_limits.GRANT_ADVICE))
+        self.assertNotIn(recovery_limits.GRANT_ADVICE, view["stop_reason"])
+        self.assertIn(str(error), json.dumps(saved["resolver"]["operational_receipts"]))
 
     def test_a_time_limit_question_names_the_limit_without_its_flags(self):
         # #3145 shows a person only the sentences that name no flag, so the advice naming
@@ -346,6 +347,18 @@ class HumanResponseCLITests(unittest.TestCase):
     saved = test_subprocess.SubprocessFlow.saved
     new_run_engine_args = ("--engine", "codex")
 
+    def assert_attempts_preserved(self, before, after):
+        """A local hold receipt is evidence, not another provider attempt."""
+        prior = before["stages"]
+        self.assertEqual(prior, after["stages"][: len(prior)])
+        for row in after["stages"][len(prior) :]:
+            self.assertTrue(row["runner_owned"])
+            self.assertEqual("runner", row["engine"])
+            self.assertEqual(0, row["runner_calls"])
+            self.assertEqual({"input_tokens": 0, "output_tokens": 0}, row["metrics"]["provider_tokens"])
+            self.assertEqual([], row["receipt"]["callbacks_used"])
+            self.assertEqual(row, after["resolver"]["operational_receipts"][row["receipt"]["id"]])
+
     def stopped_operational_checkpoint(self):
         self.env["AUTOCODE_FIXTURE_MODE"] = "no-human"
         self.env["AUTOCODE_FIXTURE_QUOTA_STAGE"] = "review_completion"
@@ -359,7 +372,7 @@ class HumanResponseCLITests(unittest.TestCase):
         human.supersede_operational(stopped, "Fixture reconciled its provider attempt")
         self.assertEqual("runner_default", disposition.budget(stopped, "PAUSED_TIME_LIMIT")["origin"])
         legacy_publication(stopped, run, pause="PAUSED_TIME_LIMIT")
-        runner.write_json(run / "state.json", stopped)
+        save_legacy_checkpoint(stopped, run)
         return run, self.saved()[1]
 
     def timeout_exhausted_checkpoint(self, *, publish_request=True):
@@ -392,7 +405,7 @@ class HumanResponseCLITests(unittest.TestCase):
                     "options": ["Authorize more recoveries"],
                 },
             )
-        runner.write_json(run / "state.json", stopped)
+        save_legacy_checkpoint(stopped, run)
         return run, self.saved()[1]
 
     def test_abandon_stage_retires_its_request_and_explicit_resume_dispatches(self):
@@ -509,7 +522,7 @@ class HumanResponseCLITests(unittest.TestCase):
         for resume in ("--resume-paused", "resume"):
             with self.subTest(resume=resume):
                 result = self.launch([resume, "--run-dir", str(run), "--grant-recovery", "1", "--no-chat"], 2)
-                self.assertIn(disposition.MESSAGE, result.stderr)
+                self.assertIn("--grant-recovery requires a run paused for exhausted timeout recovery", result.stderr)
                 self.assertEqual(before, (run / "state.json").read_bytes())
 
     def test_resume_word_grants_recovery_for_a_published_timeout_pause(self):
@@ -643,10 +656,10 @@ class HumanResponseCLITests(unittest.TestCase):
             ["--run-dir", str(run), "--chat"], 2, answers="Provider access restored; keep the approved scope\n"
         )
         run, saved = self.saved()
-        self.assertIn(disposition.MESSAGE, result.stdout)
+        self.assertIn(disposition.MESSAGE, result.stdout + result.stderr)
         self.assertTrue(runner.goals.approved(saved))
         self.assertEqual(before["goal_contract"], saved["goal_contract"])
-        self.assertEqual(before["stages"], saved["stages"])
+        self.assert_attempts_preserved(before, saved)
         self.assertNotEqual("draft_plan", saved["next_stage"])
         self.assertIsNone(human.current(saved))
         self.assertFalse(saved["resolver"].get("human_response_resolutions"))
@@ -661,8 +674,9 @@ class HumanResponseCLITests(unittest.TestCase):
         limit = int(paused["settings"]["limits"].get("max_seconds") or 0) + 3600
         self.launch(["--run-dir", str(run), "--max-seconds", str(limit), "--show-goal"], 0)
         changed = self.saved()[1]
-        for key in ("goal_contract", "stages", "planning", "failure_history", "active_seconds", "next_stage"):
+        for key in ("goal_contract", "planning", "failure_history", "active_seconds", "next_stage"):
             self.assertEqual(paused.get(key), changed.get(key), key)
+        self.assert_attempts_preserved(paused, changed)
         self.assertTrue(runner.goals.approved(changed))
         self.assertEqual(limit, changed["settings"]["limits"]["max_seconds"])
         self.assertEqual(limit, changed["configuration_changes"][-1]["selected"]["limits"]["max_seconds"])
