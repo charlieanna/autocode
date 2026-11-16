@@ -39,6 +39,7 @@ try:
     from . import autocode_acceptance_tests as acceptance_tests
     from . import autocode_accepted_source as accepted_source
     from . import autocode_adaptive_planning as adaptive_planning
+    from . import autocode_answer_options as answer_options
     from . import autocode_approval_provenance as approval_provenance
     from . import autocode_chat_view as chat_view
     from . import autocode_classification_recovery as classification_recovery
@@ -86,6 +87,7 @@ try:
     from . import autocode_report_repair_view as report_repair_view
     from . import autocode_report_retry as report_retry
     from . import autocode_request_usage as request_usage
+    from . import autocode_requirements_review as requirements_review
     from . import autocode_resolver_recommendation as recommendation
     from . import autocode_risk_disclosure as risk_disclosure
     from . import autocode_role_transport as role_transport
@@ -107,6 +109,7 @@ except ImportError:
     import autocode_acceptance_tests as acceptance_tests
     import autocode_accepted_source as accepted_source
     import autocode_adaptive_planning as adaptive_planning
+    import autocode_answer_options as answer_options
     import autocode_approval_provenance as approval_provenance
     import autocode_chat_view as chat_view
     import autocode_classification_recovery as classification_recovery
@@ -154,6 +157,7 @@ except ImportError:
     import autocode_report_repair_view as report_repair_view
     import autocode_report_retry as report_retry
     import autocode_request_usage as request_usage
+    import autocode_requirements_review as requirements_review
     import autocode_resolver_recommendation as recommendation
     import autocode_risk_disclosure as risk_disclosure
     import autocode_role_transport as role_transport
@@ -179,6 +183,91 @@ COMPLETE = ("TASK_COMPLETE", "COMPLETE")
 # Statuses where relaunching the run, with no user input, continues the work.
 CONTINUE = ("RUNNING", "DISCOVERING", "WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL")
 QUESTION_FIELDS = ("id", "question", "why", "options", "proposed_default")
+
+
+def _question_view(
+    question: dict,
+    *,
+    request_kind=None,
+    resolver_scope=None,
+    route: bool = False,
+    effort: bool = False,
+) -> dict:
+    return {
+        **{field: question.get(field) for field in QUESTION_FIELDS},
+        "allow_custom": answer_options.allows_custom(
+            question,
+            request_kind=request_kind,
+            resolver_scope=resolver_scope,
+            route=route,
+            effort=effort,
+        ),
+    }
+
+
+def requirements_view(state: RunState) -> dict | None:
+    """Additive projection of the current turn's Requirements handoff (#3650); None when none exists."""
+    handoff = requirements_review.current_turn_handoff(state)
+    report = handoff.get("report") if isinstance(handoff, dict) else None
+    if not isinstance(report, dict):
+        return None
+    rejected = {
+        ob.get("assumption_id")
+        for ob in state.get("deferred_obligations", [])
+        if isinstance(ob, dict) and ob.get("status") != "resolved"
+    }
+    confirmed_ids = requirements_review.confirmed_assumption_ids(state)
+    unconfirmed_ids = {
+        row.get("id") for row in requirements_review.unconfirmed_assumptions(state) if isinstance(row, dict)
+    }
+    skip_confirmed = (handoff.get("confirmed_assumptions") or {}).get("source") == requirements_review.CONFIRMED_BY_SKIP
+    proposed_assumptions = []
+    for raw in report.get("proposed_assumptions") or []:
+        try:
+            row = goals.normalize_assumption(raw)
+        except ValueError:
+            continue
+        if row["legacy"] or not row["id"] or row["id"] in rejected:
+            continue
+        proposed_assumptions.append(
+            {
+                "id": row["id"],
+                "text": row["text"],
+                "category": row["category"],
+                "convention_ref": row["convention_ref"],
+                "rationale": row["rationale"],
+                "confirmed": bool(skip_confirmed or row["id"] in confirmed_ids or row["id"] not in unconfirmed_ids),
+            }
+        )
+    requirements = [
+        {
+            "id": str(item.get("id") or ""),
+            "text": str(item.get("text") or ""),
+            "source_quote": str(item.get("source_quote") or ""),
+        }
+        for item in report.get("requirements") or []
+        if isinstance(item, dict)
+    ]
+    tests = [str(item) for item in report.get("acceptance_tests") or [] if isinstance(item, str)]
+    conflicts: list[dict | str] = []
+    for item in report.get("conflicts") or []:
+        if isinstance(item, dict):
+            conflicts.append(
+                {
+                    "requirement_ids": [str(rid) for rid in item.get("requirement_ids") or []],
+                    "description": str(item.get("description") or ""),
+                }
+            )
+        elif isinstance(item, str):
+            conflicts.append(item)
+    return {
+        "handoff_ref": goals.s.digest(report)[:12],
+        "intended_outcome": str(report.get("intended_outcome") or ""),
+        "requirements": requirements,
+        "proposed_assumptions": proposed_assumptions,
+        "acceptance_tests": tests,
+        "conflicts": conflicts,
+    }
 
 
 def accepted_reviews(state: RunState) -> list:
@@ -459,6 +548,7 @@ def view(
     # outside this checkout renders it (#2068): requirement_id, the criteria it cites (evidence) and
     # proxy_reason, from the trace that produced the current contract; [] when none or no plan yet.
     result["proxied_requirements"] = trace_coverage.proxied_rows(plan_retention.validated_trace(state))
+    result["requirements"] = requirements_view(state)
     result["chat"] = chat_view.project(state, result, run_dir=run_dir, workspace=workspace)
     result["attention"] = attention.project(
         state, result, workspace=workspace, run_dir=run_dir, context=result["chat"]["context"]
@@ -1324,7 +1414,7 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             return _person_facing(
                 {
                     "kind": "answer",
-                    "questions": [{field: q.get(field) for field in QUESTION_FIELDS} for q in proposal_questions],
+                    "questions": [_question_view(q, resolver_scope=proposal.get("scope")) for q in proposal_questions],
                     "resolver_scope": proposal.get("scope"),
                 }
             )
@@ -1350,10 +1440,9 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             "question": request.get("decision_needed"),
         }
     if questions:
-        answer = {
+        answer: dict = {
             "kind": "answer",
             "request_kind": request.get("kind"),
-            "questions": [{field: question.get(field) for field in QUESTION_FIELDS} for question in questions],
         }
         if request.get("kind") == "permission" and len(questions) == 1 and "operational_options" in questions[0]:
             answer["operational_options"] = deepcopy(questions[0]["operational_options"])
@@ -1390,6 +1479,15 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             ),
             None,
         )
+        answer["questions"] = [
+            _question_view(
+                question,
+                request_kind=request.get("kind"),
+                resolver_scope=answer.get("resolver_scope"),
+                route=bool(route and question is route),
+            )
+            for question in questions
+        ]
         if route:
             answer["route"] = _route(route)
         elif answer.get("resolver_scope") in ("blocker", "operational_exhaustion"):
@@ -1430,7 +1528,7 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             return {
                 "kind": "answer",
                 "reason": state.get("stop_reason") or status,
-                "questions": [{field: asked.get(field) for field in QUESTION_FIELDS}],
+                "questions": [_question_view(asked, route=True)],
                 "route": _route(asked),
             }
     if status == effort_question.STATUS:
@@ -1442,7 +1540,7 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             return {
                 "kind": "answer",
                 "reason": state.get("stop_reason") or status,
-                "questions": [{field: asked.get(field) for field in QUESTION_FIELDS}],
+                "questions": [_question_view(asked, effort=True)],
                 "effort": effort_question.need(asked),
             }
     if status == "PAUSED_PERMISSION_LOOP":

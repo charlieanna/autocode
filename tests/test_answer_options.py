@@ -90,19 +90,76 @@ class AnswerOptionTests(unittest.TestCase):
                 self.assertEqual([], answer_options.labels(question))
                 self.assertEqual("Anything at all", answer_options.offered(question, "Anything at all"))
 
+    def test_allows_custom_distinguishes_product_clarifications_from_strict_operational_choices(self):
+        self.assertTrue(answer_options.allows_custom({"id": "Q1", "category": "behavior", "options": ["CLI", "Web"]}))
+        self.assertTrue(
+            answer_options.allows_custom({"id": "A1", "category": "requested_outcome", "options": ["JSON", "TOML"]})
+        )
+        for strict in (
+            {"id": "route-builder", "category": "quota", "options": ["gpt-5.6-sol"]},
+            {"id": "effort-planner", "category": "effort", "options": ["medium", "high"]},
+            {"id": "workspace-scope-abc123", "category": "scope", "options": ["This repository only"]},
+            {"id": "rewording-R1-abc123", "category": "requested_outcome", "options": ["Accept", "Keep"]},
+            {"id": "resolver-decision", "options": ["Retry", "Stop"]},
+            {"id": "perm-1", "operational_options": [{"option": "Allow once"}], "options": ["Allow once"]},
+        ):
+            with self.subTest(question_id=strict["id"]):
+                self.assertFalse(answer_options.allows_custom(strict))
+        self.assertFalse(answer_options.allows_custom(QUESTION, request_kind="permission"))
+        self.assertFalse(answer_options.allows_custom(QUESTION, resolver_scope="blocker"))
+        self.assertFalse(answer_options.allows_custom(QUESTION, resolver_scope="operational_exhaustion"))
+        self.assertFalse(answer_options.allows_custom(QUESTION, route=True))
+        self.assertFalse(answer_options.allows_custom(QUESTION, effort=True))
+
+    def test_custom_allowed_question_canonicalizes_matching_labels_and_keeps_other_text_verbatim(self):
+        self.assertEqual("CLI", answer_options.offered(QUESTION, "`cli`", allow_custom=True))
+        self.assertIsNone(answer_options.refusal(QUESTION, "TUI with keyboard shortcuts", allow_custom=True))
+        self.assertEqual(
+            "TUI with keyboard shortcuts",
+            answer_options.offered(QUESTION, "  TUI with keyboard shortcuts  ", allow_custom=True),
+        )
+        self.assertEqual(
+            "I do not want CLI, with no server",
+            answer_options.offered(QUESTION, "I do not want CLI, with no server", allow_custom=True),
+        )
+
 
 class AnswerOptionsCLITests(unittest.TestCase):
-    """The fake planner asks Q1 with options ["CLI", "Web"] and a proposed default."""
+    """Product clarification questions allow custom answers (#3650); operational/scope choices stay strict (#1013)."""
 
     setUp = test_subprocess.SubprocessFlow.setUp
     launch = test_subprocess.SubprocessFlow.launch
     saved = test_subprocess.SubprocessFlow.saved
     new_run_engine_args = test_subprocess.SubprocessFlow.new_run_engine_args
 
-    def waiting(self):
-        self.launch(["Build a greeting tool", "--no-chat"], 2)
+    def waiting(self, *, extra_question=False, scope_gate=False):
+        if extra_question:
+            gf = self.root / "fixture-bin" / "goal_fixtures.py"
+            gf.write_text(
+                gf.read_text().replace(
+                    '"id": "Q1",',
+                    '"id": "Q2", "question": "Which format?", "why": "Sets format", "options": ["Text", "JSON"], '
+                    '"proposed_default": "Text", "kind": "decision", "category": "behavior", '
+                    '"convention_ref": "", "delegable": True},\n            {"id": "Q1",',
+                    1,
+                )
+            )
+        brief = "Build a greeting tool"
+        flags = ["--no-chat"]
+        if scope_gate:
+            elsewhere = "Also record each greeting in the greet-history service."
+            brief = f"{brief}. {elsewhere}"
+            self.env["AUTOCODE_FIXTURE_EXTERNAL_PART"] = f"greet-history|Record each greeting|{elsewhere}"
+            flags = ["--joint-planning", "--no-adaptive-planning", "--no-chat"]
+        self.launch([brief, *flags], 2)
         run, state = self.saved()
         self.assertEqual("WAITING_FOR_USER", state["status"])
+        if scope_gate:
+            self.launch(["--run-dir", str(run), "--answer", "Q1=CLI"], 0)
+            self.launch(["--run-dir", str(run), "--no-chat"], 2)
+            run, state = self.saved()
+            scope_q = next(row for row in state["pending_questions"] if row["id"].startswith("workspace-scope-"))
+            return run, state, scope_q
         question = next(row for row in state["pending_questions"] if row["id"] == "Q1")
         self.assertEqual(["CLI", "Web"], question["options"])
         return run, state, question
@@ -118,35 +175,57 @@ class AnswerOptionsCLITests(unittest.TestCase):
                 self.assertEqual(label, answered["answers"]["Q1"]["text"])
                 self.assertEqual([], answered["pending_questions"])
 
-    def test_an_answer_naming_no_option_changes_nothing_and_keeps_the_token(self):
-        run, state, _ = self.waiting()
+    def test_custom_product_answer_saves_verbatim_and_preserves_sibling_pending_questions(self):
+        run, state, question = self.waiting(extra_question=True)
+        self.assertEqual({"Q1", "Q2"}, {row["id"] for row in state["pending_questions"]})
+        status_view = json.loads(self.launch(["--run-dir", str(run), "--status", "--json"], 0).stdout)["view"]
+        by_id = {row["id"]: row for row in status_view["needs"]["questions"]}
+        self.assertIs(True, by_id["Q1"]["allow_custom"])
+        self.assertIs(True, by_id["Q2"]["allow_custom"])
+        token = state["resolver_human_request"]["request_token"]
+        negation = f"I do not want {question['proposed_default']}"
+        self.launch(["--run-dir", str(run), "--answer", f"Q1={negation}", "--resolver-token", token], 0)
+        answered = self.saved()[1]
+        self.assertEqual(negation, answered["answers"]["Q1"]["text"])
+        self.assertEqual(["Q2"], [row["id"] for row in answered["pending_questions"]])
+
+    def test_strict_choice_question_refuses_non_option_changes_nothing_and_keeps_the_token(self):
+        run, state, scope_q = self.waiting(scope_gate=True)
+        status_view = json.loads(self.launch(["--run-dir", str(run), "--status", "--json"], 0).stdout)["view"]
+        self.assertIs(False, status_view["needs"]["questions"][0]["allow_custom"])
         before = (run / "state.json").read_bytes()
         token = state["resolver_human_request"]["request_token"]
-        result = self.launch(["--run-dir", str(run), "--answer", "Q1=Command line, please"], 2)
-        self.assertIn("Q1 offers options; answer with one of these labels exactly: 'CLI'; 'Web'", result.stderr)
+        args = ["--run-dir", str(run), "--status", "--json"]
+        view_before = json.loads(self.launch(args, 0).stdout)["view"]
+        result = self.launch(
+            ["--run-dir", str(run), "--answer", f"{scope_q['id']}=Both repos at once", "--resolver-token", token], 2
+        )
+        self.assertIn(f"{scope_q['id']} offers options; answer with one of these labels exactly:", result.stderr)
         self.assertEqual(before, (run / "state.json").read_bytes())
-        # The refused answer consumed nothing: the same token still answers with a label.
-        self.launch(["--run-dir", str(run), "--answer", "Q1=Web", "--resolver-token", token], 0)
-        self.assertEqual("Web", json.loads((run / "state.json").read_text())["answers"]["Q1"]["text"])
+        view_after = json.loads(self.launch(args, 0).stdout)["view"]
+        self.assertEqual(view_before["needs"], view_after["needs"])
+        self.assertEqual(view_before["cost"], view_after["cost"])
+        self.launch(
+            ["--run-dir", str(run), "--answer", f"{scope_q['id']}={scope_q['options'][0]}", "--resolver-token", token],
+            0,
+        )
+        self.assertEqual(
+            scope_q["options"][0], json.loads((run / "state.json").read_text())["answers"][scope_q["id"]]["text"]
+        )
 
-    def test_chat_asks_again_after_an_answer_naming_no_option(self):
-        # Input ends at the plan approval prompt, which leaves the run waiting there.
-        result = self.launch(["Build a greeting tool", "--chat"], 2, answers="Command line\nCLI\n")
-        self.assertIn("Q1 offers options; answer with one of these labels exactly", result.stdout)
+    def test_chat_asks_again_after_a_strict_question_receives_no_offered_option(self):
+        elsewhere = "Also record each greeting in the greet-history service."
+        self.env["AUTOCODE_FIXTURE_EXTERNAL_PART"] = f"greet-history|Record each greeting|{elsewhere}"
+        result = self.launch(
+            [f"Build a greeting tool. {elsewhere}", "--joint-planning", "--no-adaptive-planning", "--chat"],
+            2,
+            answers="CLI, custom local mode\nBoth repos at once\nThis repository only\n",
+        )
+        self.assertIn("offers options; answer with one of these labels exactly", result.stdout)
         self.assertIn("/feedback TEXT", result.stdout)
         state = self.saved()[1]
-        self.assertEqual("CLI", state["answers"]["Q1"]["text"])
+        self.assertEqual("CLI, custom local mode", state["answers"]["Q1"]["text"])
         self.assertEqual("AWAITING_GOAL_APPROVAL", state["status"])
-
-    def test_negating_the_default_keeps_the_public_question_and_cost_unchanged(self):
-        run, _, question = self.waiting()
-        self.assertGreaterEqual(len(question["proposed_default"]), 4)
-        args = ["--run-dir", str(run), "--status", "--json"]
-        before = json.loads(self.launch(args, 0).stdout)["view"]
-        self.launch(["--run-dir", str(run), "--answer", f"Q1=I do not want {question['proposed_default']}"], 2)
-        after = json.loads(self.launch(args, 0).stdout)["view"]
-        self.assertEqual(before["needs"], after["needs"])
-        self.assertEqual(before["cost"], after["cost"])
 
 
 if __name__ == "__main__":

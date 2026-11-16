@@ -47,6 +47,7 @@ try:
     from . import autocode_planning_feedback as planning_feedback
     from . import autocode_requirement_quotes as requirement_quotes
     from . import autocode_requirement_retention as requirement_retention
+    from . import autocode_requirements_review as requirements_review
     from . import autocode_run_status as run_status
     from . import autocode_scope_question as scope_question
     from . import autocode_source_log as source_log
@@ -75,6 +76,7 @@ except ImportError:
     import autocode_planning_feedback as planning_feedback
     import autocode_requirement_quotes as requirement_quotes
     import autocode_requirement_retention as requirement_retention
+    import autocode_requirements_review as requirements_review
     import autocode_run_status as run_status
     import autocode_scope_question as scope_question
     import autocode_source_log as source_log
@@ -662,6 +664,8 @@ def check_displayed_handoff(state: RunState, selected):
     Delegation and assumption rejection never grant approval, so they do not
     require the resolver-published goal display; they still refuse a stale
     token or a handoff refreshed since it was displayed."""
+    if requirements_review.check_pre_contract_handoff(state, selected):
+        return
     contract = state.get("goal_contract")
     if (
         not contract
@@ -823,7 +827,7 @@ def answer(state: RunState, question_id, text, *, delegated=False, source=None, 
         raise ValueError(f"{question_id} needs text: --answer {question_id}=TEXT")
     q = matches[0]
     scope_question.check_answer(state, q)
-    text = text if delegated else answer_options.offered(q, text)
+    text = text if delegated else answer_options.state_offered(state, q, text)
     if delegated and not q["proposed_default"].strip():
         raise ValueError("This question has no proposed default to delegate")
     if delegated and any(ob["id"] == question_id for ob in open_obligations(state)):
@@ -956,7 +960,7 @@ def reject_assumption(state: RunState, assumption_id, selected):
     if state["status"] not in ("AWAITING_GOAL_APPROVAL", "WAITING_FOR_USER", "PAUSED_PLANNING_BUDGET"):
         raise ValueError("Rejecting an assumption needs an open conversation checkpoint")
     check_displayed_handoff(state, selected)
-    handoff = (state.get("requirements_handoff") or {}).get("report") or {}
+    handoff = requirements_review.active_handoff_report(state)
     rows = {
         row["id"]: row
         for row in (normalize_assumption(raw) for raw in handoff.get("proposed_assumptions", []))
@@ -975,7 +979,7 @@ def reject_assumption(state: RunState, assumption_id, selected):
         raise ValueError(f"Assumption {assumption_id} already has an open rejection")
     category = row["category"] if row["category"] in ASSUMPTION_CATEGORIES else "requested_outcome"
     kind = "human_decision" if category in assumption_ledger.PERSON_CATEGORIES else "remediation"
-    contract = state.get("goal_contract") or {}
+    contract = (state.get("goal_contract") or {}) if requirements_review.current_turn_has_contract(state) else {}
     event = {
         "kind": "reject_assumption",
         "id": "reject-" + uuid.uuid4().hex[:12],
@@ -984,7 +988,7 @@ def reject_assumption(state: RunState, assumption_id, selected):
         "assumption_id": assumption_id,
         "category": category,
         "text": row["text"],
-        "contract_token": token(contract) if contract else None,
+        "contract_token": token(contract) if contract else selected,
     }
     state.setdefault("user_events", []).append(event)
     obligation = {
@@ -1006,9 +1010,7 @@ def reject_assumption(state: RunState, assumption_id, selected):
     if contract:
         contract.update(approval_status="draft", approval_event=None)
     invalidate(state, "An assumption rejection requires a refreshed draft and explicit approval")
-    first_stage = (
-        "requirements_gather" if "requirements" in state.get("settings", {}).get("roles", {}) else "draft_plan"
-    )
+    first_stage = requirements_review.reject_stage(state)
     state.update({"status": "RUNNING", "phase": "DISCOVERING", "next_stage": first_stage, "pending_questions": []})
     return obligation
 
@@ -1047,7 +1049,7 @@ def resolve_permission(state: RunState, question_id, text):
     if len(matches) != 1 or question_id in state.get("answers", {}) or not text.strip():
         raise ValueError("Permission response must address one unresolved question with nonempty text")
     q = matches[0]
-    answer_options.offered(q, text)
+    answer_options.offered(q, text, allow_custom=False)
     event = operational_change.answer_event(state, request, q, text, token(state["goal_contract"]), s.now())
     state.setdefault("user_events", []).append(event)
     finding_cause.resolve_answer(state, request, q, state.get(RESOLVER_REQUEST_KEY), event)

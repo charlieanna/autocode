@@ -132,6 +132,36 @@ class InterpretTests(unittest.TestCase):
         self.assertEqual("none", action.kind)
         self.assertIn("sqlite, postgres", action.text)
 
+    def test_custom_allowed_option_question_accepts_free_text_and_relays_structured_assumptions(self):
+        view = answer_view()
+        view["needs"]["questions"][0]["allow_custom"] = True
+        view["requirements"] = {
+            "handoff_ref": "abc123def456",
+            "intended_outcome": "Store analytics locally",
+            "requirements": [{"id": "R1", "text": "Persist events locally", "source_quote": "store locally"}],
+            "proposed_assumptions": [
+                {
+                    "id": "A1",
+                    "text": "Default file path is ~/.analytics.db",
+                    "category": "behavior",
+                    "convention_ref": "",
+                    "rationale": "Avoids writing into read-only directories",
+                    "confirmed": False,
+                }
+            ],
+            "acceptance_tests": ["Writes event to ~/.analytics.db"],
+            "conflicts": ["README mentions CSV export while brief asks for SQLite only"],
+        }
+        relayed = relay.relay(view, {"gate": {}})
+        self.assertIn("[A1]", relayed.messages[0])
+        self.assertIn("Avoids writing into read-only directories", relayed.messages[0])
+        self.assertIn("README mentions CSV export", relayed.messages[0])
+        self.assertIn("It sets the migration path", relayed.messages[0])
+        del view["needs"]["questions"][1]
+        action = relay.interpret({"gate": {}}, view, "duckdb embedded")
+        self.assertEqual("answers", action.kind)
+        self.assertEqual({"q-1": "duckdb embedded"}, action.answers)
+
     def test_multiple_questions_take_id_lines_and_name_missing_or_unknown_ids(self):
         view = answer_view()
         action = relay.interpret({"gate": {}}, view, "q-1: postgres\nq-2: none needed")

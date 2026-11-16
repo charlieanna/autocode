@@ -7748,3 +7748,150 @@ test('a send button held back by unanswered questions says so', async (t) => {
   assert.equal(take.disabled, false);
   assert.equal(take.title, '', 'the reason goes once the answer lands');
 });
+
+test('multi-question batch card renders why, Recommended defaults, Other custom input when allow_custom is true, and submits all answers in one CLI call (#3650)', async (t) => {
+  host.config.set('confirmPersonOnly', false);
+  t.after(() => host.config.delete('confirmPersonOnly'));
+  const combinedThread = '1. Which output format?\n\n2. Which transport?\n\n3. Which repository scope?';
+  const view = {
+    status: 'WAITING_FOR_USER',
+    done: false,
+    needs: {
+      kind: 'answer',
+      resolver_token: 'tok-batch',
+      questions: [
+        {
+          id: 'Q1',
+          question: 'Which output format?',
+          why: 'Determines downstream parser contract',
+          options: ['JSON', 'TOML'],
+          proposed_default: 'JSON',
+          allow_custom: true,
+        },
+        {
+          id: 'Q2',
+          question: 'Which transport?',
+          why: 'Shapes local vs network CLI flags',
+          options: ['stdio', 'http'],
+          proposed_default: 'stdio',
+          allow_custom: true,
+        },
+        {
+          id: 'workspace-scope-1',
+          question: 'Which repository scope?',
+          why: 'External peer repo was cited',
+          options: ['This repository only', 'Stop and coordinate'],
+          proposed_default: 'This repository only',
+          allow_custom: false,
+        },
+      ],
+    },
+    next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --answer Q1=ANSWER --answer Q2=ANSWER --answer workspace-scope-1=ANSWER --resolver-token -`,
+    chat: {
+      phase: 'requirements',
+      context: 'batch-ctx',
+      input: { kind: 'feedback', label: 'Send reply', next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --feedback MESSAGE` },
+      messages: [{ id: 'requirements-question-batch1', role: 'assistant', text: combinedThread }],
+      review: null,
+    },
+  };
+  const ownController = new RunController(host.log);
+  const ui = await openChat(t, view, run, { controller: ownController });
+  const card = ui.document.querySelector('#app .decision-card');
+  assert.ok(card, 'batch decision card renders');
+  // Even though the combined thread text includes each question, multi-question batch controls keep per-question labels.
+  const labels = [...card.querySelectorAll('.decision .q')].map((node) => node.textContent);
+  assert.deepEqual(labels, ['Which output format?', 'Which transport?', 'Which repository scope?']);
+  // Rationale (why) renders for every question.
+  assert.ok(card.textContent.includes('Determines downstream parser contract'));
+  assert.ok(card.textContent.includes('Shapes local vs network CLI flags'));
+
+  const q1 = card.querySelector('[data-question="Q1"]');
+  const q2 = card.querySelector('[data-question="Q2"]');
+  const scopeSelect = card.querySelector('[data-question="workspace-scope-1"]');
+  assert.equal(q1.value, 'JSON', 'proposed_default is preselected');
+  assert.ok([...q1.options].some((opt) => opt.value === 'JSON' && opt.textContent.includes('(Recommended)')));
+  assert.ok([...q1.options].some((opt) => opt.value === '__autocode_custom__' && opt.textContent.includes('Other')));
+  assert.ok(![...scopeSelect.options].some((opt) => opt.value === '__autocode_custom__'), 'allow_custom: false omits custom option');
+
+  // Selecting Other (specify…) reveals the inline custom input and holds #take-action until filled.
+  q2.value = '__autocode_custom__';
+  q2.dispatchEvent(new ui.window.Event('change'));
+  const customQ2 = card.querySelector('[data-custom-for="Q2"]');
+  assert.ok(customQ2 && !customQ2.hidden, 'inline custom input appears when Other is chosen');
+  assert.equal(ui.document.getElementById('take-action').disabled, true, 'empty custom text disables submit');
+  customQ2.value = 'Unix domain socket';
+  customQ2.dispatchEvent(new ui.window.Event('input'));
+  assert.equal(ui.document.getElementById('take-action').disabled, false);
+
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  ui.document.getElementById('take-action').click();
+  await flush();
+  assert.equal(launch.mock.callCount(), 1, 'all batch answers submit in a single CLI invocation');
+  const args = launch.mock.calls[0].arguments[1];
+  assert.ok(args.includes('Q1=JSON'));
+  assert.ok(args.includes('Q2=Unix domain socket'));
+  assert.ok(args.includes('workspace-scope-1=This repository only'));
+});
+
+test('structured Requirements & Assumptions card renders assumptions, rationale, conflicts, and inline override (#3650)', async (t) => {
+  host.config.set('confirmPersonOnly', false);
+  t.after(() => host.config.delete('confirmPersonOnly'));
+  const view = {
+    status: 'WAITING_FOR_USER',
+    done: false,
+    needs: {
+      kind: 'answer',
+      resolver_token: 'review:tok',
+      questions: [{ id: 'requirements-review-r1', question: understanding, options: [], proposed_default: 'plan', allow_custom: true }],
+    },
+    next_command: `autocode --answer requirements-review-r1=ANSWER --resolver-token - --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    requirements: {
+      handoff_ref: 'ref123456789',
+      intended_outcome: 'Greet by name',
+      requirements: [{ id: 'R1', text: 'Print Hello, NAME', source_quote: 'greet by name' }],
+      proposed_assumptions: [
+        {
+          id: 'A1',
+          text: 'Exit 2 when no name is passed',
+          category: 'behavior',
+          convention_ref: 'docs/cli.md:12',
+          rationale: 'Matches repository CLI exit code convention',
+          confirmed: false,
+        },
+      ],
+      acceptance_tests: ['greet.py Ana prints Hello, Ana'],
+      conflicts: ['Legacy script exited 1 on usage errors'],
+    },
+    chat: {
+      phase: 'requirements',
+      context: 'review-ctx',
+      input: { kind: 'feedback', label: 'Send reply', next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --feedback MESSAGE` },
+      messages: [{ id: 'requirements-question-r1', role: 'assistant', text: understanding }],
+      review: { question_id: 'requirements-review-r1', answer: 'plan', label: 'Approve understanding and prepare plan', summary: understanding },
+    },
+  };
+  const ownController = new RunController(host.log);
+  const ui = await openChat(t, view, run, { controller: ownController });
+  const reqCard = ui.document.querySelector('#app .requirements-card');
+  assert.ok(reqCard, 'structured requirements card renders');
+  assert.equal(ui.document.querySelector('#app pre.understanding'), null, 'raw duplicate summary block is not rendered');
+  assert.ok(reqCard.textContent.includes('A1'));
+  assert.ok(reqCard.textContent.includes('Exit 2 when no name is passed'));
+  assert.ok(reqCard.textContent.includes('Matches repository CLI exit code convention'));
+  assert.ok(reqCard.textContent.includes('Legacy script exited 1 on usage errors'));
+
+  // Typing an inline override switches the primary action from 'plan' to the override text.
+  const override = reqCard.querySelector('[data-review-override="requirements-review-r1"]');
+  assert.ok(override, 'inline assumption override input renders');
+  override.value = 'Change A1: exit 1 on missing name to match legacy script';
+  override.dispatchEvent(new ui.window.Event('input'));
+  assert.equal(ui.document.getElementById('take-action').textContent, 'Send changes and continue');
+
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  ui.document.getElementById('take-action').click();
+  await flush();
+  assert.equal(launch.mock.callCount(), 1);
+  const args = launch.mock.calls[0].arguments[1];
+  assert.ok(args.includes('requirements-review-r1=Change A1: exit 1 on missing name to match legacy script'));
+});

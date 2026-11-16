@@ -705,6 +705,46 @@ class TaskRun:
         """
         return self._answer_action(question_id, text, resolver_token=resolver_token)
 
+    def answer_many(self, answers: dict[str, str], *, resolver_token: str | None = None) -> dict:
+        """Answer multiple open questions of the current AutoResolver request in one CLI invocation (#3650)."""
+        if not answers:
+            raise TaskRunError("answer_many requires at least one question answer")
+        if len(answers) == 1:
+            qid, text = next(iter(answers.items()))
+            return self.answer(qid, text, resolver_token=resolver_token)
+        has_timeout_override = any(
+            item.split("=", 1)[0] in ("--max-tool-seconds", "--max-stage-seconds") for item in self.options
+        )
+        need = self.status()["needs"] or {} if resolver_token is None or has_timeout_override else {}
+        if resolver_token is None:
+            listed = [question["id"] for question in need.get("questions") or ()]
+            missing = [qid for qid in answers if qid not in listed]
+            if need.get("kind") != "answer" or missing:
+                raise TaskRunError(
+                    f"the run is not waiting for answers to {', '.join(missing or answers)} "
+                    f"(needs {need.get('kind')}, questions {listed})"
+                )
+            resolver_token = need.get("resolver_token")
+            if not resolver_token:
+                raise TaskRunError(
+                    "no current AutoResolver request carries those questions; advance the run to publish one, then answer"
+                )
+        if (
+            has_timeout_override
+            and need
+            and need.get("operational_options")
+            and (resolver_token != need.get("resolver_token"))
+        ):
+            raise TaskRunError("The operational timeout decision token is stale; use the current displayed request")
+        answer_flags = [item for qid, text in answers.items() for item in ("--answer", f"{qid}={text}")]
+        return self._act(
+            "answer",
+            *answer_flags,
+            "--resolver-token",
+            "-",
+            secret_env={"AUTOCODE_RESOLVER_TOKEN": resolver_token},
+        )
+
     def _answer_action(
         self,
         question_id: str,

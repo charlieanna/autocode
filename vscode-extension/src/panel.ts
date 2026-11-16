@@ -8,7 +8,7 @@
 
 import * as vscode from "vscode";
 import { ClientGap, integerValue, leavesForPerson, requiresConfirmation, type OpenDecision } from "./core/next-command";
-import type { AcceptanceCriterion, ChangesetSummary, DisplayedPlan, IntegerCommandInput, Question, StatusView } from "./core/view";
+import type { AcceptanceCriterion, ChangesetSummary, DisplayedPlan, IntegerCommandInput, Question, RequirementsView, StatusView } from "./core/view";
 import { approvalToken, hasPlanReview, isWorking, needsSummary, pauseLabel, planForApproval, progressLine, usageLine } from "./core/view";
 import type { RunController, RunRef } from "./controller";
 import { markdown, type TextNode } from "./chat-markdown";
@@ -21,8 +21,10 @@ export interface Decision {
   kind: "answer" | "model" | "effort" | "integer";
   input?: IntegerCommandInput;
   text: string;
+  why?: string | null;
   options: string[];
   suggested: string | null;
+  allowCustom?: boolean;
 }
 
 export const NUMERIC_RECOVERY_EFFECT = "This changes only the total active time. Other saved limits and model routes stay the same. It does not approve a plan.";
@@ -48,6 +50,7 @@ const BOUND_WORDING: Record<string, [(total: string) => string, string]> = {
 export interface PanelState {
   numericActionLabel?: string;
   chat?: StatusView["chat"];
+  requirementsView?: RequirementsView | null;
   formattedMessages?: Record<string, TextNode[]>;
   workspace: string;
   runDir: string;
@@ -473,6 +476,7 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
   const working = taking || isWorking(view);
   return {
     chat: view.chat,
+    requirementsView: view.requirements ?? null,
     formattedMessages: Object.fromEntries((view.chat?.messages ?? []).filter((row) => row.role === "assistant").map((row) => [row.id, markdown(row.text)])),
     workspace: run.workspace,
     runDir: run.runDir,
@@ -533,6 +537,7 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
       need?.token,
       need?.job_retry_token,
       view.recovery?.token,
+      view.requirements?.handoff_ref ?? null,
       need?.route,
       decisions,
       view.next_command ?? "",
@@ -604,9 +609,11 @@ function describe(
     text: open.input.label, options: [], suggested: null,
   };
   const question: Question | undefined = need?.questions?.find((row) => row.id === open.questionId);
+  const why = question?.why ? String(question.why) : null;
   if (open.kind === "effort") return {
     questionId: open.questionId, kind: "effort",
     text: question?.question ?? `Choose an effort for ${need?.effort?.job ?? open.questionId}`,
+    why,
     options: [...(need?.effort?.question_id === open.questionId ? need.effort.declared ?? [] : [])],
     suggested: null,
   };
@@ -616,8 +623,10 @@ function describe(
     questionId: open.questionId,
     kind: open.kind,
     text: question?.question ?? (asksModel && route ? `Name the model ${route.role} continues on` : open.questionId),
+    why,
     options: asksModel ? [...(route?.candidates ?? [])] : offeredLabels(question),
     suggested: asksModel ? null : (question?.proposed_default ?? null),
+    allowCustom: !asksModel && open.kind === "answer" && question?.allow_custom === true,
   };
 }
 
@@ -984,6 +993,13 @@ export function panelHtml(chat = false): string {
   .decision { margin: 10px 0; }
   .decision .q { font-size: .86rem; }
   .why { font-size: .76rem; opacity: .75; }
+  .requirements-card { margin: 8px 0; }
+  .assumption-row, .conflict-row { padding: 6px 8px; margin: 6px 0; border-left: 2px solid var(--vscode-panel-border); }
+  .conflict-row { border-left-color: var(--vscode-errorForeground, #a1260d); }
+  .assumption-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 3px; font-size: .78rem; }
+  .requirements-details { margin: 8px 0; font-size: .84rem; }
+  .requirements-details summary { cursor: pointer; font-weight: 600; }
+  .custom-answer, .assumption-override { margin-top: 6px; }
   .activity { margin: 6px 0; font-family: var(--vscode-editor-font-family, monospace); font-size: .82rem; }
   .activity-row { display: flex; gap: 6px; opacity: .85; }
   .activity-row.running { opacity: 1; }
@@ -1075,6 +1091,8 @@ let chatEnvelope = null;
 const chatBehavior = chatMode ? (${installChatBehavior.toString()})() : null;
 let current = null;
 let answers = Object.create(null);
+let customSelected = Object.create(null);
+let reviewOverrides = Object.create(null);
 let renderedState = '';
 let allChangesCompare = null;
 let workingCompare = null;
@@ -1533,12 +1551,115 @@ function renderStopped(stopped) {
   }
 }
 
+function renderDecisionControl(box, decision, showQuestionText, ariaQuestion) {
+  if (showQuestionText) box.appendChild(el('div', 'q', decision.text));
+  if (decision.why) box.appendChild(el('div', 'why question-why', decision.why));
+  if (decision.input) box.appendChild(el('div', 'why', numericHelp(decision.input)));
+  if (decision.suggested) box.appendChild(el('div', 'why', 'proposed: ' + decision.suggested));
+  const name = decision.questionId;
+  const CUSTOM_VALUE = '__autocode_custom__';
+  let input;
+  let customInput = null;
+  if (decision.options.length > 0) {
+    input = document.createElement('select');
+    const blank = document.createElement('option');
+    blank.value = '';
+    blank.textContent = 'Choose…';
+    input.appendChild(blank);
+    decision.options.forEach((option) => {
+      const item = document.createElement('option');
+      item.value = option;
+      item.textContent = (decision.suggested && option === decision.suggested) ? option + ' (Recommended)' : option;
+      input.appendChild(item);
+    });
+    if (decision.allowCustom) {
+      const other = document.createElement('option');
+      other.value = CUSTOM_VALUE;
+      other.textContent = 'Other (specify…)';
+      input.appendChild(other);
+      customInput = document.createElement('input');
+      customInput.type = 'text';
+      customInput.className = 'custom-answer';
+      customInput.dataset.customFor = name;
+      customInput.placeholder = 'Type your answer…';
+      customInput.setAttribute('aria-label', decision.text + ' (custom answer)');
+      customInput.hidden = true;
+    }
+    // The core's proposed default is preselected: taking it is one click, not a choice plus a click.
+    if (decision.suggested && decision.options.indexOf(decision.suggested) >= 0 && !customSelected[name] && !answers[name]) {
+      answers[name] = decision.suggested;
+    }
+  } else {
+    input = document.createElement('input');
+    input.type = 'text';
+    if (decision.kind === 'integer') { input.inputMode = 'numeric'; input.pattern = '[0-9]*'; input.setAttribute('aria-label', decision.text); }
+    if (decision.suggested) input.placeholder = decision.suggested;
+  }
+  if (ariaQuestion) input.setAttribute('aria-label', decision.text);
+  input.dataset.question = name;
+  if (customInput && (customSelected[name] || (answers[name] && decision.options.indexOf(answers[name]) < 0))) {
+    customSelected[name] = true;
+    input.value = CUSTOM_VALUE;
+    customInput.hidden = false;
+    customInput.value = answers[name] || '';
+  } else if (answers[name]) {
+    input.value = answers[name];
+  }
+  // A number the button will not take says why beside the field, as it is typed.
+  const hint = decision.input ? el('div', 'range-hint') : null;
+  const save = () => {
+    if (customInput && input.value === CUSTOM_VALUE) {
+      const enteringCustom = !customSelected[name];
+      customSelected[name] = true;
+      customInput.hidden = false;
+      answers[name] = customInput.value;
+      if (enteringCustom) customInput.focus();
+    } else {
+      if (customInput) {
+        customSelected[name] = false;
+        customInput.hidden = true;
+      }
+      answers[name] = input.value;
+    }
+    if (hint) hint.textContent = integerHint(input.value, decision.input);
+    updateActionButton();
+  };
+  if (hint) save();
+  input.addEventListener('change', save);
+  input.addEventListener('input', save);
+  input.addEventListener('keydown', enterTakes);
+  box.appendChild(input);
+  if (customInput) {
+    const saveCustom = () => {
+      answers[name] = customInput.value;
+      updateActionButton();
+    };
+    customInput.addEventListener('input', saveCustom);
+    customInput.addEventListener('change', saveCustom);
+    customInput.addEventListener('keydown', enterTakes);
+    box.appendChild(customInput);
+  }
+  if (hint) box.appendChild(hint);
+}
+
+function restoreFocusedField(focusedAttr, selection) {
+  if (!focusedAttr) return;
+  const selector = focusedAttr[0] === 'question' ? '[data-question]'
+    : focusedAttr[0] === 'customFor' ? '[data-custom-for]' : '[data-review-override]';
+  const input = [...document.querySelectorAll(selector)].find((node) => node.dataset[focusedAttr[0]] === focusedAttr[1]);
+  if (input) {
+    input.focus();
+    if (selection && input.tagName === 'INPUT') input.setSelectionRange(...selection);
+  }
+}
+
 function render(state) {
   const chatSlice = chatMode ? [
     state.status, state.needKind, state.pause, state.gap, state.canApprove, state.token,
     state.taking, state.working, state.plan, state.criteria, state.decisions, state.decisionContext,
     state.actionLabel, state.actionEffect, state.stopped, state.unreadable, state.confirming,
-    state.chat && [state.chat.phase, state.chat.notice, state.chat.progress, state.chat.activity, state.chat.log, state.chat.now, state.chat.review, state.chat.input && state.chat.input.kind],
+    state.requirementsView,
+    state.chat && [state.chat.phase, state.chat.notice, state.chat.progress, state.chat.activity, state.chat.log, state.chat.now, state.chat.review, state.chat.gate, state.chat.input && state.chat.input.kind],
     state.chat && (state.chat.messages || []).filter((row) => String(row.id || '').startsWith('requirements-question-')),
     state.workingDiff, state.boundRaise, state.jobTimeControls, state.done, state.finish,
     state.meter && state.meter.struggling, state.allChanges,
@@ -1548,10 +1669,19 @@ function render(state) {
   renderedState = serialized;
   const sameRequest = current && current.decisionContext === state.decisionContext;
   const focused = document.activeElement;
-  const focusedQuestion = sameRequest && focused && focused.dataset.question;
-  const selection = focusedQuestion && focused.tagName === 'INPUT'
+  const focusedAttr = sameRequest && focused && (
+    focused.dataset.question ? ['question', focused.dataset.question]
+    : focused.dataset.customFor ? ['customFor', focused.dataset.customFor]
+    : focused.dataset.reviewOverride ? ['reviewOverride', focused.dataset.reviewOverride]
+    : null
+  );
+  const selection = focusedAttr && focused.tagName === 'INPUT'
     ? [focused.selectionStart, focused.selectionEnd, focused.selectionDirection] : null;
-  if (!sameRequest) answers = Object.create(null);
+  if (!sameRequest) {
+    answers = Object.create(null);
+    customSelected = Object.create(null);
+    reviewOverrides = Object.create(null);
+  }
   current = state;
   app.textContent = '';
   app.classList.remove('muted');
@@ -1597,17 +1727,93 @@ function render(state) {
         && (state.chat.review || state.needKind === 'continue' || conversationalQuestion)) {
       if (state.chat.review) {
         const review = state.chat.review;
-        // The thread already holds the Requirements question (docs/task-run.md: its id starts with
-        // requirements-question-), and this summary is that same text: a second copy here showed
-        // the whole understanding twice, the card's as a raw block. The card keeps it only when
-        // the thread does not show it.
-        if (review.summary && !askedInThread) cardContent.appendChild(el('pre', 'understanding', review.summary));
-        const approve = el('button', null, review.label);
+        const reqView = state.requirementsView;
+        const assumptions = (reqView && Array.isArray(reqView.proposed_assumptions)) ? reqView.proposed_assumptions : [];
+        const conflicts = (reqView && Array.isArray(reqView.conflicts)) ? reqView.conflicts : [];
+        const reqRows = (reqView && Array.isArray(reqView.requirements)) ? reqView.requirements : [];
+        const accTests = (reqView && Array.isArray(reqView.acceptance_tests)) ? reqView.acceptance_tests : [];
+        const showStructuredCard = Boolean(reqView) && (
+          assumptions.length > 0 || conflicts.length > 0
+          || (!askedInThread && (reqRows.length > 0 || accTests.length > 0 || Boolean(reqView.intended_outcome)))
+        );
+        if (showStructuredCard) {
+          const reqCard = el('div', 'requirements-card');
+          if (!askedInThread && reqView.intended_outcome) {
+            reqCard.appendChild(el('div', 'line', reqView.intended_outcome));
+          }
+          if (assumptions.length > 0) {
+            reqCard.appendChild(el('h2', null, 'Assumptions to confirm'));
+            assumptions.forEach((item) => {
+              const row = el('div', 'assumption-row');
+              const head = el('div', 'assumption-head');
+              head.appendChild(el('span', 'state', item.id));
+              if (item.category) head.appendChild(el('span', 'meta', item.category));
+              head.appendChild(el('span', 'state ' + (item.confirmed ? 'done' : ''), item.confirmed ? 'confirmed' : 'needs confirmation'));
+              row.appendChild(head);
+              row.appendChild(el('div', 'q', item.text));
+              if (item.rationale) row.appendChild(el('div', 'why', 'Why: ' + item.rationale));
+              if (item.convention_ref) row.appendChild(el('div', 'why', 'Reference: ' + item.convention_ref));
+              reqCard.appendChild(row);
+            });
+          }
+          if (conflicts.length > 0) {
+            reqCard.appendChild(el('h2', null, 'Conflicts'));
+            conflicts.forEach((conflict) => {
+              const text = typeof conflict === 'string'
+                ? conflict
+                : ((Array.isArray(conflict.requirement_ids) && conflict.requirement_ids.length
+                  ? '[' + conflict.requirement_ids.join(', ') + '] ' : '') + (conflict.description || ''));
+              reqCard.appendChild(el('div', 'conflict-row', text));
+            });
+          }
+          if (reqRows.length > 0 || accTests.length > 0) {
+            const details = el('details', 'requirements-details');
+            if (!askedInThread) details.open = true;
+            details.appendChild(el('summary', null, 'Structured requirements (' + reqRows.length + ')'));
+            reqRows.forEach((req) => {
+              details.appendChild(el('div', 'row', (req.id ? req.id + ': ' : '') + req.text));
+            });
+            accTests.forEach((testLine) => {
+              details.appendChild(el('div', 'why', 'Check: ' + testLine));
+            });
+            reqCard.appendChild(details);
+          }
+          const override = document.createElement('input');
+          override.type = 'text';
+          override.className = 'assumption-override';
+          override.dataset.reviewOverride = review.question_id;
+          override.placeholder = 'Optional: override an assumption or request a change…';
+          override.setAttribute('aria-label', 'Override an assumption or request a change');
+          if (reviewOverrides[review.question_id]) override.value = reviewOverrides[review.question_id];
+          reqCard.appendChild(override);
+          cardContent.appendChild(reqCard);
+        } else if (review.summary && !askedInThread) {
+          // The thread already holds the Requirements question (docs/task-run.md: its id starts with
+          // requirements-question-), and this summary is that same text: a second copy here showed
+          // the whole understanding twice, the card's as a raw block. The card keeps it only when
+          // the thread does not show it.
+          cardContent.appendChild(el('pre', 'understanding', review.summary));
+        }
+        const currentOverride = () => String(reviewOverrides[review.question_id] || '').trim();
+        const approve = el('button', null, currentOverride() ? 'Send changes and continue' : review.label);
         approve.id = 'take-action';
         approve.disabled = state.taking || state.working || Boolean(state.unreadable);
-        approve.addEventListener('click', () => vscode.postMessage({ type: 'take',
-          answers: { [review.question_id]: review.answer }, token: null,
-          runKey: state.workspace + '\\n' + state.runDir, decisionContext: state.decisionContext }));
+        const overrideInput = cardContent.querySelector('[data-review-override]');
+        if (overrideInput) {
+          const syncOverride = () => {
+            reviewOverrides[review.question_id] = overrideInput.value;
+            approve.textContent = currentOverride() ? 'Send changes and continue' : review.label;
+          };
+          overrideInput.addEventListener('input', syncOverride);
+          overrideInput.addEventListener('change', syncOverride);
+          overrideInput.addEventListener('keydown', enterTakes);
+        }
+        approve.addEventListener('click', () => {
+          const typed = currentOverride();
+          vscode.postMessage({ type: 'take',
+            answers: { [review.question_id]: typed || review.answer }, token: null,
+            runKey: state.workspace + '\\n' + state.runDir, decisionContext: state.decisionContext });
+        });
         strip.appendChild(el('span', 'action-prompt', actionPrompt(state)));
         strip.appendChild(approve);
       } else if (state.needKind === 'continue' && state.working) {
@@ -1623,6 +1829,7 @@ function render(state) {
       }
       if (cardContent.childNodes.length > 0) app.appendChild(card);
       if (strip.childNodes.length > 0) app.appendChild(strip);
+      restoreFocusedField(focusedAttr, selection);
       return;
     }
 
@@ -1658,55 +1865,14 @@ function render(state) {
         const form = el('div');
         state.decisions.forEach((decision) => {
           const box = el('div', 'decision');
-          // The core's current Requirements message already asks this question in the thread.
-          // Keep the field named for assistive technology, without repeating the visible text.
+          // A single question already asked in the thread keeps its field named for assistive technology
+          // without repeating visible text; multi-question batch cards always label each control (#3650).
           const plain = (text) => String(text || '').replace(/\\x60/g, '').replace(/\\s+/g, ' ').trim().toLowerCase();
-          const asked = state.chat && state.chat.phase === 'requirements' && (state.chat.messages || []).some((row) =>
-            !row.streaming && row.role === 'assistant' && String(row.id || '').startsWith('requirements-question-')
-            && plain(decision.text) && plain(row.text).includes(plain(decision.text)));
-          if (!asked) box.appendChild(el('div', 'q', decision.text));
-          if (decision.input) box.appendChild(el('div', 'why', numericHelp(decision.input)));
-          if (decision.suggested) box.appendChild(el('div', 'why', 'proposed: ' + decision.suggested));
-          const name = decision.questionId;
-          let input;
-          if (decision.options.length > 0) {
-            input = document.createElement('select');
-            const blank = document.createElement('option');
-            blank.value = '';
-            blank.textContent = 'Choose…';
-            input.appendChild(blank);
-            decision.options.forEach((option) => {
-              const item = document.createElement('option');
-              item.value = option;
-              item.textContent = option;
-              input.appendChild(item);
-            });
-            // The core's proposed default is preselected: taking it is one click, not a choice plus a click.
-            if (decision.suggested && decision.options.indexOf(decision.suggested) >= 0 && !answers[name]) {
-              answers[name] = decision.suggested;
-            }
-          } else {
-            input = document.createElement('input');
-            input.type = 'text';
-            if (decision.kind === 'integer') { input.inputMode = 'numeric'; input.pattern = '[0-9]*'; input.setAttribute('aria-label', decision.text); }
-            if (decision.suggested) input.placeholder = decision.suggested;
-          }
-          input.setAttribute('aria-label', decision.text);
-          input.dataset.question = name;
-          if (answers[name]) input.value = answers[name];
-          // A number the button will not take says why beside the field, as it is typed.
-          const hint = decision.input ? el('div', 'range-hint') : null;
-          const save = () => {
-            answers[name] = input.value;
-            if (hint) hint.textContent = integerHint(input.value, decision.input);
-            updateActionButton();
-          };
-          if (hint) save();
-          input.addEventListener('change', save);
-          input.addEventListener('input', save);
-          input.addEventListener('keydown', enterTakes);
-          box.appendChild(input);
-          if (hint) box.appendChild(hint);
+          const asked = state.decisions.length === 1 && state.chat && state.chat.phase === 'requirements'
+            && (state.chat.messages || []).some((row) =>
+              !row.streaming && row.role === 'assistant' && String(row.id || '').startsWith('requirements-question-')
+              && plain(decision.text) && plain(row.text).includes(plain(decision.text)));
+          renderDecisionControl(box, decision, !asked, true);
           form.appendChild(box);
         });
         cardContent.appendChild(form);
@@ -1742,13 +1908,7 @@ function render(state) {
     // scrolled the one button a waiting run needs above the window.
     if (strip.childNodes.length > 0) app.appendChild(strip);
     updateActionButton();
-    if (focusedQuestion) {
-      const input = [...document.querySelectorAll('[data-question]')].find((node) => node.dataset.question === focusedQuestion);
-      if (input) {
-        input.focus();
-        if (selection && input.tagName === 'INPUT') input.setSelectionRange(...selection);
-      }
-    }
+    restoreFocusedField(focusedAttr, selection);
     return;
   }
 
@@ -1838,48 +1998,7 @@ function render(state) {
     const form = el('div');
     state.decisions.forEach((decision) => {
       const box = el('div', 'decision');
-      box.appendChild(el('div', 'q', decision.text));
-      if (decision.input) box.appendChild(el('div', 'why', numericHelp(decision.input)));
-      if (decision.suggested) box.appendChild(el('div', 'why', 'proposed: ' + decision.suggested));
-      const name = decision.questionId;
-      let input;
-      if (decision.options.length > 0) {
-        input = document.createElement('select');
-        const blank = document.createElement('option');
-        blank.value = '';
-        blank.textContent = 'Choose…';
-        input.appendChild(blank);
-        decision.options.forEach((option) => {
-          const item = document.createElement('option');
-          item.value = option;
-          item.textContent = option;
-          input.appendChild(item);
-        });
-        // The core's proposed default is preselected: taking it is one click, not a choice plus a click.
-        if (decision.suggested && decision.options.indexOf(decision.suggested) >= 0 && !answers[name]) {
-          answers[name] = decision.suggested;
-        }
-      } else {
-        input = document.createElement('input');
-        input.type = 'text';
-        if (decision.kind === 'integer') { input.inputMode = 'numeric'; input.pattern = '[0-9]*'; input.setAttribute('aria-label', decision.text); }
-        if (decision.suggested) input.placeholder = decision.suggested;
-      }
-      input.dataset.question = name;
-      if (answers[name]) input.value = answers[name];
-      // A number the button will not take says why beside the field, as it is typed.
-      const hint = decision.input ? el('div', 'range-hint') : null;
-      const save = () => {
-        answers[name] = input.value;
-        if (hint) hint.textContent = integerHint(input.value, decision.input);
-        updateActionButton();
-      };
-      if (hint) save();
-      input.addEventListener('change', save);
-      input.addEventListener('input', save);
-      input.addEventListener('keydown', enterTakes);
-      box.appendChild(input);
-      if (hint) box.appendChild(hint);
+      renderDecisionControl(box, decision, true, false);
       form.appendChild(box);
     });
     app.appendChild(form);
@@ -1922,13 +2041,7 @@ function render(state) {
     app.appendChild(el('h2', null, 'Command the view named'));
     app.appendChild(el('pre', null, state.commandText));
   }
-  if (focusedQuestion) {
-    const input = [...document.querySelectorAll('[data-question]')].find((node) => node.dataset.question === focusedQuestion);
-    if (input) {
-      input.focus();
-      if (selection && input.tagName === 'INPUT') input.setSelectionRange(...selection);
-    }
-  }
+  restoreFocusedField(focusedAttr, selection);
 }
 
 function renderPlan(parent, plan) {
@@ -1971,7 +2084,7 @@ function enterTakes(event) {
   if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
   const target = event.target;
   if (!target || target.tagName !== 'INPUT') return;
-  const question = String(target.dataset.question || '');
+  const question = String(target.dataset.question || target.dataset.customFor || target.dataset.reviewOverride || '');
   const button = question.indexOf('raise:') === 0 ? document.getElementById('raise-bound')
     : question.indexOf('job-time:') === 0 ? document.getElementById('job-time-' + question.slice(9))
     : document.getElementById('take-action');

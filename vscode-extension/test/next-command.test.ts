@@ -270,7 +270,28 @@ test("applyDecisions never invents a decision a person owes", () => {
 
 test("findUnsupplied reports a gap without needing the person's answers", () => {
   assert.equal(findUnsupplied(["--answer", "q-1=ANSWER"]), null);
+  assert.equal(findUnsupplied(["--answer", "q-1=ANSWER", "--answer", "q-2=ANSWER"]), null);
   assert.equal(findUnsupplied(["--grant-recovery", "N"]), "N");
+});
+
+test("multi-question next_command opens every question and batches all answers into one argv (#3650)", () => {
+  const named = parseNamedCommand(
+    `autocode --run-dir ${RUN} --workspace ${WS} --answer Q1=ANSWER --answer Q2=ANSWER --answer Q3=ANSWER --resolver-token -`,
+    own,
+  );
+  assert.deepEqual(
+    openDecisions(named.argv),
+    [
+      { questionId: "Q1", placeholder: "ANSWER", kind: "answer" },
+      { questionId: "Q2", placeholder: "ANSWER", kind: "answer" },
+      { questionId: "Q3", placeholder: "ANSWER", kind: "answer" },
+    ],
+  );
+  assert.throws(() => applyDecisions(named.argv, { Q1: "CLI", Q2: "JSON" }), /Q3/);
+  assert.deepEqual(
+    applyDecisions(named.argv, { Q1: "CLI", Q2: "Custom TUI mode", Q3: "SQLite" }),
+    ["--answer", "Q1=CLI", "--answer", "Q2=Custom TUI mode", "--answer", "Q3=SQLite", "--resolver-token", "-"],
+  );
 });
 
 test("only a command that continues the run is advancing", () => {

@@ -545,3 +545,32 @@ def after_answers(state: RunState, *, queue=None) -> None:
         # Confirmation establishes intent; it cannot settle an independent
         # repository assignment or business question before the Planner.
         wait(state, handoff, queue)
+
+
+def check_pre_contract_handoff(state: RunState, selected) -> bool:
+    """Validate ``selected`` against the current turn's handoff digest before a goal contract exists (#3650)."""
+    if current_turn_has_contract(state):
+        return False
+    report = current_turn_handoff(state).get("report")
+    ref = util.digest(report)[:12] if isinstance(report, dict) else "none"
+    if not selected or ref == "none" or selected != ref:
+        raise ValueError(
+            "Act only on the current displayed revision; show the goal again and pass its token with --review-token"
+        )
+    return True
+
+
+def active_handoff_report(state: RunState) -> dict:
+    """The current turn's handoff report before a goal contract exists, else ``requirements_handoff.report``."""
+    handoff = state.get("requirements_handoff") if current_turn_has_contract(state) else current_turn_handoff(state)
+    return (handoff or {}).get("report") or {}
+
+
+def reject_stage(state: RunState) -> str:
+    """The stage an assumption rejection restarts at."""
+    settings = state.get("settings") or {}
+    if "requirements" in (settings.get("roles") or {}) or (
+        not current_turn_has_contract(state) and settings.get("joint_planning")
+    ):
+        return STAGE
+    return NEXT

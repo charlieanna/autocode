@@ -93,6 +93,20 @@ class PauseCommandTests(unittest.TestCase):
         self.assertIn("--resolver-token -", text)
         self.assertEqual(Path("/tmp/run with spaces"), args.run_dir)
 
+    def test_multi_question_command_emits_answer_flag_for_every_pending_question(self):
+        """#3650: multi-question gates name every pending question id in next_command."""
+        text = self.command(
+            {
+                "kind": "answer",
+                "resolver_token": "tok-batch",
+                "questions": [{"id": "Q1"}, {"id": "Q2"}, {"id": "Q3"}],
+            }
+        )
+        args, _ = self.parse(text)
+        self.assertEqual(["Q1=ANSWER", "Q2=ANSWER", "Q3=ANSWER"], args.answer)
+        self.assertEqual("-", args.resolver_token)
+        self.assertNotIn("tok-batch", text)
+
     def test_an_operational_command_also_shows_only_the_selector(self):
         token = "operational token 'with spaces'"
         text = self.command(

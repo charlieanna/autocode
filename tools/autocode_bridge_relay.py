@@ -133,23 +133,52 @@ def changeset_markdown(summary: dict, view: dict) -> str:
     return "\n".join(lines)
 
 
-def questions_markdown(need: dict) -> str:
-    """The questions of one answer gate, with the ids and options a reply names."""
+def _conflict_line(item) -> str:
+    if isinstance(item, dict):
+        ids = [str(rid) for rid in item.get("requirement_ids") or () if str(rid).strip()]
+        desc = str(item.get("description") or "").strip()
+        return f"[{', '.join(ids)}] {desc}" if ids and desc else desc
+    return str(item or "").strip()
+
+
+def questions_markdown(need: dict, view: dict | None = None) -> str:
+    """The questions of one answer gate, with rationale, structured assumptions, and options."""
     questions = need.get("questions") or []
-    lines = ["**AutoCode has questions for you**", ""]
+    req = (view or {}).get("requirements") if isinstance(view, dict) else None
+    assumptions = (req.get("proposed_assumptions") or []) if isinstance(req, dict) else []
+    conflicts = [_conflict_line(row) for row in ((req.get("conflicts") or []) if isinstance(req, dict) else ())]
+    conflicts = [row for row in conflicts if row]
+    is_review = len(questions) == 1 and str(questions[0].get("id") or "").startswith("requirements-review-")
+    lines = ["**AutoCode needs your confirmation**" if is_review else "**AutoCode has questions for you**", ""]
     for row in questions:
         lines.append(f"- **[{row.get('id')}]** {row.get('question')}")
         if row.get("why"):
             lines.append(f"  - why: {row['why']}")
         if row.get("options"):
-            lines.append(f"  - options: {', '.join(str(option) for option in row['options'])}")
+            custom_note = " (or reply with a custom answer)" if row.get("allow_custom") is True else ""
+            lines.append(f"  - options: {', '.join(str(option) for option in row['options'])}{custom_note}")
         if row.get("proposed_default"):
             lines.append(f"  - proposed: {row['proposed_default']}")
+    if assumptions:
+        lines += ["", "**Assumptions**"]
+        for row in assumptions:
+            if not isinstance(row, dict):
+                continue
+            status = "confirmed" if row.get("confirmed") else "needs confirmation"
+            meta = ", ".join(part for part in (row.get("category"), status) if part)
+            lines.append(f"- **[{row.get('id')}]** ({meta}): {row.get('text')}")
+            if row.get("rationale"):
+                lines.append(f"  - why: {row['rationale']}")
+            if row.get("convention_ref"):
+                lines.append(f"  - convention: `{row['convention_ref']}`")
+    if conflicts:
+        lines += ["", "**Conflicts**", *(f"- {row}" for row in conflicts)]
     lines += [""]
-    if len(questions) == 1:
-        lines.append(
-            "Reply with the answer" + (" (one of the options above)" if questions[0].get("options") else "") + "."
-        )
+    if is_review:
+        lines.append("Reply `plan` to confirm, or reply with what to change.")
+    elif len(questions) == 1:
+        strict_opts = bool(questions[0].get("options")) and questions[0].get("allow_custom") is not True
+        lines.append("Reply with the answer" + (" (one of the options above)" if strict_opts else "") + ".")
     else:
         lines.append("Reply with one line per question as `ID: your answer`.")
     return "\n".join(lines)
@@ -206,7 +235,7 @@ def relay(view: dict, record: dict, changeset: dict | None = None) -> RelayResul
         if questions and not need.get("resolver_token"):
             result.publish_questions = True  # advance the run so it publishes the request a reply can answer
         elif questions:
-            result.messages = [questions_markdown(need)]
+            result.messages = [questions_markdown(need, view)]
             result.gate["request_id"] = need.get("resolver_request_id")
         # questions without a request and without a token relaunch; the next view relays them
     elif kind == "approve_plan":
@@ -267,9 +296,9 @@ def relay(view: dict, record: dict, changeset: dict | None = None) -> RelayResul
 def validate_answer(question: dict, text: str) -> str | None:
     """Why this text cannot answer this question, or None. Options match exactly apart from spaces."""
     options = [str(option) for option in question.get("options") or ()]
-    if not options:
-        return None
     wanted = text.strip()
+    if not options or (question.get("allow_custom") is True and wanted):
+        return None
     allowed = options + ([str(question["proposed_default"])] if question.get("proposed_default") else [])
     return None if wanted in allowed else f"[{question.get('id')}] accepts only: {', '.join(allowed)}"
 
