@@ -3637,6 +3637,62 @@ test('once the other chat leaves the folder, the chat takes the named continue i
   assert.equal(launch.mock.callCount(), 1, 'taken once, not on every poll');
 });
 
+test('stopped supervision takes its named metadata reconciliation once without a recovery click', async (t) => {
+  const ui = await openChat(t, workingView());
+  const stopped = {
+    status: 'RUNNING', done: false, next_stage: 'review_completion', iteration: 1,
+    controller: { kind: 'ended', checked: true, alive: false },
+    liveness: { kind: 'interrupted' }, needs: { kind: 'continue' },
+    next_command: `AUTOCODE_RECONCILE_ONLY_TOKEN=checkpoint-v1:one autocode --workspace ${run.workspace} --run-dir ${run.runDir} --reconcile-only -`,
+  };
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  await ui.poll(stopped); await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 1, 'the public metadata action belongs to the client');
+  assert.deepEqual(launch.mock.calls[0].arguments[1], ['--reconcile-only', '-', '--workspace', run.workspace, '--run-dir', run.runDir]);
+  await ui.poll(stopped); await flush();
+  assert.equal(launch.mock.callCount(), 1, 'an unchanged recovery checkpoint cannot loop on polling');
+});
+
+test('automatic reconciliation uses the core-reported worktree and refuses a foreign command', async (t) => {
+  const ui = await openChat(t, workingView());
+  const moved = { workspace: `${run.workspace}/.autocode/worktrees/task`, runDir: `${run.workspace}/.autocode/worktrees/task/.autocode/runs/one` };
+  const stopped = {
+    status: 'PAUSED_UNCERTAIN_STAGE', done: false, next_stage: 'review_completion', iteration: 1,
+    workspace: moved.workspace, run_dir: moved.runDir,
+    controller: { kind: 'boundary', checked: true, alive: false },
+    liveness: { kind: 'interrupted' }, needs: { kind: 'continue' },
+    next_command: `AUTOCODE_RECONCILE_ONLY_TOKEN=checkpoint-v1:moved autocode --workspace ${moved.workspace} --run-dir ${moved.runDir} --reconcile-only -`,
+  };
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  await ui.poll({ ...stopped, next_command: stopped.next_command.replace(moved.runDir, '/foreign/run') });
+  await flush();
+  assert.equal(launch.mock.callCount(), 0, 'the command must match the current public view');
+  await ui.poll(stopped); await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 1, 'the original tab address cannot suppress its worktree recovery');
+  assert.deepEqual(launch.mock.calls[0].arguments[1], ['--reconcile-only', '-', '--workspace', moved.workspace, '--run-dir', moved.runDir]);
+});
+
+test('metadata recovery follows a changed named command even when the stage is unchanged', async (t) => {
+  const ui = await openChat(t, workingView());
+  const stopped = {
+    status: 'RUNNING', phase: 'EXECUTING', done: false, next_stage: 'review_completion', iteration: 1,
+    controller: { kind: 'ended', checked: true, alive: false },
+    liveness: { kind: 'interrupted' }, needs: { kind: 'continue' },
+    next_command: `AUTOCODE_RECONCILE_ONLY_TOKEN=checkpoint-v1:two autocode --workspace ${run.workspace} --run-dir ${run.runDir} --reconcile-only -`,
+  };
+  const ready = { ...stopped, controller: { kind: 'ready', checked: true, alive: false },
+    liveness: { kind: 'unknown' }, next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}` };
+  let calls = 0;
+  const launch = t.mock.method(cli, 'stream', async () => {
+    ui.setView(++calls === 1 ? ready : workingView());
+    return ok;
+  });
+  await ui.poll(stopped); await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 2, 'the core changed the available action without changing stages');
+  assert.ok(launch.mock.calls[0].arguments[1].includes('--reconcile-only'));
+  assert.deepEqual(launch.mock.calls[1].arguments[1], ['--workspace', run.workspace, '--run-dir', run.runDir]);
+});
+
 test('a Continue on a ready run that never waited for its folder is still the person\'s to press', async (t) => {
   const ui = await openChat(t, waitingForFolderView(false));
   const launch = t.mock.method(cli, 'stream', async () => ok);

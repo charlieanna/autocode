@@ -343,7 +343,9 @@ def view(
     reconcile = (
         None
         if (operational_block.presentation(state, include_hold=True))
-        else reconciliation.offer(state, liveness, controller=controller, stop_pending=stop_pending)
+        else reconciliation.offer(
+            state, liveness, controller=controller, stop_pending=stop_pending, workspace=workspace
+        )
     )
     if reconcile is not None:
         next_action = {
