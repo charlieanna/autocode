@@ -16,11 +16,13 @@ from pathlib import Path
 
 try:
     from . import autocode_draft_assignment as draft_assignment
+    from . import autocode_report_repair_route as report_repair_route
     from . import autocode_requirements_observations as requirements_observations
     from . import autocode_result_application as result_application
     from . import autocode_source_scope as source_scope
 except ImportError:
     import autocode_draft_assignment as draft_assignment
+    import autocode_report_repair_route as report_repair_route
     import autocode_requirements_observations as requirements_observations
     import autocode_result_application as result_application
     import autocode_source_scope as source_scope
@@ -59,6 +61,7 @@ def accept(runtime, owner, run_dir, workspace, value, repair_record, *, revalida
             # Keep the actual Resolver owner durable while validation commands
             # run. Only the speculative candidate returns to the original stage.
             state.pop("resolve_repair_request")
+            report_repair_route.release(state, "repair_resolver")
             state["pending_report_repair"] = deepcopy(owner_pending)
             state["next_stage"] = owner_pending["original"]["stage"]
             state.setdefault("resolve_repair_history", []).append(

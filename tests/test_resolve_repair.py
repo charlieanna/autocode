@@ -23,6 +23,8 @@ import autocode_repair_provenance as repair_provenance
 import autocode_repair_triage as repair_triage
 import autocode_resolve_repair_job as resolve_repair_job
 import autocode_resolver_human as resolver_human
+import autocode_role_transport as role_transport
+import autocode_run_status as run_status
 import autocode_stop as stop
 import autocode_stray_writes as stray_writes
 import autocode_stuck_job as stuck_job
@@ -1161,6 +1163,264 @@ class ResolveRepairTests(unittest.TestCase):
             check=False,
         )
         self.assertEqual(0, proc.returncode, proc.stderr + proc.stdout)
+
+    def test_temporary_route_transport_release_and_non_opencode_settings_preservation(self):
+        from units import autoresolver
+
+        kilo_identity = {
+            "provider": "kilo",
+            "identity": {
+                "engine": "kilo",
+                "identity_version": 2,
+                "executable": "/usr/local/bin/kilo",
+                "launch_policy_sha256": "a" * 64,
+            },
+        }
+        opencode_identity = {
+            "engine": "opencode",
+            "identity_version": 1,
+            "executable": "/usr/local/bin/opencode",
+            "config_sha256": "b" * 64,
+        }
+        self.state["settings"]["engine"] = "opencode"
+        self.state["settings"]["provider"] = "opencode"
+        self.state["settings"]["roles"]["resolver"] = {
+            "engine": "opencode",
+            "provider": "kilo",
+            "model": "kilo/glm-5",
+            "reasoning_effort": "high",
+        }
+        self.state["settings"]["transport_identities"] = {
+            "opencode": opencode_identity,
+            "role:resolver": kilo_identity,
+        }
+        orig = self._stage_files("rt-tester", stage="tester", role="tester", report_obj={"verdict": "FAIL"})
+        self._queue_after_one_local_repair(orig)
+        self.assertTrue(resolve_repair_job.queue_from_pending(self.state, self.run_dir, force=True))
+        autoresolver.prepare_resolve_repair(self.state, self.run_dir / "state.json")
+        self.assertIn("repair_resolver", self.state["settings"]["roles"])
+        self.assertIn("role:repair_resolver", self.state["settings"]["transport_identities"])
+        role_transport.validate(self.state["settings"])
+
+        # Applying an invalid action must keep the active repair_resolver route intact for error inspection.
+        with self.assertRaises(ValueError):
+            resolve_repair_job.apply(
+                None,
+                self.state,
+                {
+                    "diagnosis": "Invalid empty replan",
+                    "action": "replan",
+                    "repaired_report_json": "",
+                    "guidance": "",
+                    "next_objective": "",
+                    "affected_paths": [],
+                    "user_question": "",
+                    "user_options": [],
+                    "evidence_refs": [],
+                },
+                self._resolve_record("rt-bad"),
+                self.root,
+                self.run_dir,
+            )
+        self.assertIn("repair_resolver", self.state["settings"]["roles"])
+
+        resolve_repair_job.release_route(self.state)
+        self.assertNotIn("repair_resolver", self.state["settings"]["roles"])
+        self.assertNotIn("role:repair_resolver", self.state["settings"]["transport_identities"])
+        role_transport.validate(self.state["settings"])
+
+        # Non-OpenCode runs must not receive an empty transport_identities map during prepare_resolve_repair.
+        codex_state = _base_state(self.root, self.run_dir, self.revision)
+        codex_state["settings"]["engine"] = "codex"
+        codex_state["settings"].pop("provider", None)
+        codex_state["settings"].pop("transport_identities", None)
+        codex_state["settings"]["roles"]["resolver"] = {
+            "engine": "codex",
+            "model": "gpt-5.4",
+            "reasoning_effort": "high",
+        }
+        codex_state["resolve_repair_request"] = {"kind": "stall", "stage": "tester"}
+        autoresolver.prepare_resolve_repair(codex_state, self.run_dir / "state.json")
+        self.assertNotIn("transport_identities", codex_state["settings"])
+
+    def test_drive_preserves_stop_now_and_retry_completions_and_restores_pause_state_on_timeout(self):
+        # Case A: User Stop Now via job_failure leaves applied_stop + recovery_context['stage'] == 'resolve_repair'
+        self.state["next_stage"] = "builder"
+        self.assertTrue(
+            resolve_repair_job.intercept_stall(
+                self.state, "PAUSED_BUILDER_RETRY_LIMIT", "Builder exhausted", before_investigator=True
+            )
+        )
+
+        def stop_now_dispatch(state, stage):
+            self.assertEqual("resolve_repair", stage)
+            state["recovery_context"] = {"kind": "job_failure", "stage": "resolve_repair", "reason": "Stopped by user"}
+            state["applied_interventions"] = [{"id": "int-1", "kind": "stop", "actor": "person"}]
+            run_status.pause(
+                state,
+                "PAUSED_INTERVENTION",
+                stop.STOPPED_NOW_REASON,
+                next_stage="resolve_repair",
+            )
+            return None
+
+        stuck_job.drive(
+            self.state,
+            stop_now_dispatch,
+            active=lambda s: s.get("status") == "RUNNING",
+            skip=object(),
+            paused=support.Paused,
+            investigate=True,
+            queue=True,
+        )
+        self.assertEqual("PAUSED_INTERVENTION", self.state["status"])
+        self.assertEqual(stop.STOPPED_NOW_REASON, self.state["stop_reason"])
+
+        # Case B: Raised PAUSED_INTERVENTION during resolve_repair preserves PAUSED_INTERVENTION & releases route
+        self.state = _base_state(self.root, self.run_dir, self.revision)
+        self.state["next_stage"] = "builder"
+        self.assertTrue(
+            resolve_repair_job.intercept_stall(
+                self.state, "PAUSED_BUILDER_RETRY_LIMIT", "Builder exhausted", before_investigator=True
+            )
+        )
+
+        def raise_intervention(_state, _stage):
+            raise support.Paused("PAUSED_INTERVENTION", stop.STOP_REASON)
+
+        with self.assertRaises(support.Paused) as paused_err:
+            stuck_job.drive(
+                self.state,
+                raise_intervention,
+                active=lambda s: s.get("status") == "RUNNING",
+                skip=object(),
+                paused=support.Paused,
+                investigate=True,
+                queue=True,
+            )
+        self.assertEqual("PAUSED_INTERVENTION", paused_err.exception.status)
+        self.assertNotIn("repair_resolver", self.state["settings"]["roles"])
+
+        # Case C: Attempt-2 ask_user after attempt-1 deadline extension clears recovery_context & keeps WAITING_FOR_USER
+        self.state = _base_state(self.root, self.run_dir, self.revision)
+        self.state["next_stage"] = "builder"
+        self.assertTrue(
+            resolve_repair_job.intercept_stall(
+                self.state, "PAUSED_BUILDER_RETRY_LIMIT", "Builder exhausted", before_investigator=True
+            )
+        )
+        self.state["recovery_context"] = {
+            "kind": "job_failure",
+            "stage": "resolve_repair",
+            "reason": "Stage deadline extended",
+        }
+        rt_c, _ = self._stub_runtime()
+        rec_c = self._resolve_record("retry-ask")
+
+        def ask_user_dispatch(state, stage):
+            self.assertEqual("resolve_repair", stage)
+            autopilot.apply_result(
+                rt_c,
+                state,
+                "resolve_repair",
+                {
+                    "diagnosis": "API contract ambiguous",
+                    "action": "ask_user",
+                    "repaired_report_json": "",
+                    "guidance": "",
+                    "next_objective": "",
+                    "affected_paths": [],
+                    "user_question": "Should /users return 404 or empty list?",
+                    "user_options": ["Return 404", "Return empty list"],
+                    "evidence_refs": [],
+                },
+                rec_c,
+                self.root,
+                self.run_dir,
+            )
+            return rec_c
+
+        stuck_job.drive(
+            self.state,
+            ask_user_dispatch,
+            active=lambda s: s.get("status") == "RUNNING",
+            skip=object(),
+            paused=support.Paused,
+            investigate=True,
+            queue=True,
+        )
+        self.assertEqual("RESOLVER_PENDING", self.state["status"])
+        self.assertNotIn("recovery_context", self.state)
+        self.assertEqual("escalate", resolver_human.evaluate(self.state))
+        self.assertEqual("WAITING_FOR_USER", self.state["status"])
+
+        # Case D: Genuine unrecovered PAUSED_JOB_FAILURE on resolve_repair abandons cleanly & persists paused state
+        self.state = _base_state(self.root, self.run_dir, self.revision)
+        self.state["next_stage"] = "builder"
+        self.assertTrue(
+            resolve_repair_job.intercept_stall(
+                self.state, "PAUSED_BUILDER_RETRY_LIMIT", "Builder exhausted", before_investigator=True
+            )
+        )
+        persisted_snapshots: list[dict] = []
+
+        def job_failure_dispatch(state, stage):
+            self.assertEqual("resolve_repair", stage)
+            state["job_failure"] = {"stage": "resolve_repair", "kind": "timeout", "reason": "Resolver timed out"}
+            state["recovery_context"] = {
+                "kind": "job_failure",
+                "stage": "resolve_repair",
+                "reason": "Resolver timed out",
+            }
+            run_status.pause(state, "PAUSED_JOB_FAILURE", "Resolver timed out", next_stage="resolve_repair")
+            return None
+
+        with self.assertRaises(support.Paused) as timeout_err:
+            stuck_job.drive(
+                self.state,
+                job_failure_dispatch,
+                persist=lambda s: persisted_snapshots.append(copy.deepcopy(s)),
+                active=lambda s: s.get("status") == "RUNNING",
+                skip=object(),
+                paused=support.Paused,
+                investigate=True,
+                queue=True,
+            )
+        self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", timeout_err.exception.status)
+        self.assertIn("Resolver (could not finish): Resolver timed out", str(timeout_err.exception))
+        self.assertTrue(persisted_snapshots)
+        saved = persisted_snapshots[-1]
+        self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", saved["status"])
+        self.assertEqual("PAUSED_OR_BLOCKED", saved["phase"])
+        self.assertEqual("builder", saved["next_stage"])
+        self.assertNotIn("job_failure", saved)
+        self.assertNotIn("recovery_context", saved)
+
+    def test_resolve_repair_own_rejected_report_never_self_escalates_or_leaks_pending_repair(self):
+        self.state["next_stage"] = "builder"
+        self.assertTrue(
+            resolve_repair_job.intercept_stall(
+                self.state, "PAUSED_BUILDER_RETRY_LIMIT", "Builder exhausted", before_investigator=True
+            )
+        )
+        self.assertIsNone(self.state.get("pending_report_repair"))
+        self.state["pending_report_repair"] = {
+            "original": {
+                "stage": "resolve_repair",
+                "output": str(self.run_dir / "res.json"),
+                "source_revision": self.revision,
+            },
+            "attempts": 1,
+        }
+        self.assertFalse(resolve_repair_job.eligible_report_repair(self.state))
+        self.assertFalse(resolve_repair_job.queue_from_pending(self.state, self.run_dir, force=True))
+        self.assertEqual("builder", self.state["resolve_repair_request"]["stage"])
+
+        status, _ = resolve_repair_job.abandon(self.state, "Report repair limit reached")
+        self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", status)
+        self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", self.state["status"])
+        self.assertEqual("builder", self.state["next_stage"])
+        self.assertNotIn("pending_report_repair", self.state)
 
 
 if __name__ == "__main__":

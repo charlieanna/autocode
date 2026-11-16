@@ -9,8 +9,10 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_report_repair_route as report_repair_route
     from . import autocode_util as util
 except ImportError:
+    import autocode_report_repair_route as report_repair_route
     import autocode_util as util
 
 
@@ -19,8 +21,8 @@ def context(state: RunState, stage):
     settings = copy.deepcopy(state.get("settings") or {})
     # This route is allocated only to investigate the rejected report; it is
     # not an input to the original stage or its approved plan.
-    (settings.get("roles") or {}).pop("repair_resolver", None)
-    (settings.get("provider_transports") or {}).pop("role:repair_resolver", None)
+    if stage != "resolve_repair":
+        report_repair_route.release_settings(settings, "repair_resolver")
     return util.digest(
         {
             "stage": stage,

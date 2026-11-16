@@ -28,6 +28,7 @@ try:
     from . import autocode_progressive_state as progressive
     from . import autocode_prompts as prompts
     from . import autocode_report_edits as report_edits
+    from . import autocode_report_repair_route as report_repair_route
     from . import autocode_report_source as report_source
     from . import autocode_requirements_observations as requirements_observations
     from . import autocode_roles as roles
@@ -49,6 +50,7 @@ except ImportError:
     import autocode_progressive_state as progressive
     import autocode_prompts as prompts
     import autocode_report_edits as report_edits
+    import autocode_report_repair_route as report_repair_route
     import autocode_report_source as report_source
     import autocode_requirements_observations as requirements_observations
     import autocode_roles as roles
@@ -180,14 +182,7 @@ def select_route(state: RunState, target_stage: str) -> dict[str, Any]:
 
 def release_route(state: RunState) -> None:
     """Remove the temporary ``repair_resolver`` route, transport pin, and session."""
-    settings = state.get("settings")
-    if isinstance(settings, dict):
-        if isinstance(settings.get("roles"), dict):
-            settings["roles"].pop(ROUTE, None)
-        if isinstance(settings.get("provider_transports"), dict):
-            settings["provider_transports"].pop("role:" + ROUTE, None)
-    if isinstance(state.get("sessions"), dict):
-        state["sessions"].pop(ROUTE, None)
+    report_repair_route.release(state, ROUTE)
 
 
 def _history_has_repair(state: RunState, stage: str | None, output: str | None, revision: str | None) -> bool:
@@ -234,8 +229,11 @@ def eligible_report_repair(state: RunState) -> bool:
     if not isinstance(pending, dict):
         return False
     original = pending.get("original")
+    active_request = state.get("resolve_repair_request")
     if (
         not isinstance(original, dict)
+        or original.get("stage") in (STAGE, "investigate_stuck", "diagnose")
+        or (isinstance(active_request, dict) and not active_request.get("in_force"))
         or state.get("next_stage") != original.get("stage")
         or operator_retried(state, original["stage"])
     ):
@@ -256,8 +254,11 @@ def queue_from_pending(state: RunState, run_dir: Path | None = None, *, force: b
     if not isinstance(pending, dict):
         return False
     original = pending.get("original")
+    active_request = state.get("resolve_repair_request")
     if (
         not isinstance(original, dict)
+        or original.get("stage") in (STAGE, "investigate_stuck", "diagnose")
+        or (isinstance(active_request, dict) and not active_request.get("in_force"))
         or state.get("next_stage") != original.get("stage")
         or operator_retried(state, original["stage"])
     ):
@@ -451,12 +452,20 @@ def launched(state: RunState, request: dict | None = None) -> bool:
 
 
 def timed_out(state: RunState) -> bool:
-    """True when ``state`` holds a paused/abandoned timeout failure on ``resolve_repair``."""
-    ctx = state.get("recovery_context") or {}
-    if isinstance(ctx, dict) and ctx.get("stage") == STAGE:
-        return True
+    """True when ``state`` holds an unrecovered timeout or job failure on ``resolve_repair``."""
+    if stop.applied_stop(state):
+        return False
+    current = state.get("resolve_repair_request")
+    if not isinstance(current, dict) or not current or current.get("in_force"):
+        return False
+    if state.get("next_stage") != STAGE:
+        return False
+    status = state.get("status")
     jf = state.get("job_failure") or {}
-    return isinstance(jf, dict) and jf.get("stage") == STAGE
+    if status == "PAUSED_JOB_FAILURE" and isinstance(jf, dict) and jf.get("stage") == STAGE:
+        return True
+    ctx = state.get("recovery_context") or {}
+    return status == "PAUSED_STAGE_TIMEOUT" and isinstance(ctx, dict) and ctx.get("stage") == STAGE
 
 
 def handoff(state: RunState, workspace: Path | None = None, *, engine: str | None = None) -> dict[str, Any]:
@@ -1024,22 +1033,36 @@ def apply(
     action = value.get("action")
     if action not in ACTIONS:
         raise ValueError(f"Unsupported resolve_repair action: {action!r}")
+    prior_settings = copy.deepcopy(state.get("settings"))
+    prior_sessions = copy.deepcopy(state.get("sessions"))
     release_route(state)
     request = copy.deepcopy(request)
-    if action == "repair_report":
-        _apply_repair_report(runtime, state, request, value, record, workspace, run_dir)
-    elif action == "rerun_missing_execution":
-        _apply_rerun_missing_execution(state, request, value, record)
-    elif action == "rework_tests_failed":
-        _apply_rework_tests_failed(state, request, value, record)
-    elif action == "replan":
-        _apply_replan(state, request, value, record)
-    elif action == "ask_user":
-        _apply_ask_user(state, request, value, record, ask_user)
-    else:
-        _record_history(state, request, record, "hold", counted_in_stages=False)
-        status, reason = abandon(state, value.get("diagnosis") or "", outcome="held")
-        run_status.pause(state, status, reason, next_stage=request.get("previous_next_stage"))
+    try:
+        if action == "repair_report":
+            _apply_repair_report(runtime, state, request, value, record, workspace, run_dir)
+        elif action == "rerun_missing_execution":
+            _apply_rerun_missing_execution(state, request, value, record)
+        elif action == "rework_tests_failed":
+            _apply_rework_tests_failed(state, request, value, record)
+        elif action == "replan":
+            _apply_replan(state, request, value, record)
+        elif action == "ask_user":
+            _apply_ask_user(state, request, value, record, ask_user)
+        else:
+            _record_history(state, request, record, "hold", counted_in_stages=False)
+            abandon(state, value.get("diagnosis") or "", outcome="held")
+    except Exception:
+        if prior_settings is None:
+            state.pop("settings", None)
+        else:
+            state["settings"] = prior_settings
+        if prior_sessions is None:
+            state.pop("sessions", None)
+        else:
+            state["sessions"] = prior_sessions
+        raise
+    if (state.get("recovery_context") or {}).get("stage") == STAGE:
+        state.pop("recovery_context", None)
 
 
 def abandon(state: RunState, reason: str = "", *, outcome: str = "could not finish") -> tuple[str, str]:
@@ -1049,6 +1072,10 @@ def abandon(state: RunState, reason: str = "", *, outcome: str = "could not fini
     diagnosis or why it could not finish) is added after it, as the Investigator's note is.
     """
     release_route(state)
+    if (state.get("recovery_context") or {}).get("stage") == STAGE:
+        state.pop("recovery_context", None)
+    if ((state.get("pending_report_repair") or {}).get("original") or {}).get("stage") == STAGE:
+        state.pop("pending_report_repair", None)
     request = state.pop("resolve_repair_request", None) or {}
     if isinstance(request.get("pending_report_repair"), dict):
         state["pending_report_repair"] = copy.deepcopy(request["pending_report_repair"])
@@ -1059,8 +1086,8 @@ def abandon(state: RunState, reason: str = "", *, outcome: str = "could not fini
         stop_reason = f"{previous}\nResolver ({outcome}): {note}"
     else:
         stop_reason = previous or note or status
+    restored_next_stage = request.get("previous_next_stage") or request.get("stage") or state.get("next_stage")
     if request:
-        state["next_stage"] = request.get("previous_next_stage") or request.get("stage")
         entry_recorded = any(
             isinstance(row, dict)
             and row.get("requested_at") == request.get("requested_at")
@@ -1084,6 +1111,7 @@ def abandon(state: RunState, reason: str = "", *, outcome: str = "could not fini
                     "counted_in_stages": False,
                 }
             )
+    run_status.pause(state, status, stop_reason, next_stage=restored_next_stage, paused_at=util.now())
     return status, stop_reason
 
 

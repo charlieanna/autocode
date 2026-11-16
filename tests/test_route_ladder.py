@@ -158,6 +158,44 @@ class NextRouteTests(unittest.TestCase):
         settings["route_ladders"]["effort"]["tester"] = []
         self.assertEqual({"stay": "off_ladder"}, route_ladder.next_route(settings, "tester"))
 
+    def test_stage_choice_and_selected_models_climb_their_declared_effort_rungs(self):
+        glm = "zai-coding-plan/glm-5.3"
+        mimo = "xiaomi-token-plan-sgp/mimo-v2.6-pro"
+        settings = {
+            "engine": "opencode",
+            "roles": {
+                "planner": {"model": glm, "reasoning_effort": "low"},
+                "resolver": {"model": mimo, "reasoning_effort": "medium"},
+                "task_planner": {"model": mimo, "reasoning_effort": "medium"},
+            },
+            "effort_origins": {"planner": "stage_choice", "task_planner": "stage_choice"},
+            "declared_variants": {glm: ["low", "high", "max"], mimo: ["low", "medium", "high"]},
+        }
+        self.assertEqual(
+            {
+                "model": glm,
+                "reasoning_effort": "high",
+                "profile": f"{glm} high",
+                "previous_profile": f"{glm} low",
+            },
+            route_ladder.next_route(settings, "planner"),
+        )
+        self.assertEqual(
+            {
+                "model": mimo,
+                "reasoning_effort": "high",
+                "profile": f"{mimo} high",
+                "previous_profile": f"{mimo} medium",
+            },
+            route_ladder.next_route(settings, "resolver"),
+        )
+        # task_planner stays off-ladder; user_explicit stays exact; top declared rung stops at ladder_end.
+        self.assertEqual({"stay": "off_ladder"}, route_ladder.next_route(settings, "task_planner"))
+        settings["roles"]["resolver"]["reasoning_effort"] = "high"
+        self.assertEqual({"stay": "ladder_end"}, route_ladder.next_route(settings, "resolver"))
+        settings["effort_origins"]["planner"] = "user_explicit"
+        self.assertEqual({"stay": "off_ladder"}, route_ladder.next_route(settings, "planner"))
+
 
 class ServeTests(unittest.TestCase):
     """A new run's rungs against the one model list its provider gave for its routes (#612)."""

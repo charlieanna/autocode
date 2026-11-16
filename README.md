@@ -68,6 +68,69 @@ first connected of Claude Code, Codex and Kilo, which the run names as
 (`kilo auth login`); AutoCode's own direct API-key connection is retired. The [installation guide](docs/install.md) covers
 sign-in, a new Git project, route checks and common setup errors.
 
+## Stage models and dynamic reasoning effort
+
+Choose each stage's model and reasoning ceiling once per backend (`claude`,
+`codex`, `opencode`, `kilocode`); AutoCode keeps the choices in
+`~/.config/autocode/stages.toml` and checks cross-model verifier independence so
+producers never grade their own work (`autocode stages choose` or
+`autocode stages list`).
+
+Inside those saved ceilings, AutoCode dynamically scales reasoning effort per
+stage (`low → medium → high → xhigh → max`) across only the variants each model
+offers:
+
+- **Builder 3-rung per-task cascade:** on a bounded leaf task (`1..4`
+  non-sensitive files, including parallel milestone workers), Attempt 1 steps
+  one offered level below your saved ceiling (`high → low` on `glm-5.3`,
+  `high → medium` on `codex` and `claude`); Attempt 2 after Tester feedback
+  restores your saved ceiling; Attempt 3+ or hard tasks (`6+` files or
+  `sensitive-paths`) climb one level above (`max` or `xhigh`).
+- **Review, planning and recovery sizing:** Tester and Completion Reviewer step
+  down one level on small, clear tasks; Planner and Plan Reviewer step up one
+  level on hard plans; JSON report-format repairs run at `low`; and struggling
+  stages climb their own model's offered levels before switching routes or
+  pausing. Explicit CLI `--<role>-reasoning-effort` flags always stay exact.
+
+Recommended stage profiles (`autocode stages set`):
+
+```sh
+# 1. Cross-vendor subscription hybrid (Kilo / OpenCode — $0 marginal spend):
+#    GLM-5.3 produces fast; OpenAI GPT-6-sol / GPT-6-astra verify independently.
+autocode stages set --backend kilocode \
+  --stage requirements zai-coding-plan/glm-5.3 low \
+  --stage planner zai-coding-plan/glm-5.3 high \
+  --stage plan_reviewer openai/gpt-6-sol high \
+  --stage builder zai-coding-plan/glm-5.3 high \
+  --stage tester openai/gpt-6-sol high \
+  --stage completion openai/gpt-6-sol high \
+  --stage task_planner openai/gpt-6-astra high
+
+# 2. Pure native Codex (--engine codex — $0 ChatGPT subscription):
+autocode stages set --backend codex \
+  --stage requirements gpt-5.6-sol low \
+  --stage planner gpt-5.6-sol medium \
+  --stage plan_reviewer gpt-6-astra high \
+  --stage builder gpt-5.6-terra high \
+  --stage tester gpt-5.6-sol high \
+  --stage completion gpt-6-astra high \
+  --stage task_planner gpt-6-astra high
+
+# 3. Role-tiered Claude Code (--engine claude — fastest wall-clock, reserve for high-stakes tasks):
+#    Keep Sonnet/Opus on planning and review; use Haiku only on Builder.
+autocode stages set --backend claude \
+  --stage requirements claude-sonnet-5-5 low \
+  --stage planner claude-sonnet-5-5 medium \
+  --stage plan_reviewer claude-opus-5-5 medium \
+  --stage builder claude-haiku-4-5-20251001 high \
+  --stage tester claude-sonnet-5-5 high \
+  --stage completion claude-opus-5-5 high \
+  --stage task_planner claude-opus-5-5 high
+```
+
+See [choosing each stage's model](docs/models.md#choosing-each-stages-model) and
+[default models and escalation](docs/models.md#default-models) for details.
+
 ## A bug that turns out to span repositories
 
 On a supported Linux host, open terminal chat. This flow needs current master,
