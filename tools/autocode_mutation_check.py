@@ -19,7 +19,6 @@ from __future__ import annotations
 import copy
 import hashlib
 import os
-import shlex
 import tempfile
 import time
 from pathlib import Path
@@ -84,15 +83,11 @@ def isolated(command, cache) -> str:
         for word in (list(invocation.prefix) or ["env"])
         if not word.startswith(("PYTHONDONTWRITEBYTECODE=", "PYTHONPYCACHEPREFIX="))
     ] or ["env"]
-    return shlex.join(
-        [
+    return invocation.render(
+        prefix=[
             *prefix,
             "PYTHONDONTWRITEBYTECODE=",
             f"PYTHONPYCACHEPREFIX={cache}",
-            invocation.python,
-            "-m",
-            invocation.kind,
-            *invocation.arguments,
         ]
     )
 

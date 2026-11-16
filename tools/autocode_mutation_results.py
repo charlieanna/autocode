@@ -1,7 +1,5 @@
 """Selected-test mutation outcomes, including an explicit stop after failure."""
 
-import shlex
-
 try:
     from . import autocode_package_scope as package_scope
     from . import autocode_python_tests as python_tests
@@ -25,7 +23,7 @@ def stop_command(command):
         arguments.insert(index, "-f")
     else:
         arguments = ["-x", *arguments, "--maxfail=1"]  # Override an earlier maxfail setting.
-    return shlex.join([*invocation.prefix, invocation.python, "-m", invocation.kind, *arguments])
+    return invocation.render(arguments=arguments)
 
 
 def stops_after_failure(command):

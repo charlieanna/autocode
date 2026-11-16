@@ -180,6 +180,42 @@ class JudgingTests(unittest.TestCase):
 
 
 class UnittestDiscoverySelectionTests(unittest.TestCase):
+    def test_owned_collector_selects_observed_ids_across_its_family_layouts(self):
+        collector = Path(stability.__file__).with_name("autocode_component_tests.py")
+        for family, option in (("components", "--components"), ("repos", "--repos"), ("libraries", "--package-family")):
+            with self.subTest(family=family), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                selected = []
+                for member in ("one-service", "second"):
+                    directory = root / family / member / "tests"
+                    directory.mkdir(parents=True)
+                    (directory / "test_selected.py").write_text(
+                        "import unittest\nclass Selected(unittest.TestCase):\n"
+                        " def test_target(self): self.assertEqual(2 + 2, 4)\n"
+                        " def test_unselected(self): self.fail('must not run')\n"
+                    )
+                    selected.append(f"{family}.{member}.tests.test_selected.Selected.test_target")
+                command = shlex.join(
+                    [
+                        sys.executable,
+                        str(collector),
+                        "-v",
+                        "--root",
+                        ".",
+                        option,
+                        *([family] if option == "--package-family" else []),
+                        "one-service",
+                        "second",
+                    ]
+                )
+                narrowed = stability.narrow("unittest", command, selected)
+                self.assertIsNotNone(narrowed, "AutoCode's own collector must support observed test selection")
+                result = subprocess.run(shlex.split(narrowed), cwd=root, capture_output=True, text=True)
+                self.assertEqual(0, result.returncode, result.stderr)
+                observed = verify._unittest_results(result.stderr, component=True)
+                self.assertEqual(sorted(selected), sorted(name.replace("::", ".") for name in observed["passed"]))
+                self.assertEqual(2, observed["total"])
+
     def test_selected_discovered_tests_keep_their_import_root_and_exclude_other_tests(self):
         for start, top in (("tests", None), ("components/gateway", None), ("tests", ".")):
             with self.subTest(start=start, top=top), tempfile.TemporaryDirectory() as folder:

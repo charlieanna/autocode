@@ -190,7 +190,7 @@ def narrow(framework_name, command, test_ids, *, directory=None) -> str | None:
     invocation = python_tests.parse(command)
     if invocation and invocation.kind == "unittest":
         selectors = [test.replace("::", ".") for test in test_ids]
-        if invocation.arguments and invocation.arguments[0] == "discover":
+        if invocation.discovers:
             # Discovery establishes the import root and may invoke package
             # load_tests hooks. Direct dotted imports at cwd lose that context.
             # Keep its collection options and replace its OR-ed -k filters with
@@ -209,7 +209,7 @@ def narrow(framework_name, command, test_ids, *, directory=None) -> str | None:
                 index += 1
             for selector in selectors:
                 arguments.extend(("-k", selector))
-            return shlex.join([*invocation.prefix, invocation.python, "-m", "unittest", *arguments])
+            return invocation.render(arguments=arguments)
         return shlex.join([*invocation.prefix, invocation.python, "-m", "unittest", "-v", *selectors])
     if invocation and invocation.kind == "pytest":
         names = sorted({test.rsplit("::", 1)[-1].split("[", 1)[0] for test in test_ids})

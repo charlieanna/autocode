@@ -694,7 +694,7 @@ def _selector_close(framework_name: str, command: str, subset: list[str], all_te
         closed = {test for test in all_tests if any(needle and needle in test.casefold() for needle in needles)}
         return sorted(set(subset) | closed)
     if framework_name == "unittest":
-        if invocation.arguments and invocation.arguments[0] == "discover":
+        if invocation.discovers:
             selectors = [test.replace("::", ".") for test in subset]
             closed = {test for test in all_tests if any(sel in test.replace("::", ".") for sel in selectors)}
             return sorted(set(subset) | closed)
