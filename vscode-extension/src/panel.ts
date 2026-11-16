@@ -733,7 +733,6 @@ export async function confirmJobTime(state: PanelState, id: string, value: strin
 
 /** What raising a bound changes, and what it leaves alone. */
 export function boundEffect(input: IntegerCommandInput): string {
-  if (input.id === "max_stage_seconds") return "This changes the time limit for each later step and resumes the run. Saved work and model choices are kept.";
   if (input.id === "grant_recovery") {
     return "This replenishes spent recovery slots under the existing fixed allowance. Recovery history is retained; excess is not banked. Other saved limits and model routes stay the same. It does not approve a plan.";
   }

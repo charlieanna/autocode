@@ -274,6 +274,15 @@
           "default": [],
           "markdownDescription": "Extra engine and model flags for new chats, for example `[\"--engine\", \"codex\"]`."
         },
+        "autocode.maxStageSeconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "default": null,
+          "minimum": 0,
+          "markdownDescription": "Time limit for each step of a new chat, in seconds (`--max-stage-seconds`). Leave empty to use AutoCode's default (`3600`, or `max-stage-seconds` in `.autocode/config.toml`); `0` turns the limit off. A running chat keeps its own limit."
+        },
         "autocode.pollSeconds": {
           "type": "number",
           "default": 5,

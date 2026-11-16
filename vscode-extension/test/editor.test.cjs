@@ -244,27 +244,14 @@ function heldCostView(token = 'cost:current', operational = false) {
 }
 
 for (const surface of ['chat', 'Run details']) {
-  test(`a boundary pause in ${surface} can raise the per-step limit and resume`, async (t) => {
+  test(`a boundary pause in ${surface} asks for no time per step; it is a setting`, async (t) => {
     const ownController = new RunController(host.log);
     const view = heldCostView('pause:current');
     view.status = 'PAUSED_INTERVENTION';
-    view.needs.command_inputs[0] = {
-      id: 'max_stage_seconds', kind: 'integer', flag: '--max-stage-seconds', placeholder: 'N', arg_index: 2,
-      label: 'Time per step (seconds)', current: 600, used: 600, minimum: 601, maximum: 2147483647,
-      command: `AUTOCODE_EXPECTED_RECOVERY_TOKEN=pause:current autocode --workspace ${run.workspace} --run-dir ${run.runDir} --resume-paused --max-stage-seconds N --expected-recovery-token -`,
-    };
+    delete view.needs.command_inputs;
     const ui = surface === 'chat' ? await openChat(t, view, run, { controller: ownController }) : await openPanel(t, view, undefined, ownController);
-    const field = ui.document.querySelector('[data-question="raise:max_stage_seconds"]');
-    assert.ok(field);
-    assert.ok(ui.document.body.textContent.includes('Saved time per step: 600 seconds'));
-    field.value = '1200'; field.dispatchEvent(new ui.window.Event('input'));
-    const launch = t.mock.method(cli, 'stream', async () => ok);
-    const confirm = t.mock.method(host.vscode.window, 'showWarningMessage', async (_title, _opts, button) => button);
-    ui.document.querySelector('#raise-bound').click(); await flush();
-    assert.ok(confirm.mock.calls[0].arguments[1].detail.includes('later step'));
-    const [, args, env] = launch.mock.calls[0].arguments;
-    assert.deepEqual(args, ['--resume-paused', '--max-stage-seconds', '1200', '--expected-recovery-token', '-', '--workspace', run.workspace, '--run-dir', run.runDir]);
-    assert.deepEqual(env, { AUTOCODE_EXPECTED_RECOVERY_TOKEN: 'pause:current' });
+    assert.equal(ui.document.querySelector('[data-question^="raise:"]'), null, 'no number field on the pause');
+    assert.equal(host.errors.length, 0, host.errors.join('\n'));
   });
   for (const operational of [false, true]) {
     test(`a limit held ${operational ? 'by an AutoResolver request' : 'behind a plain resume'} in ${surface} takes a typed raise through its named command`, async (t) => {
@@ -791,6 +778,18 @@ test('start passes the selected workspace to the CLI regardless of the host dire
   assert.ok(args.includes('--joint-planning'));
   assert.ok(args.includes('--spec-first'), 'chat must gather and confirm requirements before planning');
   assert.equal(revealLog.mock.callCount(), 0, 'starting chat must not open the diagnostic console');
+});
+
+test('the time per step is a setting new chats start with, not a field on a pause', () => {
+  assert.ok(!readSettings().runOptions.includes('--max-stage-seconds'), 'empty keeps AutoCode\'s own default');
+  host.config.set('maxStageSeconds', 1800);
+  assert.deepEqual(readSettings().runOptions, ['--max-stage-seconds', '1800']);
+  host.config.set('maxStageSeconds', 0);
+  assert.deepEqual(readSettings().runOptions, ['--max-stage-seconds', '0'], '0 turns the limit off, as the flag does');
+  for (const invalid of [-1, 1.5, '900']) {
+    host.config.set('maxStageSeconds', invalid);
+    assert.ok(!readSettings().runOptions.includes('--max-stage-seconds'), `ignored: ${invalid}`);
+  }
 });
 
 test('start resolves a symlinked workspace so the core accepts the run destination (#1555)', async (t) => {

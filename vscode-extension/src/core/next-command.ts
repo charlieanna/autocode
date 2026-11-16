@@ -143,7 +143,6 @@ const PLACEHOLDERS = new Map<string, "answer" | "model" | "effort">([["ANSWER", 
  */
 const INTEGER_INPUTS: Record<string, [string, string, "used" | "elapsed", boolean]> = {
   "--max-seconds": ["max_seconds", "Total active time (seconds)", "elapsed", true],
-  "--max-stage-seconds": ["max_stage_seconds", "Time per step (seconds)", "used", false],
   "--max-cost-usd": ["max_cost_usd", "Cost cap (whole USD)", "used", true],
   "--max-iterations": ["max_iterations", "Total iterations", "used", false],
   "--max-milestone-seconds": ["max_milestone_seconds", "Milestone active time (seconds)", "used", true],
@@ -173,14 +172,13 @@ export function checkInput(view: StatusView, input: IntegerCommandInput | undefi
   const limits = input.flag === "--grant-recovery"
     ? bounded && Number.isSafeInteger(used) && (used as number) >= 1 && input.minimum === 1 && input.maximum === used
     : bounded && count(used, fractional) && count(current, wholeCurrent)
-      && input.maximum === (input.flag === "--max-stage-seconds" ? 2147483647 : Number.MAX_SAFE_INTEGER)
+      && input.maximum === Number.MAX_SAFE_INTEGER
       && input.minimum === Math.floor(Math.max(current, used)) + 1;
   const prefix = input.arg_index === 2 ? ["--resume-paused"] : [];
   const indexes = input.flag === "--planning-review-call-limit" ? [1, 2] : [2];
   const token = view.recovery?.token;
   if (!limits || input.id !== id || input.label !== label || input.kind !== "integer" || input.placeholder !== "N"
     || !indexes.includes(input.arg_index) || !count(current, wholeCurrent)
-    || (input.flag === "--max-stage-seconds" && current !== used)
     || (current === 0 && input.flag !== "--max-iterations")
     || view.needs?.new_run_required || view.needs?.edit_required
     || typeof token !== "string" || !token
