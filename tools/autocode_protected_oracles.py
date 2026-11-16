@@ -47,6 +47,7 @@ try:
     from . import autocode_test_homes as test_homes
     from . import autocode_test_role_correction as role_correction
     from . import autocode_test_role_inventory as role_inventory
+    from . import autocode_test_support as test_support
     from . import autocode_util as util
     from .autocode_protected_paths import identity, path_in
 except ImportError:
@@ -65,6 +66,7 @@ except ImportError:
     import autocode_test_homes as test_homes
     import autocode_test_role_correction as role_correction
     import autocode_test_role_inventory as role_inventory
+    import autocode_test_support as test_support
     import autocode_util as util
     from autocode_protected_paths import identity, path_in
 
@@ -395,11 +397,15 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=N
         replaced = superseded_tests.approved(state)
         if command != original:
             result["replayed_command"] = command
+        # Test support the proof showed defines no test (autocode_test_support): its candidate bytes stay, so
+        # the original tests' own assertions run on the repaired fixture or helper.
+        support = [name for name in test_support.proven(state.get("regression_proof"), revision) if name in changed]
         policy = {
             "binding_hash": record["binding_hash"],
             "command": command,
             "changed_tests": sorted(changed),
             "superseded": _listed(replaced, changed),
+            **({"test_support": support} if support else {}),
         }
 
         def run_part(part, folder, label, overlays):
@@ -429,15 +435,21 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=N
                 "files": {
                     name: str(path_in(original_root, name))
                     for name, value in record["files"].items()
-                    if "symlink" not in value
+                    if "symlink" not in value and name not in support
                 }
             }
-            links = {name: value["symlink"] for name, value in record["files"].items() if "symlink" in value}
+            links = {
+                name: value["symlink"]
+                for name, value in record["files"].items()
+                if "symlink" in value and name not in support
+            }
             if links:
                 overlays["links"] = links
             result["original"] = run("original", **overlays)
         if _failed(result["candidate"]) or _failed(result["original"]):
             result["verdict"] = "FAIL"
+        if support:
+            result["test_support"] = support
         if replaced and not _failed(result["candidate"]) and command_receipt.completed(result["original"]):
             # The approved plan replaces these original tests (#2748): only their failures are accepted.
             excused = superseded_tests.excused(result["original"], replaced, changed)

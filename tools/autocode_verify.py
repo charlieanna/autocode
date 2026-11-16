@@ -2176,6 +2176,7 @@ def verify(
     roles=None,
     replaced=None,
     test_side=(),
+    support_from=None,
 ) -> dict:
     """Verify the candidate in ``workspace`` against ``base``; see module docstring.
 
@@ -2225,13 +2226,11 @@ def verify(
     ``ignored_inputs`` is make_tree's, for every scratch tree; its launch record also tells
     _document_only_base what ignored code an in-place checkout held at launch.
 
-    ``test_root`` is caller-selected at launch. Changes outside it remain unverified.
-    Only its independently canonical detected suite may establish a first suite.
-    So do changes outside a run's ``package`` (autocode_package_scope): its suite does not run them.
-    ``package_exempt`` names paths outside it that are not the change (autocode_package_writes.exempt).
-    ``withheld`` test files are left out of the change and its trees (autocode_pending_tests).
-    ``test_side``: changed files that list the change's tests; the base run holds them (autocode_listed_tests).
-    """
+    ``test_root`` is caller-selected at launch; changes outside it, or outside a run's ``package``
+    (autocode_package_scope), remain unverified. Only its independently canonical detected suite may
+    establish a first suite. ``package_exempt``: paths outside it that are not the change (package_writes).
+    ``withheld`` test files stay out of the change (autocode_pending_tests); the base run holds ``test_side``
+    (autocode_listed_tests). ``support_from``: {"base_suite", "planned"} (autocode_test_support)."""
     workspace, run_dir = Path(workspace), Path(run_dir)
     test_root = test_roots.normalize(test_root) if test_root is not None else None
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -2248,7 +2247,9 @@ def verify(
     if roles is None or not role_inventory.matches(roles, workspace, changes):
         roles = role_inventory.from_git(workspace, base, is_test_path, changes=changes)
     tests, sources, ambiguous = roles.partition(changes)
-    runnable_tests, sources = changed_tests.proving(workspace, base, tests, sources, changes, test_side, is_code_path)
+    runnable_tests, sources, support = changed_tests.proving(
+        workspace, base, tests, sources, changes, test_side, is_code_path, ambiguous=ambiguous, **(support_from or {})
+    )
     if framework is not None:
         framework = copy.copy(framework)
         framework.test_roles = roles
@@ -2256,11 +2257,10 @@ def verify(
     test_changes = {p: changes[p] for p in (*tests, *test_side) if p in changes}
     fail: list[Any] = []
     unverified: list[Any] = []
-    unverified += (
-        ["Product/test ownership is ambiguous; no proof commands were started for: " + ", ".join(ambiguous)]
-        if ambiguous
-        else []
-    )
+    if ambiguous:
+        unverified.append(
+            "Product/test ownership is ambiguous; no proof commands were started for: " + ", ".join(ambiguous)
+        )
     notes: list[Any] = []
     review_reasons: list[Any] = []
     checks: dict[str, dict] = {}  # command receipts only
@@ -2285,12 +2285,12 @@ def verify(
         first_suite.existing_repair(
             base_suite, commands["suite"], suite_repair and all(map(is_code_path, changes)), tests
         )
-        if not runnable_tests and sources and not preserve
+        if not runnable_tests and (sources or support) and not preserve
         else ([], False)
     )
     if not changes and not preserve_only:
         fail.append("No change: the candidate is identical to the base revision")
-    elif not sources and not preserve and not ambiguous:
+    elif not (sources or support or preserve or ambiguous):
         fail.append("Only test files changed; a fix must change product code")
     deleted = python_tests.deleted_test_files(
         (p for p in tests if changes[p] == "deleted"), lambda p: _git(workspace, "show", f"{base}:{p}")
@@ -2454,9 +2454,9 @@ def verify(
             unverified.append("No command to run the regression tests; pass --regression-command")
 
         # No regressions: the suite on the candidate, compared with base.
-        if "candidate" in trees and (sources or preserve) and commands["suite"]:
+        if "candidate" in trees and (sources or support or preserve) and commands["suite"]:
             hidden = _preserve_suite(run, trees, no_go_project=no_go_project, no_junit_project=no_junit_project)
-        elif (sources or preserve) and not baseline_timed_out and not ambiguous:
+        elif (sources or support or preserve) and not baseline_timed_out and not ambiguous:
             unverified.append(
                 "No project test command was found; existing behavior was not checked (pass --test-command)"
             )

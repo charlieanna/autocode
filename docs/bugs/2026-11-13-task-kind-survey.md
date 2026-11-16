@@ -2097,6 +2097,53 @@ Resolver sent it to a report repair, which was accepted. That gate is unrelated 
 - Other languages with tests in the code file (Elixir doctests, D unittest blocks) are not read: no toolchain
   here to check them with.
 
+## 56. A bug in a test fixture: the right one-line fix was refused, and the person was asked about the rule (fixed)
+
+"test_a_week_is_seven_days and test_a_week_is_seven_nights fail. The code is right: the `week` fixture in
+tests/conftest.py ends a day early. Fix the fixture." The Builder changed `days=6` to `days=7` in
+`tests/conftest.py`, every test passed, and the proof refused it: "Only test files changed; a fix must change
+product code". The run asked the person whether to make an exception (manifest
+`02ef69dff14e7ed10ee61cbffd8dd0ff1fc6e5d1eef2719e2cef3b7532b5712b`).
+
+**The shared cause.** The proof and the original-test gate each decide alone what a changed test file means,
+and both read every one as a test edited to pass. A bug can be in what the tests are given (a fixture, a
+helper module, a data file, Go `testdata/`), in every language, and its fix edits only test files. Without a
+model, through `autocode_regression.prove`, on master and with this change:
+
+| Project and change | master | this change |
+| --- | --- | --- |
+| pytest, a `conftest.py` fixture fix | FAIL, only test files | PASS |
+| unittest, a `tests/helpers.py` fix | FAIL, only test files | PASS |
+| `node --test`, a `test/helpers.js` fix | FAIL, only test files | PASS |
+| pytest, a `tests/data/week.json` fix | FAIL, only test files | PASS |
+| Go, a `testdata/week.txt` fix | FAIL, only test files | PASS |
+| the fixture fix and an edited test | FAIL | FAIL |
+| a test weakened in place | FAIL | FAIL |
+| a plan that also names product code | FAIL | FAIL |
+| a helper fix that breaks a passing test | FAIL | FAIL |
+| a helper that gains a collected test | FAIL | FAIL |
+| a helper edit that fixes nothing | FAIL | FAIL |
+
+The first real run on the change passed the proof, then stopped at the original-test gate, which put the
+original, broken fixture back under the original tests; the Investigator asked the person to exempt the
+fixture (manifest `1552a85833b77c22f133af3c3a6fffb4c52b6cd70533af5b3f6dc27980ab321b`). Same cause, the
+second place it is decided.
+
+**The fix.** `autocode_test_support` decides it once, from what can be seen: the task is a bug fix, the
+approved plan changes test files only, none is deleted, and the runner's per-test results name no test in
+any changed file, on the original code and with the change. The proof then judges the change as a repair the
+project's tests already show (failing tests must pass, nothing passing may fail) and records the files as
+its `test_support`; the original-test gate reads that answer for the same candidate and keeps the repaired
+support under the original tests. A runner that names no test cannot show a file defines none, so the rule
+holds there as before.
+
+**On real models with the change:** TASK_COMPLETE in 8 stages, 117 s, $0.78, no question for the person
+(manifest `1c15d497ed78fe21d40150adc65c8bb2df5e1f5b05a5522a5b44184a121dc58e`).
+
+**Still open.** RSpec is not detected without a `Gemfile`, so a `spec/support` fix there keeps the old rule.
+A test's own wrong assertion is not covered: it changes a test, so it still needs product code or the plan's
+`supersedes` list.
+
 ## Also seen, not yet run on real models
 
 - **Claude Code refuses to edit some directories inside the stage's own directory.** With Edit and
