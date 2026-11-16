@@ -20,10 +20,12 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_contract_identity as contracts
+    from . import autocode_regression_state as regression_state
     from . import autocode_stall_recovery as stall_recovery
     from . import autocode_util as util
 except ImportError:
     import autocode_contract_identity as contracts
+    import autocode_regression_state as regression_state
     import autocode_stall_recovery as stall_recovery
     import autocode_util as util
 
@@ -227,8 +229,9 @@ def _norm_command(command: object) -> str | None:
 def _collect_baseline_timeouts(state: Mapping[str, Any], source_revision: str | None) -> set[str]:
     timed_out: set[str] = set()
     reg_base = state.get("base_commit")
-    cached = state.get("regression_baseline")
-    if isinstance(cached, Mapping):
+    baseline_slice = regression_state.BaselineStateSlice.from_state(state)
+    if baseline_slice.is_dict:
+        cached = baseline_slice.mapping()
         settled = cached.get("settled_timeouts")
         entries: list[object] = [
             cached,

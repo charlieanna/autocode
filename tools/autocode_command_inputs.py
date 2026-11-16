@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_budget_state as budget_state
     from . import autocode_cost as cost
     from . import autocode_milestone_scope as milestone_scope
     from . import autocode_pause_authority as pause_authority
@@ -29,6 +30,7 @@ try:
     from . import autocode_recovery_grants as recovery_grants
     from . import autocode_recovery_limits as recovery_limits
 except ImportError:
+    import autocode_budget_state as budget_state
     import autocode_cost as cost
     import autocode_milestone_scope as milestone_scope
     import autocode_pause_authority as pause_authority
@@ -73,7 +75,7 @@ def _milestone_row(state: RunState):
 
 
 def _time(state: RunState):
-    return _limits(state).get("max_seconds"), state.get("active_seconds")
+    return _limits(state).get("max_seconds"), budget_state.raw_active_seconds(state)
 
 
 def _cost(state: RunState):

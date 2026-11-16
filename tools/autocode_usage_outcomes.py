@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_adaptive_planning as adaptive
+    from . import autocode_budget_state as budget_state
     from . import autocode_evidence_provenance as evidence_provenance
     from . import autocode_interaction_timing as interaction_timing
     from . import autocode_names as names
@@ -30,6 +31,7 @@ try:
     from . import autocode_roles as roles
 except ImportError:
     import autocode_adaptive_planning as adaptive
+    import autocode_budget_state as budget_state
     import autocode_evidence_provenance as evidence_provenance
     import autocode_interaction_timing as interaction_timing
     import autocode_names as names
@@ -460,7 +462,7 @@ def _spent_usd(
             unpriced += 1
         if row.get("partial") is True:
             partial += 1
-    carried = _dict(state.get("inherited_spend"))
+    carried = budget_state.inherited_spend_dict(state)
     inherited = _nonneg_float(carried.get("usd")) or 0.0
     if inherited > 0:
         known += inherited

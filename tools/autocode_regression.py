@@ -94,6 +94,7 @@ try:
     from . import autocode_python_test_roles as role_policy
     from . import autocode_recovery_review as recovery_review
     from . import autocode_regression_selection as selection
+    from . import autocode_regression_state as regression_state
     from . import autocode_roles as roles
     from . import autocode_run_base as run_base
     from . import autocode_runner_check as runner_check
@@ -139,6 +140,7 @@ except ImportError:
     import autocode_python_test_roles as role_policy
     import autocode_recovery_review as recovery_review
     import autocode_regression_selection as selection
+    import autocode_regression_state as regression_state
     import autocode_roles as roles
     import autocode_run_base as run_base
     import autocode_runner_check as runner_check
@@ -629,7 +631,7 @@ def _baseline(
     fallback exists. It never authorizes candidate checks or completion; repeating the same
     original-code check under the same command and limit would only spend the time once more.
     """
-    cached = state.get("regression_baseline") or {}
+    cached = regression_state.mapping(state)
     patch = str(base_patch) if base_patch else None
     binding = {
         "base": base,
@@ -682,7 +684,7 @@ def _baseline(
             # schedule.intact; its pinned record decides only not to repeat this original-code command.
             if util.file_hash(settled["path"]) == settled.get("sha256") and focused_suite.timed_out(result):
                 timeouts[timeout_key] = settled
-                state["regression_baseline"] = {**cached, "settled_timeouts": timeouts}
+                regression_state.write_settled_timeouts(state, timeouts, base_record=cached)
                 return result
         except (OSError, ValueError, TypeError, KeyError):
             pass
@@ -760,25 +762,28 @@ def _baseline(
     if focused_suite.timed_out(result):
         timeouts[_settled_key(binding)] = {"path": str(path), "sha256": util.file_hash(path)}
     whole = cached.get("whole") or {}
-    state["regression_baseline"] = {
-        **({"settled_timeouts": timeouts} if timeouts else {}),
-        **({"whole": whole} if whole and whole.get("command") != suite else {}),
-        **({"source": baseline_source} if baseline_source else {}),
-        "base": base,
-        "command": suite,
-        "path": str(path),
-        "health": result["health"],
-        "base_patch": patch,
-        "binding": binding,
-        "sha256": util.file_hash(path),
-    }
+    regression_state.write_record(
+        state,
+        {
+            **({"settled_timeouts": timeouts} if timeouts else {}),
+            **({"whole": whole} if whole and whole.get("command") != suite else {}),
+            **({"source": baseline_source} if baseline_source else {}),
+            "base": base,
+            "command": suite,
+            "path": str(path),
+            "health": result["health"],
+            "base_patch": patch,
+            "binding": binding,
+            "sha256": util.file_hash(path),
+        },
+    )
     return result
 
 
 def _kept_baseline(state: RunState, command):
     """The saved record of ``command``'s result on the original code: the current baseline, or the whole
     suite's kept beside the suite that replaced it. None when neither is that command's."""
-    record = state.get("regression_baseline") or {}
+    record = regression_state.mapping(state)
     for found in (record, record.get("whole") or {}):
         if found.get("command") == command:
             return {key: value for key, value in found.items() if key not in ("whole", "settled_timeouts")}
@@ -836,12 +841,11 @@ def _without_unloadable(
     )
     if focused_suite.usable(result) and unloadable_tests.keeps(whole, result, choice):
         if kept is not None:
-            state["regression_baseline"] = {**(state.get("regression_baseline") or {}), "whole": kept}
+            regression_state.write_whole(state, kept)
         return unloadable_tests.record(choice, whole), without, result
     if kept is not None:
         # Keep what the narrower suite's own time limit settled, so it is not timed again.
-        settled = (state.get("regression_baseline") or {}).get("settled_timeouts")
-        state["regression_baseline"] = {**kept, **({"settled_timeouts": settled} if settled else {})}
+        regression_state.write_record(state, kept, preserve_settled_timeouts=True)
     return None
 
 
@@ -866,7 +870,7 @@ def prove(state: RunState, workspace, run_dir, *, all_due=False):
         raise
 
 
-def _prove_once(state, workspace, run_dir, current, *, all_due=False):
+def _prove_once(state: RunState, workspace, run_dir, current, *, all_due=False):
     schedule.guard(Path(run_dir) / "check-replay" / "obligations")
     saved = state.get("regression_proof") or {}
     scope = sorted(case["id"] for case in cases(state, all_due=all_due))
@@ -1553,8 +1557,7 @@ def _proving(
                 proving, suite, base_suite = focused, focus["command"], focused_base
             elif whole_record is not None:
                 # Keep what the nearest tests' own time limit settled, so they are not timed again.
-                settled = (state.get("regression_baseline") or {}).get("settled_timeouts")
-                state["regression_baseline"] = {**whole_record, **({"settled_timeouts": settled} if settled else {})}
+                regression_state.write_record(state, whole_record, preserve_settled_timeouts=True)
         number = len(state.get("regression_proofs", [])) + 1
         # The physical canonical path: measurement pins reads through this root without symlink
         # traversal, and a run directory reached through one (/tmp or /var on macOS) would fail

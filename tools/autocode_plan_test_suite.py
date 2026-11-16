@@ -34,6 +34,7 @@ try:
     from . import autocode_test_cases as test_cases
     from . import autocode_test_homes as test_homes
     from . import autocode_test_parts as test_parts
+    from . import autocode_test_results as test_results
     from . import autocode_verify as verify
 except ImportError:
     import autocode_command_guards as command_guards
@@ -46,6 +47,7 @@ except ImportError:
     import autocode_test_cases as test_cases
     import autocode_test_homes as test_homes
     import autocode_test_parts as test_parts
+    import autocode_test_results as test_results
     import autocode_verify as verify
 
 if TYPE_CHECKING:
@@ -186,7 +188,7 @@ def untested_code(workspace, body) -> str | None:
         return None
     paths = _planned(body)
     is_test = project_kinds.test_rule(_workspace_files(workspace))
-    code = [path for path in paths if verify.is_code_path(path) and not _in_tests(path, is_test)]
+    code = [path for path in paths if test_results.is_code_path(path) and not _in_tests(path, is_test)]
     if not code or any(_in_tests(path, is_test) for path in paths):
         return None
     if test_cases.plan_cases(body) or command_guards.plan_guards(body):
@@ -214,7 +216,7 @@ def _to_look_at(workspace, body) -> dict[str, str]:
             folder = file if file.is_dir() else file.parent
             beside = sorted(child for child in folder.iterdir() if child.is_file()) if folder.is_dir() else []
             found += [str(child.relative_to(root)) for child in beside]
-    code = [path for path in dict.fromkeys(found) if verify.is_code_path(path) and not (root / path).is_symlink()]
+    code = [path for path in dict.fromkeys(found) if test_results.is_code_path(path) and not (root / path).is_symlink()]
     return dict.fromkeys(code, plan_roles.ORIGINAL)
 
 
@@ -344,7 +346,7 @@ def _existing_tests(workspace) -> bool:
     """Whether the workspace already holds test code, tracked or not: a test path, or tests written inside
     a code file (a doctest, a Rust doc example or test module; autocode_test_parts)."""
     files = _workspace_files(workspace)
-    if any(verify.is_code_path(name) for name in filter(project_kinds.test_rule(files), files)):
+    if any(test_results.is_code_path(name) for name in filter(project_kinds.test_rule(files), files)):
         return True
     root = Path(workspace)
     for name in files:

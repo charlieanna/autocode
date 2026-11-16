@@ -9,8 +9,10 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_budget_state as budget_state
     from . import autocode_pause_command as pause_command
 except ImportError:
+    import autocode_budget_state as budget_state
     import autocode_pause_command as pause_command
 
 
@@ -67,7 +69,7 @@ def offers(state: RunState, need, *, run_dir, workspace):
             "--max-seconds",
             "Total active time (seconds)",
             total,
-            state.get("active_seconds", 0),
+            budget_state.active_seconds(state),
             9007199254740991,
         )
     stage = limits.get("stage_timeout_seconds")
