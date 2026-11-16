@@ -3653,6 +3653,25 @@ test('stopped supervision takes its named metadata reconciliation once without a
   assert.equal(launch.mock.callCount(), 1, 'an unchanged recovery checkpoint cannot loop on polling');
 });
 
+test('automatic reconciliation uses the core-reported worktree and refuses a foreign command', async (t) => {
+  const ui = await openChat(t, workingView());
+  const moved = { workspace: `${run.workspace}/.autocode/worktrees/task`, runDir: `${run.workspace}/.autocode/worktrees/task/.autocode/runs/one` };
+  const stopped = {
+    status: 'PAUSED_UNCERTAIN_STAGE', done: false, next_stage: 'review_completion', iteration: 1,
+    workspace: moved.workspace, run_dir: moved.runDir,
+    controller: { kind: 'boundary', checked: true, alive: false },
+    liveness: { kind: 'interrupted' }, needs: { kind: 'continue' },
+    next_command: `AUTOCODE_RECONCILE_ONLY_TOKEN=checkpoint-v1:moved autocode --workspace ${moved.workspace} --run-dir ${moved.runDir} --reconcile-only -`,
+  };
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  await ui.poll({ ...stopped, next_command: stopped.next_command.replace(moved.runDir, '/foreign/run') });
+  await flush();
+  assert.equal(launch.mock.callCount(), 0, 'the command must match the current public view');
+  await ui.poll(stopped); await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 1, 'the original tab address cannot suppress its worktree recovery');
+  assert.deepEqual(launch.mock.calls[0].arguments[1], ['--reconcile-only', '-', '--workspace', moved.workspace, '--run-dir', moved.runDir]);
+});
+
 test('metadata recovery follows a changed named command even when the stage is unchanged', async (t) => {
   const ui = await openChat(t, workingView());
   const stopped = {

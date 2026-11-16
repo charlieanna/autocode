@@ -7,7 +7,7 @@
 import * as vscode from "vscode";
 import { randomBytes } from "node:crypto";
 import { RunController, type RunRef } from "./controller";
-import { parseNamedCommand, requiresConfirmation } from "./core/next-command";
+import { requiresConfirmation } from "./core/next-command";
 import { chosenMode, type RunModes } from "./core/modes";
 import { isWorking, RunStarting, waitsForFolder, type StatusView } from "./core/view";
 import { transitionNotice, waitsForPerson } from "./notify";
@@ -940,8 +940,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     let reconcile: string | undefined;
     if (now.needs?.kind === "continue" && now.next_command && !isWorking(now)) {
       try {
-        const named = parseNamedCommand(now.next_command, tab.run);
-        if (named.argv.length === 2 && named.argv[0] === "--reconcile-only") reconcile = now.next_command;
+        if (this.controller.isMetadataReconciliation(now, tab.run)) reconcile = now.next_command;
       } catch { /* A malformed or foreign command remains a client gap; it is never taken automatically. */ }
     }
     if (!tab.continuePending && (!before || !waitsForFolder(before))
