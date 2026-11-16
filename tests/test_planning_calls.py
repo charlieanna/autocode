@@ -89,6 +89,50 @@ class CountTests(unittest.TestCase):
                 self.assertEqual(1, planning_calls.used(state(stages, events)))
                 self.assertEqual(at(3), planning_calls.renewed_at(state(stages, events)))
 
+    def test_person_delegated_answers_renew_the_cap_while_skip_requirements_and_runner_records_do_not(self):
+        import autocode_goals as goals
+
+        stages = [row("requirements_gather", at(minute)) for minute in range(1, 21)] + [
+            row("requirements_gather", at(25))
+        ]
+        non_renewing = [
+            {"kind": "delegated", "actor": "user_cli", "source": "skip_requirements", "round": 1, "at": at(22)},
+            {"kind": "delegated", "actor": "runner", "at": at(22)},
+            {"kind": "delegated", "actor": "autocode", "at": at(22)},
+            {"kind": "technical_decision", "actor": "autocode", "at": at(22)},
+        ]
+        self.assertEqual(21, planning_calls.used(state(stages, non_renewing)))
+        self.assertIsNone(planning_calls.renewed_at(state(stages, non_renewing)))
+        self.assertEqual((21, 20), planning_calls.reached(state(stages, non_renewing)))
+        for actor in ("user_cli", "user_intervention"):
+            with self.subTest(actor=actor):
+                events = [*non_renewing, {"kind": "delegated", "actor": actor, "question_id": "Q1", "at": at(23)}]
+                self.assertEqual(1, planning_calls.used(state(stages, events)))
+                self.assertEqual(at(23), planning_calls.renewed_at(state(stages, events)))
+                self.assertIsNone(planning_calls.reached(state(stages, events)))
+
+        question = {
+            "id": "Q1",
+            "question": "Which output format?",
+            "why": "The request leaves it open.",
+            "options": ["JSON", "Plain text"],
+            "proposed_default": "JSON",
+            "kind": "decision",
+            "category": "ux_and_output_contract",
+            "delegable": True,
+        }
+        prior_twenty = [row("requirements_gather", "2020-01-01T00:00:00+00:00") for _ in range(20)]
+        unattended = state(prior_twenty, pending_questions=[dict(question)], answers={})
+        goals.answer(unattended, "Q1", "accept default", delegated=True, source="skip_requirements", round=1)
+        self.assertIsNone(planning_calls.renewed_at(unattended))
+        self.assertEqual((20, 20), planning_calls.reached(unattended))
+
+        person_delegated = state(prior_twenty, pending_questions=[dict(question)], answers={})
+        goals.answer(person_delegated, "Q1", "accept default", delegated=True)
+        self.assertIsNotNone(planning_calls.renewed_at(person_delegated))
+        self.assertEqual(0, planning_calls.used(person_delegated))
+        self.assertIsNone(planning_calls.reached(person_delegated))
+
     def test_a_record_without_a_readable_time_still_counts(self):
         events = [{"kind": "answer", "actor": "user_cli", "at": at(3)}]
         saved = state([row("draft_plan", None), row("review_plan", "yesterday")], events)

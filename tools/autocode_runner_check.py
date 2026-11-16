@@ -109,6 +109,18 @@ def recover_interrupted(state: RunState, run_dir, persist):
     return recovered
 
 
+def _proof_scratch(run_root, output_dir):
+    """The scratch tree of the same run-owned proof, including nested evidence directories."""
+    regression = run_root / "regression"
+    if not output_dir.is_relative_to(regression):
+        return None
+    parts = output_dir.relative_to(regression).parts
+    if not parts:
+        return None
+    proof = verification_recovery.owned_path(regression / parts[0], run_root, directory=True)
+    return verification_recovery.owned_path(proof / "scratch", proof, directory=True)
+
+
 def auto_recover(state: RunState, run_dir, persist, *, source_revision, source_current, all_due=False):
     """Retire one verified scan-churn interruption and require a fresh proof."""
     check = state.get("active_runner_check")
@@ -133,7 +145,7 @@ def auto_recover(state: RunState, run_dir, persist, *, source_revision, source_c
             return False
         root = Path(run_dir).resolve()
         out = verification_recovery.owned_path(Path(check["output"]).parent, root, directory=True)
-        bound = verification_recovery.bind_command(out, check)
+        bound = verification_recovery.bind_command(out, check, scratch_root=_proof_scratch(root, out))
         settled = uncertain_cleanup.settle_with_retry(bound)
         if (
             not settled

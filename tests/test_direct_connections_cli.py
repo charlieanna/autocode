@@ -61,6 +61,51 @@ class DirectCliTests(unittest.TestCase):
     def test_hi_uses_claude_messages_and_requirements_without_showing_approval(self):
         self._greeting("anthropic")
 
+    def _greeting_report(self):
+        not_applicable = {"status": "not_applicable", "refs": []}
+        return {
+            "assistant_reply": "Hi! What would you like to build or change?",
+            "job": "build",
+            "design_document": "",
+            "clarity": "vague",
+            "summary": "No task specified",
+            "intended_outcome": "Not yet specified by the user",
+            "required_behaviors": [],
+            "constraints": [],
+            "acceptance_tests": [],
+            "source_refs": [],
+            "proposed_assumptions": [],
+            "requirements": [],
+            "ignored_statements": [],
+            "workspace_scope": {"spans_repositories": False, "external_parts": []},
+            "conflicts": [],
+            "proposed_reframes": [],
+            "ignored_requirements": [],
+            "machine_resolutions": [],
+            "access_blockers": [],
+            "ambiguity_audit": {
+                "outcome_scope": {"status": "open_question", "refs": ["outcome"]},
+                "inputs_and_edge_cases": dict(not_applicable),
+                "error_and_failure_behavior": dict(not_applicable),
+                "compatibility_and_callers": dict(not_applicable),
+                "ux_and_output_contract": dict(not_applicable),
+                "state_and_side_effects": dict(not_applicable),
+            },
+            "open_questions": [
+                {
+                    "id": "outcome",
+                    "question": "Hi! What would you like to build or change?",
+                    "why": "A greeting names no engineering outcome",
+                    "options": [],
+                    "proposed_default": "",
+                    "kind": "decision",
+                    "category": "requested_outcome",
+                    "convention_ref": "",
+                    "delegable": False,
+                }
+            ],
+        }
+
     def _greeting(self, protocol):
         stages = []
 
@@ -82,39 +127,7 @@ class DirectCliTests(unittest.TestCase):
                     "clarity": "vague",
                 }
             elif stage == "requirements_gather":
-                report = {
-                    "assistant_reply": "Hi! What would you like to build or change?",
-                    "job": "build",
-                    "design_document": "",
-                    "clarity": "vague",
-                    "summary": "No task specified",
-                    "intended_outcome": "Not yet specified by the user",
-                    "required_behaviors": [],
-                    "constraints": [],
-                    "acceptance_tests": [],
-                    "source_refs": [],
-                    "proposed_assumptions": [],
-                    "requirements": [],
-                    "ignored_statements": [],
-                    "workspace_scope": {"spans_repositories": False, "external_parts": []},
-                    "conflicts": [],
-                    "proposed_reframes": [],
-                    "ignored_requirements": [],
-                    "machine_resolutions": [],
-                    "access_blockers": [],
-                    "open_questions": [
-                        {
-                            "id": "outcome",
-                            "question": "Hi! What would you like to build or change?",
-                            "why": "A greeting names no engineering outcome",
-                            "options": [],
-                            "proposed_default": "",
-                            "kind": "decision",
-                            "category": "requested_outcome",
-                            "delegable": False,
-                        }
-                    ],
-                }
+                report = self._greeting_report()
             else:
                 return 400, {"error": "Unexpected stage"}
             if protocol == "anthropic":
@@ -194,38 +207,7 @@ class DirectCliTests(unittest.TestCase):
                     "clarity": "vague",
                 }
             elif data["stage"] == "requirements_gather":
-                report = {
-                    "assistant_reply": "Hi! What would you like to build or change?",
-                    "job": "build",
-                    "design_document": "",
-                    "clarity": "vague",
-                    "summary": "No task specified",
-                    "intended_outcome": "Not yet specified by the user",
-                    "required_behaviors": [],
-                    "constraints": [],
-                    "acceptance_tests": [],
-                    "source_refs": [],
-                    "proposed_assumptions": [],
-                    "requirements": [],
-                    "ignored_statements": [],
-                    "conflicts": [],
-                    "proposed_reframes": [],
-                    "ignored_requirements": [],
-                    "machine_resolutions": [],
-                    "access_blockers": [],
-                    "open_questions": [
-                        {
-                            "id": "outcome",
-                            "question": "Hi! What would you like to build or change?",
-                            "why": "A greeting names no engineering outcome",
-                            "options": [],
-                            "proposed_default": "",
-                            "kind": "decision",
-                            "category": "requested_outcome",
-                            "delegable": False,
-                        }
-                    ],
-                }
+                report = self._greeting_report()
             else:
                 return 400, {"error": "Unexpected stage"}
             return 200, {
@@ -282,6 +264,7 @@ class DirectCliTests(unittest.TestCase):
         )
         view = run.status()
         self.assertEqual("answer", view["needs"]["kind"], view)
+        self.assertIn("What would you like to build", view["needs"]["questions"][0]["question"])
         self.assertEqual(["requirements_gather"], stages)
         self.assertEqual("autocode", view["provider"])
         self.assertEqual([], reviewer.requests, "the reviewer provider received traffic a producer stage owed")

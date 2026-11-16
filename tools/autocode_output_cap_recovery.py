@@ -114,22 +114,19 @@ def _provider_module(settings: dict):
         return None
 
 
-def _listed_levels(provider_mod, workspace, model) -> list | None:
+def _listed_levels(provider_mod, workspace, model, *, engine=None) -> list | None:
     """The levels the tool's own listing declares for ``model``, read once; None when it has no
     readable listing (its own bound applies, #3313). Never a model request."""
-    if provider_mod is None:
+    if provider_mod is None and engine != "codex":
         return None
     try:
         from . import autocode_route_discovery as discovery
     except ImportError:
         import autocode_route_discovery as discovery
-    try:
-        for row in discovery.discover(provider_mod, Path(workspace)).get("candidates") or []:
-            if row.get("model") == model and isinstance(row.get("levels"), list):
-                return [level for level in row["levels"] if level in route_fit.SCALE] or None
-    except Exception:  # noqa: BLE001 - an unreadable optional listing never blocks this decision
+    levels = discovery.listed_levels(provider_mod, workspace, {model}, engine=engine).get(model)
+    if not isinstance(levels, list):
         return None
-    return None
+    return [level for level in levels if level in route_fit.SCALE] or None
 
 
 def _reasoning_bound(record) -> dict | None:
@@ -165,13 +162,16 @@ def recover(runtime, state: RunState, run_dir, workspace, error) -> bool:
     # A default route's run records no listing at launch (#3316); read the tool's own answer
     # for this one model now and keep it, so the rest of the run knows it too.
     settings_dict = state.get("settings")
-    if (
-        not offered
-        and isinstance(settings_dict, dict)
-        and (levels := _listed_levels(_provider_module(settings), workspace, model))
-    ):
-        settings_dict.setdefault(route_fit.DECLARED, {})[model] = levels
-        offered = _offered(settings_dict, model)
+    if not offered and isinstance(settings_dict, dict):
+        engine = settings.get("engine")
+        levels = (
+            _listed_levels(None, workspace, model, engine="codex")
+            if engine == "codex"
+            else _listed_levels(_provider_module(settings), workspace, model)
+        )
+        if levels:
+            settings_dict.setdefault(route_fit.DECLARED, {})[model] = levels
+            offered = _offered(settings_dict, model)
     if level not in route_fit.SCALE or not offered:
         return False
     lower = [value for value in offered if route_fit.SCALE.index(value) < route_fit.SCALE.index(level)]

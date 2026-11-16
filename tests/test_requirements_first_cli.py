@@ -55,7 +55,7 @@ class RequirementsFirstCliTests(unittest.TestCase):
     def test_a_plain_cli_review_goes_from_requirements_into_the_full_pipeline(self):
         result = self.run_fake("review-clean-pr")
         self.assertEqual("review", result["workflow"])
-        self.assertEqual([REQUIREMENTS, REQUIREMENTS, *PIPELINE], result["metrics"]["model_stage_names"])
+        self.assertEqual([REQUIREMENTS, *PIPELINE], result["metrics"]["model_stage_names"])
 
     def test_a_plain_cli_bug_fix_goes_from_requirements_to_the_planner(self):
         result = self.run_fake("bugfix-trivial")
@@ -71,7 +71,7 @@ class RequirementsFirstCliTests(unittest.TestCase):
         result = self.run_fake("review-then-fix")
         review, fix = result["turns"]
         self.assertEqual(("review", "build"), (review["workflow"], fix["workflow"]))
-        self.assertEqual([REQUIREMENTS, REQUIREMENTS, *PIPELINE], review["model_stage_names"])
+        self.assertEqual([REQUIREMENTS, *PIPELINE], review["model_stage_names"])
         # The follow-up begins at Requirements too, which reads the earlier review as context and names a
         # build; the Planner then plans the fix from the review's findings.
         self.assertStartsAtRequirements(fix["model_stage_names"], "draft_plan")

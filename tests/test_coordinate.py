@@ -92,6 +92,23 @@ class CoordinationTests(unittest.TestCase):
             "joint_attempts": [],
         }
 
+    def test_blocked_member_or_joint_is_not_offered_as_a_person_question(self):
+        views, joint_view = self.joint_scope_fixture()
+        blocked = {
+            "needs": {"kind": "answer", "resolver_scope": "operational_exhaustion"},
+            "recovery": {"category": "blocked", "what_happened": "Internal recovery was exhausted."},
+            "chat": {"input": None},
+        }
+        for target in ("tax", "Joint regression"):
+            with self.subTest(target=target):
+                member_views = {**views, **({target: blocked} if target != "Joint regression" else {})}
+                joint = blocked if target == "Joint regression" else joint_view
+                with patch.object(coordinate, "handle", return_value=Mock(status=Mock(return_value=joint))):
+                    step = coordinate.next_step(self.document, member_views)
+                self.assertEqual("blocked", step["kind"])
+                self.assertIn(target, step["reason"])
+                self.assertIn("Internal recovery was exhausted", step["reason"])
+
     def plan_view(self, token):
         body = {
             "acceptance_criteria": [

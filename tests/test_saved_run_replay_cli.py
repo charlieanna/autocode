@@ -191,6 +191,201 @@ class SavedRunReplayCliTest(unittest.TestCase):
         self.assertFalse(marker.exists(), "offline replay invoked a live provider")
         self.assertEqual(original, evidence_bytes(task.run_dir))
 
+    def test_legacy_requirements_triage_saved_run_exports_and_replays_cleanly(self):
+        project = self.root / "triage-project"
+        project.mkdir()
+        (project / "README.md").write_text("A synthetic greeting CLI fixture.\n")
+        (project / "greet.py").write_text("# Synthetic greeting source inspected by the offline fixture.\n")
+        env = {
+            key: value
+            for key, value in os.environ.items()
+            if not key.startswith(("GIT_", "AUTOCODE_FIXTURE_", "BUILD_AUDIT_LIVE_", "REVIEW_AUDIT_LIVE_"))
+            and key
+            not in (
+                "AUTOCODE_PROVIDER",
+                "AUTOCODE_TEST_CLI",
+                "AUTOCODE_TEST_WHEEL",
+                "OPENAI_API_KEY",
+                "CODEX_API_KEY",
+                "OPENAI_BASE_URL",
+                "OPENCODE_CONFIG_CONTENT",
+            )
+        }
+        git_env = {**env, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull}
+        subprocess.run(["git", "init", "-q", str(project)], check=True, env=git_env, timeout=30)
+        for name, value in (("maintenance.auto", "false"), ("gc.auto", "0")):
+            subprocess.run(["git", "-C", str(project), "config", name, value], check=True, env=git_env, timeout=30)
+        subprocess.run(["git", "-C", str(project), "add", "README.md", "greet.py"], check=True, env=git_env, timeout=30)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(project),
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.test",
+                "commit",
+                "-qm",
+                "Synthetic triage replay fixture",
+            ],
+            check=True,
+            env=git_env,
+            timeout=30,
+        )
+        binary = self.root / "triage-fixture-bin"
+        binary.mkdir()
+        for source, name in (
+            ("fake_opencode.py", "opencode"),
+            ("fake_codex.py", "codex"),
+            ("goal_fixtures.py", "goal_fixtures.py"),
+        ):
+            shutil.copy2(ROOT / "tools" / source, binary / name)
+        for name in ("opencode", "codex"):
+            (binary / name).chmod(0o755)
+        env.update(
+            PATH=str(binary) + os.pathsep + os.environ["PATH"],
+            XDG_CONFIG_HOME=str(self.root / "triage-xdg"),
+            CODEX_HOME=str(self.root / "triage-codex"),
+            AUTOCODE_HOME=str(self.root / "triage-registry"),
+            AUTOCODE_FIXTURE_MODE="no-human",
+            PYTHONDONTWRITEBYTECODE="1",
+        )
+        command = (sys.executable, str(ROOT / "tools/autocode.py"))
+        task = TaskRun.start(
+            project,
+            "Build a greeting tool; ask whether it should be a CLI or web endpoint first.",
+            command=entrypoint(command),
+            env=env,
+            cwd=project,
+            timeout=180,
+            options=(
+                "--engine",
+                "opencode",
+                "--provider",
+                "opencode",
+                "--single-model",
+                "zai-coding-plan/glm-5.3",
+                "--workflow",
+                "build",
+                "--unit",
+                "autoplanner",
+                "--max-parallel-builders",
+                "1",
+                "--max-iterations",
+                "2",
+                "--max-seconds",
+                "180",
+                "--max-stage-seconds",
+                "60",
+            ),
+        )
+        saved_path = task.run_dir / "state.json"
+        saved = json.loads(saved_path.read_text())
+        questions = saved["pending_questions"]
+        triage_report = {
+            "summary": "Triage: ask how the greeting is invoked before drafting requirements",
+            "intended_outcome": "Build a greeting tool",
+            "ready": False,
+            "open_questions": questions,
+        }
+        triage_json = json.dumps(triage_report, indent=2, sort_keys=True) + "\n"
+        stage0 = saved["stages"][0]
+        Path(stage0["output"]).write_text(triage_json)
+        if stage0.get("reported_output") and Path(stage0["reported_output"]).is_file():
+            Path(stage0["reported_output"]).write_text(triage_json)
+        if stage0.get("response_text") and Path(stage0["response_text"]).is_file():
+            Path(stage0["response_text"]).write_text(json.dumps(triage_report))
+        events_path = Path(stage0["events"])
+        rewritten_events = []
+        for raw_line in events_path.read_text().splitlines():
+            if not raw_line.strip():
+                continue
+            event = json.loads(raw_line)
+            if event.get("type") == "text" and isinstance(event.get("part"), dict):
+                event["part"]["text"] = json.dumps(triage_report)
+            elif event.get("type") == "tool_use":
+                continue
+            rewritten_events.append(json.dumps(event))
+        events_path.chmod(0o600)
+        events_path.write_text("\n".join(rewritten_events) + "\n")
+        events_path.chmod(0o400)
+        saved["settings"]["requirements_triage"] = True
+        saved["settings"]["joint_planning"] = True
+        saved["settings"]["roles"]["requirements"]["reasoning_effort"] = "medium"
+        saved["settings"]["declared_variants"] = {"zai-coding-plan/glm-5.3": ["low", "medium", "high"]}
+        stage0["reasoning_effort"] = "low"
+        stage0["launch_route"]["reasoning_effort"] = "low"
+        stage0["execution_identity"]["reasoning_effort"] = "low"
+        saved["requirements_triage"] = {
+            "pass": 1,
+            "outcome": "questions",
+            "questions": len(questions),
+            "at": "2026-11-08T00:00:00+00:00",
+        }
+        saved_path.write_text(json.dumps(saved, indent=2, sort_keys=True) + "\n")
+
+        status_check = subprocess.run(
+            [*command, "--run-dir", str(task.run_dir), "--status"],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=30,
+        )
+        self.assertEqual(0, status_check.returncode, status_check.stderr)
+        status_view = json.loads(status_check.stdout)["view"]
+        self.assertEqual("WAITING_FOR_USER", status_view["status"])
+
+        exported = subprocess.run(
+            [*command, "replay", str(task.run_dir), "--export", str(self.root / "triage-recording"), "--json"],
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=project,
+            timeout=180,
+        )
+        self.assertEqual(0, exported.returncode, exported.stderr)
+        manifest = Path(json.loads(exported.stdout)["manifest"])
+        document = json.loads(manifest.read_text())
+        self.assertIs(True, document["launch"]["settings"].get("requirements_triage"))
+
+        offline = self.root / "triage-offline-bin"
+        offline.mkdir()
+        marker = self.root / "triage-provider-called"
+        for name in ("opencode", "codex", "kilo"):
+            path = offline / name
+            path.write_text(
+                f"#!{sys.executable}\nfrom pathlib import Path\nPath({str(marker)!r}).touch()\nraise SystemExit(77)\n"
+            )
+            path.chmod(0o755)
+        env["PATH"] = str(offline) + os.pathsep + str(Path(sys.executable).parent) + ":/usr/bin:/bin"
+
+        pre_3652_dir = self.root / "triage-recording-pre-3652"
+        shutil.copytree(manifest.parent, pre_3652_dir)
+        pre_3652_manifest = pre_3652_dir / manifest.name
+        pre_3652_doc = json.loads(pre_3652_manifest.read_text())
+        pre_3652_doc["launch"]["settings"].pop("requirements_triage", None)
+        pre_3652_doc["launch"]["settings"].pop("declared_variants", None)
+        pre_3652_manifest.write_text(json.dumps(pre_3652_doc, indent=2, sort_keys=True) + "\n")
+
+        for label, target_manifest in (("exported", manifest), ("pre-3652", pre_3652_manifest)):
+            with self.subTest(bundle=label):
+                destination = self.root / f"replayed-{label}/.autocode/runs/triage"
+                replayed = subprocess.run(
+                    [*command, "replay", str(target_manifest), "--into", str(destination), "--json"],
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                    timeout=180,
+                )
+                self.assertEqual(0, replayed.returncode, replayed.stderr)
+                replayed_view = json.loads(replayed.stdout)["view"]
+                self.assertEqual("WAITING_FOR_USER", replayed_view["status"])
+                self.assertEqual(status_view["needs"]["questions"], replayed_view["needs"]["questions"])
+                self.assertEqual(1, replayed_view["replay_progress"]["consumed"])
+                self.assertEqual("end", replayed_view["replay_progress"]["next_dispatch"])
+                self.assertFalse(marker.exists(), "offline replay invoked a live provider")
+
     def run_reference(self, scenario_id):
         args = SimpleNamespace(
             provider=None,

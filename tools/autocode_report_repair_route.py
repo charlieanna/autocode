@@ -25,6 +25,31 @@ TEMPORARY_ROUTES = {
 }
 
 
+def release_settings(settings: dict | None, route: str) -> dict:
+    """Remove a temporary derived route and any inherited transport pin from ``settings``."""
+    if not isinstance(settings, dict):
+        return {}
+    roles = settings.get("roles")
+    popped = roles.pop(route, None) if isinstance(roles, dict) else None
+    role_key = f"role:{route}"
+    for key in ("transport_identities", "provider_transports"):
+        mapping = settings.get(key)
+        if isinstance(mapping, dict) and role_key in mapping:
+            mapping.pop(role_key, None)
+            if not mapping:
+                settings.pop(key, None)
+    return popped if isinstance(popped, dict) else {}
+
+
+def release(state: RunState, route: str) -> dict:
+    """Remove a temporary derived route, its transport pin, and any saved session from ``state``."""
+    used = release_settings(state.get("settings"), route)
+    sessions = state.get("sessions")
+    if isinstance(sessions, dict):
+        sessions.pop(route, None)
+    return used
+
+
 def restore(state: RunState, original):
     expected_route = TEMPORARY_ROUTES.get(str(original.get("stage") or ""))
     if not expected_route or original.get("route_role") != expected_route:

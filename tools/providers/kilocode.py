@@ -108,6 +108,7 @@ class KiloProvider(command.CommandProvider):
         report_recovery=False,
         portable_shell=False,
         access_probe=False,
+        declared_levels=None,
     ):
         if access_probe and (
             allow_write
@@ -139,7 +140,7 @@ class KiloProvider(command.CommandProvider):
                 sandbox=sandbox,
                 env=env,
             )
-            self.validate_effort(model, effort, workspace, env=child, role=role)
+            self.validate_effort(model, effort, workspace, env=child, role=role, declared_levels=declared_levels)
             output_cap.apply(child, output_cap.KILO_VARIABLE)
             # Kilo's JSON CLI withholds text/reasoning until a block completes.
             # Forward real native deltas through the same bounded activity hook
@@ -216,19 +217,22 @@ class KiloProvider(command.CommandProvider):
             containment=containment,
             image_preparation=image_preparation,
         )
-        self.validate_effort(model, effort, workspace, env=result[1], role=role)
+        self.validate_effort(model, effort, workspace, env=result[1], role=role, declared_levels=declared_levels)
         return result
 
-    def validate_effort(self, model, effort, workspace=None, *, env=None, role=None):
+    def validate_effort(self, model, effort, workspace=None, *, env=None, role=None, declared_levels=None):
         """Validate the exact native variant; an unknown name otherwise silently becomes the model default."""
         if not effort:
             return
-        result = self._variant_listing(workspace, env)
-        levels = route_levels.parse(result.stdout)
-        if model not in levels and isinstance(result, command.env_prep.KeptCheck):
-            # A kept listing is asked again once before a route is called unlisted (#3078): the person
-            # cannot act on "name the model as Kilo lists it" when the route already is how Kilo lists it.
-            levels = route_levels.parse(self._variant_listing(workspace, env, fresh=True).stdout)
+        if isinstance(declared_levels, list):
+            levels = {model: declared_levels}
+        else:
+            result = self._variant_listing(workspace, env)
+            levels = route_levels.parse(result.stdout)
+            if model not in levels and isinstance(result, command.env_prep.KeptCheck):
+                # A kept listing is asked again once before a route is called unlisted (#3078): the person
+                # cannot act on "name the model as Kilo lists it" when the route already is how Kilo lists it.
+                levels = route_levels.parse(self._variant_listing(workspace, env, fresh=True).stdout)
         if model not in levels:
             raise KiloEffortError(
                 f"Kilo's reasoning-variant listing has no variants for {model}; "

@@ -1244,6 +1244,20 @@ class ConversationTests(unittest.TestCase):
         self.assertNotIn("Additional recoveries limit", held_out)
         self.assertEqual([["--resume-paused", "--grant-recovery", "1", "--expected-recovery-token", "-"]], held.taken)
 
+    def test_authenticated_internal_block_does_not_offer_an_operator_action_as_a_person_prompt(self):
+        view = self._operational_recovery_exhaustion_view()
+        view["recovery"].update(
+            category="blocked", title="AutoCode could not continue", what_happened="The saved work is retained."
+        )
+        view["chat"]["input"] = None
+        client = ScriptedChat(view, replies=["1"])
+        self.addCleanup(client.close)
+        self.assertFalse(client.respond(view))
+        self.assertEqual([], client.taken)
+        self.assertIn("AutoCode could not continue", client.text())
+        self.assertNotIn("Your reply", client.text())
+        self.assertNotIn("authorize additional recoveries", client.text())
+
     def test_a_number_below_the_bound_or_for_a_stale_offer_takes_nothing(self):
         low = ScriptedChat(self.held_time_pause(), DONE, replies=["2400"])
         low.converse()

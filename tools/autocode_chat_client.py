@@ -1484,6 +1484,8 @@ class ChatClient:
         """Act on what the view asks of a person. False: the chat stops here, the run waits."""
         need = view.get("needs") or {}
         offer = (view.get("chat") or {}).get("input") or {}
+        if (view.get("recovery") or {}).get("category") == "blocked" and not offer:
+            return self.hand_off(view)
         if need.get("kind") == "approve_plan":
             return self.approve(view)
         if offer.get("kind") == "resolver_response":
@@ -1509,8 +1511,8 @@ class ChatClient:
     def hand_off(self, view: dict) -> bool:
         """A need this client cannot act on: explain it without exposing internal commands."""
         need = view.get("needs") or {}
-        if not need:
-            recovery, summary = view.get("recovery") or {}, view.get("summary") or {}
+        recovery, summary = view.get("recovery") or {}, view.get("summary") or {}
+        if not need or (recovery.get("category") == "blocked" and not (view.get("chat") or {}).get("input")):
             heading = recovery.get("title") or summary.get("label") or "AutoCode has no next action"
             why = recovery.get("what_happened") or summary.get("sentence") or view.get("stop_reason") or ""
             self.say(f"\n{heading.rstrip('.')}. {why}".rstrip())

@@ -11,16 +11,21 @@ import shlex
 import subprocess
 import sys
 import uuid
+from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
     from . import autocode_contract_identity as contracts
+    from . import autocode_stall_recovery as stall_recovery
+    from . import autocode_util as util
 except ImportError:
     import autocode_contract_identity as contracts
+    import autocode_stall_recovery as stall_recovery
+    import autocode_util as util
 
 # The plan is data, never shell/Python source. Keep the tool call copyable without
 # the nested shell quotes that failed before capture in the ISO-week trial.
@@ -197,6 +202,287 @@ def builder_context(state: RunState, capture, evidence_directory):
         return batch
     except (KeyError, TypeError, AttributeError):
         return None
+
+
+def _norm_command(command: object) -> str | None:
+    if isinstance(command, (list, tuple)):
+        words = [w for w in command if isinstance(w, str) and w]
+        return shlex.join(words) if words and len(words) == len(command) else None
+    if not isinstance(command, str):
+        return None
+    stripped = command.strip()
+    if not stripped:
+        return None
+    if parsed := argv(stripped):
+        return shlex.join(parsed)
+    try:
+        words = shlex.split(stripped)
+        if words:
+            return shlex.join(words)
+    except ValueError:
+        pass
+    return " ".join(stripped.split())
+
+
+def _collect_baseline_timeouts(state: Mapping[str, Any], source_revision: str | None) -> set[str]:
+    timed_out: set[str] = set()
+    reg_base = state.get("base_commit")
+    cached = state.get("regression_baseline")
+    if isinstance(cached, Mapping):
+        settled = cached.get("settled_timeouts")
+        entries: list[object] = [
+            cached,
+            cached.get("whole"),
+            *(settled.values() if isinstance(settled, Mapping) else ()),
+        ]
+        for entry in entries:
+            if not isinstance(entry, Mapping):
+                continue
+            raw_binding = entry.get("binding")
+            binding: Mapping[str, Any] = raw_binding if isinstance(raw_binding, Mapping) else {}
+            entry_base = binding.get("base")
+            if (
+                isinstance(reg_base, str)
+                and reg_base
+                and isinstance(entry_base, str)
+                and entry_base
+                and entry_base != reg_base
+            ):
+                continue
+            entry_rev = entry.get("source_revision")
+            if source_revision and isinstance(entry_rev, str) and entry_rev and entry_rev != source_revision:
+                continue
+            path = entry.get("path")
+            if not isinstance(path, str) or not path:
+                continue
+            try:
+                loaded = util.read(Path(path))
+            except (OSError, ValueError, TypeError, KeyError):
+                continue
+            if not isinstance(loaded, Mapping):
+                continue
+            loaded_rev = loaded.get("source_revision")
+            if source_revision and isinstance(loaded_rev, str) and loaded_rev and loaded_rev != source_revision:
+                continue
+            raw_receipt = loaded.get("receipt")
+            receipt: Mapping[str, Any] = raw_receipt if isinstance(raw_receipt, Mapping) else {}
+            if loaded.get("timed_out") or receipt.get("timed_out"):
+                cmd = loaded.get("command") or receipt.get("command") or binding.get("command")
+                if norm := _norm_command(cmd):
+                    timed_out.add(norm)
+    proof = state.get("regression_proof")
+    if isinstance(proof, Mapping):
+        sf = proof.get("suite_fallback")
+        proof_rev = proof.get("source_revision")
+        proof_base = proof.get("base")
+        same_context = (
+            (bool(source_revision) and proof_rev == source_revision)
+            or (isinstance(reg_base, str) and bool(reg_base) and proof_base == reg_base)
+            or ("source_revision" not in proof and "base" not in proof)
+        )
+        if isinstance(sf, Mapping) and sf.get("whole_suite_outcome") == "timed_out" and same_context:
+            for raw_cmd in (sf.get("whole_suite"), sf.get("timed_out_focused_suite")):
+                if norm := _norm_command(raw_cmd):
+                    timed_out.add(norm)
+        if source_revision and proof_rev == source_revision:
+            checks = proof.get("checks")
+            if isinstance(checks, Mapping):
+                for chk in checks.values():
+                    if (
+                        isinstance(chk, Mapping)
+                        and chk.get("timed_out")
+                        and (norm := _norm_command(chk.get("command")))
+                    ):
+                        timed_out.add(norm)
+    return timed_out
+
+
+def _collect_replay_timeouts(run_dir: Path | None, source_revision: str | None) -> set[str]:
+    timed_out: set[str] = set()
+    if run_dir is None or not source_revision:
+        return timed_out
+    replay_root = Path(run_dir) / "check-replay"
+    if not replay_root.is_dir():
+        return timed_out
+    for replay_file in [replay_root / "replay.json", *sorted(replay_root.glob("*/replay.json"))]:
+        try:
+            data = util.read(replay_file)
+        except (OSError, ValueError, TypeError):
+            continue
+        if not isinstance(data, Mapping) or data.get("source_revision") != source_revision:
+            continue
+        for chk in data.get("checks") or ():
+            if isinstance(chk, Mapping) and chk.get("timed_out") and (norm := _norm_command(chk.get("command"))):
+                timed_out.add(norm)
+    return timed_out
+
+
+def _batch_progress(
+    decoded: dict[str, Any], evidence_directory: Path, row: Mapping[str, Any], source_revision: str | None
+) -> int:
+    dirs: list[Path] = []
+    for candidate in (Path(decoded["directory"]), Path(evidence_directory)):
+        if candidate not in dirs and candidate.is_dir():
+            dirs.append(candidate)
+    events = row.get("events")
+    if isinstance(events, str) and events:
+        parent = Path(events).parent
+        if parent not in dirs and parent.is_dir():
+            dirs.append(parent)
+    row_attempt_id = stall_recovery._attempt_id(row)
+    best_rank: tuple[int, float] | None = None
+    best_loc: tuple[Path, str] | None = None
+    first_cmd = decoded["commands"][0]
+    for directory in dirs:
+        for path in directory.glob("ready-*-1.json"):
+            matched = re.fullmatch(r"ready-([0-9a-f]{32})-1\.json", path.name)
+            if not matched:
+                continue
+            token = matched.group(1)
+            try:
+                r1 = util.read(path)
+                mtime = path.stat().st_mtime
+            except (OSError, ValueError, TypeError):
+                continue
+            if not isinstance(r1, Mapping) or r1.get("command") != first_cmd:
+                continue
+            raw_ctx = r1.get("capture_context")
+            ctx: Mapping[str, Any] = raw_ctx if isinstance(raw_ctx, Mapping) else {}
+            ctx_rev = ctx.get("source_revision")
+            if source_revision and isinstance(ctx_rev, str) and ctx_rev and ctx_rev != source_revision:
+                continue
+            ctx_attempt = ctx.get("attempt")
+            if row_attempt_id and isinstance(ctx_attempt, str) and ctx_attempt and ctx_attempt != row_attempt_id:
+                continue
+            rank = (1 if row_attempt_id and ctx_attempt == row_attempt_id else 0, mtime)
+            if best_rank is None or rank > best_rank:
+                best_rank = rank
+                best_loc = (directory, token)
+    if best_loc is None:
+        return 0
+    top_dir, top_token = best_loc
+    completed = 0
+    for idx, expected_cmd in enumerate(decoded["commands"], 1):
+        receipt_path = top_dir / f"ready-{top_token}-{idx}.json"
+        try:
+            rec = util.read(receipt_path)
+        except (OSError, ValueError, TypeError):
+            break
+        if not isinstance(rec, Mapping) or rec.get("command") != expected_cmd:
+            break
+        completed = idx
+    return completed
+
+
+def _collect_stage_timeouts(
+    state: Mapping[str, Any],
+    planned_norm: list[str],
+    evidence_directory: Path,
+    source_revision: str | None,
+) -> tuple[set[str], list[str], bool]:
+    timed_out: set[str] = set()
+    completed_batch: list[str] = []
+    batch_timed_out = False
+    if not source_revision:
+        return timed_out, completed_batch, batch_timed_out
+    for row in state.get("stages") or ():
+        if (
+            not isinstance(row, Mapping)
+            or row.get("runner_owned")
+            or row.get("report_only")
+            or not row.get("timed_out")
+            or row.get("timeout_kind") == "person"
+            or stall_recovery.attempt_revision(row) != source_revision
+        ):
+            continue
+        for raw_cmd in stall_recovery.raw_stalled_commands(row):
+            words: list[str] | None = None
+            try:
+                words = shlex.split(raw_cmd)
+            except ValueError:
+                words = None
+            if words and len(words) >= 2 and Path(words[-2]).name == "autocode_ready_capture_batch.py":
+                try:
+                    decoded = _plan(words[-1])
+                except ValueError:
+                    decoded = None
+                if decoded is not None:
+                    dec_norm = [shlex.join(cmd) for cmd in decoded["commands"]]
+                    progress = _batch_progress(decoded, evidence_directory, row, source_revision)
+                    if dec_norm == planned_norm:
+                        batch_timed_out = True
+                    if 0 < progress <= len(dec_norm):
+                        completed_batch = dec_norm[:progress]
+                    if progress < len(dec_norm):
+                        timed_out.add(dec_norm[progress])
+                    continue
+            if words and "--" in words and "capture" in words[: words.index("--")]:
+                inner = words[words.index("--") + 1 :]
+                if inner:
+                    timed_out.add(shlex.join(inner))
+                continue
+            if norm := _norm_command(raw_cmd):
+                timed_out.add(norm)
+    return timed_out, completed_batch, batch_timed_out
+
+
+def withheld_context(
+    capture,
+    commands,
+    evidence_directory,
+    *,
+    state: Mapping[str, Any] | None = None,
+    run_dir: str | Path | None = None,
+    stage: str | None = None,
+    source_revision: str | None = None,
+) -> dict[str, Any] | None:
+    """Withhold the batch convenience when a planned check or identical batch already timed out."""
+    del stage
+    if context(capture, commands, evidence_directory) is None:
+        return None
+    planned_norm = [shlex.join(cast(list[str], argv(command))) for command in commands]
+    norm_to_orig = {norm: command for command, norm in zip(reversed(commands), reversed(planned_norm), strict=True)}
+    timed_out_norm: set[str] = set()
+    completed_batch_norm: list[str] = []
+    batch_timed_out = False
+    if isinstance(state, Mapping):
+        timed_out_norm.update(_collect_baseline_timeouts(state, source_revision))
+        stage_timeouts, completed_batch_norm, batch_timed_out = _collect_stage_timeouts(
+            state, planned_norm, Path(evidence_directory), source_revision
+        )
+        timed_out_norm.update(stage_timeouts)
+    if run_dir is not None:
+        timed_out_norm.update(_collect_replay_timeouts(Path(run_dir), source_revision))
+    matched = list(
+        dict.fromkeys(command for command, norm in zip(commands, planned_norm, strict=True) if norm in timed_out_norm)
+    )
+    if not matched and not batch_timed_out:
+        return None
+    completed = list(
+        dict.fromkeys(
+            norm_to_orig.get(norm, norm)
+            for norm in completed_batch_norm
+            if norm in norm_to_orig and norm not in timed_out_norm
+        )
+    )
+    reason = (
+        "Withheld ready_capture_batch because a planned check or identical batch already timed out on "
+        f"source_revision {source_revision}."
+        if source_revision
+        else "Withheld ready_capture_batch because a planned check already timed out against the baseline."
+    )
+    result: dict[str, Any] = {
+        "reason": reason,
+        "timed_out_commands": matched,
+        "instruction": (
+            "The sequential batch convenience is withheld because at least one planned command or identical batch "
+            "already timed out on this source_revision. Every required check remains mandatory via capture_command: "
+            "capture fast checks individually first, then inspect and bound the timed-out check."
+        ),
+    }
+    if completed:
+        result["completed_batch_commands"] = completed
+    return result
 
 
 def _plan(encoded):

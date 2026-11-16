@@ -61,6 +61,15 @@ What to do:
 If runner_feedback is not empty, the runner already ran your earlier tests for these cases on today's code
 and rejected them for the reasons it lists, oldest first: correct the tests it names, in place.
 
+If evidence_repair is present, these approved cases already have qualified tests, but the independent
+review found missing assertions. Strengthen the existing selected named tests while retaining their
+assertions and approved names. Read the complete current proof at evidence_repair.proof_path, including
+every open changed-line obligation, and the rejected decisions; repair the shared assertion gap across
+those cases, not just the first example. Inline diagnostics outside the selected tests cannot close a
+mutation gap. Keep the plan and product code unchanged. Passing candidate tests still need their fresh
+original-reference qualification; the final independent evidence review remains required. If you cannot
+repair a case, report the concrete limitation; the core handles bounded recovery without a person question.
+
 Report every due case exactly once, in tests (case_id, test_name, file: the workspace-relative path) or
 cannot_write (case_id, reason); already_passing (case_id, evidence) adds to a tests row. tests_run lists the commands you
 ran. summary says in two sentences what the tests check.

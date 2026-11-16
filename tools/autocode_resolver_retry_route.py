@@ -103,7 +103,9 @@ def unassigned(state: RunState, settings):
                     efforts.pop("resolver", None)
                 if not efforts and not assignment["effort_origins_present"]:
                     settings.pop("effort_origins", None)
-        settings = escalation.unclimbed(state, quota_route.unassigned(state, settings), "resolver")
+        settings = quota_route.unassigned(state, settings)
+        for climbed_role in ("resolver", *(key for key in (settings.get("roles") or {}) if key != "resolver")):
+            settings = escalation.unclimbed(state, settings, climbed_role)
         if settings == before_pass and len(pending) == pending_count:
             break
     return settings

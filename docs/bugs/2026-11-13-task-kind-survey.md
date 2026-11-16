@@ -1068,8 +1068,8 @@ fix proven? (a) Allow one top-level test_textutil.py ... (b) Keep docstring exam
 (b), the plan was refused again for the same reason, and the person was asked again with (a) as the
 proposed answer. The run finished with a `test_textutil.py` of unittest cases beside the doctests, which the
 request had asked not to have. A doctest lives in the file it tests, so the new example and the fix arrive
-in one file and the proof has no test file to run on the original code. Open: the proof would have to run
-the change's docstring examples against the original code's functions.
+in one file and the proof has no test file to run on the original code. Fixed in section 55: the proof
+runs the change's docstring examples against the original code's functions.
 
 **A repair of code that cannot be loaded has no test that "ran and failed".** With the conflict markers
 `amounts.py` is a syntax error, so on the original code pytest reports one collection error for
@@ -2031,6 +2031,71 @@ entry file and a script of checks that is itself the command all still fail.
   files the change edits or beside the ones it adds, and a refactor edits no check.
 - Compiled checks (an emptied C file does not build), more than six code files in a change, and a change
   that also touches a file the path rules call a test are not looked at.
+
+## 55. Tests written inside the code file: a doctest fix asked the person twice how to prove it (fixed)
+
+Section 37's doctest task ("slugify("Hello,  World!") returns 'hello,--world!'. It should return
+'hello-world' … Fix it and add that example. This project's tests are the examples in the docstrings
+(`python -m doctest textutil.py`); keep it that way, do not add a tests directory") was refused twice as
+planning no test, the person was asked twice how to prove the fix, and the run delivered a
+`test_textutil.py` the request had asked not to have (21 stages, 599 s, $4.21; manifest
+`6325bbdb50f5c015483190e04760a6b1c539468db39a55ca8cf60c4cc2efb12b`).
+
+**The shared cause.** Which files are tests is a rule over paths, and some tests are written inside a code
+file: a Python doctest in a docstring, a Rust example in a doc comment, a `#[cfg(test)]` module, the
+examples of a doctest document. The fix and its test arrive in one file, so the proof has no test file to run
+on the original code. Rust's test modules had a splice of their own (#3467); the other three had nothing.
+Without a model, through `autocode_regression.prove`, on master:
+
+| Project and change | master | this change |
+| --- | --- | --- |
+| `python -m doctest textutil.py`: fix and its example in the docstring | FAIL, no regression test | PASS |
+| the same with `pytest --doctest-modules` | FAIL, no regression test | PASS |
+| a doctest document, `python -m doctest docs/usage.txt` | FAIL, no regression test | PASS |
+| Rust, the fix and an example in its doc comment, `cargo test` | FAIL, no regression test | PASS |
+| a feature: a new function with its doctest | PASS | PASS |
+| `pytest tests/` with a test file, and a docstring example too | PASS | PASS |
+| Rust, a `#[cfg(test)]` module (the old splice) | PASS | PASS |
+| a refactor guarded with `python -m doctest textutil.py` | guard refused when drafted | PASS |
+| the fix alone | FAIL | FAIL |
+| the example alone, no fix | FAIL | FAIL |
+| an example that passes on the original code | FAIL | FAIL |
+| a refactor that breaks an example | FAIL | FAIL |
+| a guard naming a file with no examples | refused | refused |
+
+**The fix.** One mechanism, `autocode_test_parts`, replaces the Rust-only splice. Each language's own syntax
+says which lines of a file are tests (Python's `ast` for docstrings, a Rust lexer for doc comments and test
+modules; a doctest document is all test). The proof puts the change's edits to those lines on the original
+code and nothing else, and refuses when the original program, read without them, would differ, so a fix
+cannot ride along. An example of a function the change adds goes into doctest's own `__test__` table, so it
+fails on the original code as a new test of a new function does. A command that names a file holding tests
+runs existing tests, so the plan check, a guard and the proof's choice of command read that from
+`named_holding`, one answer.
+
+**The real task on the fix.** The first run finished with no question (8 stages, 152 s, $1.02; manifest
+`c3c6d45615074aec2767b4ce43fb03a91c84ddd259bf71ea4cc17cfa469b3eb5`), and the proof put the new example on the
+original code (`test-parts/receipt.json`). Its first plan was still refused once, for a guard: "AC3 `python
+-m doctest textutil.py` names no existing test file", and its Planner repaired the report. The guard check
+read the path rule, not the file's examples. That is the same cause, so the guard reads `named_holding` now
+too.
+
+The same task on the final change: the first plan, guard included, was accepted, the guard ran on the
+original code and with the change, the new example failed on the original code and passed with the fix, and
+the run finished with no question (9 stages, 141 s, $0.95; manifest
+`3d2446e74b7622f006a66215a6923a635ad090b5c539bee8128d2a6bfafa9276`). Its one repair was the Tester's
+report, which cited `textutil.py` as evidence for "only textutil.py changed" instead of a listed check; the
+Resolver sent it to a report repair, which was accepted. That gate is unrelated to this change.
+
+**Still open.**
+
+- A Rust doc example on a function the change adds cannot be put on the original code (the example would not
+  build there); such a proof finds no test rather than passing.
+- An edit that puts test lines and code on one line (`def f(): ">>> f()"; return 1`) is not split; the proof
+  finds no test.
+- A docstring example is the change's test only when no test file changed, since a project with test files
+  may not run its doctests. A Rust doc example always is, since `cargo test` runs them.
+- Other languages with tests in the code file (Elixir doctests, D unittest blocks) are not read: no toolchain
+  here to check them with.
 
 ## Also seen, not yet run on real models
 

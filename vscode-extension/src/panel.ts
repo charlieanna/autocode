@@ -806,6 +806,17 @@ function trim(text: string, max: number): string {
  * (24×24, stroke currentColor). The webview CSP loads no fonts or images, so
  * inline markup is the only icon path; codicon names exist only in host UI.
  */
+/** Both detail surfaces use the same section layout and hierarchy. */
+const DETAIL_STYLES = `
+  .detail-section { margin: 4px 0 8px; }
+  .detail-head { display: flex; gap: 8px; align-items: baseline; }
+  .detail-title { font-weight: 600; text-transform: uppercase; letter-spacing: .05em; opacity: .75; font-size: .68rem; }
+  .detail-summary { opacity: .85; }
+  .detail-line { overflow-wrap: anywhere; padding: 1px 0; }
+  .detail-line.sub { padding-left: 12px; opacity: .8; }
+  .detail-line.sub2 { padding-left: 24px; }
+`;
+
 /** The chat's stage rows, cost line, welcome and closing card. Colors come from the VS Code theme. */
 const METER_STYLES = `
   .chat-toolbar { flex-wrap: nowrap; }
@@ -930,13 +941,6 @@ const METER_STYLES = `
   #header-place:empty { display: none; }
   #header-links { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-top: 2px; }
   #header-details { max-height: 35vh; overflow-y: auto; margin-top: 4px; border-top: 1px solid var(--vscode-panel-border); padding-top: 4px; }
-  .detail-section { margin: 4px 0 8px; }
-  .detail-head { display: flex; gap: 8px; align-items: baseline; }
-  .detail-title { font-weight: 600; text-transform: uppercase; letter-spacing: .05em; opacity: .75; font-size: .68rem; }
-  .detail-summary { opacity: .85; }
-  .detail-line { overflow-wrap: anywhere; padding: 1px 0; }
-  .detail-line.sub { padding-left: 12px; opacity: .8; }
-  .detail-line.sub2 { padding-left: 24px; }
 `;
 
 /**
@@ -1058,6 +1062,7 @@ export function panelHtml(chat = false): string {
     #composer .run-control { transition: none; }
     #composer .run-control.busy svg { animation: none; }
   }` : ""}
+  ${DETAIL_STYLES}
   ${chat ? METER_STYLES : ""}
 </style>
 </head>
@@ -1507,7 +1512,12 @@ function renderHeader(data) {
   details.hidden = !headerOpen;
   details.textContent = '';
   if (!headerOpen) return;
-  header.sections.forEach((section) => {
+  renderDetailSections(details, header.sections);
+}
+
+/** Both detail views render the same public evidence sections, including retained failures. */
+function renderDetailSections(host, sections) {
+  sections.forEach((section) => {
     const box = el('div', 'detail-section');
     box.dataset.section = section.id;
     const head = el('div', 'detail-head');
@@ -1519,7 +1529,7 @@ function renderHeader(data) {
       const depth = line.startsWith('    ') ? 2 : line.startsWith('  ') ? 1 : 0;
       box.appendChild(el('div', 'detail-line' + (depth ? ' sub' : '') + (depth === 2 ? ' sub2' : ''), line.slice(depth * 2)));
     });
-    details.appendChild(box);
+    host.appendChild(box);
   });
 }
 
@@ -1919,12 +1929,13 @@ function render(state) {
     state.workflow ? state.workflow + ' workflow' : null,
     state.turn ? 'turn ' + state.turn : null,
     state.iteration ? 'iteration ' + state.iteration : null,
-    state.nextStage ? 'next: ' + state.nextStage : null,
-    state.pause ? 'pause: ' + state.pause : null,
+    state.nextStage && !state.stopped && !state.done ? 'next: ' + state.nextStage : null,
+    state.pause && !state.stopped ? 'pause: ' + state.pause : null,
     state.usage,
   ].filter(Boolean);
   app.appendChild(el('div', 'meta', meta.join('  ·  ')));
   if (state.stopped) renderStopped(state.stopped);
+  if (state.header) renderDetailSections(app, state.header.sections);
 
   if (state.task) {
     app.appendChild(el('h2', null, 'Request'));

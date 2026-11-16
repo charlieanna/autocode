@@ -22,7 +22,6 @@ try:
     from . import autocode_builder_policy as builder_policy
     from . import autocode_internal_failure_view as operational_block
     from . import autocode_member_stop as member_stop
-    from . import autocode_operational_hold as operational_hold
     from . import autocode_provider_auth as provider_auth
     from . import autocode_quota_route as quota_route
     from . import autocode_run_messages as run_messages
@@ -33,7 +32,6 @@ except ImportError:
     import autocode_builder_policy as builder_policy
     import autocode_internal_failure_view as operational_block
     import autocode_member_stop as member_stop
-    import autocode_operational_hold as operational_hold
     import autocode_provider_auth as provider_auth
     import autocode_quota_route as quota_route
     import autocode_run_messages as run_messages
@@ -511,7 +509,7 @@ def project(state: RunState, need=None):
         "category": "stopped" if terminal else "request" if decision else "recovery",
         "what_happened": f"{ended.get('reason')} This conversation will launch no more stages."
         if ended is not None
-        else "The current step finished and saved. This conversation will launch no more stages."
+        else "This conversation was stopped. It will launch no more stages."
         if terminal
         else (
             _auth_stop(state)
@@ -550,9 +548,7 @@ def project(state: RunState, need=None):
             )
         )
         return result
-    if (failure := (operational_hold.presentation(state) or operational_block.presentation(state))) and failure[
-        "category"
-    ] == "blocked":
+    if (failure := operational_block.presentation(state, include_hold=True)) and failure["category"] == "blocked":
         result.update(failure)
         return result
     if fresh_run:

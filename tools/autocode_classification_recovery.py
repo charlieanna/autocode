@@ -21,12 +21,14 @@ try:
     from . import autocode_builder_policy as policy
     from . import autocode_investigation_policy as investigation_policy
     from . import autocode_report_repair_queue as repair_queue
+    from . import autocode_report_repair_route as report_repair_route
     from . import autocode_util as util
 except ImportError:
     import autocode_builder_failure as failure
     import autocode_builder_policy as policy
     import autocode_investigation_policy as investigation_policy
     import autocode_report_repair_queue as repair_queue
+    import autocode_report_repair_route as report_repair_route
     import autocode_util as util
 
 ACTION = "--resume-paused --retry-failed-stage --job-retry-token TOKEN"
@@ -138,9 +140,10 @@ def _repair_continuation(state: RunState, context):
 
 def configuration(state: RunState):
     settings = copy.deepcopy(state.get("settings") or {})
-    # prepare_stuck derives this temporary role from the bound source roles and
-    # Investigator settings; abandon removes it. It is not a user route change.
-    (settings.get("roles") or {}).pop("stuck_investigator", None)
+    # prepare_stuck / prepare_resolve_repair derive temporary roles from bound
+    # source roles; abandon removes them. They are not user route changes.
+    for temp_route in report_repair_route.TEMPORARY_ROUTES.values():
+        report_repair_route.release_settings(settings, temp_route)
     # The run-wide bounds and the accepted transport identity are checked at every stage boundary,
     # not by the grant: raising the bound or accepting the transport change that stopped a queued
     # classification is what lets it launch (#1949). Its roles and every other setting still bind.

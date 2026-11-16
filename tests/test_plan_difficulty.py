@@ -131,6 +131,111 @@ class DecideTests(unittest.TestCase):
         self.assertIsNone(decide(hard, "builder", "builder"))
         self.assertIsNone(decide(hard, "review_plan", "planner"), "the stage's own route only")
 
+    def test_pinned_workflow_and_multi_round_questions_preserve_vague_request_difficulty(self):
+        import autocode_requirements_handoff as handoff
+        import autocode_workflows as workflows
+
+        def base_state():
+            state = run_state()
+            state.pop("goal_contract", None)
+            state.update(
+                version=3,
+                task_id="difficulty-clarity",
+                task="Make the shop refund handling better.",
+                workspace="/fixture",
+                status="RUNNING",
+                phase="DISCOVERING",
+                answers={},
+                user_events=[],
+                requirements_history=[],
+            )
+            state["settings"]["adaptive_planning"] = True
+            state["settings"]["joint_planning"] = True
+            state["settings"]["roles"]["requirements"] = {"model": MIMO, "reasoning_effort": "high"}
+            workflows.begin_requirements(state)
+            return state
+
+        def req_report(*, clarity="clear", questions=()):
+            return {
+                "summary": "Refund requirements",
+                "intended_outcome": "Support shop refunds" if not questions else "",
+                "requirements": [
+                    {"id": "R1", "text": "Support refunds", "source_quote": "Make the shop refund handling better."}
+                ],
+                "required_behaviors": ["Accept full refunds"] if not questions else [],
+                "constraints": [],
+                "acceptance_tests": ["Refund returns 200"] if not questions else [],
+                "source_refs": ["task"],
+                "proposed_assumptions": [],
+                "open_questions": list(questions),
+                "ignored_statements": [],
+                "conflicts": [],
+                "proposed_reframes": [],
+                "job": "build",
+                "clarity": clarity,
+            }
+
+        # 1. --workflow build pinned on CLI still seals initial vague clarity for draft_plan and review_plan.
+        pinned = base_state()
+        workflows.pin(pinned, "build")
+        handoff.accept(
+            pinned,
+            req_report(clarity="vague"),
+            {"output": "/fixture/req-1.json"},
+            check_code_refs=mock.Mock(),
+            queue=mock.Mock(),
+        )
+        self.assertEqual("vague", pinned["workflow"].get("clarity"))
+        pinned["goal_contract"] = {"body": body()}
+        self.assertEqual(("xhigh", True, "hard_plan", ["vague_request"]), key(decide(pinned, "draft_plan", "planner")))
+        self.assertEqual(
+            ("max", True, "hard_plan", ["vague_request"]), key(decide(pinned, "review_plan", "plan_reviewer"))
+        )
+
+        # 2. Multi-round Q&A: Round 1 open_questions seal "vague" even when Round 2 sees an answered spec.
+        multi = base_state()
+        question = {
+            "id": "Q1",
+            "question": "Should partial refunds be supported?",
+            "why": "The request leaves refund scope open.",
+            "options": ["Full refunds only", "Partial and full refunds"],
+            "proposed_default": "Full refunds only",
+            "kind": "decision",
+            "category": "outcome_scope",
+            "delegable": True,
+        }
+        handoff.accept(
+            multi,
+            req_report(clarity="clear", questions=[question]),
+            {"output": "/fixture/req-r1.json"},
+            check_code_refs=mock.Mock(),
+            queue=mock.Mock(),
+        )
+        multi["answers"]["Q1"] = {"kind": "answer", "text": "Full refunds only", "question": question}
+        multi["pending_questions"] = []
+        handoff.accept(
+            multi,
+            {
+                **req_report(clarity="clear", questions=()),
+                "requirements": [
+                    {"id": "R1", "text": "Support refunds", "source_quote": "Make the shop refund handling better."},
+                    {"id": "R2", "text": "Full refunds only", "source_quote": "Full refunds only"},
+                ],
+                "source_refs": ["task", "Q1"],
+            },
+            {"output": "/fixture/req-r2.json"},
+            check_code_refs=mock.Mock(),
+            queue=mock.Mock(),
+        )
+        self.assertEqual("vague", multi["workflow"].get("clarity"))
+        multi["goal_contract"] = {"body": body()}
+        self.assertEqual(("xhigh", True, "hard_plan", ["vague_request"]), key(decide(multi, "draft_plan", "planner")))
+
+        # 3. Saved-run compatibility: an older state.json without workflow.clarity keeps its saved level cleanly.
+        legacy = run_state()
+        legacy["workflow"].pop("clarity", None)
+        self.assertIsNone(decide(legacy, "draft_plan", "planner"))
+
 
 class ListingTests(unittest.TestCase):
     LISTING = {

@@ -99,6 +99,7 @@ try:
     from . import autocode_status as status
     from . import autocode_test_cases as test_cases
     from . import autocode_test_homes as test_homes
+    from . import autocode_test_parts as test_parts
     from . import autocode_test_role_inventory as role_inventory
     from . import autocode_unloadable_tests as unloadable_tests
     from . import autocode_util as util
@@ -142,6 +143,7 @@ except ImportError:
     import autocode_status as status
     import autocode_test_cases as test_cases
     import autocode_test_homes as test_homes
+    import autocode_test_parts as test_parts
     import autocode_test_role_inventory as role_inventory
     import autocode_unloadable_tests as unloadable_tests
     import autocode_util as util
@@ -385,6 +387,10 @@ def _plan_command(state: RunState, workspace, run_dir, base, *, all_due=False):
     is_test = role_inventory.test_rule(entries)
     original = [path for path in entries if is_test(path)]
     changed = {path: status for path, status in changes.items() if status != "deleted" and is_test(path)}
+    # Files that hold tests inside them (a doctest, a doc example) are tests of a command that names them.
+    holders = [path for path in entries if not is_test(path)]
+    original += test_parts.original_named(workspace, base, plan_roles.candidates(contract, workspace), holders)
+    changed.update({path: changes[path] for path in test_parts.changed_holding(workspace, base, changes)})
     tests = {"original_tests": original, "changed_tests": list(changed)}
     try:
         from . import autocode_replay_checks as recorded_checks
@@ -1391,7 +1397,14 @@ def _proving(
         # A detected whole suite that cannot finish on the original code falls back to the tests nearest
         # the change, chosen here and recorded, never asked of a person; an explicit command is kept.
         focus = (
-            focused_suite.choose_from_git(framework, workspace, base, changes, roles)
+            focused_suite.choose_from_git(
+                framework,
+                workspace,
+                base,
+                changes,
+                roles,
+                goal_contract=state.get("goal_contract"),
+            )
             if suite and not options.get("test_command")
             else None
         )
@@ -1440,6 +1453,7 @@ def _proving(
             suite = fallback["command"]
         elif focus and focused_suite.unusable(base_suite):
             whole, whole_record = base_suite, _kept_baseline(state, suite)
+            timed_out_focus = None
             focused = focused_suite.framework_for(framework, focus["command"])
             focused_base = _baseline(
                 state,
@@ -1454,11 +1468,34 @@ def _proving(
                 inputs,
                 settled_timeout=True,
             )
+            if (
+                focused_suite.timed_out(whole)
+                and focused_suite.timed_out(focused_base)
+                and (narrower := focus.get("narrower_tiers"))
+            ):
+                narrowest = narrower[-1]
+                if narrowest["command"] != focus["command"]:
+                    timed_out_focus = focus
+                    focus = narrowest
+                    focused = focused_suite.framework_for(framework, focus["command"])
+                    focused_base = _baseline(
+                        state,
+                        workspace,
+                        run_dir,
+                        base,
+                        focused,
+                        focus["command"],
+                        dependencies["dependencies_from"],
+                        base_patch,
+                        progress,
+                        inputs,
+                        settled_timeout=True,
+                    )
             # A whole suite that timed out is not run again. One that ran no passing test is replaced
             # only when the nearest tests do pass on the original code; otherwise it stays the
             # baseline, and a base on which nothing runs is judged as before (autocode_first_suite).
             if focused_suite.timed_out(whole) or focused_suite.usable(focused_base):
-                fallback = focused_suite.record(focus, whole, suite_timeout(state))
+                fallback = focused_suite.record(focus, whole, suite_timeout(state), timed_out_focus=timed_out_focus)
                 proving, suite, base_suite = focused, focus["command"], focused_base
             elif whole_record is not None:
                 # Keep what the nearest tests' own time limit settled, so they are not timed again.
@@ -1482,8 +1519,12 @@ def _proving(
         # A guard's command the plan's rules do not know may have been seen to run the project's tests.
         per_test = reporters.suite_reports(proving, workspace)
         guards_seen = plan_roles.runs_tests(state, state.get("goal_contract"))
+        # A guard that names a file of examples (``python -m doctest textutil.py``) runs existing tests.
+        guarded_tests = original_tests + test_parts.original_named(
+            workspace, base, [guard["command"] for guard in guards_due], [p for p in entries if p not in original_tests]
+        )
         guard_commands = command_guards.usable(
-            guards_due, proving, original_tests, per_test=per_test, observed=guards_seen
+            guards_due, proving, guarded_tests, per_test=per_test, observed=guards_seen
         )
         if (
             guard_commands
@@ -1635,7 +1676,7 @@ def _proving(
             suite_timeout(state),
         )
         if unseen := command_guards.unproven(
-            guards_due, proving, original_tests, per_test=per_test, observed=guards_seen
+            guards_due, proving, guarded_tests, per_test=per_test, observed=guards_seen
         ):
             proof["unverified"] = [*(proof.get("unverified") or []), *unseen]
             proof["verdict"] = companion_suites.verdict(

@@ -44,15 +44,31 @@ class EntryStage(unittest.TestCase):
         self.assertNotIn("requirements_skipped", state["workflow"])
 
     def test_requirements_judges_clarity_only_while_it_names_the_job(self):
-        """The recognizer's clarity judgment moves to Requirements in every adaptive run (#1846, #1860), so
-        #1564's reduced review depth still has it; a job already known is not judged again."""
+        """Requirements judges initial clarity once per turn in every adaptive run (#1846, #1860, #3651),
+        including --workflow pins, and never re-judges once sealed or after the turn's first pass."""
         schema = autoplanner.SCHEMAS["requirements_gather"]
-        state = {"settings": {"adaptive_planning": True}, "workflow": {"kind": None}}
-        self.assertTrue(adaptive.requirements_judge_clarity(state))
-        self.assertIn("clarity", autoplanner._model_report_schema(schema, state)["properties"])
-        self.assertIn('Add "clarity"', adaptive.prompt_rule(state, "requirements_gather"))
+        unpinned = {"settings": {"adaptive_planning": True}, "workflow": {"kind": None}}
+        pinned = {
+            "settings": {"adaptive_planning": True},
+            "workflow": {"kind": "build", "source": "user", "then": "draft_plan"},
+        }
+        for initial in (unpinned, pinned):
+            with self.subTest(initial=initial):
+                self.assertTrue(adaptive.requirements_judge_clarity(initial))
+                self.assertIn("clarity", autoplanner._model_report_schema(schema, initial)["properties"])
+                self.assertIn('Add "clarity"', adaptive.prompt_rule(initial, "requirements_gather"))
         for other in (
-            {**state, "workflow": {"kind": "build"}},
+            {**unpinned, "workflow": {"kind": None, "clarity": "vague"}},
+            {**pinned, "workflow": {**pinned["workflow"], "clarity": "clear"}},
+            {**unpinned, "workflow": {"kind": "build", "source": "model"}},
+            {**unpinned, "workflow": {"kind": "build", "source": "default"}},
+            {
+                **unpinned,
+                "requirements_handoff": {
+                    "output": "round1.json",
+                    "report": {"intended_outcome": "Greet", "open_questions": [{"id": "Q1", "question": "How?"}]},
+                },
+            },
             {"settings": {}, "workflow": {"kind": None}},
             {"settings": {"adaptive_planning": True}},
         ):
@@ -60,11 +76,191 @@ class EntryStage(unittest.TestCase):
                 self.assertFalse(adaptive.requirements_judge_clarity(other))
                 self.assertNotIn("clarity", autoplanner._model_report_schema(schema, other)["properties"])
                 self.assertIn("job", autoplanner._model_report_schema(schema, other)["properties"])
-        self.assertNotIn('Add "clarity"', adaptive.prompt_rule(state, "draft_plan"))
+        self.assertNotIn('Add "clarity"', adaptive.prompt_rule(unpinned, "draft_plan"))
         state = {"settings": {"adaptive_planning": True, "roles": {"requirements": {}}}, "workspace": "."}
         workflows.begin_requirements(state)
         workflows.from_requirements(state, {"job": "build", "clarity": "vague"})
         self.assertEqual("vague", state["workflow"]["clarity"])
+
+    def test_initial_clarity_seals_across_multi_round_questions_pinned_workflows_and_follow_ups(self):
+        import tempfile
+        from unittest import mock
+
+        import autocode_follow_up as follow_up
+        import autocode_requirements_chat as requirements_chat
+        import autocode_requirements_handoff as handoff
+
+        def fresh_state(task="Build it.", spec_first=False):
+            return {
+                "version": 3,
+                "task_id": "clarity-seal",
+                "task": task,
+                "workspace": root,
+                "status": "RUNNING",
+                "phase": "DISCOVERING",
+                "stages": [],
+                "answers": {},
+                "pending_questions": [],
+                "user_events": [],
+                "requirements_history": [],
+                "settings": {
+                    "joint_planning": True,
+                    "adaptive_planning": True,
+                    "spec_first": spec_first,
+                    "roles": {"requirements": {}, "planner": {}, "plan_reviewer": {}},
+                },
+            }
+
+        def base_report(state_row, **overrides):
+            quote = str(state_row.get("task") or "").splitlines()[0]
+            row = {
+                "summary": "Clarify or hand off.",
+                "intended_outcome": "Add greeting CLI",
+                "requirements": [{"id": "R1", "text": "Requested work", "source_quote": quote}] if quote else [],
+                "constraints": [],
+                "required_behaviors": ["Prints greeting"],
+                "acceptance_tests": ["greet Alice prints Hello, Alice"],
+                "source_refs": ["task"],
+                "proposed_assumptions": [],
+                "open_questions": [],
+                "ignored_statements": [],
+                "conflicts": [],
+                "proposed_reframes": [],
+                "job": "build",
+                "clarity": "clear",
+            }
+            row.update(overrides)
+            return row
+
+        with tempfile.TemporaryDirectory() as root:
+            # 1. --workflow pin still seals clarity and brief_size on Round 1.
+            pinned = fresh_state("Fix off-by-one in pager.")
+            workflows.begin_requirements(pinned)
+            workflows.pin(pinned, "bugfix")
+            self.assertTrue(adaptive.requirements_judge_clarity(pinned))
+            handoff.accept(
+                pinned,
+                base_report(pinned, job="bugfix", clarity="clear"),
+                {"output": f"{root}/pinned-r1.json"},
+                check_code_refs=mock.Mock(),
+                queue=mock.Mock(),
+            )
+            self.assertEqual(
+                ("bugfix", "user", "clear", "small"),
+                (
+                    pinned["workflow"]["kind"],
+                    pinned["workflow"]["source"],
+                    pinned["workflow"]["clarity"],
+                    pinned["workflow"]["brief_size"],
+                ),
+            )
+            self.assertFalse(adaptive.requirements_judge_clarity(pinned))
+
+            # 2. Round 1 person-facing open_questions seal "vague" even if report says "clear",
+            # and Round 2 cannot overwrite it back to "clear".
+            multi = fresh_state("Make the dashboard better.")
+            workflows.begin_requirements(multi)
+            q1 = {
+                "id": "Q1",
+                "question": "CLI table or JSON export?",
+                "why": "Selects output surface.",
+                "options": ["CLI table", "JSON export"],
+                "proposed_default": "CLI table",
+                "kind": "decision",
+                "category": "requested_outcome",
+                "delegable": False,
+            }
+            handoff.accept(
+                multi,
+                base_report(
+                    multi,
+                    intended_outcome="",
+                    required_behaviors=[],
+                    acceptance_tests=[],
+                    open_questions=[q1],
+                    clarity="clear",
+                ),
+                {"output": f"{root}/multi-r1.json"},
+                check_code_refs=mock.Mock(),
+                queue=mock.Mock(),
+            )
+            self.assertEqual("vague", multi["workflow"]["clarity"])
+            self.assertFalse(adaptive.requirements_judge_clarity(multi))
+            multi["pending_questions"] = [q1]
+            goals.answer(multi, "Q1", "CLI table")
+            handoff.accept(
+                multi,
+                base_report(multi, clarity="clear"),
+                {"output": f"{root}/multi-r2.json"},
+                check_code_refs=mock.Mock(),
+                queue=mock.Mock(),
+            )
+            self.assertEqual("vague", multi["workflow"]["clarity"])
+
+            # 3. A conversational "hi" opener does not seal clarity before the real request arrives.
+            greeting = fresh_state("hi", spec_first=True)
+            workflows.begin_requirements(greeting)
+            handoff.accept(
+                greeting,
+                base_report(
+                    greeting,
+                    assistant_reply="Hello! How can I help?",
+                    intended_outcome="",
+                    requirements=[],
+                    required_behaviors=[],
+                    acceptance_tests=[],
+                    open_questions=[],
+                    job=None,
+                    clarity="vague",
+                ),
+                {"output": f"{root}/hi.json"},
+                check_code_refs=mock.Mock(),
+                queue=mock.Mock(),
+            )
+            self.assertNotIn("clarity", greeting["workflow"])
+            self.assertTrue(adaptive.requirements_judge_clarity(greeting))
+            outcome_q = greeting["requirements_handoff"]["report"]["open_questions"][0]
+            greeting["pending_questions"] = [outcome_q]
+            goals.answer(greeting, outcome_q["id"], "Fix off-by-one in pager.")
+            self.assertTrue(requirements_chat.adopt_reply(greeting))
+            self.assertTrue(adaptive.requirements_judge_clarity(greeting))
+            handoff.accept(
+                greeting,
+                base_report(greeting, job="bugfix", clarity="clear"),
+                {"output": f"{root}/real.json"},
+                check_code_refs=mock.Mock(),
+                queue=mock.Mock(),
+            )
+            self.assertEqual("clear", greeting["workflow"]["clarity"])
+
+            # 4. --follow-up resets the seal so the new turn judges its own brief cleanly.
+            multi["status"] = "TASK_COMPLETE"
+            multi["completed_at"] = "2026-11-15T00:00:00Z"
+            follow_up.accept(multi, "Rename flag --foo to --bar.", root, "2026-11-15T00:01:00Z")
+            self.assertNotIn("clarity", multi["workflow"])
+            self.assertTrue(adaptive.requirements_judge_clarity(multi))
+            handoff.accept(
+                multi,
+                base_report(
+                    multi,
+                    clarity="clear",
+                    requirements=[
+                        {"id": "R1", "text": "Requested work", "source_quote": "Make the dashboard better."},
+                        {"id": "R2", "text": "Rename flag", "source_quote": "Rename flag --foo to --bar."},
+                    ],
+                ),
+                {"output": f"{root}/turn2-r1.json"},
+                check_code_refs=mock.Mock(),
+                queue=mock.Mock(),
+            )
+            self.assertEqual("clear", multi["workflow"]["clarity"])
+
+            # 5. Saved-run compatibility: pre-#3651 saved state without workflow.clarity reads cleanly.
+            legacy = fresh_state("Saved run")
+            legacy["workflow"] = {"kind": "build", "source": "user", "then": "draft_plan"}
+            legacy["requirements_handoff"] = {"output": f"{root}/legacy.json", "report": base_report(legacy)}
+            self.assertFalse(adaptive.requirements_judge_clarity(legacy))
+            self.assertIsNone(adaptive.view(legacy)["clarity"])
 
     def test_without_the_setting_no_clarity_is_saved(self):
         state = {"settings": {"roles": {"requirements": {}}}, "workspace": "."}

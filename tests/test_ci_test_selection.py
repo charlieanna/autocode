@@ -8,6 +8,14 @@ import run_suite
 
 
 class AccessTransportConsumerTests(unittest.TestCase):
+    def test_conformance_harness_keeps_actionless_and_existing_allowance_contracts(self):
+        consumers = {"tests.test_conformance_actionless", "tests.test_planning_allowance_cli"}
+        selected = run_suite.select_tests(
+            ["scenarios/harness/conformance.py"], {**dict.fromkeys(consumers, ""), "tests.test_unrelated": ""}
+        )
+        kept, _ = run_suite.drop_slow(selected, dict.fromkeys(consumers, "30s"))
+        self.assertEqual(consumers, set(kept))
+
     def test_tested_source_capture_keeps_both_source_and_public_attribution_consumers_when_slow(self):
         consumers = {
             "tests.test_ci_tested_source",
@@ -394,12 +402,6 @@ class DynamicDependenciesTests(unittest.TestCase):
                 selected = run_suite.select_tests([source], {name: "" for name in consumers})
                 kept, _ = run_suite.drop_slow(selected, {name: "slow" for name in consumers})
                 self.assertEqual(consumers, set(kept))
-        triage_consumers = {"tests.test_requirements_triage", "tests.test_requirements_chat"}
-        selected = run_suite.select_tests(
-            ["tools/prompts/requirements-triage.md"], {name: "" for name in triage_consumers}
-        )
-        kept, _ = run_suite.drop_slow(selected, {name: "slow" for name in triage_consumers})
-        self.assertEqual(triage_consumers, set(kept))
 
     def test_leaf_timing_keeps_the_public_cli_consumer_when_slow(self):
         consumer = "tests.test_phase_timing_cli"

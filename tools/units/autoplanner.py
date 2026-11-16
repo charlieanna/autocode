@@ -14,7 +14,6 @@ try:
     from .. import autocode_planning_time as planning_time
     from .. import autocode_prompts as prompts
     from .. import autocode_requirements_observations as requirements_observations
-    from .. import autocode_requirements_triage as requirements_triage
 except ImportError:
     import autocode_ambiguity_audit as ambiguity_audit
     import autocode_code_citations as code_citations
@@ -27,7 +26,6 @@ except ImportError:
     import autocode_planning_time as planning_time
     import autocode_prompts as prompts
     import autocode_requirements_observations as requirements_observations
-    import autocode_requirements_triage as requirements_triage
 
 
 import copy
@@ -740,7 +738,7 @@ SCHEMAS["requirements_gather"]["properties"]["task_kind"] = goals.TASK_KIND
 # Work that belongs to another repository, validated on acceptance (autocode_workspace_scope, #2066).
 SCHEMAS["requirements_gather"]["properties"]["workspace_scope"] = workspace_scope.SCHEMA
 # Where each dimension of the change's behavior comes from (autocode_ambiguity_audit): optional for
-# saved reports and the triage pass, required on the wire, checked against its refs on acceptance.
+# saved reports, required on the wire, checked against its refs on acceptance.
 SCHEMAS["requirements_gather"]["properties"][ambiguity_audit.FIELD] = ambiguity_audit.SCHEMA
 for _stage in planning_scope.STAGES:
     SCHEMAS[_stage]["properties"]["workspace_scope"] = workspace_scope.SCHEMA
@@ -1332,6 +1330,7 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
         for grant in exchange.get("recovery_review_grants", [])
         if not grant.get("consumed") and grant.get("binding", {}).get("stage") == stage
     ]
+    current_source = None
     if stage in ("review_plan", "finalize_plan") and (report_recovery or packet["recovery_context"]):
         current_source = stage_context.source_scope.snapshot(Path(state["workspace"]), state)
         retained = recovery_observations.context(state, stage, Path(state_path).parent, current_source["revision"])
@@ -1344,6 +1343,27 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
         if prior_examples:
             packet["prior_review_examples"] = prior_examples
             exchange["reports"]["review_plan"]["report"].pop("summary", None)
+    if (
+        not report_recovery
+        and packet.get("recovery_context")
+        and not (packet.get("recovery_context") or {}).get("report_only")
+        and any(
+            isinstance(r, dict)
+            and r.get("stage") == stage
+            and not r.get("runner_owned")
+            and not r.get("report_only")
+            and (r.get("timed_out") or r.get("abandoned") or r.get("rejected") or r.get("exit_code") not in (0, None))
+            for r in state.get("stages") or ()
+        )
+    ):
+        try:
+            from .. import autocode_stall_recovery as stall_recovery
+        except ImportError:
+            import autocode_stall_recovery as stall_recovery
+        if stall_recovery.carries_executed_work(stage, stage):
+            current_source = current_source or stage_context.source_scope.snapshot(Path(state["workspace"]), state)
+            if retained_work := stall_recovery.pending(state, stage, current_source["revision"]):
+                packet["retained_executed_work"] = retained_work
     if report_recovery:
         try:
             from ..autocode_resolver_runtime import OPERATIONAL_INSTRUCTION
@@ -1762,26 +1782,6 @@ def prepare(state: RunState, stage, state_path, schema_dir):
         raise ValueError(f"Autoplanner cannot run {stage}")
     joint = is_planning(state, stage)
     state["phase"] = "PLANNING" if joint else "DISCOVERING"
-    if joint and stage == requirements_triage.STAGE and requirements_triage.due(state):
-        # The triage pass (#2940): a small prompt and schema at the floor effort level, so the
-        # first blocking question reaches the person before the full Requirements report runs.
-        prompt = requirements_triage.prompt(
-            state,
-            workspace_inventory(state["workspace"], state["task"]),
-            engine_for(state["settings"], route_for(state, stage)),
-        )
-        role = role_for(state, stage)
-        return ModelRequest(
-            role,
-            route_for(state, stage, role),
-            prompt,
-            {
-                **prompt_layout.refresh_metrics(prompt),
-                "soft_budget_tokens": state["settings"].get("context_soft_tokens", 10000),
-            },
-            requirements_triage.request_schema(_requirements_model_schema(state)),
-            False,
-        )
     schema = _requirements_model_schema(state) if joint and stage == "requirements_gather" else None
     try:
         if joint and stage == "requirements_gather":

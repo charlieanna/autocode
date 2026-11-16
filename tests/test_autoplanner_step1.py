@@ -716,5 +716,128 @@ class RejectAssumptionTests(unittest.TestCase):
             goals.reject_assumption(current, "A1", shown(current))
 
 
+class UnifiedFirstPassRequirementsTests(unittest.TestCase):
+    """#3652: headless --no-chat and interactive --spec-first share one citation-verified first pass."""
+
+    LARGE_BRIEF = "Build a greeting CLI. " + "Keep the supplied behavior and exit codes exact. " * 30
+
+    def _first_pass_state(self, workspace: Path, *, spec_first: bool, triage_flag: bool | None = None):
+        import types
+
+        import autocode_configure as configure
+
+        args = types.SimpleNamespace(
+            auto_select=None,
+            spec_first=spec_first,
+            requirements_triage=triage_flag,
+        )
+        settings = {
+            "joint_planning": True,
+            "roles": {
+                "requirements": {"engine": "codex", "model": "gpt-6-astra", "reasoning_effort": "medium"},
+            },
+            "declared_variants": {"gpt-6-astra": ["low", "medium", "high"]},
+        }
+        configure._new_run_policy_settings(settings, args, True, False, task=self.LARGE_BRIEF)
+        return {
+            "version": 3,
+            "task_id": "unified-pass-1",
+            "task": self.LARGE_BRIEF,
+            "workspace": str(workspace),
+            "run_dir": str(workspace),
+            "settings": settings,
+            "stages": [],
+            "answers": {},
+            "user_events": [],
+        }
+
+    def test_headless_and_spec_first_share_the_full_first_pass_requirements_contract(self):
+        import autocode_review_effort as review_effort
+        import autopilot
+        from autocode_util import model_output_schema
+        from units import autoplanner
+
+        with tempfile.TemporaryDirectory() as raw:
+            ws = Path(raw).resolve()
+            (ws / "greet.py").write_text("print('hi')\n")
+            spec_state = self._first_pass_state(ws, spec_first=True)
+            spec_req = autoplanner.prepare(
+                copy.deepcopy(spec_state), "requirements_gather", ws / "state.json", ws / "schemas"
+            )
+            spec_without_chat_reply = copy.deepcopy(spec_req.schema)
+            spec_without_chat_reply["properties"].pop("assistant_reply", None)
+            if "required" in spec_without_chat_reply:
+                spec_without_chat_reply["required"] = [
+                    k for k in spec_without_chat_reply["required"] if k != "assistant_reply"
+                ]
+            for triage_flag in (None, True, False):
+                with self.subTest(triage_flag=triage_flag):
+                    headless = self._first_pass_state(ws, spec_first=False, triage_flag=triage_flag)
+                    self.assertFalse(headless["settings"]["requirements_triage"])
+                    req = autoplanner.prepare(
+                        copy.deepcopy(headless), "requirements_gather", ws / "state.json", ws / "schemas"
+                    )
+                    self.assertNotIn("ready", req.schema["properties"])
+                    self.assertEqual(spec_without_chat_reply, req.schema)
+                    wire = model_output_schema(req.schema)
+                    for field in (
+                        "ambiguity_audit",
+                        "source_refs",
+                        "proposed_assumptions",
+                        "project_conventions",
+                        "requirements",
+                        "required_behaviors",
+                        "acceptance_tests",
+                    ):
+                        self.assertIn(field, wire["required"])
+                    self.assertTrue(
+                        {"convention_ref", "rationale"}
+                        <= set(wire["properties"]["proposed_assumptions"]["items"]["required"])
+                    )
+                    self.assertNotIn("Do not\ninspect repository files for this pass", req.prompt)
+                    level, choice = review_effort.launch(
+                        headless,
+                        "requirements_gather",
+                        "requirements",
+                        False,
+                        headless["settings"]["roles"]["requirements"],
+                    )
+                    self.assertEqual("medium", level)
+                    self.assertIsNone(choice)
+                    with self.assertRaises(ValueError):
+                        autopilot.apply_planning(
+                            copy.deepcopy(headless),
+                            "requirements_gather",
+                            {"summary": "Triage", "intended_outcome": "Greet", "ready": True, "open_questions": []},
+                            {"output": str(ws / "requirements.json")},
+                        )
+
+    def test_compatibility_flags_never_refuse_start_or_resume(self):
+        import types
+
+        import autocode_configure as configure
+        import autocode_requirements_triage as triage
+
+        for requested in (None, True, False):
+            for joint in (True, False):
+                for v2 in (True, False):
+                    with self.subTest(requested=requested, joint=joint, v2=v2):
+                        self.assertFalse(triage.new_run_setting(requested, joint, v2, task=self.LARGE_BRIEF))
+            for saved in ({}, {"requirements_triage": True}, {"requirements_triage": False}):
+                with self.subTest(saved=saved, requested=requested):
+                    self.assertFalse(triage.resume_refused(saved, requested))
+                    args = types.SimpleNamespace(
+                        auto_select=None,
+                        builder_strong_model=None,
+                        adaptive_planning=None,
+                        compact_bugfix_planning=None,
+                        skip_requirements=False,
+                        skip_to_build=False,
+                        spec_first=None,
+                        requirements_triage=requested,
+                    )
+                    configure._refuse_new_run_flags(args, {"settings": dict(saved)}, started=True, single_model=None)
+
+
 if __name__ == "__main__":
     unittest.main()

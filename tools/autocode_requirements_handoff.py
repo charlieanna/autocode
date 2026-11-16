@@ -40,6 +40,7 @@ try:
     from . import autocode_source_log as source_log
     from . import autocode_technical_questions as technical_questions
     from . import autocode_util as util
+    from . import autocode_workflows as workflows
     from . import autocode_workspace_scope as workspace_scope
 except ImportError:
     import autocode_coordination_context as coordination_context
@@ -56,6 +57,7 @@ except ImportError:
     import autocode_source_log as source_log
     import autocode_technical_questions as technical_questions
     import autocode_util as util
+    import autocode_workflows as workflows
     import autocode_workspace_scope as workspace_scope
 
 
@@ -94,7 +96,10 @@ def _bind_assumed_answers(state: RunState, value: dict, record: dict) -> None:
         adoption = state.get("requirements_overlap") or {}
         if adoption.get("status") == "adopting" and adoption.get("record_output") == record.get("output"):
             bound = value["assumed_answers_digest"] = adoption.get("assumed_answers_digest")
-    if bound is not None and bound != requirements_overlap.answers_digest(state.get("answers") or {}):
+    prior_questions = (requirements_review.current_turn_handoff(state).get("report") or {}).get("open_questions")
+    if bound is not None and bound != requirements_overlap.answers_digest(
+        state.get("answers") or {}, questions=prior_questions
+    ):
         raise ValueError("A background Requirements report binds answers that differ from the person's actual answers")
 
 
@@ -201,9 +206,16 @@ def _accept(state: RunState, value: dict, record: dict, *, check_code_refs, queu
     project_memory.capture(state, value)
     requirements_review.delegate_assumptions(state)
     remaining = technical_questions.settle(state, questions, "requirements:" + goals.handoff_ref(state))
+    person_questions = [row for row in remaining if not requirements_chat.holds_chat_open(row)]
+    if person_questions:
+        workflows.seal_clarity(state, value, open_questions=person_questions)
     if len(remaining) != len(questions):
+        if not person_questions:
+            workflows.seal_clarity(state, value)
         run_status.running(state, "DISCOVERING", next_stage="requirements_gather", discovery_summary=value["summary"])
         return
+    if not remaining:
+        workflows.seal_clarity(state, value)
     run_status.running(state, "PLANNING", next_stage="draft_plan", discovery_summary=value["summary"])
     if not questions and requirements_review.job(state, value) == "bugfix" and source_catalog.context(state):
         # Plain chat has no pinned workflow. Recognize the validated bug before

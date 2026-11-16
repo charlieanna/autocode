@@ -42,9 +42,13 @@ def decide(state, stage, role, configured="high", report_only=False):
 
 
 def triage_state():
-    """A fresh joint default-flow run whose first Requirements pass is the triage pass (#2940)."""
+    """A replayed legacy joint default-flow run whose first Requirements pass was recorded as triage (#2940, #3652)."""
     state = run_state()
-    state["settings"].update(requirements_triage=True, joint_planning=True)
+    state["settings"].update(
+        requirements_triage=True,
+        joint_planning=True,
+        replay_recording={"path": "recording.json"},
+    )
     state["settings"]["roles"]["requirements"] = {"model": MIMO, "reasoning_effort": "high"}
     return state
 
@@ -129,6 +133,99 @@ class DecideTests(unittest.TestCase):
         state["workflow"]["brief_size"] = "medium"
         self.assertEqual("not_small_clear", decide(state, "review_completion", "completion")["reason"])
 
+    def test_pinned_bugfix_and_multi_round_clarification_govern_small_clear_reviews(self):
+        import autocode_requirements_handoff as handoff
+        import autocode_workflows as workflows
+
+        def fresh_state(task="Fix off-by-one in slugify.py when input is empty."):
+            state = run_state(
+                version=3,
+                task_id="review-clarity",
+                task=task,
+                workspace="/fixture",
+                status="RUNNING",
+                phase="DISCOVERING",
+                answers={},
+                user_events=[],
+                requirements_history=[],
+            )
+            state["settings"]["adaptive_planning"] = True
+            state["settings"]["joint_planning"] = True
+            state["settings"]["roles"]["requirements"] = {"model": MIMO, "reasoning_effort": "high"}
+            workflows.begin_requirements(state)
+            return state
+
+        def report(*, clarity="clear", questions=(), task="Fix off-by-one in slugify.py when input is empty."):
+            return {
+                "summary": "Slugify fix requirements",
+                "intended_outcome": "Return empty string for empty input" if not questions else "",
+                "requirements": [{"id": "R1", "text": task, "source_quote": task}],
+                "required_behaviors": ["slugify('') returns ''"] if not questions else [],
+                "constraints": [],
+                "acceptance_tests": ["slugify('') == ''"] if not questions else [],
+                "source_refs": ["task"],
+                "proposed_assumptions": [],
+                "open_questions": list(questions),
+                "ignored_statements": [],
+                "conflicts": [],
+                "proposed_reframes": [],
+                "job": "bugfix",
+                "clarity": clarity,
+            }
+
+        # 1. --workflow bugfix pinned on CLI still judges & seals clarity="clear" and brief_size="small".
+        pinned = fresh_state()
+        workflows.pin(pinned, "bugfix")
+        handoff.accept(
+            pinned,
+            report(clarity="clear"),
+            {"output": "/fixture/req-1.json"},
+            check_code_refs=mock.Mock(),
+            queue=mock.Mock(),
+        )
+        choice = decide(pinned, "review_completion", "completion")
+        self.assertEqual(("medium", "high", True, "small_clear"), _key(choice))
+        self.assertEqual(("clear", "small", None), (choice["clarity"], choice["brief_size"], choice["plan_size"]))
+
+        # 2. Multi-round Q&A seals "vague" on Round 1 and keeps reviews at the saved ceiling after Round 2.
+        clarified = fresh_state("Fix slugify edge cases.")
+        question = {
+            "id": "Q1",
+            "question": "How should consecutive hyphens be handled?",
+            "why": "The request does not specify.",
+            "options": ["Collapse to one hyphen", "Preserve consecutive hyphens"],
+            "proposed_default": "Collapse to one hyphen",
+            "kind": "decision",
+            "category": "inputs_and_edge_cases",
+            "delegable": True,
+        }
+        handoff.accept(
+            clarified,
+            report(clarity="clear", questions=[question], task="Fix slugify edge cases."),
+            {"output": "/fixture/req-r1.json"},
+            check_code_refs=mock.Mock(),
+            queue=mock.Mock(),
+        )
+        clarified["answers"]["Q1"] = {"kind": "answer", "text": "Collapse to one hyphen", "question": question}
+        clarified["pending_questions"] = []
+        handoff.accept(
+            clarified,
+            report(clarity="clear", questions=(), task="Fix slugify edge cases."),
+            {"output": "/fixture/req-r2.json"},
+            check_code_refs=mock.Mock(),
+            queue=mock.Mock(),
+        )
+        kept = decide(clarified, "review_completion", "completion")
+        self.assertEqual(("high", "high", False, "not_small_clear"), _key(kept))
+        self.assertEqual("vague", kept["clarity"])
+
+        # 3. Saved-run compatibility: an older state.json without workflow.clarity keeps the ceiling safely.
+        legacy = run_state()
+        legacy["workflow"].pop("clarity", None)
+        self.assertEqual(
+            ("high", "high", False, "not_small_clear"), _key(decide(legacy, "review_completion", "completion"))
+        )
+
     def test_a_climbed_route_keeps_the_ceiling(self):
         state = run_state(reasoning_escalations=[{"role": "completion"}])
         self.assertEqual("climbed", decide(state, "review_completion", "completion")["reason"])
@@ -144,7 +241,7 @@ class DecideTests(unittest.TestCase):
 
 
 class LaunchTests(unittest.TestCase):
-    def test_launch_lowers_a_review_and_keeps_a_stage_choice_builder_at_its_level(self):
+    def test_launch_lowers_a_review_and_a_bounded_stage_choice_builder_under_their_ceilings(self):
         state = run_state()
         before = copy.deepcopy(state["settings"])
         route = state["settings"]["roles"]["completion"]
@@ -152,12 +249,14 @@ class LaunchTests(unittest.TestCase):
         self.assertEqual(("medium", True), (level, choice["lowered"]))
         self.assertEqual(before, state["settings"], "the saved ceiling is never rewritten")
         state.update(
-            goal_contract={"approval_status": "approved", "body": {"milestones": [{"id": "m1"}]}},
-            current_task={"id": "task-1", "affected_paths": ["slugify.py"]},
+            goal_contract={"approval_status": "approved", "body": {"milestones": [{"id": "m1"}, {"id": "m2"}]}},
+            current_task={"id": "task-1", "milestone_id": "m1", "affected_paths": ["slugify.py"]},
+        )
+        builder_level, builder_choice = review_effort.launch(
+            state, "builder", "builder", False, state["settings"]["roles"]["builder"]
         )
         self.assertEqual(
-            ("high", None),
-            review_effort.launch(state, "builder", "builder", False, state["settings"]["roles"]["builder"]),
+            ("medium", True, "bounded_task"), (builder_level, builder_choice["lowered"], builder_choice["reason"])
         )
 
     def test_launch_keeps_the_builders_light_first_attempt_for_a_runner_default(self):
@@ -393,6 +492,45 @@ class ListingTests(unittest.TestCase):
             configure._list_review_ceilings(unread, object(), "/fixture")
             discover.assert_called_once()
             self.assertEqual({}, unread["declared_variants"], "an unreadable listing saves nothing, never stops a run")
+
+    def test_claude_and_codex_stage_choices_record_declared_variants_without_discovery_calls(self):
+        import autocode_configure as configure
+        import providers.claude as claude_mod
+
+        claude_settings = {
+            "engine": "opencode",
+            "provider": "claude",
+            "roles": {
+                "builder": {"model": claude_mod.HAIKU, "reasoning_effort": "high"},
+                "tester": {"model": claude_mod.SONNET, "reasoning_effort": "high"},
+            },
+            "effort_origins": {"builder": "stage_choice", "tester": "stage_choice"},
+        }
+        codex_settings = {
+            "engine": "codex",
+            "roles": {
+                "builder": {"model": "gpt-5.6-terra", "reasoning_effort": "high"},
+                "tester": {"model": "gpt-5.6-sol", "reasoning_effort": "high"},
+                "completion": {"model": "gpt-6-astra", "reasoning_effort": "high"},
+            },
+            "effort_origins": {
+                "builder": "stage_choice",
+                "tester": "stage_choice",
+                "completion": "runner_default",
+            },
+        }
+        with mock.patch("autocode_route_discovery.discover", side_effect=RuntimeError("no subprocess")):
+            configure._list_review_ceilings(claude_settings, claude_mod, "/fixture")
+            configure._list_review_ceilings(codex_settings, object(), "/fixture")
+        full_scale = ["low", "medium", "high", "xhigh", "max"]
+        self.assertEqual(
+            {claude_mod.HAIKU: full_scale, claude_mod.SONNET: full_scale},
+            claude_settings["declared_variants"],
+        )
+        self.assertEqual(
+            {"gpt-5.6-terra": full_scale, "gpt-5.6-sol": full_scale},
+            codex_settings["declared_variants"],
+        )
 
 
 def _key(choice):

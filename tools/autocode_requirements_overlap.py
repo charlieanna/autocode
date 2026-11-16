@@ -21,10 +21,9 @@ what changes that, all of it over run state:
 - **The assumed-answers digest** binds a kept background report to the exact question ids and
   answer values its call assumed, so the Requirements handoff can refuse a report computed under
   different answers than the person actually gave.
-- **The adopt/discard comparison**: every typed answer equal to its offered default — compared
-  literally, at the chat input boundary, before whitespace stripping or offered-choice
-  canonicalization — keeps the background report; any difference discards it and the ordinary
-  pass runs with the real answers. ``/default`` selects the offered default exactly.
+- **The adopt/discard comparison**: every answer matching its offered default after canonicalization
+  through ``autocode_answer_options`` keeps the background report; any difference discards it and
+  the ordinary pass runs with the real answers. ``/default`` selects the offered default.
 - **Ownership**: the background call is one bounded call owned by the existing controller inside
   ``chat_checkpoint`` (autocode.py), never a second controller or cross-run layer (AGENTS.md rule
   5). Live cancellation and crash/resume disposal settle only a process whose recorded execution
@@ -57,12 +56,14 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_answer_options as answer_options
     from . import autocode_interventions as interventions
     from . import autocode_job_deadline as job_deadline
     from . import autocode_process as processes
     from . import autocode_requirements_review as requirements_review
     from . import autocode_util as util
 except ImportError:
+    import autocode_answer_options as answer_options
     import autocode_interventions as interventions
     import autocode_job_deadline as job_deadline
     import autocode_process as processes
@@ -82,6 +83,19 @@ TERMINATION_ALLOWANCE_SECONDS = 10.0
 SIGNAL_GRACE_SECONDS = 2.0
 
 
+def _canonical_answer(question, text) -> str:
+    """Canonicalize ``text`` against ``question``'s offered choices (or strip free-text whitespace)."""
+    raw = str("" if text is None else text).strip()
+    if isinstance(question, dict) and raw:
+        options_only = {"id": question.get("id", ""), "options": question.get("options") or []}
+        if answer_options.labels(options_only):
+            with contextlib.suppress(ValueError):
+                return str(answer_options.offered(options_only, raw))
+        with contextlib.suppress(ValueError):
+            return str(answer_options.offered(question, raw))
+    return raw
+
+
 def answer_texts(answers) -> dict:
     """``{question id: answer text}`` from the saved answers mapping (a row or a plain string)."""
     rows = {}
@@ -90,25 +104,33 @@ def answer_texts(answers) -> dict:
     return rows
 
 
-def answers_digest(answers) -> str:
-    """The digest of the exact question ids and answer values a pass assumed or received.
+def answers_digest(answers, questions=None) -> str:
+    """The digest of the canonical question ids and answer values a pass assumed or received.
 
     Order-independent, so a mapping's serialization order never changes the binding.
     """
-    return util.digest(sorted((question_id, str(text)) for question_id, text in answer_texts(answers).items()))
+    by_id = {str(row.get("id")): row for row in (questions or ()) if isinstance(row, dict) and row.get("id")}
+    pairs = []
+    for question_id, row in (answers or {}).items():
+        qid = str(question_id)
+        raw = row.get("text") if isinstance(row, dict) else row
+        question = by_id.get(qid) or (row.get("question") if isinstance(row, dict) else None)
+        pairs.append((qid, _canonical_answer(question, raw)))
+    return util.digest(sorted(pairs))
 
 
 def assumed_defaults(questions) -> dict:
-    """``{question id: offered default}`` for a pause whose every question offers a default."""
-    return {str(row["id"]): str(row.get("proposed_default")) for row in questions}
+    """``{question id: canonical offered default}`` for a pause whose every question offers a default."""
+    return {str(row["id"]): _canonical_answer(row, row.get("proposed_default")) for row in questions or ()}
 
 
 def answers_match(questions, answers) -> tuple[bool, str]:
-    """Whether every person answer equals its offered default exactly, and why not when it doesn't."""
+    """Whether every person answer matches its offered default after canonicalization, and why not when it doesn't."""
     given = answer_texts(answers)
     for row in questions or []:
-        if str(given.get(row.get("id"), "")) != str(row.get("proposed_default") or ""):
-            return False, str(row.get("id")) + " was answered differently from its offered default"
+        qid = str(row.get("id"))
+        if _canonical_answer(row, given.get(qid, "")) != _canonical_answer(row, row.get("proposed_default") or ""):
+            return False, qid + " was answered differently from its offered default"
     return True, "answers matched offered defaults"
 
 
@@ -323,11 +345,19 @@ class RequirementsOverlapPass:
         self.run_dir = Path(run_dir)
         self.state_path = self.run_dir / "state.json"
         self.questions = copy.deepcopy(list(questions))
+        prior_answers = state.get("answers") or {}
+        by_id = {str(row.get("id")): row for row in self.questions if isinstance(row, dict) and row.get("id")}
         self.assumed = {
-            **answer_texts(state.get("answers") or {}),
+            **{
+                str(qid): _canonical_answer(
+                    by_id.get(str(qid)) or (row.get("question") if isinstance(row, dict) else None),
+                    row.get("text") if isinstance(row, dict) else row,
+                )
+                for qid, row in prior_answers.items()
+            },
             **assumed_defaults(self.questions),
         }
-        self.digest = answers_digest(self.assumed)
+        self.digest = answers_digest(self.assumed, questions=self.questions)
         self.nonce = uuid.uuid4().hex
         self.workspace = Path(state["workspace"])
         self.candidate = {
@@ -336,7 +366,21 @@ class RequirementsOverlapPass:
             "phase": "DISCOVERING",
             "next_stage": "requirements_gather",
             "pending_questions": [],
-            "answers": {key: {"text": text} for key, text in self.assumed.items()},
+            "answers": {
+                key: {
+                    "text": text,
+                    **(
+                        {"question": by_id[key]}
+                        if key in by_id
+                        else (
+                            {"question": prior_answers[key]["question"]}
+                            if isinstance(prior_answers.get(key), dict) and "question" in prior_answers[key]
+                            else {}
+                        )
+                    ),
+                }
+                for key, text in self.assumed.items()
+            },
         }
         self.candidate.pop("active_stage", None)
         self.cancelled = threading.Event()

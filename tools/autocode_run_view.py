@@ -63,7 +63,6 @@ try:
     from . import autocode_liveness as liveness_policy
     from . import autocode_member_stop as member_stop
     from . import autocode_no_progress_recovery as no_progress_recovery
-    from . import autocode_operational_hold as operational_hold
     from . import autocode_operational_information as operational_information
     from . import autocode_output_policy as output_policy
     from . import autocode_package_scope as package_scope
@@ -133,7 +132,6 @@ except ImportError:
     import autocode_liveness as liveness_policy
     import autocode_member_stop as member_stop
     import autocode_no_progress_recovery as no_progress_recovery
-    import autocode_operational_hold as operational_hold
     import autocode_operational_information as operational_information
     import autocode_output_policy as output_policy
     import autocode_package_scope as package_scope
@@ -367,6 +365,7 @@ def view(
     plan = approved_contract(state)
     # Tokens and cost so far, by role (autocode_usage.summary), with the live accounting the cost reads.
     usage_summary = autocode_usage.summary(state)
+    recovery = recovery_view.project(state, need)
     result = {
         "replay_source": None if invalid_replay else replay_view.project(state, run_dir=run_dir),
         "replay_progress": replay_progress,
@@ -409,7 +408,7 @@ def view(
         "liveness": liveness_policy.classify(supervision, liveness),
         "done": status in COMPLETE and not simulated and not invalid_replay,
         "needs": need,
-        "recovery": recovery_view.project(state, need),
+        "recovery": recovery,
         # What went wrong and what AutoCode did about it, oldest first (autocode_recovery_history): rejected
         # answers, rewritten reports, Builder send-backs, Investigator and Resolver calls, as plain sentences.
         "recoveries": recovery_history.project(state),
@@ -431,7 +430,8 @@ def view(
             needs=need,
             held_cause=pause_authority.answered_cause(state),
             ready=(controller or {}).get("kind") == "ready",
-            internal_failure=(operational_hold.presentation(state) or operational_block.presentation(state)),
+            internal_failure=operational_block.presentation(state, include_hold=True),
+            recovery=recovery,
         ),
         "current_task": {key: task.get(key) for key in ("id", "objective", "milestone_id")} if task else None,
         # The kind of job named for the request (autocode_workflows.WORKFLOWS);

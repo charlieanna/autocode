@@ -33,11 +33,13 @@ KEY = "planning_calls"  # settings.limits
 FLAG = "--max-planning-calls"
 DEST = "max_planning_calls"
 DEFAULT = 20  # Planning calls of approved November 2026 runs: median 9, p95 19, max 25.
-# The person's own new input. Approvals, resumes, limit changes and the runner's own records are not.
+# The person's own new input (including an explicit question delegation, never unattended --skip-requirements).
+# Approvals, resumes, limit changes and the runner's own records are not.
 RENEWING_KINDS = frozenset(
-    {"answer", "factual_answer", "brief_feedback", "plan_message", "gate_message", "run_message"}
+    {"answer", "delegated", "factual_answer", "brief_feedback", "plan_message", "gate_message", "run_message"}
 )
 PEOPLE = frozenset({"user_cli", "user_intervention"})
+UNATTENDED_SOURCES = frozenset({"skip_requirements"})
 INVESTIGATOR = "investigate_stuck"
 RESOLVE_REPAIR = "resolve_repair"
 REPAIR_SUFFIX = "_report_repair"
@@ -75,7 +77,12 @@ def renewed_at(state: RunState) -> str | None:
     """When the person last gave new input, which starts the count again; None before any."""
     latest, text = None, None
     for event in _records(state, "user_events"):
-        if not isinstance(event, dict) or event.get("kind") not in RENEWING_KINDS or event.get("actor") not in PEOPLE:
+        if (
+            not isinstance(event, dict)
+            or event.get("kind") not in RENEWING_KINDS
+            or event.get("actor") not in PEOPLE
+            or event.get("source") in UNATTENDED_SOURCES
+        ):
             continue
         moment = _time(event.get("at"))
         if moment is not None and (latest is None or moment >= latest):

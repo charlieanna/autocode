@@ -574,7 +574,14 @@ READY = (
 
 
 def explain(
-    status: str, *, stop_reason: str = "", needs=None, held_cause: str = "", ready: bool = False, internal_failure=None
+    status: str,
+    *,
+    stop_reason: str = "",
+    needs=None,
+    held_cause: str = "",
+    ready: bool = False,
+    internal_failure=None,
+    recovery=None,
 ) -> dict:
     """Three short paragraphs for a person who did not watch the run (#715).
 
@@ -585,6 +592,17 @@ def explain(
     kind: a RUNNING checkpoint no controller runs, which the table's "in progress" words would have
     the person wait for (#2393).
     """
+    if recovery and recovery.get("category") == "stopped":
+        # The same recorded terminal presentation as the chat, never a status-name guess.
+        happened = recovery["what_happened"]
+        means = recovery["retained"]
+        does = "Nothing continues this run. Inspect its retained evidence; new work starts a new conversation."
+        return {
+            "what_happened": happened,
+            "what_it_means": means,
+            "what_the_command_does": does,
+            "explanation": " ".join((happened, means, does)),
+        }
     if internal_failure:
         happened = internal_failure["what_happened"]
         means = internal_failure.get("what_it_means") or (
