@@ -43,7 +43,10 @@ class PauseStatusCLITests(unittest.TestCase):
         }
         result = self.invoke(run, *flags)
         self.assertEqual(2, result.returncode, result.stdout + result.stderr)
-        self.assertIn("Next command: " + display(before["next_command"]), result.stderr)
+        if before["next_command"] is not None:
+            self.assertIn("Next command: " + display(before["next_command"]), result.stderr)
+        else:
+            self.assertNotIn("Next command:", result.stdout + result.stderr)
         # #2958: no token value in the needs projection reaches a stream, and the AutoResolver
         # one now has no assignment in the command at all to leak.
         for name, value in (before.get("needs") or {}).items():
@@ -93,7 +96,7 @@ class PauseStatusCLITests(unittest.TestCase):
         self.assert_refusal_retains_current_command(run, "--approve-goal", "r0:expired")
         self.assertFalse(run.status()["done"])
 
-    def test_wrong_transport_acceptance_keeps_abandoned_frontier_and_shows_plain_resume(self):
+    def test_wrong_transport_acceptance_keeps_abandoned_frontier_without_a_machinery_action(self):
         run = self.start()
         need = run.status()["needs"]
         run.answer(need["questions"][0]["id"], "CLI", resolver_token=need["resolver_token"])
@@ -105,8 +108,9 @@ class PauseStatusCLITests(unittest.TestCase):
         self.assertTrue(attempt)
         view = run.abandon_stage(attempt)
         self.assertEqual("PAUSED_STAGE_ABANDONED", view["status"])
-        self.assertIn("--resume-paused", view["next_command"])
-        self.assertNotIn("--accept-transport-change", view["next_command"])
+        self.assertIsNone(view["needs"])
+        self.assertIsNone(view["next_command"])
+        self.assertIsNone(view["chat"]["input"])
         self.assert_refusal_retains_current_command(run, "--resume-paused", "--accept-transport-change")
 
     def test_the_status_question_command_is_accepted_as_printed_without_bypassing_approval_or_printing_its_token(

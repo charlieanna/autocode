@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import autocode as runner
+import autocode_operational_disposition as disposition
 import autocode_stage_recovery as recovery
 import autocode_support as support
 
@@ -552,9 +553,11 @@ runpy.run_path(str(runtime), run_name='__main__')
     def test_cli_second_stopped_timeout_exhausts_bound_without_a_third_repair(self):
         run = self.start_fixture("all")
         view = self.assert_bound_attempts(run)
-        self.assertEqual("WAITING_FOR_USER", view["status"], view)
-        self.assertIn("allowance exhausted", view["stop_reason"])
-        self.assertEqual("answer", view["needs"]["kind"])
+        self.assertEqual("PAUSED_RESOLVER_OPERATIONAL", view["status"], view)
+        self.assertEqual(disposition.MESSAGE, view["stop_reason"])
+        self.assertIsNone(view["needs"])
+        self.assertIsNone(view["next_command"])
+        self.assertIsNone(view["chat"]["input"])
         attempts = view["usage"]["accounting"]["attempts"]
         self.assertEqual(2, sum(row["stage"] == "review_plan_report_repair" for row in attempts))
 
@@ -575,32 +578,26 @@ runpy.run_path(str(runtime), run_name='__main__')
         self.assertEqual(0, result.returncode, result.stderr)
         return json.loads(result.stdout)
 
-    def informed_planning_hold(self):
+    def stopped_planning_hold(self):
         run = self.start_fixture("all")
-        view = self.assert_bound_attempts(run)
-        self.assertEqual("WAITING_FOR_USER", view["status"])
-        need = view["needs"]
-        held = run.respond_operational(
-            need["resolver_request_id"],
-            need["resolver_token"],
-            "Inspected the stopped repair; preserve the saved route, limits and original evidence.",
-        )
+        held = self.assert_bound_attempts(run)
         self.assertEqual("PAUSED_RESOLVER_OPERATIONAL", held["status"], held["stop_reason"])
-        self.assertEqual("pending", held["information_review"]["status"])
-        action = next(row for row in held["recovery"]["actions"] if row["kind"] == "abandon")
-        # The planning hold retains an abandonment selector after its provider
-        # has stopped. Bind to that public selector, not to live accounting.
-        attempts = [row for row in held["usage"]["accounting"]["attempts"] if row["attempt_id"] == action["attempt_id"]]
+        self.assertIsNone(held["needs"])
+        self.assertIsNone(held["information_review"])
+        # The product offers no machinery question. The explicit operator CLI
+        # can still reconcile the exact stopped attempt named in public status.
+        active = self.public_body(run)["active_stage"]
+        attempts = [row for row in held["usage"]["accounting"]["attempts"] if row["events"] == active["events"]]
         self.assertEqual(1, len(attempts), held)
         attempt = attempts[0]
         self.assertFalse(attempt["active"])
         self.assertTrue(attempt["timed_out"])
         self.assertEqual("review_plan_report_repair", attempt["stage"])
-        self.assertEqual(["--abandon-stage", attempt["attempt_id"]], action["args"])
+        action = {"attempt_id": attempt["attempt_id"], "args": ["--abandon-stage", attempt["attempt_id"]]}
         return run, action
 
-    def test_cli_named_abandon_reconciles_answered_planning_hold_without_dispatch_or_refund(self):
-        run, action = self.informed_planning_hold()
+    def test_cli_explicit_abandon_reconciles_stopped_planning_hold_without_dispatch_or_refund(self):
+        run, action = self.stopped_planning_hold()
         before = self.public_body(run)
         active = before["active_stage"]
         events = Path(active["events"]).read_bytes()
@@ -612,9 +609,9 @@ runpy.run_path(str(runtime), run_name='__main__')
         view = after["view"]
         self.assertEqual("PAUSED_STAGE_ABANDONED", view["status"], view["stop_reason"])
         self.assertIsNone(after["active_stage"])
-        self.assertEqual("resume", view["needs"]["kind"])
-        resume = next(row for row in view["recovery"]["actions"] if row["kind"] == "resume")
-        self.assertEqual(["--resume-paused"], resume["args"])
+        self.assertIsNone(view["needs"])
+        self.assertIsNone(view["next_command"])
+        self.assertIsNone(view["chat"]["input"])
         self.assertEqual(before["settings"], after["settings"])
         self.assertEqual(before["view"]["planning_depth"], view["planning_depth"])
         self.assertEqual(observed, self.probe.read_bytes(), "Abandonment must not dispatch any provider")
@@ -630,17 +627,16 @@ runpy.run_path(str(runtime), run_name='__main__')
         self.assertFalse(archived["active"])
         self.assertTrue(archived["interrupted"])
         self.assertEqual(events, Path(archived["events"]).read_bytes())
-        self.assertNotIn("resolver_request_id", view["needs"])
         # The same selector is stale after successful abandonment: it cannot
         # rearchive evidence, resume work or manufacture a fresh attempt.
         stale = self.public_call(run, *action["args"])
         self.assertEqual(2, stale.returncode)
-        self.assertIn("must match the active attempt_id", stale.stdout + stale.stderr)
+        self.assertIn(disposition.MESSAGE, stale.stdout + stale.stderr)
         self.assertEqual(observed, self.probe.read_bytes())
         self.assertEqual("PAUSED_STAGE_ABANDONED", run.status()["status"])
 
     def test_cli_wrong_abandon_selector_keeps_planning_attempt_and_authority(self):
-        run, action = self.informed_planning_hold()
+        run, action = self.stopped_planning_hold()
         before = self.public_body(run)
         observed = self.probe.read_bytes()
         for selector in ("001/another-repair", "../plan-challenge-report-repair-02"):
@@ -653,7 +649,7 @@ runpy.run_path(str(runtime), run_name='__main__')
                 self.assertEqual(before["settings"], after["settings"])
                 self.assertEqual(before["view"]["planning_depth"], after["view"]["planning_depth"])
                 self.assertEqual("PAUSED_RESOLVER_OPERATIONAL", after["view"]["status"])
-                self.assertEqual("pending", after["view"]["information_review"]["status"])
+                self.assertIsNone(after["view"]["information_review"])
                 self.assertEqual(observed, self.probe.read_bytes())
         accepted = self.public_call(run, *action["args"])
         self.assertEqual(0, accepted.returncode, accepted.stdout + accepted.stderr)
