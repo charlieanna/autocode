@@ -151,6 +151,8 @@ def guard(runner, args, parser, state: RunState, state_path, run_dir, workspace,
     current = disposition.decision(state)
     if current is None:
         return None
+    if not disposition.inspectable(state):
+        return refuse()
     row = current["record"]
     decided.operational_incident = disposition.incident_identity(state, row)
     evidence = (row.get("receipt") or {}).get("evidence") or {}

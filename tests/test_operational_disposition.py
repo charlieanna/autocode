@@ -1584,6 +1584,30 @@ class OperationalDispositionTests(unittest.TestCase):
                     typed_block.guard(self.writer(), self.state, self.run, self.root)
                 self.assertFalse(admission.ready(self.state, actions.Decided()))
 
+    def test_unsealed_incident_cannot_offer_or_enter_a_retained_recovery(self):
+        import autocode_internal_failure_view as aggregate
+
+        self.legacy()
+        self.state.pop("active_stage")
+        self.state["resolver"]["operational_receipts"] = {}
+        self.assertIsNone(disposition.incident_identity(self.state, disposition.held(self.state)))
+        for owner, name in (
+            (aggregate.validation, "pending"),
+            (aggregate.no_progress, "pending_legacy"),
+            (aggregate.recovery_progress, "pending"),
+        ):
+            with self.subTest(owner=owner.__name__), patch.object(owner, name, return_value={"candidate": True}):
+                before = copy.deepcopy(self.state)
+                shown = run_view.view(self.state, run_dir=self.run, workspace=self.root)
+                self.assertIsNone(shown["needs"])
+                self.assertIsNone(shown["next_command"])
+                self.assertIsNone(shown["chat"]["input"])
+                self.assertEqual("blocked", shown["recovery"]["category"])
+                self.assertEqual(
+                    2, self.apply_selected_owner(self.writer(), Arguments(resume_paused=True), actions.Decided())
+                )
+                self.assertEqual(before, self.state)
+
     def test_one_public_aggregate_preserves_typed_priority_and_generic_only_compatibility_without_disk_reads(self):
         import autocode_internal_failure_view as aggregate
         import autocode_operational_hold as compatibility
