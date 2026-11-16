@@ -152,7 +152,9 @@ class IndependentEvidenceRepairTests(unittest.TestCase):
             complete = copy.deepcopy(partial)
             complete[review.FIELD].append({"gap_id": "L2", "decision": "accept"})
             application.require_tester_decisions(state, complete, record)
-            for change in ({"report_repaired": True}, {"source_revision": "old"}, {"schema": None}):
+            with self.assertRaisesRegex(ValueError, "L2"):
+                application.require_tester_decisions(state, partial, {**record, "report_repaired": True})
+            for change in ({"source_revision": "old"}, {"schema": None}):
                 application.require_tester_decisions(state, partial, {**record, **change})
             application.require_tester_decisions(state, {"verdict": "FAIL", review.FIELD: []}, record)
 

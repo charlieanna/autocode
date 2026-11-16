@@ -20,6 +20,7 @@ repair = bool(data.get("report_repair"))
 array_case = os.environ.get("REVIEW_REPAIR_ARRAY") == "1"
 completion_case = os.environ.get("REVIEW_REPAIR_COMPLETION") == "1"
 text_case = os.environ.get("REVIEW_REPAIR_TEXT") == "1"
+diagnostics_case = os.environ.get("REVIEW_REPAIR_DIAGNOSTICS") == "1"
 prefix, suffix, expression = "All checks complete.\n```json\n", "\n```", '.replace("unused","")'
 stage = data["original"]["stage"] if repair else data["stage"]
 session = sys.argv[sys.argv.index("resume") + 1] if "resume" in sys.argv else str(uuid.uuid4())
@@ -29,6 +30,20 @@ if repair and stage == target_stage:
     source = data["rejected_report"]
     schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
     offered = "repair_report" in schema.get("properties", {})
+    if diagnostics_case:
+        baseline = json.loads(Path(os.environ["REVIEW_REPAIR_BASELINE"]).read_text())
+        citation = data["changed_code_citation_context"].get("current_proof_reference",
+                                                               data["changed_code_citation_context"]["proof_reference"])
+        for decision in baseline["changed_code_exceptions"]:
+            decision["evidence_refs"] = [citation]
+        output.write_text(json.dumps({"repair_report": baseline} if offered else baseline))
+        with Path(os.environ["REVIEW_REPAIR_TRACE"]).open("a") as stream:
+            stream.write(json.dumps({"offered": offered, "patch": {"repair_report": baseline},
+                "output": str(output), "checks": baseline["checks"], "error": data["error"],
+                "citation": citation, "open_lines": data["changed_code_citation_context"].get("open_lines", [])}) + "\n")
+        print(json.dumps({"type": "thread.started", "thread_id": session}))
+        print(json.dumps({"type": "turn.completed"}))
+        raise SystemExit(0)
     if text_case:
         raw = source["content"]
         source_report = json.loads(raw.removeprefix(prefix).removesuffix(suffix).replace(expression, ""))
@@ -68,7 +83,13 @@ else:
             raise
     if stage == target_stage and not repair:
         report = json.loads(output.read_text())
-        if text_case:
+        if diagnostics_case:
+            assert len(report["changed_code_exceptions"]) >= 2, report
+            Path(os.environ["REVIEW_REPAIR_BASELINE"]).write_text(json.dumps(report))
+            report["changed_code_exceptions"].pop()
+            report["changed_code_exceptions"][0]["source_line"] = "wrong copied line"
+            report["changed_code_exceptions"][0]["evidence_refs"] = ["wrong-proof-one", "wrong-proof-two"]
+        elif text_case:
             raw = json.dumps(report).replace('"verdict": "PASS"', '"verdict": "PASS"' + expression)
             assert expression in raw
             output.write_text(prefix + " " * (140 * 1024) + raw + suffix)
@@ -83,6 +104,13 @@ else:
 
 @unittest.skipUnless(sys.platform.startswith("linux"), "supervised provider requires supported Linux")
 class ReviewReportRepairCLI(unittest.TestCase):
+    def test_one_report_only_repair_sees_all_defects_and_completes_without_reexecuting_checks(self):
+        row = self.assert_review_patch_completes(diagnostics_case=True)
+        for expected in ("wrong-proof-one", "wrong-proof-two", "different line", "no mutation outcome"):
+            self.assertIn(expected, row["error"])
+        self.assertEqual("proof:current", row["citation"])
+        self.assertGreaterEqual(len(row["open_lines"]), 2)
+
     def test_tester_patch_completes_with_original_checks_and_preserved_raw_response(self):
         self.assert_review_patch_completes()
 
@@ -100,7 +128,9 @@ class ReviewReportRepairCLI(unittest.TestCase):
         self.assertGreater(len(row["source_text"].encode()), 128 * 1024)
         self.assertEqual(row["source_text"], Path(row["source_path"]).read_text())
 
-    def assert_review_patch_completes(self, *, array_case=False, completion_case=False, text_case=False):
+    def assert_review_patch_completes(
+        self, *, array_case=False, completion_case=False, text_case=False, diagnostics_case=False
+    ):
         fixture = cli_support.SubprocessFlow()
         fixture.setUp()
         self.addCleanup(fixture.doCleanups)
@@ -110,6 +140,10 @@ class ReviewReportRepairCLI(unittest.TestCase):
         executable.chmod(0o755)
         trace = fixture.root / "review-repair-trace.jsonl"
         fixture.env.update(AUTOCODE_FIXTURE_MODE="no-human", REVIEW_REPAIR_TRACE=str(trace))
+        if diagnostics_case:
+            fixture.env.update(
+                REVIEW_REPAIR_DIAGNOSTICS="1", REVIEW_REPAIR_BASELINE=str(fixture.root / "baseline.json")
+            )
         if array_case:
             fixture.env["REVIEW_REPAIR_ARRAY"] = "1"
         if completion_case:
