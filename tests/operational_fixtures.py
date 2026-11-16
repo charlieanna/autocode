@@ -26,11 +26,11 @@ def assert_operational_block(test, state, pause):
     return row["receipt"]["id"]
 
 
-def legacy_publication(state, run_dir, *, pause=None, request=None, questions=None):
+def legacy_publication(state, run_dir, *, pause=None, request=None, questions=None, budget=None):
     if pause is not None:
         state["status"] = pause
     status, stage = state["status"], state["next_stage"]
-    budget = disposition.budget(state, status)
+    budget = disposition.budget(state, status) if budget is None else copy.deepcopy(budget)
     receipt = runtime._operational_receipt(
         state,
         run_dir,
