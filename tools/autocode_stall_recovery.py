@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Mapping
 from itertools import islice
+from pathlib import Path
 from typing import Any
 
 try:
@@ -40,6 +42,8 @@ READ_ONLY_STAGES = frozenset(
 )
 
 MAX_CALLS = 40
+MAX_STALLED_CALLS = 10
+MAX_RAW_COMMAND = 128 * 1024
 MAX_DETAIL = 200
 MAX_OUTPUT = 200
 MAX_LINES = 100_000
@@ -116,6 +120,21 @@ def _command_exit(part_state: dict[str, Any]) -> int | None:
     return None
 
 
+def _raw_command_input(value: object) -> str | None:
+    if isinstance(value, str) and value.lstrip().startswith("{"):
+        try:
+            parsed = json.loads(value)
+        except ValueError:
+            parsed = None
+        if isinstance(parsed, dict):
+            value = parsed
+    if isinstance(value, dict) and isinstance(value.get("command"), str):
+        command = value["command"].strip()
+        if command:
+            return command[:MAX_RAW_COMMAND]
+    return None
+
+
 def _detail(tool: object, value: object) -> str:
     if isinstance(value, str) and value.lstrip().startswith("{"):
         try:
@@ -169,22 +188,17 @@ def _part_call(row: dict[str, Any]) -> tuple[tuple[str, object, str] | None, dic
     return key, call
 
 
-def _item_call(row: dict[str, Any]) -> tuple[tuple[str, object, str] | None, dict[str, Any]] | None:
-    item = row.get("item")
-    if row.get("type") != "item.completed" or not isinstance(item, dict):
-        return None
-    kind = item.get("type")
-    if not isinstance(kind, str) or kind not in ITEM_TOOLS:
-        return None
-    raw_status = item.get("status")
-    if raw_status in ("in_progress", "pending", "running"):
-        return None
-    raw_code = item.get("exit_code")
-    code = raw_code if type(raw_code) is int else None
-    failed = raw_status in ("failed", "declined", "error") or (code is not None and code != 0)
-    status = "failed" if failed else "completed"
+def _item_summary(
+    item: dict[str, Any], *, kind: str, status: str, code: int | None = None
+) -> tuple[dict[str, Any], str | None]:
+    raw_cmd: str | None = None
     if kind == "command_execution":
         tool: object = "command_execution"
+        raw_cmd = (
+            item["command"].strip()[:MAX_RAW_COMMAND]
+            if isinstance(item.get("command"), str) and item["command"].strip()
+            else None
+        )
         detail = _head(item.get("command") or kind, MAX_DETAIL)
     elif kind == "file_change":
         tool = "file_change"
@@ -212,6 +226,7 @@ def _item_call(row: dict[str, Any]) -> tuple[tuple[str, object, str] | None, dic
             if "arguments" in item
             else item.get("input")
         )
+        raw_cmd = _raw_command_input(item.get("arguments") if "arguments" in item else item.get("input"))
         detail = _detail(tool, given)
     raw_output = item.get("aggregated_output") if isinstance(item.get("aggregated_output"), str) else item.get("output")
     call: dict[str, Any] = {
@@ -222,6 +237,24 @@ def _item_call(row: dict[str, Any]) -> tuple[tuple[str, object, str] | None, dic
     }
     if code is not None:
         call["exit_code"] = code
+    return call, raw_cmd
+
+
+def _item_call(row: dict[str, Any]) -> tuple[tuple[str, object, str] | None, dict[str, Any]] | None:
+    item = row.get("item")
+    if row.get("type") != "item.completed" or not isinstance(item, dict):
+        return None
+    kind = item.get("type")
+    if not isinstance(kind, str) or kind not in ITEM_TOOLS:
+        return None
+    raw_status = item.get("status")
+    if raw_status in ("in_progress", "pending", "running"):
+        return None
+    raw_code = item.get("exit_code")
+    code = raw_code if type(raw_code) is int else None
+    failed = raw_status in ("failed", "declined", "error") or (code is not None and code != 0)
+    status = "failed" if failed else "completed"
+    call, _ = _item_summary(item, kind=kind, status=status, code=code)
     item_id = item.get("id")
     key = (
         ("item", None, str(item_id))
@@ -229,6 +262,82 @@ def _item_call(row: dict[str, Any]) -> tuple[tuple[str, object, str] | None, dic
         else None
     )
     return key, call
+
+
+def _extract_open(rows: list[dict[str, Any]] | None) -> tuple[list[dict[str, Any]], list[str]]:
+    """Open/stalled tool calls still active when the event log ended, with bounded raw commands."""
+    if not rows:
+        return [], []
+    completed_slots: set[tuple[str, object, str]] = set()
+    open_calls: dict[tuple[str, object, str], dict[str, Any]] = {}
+    raw_cmds: dict[tuple[str, object, str], str] = {}
+    for index, row in enumerate(rows):
+        event_type = row.get("type")
+        part = row.get("part")
+        if event_type == "tool_use" and isinstance(part, dict) and isinstance(part.get("state"), dict):
+            state = part["state"]
+            raw_status = state.get("status")
+            part_id = _slot_id(part.get("id")) or _slot_id(part.get("callID"))
+            slot = ("part", row.get("sessionID"), part_id) if part_id else ("anon", None, str(index))
+            if raw_status in ("pending", "running", "in_progress"):
+                if slot not in completed_slots:
+                    open_calls[slot] = {
+                        "tool": part.get("tool"),
+                        "detail": _detail(part.get("tool"), state.get("input")),
+                        "status": str(raw_status),
+                        "output_tail": _tail(state.get("output")),
+                    }
+                    if raw := _raw_command_input(state.get("input")):
+                        raw_cmds[slot] = raw
+            elif raw_status in ("completed", "error", "failed", "declined"):
+                open_calls.pop(slot, None)
+                raw_cmds.pop(slot, None)
+                completed_slots.add(slot)
+            continue
+        item = row.get("item")
+        if (
+            event_type in ("item.started", "item.updated", "item.completed")
+            and isinstance(item, dict)
+            and isinstance(item.get("type"), str)
+            and item["type"] in ITEM_TOOLS
+        ):
+            item_id = _slot_id(item.get("id"))
+            slot = ("item", None, item_id) if item_id else ("anon", None, str(index))
+            raw_status = item.get("status")
+            is_open = event_type == "item.started" or (
+                event_type == "item.updated" and raw_status in ("in_progress", "pending", "running")
+            )
+            if is_open:
+                if slot not in completed_slots:
+                    open_call, raw = _item_summary(
+                        item,
+                        kind=item["type"],
+                        status=str(raw_status) if isinstance(raw_status, str) and raw_status else "running",
+                    )
+                    open_calls[slot] = open_call
+                    if raw:
+                        raw_cmds[slot] = raw
+            elif (event_type == "item.completed" and raw_status not in ("in_progress", "pending", "running")) or (
+                event_type == "item.updated" and raw_status in ("completed", "failed", "error", "declined")
+            ):
+                open_calls.pop(slot, None)
+                raw_cmds.pop(slot, None)
+                completed_slots.add(slot)
+    calls = list(open_calls.values())[-MAX_STALLED_CALLS:]
+    cmds = [cmd for slot, cmd in raw_cmds.items() if slot in open_calls]
+    return calls, cmds
+
+
+def stalled_calls(record: object) -> list[dict[str, Any]]:
+    """Bounded, redacted summary of tool calls still open at timeout/stall."""
+    rows = _rows(record.get("events") if isinstance(record, dict) else None)
+    return _extract_open(rows)[0]
+
+
+def raw_stalled_commands(record: object) -> list[str]:
+    """Raw (length-preserved) command strings for open command calls at timeout/stall."""
+    rows = _rows(record.get("events") if isinstance(record, dict) else None)
+    return _extract_open(rows)[1]
 
 
 def executed(record: object) -> dict[str, Any]:
@@ -251,13 +360,150 @@ def executed(record: object) -> dict[str, Any]:
     calls = list(seen.values())
     if not calls:
         return {"available": False, "reason": "The archived event log holds no completed tool calls"}
-    return {
+    packet: dict[str, Any] = {
         "available": True,
         "verification": "unverified",
         "calls": calls,
         "truncated": more,
         "instruction": INSTRUCTION,
     }
+    if open_calls := _extract_open(rows)[0]:
+        packet["stalled_calls"] = open_calls
+    return packet
+
+
+def _attempt_id(row: Mapping[str, Any]) -> str | None:
+    """Attempt identifier matching ``autocode_run_records.attempt_id``."""
+    attempt_id = row.get("attempt_id")
+    if isinstance(attempt_id, str) and attempt_id:
+        return attempt_id
+    iteration = row.get("iteration")
+    output = row.get("output")
+    if type(iteration) is int and isinstance(output, str) and output:
+        return f"{iteration:03d}/{Path(output).stem}"
+    return None
+
+
+def _covered_by_recovery(row: Mapping[str, Any], recovery: Mapping[str, Any]) -> bool:
+    events = recovery.get("events")
+    if isinstance(events, str) and events and row.get("events") == events:
+        return True
+    rec_attempt = recovery.get("attempt_id")
+    if isinstance(rec_attempt, str) and rec_attempt and _attempt_id(row) == rec_attempt:
+        return True
+    stage_attempt = recovery.get("stage_attempt")
+    return stage_attempt is not None and row.get("iteration") == stage_attempt
+
+
+def attempt_revision(row: object) -> str | None:
+    """Source revision associated with an archived stage attempt record, or None."""
+    if not isinstance(row, dict):
+        return None
+    for key in ("after_ref", "before_ref"):
+        ref = row.get(key)
+        if isinstance(ref, str) and ref:
+            try:
+                snap = util.read(Path(ref))
+            except (OSError, ValueError, TypeError):
+                continue
+            if isinstance(snap, dict) and isinstance(snap.get("revision"), str) and snap["revision"]:
+                return snap["revision"]
+    rev = row.get("source_revision")
+    return rev if isinstance(rev, str) and rev else None
+
+
+def pending(state: Mapping[str, Any], stage: str, current_revision: str | None) -> dict[str, Any] | None:
+    """Retain unverified tool calls from earlier interrupted attempts on unchanged source_revision.
+
+    Used when an intervening recovery (content-filter refusal, route switch, Stop now) replaces
+    ``state['recovery_context']`` without carrying prior attempts' ``executed_work``.
+    """
+    if not isinstance(current_revision, str) or not current_revision or not carries_executed_work(stage, stage):
+        return None
+    contract_hash = (state.get("goal_contract") or {}).get("hash")
+    if stage == "tester":
+        validation = state.get("validation")
+        if (
+            isinstance(validation, dict)
+            and validation.get("source_revision") == current_revision
+            and validation.get("contract_hash") == contract_hash
+        ):
+            return None
+    stages = state.get("stages") or []
+    cutoff = 0
+    for index, row in enumerate(stages):
+        if (
+            isinstance(row, dict)
+            and row.get("stage") == stage
+            and not row.get("runner_owned")
+            and not row.get("report_only")
+            and not row.get("timed_out")
+            and not row.get("abandoned")
+            and not row.get("rejected")
+            and row.get("exit_code") == 0
+        ):
+            cutoff = index + 1
+    recovery = state.get("recovery_context") or {}
+    active_covered = (
+        isinstance(recovery, Mapping)
+        and recovery.get("next_stage", recovery.get("stage")) == stage
+        and bool((recovery.get("executed_work") or {}).get("available"))
+    )
+    retained_calls: list[dict[str, Any]] = []
+    retained_stalled: list[dict[str, Any]] = []
+    attempts: list[dict[str, Any]] = []
+    truncated = False
+    for row in stages[cutoff:]:
+        if not isinstance(row, dict) or row.get("stage") != stage or row.get("runner_owned") or row.get("report_only"):
+            continue
+        if not (
+            row.get("timed_out") or row.get("abandoned") or row.get("rejected") or row.get("exit_code") not in (0, None)
+        ):
+            continue
+        if attempt_revision(row) != current_revision:
+            continue
+        row_hash = row.get("contract_hash")
+        if isinstance(contract_hash, str) and contract_hash and isinstance(row_hash, str) and row_hash != contract_hash:
+            continue
+        if active_covered and _covered_by_recovery(row, recovery):
+            continue
+        pkt = executed(row)
+        calls = list(pkt.get("calls") or ())
+        open_calls = stalled_calls(row)
+        if not calls and not open_calls:
+            continue
+        if pkt.get("truncated"):
+            truncated = True
+        retained_calls.extend(calls)
+        retained_stalled.extend(open_calls)
+        attempts.append(
+            {
+                "stage_attempt": row.get("iteration"),
+                "completed_tool_calls": len(calls),
+                "timed_out": bool(row.get("timed_out")),
+            }
+        )
+    if not attempts:
+        return None
+    if len(retained_calls) > MAX_CALLS:
+        truncated = True
+        retained_calls = retained_calls[-MAX_CALLS:]
+    retained_stalled = retained_stalled[-MAX_STALLED_CALLS:]
+    result: dict[str, Any] = {
+        "verification": "unverified",
+        "source_revision": current_revision,
+        "attempts": attempts,
+        "calls": retained_calls,
+        "truncated": truncated,
+        "instruction": (
+            "Unverified completed and open tool calls retained from earlier interrupted attempts on this "
+            "unchanged source_revision across intervening retries. Context only, never citable evidence; "
+            "focus this attempt and capture fresh checks."
+        ),
+    }
+    if retained_stalled:
+        result["stalled_calls"] = retained_stalled
+    return result
 
 
 def carries_executed_work(semantic_stage: object, next_stage: object, *, report_only: bool = False) -> bool:

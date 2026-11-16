@@ -1397,7 +1397,14 @@ def _proving(
         # A detected whole suite that cannot finish on the original code falls back to the tests nearest
         # the change, chosen here and recorded, never asked of a person; an explicit command is kept.
         focus = (
-            focused_suite.choose_from_git(framework, workspace, base, changes, roles)
+            focused_suite.choose_from_git(
+                framework,
+                workspace,
+                base,
+                changes,
+                roles,
+                goal_contract=state.get("goal_contract"),
+            )
             if suite and not options.get("test_command")
             else None
         )
@@ -1446,6 +1453,7 @@ def _proving(
             suite = fallback["command"]
         elif focus and focused_suite.unusable(base_suite):
             whole, whole_record = base_suite, _kept_baseline(state, suite)
+            timed_out_focus = None
             focused = focused_suite.framework_for(framework, focus["command"])
             focused_base = _baseline(
                 state,
@@ -1460,11 +1468,34 @@ def _proving(
                 inputs,
                 settled_timeout=True,
             )
+            if (
+                focused_suite.timed_out(whole)
+                and focused_suite.timed_out(focused_base)
+                and (narrower := focus.get("narrower_tiers"))
+            ):
+                narrowest = narrower[-1]
+                if narrowest["command"] != focus["command"]:
+                    timed_out_focus = focus
+                    focus = narrowest
+                    focused = focused_suite.framework_for(framework, focus["command"])
+                    focused_base = _baseline(
+                        state,
+                        workspace,
+                        run_dir,
+                        base,
+                        focused,
+                        focus["command"],
+                        dependencies["dependencies_from"],
+                        base_patch,
+                        progress,
+                        inputs,
+                        settled_timeout=True,
+                    )
             # A whole suite that timed out is not run again. One that ran no passing test is replaced
             # only when the nearest tests do pass on the original code; otherwise it stays the
             # baseline, and a base on which nothing runs is judged as before (autocode_first_suite).
             if focused_suite.timed_out(whole) or focused_suite.usable(focused_base):
-                fallback = focused_suite.record(focus, whole, suite_timeout(state))
+                fallback = focused_suite.record(focus, whole, suite_timeout(state), timed_out_focus=timed_out_focus)
                 proving, suite, base_suite = focused, focus["command"], focused_base
             elif whole_record is not None:
                 # Keep what the nearest tests' own time limit settled, so they are not timed again.

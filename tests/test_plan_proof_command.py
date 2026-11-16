@@ -69,6 +69,44 @@ class ChoiceTests(unittest.TestCase):
             plan_command.note(chosen | {"command": "sh tests/test_pager.sh"}),
         )
 
+    def test_dotted_python_and_node_line_selectors_resolve_to_test_files(self):
+        files = {
+            "tests/test_run_state.py",
+            "tests/test_goals.py",
+            "pkg/tests/test_api.py",
+            "spec/pager_spec.rb",
+        }
+        cases = (
+            (
+                ".venv/bin/python -m unittest tests.test_run_state tests.test_goals.GoalTests.test_chat",
+                {"tests/test_run_state.py", "tests/test_goals.py"},
+            ),
+            ("python3 -m unittest discover -s tests", set()),
+            ("pytest tests/test_run_state.py::RunStateTests::test_pause", {"tests/test_run_state.py"}),
+            ("bundle exec rspec spec/pager_spec.rb:42", {"spec/pager_spec.rb"}),
+            ("pytest --pyargs pkg.tests.test_api", {"pkg/tests/test_api.py"}),
+            ("python3 -m unittest tests.test_api", {"pkg/tests/test_api.py"}),
+        )
+        for command, expected in cases:
+            with self.subTest(command=command):
+                self.assertEqual(expected, plan_command.test_files(command, files))
+
+    def test_approved_test_commands_include_initial_validation_plan_only_when_approved(self):
+        c = contract(RUN)
+        c["body"]["initial_task"] = {
+            "kind": "implement",
+            "validation_plan": [
+                ".venv/bin/python -m unittest tests.test_run_state",
+                "Check edge case in prose",
+            ],
+        }
+        self.assertEqual(
+            ["sh tests/test_pager.sh", ".venv/bin/python -m unittest tests.test_run_state"],
+            plan_command.approved_test_commands(c),
+        )
+        self.assertEqual([], plan_command.approved_test_commands({**c, "approval_status": "draft"}))
+        self.assertEqual([], plan_command.approved_test_commands(None))
+
 
 class ClassSelectorTests(unittest.TestCase):
     """Maven and Gradle select tests by class, so a command of theirs names its tests that way."""

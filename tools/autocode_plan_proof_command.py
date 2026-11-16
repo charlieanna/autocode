@@ -63,6 +63,27 @@ def approved_commands(contract, *, runs=None) -> list[str]:
     return list(dict.fromkeys(found))
 
 
+def approved_test_commands(contract, *, runs=None) -> list[str]:
+    """Commands from an approved plan's acceptance criteria and initial validation_plan.
+
+    Only an approved contract supplies trusted selectors; candidate/unapproved tasks never do.
+    """
+    if not isinstance(contract, dict) or contract.get("approval_status") != "approved":
+        return []
+    found = list(approved_commands(contract, runs=runs))
+    body = contract.get("body") or {}
+    raw_initial = body.get("initial_task")
+    initial = raw_initial if isinstance(raw_initial, dict) else {}
+    for entry in initial.get("validation_plan") or []:
+        if not isinstance(entry, str) or not entry.strip():
+            continue
+        try:
+            found.extend(_commands(entry, runs))
+        except ValueError:
+            continue
+    return list(dict.fromkeys(found))
+
+
 # Maven and Gradle name the tests a command runs by class and by module, never by file.
 _BUILD_TOOLS = ("mvn", "mvnw", "gradle", "gradlew")
 # The source files of the classes their selectors name.
@@ -162,15 +183,122 @@ def _selected(command, paths) -> set[str]:
     return {path for path in classes if any(fnmatch.fnmatchcase(PurePosixPath(path).stem, part) for part in parts)}
 
 
+def _path_selected(word: str, paths: set[str]) -> str | None:
+    """Resolve a path token (with optional `./`, `::node`, or `:line`) against ``paths``."""
+    clean = word.removeprefix("./")
+    if clean in paths:
+        return clean
+    base = clean.split("::", 1)[0]
+    if base in paths:
+        return base
+    cur = base
+    while True:
+        head, sep, tail = cur.rpartition(":")
+        if not sep or not tail.isdigit():
+            return None
+        if head in paths:
+            return head
+        cur = head
+
+
+def _shell_segments(command: str) -> list[list[str]]:
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|()")
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    try:
+        words = list(lexer)
+    except ValueError:
+        words = command.split()
+    segments: list[list[str]] = []
+    current: list[str] = []
+    for word in words:
+        if word in _SEPARATORS:
+            if current:
+                segments.append(current)
+                current = []
+            continue
+        if not current and (bool(_ASSIGNMENT.fullmatch(word)) or PurePosixPath(word).name == "env"):
+            continue
+        current.append(word)
+    if current:
+        segments.append(current)
+    return segments
+
+
+def _python_dotted_files(command: str, paths: set[str]) -> set[str]:
+    """Resolve dotted module/class/method selectors from unittest or pytest --pyargs."""
+    py_paths = {path for path in paths if path.endswith(".py")}
+    if not py_paths:
+        return set()
+    found: set[str] = set()
+    unittest_opts = frozenset({"-k"})
+    pytest_opts = frozenset(
+        {"-k", "-m", "-c", "-o", "--rootdir", "--confcutdir", "-W", "-n", "--maxfail", "--tb", "-p"}
+    )
+    for segment in _shell_segments(command):
+        mode, rest = None, []
+        for idx, word in enumerate(segment[:-1]):
+            if word == "-m" and segment[idx + 1] == "unittest":
+                mode, rest = "unittest", segment[idx + 2 :]
+                break
+            if word == "-m" and segment[idx + 1] == "pytest" and "--pyargs" in segment[idx + 2 :]:
+                mode, rest = "pytest", segment[idx + 2 :]
+                break
+        if mode is None:
+            head = PurePosixPath(segment[0]).name
+            if head in ("unittest", "unittest3", "unit2"):
+                mode, rest = "unittest", segment[1:]
+            elif head in ("pytest", "py.test") and "--pyargs" in segment[1:]:
+                mode, rest = "pytest", segment[1:]
+        if mode is None:
+            continue
+        value_opts = unittest_opts if mode == "unittest" else pytest_opts
+        skip_next = False
+        saw_positional = False
+        stop_opts = False
+        for token in rest:
+            if skip_next:
+                skip_next = False
+                continue
+            if not stop_opts and token == "--":
+                stop_opts = True
+                continue
+            if not stop_opts and token.startswith("-"):
+                if "=" not in token and token in value_opts:
+                    skip_next = True
+                continue
+            if mode == "unittest" and not saw_positional:
+                saw_positional = True
+                if token == "discover":
+                    break
+            if "/" in token or "\\" in token:
+                continue
+            dotted = token.split("::", 1)[0].strip(".")
+            if not dotted:
+                continue
+            parts = dotted.split(".")
+            for end in range(len(parts), 0, -1):
+                rel = "/".join(parts[:end]) + ".py"
+                if rel in py_paths:
+                    found.add(rel)
+                    break
+                if end >= 2:
+                    matches = [path for path in py_paths if path.endswith("/" + rel)]
+                    if len(matches) == 1:
+                        found.add(matches[0])
+                        break
+    return found
+
+
 def _named(command, paths) -> set[str]:
-    """The ``paths`` ``command`` names: a shell word that is the path or ./path, or a test class a Maven or
-    Gradle command runs."""
+    """The ``paths`` ``command`` names: path/node/line words, Python dotted targets, or JVM selectors."""
     try:
         words = shlex.split(command, comments=True)
     except ValueError:
         words = command.split()
-    named = {word[2:] if word.startswith("./") else word for word in words}
-    return {path for path in paths if path in named} | _selected(command, paths)
+    path_set = set(paths)
+    matched = {resolved for word in words if (resolved := _path_selected(word, path_set)) is not None}
+    return matched | _python_dotted_files(command, path_set) | _selected(command, path_set)
 
 
 def test_files(command, original_tests) -> set[str]:

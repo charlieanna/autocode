@@ -516,5 +516,191 @@ class NearestTestsTests(unittest.TestCase):
         self.assertNotIn("900 seconds", broken["reason"])
 
 
+class BoundedScopeTests(unittest.TestCase):
+    def approved_contract(self, methods, validation_plan=(), *, status="approved"):
+        rows = [{"id": f"AC{n}", "criterion": "c", "verification_method": m} for n, m in enumerate(methods, 1)]
+        body = {
+            "task_kind": "bugfix",
+            "acceptance_criteria": rows,
+            "initial_task": {"kind": "implement", "validation_plan": list(validation_plan)},
+        }
+        sealed = {"task_id": "t-1", "revision": 1, "body": body}
+        return {**sealed, "hash": util.digest(sealed), "approval_status": status}
+
+    def test_uncertain_helper_fanout_steps_down_to_direct_consumers_and_records_gap(self):
+        sources = {
+            "pkg/leaf.py": "def val(): return 1\n",
+            "pkg/helper.py": "import importlib\ndef load(n): return importlib.import_module(n)\n",
+            "tests/test_leaf_consumer.py": "import unittest\nimport pkg.leaf\ndef test_x(): pass\n",
+        }
+        for index in range(focused_suite.MAX_FOCUSED_FILES + 5):
+            sources[f"tests/test_helper_{index:03d}.py"] = "import pkg.helper\ndef test_h(): pass\n"
+        project = Project(sources)
+        self.addCleanup(project.close)
+        project.write({"pkg/leaf.py": "def val(): return 2\n"})
+        changes = {"pkg/leaf.py": "modified"}
+        roles = role_inventory.from_git(project.root, project.base, verify.is_test_path, changes=changes)
+        framework = verify.Framework("pytest", "python -m pytest -q", python="python")
+
+        unbounded = focused_suite.nearest_tests(sources, changes, roles, read=sources.__getitem__)
+        self.assertEqual(focused_suite.MAX_FOCUSED_FILES + 6, len(unbounded))
+
+        chosen = focused_suite.choose(framework, sources, changes, roles, read=sources.__getitem__)
+        self.assertIsNotNone(chosen)
+        self.assertEqual("direct_consumers", chosen["selection_scope"])
+        self.assertEqual(["tests/test_leaf_consumer.py"], chosen["tests"])
+        self.assertEqual(focused_suite.MAX_FOCUSED_FILES + 5, len(chosen["omitted_tests"]))
+
+        fallback = focused_suite.record(chosen, {"command": "pytest", "receipt": {"timed_out": True}}, 1800)
+        self.assertEqual("direct_consumers", fallback["selection_scope"])
+        self.assertEqual(focused_suite.MAX_FOCUSED_FILES + 5, fallback["omitted_tests_count"])
+        self.assertEqual(focused_suite.MAX_OMITTED_SAMPLE, len(fallback["omitted_tests_sample"]))
+        self.assertIn("not re-run", fallback["verification_gap"])
+        self.assertIn("direct_consumers", fallback["reason"])
+        self.assertIn("bounded direct_consumers", focused_suite.review_reason(fallback))
+
+    def test_controller_fanout_selects_approved_plan_tests_without_trusting_draft_or_candidate(self):
+        sources = {
+            "pkg/controller.py": "def handle(): return 1\n",
+            "tests/test_ctrl_flow.py": "import unittest\nclass F(unittest.TestCase):\n def test_ok(self): pass\n",
+            "tests/test_unplanned.py": "import unittest\nclass U(unittest.TestCase):\n def test_u(self): pass\n",
+        }
+        for index in range(focused_suite.MAX_FOCUSED_FILES + 5):
+            sources[f"tests/test_fanout_{index:03d}.py"] = "import pkg.controller\ndef test_f(): pass\n"
+        project = Project(sources)
+        self.addCleanup(project.close)
+        # Candidate adds an import to test_unplanned and deletes fanout imports: neither may drive selection.
+        project.write(
+            {
+                "pkg/controller.py": "def handle(): return 2\n",
+                "tests/test_unplanned.py": "import pkg.controller\ndef test_u(): pass\n",
+                "tests/test_fanout_000.py": "def test_f(): pass\n",
+            }
+        )
+        changes = {
+            "pkg/controller.py": "modified",
+            "tests/test_unplanned.py": "modified",
+            "tests/test_fanout_000.py": "modified",
+        }
+        roles = role_inventory.from_git(project.root, project.base, verify.is_test_path, changes=changes)
+        framework = verify.Framework("unittest", "python -m unittest discover -v", python="python")
+        approved = self.approved_contract(
+            ["`pytest` runs all"],  # whole-suite command must not expand bounded selection
+            validation_plan=[
+                f"{sys.executable} -m unittest tests.test_ctrl_flow",
+                f"{sys.executable} -m unittest discover -v",
+            ],
+        )
+        draft = self.approved_contract(
+            [],
+            validation_plan=[f"{sys.executable} -m unittest tests.test_ctrl_flow"],
+            status="draft",
+        )
+        chosen = focused_suite.choose_from_git(
+            framework, project.root, project.base, changes, roles, goal_contract=approved
+        )
+        self.assertEqual("approved_and_named", chosen["selection_scope"])
+        self.assertEqual(
+            ["tests/test_ctrl_flow.py", "tests/test_fanout_000.py", "tests/test_unplanned.py"],
+            chosen["tests"],
+        )
+        self.assertEqual(focused_suite.MAX_FOCUSED_FILES + 4, len(chosen["omitted_tests"]))
+
+        # A draft contract's commands are untrusted and fall back only to changed/named tests.
+        chosen_draft = focused_suite.choose_from_git(
+            framework, project.root, project.base, changes, roles, goal_contract=draft
+        )
+        self.assertEqual("changed_and_named", chosen_draft["selection_scope"])
+        self.assertNotIn("tests/test_ctrl_flow.py", chosen_draft["tests"])
+
+    def test_timed_out_approved_tier_steps_down_once_to_changed_and_named_and_caches_timeouts(self):
+        project = Project(
+            {
+                "controller.py": "def run(): return 0\n",
+                "tests/__init__.py": "",
+                "tests/test_controller.py": (
+                    "import unittest\nfrom controller import run\n"
+                    "class Ctrl(unittest.TestCase):\n def test_base(self): self.assertEqual(0, run())\n"
+                ),
+                "tests/test_cli_slow.py": (
+                    "import unittest\nclass SlowCli(unittest.TestCase):\n def test_slow(self): pass\n"
+                ),
+                "tests/test_unrelated.py": (
+                    "import unittest\nclass Unrel(unittest.TestCase):\n def test_u(self): pass\n"
+                ),
+            }
+        )
+        self.addCleanup(project.close)
+        project.write(
+            {
+                "controller.py": "def run(): return 1\n",
+                "tests/test_controller.py": (
+                    "import unittest\nfrom controller import run\n"
+                    "class Ctrl(unittest.TestCase):\n"
+                    " def test_base(self): self.assertEqual(0, run() if False else 0)\n"
+                    " def test_fix(self): self.assertEqual(1, run())\n"
+                ),
+            }
+        )
+        run_dir = project.root / ".autocode" / "runs" / "proof"
+        run_dir.mkdir(parents=True)
+        contract = self.approved_contract(
+            [],
+            validation_plan=[f"{sys.executable} -m unittest tests.test_cli_slow tests.test_controller"],
+        )
+        state = {
+            "workspace": str(project.root),
+            "base_commit": project.base,
+            "iteration": 1,
+            "stages": [],
+            "history": [],
+            "settings": {"regression": {"test_timeout": 1800}},
+            "goal_contract": contract,
+        }
+        base_runs = []
+        real = verify.run_suite
+
+        def run(framework, command, tree, directory, label, **options):
+            if label == "suite-on-base" and ("discover" in command or "test_cli_slow" in command):
+                base_runs.append(command)
+                output = Path(directory) / (label + ".log")
+                output.parent.mkdir(parents=True, exist_ok=True)
+                output.write_text("(timed out)\n")
+                return guarded_command_receipt(
+                    {
+                        "command": command,
+                        "exit_code": None,
+                        "timed_out": True,
+                        "output": str(output),
+                        "output_sha256": util.file_hash(output),
+                        "tail": "",
+                        "results_expected": True,
+                        "results": None,
+                    }
+                )
+            return real(framework, command, tree, directory, label, **options)
+
+        with (
+            mock.patch.object(verify, "run_suite", side_effect=run),
+            mock.patch.object(verify.diff_coverage, "collect", return_value=None),
+        ):
+            proof = regression.prove(state, project.root, run_dir)
+            self.assertEqual(verify.PASS, proof["verdict"], proof)
+            fallback = proof["suite_fallback"]
+            self.assertEqual("changed_and_named", fallback["selection_scope"])
+            self.assertEqual(["tests/test_controller.py"], fallback["tests"])
+            self.assertIn("test_cli_slow", fallback["timed_out_focused_suite"]["command"])
+            self.assertIn("also timed out on the original code", fallback["verification_gap"])
+            self.assertIn(fallback["reason"], proof["notes"])
+            self.assertIn("broader focused tier also timed out", " ".join(proof["review_reasons"]))
+            self.assertEqual(2, len(base_runs), base_runs)
+
+            # A repeat proof reuses both settled timeouts (discover AND approved_and_named).
+            project.write({"controller.py": "# retry\ndef run(): return 1\n"})
+            again = regression.prove(state, project.root, run_dir)
+            self.assertEqual(verify.PASS, again["verdict"], again)
+            self.assertEqual(2, len(base_runs), base_runs)
+
+
 if __name__ == "__main__":
     unittest.main()

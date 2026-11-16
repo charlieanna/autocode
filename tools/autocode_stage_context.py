@@ -168,6 +168,13 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
         execution_limits=state["settings"].get("limits", {}),
         execution_engine=stage_roles.engine_for(state["settings"], stage_roles.role_for(state, stage)),
     )
+    if not (base.get("recovery_context") or {}).get("report_only"):
+        try:
+            from . import autocode_stall_recovery as stall_recovery
+        except ImportError:
+            import autocode_stall_recovery as stall_recovery
+        if retained_work := stall_recovery.pending(state, stage, current["revision"]):
+            base["retained_executed_work"] = retained_work
     if stage == "builder":
         try:
             from . import autocode_partial_work as partial_work
@@ -325,20 +332,45 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
             import autocode_verification_plan as verification_plan
         progressive = progressive_state.context(state)
         base["verification_obligations"] = verification_plan.obligations(state, progressive_context=progressive)
+        run_root = Path(state_path).parent
         if roles.job_for_stage(stage, state) == "tester":
             batch = ready_capture_batch.context(
                 base["capture_command"],
                 base["verification_obligations"]["required_commands"],
-                Path(state_path).parent / "evidence",
+                run_root / "evidence",
             )
             if batch:
-                base["ready_capture_batch"] = batch
+                withheld = ready_capture_batch.withheld_context(
+                    base["capture_command"],
+                    base["verification_obligations"]["required_commands"],
+                    run_root / "evidence",
+                    state=state,
+                    run_dir=run_root,
+                    stage=stage,
+                    source_revision=current["revision"],
+                )
+                if withheld:
+                    base["ready_capture_batch_withheld"] = withheld
+                else:
+                    base["ready_capture_batch"] = batch
         elif stage == "builder":
             batch = ready_capture_batch.builder_context(
                 state, base["capture_command"], base["builder_artifact_policy"]["evidence_directory"]
             )
             if batch:
-                base["ready_capture_batch"] = batch
+                withheld = ready_capture_batch.withheld_context(
+                    base["capture_command"],
+                    (state.get("current_task") or {}).get("validation_plan"),
+                    base["builder_artifact_policy"]["evidence_directory"],
+                    state=state,
+                    run_dir=run_root,
+                    stage=stage,
+                    source_revision=current["revision"],
+                )
+                if withheld:
+                    base["ready_capture_batch_withheld"] = withheld
+                else:
+                    base["ready_capture_batch"] = batch
         instruction += prompts.get("fragments/stage-context/context-packet-03.md")
         if progressive:
             base["progressive_verification"] = {

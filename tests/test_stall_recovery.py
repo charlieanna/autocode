@@ -677,3 +677,228 @@ class ExecutedPacketTests(unittest.TestCase):
         self.assertEqual("", packet["calls"][1]["output_tail"])
         self.assertFalse(stall_recovery.executed({})["available"])
         self.assertFalse(stall_recovery.executed(None)["available"])
+
+    def test_pending_retains_completed_and_open_calls_across_intervening_abandonment(self):
+        import autocode_stage_context as stage_context
+        import units.autoplanner as autoplanner
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            subprocess.run(["git", "-C", str(root), "config", "user.name", "Fixture"], check=True)
+            subprocess.run(["git", "-C", str(root), "config", "user.email", "f@example.test"], check=True)
+            (root / "app.py").write_text("committed\n")
+            subprocess.run(["git", "-C", str(root), "add", "."], check=True)
+            subprocess.run(["git", "-C", str(root), "commit", "-qm", "init"], check=True)
+            run_dir = root / ".autocode/runs/fixture"
+            it_dir = run_dir / "iterations/001"
+            it_dir.mkdir(parents=True)
+            rev1 = source_scope.snapshot(root, {})["revision"]
+            before1 = it_dir / "tester-01.before.json"
+            util.atomic_json(before1, {"revision": rev1})
+
+            secret = "sk-" + ("Z9y8X7w6" * 6)
+            events1 = it_dir / "tester-01.jsonl"
+            events1.write_text(
+                "\n".join(
+                    [
+                        json.dumps(bash("pytest -q tests/test_a.py", output="1 passed", exit_code=0)),
+                        json.dumps(
+                            {
+                                "type": "tool_use",
+                                "sessionID": "s1",
+                                "part": {
+                                    "id": "p-hung",
+                                    "tool": "bash",
+                                    "state": {"status": "running", "input": {"command": f"echo {secret} && slow_test"}},
+                                },
+                            }
+                        ),
+                    ]
+                )
+                + "\n"
+            )
+            events2 = it_dir / "tester-02.jsonl"
+            events2.write_text(
+                "\n".join(
+                    [
+                        json.dumps(bash("pytest -q tests/test_b.py", output="2 passed", exit_code=0)),
+                        json.dumps(
+                            {
+                                "type": "item.started",
+                                "item": {
+                                    "id": "c-hung",
+                                    "type": "command_execution",
+                                    "command": "pytest tests/test_slow.py",
+                                },
+                            }
+                        ),
+                    ]
+                )
+                + "\n"
+            )
+            # Only open call without completed calls must still keep executed()['available'] == False.
+            open_only = it_dir / "open-only.jsonl"
+            open_only.write_text(
+                json.dumps(
+                    {
+                        "type": "tool_use",
+                        "sessionID": "s1",
+                        "part": {
+                            "id": "p-only",
+                            "tool": "bash",
+                            "state": {"status": "running", "input": {"command": "pytest"}},
+                        },
+                    }
+                )
+                + "\n"
+            )
+            self.assertFalse(stall_recovery.executed({"events": str(open_only)})["available"])
+            self.assertEqual(1, len(stall_recovery.stalled_calls({"events": str(open_only)})))
+
+            # Attempt 3 failed with content-filter refusal and no tool calls, overwriting recovery_context.
+            events3 = it_dir / "tester-03.jsonl"
+            events3.write_text(json.dumps({"type": "thread.started", "thread_id": "t3"}) + "\n")
+            state = {
+                "version": 2,
+                "workspace": str(root),
+                "run_dir": str(run_dir),
+                "status": "RUNNING",
+                "phase": "EXECUTING",
+                "iteration": 1,
+                "sessions": {},
+                "task": "Fix controller",
+                "settings": {
+                    "roles": {
+                        role: {"model": "fixture", "reasoning_effort": "high"}
+                        for role in ("builder", "tester", "task_planner")
+                    },
+                    "workflow": {"mode": "standard"},
+                },
+                "goal_contract": {
+                    "task_id": "T1",
+                    "hash": "contract-h1",
+                    "revision": 1,
+                    "body": {"acceptance_criteria": [{"id": "C1", "criterion": "Fix controller"}]},
+                },
+                "current_task": {
+                    "id": "T1",
+                    "kind": "validate",
+                    "milestone_id": "M1",
+                    "acceptance_criteria": ["C1"],
+                    "affected_paths": ["app.py"],
+                },
+                "stages": [
+                    {
+                        "stage": "tester",
+                        "iteration": 1,
+                        "timed_out": True,
+                        "exit_code": -15,
+                        "contract_hash": "contract-h1",
+                        "before_ref": str(before1),
+                        "events": str(events1),
+                    },
+                    {
+                        "stage": "tester",
+                        "iteration": 2,
+                        "timed_out": True,
+                        "exit_code": -15,
+                        "contract_hash": "contract-h1",
+                        "before_ref": str(before1),
+                        "events": str(events2),
+                    },
+                    {
+                        "stage": "tester",
+                        "iteration": 3,
+                        "abandoned": True,
+                        "exit_code": 1,
+                        "contract_hash": "contract-h1",
+                        "before_ref": str(before1),
+                        "events": str(events3),
+                    },
+                ],
+                "recovery_context": {"stage": "tester", "next_stage": "tester", "reason": "content filter"},
+            }
+            prompt, _ = stage_context.context_packet(state, "tester", run_dir / "state.json")
+            handoff = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+            retained = handoff["retained_executed_work"]
+            self.assertEqual("unverified", retained["verification"])
+            self.assertEqual(rev1, retained["source_revision"])
+            self.assertEqual([1, 2], [a["stage_attempt"] for a in retained["attempts"]])
+            self.assertEqual(2, len(retained["calls"]))
+            self.assertEqual(2, len(retained["stalled_calls"]))
+            self.assertNotIn(secret, json.dumps(retained))
+
+            # Realistic recovery_context (events / attempt_id without next_stage or stage_attempt) deduplicates attempt 2.
+            state["recovery_context"] = {
+                "stage": "tester",
+                "events": str(events2),
+                "executed_work": stall_recovery.executed(state["stages"][1]),
+            }
+            deduped = stall_recovery.pending(state, "tester", rev1)
+            self.assertEqual([1], [a["stage_attempt"] for a in deduped["attempts"]])
+
+            # Also verify attempt_id deduplication when output is set and events key is omitted from recovery_context.
+            state["stages"][1]["output"] = str(it_dir / "tester-02.json")
+            state["recovery_context"] = {
+                "stage": "tester",
+                "next_stage": "tester",
+                "attempt_id": "002/tester-02",
+                "executed_work": stall_recovery.executed(state["stages"][1]),
+            }
+            deduped_by_id = stall_recovery.pending(state, "tester", rev1)
+            self.assertEqual([1], [a["stage_attempt"] for a in deduped_by_id["attempts"]])
+
+            # Tool-enabled planning recovery receives retained_executed_work unless report_only or report_recovery is active.
+            draft_events = it_dir / "draft-plan-01.jsonl"
+            draft_events.write_text(json.dumps(read(str(root / "app.py"), output="committed")) + "\n")
+            state["stages"].append(
+                {
+                    "stage": "draft_plan",
+                    "iteration": 1,
+                    "rejected": True,
+                    "exit_code": 0,
+                    "before_ref": str(before1),
+                    "events": str(draft_events),
+                }
+            )
+            state["planning"] = {"stage": "draft_plan", "draft": {"tasks": []}, "reports": {}, "history": []}
+            state["recovery_context"] = {"stage": "draft_plan", "next_stage": "draft_plan", "reason": "route switch"}
+            draft_prompt, _ = autoplanner.context(state, "draft_plan", run_dir / "state.json")
+            draft_handoff = json.loads(draft_prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+            self.assertEqual(1, len(draft_handoff["retained_executed_work"]["calls"]))
+
+            # report_only recovery omits retained_executed_work.
+            state["recovery_context"] = {"stage": "draft_plan", "next_stage": "draft_plan", "report_only": True}
+            report_prompt, _ = autoplanner.context(state, "draft_plan", run_dir / "state.json")
+            self.assertNotIn("retained_executed_work", json.loads(report_prompt.split("CURRENT HANDOFF DATA\n", 1)[1]))
+
+            # review_plan under tool-free report_recovery omits retained_executed_work, while explicit abandonment retains it.
+            plan_events = it_dir / "review-plan-01.jsonl"
+            plan_events.write_text(json.dumps(read(str(root / "app.py"), output="committed")) + "\n")
+            state["stages"].append(
+                {
+                    "stage": "review_plan",
+                    "iteration": 1,
+                    "timed_out": True,
+                    "exit_code": -15,
+                    "before_ref": str(before1),
+                    "events": str(plan_events),
+                }
+            )
+            state["planning"] = {"stage": "review_plan", "draft": {"tasks": []}, "reports": {}, "history": []}
+            state["recovery_context"] = {"stage": "review_plan", "next_stage": "review_plan", "reason": "timeout"}
+            report_recovery_prompt, _ = autoplanner.context(state, "review_plan", run_dir / "state.json")
+            self.assertNotIn(
+                "retained_executed_work", json.loads(report_recovery_prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+            )
+
+            state["recovery_context"] = {"attempt_id": "001/review-plan-02", "reason": "abandoned"}
+            abandoned_prompt, _ = autoplanner.context(state, "review_plan", run_dir / "state.json")
+            abandoned_handoff = json.loads(abandoned_prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+            self.assertEqual(1, len(abandoned_handoff["retained_executed_work"]["calls"]))
+
+            # Advancing source_revision or completing cleanly clears retained work.
+            (root / "app.py").write_text("updated\n")
+            rev2 = source_scope.snapshot(root, {})["revision"]
+            self.assertIsNone(stall_recovery.pending(state, "tester", rev2))

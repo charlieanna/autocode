@@ -1332,6 +1332,7 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
         for grant in exchange.get("recovery_review_grants", [])
         if not grant.get("consumed") and grant.get("binding", {}).get("stage") == stage
     ]
+    current_source = None
     if stage in ("review_plan", "finalize_plan") and (report_recovery or packet["recovery_context"]):
         current_source = stage_context.source_scope.snapshot(Path(state["workspace"]), state)
         retained = recovery_observations.context(state, stage, Path(state_path).parent, current_source["revision"])
@@ -1344,6 +1345,27 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
         if prior_examples:
             packet["prior_review_examples"] = prior_examples
             exchange["reports"]["review_plan"]["report"].pop("summary", None)
+    if (
+        not report_recovery
+        and packet.get("recovery_context")
+        and not (packet.get("recovery_context") or {}).get("report_only")
+        and any(
+            isinstance(r, dict)
+            and r.get("stage") == stage
+            and not r.get("runner_owned")
+            and not r.get("report_only")
+            and (r.get("timed_out") or r.get("abandoned") or r.get("rejected") or r.get("exit_code") not in (0, None))
+            for r in state.get("stages") or ()
+        )
+    ):
+        try:
+            from .. import autocode_stall_recovery as stall_recovery
+        except ImportError:
+            import autocode_stall_recovery as stall_recovery
+        if stall_recovery.carries_executed_work(stage, stage):
+            current_source = current_source or stage_context.source_scope.snapshot(Path(state["workspace"]), state)
+            if retained_work := stall_recovery.pending(state, stage, current_source["revision"]):
+                packet["retained_executed_work"] = retained_work
     if report_recovery:
         try:
             from ..autocode_resolver_runtime import OPERATIONAL_INSTRUCTION
