@@ -111,7 +111,7 @@ CHECKS = (
     "tool_calls",  # read no more than the request needs
     "handoff",  # a clear build names behaviours and acceptance tests
     "clarity",  # not marked clear while it asks the person what outcome they want
-    "reply_matches_question",  # the reply asks the same question the open questions list
+    "reply_matches_question",  # the reply asks every question the open questions list, word for word
     "no_blocking_confirmation",  # a clear request is not stopped by "Is that correct?"
     "latency",  # answered within LATENCY_LIMIT_SECONDS
 )
@@ -203,6 +203,11 @@ def _asks_outcome(report):
 
 
 def _reply_asks(reply, questions):
-    """The reply carries one of the open questions word for word (spacing and case aside)."""
+    """The reply carries every open question word for word (spacing and case aside).
+
+    Deliberately literal: the person reads the reply, and the run records the open questions, so
+    the two must be the same question. On 2026-11-15 GLM-5.3 low worded them differently in five of
+    nine runs, which is the defect this check exists to catch, not a phrasing it should forgive.
+    """
     folded = reply.casefold()
-    return any(question.casefold() in folded for question in questions)
+    return all(question.casefold() in folded for question in questions)

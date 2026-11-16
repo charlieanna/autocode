@@ -10,9 +10,10 @@ place).
 
 A result is kept per model and level, so a model measured once is not measured again when it
 shows up through another project; recording a new result for the same model and level replaces
-the old one. Measured entries rank ahead of the shipped table's for the same stage, and a model
-the person's probe measured and that did not qualify is not chosen automatically for that stage,
-even when the shipped table lists it. The person can still name any model for a stage themselves.
+the old one. Once a stage has been measured, only its qualified measured models are chosen
+automatically, in measured order, and the quota fallback moves only among them; when none
+qualified, the person chooses the stage's model. The person can still name any model for a stage
+themselves.
 
 Ranking (#3630 step 4): for each model, the lowest level that qualifies (higher levels added time
 and blocking confirmations without better questions on 2026-11-15); then models by passes, then
@@ -50,7 +51,8 @@ _LEVELS = {level: index for index, level in enumerate(util.EFFORTS)}
 
 def path() -> Path:
     """``measured-routes.json`` beside the user's ``stages.toml`` (``$XDG_CONFIG_HOME/autocode``)."""
-    root = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config")))
+    # An empty XDG_CONFIG_HOME means unset, never the current directory.
+    root = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
     return root / "autocode" / FILE_NAME
 
 
@@ -142,6 +144,11 @@ def entries(role, document=None) -> list:
         }
         for index, row in enumerate(row for row in _rows(role, document) if row["qualified"])
     ]
+
+
+def measured(role, document=None) -> bool:
+    """True when the probe has measured any model for ``role``, whether or not it qualified."""
+    return bool(_rows(role, document))
 
 
 def failed(role, document=None) -> set:

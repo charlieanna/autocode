@@ -49,7 +49,10 @@ NARROW = re.compile(
     r"whisper|image|images|vision|vl|realtime|moderation|search|rerank)(?:$|[-_.:/])"
 )
 BILLING_ORDER = {"subscription": 0, None: 1, "pay per token": 2}
-_VERSION = re.compile(r"\d+(?:\.\d+)*")
+# One version token: "6.1", or the hyphenated "5-5" of "claude-opus-5-5". A trailing eight-digit
+# snapshot date ("-20250929") is not part of the version; it dates the release instead.
+_VERSION = re.compile(r"\d+(?:[.-]\d+)*")
+_SNAPSHOT = re.compile(r"[-_@](\d{4})(\d{2})(\d{2})$")
 KNOWN_FAMILIES = ("glm", "mimo", "claude", "openai")
 
 
@@ -145,6 +148,11 @@ def _newest_per_line(candidates, rows):
 
 
 def _name(model):
+    """The model's own name, without its gateway, vendor or snapshot date."""
+    return _SNAPSHOT.sub("", _full_name(model))
+
+
+def _full_name(model):
     return model_identity.identity(model).rsplit("/", 1)[-1]
 
 
@@ -164,19 +172,27 @@ def _line(model):
 
 def _version(model):
     """The version numbers in the model's name, padded so ``6`` sorts as ``6.0`` below ``6.1``."""
-    parts = [int(part) for match in _VERSION.findall(_name(model)) for part in match.split(".")]
+    parts = [int(part) for match in _VERSION.findall(_name(model)) for part in re.split(r"[.-]", match)]
     return tuple((parts + [0] * 6)[:6])
 
 
 def _release(candidate):
+    """The listing's release date, else the snapshot date in the model's id, else ""."""
     value = _metadata(candidate).get("release_date")
-    return value if isinstance(value, str) else ""
+    if isinstance(value, str) and value:
+        return value
+    snapshot = _SNAPSHOT.search(_full_name(candidate["model"]))
+    return "-".join(snapshot.groups()) if snapshot else ""
 
 
 def _newest_first(candidate):
-    """Newest release first, then the highest version, then the model id."""
+    """The highest version first, then the newest release (listed, or the id's snapshot date), then the id.
+
+    Version leads because a release date is often missing or only inferred from a snapshot suffix,
+    and a dated snapshot of an older version must not outrank the next version.
+    """
     release = _release(candidate)
-    return (release == "", _negate(release), tuple(-part for part in _version(candidate["model"])), candidate["model"])
+    return (tuple(-part for part in _version(candidate["model"])), release == "", _negate(release), candidate["model"])
 
 
 def _negate(text):

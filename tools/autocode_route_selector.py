@@ -190,24 +190,18 @@ def qualified(role):
     """The entries for ``role``: the person's measured ranking first, then the shipped table's.
 
     The one place every route policy reads (#3630): selection, the quota fallback in
-    ``autocode_route_pool`` and the model listing. A model the person's probe measured for this
-    role ranks by that measurement (``autocode_measured_routes``), and one it measured and found
-    not to qualify is left out, even when the shipped table lists it. Shipped entries keep their
-    own order after the measured ones. () when neither names any.
+    ``autocode_route_pool`` and the model listing. Once the person's probe has measured models for
+    this role, only the ones that qualified are eligible, in their measured order
+    (``autocode_measured_routes``): the ranking and the quota fallback cover only measured models,
+    and AutoCode never moves the stage onto a model nobody measured (owner direction on #3630,
+    2026-11-15). When none qualified the role has no automatic route, so selection stops and the
+    person chooses its model. Without a measurement for the role, the shipped table's entries.
     """
-    shipped = table()["roles"].get(role)
-    shipped = shipped if isinstance(shipped, list) else []
     document = measured_routes.load()
-    measured = measured_routes.entries(role, document)
-    if not measured and not measured_routes.failed(role, document):
-        return tuple(shipped)
-    known = {model_identity.identity(entry["model"]) for entry in measured} | measured_routes.failed(role, document)
-    rest = [
-        {**entry, "preference": len(measured) + entry.get("preference", 0)}
-        for entry in shipped
-        if not known & {model_identity.identity(route) for route in entry.get("routes") or [entry["model"]]}
-    ]
-    return tuple(measured + rest)
+    if measured_routes.measured(role, document):
+        return tuple(measured_routes.entries(role, document))
+    shipped = table()["roles"].get(role)
+    return tuple(shipped) if isinstance(shipped, list) else ()
 
 
 def _label(role):

@@ -79,9 +79,32 @@ class ShortlistTests(unittest.TestCase):
         self.assertTrue(rows["gpt-6.1-sol"]["suggested"])
         self.assertEqual("the same model as gpt-6.1-sol", rows["kilo/openai/gpt-6.1-sol"]["reason"])
 
-    def test_newer_release_date_wins_over_version_number(self):
-        models = [offered("x/line-9", release_date="2025-01-01"), offered("x/line-2", release_date="2026-10-01")]
-        self.assertEqual(["x/line-2"], shortlist.suggested_models(models))
+    def test_autocodes_own_codex_list_keeps_all_three(self):
+        import autocode_route_discovery as route_discovery
+
+        models = [offered(m) for m in route_discovery.CODEX_MODELS]
+        self.assertEqual(sorted(route_discovery.CODEX_MODELS), sorted(shortlist.suggested_models(models)))
+
+    def test_hyphenated_versions_and_snapshot_dates_are_one_model_line(self):
+        models = [
+            offered("anthropic/claude-sonnet-4-5"),
+            offered("anthropic/claude-sonnet-4-5-20250929"),
+            offered("anthropic/claude-sonnet-5"),
+            offered("anthropic/claude-opus-5-5"),
+            offered("anthropic/claude-haiku-4-5-20251001"),
+        ]
+        self.assertEqual(
+            {"anthropic/claude-opus-5-5", "anthropic/claude-sonnet-5", "anthropic/claude-haiku-4-5-20251001"},
+            set(shortlist.suggested_models(models)),
+        )
+        rows = {row["model"]: row for row in shortlist.shortlist(models)}
+        self.assertEqual(
+            "a newer version is listed: anthropic/claude-sonnet-5", rows["anthropic/claude-sonnet-4-5"]["reason"]
+        )
+
+    def test_the_same_version_keeps_its_newest_snapshot(self):
+        models = [offered("x/line-2", release_date="2025-01-01"), offered("x/line-2-20261001")]
+        self.assertEqual(["x/line-2-20261001"], shortlist.suggested_models(models))
 
 
 def answer(**fields):
@@ -149,6 +172,19 @@ class GraderTests(unittest.TestCase):
                 clarity="vague",
                 assistant_reply="Do you mean speed?",
                 open_questions=[question("What should get better?")],
+            ),
+            tool_calls=0,
+        )
+        self.assertEqual(["reply_matches_question"], result["failed"])
+
+    def test_every_open_question_must_be_in_the_reply(self):
+        result = probe.grade(
+            "R2",
+            answer(
+                job="none",
+                clarity="vague",
+                assistant_reply="What should get better?",
+                open_questions=[question("What should get better?"), question("Which file?", "scope")],
             ),
             tool_calls=0,
         )
@@ -293,7 +329,7 @@ class SelectionReadsTheMeasurementTests(unittest.TestCase):
         route = self.chosen()
         self.assertEqual(("openai/gpt-6.1-sol", "medium"), (route["model"], route["reasoning_effort"]))
         models = [entry["model"] for entry in route_selector.qualified("requirements")]
-        self.assertEqual(["openai/gpt-6.1-sol", "anthropic/claude-opus-5-5"], models)
+        self.assertEqual(["openai/gpt-6.1-sol"], models, "an unmeasured shipped model is not eligible once measured")
         self.assertEqual("measured", route_selector.qualified("requirements")[0]["provenance"])
         self.assertIn("8/9 requests", route_selector.evidence_summary(route_selector.qualified("requirements")[0]))
 
@@ -310,7 +346,17 @@ class SelectionReadsTheMeasurementTests(unittest.TestCase):
             "anthropic/claude-opus-5-5", route_selector.next_route(selection, "requirements", first)["model"]
         )
         after = route_selector.next_route(selection, "requirements", "anthropic/claude-opus-5-5", failed_models=[first])
-        self.assertEqual("zai-coding-plan/glm-5.3", after["model"])
+        self.assertIsNone(after, "the quota fallback never moves onto a model nobody measured")
+
+    def test_when_nothing_qualified_selection_stops_for_the_person(self):
+        measured_routes.record("requirements", [measured("openai/gpt-6.1-sol", "medium", 2)])
+        result = route_selector.select(["requirements"], self.candidates())
+        self.assertIsNone(result["routes"])
+        self.assertIn("no qualified model", result["stop"])
+
+    def test_an_empty_config_home_is_the_home_folder_not_the_current_directory(self):
+        with patch.dict("os.environ", {"XDG_CONFIG_HOME": ""}):
+            self.assertEqual(Path.home() / ".config" / "autocode" / "measured-routes.json", measured_routes.path())
 
 
 if __name__ == "__main__":

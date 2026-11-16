@@ -302,11 +302,11 @@ qualification table, so an account whose models are not in it got no ranked choi
 ranking of your own models, in `~/.config/autocode/measured-routes.json` beside `stages.toml`.
 Selection, the quota fallback and `autocode models --selection` all read it from that one place:
 
-- a model your probe measured and qualified ranks ahead of the shipped table's models for that
-  stage, at the lowest level that qualified;
-- a model it measured and did not qualify is not chosen automatically for that stage, even when the
-  shipped table lists it (you can still choose it yourself);
-- without a measurement, the shipped table applies as before.
+- once a stage has been measured, only the models that qualified are chosen automatically, best
+  first, each at the lowest level that qualified, and a quota stop moves only among them;
+- when none qualified, AutoCode does not fall back to a model nobody measured: you choose the
+  stage's model yourself (you can always name any model for a stage);
+- for a stage nobody has measured, the shipped table applies as before.
 
 The parts in place are the free shortlist (`autocode_model_shortlist`: what to suggest measuring,
 read from the tool's own listing with no model call), the Requirements requests and their
