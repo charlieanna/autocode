@@ -29,6 +29,7 @@ import autocode_recovery_grants as recovery_grants
 import autocode_resolver_human as human
 import autocode_resolver_runtime as runtime
 import autocode_run_actions as actions
+import autocode_run_status as run_status
 import autocode_run_view as run_view
 import autocode_source_log as source_log
 import autocode_stage_recovery as stage_recovery
@@ -485,7 +486,9 @@ class OperationalDispositionTests(unittest.TestCase):
         self.assertEqual("AutoCode could not start the model step", startup_view.presentation(self.state)["title"])
         self.assert_blocked_status()
         self.state["automatic_timeout_recoveries"][-1]["stall_phase"] = "during_reasoning_or_output"
-        self.assertNotEqual("AutoCode could not start the model step", startup_view.presentation(self.state)["title"])
+        self.assertIsNone(
+            startup_view.presentation(self.state), "the startup-specific reader does not own generic holds"
+        )
         self.assert_blocked_status()
 
     def queued(self, pause="PAUSED_PROVIDER_UNCERTAIN"):
@@ -1281,7 +1284,12 @@ class OperationalDispositionTests(unittest.TestCase):
         return public, self.recovery_writer()
 
     def test_actual_bounded_legacy_reconsideration_keeps_counts_and_revalidates_at_final_admission(self):
+        import autocode as core
+
         public, writer = self.reserve_incident()
+
+        writer.write_json = core.write_json
+        writer.write_json = core.write_json
         original = self.state["resolver"]["human_escalations"][public["request_id"]]["identity"]["proposal"][
             "evidence"
         ]["resolver_receipt_id"]
@@ -1344,24 +1352,36 @@ class OperationalDispositionTests(unittest.TestCase):
         self.assertIsNotNone(disposition.held(self.state))
 
     def test_reconsideration_json_uncertainty_never_records_checked_credit_or_drops_the_incident(self):
+        import autocode as core
+
         _, writer = self.reserve_incident()
-        original_write = writer.write_json
-        calls = []
-        error = util.JSONCommitUncertain(self.run / "state.json", candidate="fixture", replaced=True, durable=False)
+        pristine = copy.deepcopy(self.state)
+        for boundary in (1, 2):
+            with self.subTest(save=boundary):
+                self.state = copy.deepcopy(pristine)
+                calls = []
+                error = util.JSONCommitUncertain(
+                    self.run / "state.json", candidate="fixture", replaced=True, durable=False
+                )
 
-        def uncertain(path, value):
-            calls.append(path)
-            if len(calls) == 2:
-                raise error
-            original_write(path, value)
+                def uncertain(path, value):
+                    calls.append(path)
+                    if len(calls) == boundary:
+                        raise error
+                    core.write_json(path, value)
 
-        writer.write_json = uncertain
-        with self.assertRaises(util.JSONCommitUncertain) as raised:
-            self.apply_selected_owner(writer, Arguments(resume_paused=True), actions.Decided())
-        self.assertIs(error, raised.exception)
-        self.assertIsNotNone(disposition.held(self.state))
-        self.assertFalse(admission.ready(self.state, actions.Decided()))
-        self.assertFalse(self.state["planning"].get("recovery_review_grants"))
+                writer.write_json = uncertain
+                decided = actions.Decided()
+                with self.assertRaises(util.JSONCommitUncertain) as raised:
+                    self.apply_selected_owner(writer, Arguments(resume_paused=True), decided)
+                self.assertIs(error, raised.exception)
+                self.assertIsNotNone(disposition.held(self.state))
+                self.assertFalse(admission.ready(self.state, decided))
+                self.assertIsNone(decided.operational_recovery_checked)
+                self.assertEqual(
+                    0 if boundary == 1 else 1, len(self.state["planning"].get("recovery_review_grants") or [])
+                )
+                self.assertEqual(2, self.state["planning"]["plan_review_calls"])
 
     def test_actual_default_planning_feedback_is_retained_until_final_guarded_admission(self):
         self.state.update(automatic_recoveries_since_resume=3)
@@ -1745,6 +1765,155 @@ class OperationalDispositionTests(unittest.TestCase):
                         for identity in originals
                     }
                     self.assertEqual(count, len(prefixes))
+
+    def test_feedback_and_intervention_histories_are_authenticated_once_per_read(self):
+        class Observed(list):
+            visits = 0
+
+            def __iter__(self):
+                for value in super().__iter__():
+                    self.visits += 1
+                    yield value
+
+            def __contains__(self, expected):
+                return any(value is expected or value == expected for value in self)
+
+        pristine = copy.deepcopy(self.state)
+        for actor in ("user_cli", "user_intervention"):
+            for count in (4, 16, 64):
+                with self.subTest(actor=actor, records=count):
+                    self.state = copy.deepcopy(pristine)
+                    self.planning_incident()
+                    if actor == "user_cli":
+                        run_status.pause(self.state, "PAUSED_REQUESTED", "Clean fixture boundary")
+                        for number in range(count):
+                            goals.feedback(
+                                self.state,
+                                f"Keep requested change {number} local",
+                                interpret=False,
+                                requested_hold=True,
+                            )
+                    else:
+                        self.run.mkdir(parents=True, exist_ok=True)
+                        requests = [
+                            {
+                                "id": f"feedback-{number}",
+                                "kind": "feedback",
+                                "text": f"Keep queued change {number} local",
+                                "order": number + 1,
+                                "submitted_at": util.now(),
+                                "observed_goal_token": goals.token(self.state["goal_contract"]),
+                                "boundary_pause_requested": True,
+                            }
+                            for number in range(count)
+                        ]
+                        util.atomic_json(self.run / interventions.INBOX_NAME, {"version": 1, "requests": requests})
+                        self.assertTrue(
+                            stop.consume(self.state, self.run, self.root, write_json=util.atomic_json, now=util.now)
+                        )
+                        self.assertEqual([], interventions.pending(self.run))
+                    expected = disposition.decision(self.state)
+                    self.assertEqual("planning_input", expected["kind"])
+                    brief, applied = (
+                        Observed(self.state["brief_feedback"]),
+                        Observed(self.state.get("applied_interventions") or []),
+                    )
+                    self.state["brief_feedback"], self.state["applied_interventions"] = brief, applied
+                    event_ids = {id(event) for event in self.state["user_events"]}
+                    canonical, encoded = util._canonical_json, []
+
+                    def observed(value):
+                        if id(value) in event_ids:
+                            encoded.append(value)
+                        return canonical(value)
+
+                    with patch.object(util, "_canonical_json", side_effect=observed):
+                        self.assertEqual(expected, disposition.decision(self.state))
+                    with self.subTest(evidence="paired_feedback"):
+                        self.assertLessEqual(brief.visits, count, "complete paired-event evidence is observed once")
+                    with self.subTest(evidence="applied_receipts"):
+                        self.assertLessEqual(applied.visits, count, "applied receipts are observed once")
+                    self.assertEqual(len(self.state["user_events"]), len(encoded))
+
+    def test_feedback_index_keeps_full_pair_and_receipt_equality_and_first_valid_event_after_prefix(self):
+        original = self.planning_incident()
+        goals.feedback(self.state, "First genuine correction", interpret=False)
+        event = next(event for event in self.state["user_events"] if event.get("kind") == "brief_feedback")
+        self.state["brief_feedback"] = [{**event, "text": "foreign same-ID payload"}]
+        self.assertEqual("blocked", disposition.decision(self.state)["kind"])
+        self.state["brief_feedback"].extend([False, copy.deepcopy(event), {**event, "text": "another payload"}])
+        self.assertEqual(event["id"], disposition.decision(self.state)["input"]["event_id"])
+        self.state["brief_feedback"] = [copy.deepcopy(event)]
+        newer = runtime._operational_receipt(
+            self.state,
+            self.run,
+            "blocked",
+            disposition.MESSAGE,
+            {
+                "status": "PAUSED_PLANNING_BUDGET",
+                "stage": self.state["next_stage"],
+                "budget": disposition.budget(self.state, "PAUSED_PLANNING_BUDGET"),
+            },
+        )
+        run_status.pause(self.state, "PAUSED_REQUESTED", "Clean fixture boundary")
+        goals.feedback(self.state, "Second genuine correction", interpret=False, requested_hold=True)
+        expected = self.state["brief_feedback"][-1]
+        self.assertEqual(
+            expected["id"],
+            disposition.planning_input(self.state, disposition.diagnostic(self.state, newer))["event_id"],
+        )
+        self.assertNotEqual(original, newer)
+        self.state["brief_feedback"] = False
+        self.assertEqual("blocked", disposition.decision(self.state)["kind"])
+
+    def test_feedback_index_requires_exact_applied_receipt_facts_without_last_wins_duplicates(self):
+        self.planning_incident()
+        self.run.mkdir(parents=True, exist_ok=True)
+        request = {
+            "id": "exact-feedback",
+            "kind": "feedback",
+            "text": "Keep this correction local",
+            "order": 1,
+            "submitted_at": util.now(),
+            "observed_goal_token": goals.token(self.state["goal_contract"]),
+            "boundary_pause_requested": True,
+        }
+        util.atomic_json(self.run / interventions.INBOX_NAME, {"version": 1, "requests": [request]})
+        self.assertTrue(stop.consume(self.state, self.run, self.root, write_json=util.atomic_json, now=util.now))
+        expected = disposition.decision(self.state)
+        self.assertEqual("planning_input", expected["kind"])
+        valid = copy.deepcopy(self.state)
+        for changed in ("id", "kind", "applied_at", "missing", "malformed", "pair_text", "receipt_id", "event_time"):
+            with self.subTest(changed=changed):
+                self.state = copy.deepcopy(valid)
+                # JSON persistence stores the two ledgers independently.
+                self.state["brief_feedback"] = copy.deepcopy(self.state["brief_feedback"])
+                if changed in ("id", "kind", "applied_at"):
+                    self.state["applied_interventions"][0][changed] = "foreign"
+                elif changed == "missing":
+                    self.state["applied_interventions"] = []
+                elif changed == "malformed":
+                    self.state["applied_interventions"] = [False]
+                elif changed == "pair_text":
+                    self.state["brief_feedback"][0]["text"] = "unpaired same-ID text"
+                else:
+                    key = "receipt_id" if changed == "receipt_id" else "at"
+                    self.state["brief_feedback"][0][key] = "foreign"
+                    for event in self.state["user_events"]:
+                        if event.get("kind") == "brief_feedback":
+                            event[key] = "foreign"
+                before = copy.deepcopy(self.state)
+                self.assertEqual("blocked", disposition.decision(self.state)["kind"])
+                self.assertEqual(before, self.state)
+        self.state = copy.deepcopy(valid)
+        receipt = copy.deepcopy(self.state["applied_interventions"][0])
+        self.state["applied_interventions"] = [
+            False,
+            {**receipt, "applied_at": "foreign"},
+            receipt,
+            {**receipt, "kind": "foreign"},
+        ]
+        self.assertEqual(expected, disposition.decision(self.state))
 
     def test_receipt_inventory_authenticates_listed_facts_once_across_all_incident_shapes(self):
         class Inventory(list):
@@ -2561,7 +2730,11 @@ class OperationalDispositionTests(unittest.TestCase):
             Arguments(resume_paused=True, retry_failed_stage=True),
             actions.Decided(),
         )
+        import autocode as core
+
+        writer.write_json = core.write_json
         writer.resolver_recovery = recovery
+        original_owner_input = copy.deepcopy(self.state)
         self.assertIsNone(self.apply_selected_owner(writer, args, decided))
         self.assertEqual("resolver_retry", decided.operational_selection)
         authorization = args._failure_retry_authorization
@@ -2608,6 +2781,152 @@ class OperationalDispositionTests(unittest.TestCase):
                         )
                 self.assertEqual(before, self.state)
                 authorization.pop("_novelty_consumed", None)
+
+        # This owner's queued predecessor is authenticated without inventing a
+        # complete publication. Its actual writer must preserve that input too.
+        def queued_input():
+            self.state = copy.deepcopy(original_owner_input)
+            public = self.state.pop(human.PUBLIC)
+            entry = self.state["resolver"]["human_escalations"].pop(public["request_id"])
+            self.state[human.PRIVATE] = copy.deepcopy(entry["identity"]["proposal"])
+            self.state.pop("user_request", None)
+            self.state.update(status="RESOLVER_PENDING", pending_questions=[])
+
+        queued_input()
+        queued_original = disposition.incident_identity(self.state, disposition.held(self.state))
+        decided, args = actions.Decided(), Arguments(resume_paused=True, retry_failed_stage=True)
+        self.assertIsNone(self.apply_selected_owner(writer, args, decided))
+        self.assertEqual("resolver_retry", decided.operational_selection)
+        self.assertEqual(queued_original, disposition.incident_identity(self.state, disposition.held(self.state)))
+        self.assertEqual(1, len(self.state["failure_retry_authorizations"]))
+        self.assertTrue(admission.ready(self.state, decided))
+        self.assertEqual(
+            2,
+            admission.work_guard(
+                writer,
+                Arguments(resume_paused=True),
+                None,
+                self.state,
+                self.run / "state.json",
+                self.run,
+                self.root,
+                actions.Decided(),
+            ),
+        )
+        self.assertEqual(
+            1, len(self.state["failure_retry_authorizations"]), "saved audit never repeats an invocation grant"
+        )
+        queued_input()
+        decided, args = actions.Decided(), Arguments(resume_paused=True, retry_failed_stage=True)
+        error = util.JSONCommitUncertain(self.run / "state.json", candidate="fixture", replaced=True, durable=False)
+        with patch.object(writer, "write_json", side_effect=error):
+            with self.assertRaises(util.JSONCommitUncertain) as raised:
+                self.apply_selected_owner(writer, args, decided)
+        self.assertIs(error, raised.exception)
+        self.assertEqual(queued_original, disposition.incident_identity(self.state, disposition.held(self.state)))
+        self.assertIsNone(decided.failure_retry_authorization)
+        self.assertIsNone(decided.operational_recovery_checked)
+        self.assertFalse(admission.ready(self.state, decided))
+
+    def test_actual_normalizing_writer_preserves_queued_and_published_grant_requests_until_owner_commit(self):
+        import autocode as core
+
+        pristine = copy.deepcopy(self.state)
+        for queued in (False, True):
+            with self.subTest(queued=queued):
+                self.state = copy.deepcopy(pristine)
+                self.state.pop("active_stage")
+                self.state.update(automatic_recoveries_since_resume=3, consecutive_timeout_recoveries=3)
+                issued = (
+                    self.queued(pause="PAUSED_TIMEOUT_RECOVERY")
+                    if queued
+                    else self.legacy(pause="PAUSED_TIMEOUT_RECOVERY")
+                )
+                original = disposition.incident_identity(self.state, disposition.held(self.state))
+                expected = issued if queued else issued["request_id"]
+                writer, args, decided = (
+                    self.recovery_writer(),
+                    Arguments(resume_paused=True, grant_recovery=1),
+                    actions.Decided(),
+                )
+                writer.write_json = core.write_json
+                before = copy.deepcopy(self.state)
+                with patch.object(writer, "write_json", wraps=writer.write_json) as writes:
+                    self.assertIsNone(
+                        admission.guard(
+                            writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided
+                        )
+                    )
+                    writes.assert_not_called()
+                    self.assertEqual(before, self.state)
+                    self.assertIsNone(
+                        actions.apply_owned(
+                            writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided
+                        )
+                    )
+                self.assertEqual(2, self.state["automatic_recoveries_since_resume"])
+                self.assertEqual(expected, self.state["recovery_grants"][-1]["request_id"])
+                self.assertEqual(1, len(self.state["recovery_grants"]))
+                self.assertEqual(original, disposition.incident_identity(self.state, disposition.held(self.state)))
+                self.assertTrue(admission.ready(self.state, decided))
+                saved = support.read(self.run / "state.json")
+                later = actions.Decided()
+                self.state = saved
+                self.assertIsNone(self.apply_selected_owner(writer, Arguments(resume_paused=True), later))
+                self.assertEqual(1, len(self.state["recovery_grants"]), "reentry validates, never repeats the grant")
+
+    def test_preserving_grant_uncertain_owner_or_checked_save_retains_incident_without_reapplication(self):
+        import autocode as core
+
+        pristine = copy.deepcopy(self.state)
+        for queued in (False, True):
+            for boundary in (1, 2):
+                with self.subTest(queued=queued, save=boundary):
+                    self.state = copy.deepcopy(pristine)
+                    self.state.pop("active_stage")
+                    self.state.update(
+                        automatic_recoveries_since_resume=3,
+                        consecutive_timeout_recoveries=3,
+                        automatic_timeout_recoveries=[{"stage": "requirements_gather"}] * 3,
+                    )
+                    self.queued(pause="PAUSED_TIMEOUT_RECOVERY") if queued else self.legacy(
+                        pause="PAUSED_TIMEOUT_RECOVERY"
+                    )
+                    original = disposition.incident_identity(self.state, disposition.held(self.state))
+                    attempts = copy.deepcopy(self.state["stages"])
+                    writer, args, decided = (
+                        self.recovery_writer(),
+                        Arguments(resume_paused=True, grant_recovery=1),
+                        actions.Decided(),
+                    )
+                    calls = []
+                    error = util.JSONCommitUncertain(
+                        self.run / "state.json", candidate="fixture", replaced=True, durable=False
+                    )
+
+                    def uncertain(path, value):
+                        calls.append(path)
+                        if len(calls) == boundary:
+                            raise error
+                        core.write_json(path, value)
+
+                    writer.write_json = uncertain
+                    with self.assertRaises(util.JSONCommitUncertain) as raised:
+                        self.apply_selected_owner(writer, args, decided)
+                    self.assertIs(error, raised.exception)
+                    self.assertEqual(original, disposition.incident_identity(self.state, disposition.held(self.state)))
+                    self.assertFalse(admission.ready(self.state, decided))
+                    self.assertIsNone(decided.operational_recovery_checked)
+                    self.assertEqual(1, len(self.state["recovery_grants"]))
+                    self.assertEqual(2, self.state["automatic_recoveries_since_resume"])
+                    self.assertEqual(attempts, self.state["stages"][: len(attempts)])
+                    self.assertEqual(
+                        2,
+                        admission.work_guard(
+                            writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided
+                        ),
+                    )
+                    self.assertEqual(1, len(self.state["recovery_grants"]))
 
     def test_actual_grant_preserves_exhausted_allowance_owner_under_a_non_timeout_incident(self):
         self.state.pop("active_stage")

@@ -36,7 +36,7 @@ class HumanPublicationTests(unittest.TestCase):
     def test_resume_companions_recognize_only_a_current_operational_pause(self):
         run = Path(self.state["run_dir"])
         legacy_publication(self.state, run, pause="PAUSED_TIMEOUT_RECOVERY")
-        runner.write_json(run / "state.json", self.state)
+        support.atomic_json(run / "state.json", self.state)
         self.assertEqual("WAITING_FOR_USER", self.state["status"])
         argv = ["resume", "--run-dir", str(run)]
         before = (run / "state.json").read_bytes()
@@ -81,13 +81,15 @@ class HumanPublicationTests(unittest.TestCase):
         self.state["resolver"] = {"attempts": {"external-directory": 3}}
         run = Path(self.state["run_dir"])
         legacy_publication(self.state, run)
-        runner.write_json(run / "state.json", self.state)
+        support.atomic_json(run / "state.json", self.state)
         published = human.retained(self.state)
         self.assertIsNotNone(published)
         args = autocode_args.build_parser(None, runner.DEFAULT_ROLE_MODELS).parse_args(
             ["--run-dir", str(run), "--resume-paused", "--grant-recovery", "1", "--no-chat"]
         )
         fake_runner = Mock(wraps=runner)
+        fake_runner.run_actions = run_actions
+        fake_runner.resolver_runtime = runner.resolver_runtime
         fake_runner.ReportRepairQueued = runner.ReportRepairQueued
 
         class GrantApplied(Exception):
@@ -112,7 +114,7 @@ class HumanPublicationTests(unittest.TestCase):
         self.state.update(status="PAUSED_REPEATED_FAILURE", next_stage="review_completion")
         run = Path(self.state["run_dir"])
         legacy_publication(self.state, run)
-        runner.write_json(run / "state.json", self.state)
+        support.atomic_json(run / "state.json", self.state)
         self.assertEqual("WAITING_FOR_USER", self.state["status"])
         published = human.retained(self.state)
         self.assertEqual("operational_exhaustion", published["scope"])
@@ -122,6 +124,8 @@ class HumanPublicationTests(unittest.TestCase):
         )
 
         fake_runner = Mock(wraps=runner)
+        fake_runner.run_actions = run_actions
+        fake_runner.resolver_runtime = runner.resolver_runtime
         before = (run / "state.json").read_bytes()
         prefix = run_actions.STEPS[: run_actions.STEPS.index(operational_admission.guard) + 1]
         with patch.object(run_actions, "STEPS", prefix):
@@ -310,6 +314,8 @@ class HumanPublicationTests(unittest.TestCase):
             ["--run-dir", self.state["run_dir"], "--abandon-stage", "001/terra-01", "--no-chat"]
         )
         fake_runner = Mock()
+        fake_runner.run_actions = run_actions
+        fake_runner.resolver_runtime = runner.resolver_runtime
         fake_runner.abandon_stage.side_effect = lambda state, *_, **__: state.update(
             status="PAUSED_STAGE_ABANDONED", stop_reason="Stage set aside"
         )

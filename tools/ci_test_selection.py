@@ -36,6 +36,7 @@ CORE_CONSUMERS = (
 PUBLIC_FLOW_CONSUMERS = ("tests.test_launch_state_cli", "tests.test_completion_status")
 OPERATIONAL_CONSUMERS = (
     "tests.test_operational_disposition",
+    "tests.test_operational_exhaustion_public_contract",
     "tests.test_operational_information",
     "tests.test_operational_pause_authority",
     "tests.test_operational_reconsideration",

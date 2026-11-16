@@ -202,7 +202,11 @@ def guard(runner, args, parser, state: RunState, state_path, run_dir, workspace,
         and not _fresh_try(state, decided.operational_incident, getattr(args, "_recovery_grant_settings", None))
     ):
         return refuse()
-    _normalize(runner, state, state_path, run_dir, row, decided.operational_incident)
+    if not any(operation.preserve_request for operation in operations):
+        _normalize(runner, state, state_path, run_dir, row, decided.operational_incident)
+    # A request-preserving owner validates the exact original publication/queue.
+    # Its immutable diagnostic already anchors the hold if that transaction
+    # withdraws the proposal; only a committed return can add checked evidence.
     decided.operational_selection = operations[0].name
     decided.owner_lane = True
     first = operations[0]

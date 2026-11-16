@@ -165,11 +165,15 @@ def review_response(runner, candidate, run_dir):
     return False
 
 
+def blocked_chat_notice(state: RunState):
+    failure = internal_failure.presentation(state, include_hold=True)
+    return failure["what_happened"] if failure and failure["category"] == "blocked" else None
+
+
 def chat_request(state: RunState):
     """The terminal uses the same blocked explanation and genuine decision boundary."""
-    failure = internal_failure.presentation(state)
-    if failure and failure["category"] == "blocked":
-        return None, failure["what_happened"]
+    if (notice := blocked_chat_notice(state)) is not None:
+        return None, notice
     return resolver_human.current(state), "The Resolver is still deciding whether this needs you; it asks once it does."
 
 

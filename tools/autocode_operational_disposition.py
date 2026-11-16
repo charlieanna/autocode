@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 from bisect import bisect_left
+from hashlib import sha256
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -196,6 +197,8 @@ class _Ledger:
         self.state = state
         self.prefixes = None
         self.feedback = None
+        self.event_hashes: dict[int, str] = {}
+        self.object_hashes: dict[int, tuple[object, str]] = {}
         self.records = records if isinstance(records, dict) else {}
         self.identities = identities if isinstance(identities, list) else []
         self.listed = {key for key in self.identities if isinstance(key, str)}
@@ -213,7 +216,18 @@ class _Ledger:
             return None
         if self.prefixes is None:
             events = self.state.get("user_events")
-            self.prefixes = {digest: position for position, digest in util.digest_prefixes(events)}
+            if not isinstance(events, list):
+                self.prefixes = {}
+                return None
+
+            def observe(position: int, encoded: bytes):
+                digest = sha256(encoded).hexdigest()
+                self.event_hashes[position] = digest
+                self.object_hashes[id(events[position])] = (events[position], digest)
+
+            self.prefixes = {
+                digest: position for position, digest in util.digest_prefixes(events, observe_value=observe)
+            }
         return self.prefixes.get(expected)
 
     def feedback_after(self, binding, token):
@@ -222,6 +236,21 @@ class _Ledger:
             return None
         if self.feedback is None:
             self.feedback = {}
+            paired = {}
+            rows = self.state.get("brief_feedback")
+            for row in rows if isinstance(rows, list) else []:
+                if not isinstance(row, dict):
+                    continue
+                seen = self.object_hashes.get(id(row))
+                digest = seen[1] if seen is not None and seen[0] is row else util.digest(row)
+                paired.setdefault(digest, []).append(row)
+            applied = {}
+            receipts = self.state.get("applied_interventions")
+            for receipt in receipts if isinstance(receipts, list) else []:
+                if not isinstance(receipt, dict):
+                    continue
+                facts = {key: receipt.get(key) for key in ("id", "kind", "applied_at")}
+                applied.setdefault(util.digest(facts), []).append(facts)
             for position, event in enumerate(self.state.get("user_events") or []):
                 if not (
                     isinstance(event, dict)
@@ -231,17 +260,13 @@ class _Ledger:
                     and event["id"]
                     and isinstance(event.get("text"), str)
                     and event["text"].strip()
-                    and event in (self.state.get("brief_feedback") or [])
+                    and any(event == row for row in paired.get(self.event_hashes[position], ()))
                 ):
                     continue
-                if event["actor"] == "user_intervention" and not any(
-                    isinstance(applied, dict)
-                    and applied.get("id") == event.get("receipt_id")
-                    and applied.get("kind") == "feedback"
-                    and applied.get("applied_at") == event.get("at")
-                    for applied in self.state.get("applied_interventions") or []
-                ):
-                    continue
+                if event["actor"] == "user_intervention":
+                    facts = {"id": event.get("receipt_id"), "kind": "feedback", "applied_at": event.get("at")}
+                    if not any(facts == receipt for receipt in applied.get(util.digest(facts), ())):
+                        continue
                 contract = event.get("contract_token")
                 if isinstance(contract, str):
                     self.feedback.setdefault(contract, []).append((position, event))

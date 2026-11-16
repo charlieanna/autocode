@@ -1,5 +1,7 @@
 """Exact legacy list-prefix digests stay linear without truncating history."""
 
+import hashlib
+import json
 import subprocess
 import unittest
 from unittest.mock import patch
@@ -18,7 +20,15 @@ class DigestPrefixTests(unittest.TestCase):
         values = [None, True, False, 1, -2.5, "é\n雪", {"z": [1, {"b": "x", "a": 2}], "a": None}, [], {}]
         for length in range(len(values) + 1):
             with self.subTest(length=length):
-                self.assertEqual(length, util.digest_prefix_length(values, util.digest(values[:length])))
+                # This is the exact pre-refactor encoding, independently of
+                # either production digest helper.
+                expected = hashlib.sha256(
+                    json.dumps(values[:length], sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode(
+                        "utf-8"
+                    )
+                ).hexdigest()
+                self.assertEqual(expected, util.digest(values[:length]))
+                self.assertEqual(length, util.digest_prefix_length(values, expected))
         self.assertIsNone(util.digest_prefix_length(values, util.digest(["missing-prefix"])))
         self.assertIsNone(util.digest_prefix_length(False, util.digest([])))
         self.assertIsNone(util.digest_prefix_length(values, None))

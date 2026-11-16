@@ -221,7 +221,7 @@ def digest(value):
     return hashlib.sha256(_canonical_json(value)).hexdigest()
 
 
-def digest_prefixes(values):
+def digest_prefixes(values, *, observe_value=None):
     """Canonical list-prefix digests in order, serializing each value once."""
     if not isinstance(values, list):
         return
@@ -233,7 +233,10 @@ def digest_prefixes(values):
         if index < len(values):
             if index:
                 stream.update(b",")
-            stream.update(_canonical_json(values[index]))
+            encoded = _canonical_json(values[index])
+            if observe_value is not None:
+                observe_value(index, encoded)
+            stream.update(encoded)
 
 
 def digest_prefix_length(values, expected):

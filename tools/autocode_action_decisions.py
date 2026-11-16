@@ -510,7 +510,7 @@ def apply_user_action(runner, args, parser, state: RunState, state_path, run_dir
         print("Resumed: dispatching the next stage.", flush=True)
         decided.dispatch = True
         return None
-    if internal_failure_view.presentation(state):
+    if internal_failure_view.presentation(state, include_hold=True):
         print("Saved; internal recovery remains blocked. No agent launched by this action.")
     else:
         print(f"Saved; no agent launched by this action. {run_finder.continue_hint(run_dir, state, args.unit)}.")

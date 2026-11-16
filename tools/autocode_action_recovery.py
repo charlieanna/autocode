@@ -188,7 +188,7 @@ def operations(args, state: RunState | None = None):
         and not any((args.retry_builder, args.diagnose_failed_stage, args.accept_source_edit))
         and state is not None
         and (
-            resolver_human.recovery_request(state)
+            resolver_runtime.reconsideration_request(state)
             or (state.get("recovery_context") or {}).get("attempt_id")
             and state.get("next_stage") == "review_completion"
         )

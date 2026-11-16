@@ -387,6 +387,33 @@ def operational_boundary(runner, state: RunState, run_dir, workspace, *, persist
     return True
 
 
+def reconsideration_request(state: RunState):
+    """The planning owner's existing saved request predicate; grants no credit."""
+    try:
+        public = human.current(state) or human.recovery_request(state)
+        if not public or public["scope"] != "operational_exhaustion":
+            return None
+        saved = state.get("resolver") or {}
+        entry = saved["human_escalations"][public["request_id"]]
+        proposal = entry["identity"]["proposal"]
+        if (
+            proposal["origin"].get("pause_status") != "PAUSED_PLANNING_BUDGET"
+            or proposal["origin"].get("stage") != state.get("next_stage")
+            or entry.get("response")
+            or saved.get("pending_human_response")
+            or saved.get("human_response_frontier")
+            or any(response.get("request_id") == public["request_id"] for response in saved.get("human_responses", []))
+            or state.get(human.PRIVATE)
+            or any(state.get(key) for key in ("active_stage", "uncertain_artifacts", "pending_report_repair"))
+            or (state.get("goal_contract") or {}).get("body", {}).get("open_blocking_questions")
+            or (state.get("pause_intent") and not state["pause_intent"].get("acknowledged_at"))
+        ):
+            return None
+        return public
+    except (KeyError, TypeError, ValueError, OSError, AttributeError):
+        return None
+
+
 def reconsider_operational_request(runner, state: RunState, run_dir, workspace):
     """Withdraw an unanswered planning-cap ask only with proven existing credit.
 
@@ -395,27 +422,7 @@ def reconsider_operational_request(runner, state: RunState, run_dir, workspace):
     """
     try:
         with runner.interventions.admission(run_dir):
-            public = human.current(state) or human.recovery_request(state)
-            if not public or public["scope"] != "operational_exhaustion":
-                return False
-            saved = state.get("resolver") or {}
-            entry = saved["human_escalations"][public["request_id"]]
-            proposal = entry["identity"]["proposal"]
-            if (
-                proposal["origin"].get("pause_status") != "PAUSED_PLANNING_BUDGET"
-                or proposal["origin"].get("stage") != state.get("next_stage")
-                or entry.get("response")
-                or saved.get("pending_human_response")
-                or saved.get("human_response_frontier")
-                or any(
-                    response.get("request_id") == public["request_id"] for response in saved.get("human_responses", [])
-                )
-                or state.get(human.PRIVATE)
-                or any(state.get(key) for key in ("active_stage", "uncertain_artifacts", "pending_report_repair"))
-                or (state.get("goal_contract") or {}).get("body", {}).get("open_blocking_questions")
-                or (state.get("pause_intent") and not state["pause_intent"].get("acknowledged_at"))
-                or (Path(run_dir) / "pause-requested").exists()
-            ):
+            if reconsideration_request(state) is None or (Path(run_dir) / "pause-requested").exists():
                 return False
             candidate = copy.deepcopy(state)
             if not human.supersede_operational(

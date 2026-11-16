@@ -22,7 +22,7 @@ except ImportError:
 def presentation(state: RunState):
     if stop.applied_stop(state):
         return None
-    return _startup(state) or disposition.presentation(state)
+    return _startup(state)
 
 
 def _startup(state: RunState):

@@ -249,7 +249,7 @@ def view(
         import autocode_checkpoint_reconciliation as reconciliation
     reconcile = (
         None
-        if (operational_block.presentation(state))
+        if (operational_block.presentation(state, include_hold=True))
         else reconciliation.offer(state, liveness, controller=controller, stop_pending=stop_pending)
     )
     if reconcile is not None:
@@ -1009,7 +1009,7 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
             "pause_category_label": pause_category.LABELS.get(category) if category else None,
             "next_command": None,
         }
-    if operational_block.presentation(state):
+    if operational_block.presentation(state, include_hold=True):
         return {"needs": None, "pause_category": "autocode", "pause_category_label": "AutoCode", "next_command": None}
     if changeset_barrier.held_approval(state):
         held_need = {
@@ -1185,7 +1185,11 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
                                                      --abandon-stage ATTEMPT as deterministic recovery
     """
     status = state.get("status", "")
-    if stop.applied_stop(state) is not None or status in COMPLETE or (operational_block.presentation(state)):
+    if (
+        stop.applied_stop(state) is not None
+        or status in COMPLETE
+        or (operational_block.presentation(state, include_hold=True))
+    ):
         return None
     if retired := workflows.retired_stage(state):
         # Saved at a stage this runtime no longer runs (owner decision 2026-11-10): nothing resumes it.

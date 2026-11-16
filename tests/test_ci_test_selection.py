@@ -32,6 +32,7 @@ class AccessTransportConsumerTests(unittest.TestCase):
     def test_operational_fact_helpers_keep_protected_and_machinery_consumers_when_slow(self):
         consumers = {
             "tests.test_operational_disposition",
+            "tests.test_operational_exhaustion_public_contract",
             "tests.test_operational_information",
             "tests.test_operational_pause_authority",
             "tests.test_operational_reconsideration",

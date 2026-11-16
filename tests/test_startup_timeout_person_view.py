@@ -44,7 +44,12 @@ class StartupTimeoutPersonViewTests(unittest.TestCase):
         else:
             self.assertTrue(runner.resolver_runtime.record_operational_exhaustion(runner, self.state, run, error))
         with contextlib.redirect_stderr(io.StringIO()):
-            runner.write_json(run / "state.json", self.state)
+            if legacy:
+                # Retain the authentic old publisher's bytes. Today's writer
+                # intentionally withdraws this obsolete machinery publication.
+                support.atomic_json(run / "state.json", self.state)
+            else:
+                runner.write_json(run / "state.json", self.state)
         saved = support.read(run / "state.json")
         return saved, run
 
@@ -125,8 +130,11 @@ class StartupTimeoutPersonViewTests(unittest.TestCase):
         self.assertIsNotNone(startup_view.presentation(saved))
         original = disposition.held(saved)["receipt"]["id"]
         saved["resolver"]["operational_receipts"][original]["receipt"]["evidence"]["status"] = "tampered"
-        self.assertNotEqual("AutoCode could not start the model step", startup_view.presentation(saved)["title"])
-        self.assertEqual("blocked", startup_view.presentation(saved)["category"])
+        self.assertIsNone(startup_view.presentation(saved))
+        view = run_view.view(saved)
+        self.assertEqual("blocked", view["recovery"]["category"])
+        self.assertIsNone(view["needs"])
+        self.assertIsNone(view["next_command"])
 
     def test_altered_timeout_history_cannot_be_classified_by_an_old_receipt(self):
         import autocode_startup_timeout_view as startup_view
@@ -135,11 +143,11 @@ class StartupTimeoutPersonViewTests(unittest.TestCase):
         for row in saved["automatic_timeout_recoveries"]:
             row["stall_phase"] = "before_first_event"
         self.assertIsNotNone(human.retained(saved), "the old receipt remains readable")
-        self.assertNotEqual(
-            "AutoCode could not start the model step",
-            startup_view.presentation(saved)["title"],
-            "unbound state cannot classify the old stop",
-        )
+        self.assertIsNone(startup_view.presentation(saved), "unbound state cannot classify the old stop")
+        view = run_view.view(saved)
+        self.assertEqual("blocked", view["recovery"]["category"])
+        self.assertIsNone(view["needs"])
+        self.assertIsNone(view["next_command"])
 
     def test_other_operational_stops_and_explicit_time_limits_keep_their_existing_actions(self):
         for stall, pause in (

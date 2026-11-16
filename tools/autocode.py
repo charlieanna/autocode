@@ -1586,6 +1586,9 @@ def chat_checkpoint(state: RunState, run_dir=None, *, persist=None, native=None)
     overlap = requirements_overlap.Controller.wired(sys.modules[__name__], now=now)
     if native is not None and (state.get("user_request") or {}).get("kind") == "human_review":
         raise support.Paused("PAUSED_VISUAL_EVIDENCE", "Native image/human artifact review requires later scopes")
+    if (notice := action_resolver.blocked_chat_notice(state)) is not None:
+        print(notice)
+        return False
     normalize_human_boundary(state, run_dir)
 
     def action(callback, published=None):
