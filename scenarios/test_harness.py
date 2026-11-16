@@ -4559,7 +4559,7 @@ class FakeRunTests(unittest.TestCase):
         self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
         self.assertEqual("review", result["workflow"])
         stages = result["metrics"]["stage_names"]
-        self.assertEqual(["requirements_gather", "requirements_gather", "draft_plan"], stages[:3])
+        self.assertEqual(["requirements_gather", "draft_plan"], stages[:2])
         self.assertNotIn("review_change", stages)
         self.assertIn("builder", stages)
 
@@ -4599,7 +4599,7 @@ class FakeRunTests(unittest.TestCase):
         self.assertEqual(2, len(result["turns"]), result["summary"])
         # #3010: the review turn goes through the full pipeline after Requirements.
         self.assertEqual(
-            ["requirements_gather", "requirements_gather", "draft_plan", "review_plan", "builder", "tester"],
+            ["requirements_gather", "draft_plan", "review_plan", "builder", "tester", "review_completion"],
             result["turns"][0]["model_stage_names"][:6],
         )
         self.assertEqual("review", result["turns"][0]["workflow"])
@@ -6491,8 +6491,7 @@ class PlanCompareTests(unittest.TestCase):
             "tiny-greeting": (["requirements_gather", plan, review], [plan, review]),
             "vague-refunds": (["requirements_gather", plan, review], [plan, review]),
             "diamond-four-milestones": (
-                # This larger brief takes the initial triage and then the full Requirements pass.
-                ["requirements_gather", "requirements_gather", plan, review, revise, review],
+                ["requirements_gather", plan, review, revise, review],
                 [plan, review, revise, review],
             ),
             # The Planner sends feedback that changes the product back to Requirements.
@@ -6524,8 +6523,6 @@ class PlanCompareTests(unittest.TestCase):
                 )
                 self.assertEqual(first, adaptive["model_stages"])
                 today_stages = ["requirements_gather", plan, review, revise, "finalize_plan"]
-                if case_id == "diamond-four-milestones":
-                    today_stages.insert(0, "requirements_gather")
                 self.assertEqual(today_stages, today["model_stages"])
                 self.assertEqual(len(today_stages), today["model_calls"])
                 self.assertTrue(adaptive["final_plan"])
@@ -6887,7 +6884,7 @@ class AdaptiveCompletionTests(unittest.TestCase):
         # #3010: a review and a question go through the full pipeline after Requirements.
         pipeline = ["draft_plan", "review_plan", "builder", "tester", "review_completion"]
         for id_, expected in (
-            ("review-clean-pr", ["requirements_gather", "requirements_gather", *pipeline]),
+            ("review-clean-pr", ["requirements_gather", *pipeline]),
             ("discuss-cache-choice", ["requirements_gather", *pipeline]),
         ):
             with self.subTest(scenario=id_):

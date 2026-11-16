@@ -442,7 +442,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "tools/autocode-schemas/evidence-report.schema.json",
         ("tests.test_evidence_report",),
     ),
-    ("scenarios/harness/conformance.py", ("tests.test_planning_allowance_cli",)),
+    (
+        "scenarios/harness/conformance.py",
+        ("tests.test_planning_allowance_cli", "tests.test_conformance_actionless"),
+    ),
     (
         "scenarios/harness/fake_codex.py",
         (
@@ -504,7 +507,6 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tools/providers/opencode_activity.mjs", ("tests.test_opencode_activity", "tests.test_kilo_progress")),
     ("tools/autocode_requirements_prompt.py", REQUIREMENTS_PROMPT_CONSUMERS),
     ("tools/prompts/requirements-gather.md", REQUIREMENTS_PROMPT_CONSUMERS),
-    ("tools/prompts/requirements-triage.md", ("tests.test_requirements_triage", "tests.test_requirements_chat")),
     ("tools/prompts/fragments/autoplanner/requirements-conversation.md", REQUIREMENTS_PROMPT_CONSUMERS),
     ("tools/prompts/fragments/autoplanner/assumption-policy.md", REQUIREMENTS_PROMPT_CONSUMERS),
     ("tools/prompts/fragments/autoplanner/question-policy.md", REQUIREMENTS_PROMPT_CONSUMERS),

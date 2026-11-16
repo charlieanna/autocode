@@ -125,10 +125,10 @@ def launch(state: RunState, stage, route_role, report_only, route: dict) -> tupl
 
     A small task's first Builder attempt runs low (autocode_light_builder, #1710); a review runs under
     its stage-choice ceiling (``decide``); a format repair runs below the configured level
-    (autocode_repair_effort, #2868); the first Requirements pass asks its blocking questions from a
-    small prompt at the floor level (autocode_requirements_triage, #2940); a hard plan's Planner and
-    Plan Reviewer run one level above their saved level (autocode_plan_difficulty, owner decision
-    2026-11-09). A saved level a route answer moved to its new model's nearest level is said too
+    (autocode_repair_effort, #2868); a replayed legacy Requirements triage pass runs at its recorded
+    floor level (autocode_requirements_triage, #2940/#3652); a hard plan's Planner and Plan Reviewer
+    run one level above their saved level (autocode_plan_difficulty, owner decision 2026-11-09). A
+    saved level a route answer moved to its new model's nearest level is said too
     (autocode_route_fit.answer_choice, #3120). ``decision`` is None when no rule considered the launch.
 
     Triage is a first-dispatch rule only: a repair of the triage pass's report keeps the repair

@@ -23,8 +23,6 @@ import autocode_workflows as workflows
 
 class RequirementsChatTests(unittest.TestCase):
     def test_requirements_interviews_instead_of_defaulting_to_multiple_choice(self):
-        import autocode_requirements_triage as triage
-
         instructions = [
             (
                 "gather_conversational",
@@ -33,10 +31,6 @@ class RequirementsChatTests(unittest.TestCase):
                 ),
             ),
             ("gather_plain", requirements_prompt.render(prompts.get("requirements-gather.md"), {"properties": {}})),
-            (
-                "triage",
-                triage.prompt({"task": "Make AutoCode better", "workspace": "/project", "settings": {}}, [], "codex"),
-            ),
         ]
         for kind, instruction in instructions:
             text = " ".join(instruction.split())
@@ -45,11 +39,8 @@ class RequirementsChatTests(unittest.TestCase):
                 self.assertIn('options=[] and proposed_default=""', text)
                 self.assertIn("Do not invent a menu", text)
                 self.assertIn("concrete recent example", text)
-                if kind == "triage":
-                    self.assertIn("at most three questions", text)
-                else:
-                    self.assertIn("Ask one focused, open-ended question at a time", text)
-                    self.assertIn("Follow the user's answer", text)
+                self.assertIn("Ask one focused, open-ended question at a time", text)
+                self.assertIn("Follow the user's answer", text)
 
     def test_a_garbled_message_is_quoted_back_with_no_guess_about_how_it_arrived(self):
         """#3074: Requirements told the person "sum" got lost before the text reached it, a guess

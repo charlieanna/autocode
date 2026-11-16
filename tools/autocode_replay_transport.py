@@ -24,11 +24,13 @@ from pathlib import Path
 try:
     from . import autocode_replay_bindings as identity_bindings
     from . import autocode_replay_recording as recording
+    from . import autocode_requirements_triage as requirements_triage
     from . import autocode_util as util
     from .providers import opencode as native
 except ImportError:
     import autocode_replay_bindings as identity_bindings
     import autocode_replay_recording as recording
+    import autocode_requirements_triage as requirements_triage
     import autocode_util as util
     from providers import opencode as native
 
@@ -45,6 +47,55 @@ def selected(settings):
     ):
         raise recording.RecordingError("Replay recording authority is missing or malformed")
     return recording.load(value["path"], value["sha256"])
+
+
+def _apply_legacy_triage_settings(tape, settings: dict) -> None:
+    """Restore retired requirements_triage policy for recordings exported before #3652."""
+    dispatches = tape.document.get("dispatches") or []
+    if not dispatches or dispatches[0].get("stage") != requirements_triage.STAGE or dispatches[0].get("report_only"):
+        return
+    route = (settings.get("roles") or {}).get(dispatches[0].get("route_role") or "requirements") or {}
+    configured = route.get("reasoning_effort")
+    recorded_effort = dispatches[0].get("reasoning_effort")
+    scale = requirements_triage.route_fit.SCALE
+    lowered_on_scale = (
+        isinstance(route.get("model"), str)
+        and recorded_effort in scale
+        and configured in scale
+        and scale.index(recorded_effort) < scale.index(configured)
+    )
+    synthesized = (
+        {"declared_variants": {route["model"]: [recorded_effort, configured]}}
+        if lowered_on_scale and "declared_variants" not in settings
+        else {}
+    )
+    probe = cast("RunState", {"settings": {**settings, requirements_triage.SETTING: True, **synthesized}})
+    if not requirements_triage.due(probe):
+        return
+    if requirements_triage.SETTING not in settings:
+        inferred = False
+        if configured != recorded_effort:
+            decision = requirements_triage.effort_decision(probe, requirements_triage.STAGE, configured)
+            if decision and decision.get("level") == recorded_effort:
+                inferred = True
+        if not inferred:
+            for row in dispatches:
+                if (
+                    row.get("stage") != requirements_triage.STAGE
+                    and row.get("original_stage") != requirements_triage.STAGE
+                ):
+                    break
+                if row.get("report"):
+                    report = recording._json(tape.artifact(row["report"]))
+                    if isinstance(report, dict) and requirements_triage.is_answer(report):
+                        inferred = True
+                        break
+                if not row.get("report_only") and row is not dispatches[0]:
+                    break
+        if inferred:
+            settings[requirements_triage.SETTING] = True
+    if settings.get(requirements_triage.SETTING) and synthesized:
+        settings.update(synthesized)
 
 
 def configure(args, state: RunState):
@@ -73,6 +124,7 @@ def configure(args, state: RunState):
         },
         transport_identity={"engine": "replay", "manifest_sha256": tape.sha256},
     )
+    _apply_legacy_triage_settings(tape, settings)
     if state.get("settings"):
         if state["settings"].get("replay_recording") != settings["replay_recording"]:
             raise recording.RecordingError("A saved replay cannot change its check policy")

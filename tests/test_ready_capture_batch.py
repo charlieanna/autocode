@@ -477,3 +477,188 @@ class ReadyCaptureBatchTests(unittest.TestCase):
             Path(checks[0]["evidence_ref"]).unlink()
             with self.assertRaises(ValueError):
                 support.verify_checks(checks, root, events, receipt_only=True, capture_context=identity)
+
+
+class ReadyCaptureBatchTimeoutTests(unittest.TestCase):
+    def test_baseline_replay_and_stalled_batch_timeouts_withhold_batch_until_revision_changes(self):
+        commands = ["python3 -m unittest tests.test_fast -v", "python3 -m unittest tests.test_slow -v"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            run_dir = root / ".autocode/runs/run"
+            evidence = run_dir / "evidence"
+            it_dir = run_dir / "iterations/001"
+            replay_dir = run_dir / "check-replay/c1"
+            for path in (evidence, it_dir, replay_dir):
+                path.mkdir(parents=True)
+
+            base_state = {
+                "version": 3,
+                "task": "Verify tests",
+                "workspace": str(root),
+                "settings": {"roles": {"tester": {"engine": "codex", "model": "fixture"}}},
+                "current_task": {"id": "task", "validation_plan": commands},
+                "goal_contract": {"hash": "approved", "body": {}},
+            }
+
+            def render(state, rev="rev1"):
+                with patch.object(context.source_scope, "snapshot", return_value={"revision": rev, "head": "head"}):
+                    prompt, _ = context.context_packet(state, "tester", run_dir / "state.json")
+                return json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+
+            initial = render(base_state, "rev1")
+            offered_batch = initial["ready_capture_batch"]
+            self.assertGreater(len(offered_batch["command"]), 240)
+
+            # 1) Baseline settled timeout + suite_fallback timeout withhold the batch.
+            baseline_json = run_dir / "regression/baseline-1/baseline.json"
+            baseline_json.parent.mkdir(parents=True)
+            baseline_json.write_text(
+                json.dumps({"command": commands[1], "receipt": {"timed_out": True, "command": commands[1]}})
+            )
+            state_baseline = {
+                **base_state,
+                "base_commit": "base-sha",
+                "regression_baseline": {
+                    "settled_timeouts": {"k1": {"binding": {"base": "base-sha"}, "path": str(baseline_json)}}
+                },
+            }
+            pkt_baseline = render(state_baseline, "rev1")
+            self.assertNotIn("ready_capture_batch", pkt_baseline)
+            self.assertEqual([commands[1]], pkt_baseline["ready_capture_batch_withheld"]["timed_out_commands"])
+            self.assertEqual(commands, pkt_baseline["verification_obligations"]["required_commands"])
+            self.assertIn("capture_command", pkt_baseline)
+
+            # A stale baseline from a different base_commit does not withhold the batch.
+            pkt_other_base = render({**state_baseline, "base_commit": "other-base"}, "rev1")
+            self.assertIn("ready_capture_batch", pkt_other_base)
+            self.assertNotIn("ready_capture_batch_withheld", pkt_other_base)
+
+            state_fallback = {
+                **base_state,
+                "regression_proof": {
+                    "source_revision": "rev1",
+                    "suite_fallback": {"whole_suite_outcome": "timed_out", "timed_out_focused_suite": commands[1]},
+                },
+            }
+            pkt_fallback = render(state_fallback, "rev1")
+            self.assertNotIn("ready_capture_batch", pkt_fallback)
+            self.assertEqual([commands[1]], pkt_fallback["ready_capture_batch_withheld"]["timed_out_commands"])
+
+            # 2) check-replay timeout on rev1 withholds batch; advancing to rev2 re-enables it.
+            replay_file = replay_dir / "replay.json"
+            replay_file.write_text(
+                json.dumps({"source_revision": "rev1", "checks": [{"command": commands[1], "timed_out": True}]})
+            )
+            pkt_replay = render(base_state, "rev1")
+            self.assertNotIn("ready_capture_batch", pkt_replay)
+            self.assertEqual([commands[1]], pkt_replay["ready_capture_batch_withheld"]["timed_out_commands"])
+            pkt_replay_rev2 = render(base_state, "rev2")
+            self.assertIn("ready_capture_batch", pkt_replay_rev2)
+            self.assertNotIn("ready_capture_batch_withheld", pkt_replay_rev2)
+            replay_file.unlink()
+
+            # 3) Timed-out stage running >240-char ready_capture_batch with receipt 1 on disk pinpoints prefix & command 2.
+            token = "0123456789abcdef" * 2
+            receipt1 = evidence / f"ready-{token}-1.json"
+            receipt1.write_text(
+                json.dumps(
+                    {
+                        "command": shlex.split(commands[0]),
+                        "capture_context": {"source_revision": "rev1", "attempt": "001/tester-01"},
+                    }
+                )
+            )
+            before_ref = it_dir / "tester-01.before.json"
+            before_ref.write_text(json.dumps({"revision": "rev1"}))
+            events = it_dir / "tester-01.jsonl"
+            events.write_text(
+                json.dumps(
+                    {
+                        "type": "tool_use",
+                        "sessionID": "s1",
+                        "part": {
+                            "id": "p-batch",
+                            "tool": "bash",
+                            "state": {"status": "running", "input": {"command": offered_batch["command"]}},
+                        },
+                    }
+                )
+                + "\n"
+            )
+            state_stage = {
+                **base_state,
+                "stages": [
+                    {
+                        "stage": "tester",
+                        "iteration": 1,
+                        "timed_out": True,
+                        "output": str(it_dir / "tester-01.json"),
+                        "before_ref": str(before_ref),
+                        "events": str(events),
+                    }
+                ],
+            }
+            pkt_stage = render(state_stage, "rev1")
+            self.assertNotIn("ready_capture_batch", pkt_stage)
+            withheld = pkt_stage["ready_capture_batch_withheld"]
+            self.assertEqual([commands[1]], withheld["timed_out_commands"])
+            self.assertEqual([commands[0]], withheld["completed_batch_commands"])
+            self.assertEqual(commands, pkt_stage["verification_obligations"]["required_commands"])
+            self.assertIn("capture_command", pkt_stage)
+
+            pkt_stage_rev2 = render(state_stage, "rev2")
+            self.assertIn("ready_capture_batch", pkt_stage_rev2)
+            self.assertNotIn("ready_capture_batch_withheld", pkt_stage_rev2)
+
+            # 4) regression_proof.checks list-command timeout and capture -- / direct stalled commands also withhold.
+            state_checks = {
+                **base_state,
+                "regression_proof": {
+                    "source_revision": "rev1",
+                    "checks": {"c1": {"command": shlex.split(commands[1]), "timed_out": True}},
+                },
+            }
+            pkt_checks = render(state_checks, "rev1")
+            self.assertNotIn("ready_capture_batch", pkt_checks)
+            self.assertEqual([commands[1]], pkt_checks["ready_capture_batch_withheld"]["timed_out_commands"])
+
+            capture_events = it_dir / "tester-capture.jsonl"
+            capture_events.write_text(
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "type": "item.started",
+                                "item": {
+                                    "id": "c-cap",
+                                    "type": "command_execution",
+                                    "command": f"{initial['capture_command']} --output /tmp/r.json -- {commands[1]}",
+                                },
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "type": "item.started",
+                                "item": {"id": "c-raw", "type": "command_execution", "command": commands[0]},
+                            }
+                        ),
+                    ]
+                )
+                + "\n"
+            )
+            state_capture = {
+                **base_state,
+                "stages": [
+                    {
+                        "stage": "tester",
+                        "iteration": 2,
+                        "timed_out": True,
+                        "output": str(it_dir / "tester-02.json"),
+                        "before_ref": str(before_ref),
+                        "events": str(capture_events),
+                    }
+                ],
+            }
+            pkt_capture = render(state_capture, "rev1")
+            self.assertNotIn("ready_capture_batch", pkt_capture)
+            self.assertEqual(commands, pkt_capture["ready_capture_batch_withheld"]["timed_out_commands"])

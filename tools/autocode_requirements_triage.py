@@ -1,27 +1,11 @@
-"""A larger brief's first Requirements pass asks its blocking questions early (#2940).
+"""Compatibility and saved-run replay support for the retired Requirements triage pass (#2940, #3652).
 
-When triage is enabled on a fresh joint-planning run on the default flow, the first
-``requirements_gather`` dispatch is a *triage pass*: a small prompt (the task and a
-workspace inventory, no criteria contract) at the lowest reasoning level the requirements model serves, whose
-only outputs are the genuinely blocking questions — or ``ready`` when nothing blocks.
-Today the first question a person sees waits on the one full-weight Requirements call
-(291 s of the 360 s first-interaction target, docs/bugs/2026-10-10-first-interaction-latency.md),
-while the questions-only pause and the re-run with the answers already exist
-(autocode_requirements_review). This module decides when the triage pass is due, renders
-its prompt and schema, picks its effort level and shapes its answer into the
-questions-only handoff that machinery already accepts. With questions, the pause and the
-answer-driven re-run are exactly the existing flow; with ``ready``, the next dispatch is
-the ordinary full pass. The pass is recorded in ``requirements_triage`` so later
-Requirements turns never triage again.
-
-A provider that answers the triage prompt with a full handoff — every scripted fake
-does, and a live model told a smaller contract may still answer fully — changes nothing:
-the report carries no ``ready`` field, so acceptance falls through to the ordinary path
-and the run proceeds exactly as before. Saved runs keep their saved setting; spec-first,
-planning-v2, follow-up and mid-conversation turns never triage. Pure functions over run
-state; imports only lower layers. New small briefs use the ordinary Requirements
-pass directly, at the saved level: a questions-only probe would add a model call
-before the same validated handoff. Explicit choices and saved flows stay exact.
+New runs and resumed live runs use the unified citation-verified ``requirements_gather``
+contract from pass 1 across both interactive ``--spec-first`` and headless ``--no-chat``
+flows. ``--requirements-triage`` and ``--no-requirements-triage`` remain accepted as
+compatibility no-ops so existing scripts and saved-run resumes do not fail, while
+saved runs and portable recordings that captured an earlier triage pass still load,
+render and replay cleanly. Pure functions over run state; imports only lower layers.
 """
 
 from __future__ import annotations
@@ -33,22 +17,17 @@ if TYPE_CHECKING:
 
 import argparse
 import copy
-import json
 
 try:
-    from . import autocode_prompts as prompts
     from . import autocode_requirements_report as requirements_report
     from . import autocode_roles as role_names
     from . import autocode_route_fit as route_fit
     from . import autocode_util as util
-    from . import autocode_workflows as workflows
 except ImportError:
-    import autocode_prompts as prompts
     import autocode_requirements_report as requirements_report
     import autocode_roles as role_names
     import autocode_route_fit as route_fit
     import autocode_util as util
-    import autocode_workflows as workflows
 
 SETTING: Final = "requirements_triage"
 # requirements_review.SETTING by value: that module registers this flag beside its own, so it
@@ -63,34 +42,32 @@ def add_argument(parser) -> None:
         "--requirements-triage",
         action=argparse.BooleanOptionalAction,
         default=None,
-        help="First Requirements pass asks its blocking questions from a small prompt at the lowest "
-        "level before the full report (#2940). Defaults to larger briefs in new joint default-flow runs; "
-        "small briefs run the ordinary Requirements pass directly",
+        help="Retired (#3652); accepted as a compatibility no-op so existing scripts and resumes "
+        "do not fail. Every new run uses the unified citation-verified Requirements pass directly",
     )
 
 
 def new_run_setting(requested, joint: bool, v2: bool, *, task: str | None = None) -> bool:
-    """Default larger briefs to triage; retain explicit choices and the ordinary handoff gates."""
-    if requested is True and (not joint or v2):
-        raise ValueError("--requirements-triage needs joint planning and the default planning flow")
-    if requested is not None:
-        return requested is True
-    return joint and not v2 and (task is None or workflows.brief_size(task) != "small")
+    """Retired (#3652): new runs always use the unified citation-verified Requirements pass."""
+    _ = requested, joint, v2, task
+    return False
 
 
 def resume_refused(saved_settings: dict, requested) -> bool:
-    """A saved run keeps its flow; repeating its own choice is harmless, no flag changes nothing."""
-    return requested is not None and bool(requested) != bool(saved_settings.get(SETTING))
+    """Retired (#3652): passing either compatibility flag on resume is a harmless no-op."""
+    _ = saved_settings, requested
+    return False
 
 
 def due(state: RunState) -> bool:
-    """Whether the next requirements_gather dispatch is the triage pass of a fresh run.
+    """Whether the next requirements_gather dispatch replays a recorded legacy triage pass (#3652).
 
-    The first dispatch only: once any Requirements report exists, any answer, feedback or
-    saved user event has arrived, or the triage pass itself has run (``requirements_triage``),
-    every later dispatch is the ordinary full pass.
+    Live and scripted runs never dispatch triage. Only offline replay of a saved recording
+    whose first Requirements pass was recorded under ``requirements_triage`` takes this path.
     """
     settings = state.get("settings") or {}
+    if not settings.get("replay_recording"):
+        return False
     if not settings.get(SETTING) or not settings.get("joint_planning"):
         return False
     if role_names.planning_flow(settings) == "v2" or settings.get(SPEC_FIRST):
@@ -109,43 +86,23 @@ def due(state: RunState) -> bool:
     )
 
 
-def request_schema(full: dict) -> dict:
-    """The triage dispatch's request schema: the ordinary requirements schema with everything but
-    the two summary lines optional and one added ``ready`` field.
-
-    A provider that follows the small prompt returns only the triage fields; one that answers with
-    a full report (every scripted fake does) still validates, because the full report's fields are
-    all known and optional here. :func:`is_report` routes on ``ready``'s presence either way, so
-    neither answer is refused at the provider boundary.
-    """
+def answer_schema(full: dict) -> dict:
+    """Relaxed load-time schema for replaying a recorded legacy triage answer."""
     relaxed = copy.deepcopy(full)
     relaxed.setdefault("properties", {})["ready"] = {"type": "boolean"}
     relaxed["required"] = ["summary", "intended_outcome"]
     return relaxed
 
 
-def answer_schema(full: dict) -> dict:
-    """:func:`request_schema` at load time: the same relaxed shape, so what the provider boundary
-    was promised is not re-rejected by the strict wire schema a transport recorded."""
-    return request_schema(full)
-
-
 def tolerant(full: dict) -> dict:
-    """The ordinary full schema plus an optional ``ready``: a full report whose optional ``ready``
-    was materialized (by provider machinery or a repair) still validates while the dispatch is
-    triage-eligible; every ordinary requirement of the full schema stays in force."""
+    """The ordinary full schema plus an optional ``ready`` for replaying a legacy triage pass."""
     relaxed = copy.deepcopy(full)
     relaxed.setdefault("properties", {})["ready"] = {"type": "boolean"}
     return relaxed
 
 
 def validate_application(state: RunState, stage, value, checked=None, *, schema_for, validate):
-    """Apply the existing report contract without putting triage policy in the controller.
-
-    A small triage answer was already validated by the report loader; the handoff
-    still rejects one that is neither ready nor a question. A drafted report keeps
-    the full contract, allowing only the optional ready field during triage.
-    """
+    """Apply the report contract while preserving assumption-text backfill and replay tolerance."""
     if stage == STAGE and isinstance(value, dict):
         backfilled = requirements_report.backfill_assumption_text(value)
         if backfilled is not value:
@@ -165,46 +122,6 @@ def validate_application(state: RunState, stage, value, checked=None, *, schema_
     schema = schema_for(state, stage)
     validate(checked, tolerant(schema) if triaging else schema)
     return value
-
-
-def prompt(state: RunState, inventory, engine) -> str:
-    """The triage prompt: instruction, the shared packet framing, a small packet.
-
-    ``engine`` is the packet's ``execution_engine`` (planning.engine_for at the call site):
-    provider transports assert on it exactly as they do on the joint packet's.
-    """
-    packet = {
-        "task": state["task"],
-        "workspace": state["workspace"],
-        "joint_planning": True,
-        "execution_engine": engine,
-        "stage": STAGE,
-        # The joint packet's requirements-gather fields, None-valued the same way: scripted
-        # providers read these keys on every prompt whatever the pass (fake_codex, fake_command_tool).
-        "goal_contract": None,
-        "requirements_handoff": None,
-        "requirements_history": None,
-        "saved_answers": state.get("answers") or {},
-        "workspace_inventory": inventory,
-    }
-    if reference := (state.get("settings") or {}).get("figma_file"):
-        packet["figma_file"] = reference
-    try:
-        from . import autocode_source_log as source_log
-    except ImportError:
-        import autocode_source_log as source_log
-    if linked := source_log.linked_issue_records(state):
-        packet["linked_issues"] = linked
-        packet["linked_issues_note"] = (
-            "Origin-repository GitHub issues/PRs named in the user's messages were already fetched "
-            "and are included in linked_issues and source_texts. Do not re-fetch them via shell/network; "
-            "quote their text verbatim in source_quote and cite their id in source_refs if needed."
-        )
-    return (
-        prompts.get("requirements-triage.md")
-        + prompts.get("fragments/autoplanner/context-03.md")
-        + json.dumps(packet, separators=(",", ":"))
-    )
 
 
 def is_answer(value: dict) -> bool:

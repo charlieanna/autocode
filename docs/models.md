@@ -86,12 +86,16 @@ struggle's, though: a climb a later climb replaced takes the struggle's end too 
 its row reads `failed_again`, and so does an ordinary retry, which has no row. Before
 the struggle ends the stamp is `open` while the row may already read `passed`;
 completing the run or accepting completion via `--accept-completion` stamps open entries `passed`.
-The default GLM Builder, any GLM Tester or Completion Reviewer, and the Plan Reviewer
-are on no ladder: they keep their configured route, and a verifier that keeps
-struggling pauses the run instead. The Builder instead gets its
-[retry policy](#builder-retry-policy)'s one stronger attempt. If you configure the
-Builder on `openai/gpt-6-sol` (with GLM checkers), it climbs Sol Medium → High → XHigh
-→ Max. No role other than the Resolver escalates onto GPT-6 Astra.
+The default OpenAI static ladders cover `openai/gpt-6-sol` and `openai/gpt-6-astra`; for any
+other `runner_default`, `auto_selected`, or `stage_choice` route whose backend declares reasoning
+variants (`declared_variants` or `certified_variants`), `autocode_route_ladder` climbs one offered
+level along `low → medium → high → xhigh → max` on the same model before pausing or switching
+routes (#3669). Likewise, a saved `stage_choice` Builder effort acts as a ceiling
+(`autocode_light_builder`): bounded leaf tasks (`1..4` non-sensitive files, including parallel
+milestone workers) start one offered level below ceiling, Attempt 2 restores the ceiling, and
+Attempt 3+ or hard tasks (`6+` files or `sensitive-paths`) climb one offered level above ceiling,
+followed by the [retry policy](#builder-retry-policy)'s cross-model stronger attempt when configured.
+No role other than the Resolver escalates onto GPT-6 Astra.
 
 The Planner has one stronger attempt of its own (`autocode_planner_escalation`, owner
 decision 2026-10-23). In an adaptive run, when the Plan Reviewer's second challenge in a

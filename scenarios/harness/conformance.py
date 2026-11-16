@@ -195,7 +195,7 @@ class ConformanceDriver(Driver):
         while True:
             view = self.view()
             need = view["needs"]
-            if view["done"]:
+            if view["done"] or need is None:
                 self.person_paused = False
                 return view
             if say_at == f"needs:{need['kind']}":
