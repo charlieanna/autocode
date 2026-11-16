@@ -12,9 +12,11 @@ an attempt that changes or deletes one is rejected and the file restored from th
 A bug fix's cases are its Investigator's (autocode_test_cases.proof_cases): reproduction tests must
 really fail and preserve tests pass, before the fix exists.
 
-State key ``acceptance_tests``: receipts, redirected_from, pending_case_ids and optional
+State key ``acceptance_tests``: receipts, receipt_history, redirected_from, pending_case_ids and optional
 pending_test_bindings (contract hash + approved shared names, pinned when routing a new job). The job
-writes receipts; ``route`` writes redirected_from. Read here and by the status view. Imports only the
+writes receipts; ``route`` also pins pending_evidence_repair for a current independent missing-test review.
+A qualified strengthening receipt fulfills that repair without resetting its existing rework allowance.
+Read here and by the status view. Imports only the
 shared helpers and the test-case policy, so the build loop, Autopilot and the job can all use it.
 """
 
@@ -30,11 +32,13 @@ import hashlib
 from pathlib import Path
 
 try:
+    from . import autocode_acceptance_evidence_repair as evidence_repair
     from . import autocode_project_kinds as project_kinds
     from . import autocode_test_cases as test_cases
     from . import autocode_util as util
     from .autocode_stray_writes import StrayWrites
 except ImportError:
+    import autocode_acceptance_evidence_repair as evidence_repair
     import autocode_project_kinds as project_kinds
     import autocode_test_cases as test_cases
     import autocode_util as util
@@ -233,7 +237,9 @@ def due(state: RunState, wave=None) -> list[dict]:
         known = {case["id"] for case in cases}
         cases += [case for case in _cases(state, all_due=True) if case["id"] in members and case["id"] not in known]
     done = covered(state)
-    return [case for case in cases if case["id"] not in done]
+    repair = evidence_repair.pending(state, cases)
+    strengthening = set(repair["binding"]["case_ids"]) if repair else set()
+    return [case for case in cases if case["id"] not in done or case["id"] in strengthening]
 
 
 def shared_test_names(state: RunState) -> dict[str, str]:
@@ -290,6 +296,16 @@ def route(state: RunState, wave=None) -> None:
             "names": {case["id"]: shared[case["id"]] for case in cases if case["id"] in shared},
         },
     )
+    repair = evidence_repair.pending(state, cases)
+    if repair:
+        record["pending_evidence_repair"] = repair
+        state["next_action"] = "The independent Tester is strengthening selected tests for the reviewed evidence gaps."
+        for row in reversed(state.get("regression_proofs") or []):
+            if row.get("review_output") == repair["binding"]["review_output"]:
+                row["test_owner"] = STAGE
+                break
+    else:
+        record.pop("pending_evidence_repair", None)
     state["next_stage"] = STAGE
 
 
@@ -300,7 +316,20 @@ def resume_stage(state: RunState) -> str:
 
 def record_receipt(state: RunState, cases: list[dict], receipt: dict) -> None:
     record = state.setdefault(KEY, {"receipts": {}})
-    record.setdefault("receipts", {})[batch_key(state, cases)] = receipt
+    kept = record.setdefault("receipts", {})
+    key = batch_key(state, cases)
+    previous = kept.get(key)
+    repair = evidence_repair.packet(state)
+    if previous and previous.get("output") and previous.get("output") == receipt.get("output"):
+        if {k: v for k, v in previous.items() if k != evidence_repair.FIELD} != receipt:
+            raise ValueError("A qualified test receipt cannot change on reconciliation")
+        return
+    if previous and repair:
+        record.setdefault("receipt_history", []).append(previous)
+    if repair:
+        receipt = {**receipt, evidence_repair.FIELD: repair["binding"]}
+    kept[key] = receipt
+    record.pop("pending_evidence_repair", None)
 
 
 def sent_back(state: RunState) -> set[str]:

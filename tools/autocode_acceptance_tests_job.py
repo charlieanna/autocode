@@ -38,8 +38,10 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_acceptance_evidence_repair as evidence_repair
     from . import autocode_prompts as prompts
 except ImportError:
+    import autocode_acceptance_evidence_repair as evidence_repair
     import autocode_prompts as prompts
 
 import copy
@@ -170,6 +172,7 @@ def packet(state: RunState, inventory: dict | None = None, engine: str | None = 
         "workspace_inventory": inventory or {},
         # Why the runner rejected this plan's earlier attempts at these cases, oldest first.
         "runner_feedback": [row["feedback"] for row in _rewrites(state)],
+        "evidence_repair": evidence_repair.packet(state),
     }
 
 
@@ -537,7 +540,8 @@ def apply(
         )
     cases = acceptance.job_cases(state)
     _check_rows(value, cases, shared_names=set(acceptance.shared_test_names(state).values()))
-    if value["cannot_write"]:
+    repair = evidence_repair.packet(state)
+    if value["cannot_write"] and not repair:
         _pause(state, [f"{row['case_id']} cannot be tested: {row['reason']}" for row in value["cannot_write"]])
         return
     files = sorted({row["file"] for row in value["tests"]})
@@ -546,6 +550,12 @@ def apply(
         raise ValueError(f"Each test file must exist in the workspace and be a test file: {bad}")
     original_reference, retained = None, set()
     try:
+        if repair and (value["cannot_write"] or not record.get("changed_files")):
+            raise TestsNeedRewriting(
+                "The independent evidence review requires stronger selected named tests. "
+                "Change their assertions to detect the rejected gaps; unchanged files and inline-only "
+                "diagnostics do not repair missing-test evidence. Preserve all existing assertions."
+            )
         run = (run_tests or (lambda tests: {"error": "no test runner was given"}))(files)
         inherited = provenance.inherited_cases(state, reports=value["tests"], workspace=workspace)
         selected = reference.passing(cases, value["tests"], run, inherited)
