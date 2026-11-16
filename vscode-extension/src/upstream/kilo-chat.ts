@@ -29,6 +29,7 @@ export const chatStyles = /* css */ `
   .message.notice .speaker { color: var(--vscode-errorForeground, #a1260d); }
   .message.user { white-space: pre-wrap; padding: 10px 12px; border-radius: 8px;
     background: var(--vscode-textCodeBlock-background); }
+  .message.assistant .message-content { white-space: pre-wrap; }
   /* A streaming extract is provisional display content, not a finished reply. */
   .message.streaming { opacity: .85; }
   .message.streaming .message-content { white-space: pre-wrap; font-style: italic; }

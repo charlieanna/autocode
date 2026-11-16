@@ -4553,6 +4553,16 @@ test('an all-changes action the view did not name exactly is refused without a C
   assert.equal(invoke.mock.callCount(), 0);
 });
 
+test('assistant review messages keep significant spaces visible', async (t) => {
+  const text = 'Behaviors:\n\n- greet(" Ada ") returns "Hello,  Ada !"';
+  const view = approvalView();
+  view.chat = { messages: [{ id: 'literal-understanding', role: 'assistant', text }] };
+  const ui = await openChat(t, view);
+  const body = ui.document.querySelector('#messages .assistant .message-content');
+  assert.ok(body.textContent.includes('"Hello,  Ada !"'));
+  assert.equal(ui.window.getComputedStyle(body).whiteSpace, 'pre-wrap');
+});
+
 test('chat renders plan and action without button restlessness on poll', async (t) => {
   const ui = await openChat(t, approvalView());
   const card = ui.document.querySelector('#app .decision-card');
