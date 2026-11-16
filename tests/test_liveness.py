@@ -302,9 +302,7 @@ class LivenessViewTests(unittest.TestCase):
                 # #1538 intentionally derives this display-only notice from
                 # fresh liveness. Status, actions and every other field retain
                 # their existing contract, including when ownership is lost.
-                expected_notice = (
-                    "Working on your request…" if observed["kind"] in ("supervised", "unsupervised") else None
-                )
+                expected_notice = "Working on your request…" if observed["kind"] == "supervised" else None
                 self.assertEqual(expected_notice, result["chat"].pop("notice"))
                 self.assertEqual(baseline, result)
                 self.assertEqual(

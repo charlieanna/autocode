@@ -363,6 +363,7 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         following=following_name,
         controller_running=(owner or {}).get("kind") == "running",
         internal_failure=operational_block.presentation(state, include_hold=True),
+        liveness=public_view["liveness"],
     )
     # A finished run whose verification no longer covers the current checkout names
     # a re-verification action: resume re-checks completion against the source on disk.

@@ -28,12 +28,15 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_attempt_ledger as attempt_ledger
+    from . import autocode_stage_activity as stage_activity
 except ImportError:
     import autocode_attempt_ledger as attempt_ledger
+    import autocode_stage_activity as stage_activity
 
 FLAG = "--stage-model"
 VIA = "stage_models"
-BUSY = "A stage is working. Pause the chat, or wait until it asks you something, to change its models."
+BUSY = "This chat's current work is unresolved. Its models cannot be changed yet."
+WORKING = "A stage is working. Pause the chat, or wait until it asks you something, to change its models."
 RETAINED = "The last stage attempt still needs recovery. Its models cannot be changed yet."
 NO_ROUTES = "This run has no saved routes yet; its models are chosen when it starts."
 CHECK_UNCERTAIN = "A previous check has not been confirmed stopped. Models cannot be changed while this run is paused."
@@ -73,7 +76,7 @@ def routes(state: RunState) -> dict:
     return found
 
 
-def busy(state: RunState) -> str | None:
+def busy(state: RunState, *, liveness=None) -> str | None:
     """Why the run's models cannot be changed now, or None when it is between stages."""
     if not routes(state):
         return NO_ROUTES
@@ -83,15 +86,17 @@ def busy(state: RunState) -> str | None:
         active = state.get("active_stage")
         if isinstance(active, dict) and active and attempt_ledger.running_stage(state) is None:
             return RETAINED
+        if stage_activity.working_stage(state, liveness) is not None:
+            return WORKING
         return BUSY
     return None
 
 
-def offer(state: RunState, *, run_dir=None) -> dict | None:
+def offer(state: RunState, *, run_dir=None, liveness=None) -> dict | None:
     """The status view's ``stage_models``; None for a view with no run directory or a run with no routes."""
     if run_dir is None or not routes(state):
         return None
-    reason = busy(state)
+    reason = busy(state, liveness=liveness)
     return {
         "changeable": reason is None,
         "reason": reason,

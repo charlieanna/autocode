@@ -10,6 +10,8 @@ import autocode_run_metrics as run_metrics
 import autocode_run_view as run_view
 import autocode_stage_pipeline as stage_pipeline
 
+from tests.test_liveness import inspection, metadata
+
 ROUTES = {
     "requirements": {"model": "claude-sonnet-5-5", "reasoning_effort": "medium"},
     "planner": {"model": "claude-opus-5-5", "reasoning_effort": "high"},
@@ -64,8 +66,8 @@ class PipelineTests(unittest.TestCase):
             decision("revise_plan", "planner", "skip", reason="approved at the first review"),
             decision("builder", "builder"),
         ]
-        state = {"active_stage": {"stage": "builder"}, "next_stage": "tester"}
-        rows = stage_pipeline.project(state, view(stage_decisions=decisions))
+        state = {"active_stage": {"stage": "builder", "pid": 103}, "next_stage": "tester"}
+        rows = stage_pipeline.project(state, view(stage_decisions=decisions, liveness={"kind": "supervised"}))
         self.assertEqual(
             [
                 ("requirements", "ran"),
@@ -184,12 +186,16 @@ class PipelineTests(unittest.TestCase):
 
 class StatusViewTests(unittest.TestCase):
     def test_the_status_view_carries_the_pipeline_from_its_saved_stages(self):
+        saved = metadata()
         state = {
             "status": "RUNNING",
-            "stages": [{"stage": "requirements_gather", "iteration": 1}, {"stage": "draft_plan", "iteration": 1}],
-            "active_stage": {"stage": "review_plan", "iteration": 1},
+            "stages": [
+                {"stage": stage, "iteration": 1, "finished_at": "2026-11-15T12:00:00Z"}
+                for stage in ("requirements_gather", "draft_plan")
+            ],
+            "active_stage": {"stage": "review_plan", "iteration": 1, "supervision": saved},
         }
-        pipeline = run_view.view(state)["pipeline"]
+        pipeline = run_view.view(state, liveness=inspection(saved))["pipeline"]
         self.assertEqual(
             [
                 ("requirements", "ran"),
