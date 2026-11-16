@@ -18,6 +18,7 @@ import subprocess
 import sys
 import types
 import unittest
+from dataclasses import dataclass
 from pathlib import Path
 
 try:
@@ -26,6 +27,36 @@ except ImportError:
     from autocode_python_tests import TEST_MODULE
 
 FAMILIES = ("components", "repos")
+
+
+@dataclass(frozen=True)
+class Selection:
+    """One selection carried through every isolated collection pass."""
+
+    patterns: tuple[str, ...] = ()
+    failfast: bool = False
+
+    def loader(self, root, component=None, families=()):
+        loader = ComponentLoader(root, component, families)
+        loader.testNamePatterns = list(self.patterns) or None
+        return loader
+
+    def run(self, suite):
+        result = unittest.TextTestRunner(verbosity=2, failfast=self.failfast).run(suite)
+        return 0 if result.wasSuccessful() else 1
+
+    def fork(self, argv):
+        selection = [word for pattern in self.patterns for word in ("-k", pattern)]
+        return subprocess.run(
+            [
+                sys.executable,
+                str(Path(__file__).resolve()),
+                "-v",
+                *(["-f"] if self.failfast else []),
+                *selection,
+                *argv,
+            ]
+        ).returncode
 
 
 class ComponentLoader(unittest.TestLoader):
@@ -83,14 +114,9 @@ def import_family(root, kind):
     return parent_package(root, kind)
 
 
-def run_suite(suite):
-    result = unittest.TextTestRunner(verbosity=2).run(suite)
-    return 0 if result.wasSuccessful() else 1
-
-
-def discover(root, directory, families=()):
+def discover(root, directory, families=(), *, selection=Selection()):
     """One discovery with its own loader; only scheduled families are excluded."""
-    return ComponentLoader(root, families=families).discover(str(directory), pattern="test*.py")
+    return selection.loader(root, families=families).discover(str(directory), pattern="test*.py")
 
 
 def root_suite(loader, root, selected):
@@ -98,7 +124,7 @@ def root_suite(loader, root, selected):
     return loader.discover(str(root / selected), pattern="test*.py")
 
 
-def whole_root_suite(root, selected, families=()):
+def whole_root_suite(root, selected, families=(), *, selection=Selection()):
     """The whole-suite command's root pass; the binding is made once, on the base tree.
 
     A selected directory keeps the exact ``-s`` semantics the previous binding had. The
@@ -112,13 +138,13 @@ def whole_root_suite(root, selected, families=()):
     suite = unittest.TestSuite()
     if selected != ".":
         if (root / selected).is_dir():
-            suite.addTests(discover(root, root / selected, families))
+            suite.addTests(discover(root, root / selected, families, selection=selection))
         return suite
-    suite.addTests(discover(root, root, families))
+    suite.addTests(discover(root, root, families, selection=selection))
     for name in ("tests", "test"):
         markerless = root / name
         if markerless.is_dir() and not (markerless / "__init__.py").is_file():
-            suite.addTests(discover(root, markerless, families))
+            suite.addTests(discover(root, markerless, families, selection=selection))
     return suite
 
 
@@ -136,7 +162,7 @@ def member_suite(loader, root, kind, member):
     return unittest.TestSuite(loader._find_tests(str(directory), "test*.py"))
 
 
-def family_root(root, kind, members):
+def family_root(root, kind, members, *, selection=Selection()):
     """The one family algorithm, in this isolated process (the components semantics).
 
     A parent ``load_tests`` found on the imported package owns the family's collection;
@@ -147,23 +173,21 @@ def family_root(root, kind, members):
     parent = root / kind
     if not parent.is_dir():
         raise SystemExit(f"{kind} directory is missing: {parent}")
-    loader = ComponentLoader(root, parent)
+    loader = selection.loader(root, parent)
     package = import_family(root, kind)
     if getattr(package, "load_tests", None) is None:
-        code = run_suite(loader.loadTestsFromModule(package, pattern="test*.py"))
+        code = selection.run(loader.loadTestsFromModule(package, pattern="test*.py"))
         for member in members:
-            code = max(code, fork(["--member", kind, member]))
+            if code and selection.failfast:
+                break
+            code = max(code, selection.fork(["--member", kind, member]))
         return code
     # discover rejects an unmarked start directory; traversal retains package hooks.
     loader._top_level_dir = str(root)
-    return run_suite(unittest.TestSuite(loader._find_tests(str(parent), "test*.py")))
+    return selection.run(unittest.TestSuite(loader._find_tests(str(parent), "test*.py")))
 
 
-def fork(argv):
-    return subprocess.run([sys.executable, str(Path(__file__).resolve()), "-v", *argv]).returncode
-
-
-def orchestrate(root, selected, components, repos, packages=()):
+def orchestrate(root, selected, components, repos, packages=(), *, selection=Selection()):
     """The whole suite: the workspace's own tests and each scheduled family exactly once.
 
     The family flags travel with the root pass fork so the root pass excludes exactly
@@ -177,15 +201,20 @@ def orchestrate(root, selected, components, repos, packages=()):
         spec += ["--repos", *repos]
     for folder, *members in packages:
         spec += ["--package-family", folder, *members]
-    code = fork(["--whole-root", *spec])
+    commands = [["--whole-root", *spec]]
     if components is not None:
-        code = max(code, fork(["--family-root", "components", "--members", *components]))
+        commands.append(["--family-root", "components", "--members", *components])
     if repos is not None:
-        code = max(code, fork(["--family-root", "repos", "--members", *repos]))
+        commands.append(["--family-root", "repos", "--members", *repos])
     # A monorepo package folder (autocode_python_tests.PACKAGE_DIRS): each package with tests runs
     # isolated, from its own directory first on sys.path, exactly as a component does.
     for folder, *members in packages:
-        code = max(code, fork(["--family-root", folder, "--members", *members]))
+        commands.append(["--family-root", folder, "--members", *members])
+    code = 0
+    for command in commands:
+        code = max(code, selection.fork(command))
+        if code and selection.failfast:
+            break
     return code
 
 
@@ -218,6 +247,8 @@ def discard_script_directory():
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("-v", action="store_true")
+    parser.add_argument("-k", action="append", default=[], help="Select observed test IDs (unittest patterns)")
+    parser.add_argument("-f", "--failfast", action="store_true")
     parser.add_argument("--components", nargs="*")
     parser.add_argument("--component")
     parser.add_argument("--component-root", action="store_true")
@@ -229,6 +260,7 @@ def main(argv=None):
     parser.add_argument("--root", default=".")
     parser.add_argument("--package-family", nargs="+", action="append", default=[], metavar=("FOLDER", "MEMBER"))
     args = parser.parse_args(argv)
+    selection = Selection(tuple(args.k), args.failfast)
     packages = [tuple(group) for group in args.package_family]
     root = Path.cwd()
     if args.component is not None:
@@ -236,27 +268,27 @@ def main(argv=None):
     if args.component_root:
         args.family_root, args.members = "components", args.components or []
     if args.family_root is not None:
-        return family_root(root, args.family_root, args.members or [])
+        return family_root(root, args.family_root, args.members or [], selection=selection)
     if args.member is not None:
         kind, name = args.member
-        loader = ComponentLoader(root, root / kind / name)
-        return run_suite(member_suite(loader, root, kind, name))
+        loader = selection.loader(root, root / kind / name)
+        return selection.run(member_suite(loader, root, kind, name))
     if args.whole_root:
         scheduled = tuple(
             name
             for name, scheduled in (("components", args.components is not None), ("repos", args.repos is not None))
             if scheduled
         ) + tuple(folder for folder, *_ in packages)
-        return run_suite(whole_root_suite(root, args.root, scheduled))
+        return selection.run(whole_root_suite(root, args.root, scheduled, selection=selection))
     whole_suite = (
         (args.components is not None and not args.component_root)
         or (args.repos is not None and args.component is None)
         or bool(packages)
     )
     if whole_suite:
-        return orchestrate(root, args.root, args.components, args.repos, packages)
+        return orchestrate(root, args.root, args.components, args.repos, packages, selection=selection)
     suite = root_suite(
-        ComponentLoader(
+        selection.loader(
             root,
             families=tuple(
                 name
@@ -270,8 +302,7 @@ def main(argv=None):
         root,
         args.root,
     )
-    result = unittest.TextTestRunner(verbosity=2).run(suite)
-    return 0 if result.wasSuccessful() else 1
+    return selection.run(suite)
 
 
 if __name__ == "__main__":
