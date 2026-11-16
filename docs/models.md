@@ -316,8 +316,19 @@ The parts in place are the free shortlist (`autocode_model_shortlist`: what to s
 read from the tool's own listing with no model call), the Requirements requests and their
 mechanical grader (`autocode_requirements_probe`, run against the small project in
 `tools/fixtures/requirements_probe`) and the recorded ranking (`autocode_measured_routes`). A model
-qualifies for Requirements when it has run all nine requests and passed at least six. Running the
-probe on the models you tick, after you approve the cost, comes next; nothing runs a probe yet.
+qualifies for Requirements when it has run all nine requests and passed at least six. To measure models yourself, name each with the level to run it at:
+
+```sh
+autocode probe --measure zai-coding-plan/glm-5.3 low --measure openai/gpt-6.1-sol medium
+autocode probe --measure zai-coding-plan/glm-5.3 low --measure openai/gpt-6.1-sol medium --max-cost-usd 5
+```
+
+The first prints what it can cost and runs nothing. The second runs it: each request is a
+spec-first task on a fresh copy of the bundled project that stops as soon as Requirements has
+answered, so nothing is planned or built, and each run's own money cap is what the probe has left.
+A model runs the three quick requests first and the other six only when it passes them. A report
+the runner had to send back for repair counts against the model. Choosing the models in Stage
+models before setup is the next part.
 
 OpenCode and Kilo reasoning variants come from their local verbose model listings.
 An unsupported qualified level is omitted so the model uses its default. When older

@@ -265,6 +265,10 @@ def requirements_view(state: RunState) -> dict | None:
         "proposed_assumptions": proposed_assumptions,
         "acceptance_tests": tests,
         "conflicts": conflicts,
+        # What Requirements named in this report, before the person confirms it (#3630): the
+        # workflow field reports the job only once it starts, and the model probe grades both.
+        "job": report.get("job") if report.get("job") in (*workflows.WORKFLOWS, "none") else None,
+        "clarity": report.get("clarity") if report.get("clarity") in adaptive_planning.CLARITY else None,
     }
 
 
