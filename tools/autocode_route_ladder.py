@@ -177,6 +177,7 @@ def ladders(settings):
 
 # Why next_route keeps a role on its route instead of naming a rung.
 STAYS = {
+    "explicit_effort": "a person explicitly selected this reasoning level",
     "fixed_profile": "the continuous-v1 conversation profile fixes every role's model and effort",
     "climbed": "the role already climbed one rung for this struggle",
     "no_route": "the run has no route for the role",
@@ -219,6 +220,8 @@ def next_route(settings, role, evidence=None):
         return {"stay": "pinned"}
     if route.get("provider") not in (None, "openai"):
         return {"stay": "other_provider"}
+    if _effort_origin(settings, role) == "user_explicit":
+        return {"stay": "explicit_effort"}
     ladder = ladders(settings).get(role, ())
     index = rung_index(ladder, route.get("model"), route.get("reasoning_effort"))
     if index is None:
@@ -249,13 +252,17 @@ def _offered_levels(settings, model):
     )
 
 
+def _effort_origin(settings, role):
+    """The role's saved effort choice, including the Resolver's inherited choice."""
+    origins = settings.get("effort_origins") or {}
+    return origins.get(role) or (origins.get("task_planner") if role == "resolver" else None)
+
+
 def _dynamic_next_route(settings, role, route):
     """Climb one offered reasoning level on the role's own model when static ladders do not name it."""
     if role == "task_planner":
         return {"stay": "off_ladder"}
-    origins = settings.get("effort_origins") or {}
-    origin = origins.get(role) or (origins.get("task_planner") if role == "resolver" else None)
-    if origin not in _DYNAMIC_ORIGINS:
+    if _effort_origin(settings, role) not in _DYNAMIC_ORIGINS:
         return {"stay": "off_ladder"}
     model = route.get("model")
     current = route.get("reasoning_effort")
