@@ -1441,6 +1441,34 @@ class OperationalDispositionTests(unittest.TestCase):
         ]
         self.assertEqual([original], [r["receipt"]["evidence"]["recovered_receipt_id"] for r in recovered])
 
+    def test_committed_planning_input_can_reach_resume_without_granting_dispatch(self):
+        _, writer, _, _ = self.committed_feedback()
+        self.state.update(status="PAUSED_INTERVENTION", phase="PAUSED_OR_BLOCKED")
+        args = Arguments(resume_paused=True)
+        decided = actions.Decided()
+        before = copy.deepcopy(self.state)
+        self.assertIsNone(
+            admission.apply_step(
+                admission.guard, writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided
+            )
+        )
+        self.assertEqual(before, self.state, "admission must not rewrite committed feedback or its pause")
+        self.assertEqual("planning_input", decided.operational_selection)
+        self.assertFalse(decided.owner_lane)
+        self.assertFalse(admission.ready(self.state, decided))
+        self.assertEqual(
+            2,
+            admission.dispatch(
+                None, writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided
+            ),
+        )
+        self.assertIsNotNone(disposition.held(self.state))
+        self.state.update(status="RUNNING", phase="PLANNING")
+        self.assertIsNone(
+            admission.finalize(writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided)
+        )
+        self.assertIsNone(disposition.held(self.state))
+
     def test_planning_input_must_match_original_contract_and_both_committed_ledgers(self):
         _, _, _, _ = self.committed_feedback()
         valid = copy.deepcopy(self.state)
