@@ -12,6 +12,8 @@ import autocode_run_view as run_view
 import autocode_util as util
 import autocode_validation_scope_recovery as recovery
 
+from .operational_fixtures import legacy_publication
+
 
 def retain_misroute(state, folder, revision, *, scope="operational_exhaustion", pause="PAUSED_NO_PROGRESS"):
     """Write a synthetic pre-upgrade checkpoint; callers observe recovery publicly."""
@@ -19,6 +21,8 @@ def retain_misroute(state, folder, revision, *, scope="operational_exhaustion", 
     state.update(status="PAUSED_NO_PROGRESS", next_stage="builder", iteration=5, no_progress_batches=3)
     state.setdefault("settings", {}).setdefault("milestone_checkpoints", {})["enabled"] = True
     state["settings"].setdefault("limits", {})["no_progress_batches"] = 3
+    state["settings"].setdefault("budget_origins", {})["no_progress_batches"] = "runner_default"
+    state["run_dir"] = str(folder.resolve())
     state["current_task"] = {
         "id": "validation-M1",
         "kind": "validate",
@@ -77,31 +81,26 @@ def retain_misroute(state, folder, revision, *, scope="operational_exhaustion", 
         }
     ]
     binding = {
-        **{key: state.get(key) for key in ("workspace", "run_dir", "task_id", "conversation_id")},
+        **human._binding(state),
         "runtime_sources": "previous-runtime",
         "current_task": util.digest(state["current_task"]),
         "settings": util.digest(state["settings"]),
         "validation": util.digest(state["validation"]),
-        "contract": {key: contract[key] for key in ("hash", "revision", "approval_event")},
-        "accounting": {"no_progress_batches": 3},
         "observed_source": {"revision": revision},
         "interruptions": {},
     }
-    human.queue(
-        state,
-        scope,
-        {"stage": "builder", "pause_status": pause},
-        request={
-            "kind": "blocker",
-            "decision_needed": "Raise the no-progress limit",
-            "impact": "Old validation misroute",
-        },
-    )
-    with (
-        patch.object(human, "_binding", return_value=binding),
-        patch.object(human, "_decision", return_value=("escalate", "Retained old misroute")),
-    ):
-        human.evaluate(state)
+    with patch.object(human, "_binding", return_value=binding):
+        legacy_publication(
+            state,
+            folder,
+            scope=scope,
+            pause=pause,
+            request={
+                "kind": "blocker",
+                "decision_needed": "Raise the no-progress limit",
+                "impact": "Old validation misroute",
+            },
+        )
 
 
 class ValidationScopeRecoveryTests(unittest.TestCase):
@@ -208,7 +207,7 @@ class ValidationScopeRecoveryTests(unittest.TestCase):
                 elif variant == "review":
                     state["regression_proofs"][-1]["review_output"] = "another"
                 elif variant == "rejected":
-                    state["stages"][-1]["rejected"] = True
+                    next(row for row in state["stages"] if row.get("role") == "tester")["rejected"] = True
                 elif variant == "active":
                     state["active_runner_check"] = {"running": True}
                 elif variant == "nonmilestone":

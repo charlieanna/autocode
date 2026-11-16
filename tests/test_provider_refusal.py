@@ -32,6 +32,7 @@ import autocode_support as support
 import autocode_worker_quota as worker_quota
 from goal_fixtures import approve_fixture
 
+from .operational_fixtures import assert_operational_block
 from .supervision_fixture import launcher
 
 FIXTURES = Path(__file__).resolve().parents[1] / "tools" / "fixtures"
@@ -538,7 +539,6 @@ class ContentFilterAtCleanExitTests(unittest.TestCase):
         # attempts and collected exits retain the original session-provenance stop.
         missing = "Provider returned a missing or unexpected session ID"
         recovered = "Recovered response belongs to an unexpected session"
-        human = runner.resolver_runtime.human
         for saved, written in self.unexpected_refusals():
             for supervised in (True, False):
                 for saved_exit in (0, None, -2, -15):
@@ -573,8 +573,7 @@ class ContentFilterAtCleanExitTests(unittest.TestCase):
                         self.assertTrue(
                             runner.resolver_runtime.record_operational_exhaustion(runner, state, self.run, resumed)
                         )
-                        self.assertEqual("PAUSED_UNCERTAIN_STAGE", state[human.PRIVATE]["origin"]["pause_status"])
-                        self.assertEqual([], human.internal_questions(state))
+                        assert_operational_block(self, state, "PAUSED_UNCERTAIN_STAGE")
 
     def test_a_resumed_refusal_from_an_unexpected_session_keeps_the_first_stop(self):
         # As in run_role, a timeout names the stop before the session or the response is read, and the

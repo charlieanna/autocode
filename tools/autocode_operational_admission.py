@@ -140,9 +140,19 @@ def original_cause(state: RunState, decided):
 
 def guard(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
     """Select only a registered owner; ordinary advancement has no authority."""
+    try:
+        conversation_ingress.require_expected_goal(
+            state, getattr(args, "expected_goal_token", None), token_for=goals.token, is_approved=goals.approved
+        )
+    except ValueError as error:
+        # A supplied plan boundary is an admission prerequisite, including for
+        # metadata owners. Refuse it before normalization can save a new hold.
+        return runner.status_command.reject_input(runner, state, workspace, run_dir, error)
     current = disposition.decision(state)
     if current is None:
         return None
+    if not disposition.inspectable(state):
+        return refuse()
     row = current["record"]
     decided.operational_incident = disposition.incident_identity(state, row)
     evidence = (row.get("receipt") or {}).get("evidence") or {}
@@ -167,14 +177,18 @@ def guard(runner, args, parser, state: RunState, state_path, run_dir, workspace,
         else None
     )
     operations = decided.owned_operations
-    if planning_input and not operations:
+    if planning_input and continuation:
         decided.operational_selection = "planning_input"
         decided.operational_recovery_checked = {
             "incident": decided.operational_incident,
             "selection": "planning_input",
             "proof": planning_input,
         }
-        decided.owner_lane = True
+        # This input already committed through its owner. Let ordinary pause,
+        # source and approval guards run; dispatch still requires RUNNING and
+        # revalidates both input ledgers at the final admission boundary.
+        decided.owned_operations = ()
+        decided.owner_lane = False
         return None
     if not operations:
         if human.pending_interruptions(run_dir).get("pending"):

@@ -425,6 +425,7 @@ class RecoveryHistoryTests(unittest.TestCase):
         current = state(
             status="RUNNING",
             phase="EXECUTING",
+            user_events=[{"kind": "automatic_interruption_recovery", "stage": "tester", "at": "2026-11-16T10:00:00Z"}],
             retained_candidate_handoffs=[
                 {
                     "at": "2026-11-02T05:46:00+00:00",

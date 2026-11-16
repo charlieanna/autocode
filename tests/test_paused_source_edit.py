@@ -17,6 +17,8 @@ from goal_fixtures import body, envelope
 
 from tests import test_goals
 
+from .operational_fixtures import assert_operational_block
+
 
 class PausedSourceEditTests(unittest.TestCase):
     # The goal tests' Git fixture and CLI driver; binding the class here would run its tests again.
@@ -360,8 +362,8 @@ class PausedSourceEditTests(unittest.TestCase):
 
     def exhausted_report_repair_published_after_a_source_edit(self):
         """The repair's attempts ran out at the same error (reject_completed_stage keeps the repair and pauses
-        for repeated failure), the operator edited the source, and a plain invocation published AutoResolver's
-        operational request."""
+        for repeated failure), the operator edited the source, and a plain invocation records the
+        actionless recovery hold."""
         pending = self.queue_validator_report_repair()
         pending["attempts"] = self.state["pending_report_repair"]["attempts"] = 2
         self.state.update(
@@ -372,26 +374,23 @@ class PausedSourceEditTests(unittest.TestCase):
         )
         self.edit_test_file()
         self.assertEqual(2, self.invoke("--no-chat"))
-        request = resolver_human.current(self.state)
-        self.assertEqual(("WAITING_FOR_USER", "operational_exhaustion"), (self.state["status"], request["scope"]))
-        return pending, request
+        receipt = assert_operational_block(self, self.state, "PAUSED_REPEATED_FAILURE")
+        return pending, receipt
 
-    def test_resume_leaves_a_published_operational_request_and_its_stale_repair_alone(self):
+    def test_resume_leaves_an_actionless_operational_hold_and_its_stale_repair_alone(self):
         # Issue #302 review: an interactive resume archived the repair, withdrew AutoResolver's request as a side
         # effect and launched the Validator, although the same command with --no-chat (rightly) held.
         self.approve()
         lifecycle.assign_task(self.state, self.decision(), s.snapshot(self.root))
-        pending, request = self.exhausted_report_repair_published_after_a_source_edit()
+        pending, receipt = self.exhausted_report_repair_published_after_a_source_edit()
         calls, provider = self.provider([])
 
         self.assertEqual(2, self.invoke("--resume-paused", "--no-chat", role=provider))
-        self.assertIn("AutoResolver retained the operational request", self.stdout)
-        self.assertEqual(request, resolver_human.current(self.state))
+        self.assertEqual(receipt, assert_operational_block(self, self.state, "PAUSED_REPEATED_FAILURE"))
         self.assertEqual(2, self.invoke("--resume-paused", "--chat", role=provider))
 
         self.assertEqual([], calls)
-        escalation = self.state["resolver"]["human_escalations"][request["request_id"]]
-        self.assertEqual("pending", escalation["status"])  # answered or withdrawn only by its own actions
+        self.assertEqual(receipt, assert_operational_block(self, self.state, "PAUSED_REPEATED_FAILURE"))
         self.assertEqual(pending["original"], self.state["pending_report_repair"]["original"])
         self.assertNotIn("report_repair_archive", self.state)
         self.assertEqual("sol-session", self.state["sessions"]["tester"])

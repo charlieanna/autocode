@@ -7,9 +7,9 @@ autocode resume`. The view names the reply as an argument array; the question sh
 sentences only, while the saved request and the stop reason keep the operator advice.
 """
 
+import copy
 import unittest
 
-import autocode_chat_view as chat_view
 import autocode_person_text as person_text
 import autocode_progress_view as progress_view
 import autocode_recovery_limits as recovery_limits
@@ -17,6 +17,7 @@ import autocode_resolver_human as human
 import autocode_run_view as run_view
 
 from . import test_blocker_next_action, test_resolver_human
+from .operational_fixtures import legacy_publication
 
 PERSON = (
     "AutoResolver could not resolve the Builder's model limit. Provide corrective information or leave the run paused."
@@ -159,15 +160,18 @@ class PersonOnlyQuestionTests(unittest.TestCase):
         self.assert_plain(need)
         self.assertTrue(need["questions"][0]["question"].startswith(PERSON))
 
-    def test_an_operational_exhaustion_question_names_no_flags(self):
+    def test_a_retained_machinery_question_is_not_shown_or_answerable(self):
         self.contract()
         self.publish_operational()
-        published = human.current(self.state)
         self.state["pending_questions"][0]["question"] = composed()
-        need = self.view()["needs"]
-        self.assertEqual(("answer", "operational_exhaustion"), (need["kind"], need["resolver_scope"]))
-        self.assertEqual(published["request_id"], need["resolver_request_id"])
-        self.assert_plain(need)
+        before = copy.deepcopy(self.state)
+        view = self.view()
+        self.assertIsNone(view["needs"])
+        self.assertIsNone(view["next_command"])
+        self.assertIsNone(view["chat"]["input"])
+        self.assertIsNone(view["chat"]["gate"])
+        self.assertEqual("blocked", view["recovery"]["category"])
+        self.assertEqual(before, self.state)
 
     def test_a_requirements_question_is_shown_as_asked(self):
         text = "Should the CLI accept --verbose?"
@@ -177,7 +181,7 @@ class PersonOnlyQuestionTests(unittest.TestCase):
         self.assertNotIn("resolver_scope", need)
         self.assertEqual(text, need["questions"][0]["question"])
 
-    def test_exhausted_operational_recovery_grant_offers_no_machinery_or_limit_copy(self):
+    def test_retained_recovery_exhaustion_never_offers_a_person_a_machinery_grant(self):
         self.contract()
         self.state.update(
             status="PAUSED_TIMEOUT_RECOVERY",
@@ -186,57 +190,24 @@ class PersonOnlyQuestionTests(unittest.TestCase):
             consecutive_timeout_recoveries=3,
             planning={"plan_review_calls": 3},
         )
-        receipt = {
-            "stage": "resolver",
-            "runner_owned": True,
-            "decision": {"action": "hold"},
-            "receipt": {"evaluation_binding": human._binding(self.state)},
-        }
-        self.state["resolver"] = {
-            "operational_diagnostics": ["op-receipt"],
-            "operational_receipts": {"op-receipt": receipt},
-        }
-        human.queue(
-            self.state,
-            "operational_exhaustion",
-            {"stage": "review_plan", "pause_status": "PAUSED_TIMEOUT_RECOVERY"},
-            request=self.request(),
-            evidence={"resolver_receipt_id": "op-receipt"},
-        )
-        self.assertEqual("escalate", human.evaluate(self.state))
-        published = self.view()
-        self.assertEqual("grant_recovery", published["needs"]["command_inputs"][0]["id"])
-        self.assertIsNone(chat_view.raised_bound(published["needs"]))
-        published_needs_you = progress_view.progress(self.state, accepted=(), stage=None, needs=published["needs"])[
-            "needs_you"
-        ]
-        self.assertEqual(
-            "send AutoResolver corrective information, or authorize additional recoveries",
-            published_needs_you,
-        )
-        self.assertFalse(person_text.machinery(published_needs_you))
-
-        # Held at RESOLVER_PENDING with an authenticated runner hold receipt.
-        self.state.pop("resolver_human_request", None)
-        self.state.pop("pending_questions", None)
-        self.state["status"] = "PAUSED_TIMEOUT_RECOVERY"
-        receipt["receipt"]["evaluation_binding"] = human._binding(self.state)
-        human.queue(
-            self.state,
-            "operational_exhaustion",
-            {"stage": "review_plan", "pause_status": "PAUSED_TIMEOUT_RECOVERY"},
-            request=self.request(),
-            evidence={"resolver_receipt_id": "op-receipt"},
-        )
-        self.state["status"] = "RESOLVER_PENDING"
-        queued = self.view()
-        self.assertEqual("resume", queued["needs"]["kind"])
-        self.assertEqual("grant_recovery", queued["needs"]["command_inputs"][0]["id"])
-        queued_needs_you = progress_view.progress(self.state, accepted=(), stage=None, needs=queued["needs"])[
-            "needs_you"
-        ]
-        self.assertEqual("authorize additional recoveries to continue", queued_needs_you)
-        self.assertFalse(person_text.machinery(queued_needs_you))
+        legacy_publication(self.state, self.root / "run", request=self.request())
+        retained = copy.deepcopy(self.state)
+        for settle in (False, True):
+            with self.subTest(settle=settle):
+                if settle:
+                    self.assertEqual("none", human.evaluate(self.state))
+                view = self.view()
+                self.assertIsNone(view["needs"])
+                self.assertIsNone(view["next_command"])
+                self.assertIsNone(view["chat"]["input"])
+                self.assertIsNone(view["chat"]["gate"])
+                shown = progress_view.progress(self.state, accepted=(), stage=None, needs=view["needs"])["needs_you"]
+                self.assertNotIn("authorize additional recoveries", shown or "")
+                for key in ("settings", "automatic_recoveries_since_resume", "consecutive_timeout_recoveries"):
+                    self.assertEqual(retained.get(key), self.state.get(key), key)
+                self.assertEqual(
+                    retained["resolver"]["operational_receipts"], self.state["resolver"]["operational_receipts"]
+                )
 
 
 if __name__ == "__main__":

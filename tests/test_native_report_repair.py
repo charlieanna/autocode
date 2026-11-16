@@ -463,7 +463,7 @@ class RepairRunsUnderTheNativeOwner(NativeRepairFixture):
             retry_failed_stage=False,
             diagnose_failed_stage=False,
         )
-        decided = SimpleNamespace(gate=None, retained_report=None, information_admitted=False)
+        decided = runner.run_actions.Decided()
         return recovery_actions.resume(self.view, args, None, self.state, self.path, self.run, self.root, decided)
 
     def test_resume_never_renews_the_native_repair_bound(self):
@@ -522,7 +522,7 @@ class ResumeThatChangesTheRepairedRoute(NativeRepairFixture):
         admitted = []
 
         def resume_step(view, args, parser, state, *rest):
-            decided = SimpleNamespace(gate=None, retained_report=None, information_admitted=False)
+            decided = runner.run_actions.Decided()
             return recovery_actions.resume(view, args, parser, state, *rest, decided)
 
         def build(view, args, state, *_rest, **_options):

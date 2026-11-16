@@ -1,15 +1,19 @@
 """Issue #288: stop advice never names --grant-recovery unless the CLI will accept it."""
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import autocode_operational_disposition as disposition
 import autocode_recovery_accounting as accounting
 import autocode_recovery_grants as grants
 import autocode_recovery_limits as limits
 import autocode_resolver_runtime as resolver_runtime
 import autocode_support as support
+
+from .operational_fixtures import assert_operational_block
 
 
 def _request(pause_status, scope="operational_exhaustion", request_id="req-1"):
@@ -244,123 +248,66 @@ class AdviceMatchesEligibility(unittest.TestCase):
         self.assertFalse(limits.no_progress_bound_holds(state, novelty))
         self.assertTrue(limits.no_progress_bound_holds({**state, "stop_reason": note, **republished}, note))
 
-    def test_published_exhaustion_advertises_exactly_what_grant_accepts(self):
-        class Runner:
-            MAX_AUTOMATIC_RECOVERIES = 3
-
-            @staticmethod
-            def recovery_count(state):
-                return state.get("automatic_recoveries_since_resume", 3)
-
-        for pause_status, count, expect_grant in (
-            ("PAUSED_TIMEOUT_RECOVERY", 3, True),
-            ("PAUSED_TIME_LIMIT", 3, True),
-            ("PAUSED_TIME_LIMIT", 1, False),
-            ("PAUSED_NO_PROGRESS", 0, False),
+    def test_exhaustion_retains_limits_and_evidence_without_offering_a_grant(self):
+        for pause, count in (
+            ("PAUSED_TIMEOUT_RECOVERY", 3),
+            ("PAUSED_TIME_LIMIT", 3),
+            ("PAUSED_TIME_LIMIT", 1),
+            ("PAUSED_NO_PROGRESS", 0),
+            ("PAUSED_BUILDER_RETRY_LIMIT", 0),
         ):
-            with self.subTest(pause_status=pause_status, count=count):
+            with self.subTest(pause=pause, count=count), tempfile.TemporaryDirectory() as temporary:
+                run = Path(temporary)
                 state = {
-                    "status": pause_status,
-                    "workspace": "/tmp/unused-workspace",
+                    "iteration": 1,
+                    "status": pause,
+                    "workspace": str(run),
+                    "run_dir": str(run),
                     "next_stage": "builder",
-                    "settings": {"limits": {"no_progress_batches": 3}},
+                    "settings": {
+                        "limits": {"no_progress_batches": 3},
+                        "budget_origins": {"no_progress_batches": "runner_default", "max_seconds": "runner_default"},
+                    },
                     "no_progress_batches": 3,
                     "automatic_recoveries_since_resume": count,
-                    "automatic_timeout_recoveries": [],
-                    "automatic_capacity_recoveries": [],
-                    "automatic_permission_recoveries": [],
                     "stages": [],
                 }
-                run = __import__("pathlib").Path("/tmp/issue-288-advice-run")
-                run.mkdir(exist_ok=True)
-                # The build loop's own reason, which no_progress_bound_holds attributes to the limit.
-                reason = limits.NO_PROGRESS_CAUSE if pause_status == "PAUSED_NO_PROGRESS" else "budget spent"
-                with (
-                    patch.object(resolver_runtime, "_operational_receipt", return_value="receipt-1"),
-                    patch.object(resolver_runtime.human, "queue") as queue,
-                ):
+                cause = limits.NO_PROGRESS_CAUSE if pause == "PAUSED_NO_PROGRESS" else "budget spent"
+                with patch.object(resolver_runtime.human, "queue") as queue:
                     self.assertTrue(
-                        resolver_runtime.record_operational_exhaustion(
-                            Runner, state, run, support.Paused(pause_status, reason)
-                        )
+                        resolver_runtime.record_operational_exhaustion(None, state, run, support.Paused(pause, cause))
                     )
-                request = queue.call_args.kwargs["request"]
-                decision = request["decision_needed"]
-                if expect_grant:
-                    self.assertIn("--grant-recovery", decision)
-                else:
-                    self.assertNotIn("--grant-recovery", decision)
-                    bound = {"PAUSED_TIME_LIMIT": "--max-seconds", "PAUSED_NO_PROGRESS": "--no-progress-limit"}[
-                        pause_status
-                    ]
-                    self.assertIn(bound, decision)
-                    self.assertNotIn("--resolver-response", decision)
-                self.assertEqual(
-                    pause_status == "PAUSED_NO_PROGRESS",
-                    "Acknowledge the pause with autocode resume --no-progress-limit N" in request["options"],
-                )
-                self.assertTrue(state["stop_reason"].startswith(reason + "."), state["stop_reason"])
-                self.assertTrue(state["stop_reason"].endswith(decision), state["stop_reason"])
-                # #511: none of these runs recorded a recovery, so none is claimed.
-                self.assertIn("no automatic operational recovery ran", decision)
-                self.assertNotIn("recorded operational", decision)
-                # Whatever we just advertised, grant() agrees at this stop.
-                published = {"request_id": "req-later", "scope": "operational_exhaustion"}
-                cause = pause_status
-                self.assertEqual(
-                    expect_grant,
-                    grants.eligible(
-                        state,
-                        current_request=lambda s: published,
-                        count=count,
-                        maximum=3,
-                        issued=published,
-                        cause=cause,
-                    ),
-                )
+                queue.assert_not_called()
+                identity = assert_operational_block(self, state, pause)
+                self.assertIn(cause, json.dumps(disposition.diagnostic(state, identity)))
+                self.assertEqual(count, accounting.spent(state))
+                self.assertEqual({"no_progress_batches": 3}, state["settings"]["limits"])
+                self.assertNotIn("--grant-recovery", state["stop_reason"])
 
-    def test_unchanged_builder_batches_are_not_a_spent_budget_to_grant(self):
-        # #511: three Builder batches without source changes and no recovery: no grant, and the
-        # request says no recovery ran rather than "after 0 recorded operational recoveries".
-        class Runner:
-            MAX_AUTOMATIC_RECOVERIES = 3
-            recovery_count = staticmethod(accounting.spent)
-
-        state = {
-            "status": "PAUSED_BUILDER_RETRY_LIMIT",
-            "workspace": "/tmp/unused-workspace",
-            "next_stage": "builder",
-            "settings": {"limits": {}},
-            "no_progress_batches": 3,
-            "stages": [],
-        }
-        temp = tempfile.TemporaryDirectory()
-        self.addCleanup(temp.cleanup)
-        run = Path(temp.name)
-        with (
-            patch.object(resolver_runtime, "_operational_receipt", return_value="receipt-1"),
-            patch.object(resolver_runtime.human, "queue") as queue,
-        ):
-            self.assertTrue(
-                resolver_runtime.record_operational_exhaustion(
-                    Runner,
-                    state,
-                    run,
-                    support.Paused("PAUSED_BUILDER_RETRY_LIMIT", "Builder retry allowance used for M1"),
+    def test_unchanged_builder_batches_are_not_recorded_as_recoveries(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            run = Path(temporary)
+            state = {
+                "iteration": 1,
+                "status": "PAUSED_BUILDER_RETRY_LIMIT",
+                "workspace": str(run),
+                "run_dir": str(run),
+                "next_stage": "builder",
+                "settings": {"limits": {}},
+                "no_progress_batches": 3,
+                "stages": [],
+            }
+            for attempts in ([], [{}]):
+                state["automatic_timeout_recoveries"] = attempts
+                before = accounting.spent(state)
+                self.assertTrue(
+                    resolver_runtime.record_operational_exhaustion(
+                        None, state, run, support.Paused("PAUSED_BUILDER_RETRY_LIMIT", "Builder retry allowance used")
+                    )
                 )
-            )
-        decision = queue.call_args.kwargs["request"]["decision_needed"]
-        self.assertNotIn("--grant-recovery", decision)
-        self.assertIn("no automatic operational recovery ran", decision)
-        state["automatic_timeout_recoveries"] = [{}]
-        with (
-            patch.object(resolver_runtime, "_operational_receipt", return_value="receipt-2"),
-            patch.object(resolver_runtime.human, "queue") as queue,
-        ):
-            resolver_runtime.record_operational_exhaustion(
-                Runner, state, run, support.Paused("PAUSED_BUILDER_RETRY_LIMIT", "Builder retry allowance used for M1")
-            )
-        self.assertIn("after 1 recorded operational recovery.", queue.call_args.kwargs["request"]["decision_needed"])
+                assert_operational_block(self, state, "PAUSED_BUILDER_RETRY_LIMIT")
+                self.assertEqual(before, accounting.spent(state))
+                self.assertEqual(attempts, state["automatic_timeout_recoveries"])
 
 
 class GrantStillAudited(unittest.TestCase):
@@ -464,7 +411,7 @@ class QuotaStopAdviceNamesAbandon(unittest.TestCase):
         text = limits.advice(allow_grant=False, pause_status="PAUSED_BUDGET")
         self.assertNotIn("--abandon-stage", text)
 
-    def test_record_operational_exhaustion_does_not_duplicate_grant_advice(self):
+    def test_old_grant_advice_is_retained_in_evidence_without_a_person_prompt(self):
         with tempfile.TemporaryDirectory() as temporary:
             run_dir = Path(temporary)
             state = {
@@ -491,5 +438,6 @@ class QuotaStopAdviceNamesAbandon(unittest.TestCase):
                     support.Paused("PAUSED_TIMEOUT_RECOVERY", cause),
                 )
             )
-            self.assertEqual(1, state["stop_reason"].count(limits.GRANT_ADVICE), state["stop_reason"])
-            self.assertTrue(state["stop_reason"].startswith(cause), state["stop_reason"])
+            identity = assert_operational_block(self, state, "PAUSED_TIMEOUT_RECOVERY")
+            self.assertIn(cause, json.dumps(disposition.diagnostic(state, identity)))
+            self.assertNotIn(limits.GRANT_ADVICE, state["stop_reason"])

@@ -210,7 +210,7 @@ class ResumeParityTests(unittest.TestCase):
     def test_truncated_review_pause_recovers_automatically_on_resume(self):
         state = self.state(self.attempt())
         state.update(status="PAUSED_PROVIDER_UNCERTAIN", stop_reason="Output token limit")
-        decided = SimpleNamespace(gate=None, retained_report=False, information_admitted=False)
+        decided = runner.run_actions.Decided()
 
         def save(path, value):
             path.parent.mkdir(parents=True, exist_ok=True)

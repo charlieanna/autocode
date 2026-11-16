@@ -180,27 +180,8 @@ SCHEMA = 2
 COMPLETE = ("TASK_COMPLETE", "COMPLETE")
 # Statuses where relaunching the run, with no user input, continues the work.
 CONTINUE = ("RUNNING", "DISCOVERING", "WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL")
-QUESTION_FIELDS = ("id", "question", "why", "options", "proposed_default")
-
-
-def _question_view(
-    question: dict,
-    *,
-    request_kind=None,
-    resolver_scope=None,
-    route: bool = False,
-    effort: bool = False,
-) -> dict:
-    return {
-        **{field: question.get(field) for field in QUESTION_FIELDS},
-        "allow_custom": answer_options.allows_custom(
-            question,
-            request_kind=request_kind,
-            resolver_scope=resolver_scope,
-            route=route,
-            effort=effort,
-        ),
-    }
+QUESTION_FIELDS = answer_options.QUESTION_FIELDS
+_question_view = answer_options.question_view
 
 
 def requirements_view(state: RunState) -> dict | None:
@@ -343,7 +324,9 @@ def view(
     reconcile = (
         None
         if (operational_block.presentation(state, include_hold=True))
-        else reconciliation.offer(state, liveness, controller=controller, stop_pending=stop_pending)
+        else reconciliation.offer(
+            state, liveness, controller=controller, stop_pending=stop_pending, workspace=workspace
+        )
     )
     if reconcile is not None:
         next_action = {
@@ -1383,9 +1366,8 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             "producer_run": (state.get("dependency_wait") or {}).get("producer_run"),
             "producer_workspace": (state.get("dependency_wait") or {}).get("producer_workspace"),
         }
-    issued = state.get("resolver_human_request")
     if (
-        recovery_progress.routine_resume(state, issued)
+        recovery_progress.pending(state)
         or validation_recovery.pending(state)
         or no_progress_recovery.pending_legacy(state)
     ):

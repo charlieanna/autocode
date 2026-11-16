@@ -99,7 +99,7 @@ export interface PanelState {
   /** Saved code changes and the actions the view named for them (#1532). */
   workingDiff: { label: string } | null;
   /** The run's whole change, once a step is saved: the one diff a person reads (owner decision 2026-11-13). */
-  allChanges: { label: string } | null;
+  allChanges: { label: string; context: string } | null;
   /** The plan the current token asks to approve, only when the view shows it. */
   plan: { revision: number | null; review: TextNode[]; criteria: AcceptanceCriterion[]; constraints: string[]; boundaries: string[]; exclusions: string[]; delivery: string | null; milestones: { id: string; objective: string; acceptance_criteria: string[] }[]; flow: string[] } | null;
   /** The token the approval is bound to; the webview echoes it back so a stale click cannot approve. */
@@ -562,7 +562,14 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
         requested: view.pause.stop_now.requested === true || !Array.isArray(view.pause.stop_now.next_command),
       } : null,
     } : null,
-    allChanges: view.code_checkpoints?.all_changes?.next_command ? { label: view.code_checkpoints.all_changes.label ?? "Show all changes" } : null,
+    allChanges: view.code_checkpoints?.all_changes?.next_command ? {
+      label: view.code_checkpoints.all_changes.label ?? "Show all changes",
+      // The core compares saved code. Its public checkpoint identities change even when
+      // the named command and chat stay the same; timing and log updates do not.
+      context: JSON.stringify([view.code_checkpoints.all_changes.next_command,
+        (view.code_checkpoints.rows ?? []).filter((row) => row.available)
+          .map((row) => [row.id, row.source_revision, row.commit])]),
+    } : null,
     workingDiff: view.code_checkpoints?.working?.next_command ? { label: view.code_checkpoints.working.label ?? "Show changes so far" } : null,
     plan,
     token: approvalToken(view),
@@ -980,6 +987,7 @@ export function panelHtml(chat = false): string {
   h2 { font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; opacity: .75; margin: 22px 0 8px; }
   .line { font-size: .95rem; margin-bottom: 4px; }
   .meta { font-size: .8rem; opacity: .8; }
+  .message-content { white-space: pre-wrap; }
   .row { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; border-bottom: 1px solid var(--vscode-panel-border); }
   .state { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; padding: 1px 6px; border-radius: 3px;
            background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
@@ -1100,6 +1108,9 @@ let customSelected = Object.create(null);
 let reviewOverrides = Object.create(null);
 let renderedState = '';
 let allChangesCompare = null;
+let allChangesContext = null;
+let allChangesRequested = false;
+let allChangesRequest = 0;
 let workingCompare = null;
 const ACTIVITY_MARKS = { command: '$', edit: '±', tool: '·', thinking: '∴', message: '»' };
 // The live agent log kept by entry id across reads (the terminal chat's LiveLog).
@@ -1369,7 +1380,13 @@ function renderFinish(state) {
 }
 
 function requestAllChanges(state) {
-  vscode.postMessage({ type: 'all_changes', runKey: state.workspace + '\\n' + state.runDir });
+  if (!state.allChanges || state.taking || state.unreadable) return;
+  allChangesRequested = true;
+  allChangesCompare = { loading: true };
+  renderedState = '';
+  render(state);
+  vscode.postMessage({ type: 'all_changes', runKey: state.workspace + '\\n' + state.runDir,
+    requestId: ++allChangesRequest });
 }
 
 /** The run's result: one diff of everything it changed, never a step-by-step history to pick from. */
@@ -1384,7 +1401,9 @@ function renderAllChanges(state) {
   show.disabled = Boolean(state.taking || state.unreadable);
   show.addEventListener('click', () => requestAllChanges(state));
   box.appendChild(show);
-  if (allChangesCompare && allChangesCompare.error) {
+  if (allChangesCompare && allChangesCompare.loading) {
+    box.appendChild(el('div', 'why', 'Loading changes…'));
+  } else if (allChangesCompare && allChangesCompare.error) {
     box.appendChild(el('div', 'why', 'Could not show the changes: ' + allChangesCompare.error));
   } else if (allChangesCompare) {
     const comparison = allChangesCompare.comparison || {};
@@ -2256,7 +2275,8 @@ window.addEventListener('message', (event) => {
       saveDraft(); renderTabs(chatEnvelope); updateComposer(); chatBehavior.resize();
     }
   }
-  if (data && data.type === 'all_changes' && chatEnvelope && data.runKey === chatEnvelope.runKey) {
+  if (data && data.type === 'all_changes' && chatEnvelope && data.runKey === chatEnvelope.runKey
+      && data.requestId === allChangesRequest) {
     allChangesCompare = data.error ? { error: data.error } : { comparison: data.comparison };
     renderedState = '';
     if (current) render(current);
@@ -2447,8 +2467,16 @@ function renderChat(data) {
     }
     current = null; renderedState = ''; answers = Object.create(null);
     allChangesCompare = null; workingCompare = null;
+    allChangesRequested = false;
     liveLog.clear();
     openThoughts.clear();
+  }
+  const comparisonContext = data.state && data.state.allChanges ? data.state.allChanges.context : null;
+  if (!same || allChangesContext !== comparisonContext) {
+    allChangesContext = comparisonContext;
+    allChangesCompare = null;
+    ++allChangesRequest;  // discard replies for saved code or a tab the reader has left
+    renderedState = '';
   }
   chatEnvelope = data;
   const messages = document.getElementById('messages');
@@ -2530,6 +2558,9 @@ function renderChat(data) {
   renderChatModels(data);
   renderMeter(data);
   updateComposer();
+  // Keep an opened comparison current, using only the fresh view's named read.
+  // A busy command or unreadable status defers this until the next usable view.
+  if (allChangesRequested && !allChangesCompare && data.state) requestAllChanges(data.state);
   chatBehavior.resize();
   if (!same) {
     // Each tab remembers where its reader was (#1558); a first open starts at

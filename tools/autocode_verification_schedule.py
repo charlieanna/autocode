@@ -74,7 +74,7 @@ def tree_identity(root, *, excluded=()):
 
 def collection_kind(command):
     """A known exact Python collector, not shell text resembling a test suite."""
-    invocation = python_tests.parse(command)
+    invocation = python_tests.parse(command, include_owned=True)
     return invocation.kind if invocation else None
 
 
