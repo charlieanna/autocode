@@ -8,6 +8,11 @@ authority or changes unresolved accounting when a provider is dead or unowned.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_attempt_ledger as attempt_ledger
 except ImportError:
@@ -37,7 +42,7 @@ def launched(record, liveness=None) -> bool:
     )
 
 
-def working_stage(state, liveness=None):
+def working_stage(state: RunState, liveness=None):
     """The open attempt whose current classified observation confirms activity."""
     record = attempt_ledger.running_stage(state)
     if launched(record, liveness) and _mapping(liveness).get("kind") == "supervised":
