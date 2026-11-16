@@ -267,6 +267,25 @@ class Invocation:
     python: str
     kind: str
     arguments: tuple[str, ...]
+    script: str | None = None
+
+    @property
+    def entrypoint(self):
+        return (self.script,) if self.script else ("-m", self.kind)
+
+    @property
+    def discovers(self):
+        return bool(self.script) or self.arguments[:1] == ("discover",)
+
+    def render(self, *, arguments=None, prefix=None):
+        return shlex.join(
+            [
+                *(self.prefix if prefix is None else prefix),
+                self.python,
+                *self.entrypoint,
+                *(self.arguments if arguments is None else arguments),
+            ]
+        )
 
     def targeted(self, files):
         """Keep environment and collection options when replacing suite paths.
@@ -274,6 +293,10 @@ class Invocation:
         Unknown option arity cannot safely be guessed. In that case execute the
         original suite, which still supplies named base/candidate results.
         """
+        if self.script:
+            # Named-test filtering is supported; selecting files would bypass hooks
+            # or pretend the whole suite establishes where an individual file loads.
+            return None
         if self.kind != "pytest":
             return self._targeted_unittest(files)
         values = {
@@ -349,7 +372,12 @@ class Invocation:
         return shlex.join([*self.prefix, self.python, "-m", "unittest", "-v", *kept, *files])
 
 
-def parse(command):
+def parse(command, *, include_owned=False):
+    """Parse module invocations; selection-aware consumers may opt into owned collectors.
+
+    File discovery, widening and rewrite consumers retain their module-only contract.
+    Recognizing a script for named selection does not give it those capabilities.
+    """
     """Accept Python directly or behind env with literal NAME=value assignments."""
     if not isinstance(command, str) or re.search(r"[;&|<>`$\n]", command):
         return None
@@ -363,6 +391,14 @@ def parse(command):
         while offset < len(words) and re.match(r"^[A-Za-z_][A-Za-z_0-9]*=", words[offset]):
             offset += 1
     tail = words[offset:]
+    if (
+        include_owned
+        and len(tail) >= 2
+        and re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", Path(tail[0]).name)
+        and Path(tail[1]).is_absolute()
+        and Path(tail[1]).resolve() == Path(__file__).with_name("autocode_component_tests.py").resolve()
+    ):
+        return Invocation(tuple(words[:offset]), tail[0], "unittest", tuple(tail[2:]), script=tail[1])
     if (
         len(tail) < 3
         or not re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", Path(tail[0]).name)

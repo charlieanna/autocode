@@ -29,7 +29,7 @@ import autocode_stage_context as stage_context
 import autocode_support as s
 from goal_fixtures import assert_operational_wait, body, envelope, seed_greeting_workspace
 
-from .operational_fixtures import assert_operational_block
+from .operational_fixtures import assert_operational_block, legacy_publication
 
 
 class GoalTests(unittest.TestCase):
@@ -2102,19 +2102,10 @@ class GoalTests(unittest.TestCase):
                 self.state["settings"]["limits"]["max_reported_tokens"] = 1
                 self.state["settings"]["budget_origins"] = {"max_reported_tokens": "user_explicit"}
                 self.state.update(status=status, stop_reason="Saved token guard exhausted")
-                # Construct a saved legacy request with a genuine runner receipt.
-                runner.resolver_runtime.record_operational_exhaustion(
-                    runner, self.state, self.run, s.Paused("PAUSED_BUDGET", self.state["stop_reason"])
-                )
-                proposal = copy.deepcopy(self.state[human.PRIVATE])
-                human.queue(
-                    self.state,
-                    "operational_exhaustion",
-                    {"stage": "builder", "pause_status": status, "budget": {"kind": "max_reported_tokens"}},
-                    request=proposal["request"],
-                    evidence=proposal["evidence"],
-                )
-                self.assertEqual("escalate", human.evaluate(self.state))
+                # Seed historical authority with the shared legacy fixture. Today's
+                # publisher deliberately produces an internal hold, never this request.
+                legacy_publication(self.state, self.run, pause=status, budget={"kind": "max_reported_tokens"})
+                self.assertIsNotNone(human.retained(self.state))
                 calls = []
 
                 def admitted(**kwargs):

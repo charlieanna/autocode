@@ -900,12 +900,31 @@ class OperationalDispositionTests(unittest.TestCase):
                     writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided
                 )
             )
+            self.state.update(status="RUNNING", phase="EXECUTING")
+            self.assertIsNone(
+                admission.work_guard(
+                    writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided, final=True
+                )
+            )
         with patch.object(stage_recovery.source_scope, "snapshot", return_value={"revision": "foreign-source"}):
             with self.assertRaises(ValueError):
                 admission.work_guard(
                     writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided
                 )
         self.assertIsNotNone(disposition.held(self.state))
+        self.assertNotEqual("TASK_COMPLETE", self.state["status"])
+
+    def test_ordinary_continuation_revalidates_archived_completion_without_operator_resume(self):
+        revision, _ = self.archived_completion_incident()
+        runtime.record_operational_exhaustion(
+            self.runner, self.state, self.run, support.Paused("PAUSED_REPEATED_FAILURE", "Retained completion failure")
+        )
+        writer, args, decided = self.recovery_writer(), Arguments(), actions.Decided()
+        with patch.object(stage_recovery.source_scope, "snapshot", return_value={"revision": revision}):
+            self.assertIsNone(self.apply_selected_owner(writer, args, decided))
+            self.assertEqual("archive_completion", decided.operational_selection)
+            self.assertEqual("tester", self.state["next_stage"])
+            self.assertTrue(admission.ready(self.state, decided))
         self.assertNotEqual("TASK_COMPLETE", self.state["status"])
 
     def test_owner_lane_restores_only_exact_archived_validation_and_rechecks_its_real_pins(self):
@@ -945,6 +964,12 @@ class OperationalDispositionTests(unittest.TestCase):
             self.assertTrue(admission.ready(self.state, decided))
             self.assertIsNotNone(disposition.held(self.state))
             self.assertNotEqual("TASK_COMPLETE", self.state["status"])
+            self.state.update(status="RUNNING", phase="EXECUTING")
+            self.assertIsNone(
+                admission.work_guard(
+                    writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided, final=True
+                )
+            )
             reviewed = next(iter(validation["evidence_hashes"]))
             Path(reviewed).write_text("changed independently reviewed evidence")
             with self.assertRaises(ValueError):
@@ -952,6 +977,22 @@ class OperationalDispositionTests(unittest.TestCase):
                     writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided
                 )
         self.assertIsNotNone(disposition.held(self.state))
+
+    def test_archive_outcome_survives_dispatch_without_failed_retries_but_cannot_select_itself(self):
+        revision, _ = self.archived_completion_incident()
+        self.state.update(status="PAUSED_STAGE_ABANDONED", stages=self.state["stages"][:1], failure_history={})
+        with patch.object(stage_recovery.source_scope, "snapshot", return_value={"revision": revision}):
+            proof = stage_recovery.abandoned_completion_evidence(self.state, self.root)
+            self.assertTrue(proof)
+            self.assertTrue(stage_recovery.prepare_abandoned_completion_revalidation(self.state, self.run, self.root))
+            self.state.update(status="RUNNING", phase="EXECUTING")
+            self.assertFalse(stage_recovery.abandoned_completion_evidence(self.state, self.root))
+            stage_recovery.validate_abandoned_completion_evidence(self.state, self.root, proof)
+            for status in ("PAUSED_COST_LIMIT", "PAUSED_TIME_LIMIT", "TASK_COMPLETE"):
+                with self.subTest(status=status):
+                    self.state["status"] = status
+                    with self.assertRaises(ValueError):
+                        stage_recovery.validate_abandoned_completion_evidence(self.state, self.root, proof)
 
     def test_completion_archive_does_not_ignore_a_retagged_or_nonresolver_work_record(self):
         revision, _ = self.archived_completion_incident()
@@ -1327,6 +1368,23 @@ class OperationalDispositionTests(unittest.TestCase):
         self.assertEqual(counts, self.state["planning"])
         self.assertIsNone(disposition.held(self.state))
 
+    def test_ordinary_continuation_reconsiders_proven_reserve_without_operator_resume(self):
+        _, writer = self.reserve_incident()
+        args, decided = Arguments(), actions.Decided()
+        original_settings = copy.deepcopy(self.state["settings"])
+        with patch.object(writer, "reset_report_repair_for_resume", side_effect=AssertionError("no reset")):
+            self.assertIsNone(self.apply_selected_owner(writer, args, decided))
+            self.assertEqual("planning_reserve", decided.operational_selection)
+            self.assertEqual(2, self.state["planning"]["plan_review_calls"])
+            self.assertEqual(1, len(self.state["planning"]["recovery_review_grants"]))
+            self.assertEqual(original_settings, self.state["settings"])
+            self.assertIsNone(
+                actions._admit_build(
+                    writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided
+                )
+            )
+        self.assertIsNone(disposition.held(self.state))
+
     def test_reserve_metadata_cannot_admit_from_changed_ledger_or_tampered_archive(self):
         _, writer = self.reserve_incident()
         decided, args = actions.Decided(), Arguments(resume_paused=True)
@@ -1410,6 +1468,34 @@ class OperationalDispositionTests(unittest.TestCase):
             r for r in self.state["resolver"]["operational_receipts"].values() if r["decision"]["action"] == "recovered"
         ]
         self.assertEqual([original], [r["receipt"]["evidence"]["recovered_receipt_id"] for r in recovered])
+
+    def test_committed_planning_input_can_reach_resume_without_granting_dispatch(self):
+        _, writer, _, _ = self.committed_feedback()
+        self.state.update(status="PAUSED_INTERVENTION", phase="PAUSED_OR_BLOCKED")
+        args = Arguments(resume_paused=True)
+        decided = actions.Decided()
+        before = copy.deepcopy(self.state)
+        self.assertIsNone(
+            admission.apply_step(
+                admission.guard, writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided
+            )
+        )
+        self.assertEqual(before, self.state, "admission must not rewrite committed feedback or its pause")
+        self.assertEqual("planning_input", decided.operational_selection)
+        self.assertFalse(decided.owner_lane)
+        self.assertFalse(admission.ready(self.state, decided))
+        self.assertEqual(
+            2,
+            admission.dispatch(
+                None, writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided
+            ),
+        )
+        self.assertIsNotNone(disposition.held(self.state))
+        self.state.update(status="RUNNING", phase="PLANNING")
+        self.assertIsNone(
+            admission.finalize(writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided)
+        )
+        self.assertIsNone(disposition.held(self.state))
 
     def test_planning_input_must_match_original_contract_and_both_committed_ledgers(self):
         _, _, _, _ = self.committed_feedback()
@@ -1497,6 +1583,30 @@ class OperationalDispositionTests(unittest.TestCase):
                 with self.assertRaises(typed_block.BlockedOperation):
                     typed_block.guard(self.writer(), self.state, self.run, self.root)
                 self.assertFalse(admission.ready(self.state, actions.Decided()))
+
+    def test_unsealed_incident_cannot_offer_or_enter_a_retained_recovery(self):
+        import autocode_internal_failure_view as aggregate
+
+        self.legacy()
+        self.state.pop("active_stage")
+        self.state["resolver"]["operational_receipts"] = {}
+        self.assertIsNone(disposition.incident_identity(self.state, disposition.held(self.state)))
+        for owner, name in (
+            (aggregate.validation, "pending"),
+            (aggregate.no_progress, "pending_legacy"),
+            (aggregate.recovery_progress, "pending"),
+        ):
+            with self.subTest(owner=owner.__name__), patch.object(owner, name, return_value={"candidate": True}):
+                before = copy.deepcopy(self.state)
+                shown = run_view.view(self.state, run_dir=self.run, workspace=self.root)
+                self.assertIsNone(shown["needs"])
+                self.assertIsNone(shown["next_command"])
+                self.assertIsNone(shown["chat"]["input"])
+                self.assertEqual("blocked", shown["recovery"]["category"])
+                self.assertEqual(
+                    2, self.apply_selected_owner(self.writer(), Arguments(resume_paused=True), actions.Decided())
+                )
+                self.assertEqual(before, self.state)
 
     def test_one_public_aggregate_preserves_typed_priority_and_generic_only_compatibility_without_disk_reads(self):
         import autocode_internal_failure_view as aggregate

@@ -341,6 +341,7 @@ class BlindTestsCandidateExecutionTests(unittest.TestCase):
         from types import SimpleNamespace
 
         import autocode_action_decisions as action_decisions
+        import autocode_args as cli_args
 
         with tempfile.TemporaryDirectory() as root:
             workspace, run_dir = Path(root) / "w", Path(root) / "run"
@@ -365,25 +366,7 @@ class BlindTestsCandidateExecutionTests(unittest.TestCase):
                 launch_inputs=SimpleNamespace(guard=lambda c, w, r: None),
                 status_command=SimpleNamespace(reject_input=lambda r, s, w, rd, err: errors.append(err) or 2),
             )
-            args = SimpleNamespace(
-                accept_completion=True,
-                feedback=None,
-                edit_goal=None,
-                goal_file=None,
-                answer=[],
-                delegate=[],
-                delegate_all=False,
-                reject_assumption=[],
-                show_goal=False,
-                approve_goal=None,
-                approve_review=[],
-                reject_review=None,
-                planning_review_call_limit=None,
-                reconcile_review=None,
-                follow_up=None,
-                close_finding=None,
-                claimed_as=None,
-            )
+            args = cli_args.build_parser(None, cli_args.DEFAULT_ROLE_MODELS).parse_args(["--accept-completion"])
 
             original_check = acceptance.check_candidate
             try:

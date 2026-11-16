@@ -26,7 +26,9 @@ import sys
 
 try:
     from . import autocode_accepted_source as accepted_source
+    from . import autocode_action_retained_recovery as retained_recovery
     from . import autocode_classification_recovery as classification_recovery
+    from . import autocode_interrupted_review_recovery as interrupted_review
     from . import autocode_job_failure as job_failure
     from . import autocode_job_route as job_route
     from . import autocode_limit_events as limit_events
@@ -49,7 +51,9 @@ try:
     from . import autocode_verification_failure as verification_failure
 except ImportError:
     import autocode_accepted_source as accepted_source
+    import autocode_action_retained_recovery as retained_recovery
     import autocode_classification_recovery as classification_recovery
+    import autocode_interrupted_review_recovery as interrupted_review
     import autocode_job_failure as job_failure
     import autocode_job_route as job_route
     import autocode_limit_events as limit_events
@@ -73,7 +77,7 @@ except ImportError:
 
 
 def reconcile_checkpoint(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
-    """Publish an uncertain-stage pause under the run lock; never enter a provider/recovery dispatcher."""
+    """Settle a proven read-only interruption or retain the uncertainty; never launch a provider."""
     if getattr(args, "reconcile_only", None) is None:
         return None
     try:
@@ -88,6 +92,9 @@ def reconcile_checkpoint(runner, args, parser, state: RunState, state_path, run_
         changed = reconciliation.decision(state, args.reconcile_only, fresh)
     except ValueError as error:
         parser.error(str(error))  # Refusal must not overwrite a still-running checkpoint.
+    if interrupted_review.settle(runner, state, run_dir, workspace, fresh):
+        print("Stopped read-only attempt archived; the run can continue under its saved limits and model choices.")
+        return 0
     state.update(changed)
     runner.write_json(state_path, state)
     print(state["stop_reason"])
@@ -167,30 +174,37 @@ def operations(args, state: RunState | None = None):
     """Only this family's explicit reset-free handlers, in their ordinary order."""
     if getattr(args, "abandon_stage", None) is not None:
         return (OPERATIONS["abandon"],)
-    if not getattr(args, "resume_paused", False):
-        return ()
     selected = []
-    if getattr(args, "grant_recovery", None) is not None:
-        selected.append(OPERATIONS["grant"])
-    if getattr(args, "retry_report", None):
-        selected.append(OPERATIONS["report"])
-    elif getattr(args, "retry_failed_stage", False):
-        selected.append(
-            OPERATIONS[
-                "resolver_retry" if state is not None and resolver_recovery.retry_hold(state) else "failure_retry"
-            ]
-        )
-    if not selected and getattr(args, "_explicit_budget_flags", None):
-        selected.append(OPERATIONS["bound"])
+    if getattr(args, "resume_paused", False):
+        if getattr(args, "grant_recovery", None) is not None:
+            selected.append(OPERATIONS["grant"])
+        if getattr(args, "retry_report", None):
+            selected.append(OPERATIONS["report"])
+        elif getattr(args, "retry_failed_stage", False):
+            selected.append(
+                OPERATIONS[
+                    "resolver_retry" if state is not None and resolver_recovery.retry_hold(state) else "failure_retry"
+                ]
+            )
+        if not selected and getattr(args, "_explicit_budget_flags", None):
+            selected.append(OPERATIONS["bound"])
+    # Observing retained evidence grants no authority itself. The owner must
+    # prove its existing credit and pass final admission on plain continuation
+    # too; an operator's resume flag adds nothing to that proof.
     if (
         not selected
+        and owned_operations.observation_available(state)
         and not any(owned_operations.user_actions(args).values())
-        and not any((args.retry_builder, args.diagnose_failed_stage, args.accept_source_edit))
-        and state is not None
-        and (
-            resolver_runtime.reconsideration_request(state)
-            or (state.get("recovery_context") or {}).get("attempt_id")
-            and state.get("next_stage") == "review_completion"
+        and not any(
+            (
+                args.retry_builder,
+                args.diagnose_failed_stage,
+                args.accept_source_edit,
+                args.grant_recovery is not None,
+                args.retry_report,
+                args.retry_failed_stage,
+                getattr(args, "_explicit_budget_flags", None),
+            )
         )
     ):
         selected.append(OPERATIONS["observe"])
@@ -199,6 +213,9 @@ def operations(args, state: RunState | None = None):
 
 def observe(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
     """Only the existing read-only recovery owners may establish a plain resume."""
+    handled, code = retained_recovery.settle(runner, args, parser, state, state_path, run_dir, workspace, decided)
+    if handled:
+        return code
     if resolver_runtime.reconsider_operational_request(runner, state, run_dir, workspace):
         decided.operational_selection = "planning_reserve"
         proof = resolver_runtime.validate_operational_grant(state, state.get("next_stage"), workspace)
@@ -695,8 +712,19 @@ OPERATIONS = owned_operations.register(
     owned_operations.Operation("failure_retry", retry_failure, validate_failure_retry),
     owned_operations.Operation("resolver_retry", retry_failure, validate_resolver_retry, preserve_request=True),
     owned_operations.Operation("bound", acknowledge_bound, validate_bound, request_bound=False, frontier_bound=False),
-    owned_operations.Operation("observe", observe, owned_operations.no_work, preserve_request=True),
-    owned_operations.Operation("planning_reserve", observe, validate_reserve),
-    owned_operations.Operation("archive_completion", observe, validate_archive),
+    owned_operations.Operation(
+        "observe", observe, owned_operations.no_work, request_bound=False, preserve_request=True
+    ),
+    owned_operations.Operation(
+        "planning_reserve", observe, validate_reserve, observes=resolver_runtime.reconsideration_request
+    ),
+    owned_operations.Operation(
+        "archive_completion",
+        observe,
+        validate_archive,
+        observes=lambda state: (
+            (state.get("recovery_context") or {}).get("attempt_id") and state.get("next_stage") == "review_completion"
+        ),
+    ),
     owned_operations.Operation("archive_timeout", observe, validate_timeout_archive),
 )

@@ -514,6 +514,12 @@ def checked_recovery(state: RunState, row):
     return None
 
 
+def inspectable(state: RunState):
+    """Every retained incident has authenticated evidence; this grants no recovery."""
+    ledger = _Ledger(state)
+    return all(incident_identity(state, row, _ledger=ledger) for row in incidents(state, _ledger=ledger))
+
+
 def decision(state: RunState):
     """One saved-fact disposition for admission and the public projection."""
     ledger = _Ledger(state)

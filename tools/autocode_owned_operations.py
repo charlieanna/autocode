@@ -9,6 +9,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 
 @dataclass(frozen=True)
@@ -20,6 +24,7 @@ class Operation:
     preserve_request: bool = False
     actions: tuple[str, ...] = ()
     frontier_bound: bool = True
+    observes: Callable | None = None
 
 
 _OPERATIONS: dict[str, Operation] = {}
@@ -36,6 +41,11 @@ def register(*operations):
     for operation in operations:
         _OPERATIONS[operation.name] = operation
     return {operation.name: operation for operation in operations}
+
+
+def observation_available(state: RunState | None):
+    """Each recovery owner declares its own evidence offer; selection grants no work."""
+    return state is not None and any(op.observes(state) for op in _OPERATIONS.values() if op.observes)
 
 
 def resolve(name):

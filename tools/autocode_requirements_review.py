@@ -339,18 +339,17 @@ def without_summary_confirmations(state: RunState, report: dict) -> tuple[list[d
     return kept, dropped
 
 
-def _row(row, *, literal: bool) -> str:
-    """One list item on one line. An example is data, so a line break inside it stays visible as
-    ``\\n`` ("a name file '  Ana \\n'"); in prose it is only wrapping and becomes a space. A raw break
-    split one item across screen lines (2026-11-08 live run)."""
-    text = str(row).strip()
-    if literal:
-        return text.replace("\r\n", "\\n").replace("\n", "\\n").replace("\r", "\\r")
-    return " ".join(text.split())
+def _row(row) -> str:
+    """Display authored content without guessing which whitespace is meaningful.
+
+    Every section can contain examples. Keep spaces and make control characters
+    visible so a quoted newline or tab cannot silently change the confirmation.
+    """
+    return str(row).strip().replace("\r", "\\r").replace("\n", "\\n").replace("\t", "\\t")
 
 
-def _lines(title: str, rows, *, literal: bool = False, limit: int | None = SHOWN) -> list[str]:
-    rows = [_row(row, literal=literal) for row in rows or [] if str(row).strip()]
+def _lines(title: str, rows, *, limit: int | None = SHOWN) -> list[str]:
+    rows = [_row(row) for row in rows or [] if str(row).strip()]
     if not rows:
         return []
     shown = rows if limit is None else rows[:limit]
@@ -363,8 +362,8 @@ def _assumption(row) -> str:
     """An assumption and why Requirements made it: the person confirms the reason as well as the choice."""
     if not isinstance(row, dict):
         return str(row)
-    text = " ".join(str(row.get("text") or "").split())
-    rationale = " ".join(str(row.get("rationale") or "").split())
+    text = _row(row.get("text") or "")
+    rationale = _row(row.get("rationale") or "")
     return f"{text} (why: {rationale})" if text and rationale else text
 
 
@@ -384,7 +383,7 @@ def review_question(state: RunState) -> dict:
             "",
             f"Outcome: {str(report.get('intended_outcome', '')).strip()}",
             *_lines("Behaviors", report.get("required_behaviors")),
-            *_lines("Acceptance examples", report.get("acceptance_tests"), literal=True),
+            *_lines("Acceptance examples", report.get("acceptance_tests")),
             *_lines("Constraints", report.get("constraints")),
             *_lines("Other source statements", statements),
             *(["", f"Notes: {notes}"] if notes else []),

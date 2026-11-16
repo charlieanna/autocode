@@ -28,18 +28,23 @@ import math
 import shutil
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 try:
     from . import autocode_measured_routes as measured_routes
+    from . import autocode_planner_probe as planner_probe
     from . import autocode_prices as prices
     from . import autocode_requirements_probe as requirements_probe
     from . import autocode_taskrun as taskrun
+    from . import autocode_verifier_independence as independence
 except ImportError:
     import autocode_measured_routes as measured_routes
+    import autocode_planner_probe as planner_probe
     import autocode_prices as prices
     import autocode_requirements_probe as requirements_probe
     import autocode_taskrun as taskrun
+    import autocode_verifier_independence as independence
 
 FIXTURE = Path(__file__).with_name("fixtures") / "requirements_probe"
 STAGE = "requirements_gather"
@@ -50,54 +55,68 @@ STAGE = "requirements_gather"
 # both equal to the runner's.
 REVIEW_QUESTION_PREFIX = "requirements-review-"
 RUNNER_OUTCOME_PREFIX = "outcome-"
-# What one Requirements reply took on 2026-11-15 across the measured models, used only to estimate
-# a probe's cost before it runs: the run's own cap still binds what it spends.
+# What one request took of the measured stage's own model, used only to estimate a probe's cost
+# before it runs: one Requirements reply on 2026-11-15, and one Planner draft with its revision on
+# 2026-11-16. The run's own cap still binds what it spends.
 ESTIMATE_TOKENS = {"input": 40_000, "output": 4_000}
+ESTIMATE_TOKENS_BY_STAGE = {"requirements": ESTIMATE_TOKENS, "planner": {"input": 120_000, "output": 12_000}}
 RUN_TIMEOUT_SECONDS = 1800
+# The stages a probe measures: the role its results are recorded under, its requests and quick pass.
+STAGES = {"requirements": requirements_probe, "planner": planner_probe}
 
 
-def estimate(models) -> dict:
-    """What measuring ``models`` (``[(model, level), ...]``) can cost, before anything runs.
+def estimate(models, stage="requirements") -> dict:
+    """What measuring ``models`` (``[(model, level), ...]``) for ``stage`` can cost, before anything runs.
 
-    ``calls`` is the most Requirements replies the probe makes: every request for every model.
-    ``quick_calls`` is the first pass alone. ``max_usd`` prices each reply at ``ESTIMATE_TOKENS``
-    from the dated price table, None when a model has no rate.
+    ``calls`` is the most requests the probe runs: every request for every model. ``quick_calls`` is
+    the first pass alone. ``max_usd`` prices each request's use of the measured model at
+    ``ESTIMATE_TOKENS_BY_STAGE`` from the dated price table, None when a model has no rate. A Planner
+    request also runs Requirements and the Plan Reviewer, which the estimate leaves out and the cap
+    still covers.
     """
+    probe = STAGES[stage]
+    tokens = ESTIMATE_TOKENS_BY_STAGE[stage]
     rows = []
     for model, level in models:
         rate = prices.rate(model)
-        per_reply = (
-            (ESTIMATE_TOKENS["input"] * rate["input"] + ESTIMATE_TOKENS["output"] * rate["output"]) / 1_000_000
-            if rate
-            else None
-        )
-        total = len(requirements_probe.REQUESTS)
+        per_reply = (tokens["input"] * rate["input"] + tokens["output"] * rate["output"]) / 1_000_000 if rate else None
+        total = len(probe.REQUESTS)
         rows.append(
             {
                 "model": model,
                 "effort": level,
-                "quick_calls": len(requirements_probe.QUICK),
+                "quick_calls": len(probe.QUICK),
                 "calls": total,
                 "max_usd": round(per_reply * total, 2) if per_reply is not None else None,
             }
         )
     priced = [row["max_usd"] for row in rows]
     return {
+        "stage": stage,
         "models": rows,
         "quick_calls": sum(row["quick_calls"] for row in rows),
         "calls": sum(row["calls"] for row in rows),
         "max_usd": round(sum(priced), 2) if rows and None not in priced else None,
         "basis": (
-            f"each reply priced at {ESTIMATE_TOKENS['input']:,} input and {ESTIMATE_TOKENS['output']:,} output "
-            "tokens at the dated price table; the cap you set still limits what the probe spends"
+            f"each request priced at {tokens['input']:,} input and {tokens['output']:,} output tokens of the "
+            "measured model at the dated price table"
+            + ("; Requirements and the Plan Reviewer are extra" if stage == "planner" else "")
+            + "; the cap you set still limits what the probe spends"
         ),
     }
 
 
-def prepare_workspace(parent) -> Path:
-    """A fresh Git checkout of the bundled project under ``parent``."""
+def prepare_workspace(parent, *, fixed_tax=False) -> Path:
+    """A fresh Git checkout of the bundled project under ``parent``, with its tax bug fixed when asked."""
     workspace = Path(parent) / "project"
     shutil.copytree(FIXTURE, workspace, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    if fixed_tax:
+        totals = workspace / "totals.py"
+        broken, fixed = planner_probe.FIXED_TAX
+        text = totals.read_text(encoding="utf-8")
+        if broken not in text:
+            raise RuntimeError("the bundled project no longer has the tax bug the Planner probe fixes")
+        totals.write_text(text.replace(broken, fixed), encoding="utf-8")
     (workspace / ".gitignore").write_text(".autocode/\n__pycache__/\n", encoding="utf-8")
     identity = ["-c", "user.name=AutoCode probe", "-c", "user.email=probe@autocode.invalid"]
     for command in (["init", "-q"], ["add", "-A"], [*identity, "commit", "-qm", "probe project"]):
@@ -188,16 +207,138 @@ def run_request(model, effort, request, *, options=(), env=None, command=taskrun
     return graded
 
 
-def run_probe(models, *, cap_usd, options=(), env=None, command=taskrun.AUTOCODE, record=True, runner=None):
-    """Measure each ``(model, level)`` in turn, within ``cap_usd``; record and return the results.
+# Stages of a Planner run, from usage.accounting attempts (a report repair is "<stage>_report_repair").
+PLANNER_STAGES = frozenset({"draft_plan", "revise_plan"})
+REVIEW_STAGE = "review_plan"
+REPAIR_SUFFIX = "_report_repair"
+# Requirements questions a Planner probe answers with Requirements' own proposed default before it
+# gives up on reaching the plan: the probe measures the Planner, not how Requirements asks.
+REQUIREMENTS_ANSWER_ROUNDS = 5
+DEFAULT_ANSWER = "Use your proposed default."
 
-    ``runner`` stands in for ``run_request`` in tests. A model that fails the quick pass is recorded
-    with its quick grades only, so it does not qualify. When the money runs out the probe stops and
-    names the models it did not measure; their earlier records, if any, are kept.
+
+def checker_for(model, checkers):
+    """The first of ``checkers`` (``[(model, level)]``) that may review ``model``'s plans, or None.
+
+    The Plan Reviewer is the probe's measuring instrument, so it stays the same for every candidate
+    it may check; a candidate of its own family gets the next one (verifier independence).
+    """
+    for checker in checkers:
+        if not independence.shares(model, checker[0]):
+            return checker
+    return None
+
+
+def plan_from_view(view) -> tuple[dict | None, dict]:
+    """The plan a stopped Planner run shows at approval, and what the probe measured about the run.
+
+    Returns ``(plan, measurements)``: ``plan`` is ``view.displayed_plan`` when the run waits for plan
+    approval, else None; ``measurements`` holds the keyword arguments ``planner_probe.grade`` takes,
+    except the wall time, which the caller measures.
+    """
+    attempts = [
+        row
+        for row in (((view.get("usage") or {}).get("accounting") or {}).get("attempts") or [])
+        if isinstance(row, dict) and isinstance(row.get("stage"), str)
+    ]
+    planner = [row for row in attempts if row["stage"].removesuffix(REPAIR_SUFFIX) in PLANNER_STAGES]
+    drafts = sum(1 for row in planner if row["stage"] == "draft_plan")
+    repairs = sum(1 for row in planner if row["stage"].endswith(REPAIR_SUFFIX) or row.get("rejected"))
+    reached = ((view.get("needs") or {}).get("kind")) == "approve_plan"
+    plan = view.get("displayed_plan") if reached and isinstance(view.get("displayed_plan"), dict) else None
+    return plan, {
+        "reached_approval": reached,
+        "review_rounds": sum(1 for row in attempts if row["stage"] == REVIEW_STAGE),
+        "report_repairs": repairs + max(0, drafts - 1) if planner else None,
+        "cost_usd": _job_cost(view, "Planner"),
+    }
+
+
+def run_planner_request(
+    model,
+    effort,
+    request,
+    *,
+    checker,
+    requirements=None,
+    options=(),
+    env=None,
+    command=taskrun.AUTOCODE,
+    cap_usd=None,
+    clock=time.monotonic,
+):
+    """Run one Planner probe request on ``model`` at ``effort`` and grade the plan it shows.
+
+    ``checker`` is the Plan Reviewer's ``(model, level)``, ``requirements`` the pinned Requirements
+    route (None: the person's saved choice). The run is a spec-first task: Requirements' own
+    confirmation is answered "plan" and its questions with its proposed default, and the run stops
+    at plan approval, which the probe never gives.
+    """
+    request = planner_probe.BY_ID[request] if isinstance(request, str) else request
+    flags = ["--spec-first", "--joint-planning", "--planner-model", model]
+    if effort:
+        flags += ["--planner-reasoning-effort", effort]
+    flags += ["--plan-reviewer-model", checker[0]]
+    if checker[1]:
+        flags += ["--plan-reviewer-reasoning-effort", checker[1]]
+    if requirements:
+        flags += ["--requirements-model", requirements[0]]
+        if requirements[1]:
+            flags += ["--requirements-reasoning-effort", requirements[1]]
+    if cap_usd is not None:
+        flags += ["--max-cost-usd", f"{max(cap_usd, 0.01):.2f}"]
+    started = clock()
+    with tempfile.TemporaryDirectory(prefix="autocode-probe-") as parent:
+        workspace = prepare_workspace(parent, fixed_tax=not request.broken_tax)
+        error = None
+        try:
+            run = taskrun.TaskRun.start(
+                workspace,
+                request.text,
+                options=(*options, *flags),
+                command=command,
+                env=env,
+                timeout=RUN_TIMEOUT_SECONDS,
+            )
+            view = _through_requirements(run, run.advance_until_input(), request.text)
+        except taskrun.TaskRunError as failure:
+            error = str(failure)
+            view = _status_after_failure(failure, workspace, options, flags, command, env)
+        plan, measurements = plan_from_view(view or {})
+    graded = planner_probe.grade(request, plan, seconds=round(clock() - started, 1), **measurements)
+    graded["run_cost_usd"] = _spent(view or {})
+    graded["checker"] = list(checker)
+    graded["run_status"] = (view or {}).get("status")
+    graded["error"] = error
+    return graded
+
+
+def run_probe(
+    models,
+    *,
+    cap_usd,
+    stage="requirements",
+    checkers=(),
+    requirements=None,
+    options=(),
+    env=None,
+    command=taskrun.AUTOCODE,
+    record=True,
+    runner=None,
+):
+    """Measure each ``(model, level)`` for ``stage`` in turn, within ``cap_usd``; record and return the results.
+
+    ``runner`` stands in for ``run_request`` or ``run_planner_request`` in tests. A model that fails
+    the quick pass is recorded with its quick grades only, so it does not qualify. When the money runs
+    out the probe stops and names the models it did not measure; their earlier records, if any, are
+    kept. A Planner candidate no checker may review is not measured, and the result says why.
     """
     if not isinstance(cap_usd, (int, float)) or isinstance(cap_usd, bool) or cap_usd <= 0:
         raise ValueError("the probe needs a positive cost cap in USD")
-    runner = runner or run_request
+    probe = STAGES[stage]
+    if stage == "planner" and not checkers:
+        raise ValueError("the Planner probe needs at least one Plan Reviewer to check its plans")
+    runner = runner or (run_planner_request if stage == "planner" else run_request)
     spent = 0.0
     unpriced = 0
     results = []
@@ -207,21 +348,31 @@ def run_probe(models, *, cap_usd, options=(), env=None, command=taskrun.AUTOCODE
         if stopped:
             unmeasured.append({"model": model, "effort": level})
             continue
+        extra = {}
+        if stage == "planner":
+            checker = checker_for(model, checkers)
+            if checker is None:
+                unmeasured.append({"model": model, "effort": level, "reason": "no Plan Reviewer of another family"})
+                continue
+            extra = {"checker": checker, "requirements": requirements}
         grades = []
-        for request in _order():
-            if request.id not in requirements_probe.QUICK and not requirements_probe.passes_quick(grades):
+        for request in _order(probe):
+            if request.id not in probe.QUICK and not probe.passes_quick(grades):
                 break
             remaining = cap_usd - spent
             if remaining <= 0:
                 stopped = f"the probe reached its ${cap_usd:.2f} cap"
                 break
-            graded = runner(model, level, request, options=options, env=env, command=command, cap_usd=remaining)
+            graded = runner(
+                model, level, request, options=options, env=env, command=command, cap_usd=remaining, **extra
+            )
             grades.append(graded)
-            if isinstance(graded.get("cost_usd"), (int, float)):
-                spent += graded["cost_usd"]
+            cost = graded.get("run_cost_usd", graded.get("cost_usd"))
+            if isinstance(cost, (int, float)):
+                spent += cost
             else:
                 unpriced += 1
-        if stopped and len(grades) < len(requirements_probe.REQUESTS) and requirements_probe.passes_quick(grades):
+        if stopped and len(grades) < len(probe.REQUESTS) and probe.passes_quick(grades):
             # Cut off in the middle of its full pass: an incomplete measurement is not recorded.
             unmeasured.append({"model": model, "effort": level})
             continue
@@ -231,10 +382,11 @@ def run_probe(models, *, cap_usd, options=(), env=None, command=taskrun.AUTOCODE
             unmeasured.extend({"model": m, "effort": e} for m, e in models[index + 1 :])
             break
     if record and results:
-        measured_routes.record("requirements", results)
+        measured_routes.record(stage, results)
     return {
+        "stage": stage,
         "results": results,
-        "ranking": measured_routes.rank(results),
+        "ranking": measured_routes.rank(results, stage),
         "spent_usd": round(spent, 4),
         "unpriced_replies": unpriced,
         "stopped": stopped,
@@ -242,10 +394,65 @@ def run_probe(models, *, cap_usd, options=(), env=None, command=taskrun.AUTOCODE
     }
 
 
-def _order():
+def _order(probe=requirements_probe):
     """The quick requests first, then the rest in their listed order."""
-    quick = [requirements_probe.BY_ID[name] for name in requirements_probe.QUICK]
-    return quick + [request for request in requirements_probe.REQUESTS if request.id not in requirements_probe.QUICK]
+    quick = [probe.BY_ID[name] for name in probe.QUICK]
+    return quick + [request for request in probe.REQUESTS if request.id not in probe.QUICK]
+
+
+def _through_requirements(run, view, request_text):
+    """Past Requirements to the Planner: confirm the understanding, and take Requirements' own defaults.
+
+    The runner's own requested-outcome question (``RUNNER_OUTCOME_PREFIX``) is answered with the
+    request itself, which is the outcome the person asked for.
+    """
+    for _round in range(REQUIREMENTS_ANSWER_ROUNDS):
+        needs = view.get("needs") or {}
+        questions = [q for q in needs.get("questions") or () if isinstance(q, dict) and q.get("id")]
+        if needs.get("kind") != "answer" or not questions:
+            return view
+        review = [q for q in questions if str(q["id"]).startswith(REVIEW_QUESTION_PREFIX)]
+        if review and len(review) == len(questions):
+            run.answer(review[0]["id"], "plan")
+        elif _last_stage(view).startswith(STAGE) and needs.get("resolver_scope") in (None, "clarification"):
+            run.answer_many(
+                {str(q["id"]): _default_answer(q, request_text) for q in questions},
+                resolver_token=needs.get("resolver_token"),
+            )
+        else:
+            return view  # the Planner or the Plan Reviewer asked: that stop is the Planner's to grade
+        view = run.advance_until_input()
+    return view
+
+
+def _default_answer(question, request_text):
+    if str(question["id"]).startswith(REVIEW_QUESTION_PREFIX):
+        return "plan"
+    if str(question["id"]).startswith(RUNNER_OUTCOME_PREFIX):
+        return request_text
+    for value in (question.get("proposed_default"), *(question.get("options") or ())[:1]):
+        if isinstance(value, str) and value.strip():
+            return value
+    return DEFAULT_ANSWER
+
+
+def _last_stage(view):
+    attempts = ((view.get("usage") or {}).get("accounting") or {}).get("attempts") or []
+    last = attempts[-1] if attempts and isinstance(attempts[-1], dict) else {}
+    return str(last.get("stage") or "")
+
+
+def _job_cost(view, job):
+    for row in (view.get("run_metrics") or {}).get("by_job") or []:
+        if isinstance(row, dict) and row.get("job") == job:
+            value = row.get("spent_usd")
+            return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+    return None
+
+
+def _spent(view):
+    value = (view.get("cost") or {}).get("spent_usd")
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
 
 def _status_after_failure(failure, workspace, options, flags, command, env):

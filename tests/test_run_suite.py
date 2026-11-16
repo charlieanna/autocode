@@ -625,6 +625,38 @@ class ModuleTimeoutTests(unittest.TestCase):
 
 
 class ModuleEnvironmentTests(unittest.TestCase):
+    def test_each_module_and_its_children_have_private_machine_state(self):
+        with tempfile.TemporaryDirectory(prefix="suite-state-fixture-") as directory:
+            root = Path(directory)
+            ambient = root / "ambient"
+            ambient.mkdir()
+            (ambient / "pending.json").write_text("unrelated pending ownership")
+            (root / "test_machine_state.py").write_text(
+                "import os, subprocess, sys, unittest\n"
+                "from pathlib import Path\n"
+                "class MachineState(unittest.TestCase):\n"
+                "    def test_state(self):\n"
+                "        root = Path(os.environ['XDG_STATE_HOME'])\n"
+                "        self.assertFalse((root / 'pending.json').exists())\n"
+                "        (root / 'pending.json').write_text('owned by this module')\n"
+                "        subprocess.run([sys.executable, '-c', "
+                '"import os; from pathlib import Path; '
+                "assert (Path(os.environ['XDG_STATE_HOME']) / 'pending.json').read_text() == 'owned by this module'\"], check=True)\n"
+                "        print('STATE=' + str(root))\n"
+            )
+            roots = []
+            with (
+                mock.patch.object(run_suite, "REPO_ROOT", root),
+                mock.patch.dict("os.environ", XDG_STATE_HOME=str(ambient)),
+            ):
+                for timeout in (None, 10):
+                    result = run_suite.run_module("test_machine_state", 1, timeout=timeout)
+                    self.assertTrue(result["ok"], result["output"])
+                    roots.append(Path(re.search(r"STATE=(.+)", result["output"]).group(1)))
+            self.assertNotEqual(*roots)
+            self.assertTrue(all(not path.exists() for path in roots), "module state is cleaned after exit")
+            self.assertEqual("unrelated pending ownership", (ambient / "pending.json").read_text())
+
     def test_parallel_module_and_children_do_not_write_dependency_bytecode(self):
         with tempfile.TemporaryDirectory(prefix="suite-bytecode-") as directory:
             root = Path(directory)

@@ -118,7 +118,7 @@ class NativeAbandonFixture:
                     self.run / "state.json",
                     self.run,
                     self.workspace,
-                    SimpleNamespace(gate=None, retained_report=None, information_admitted=False),
+                    runner.run_actions.Decided(),
                 )
             return subprocess.CompletedProcess(command, result, output.getvalue(), "")
         except (util.Paused, ValueError) as error:

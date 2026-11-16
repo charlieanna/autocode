@@ -60,6 +60,31 @@ class VerifierIndependenceTests(unittest.TestCase):
         self.assertEqual(3, len(independence.clashes(same)))
         self.assertEqual(3, len(independence.violations(same)))
 
+    def test_every_lab_a_provider_lists_is_one_family_however_it_is_reached(self):
+        # A provider listing Gemini, Kimi, Grok, Qwen and others beside Claude and GPT (2026-11-16):
+        # before, each such model was its own family, so one Gemini model could check another's work.
+        same_lab = (
+            ("gemini-3.8-flash", "vertex_ai/gemini-3.1-pro-preview", "gemini"),
+            ("kimi-k3", "bedrock/kimi-k3.1", "kimi"),
+            ("grok-4.6", "grok-4.7", "grok"),
+            ("qwen3-235b-a22b-2507", "openrouter/qwen/qwq-32b", "qwen"),
+            ("deepseek-v4", "deepseek/deepseek-r2", "deepseek"),
+            ("meta.llama3-70b", "meta.llama4-maverick", "llama"),
+            ("mistral-large-3", "mistral/devstral-2", "mistral"),
+            ("minimax-m3", "minimax/minimax-m2.5", "minimax"),
+            ("glm-5", "zai-coding-plan/glm-5.3", "glm"),
+            ("o3", "gpt-6.1-sol", "openai"),
+        )
+        for producer, checker, lab in same_lab:
+            with self.subTest(producer=producer, checker=checker):
+                self.assertEqual(f"same family {lab} ({producer} / {checker})", independence.clash(producer, checker))
+        self.assertIsNone(independence.clash("gemini-3.8-flash", "claude-opus-5-5"))
+        self.assertIsNone(independence.clash("kimi-k3.1", "grok-4.7"))
+        self.assertIsNone(independence.clash("gpt-6.1-sol", "glm-5"))
+        # A name that only begins like a lab's is not that lab: "glmx" and "llamaindex-agent" stay distinct.
+        self.assertIsNone(independence.clash("glmx-1", "glm-5"))
+        self.assertIsNone(independence.clash("llamaindex-agent", "meta.llama3-70b"))
+
     def test_another_providers_openai_prefix_may_share_but_does_not_clash(self):
         # The guard refuses only proven clashes; moving a checker covers the possible ones too.
         self.assertFalse(independence.shares("openai/custom-model", "custom-model"))

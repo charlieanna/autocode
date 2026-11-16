@@ -316,6 +316,7 @@ class PreparationRecoveryTests(unittest.TestCase):
 
     def test_untyped_matching_text_and_model_record_do_not_change_existing_gates(self):
         import autocode_run_view as view
+        import autocode_verification_failure as recovery
 
         self.state.update(status="PAUSED_STALE_VALIDATION", stop_reason="Verification copy was not prepared")
         self.assertEqual(view.needs(self.state)["kind"], "resume")
@@ -333,7 +334,11 @@ class PreparationRecoveryTests(unittest.TestCase):
                 },
             },
         )
-        self.assertEqual(view.needs(self.state)["kind"], "resume")
+        # The status itself is a known internal failure. A model's lookalike
+        # receipt cannot turn that hold into either completion or a user retry.
+        self.assertIsNone(view.needs(self.state))
+        self.assertFalse(view.view(self.state)["done"])
+        self.assertIsNone(recovery.blocked(self.state))
 
     def native_dispatch(self, error):
         import autocode_build_loop as loop

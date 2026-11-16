@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 try:
     from . import autocode_no_progress_recovery as no_progress
     from . import autocode_operational_block_view as blocked
+    from . import autocode_operational_disposition as disposition
     from . import autocode_operational_hold as hold
     from . import autocode_recovery_progress as recovery_progress
     from . import autocode_startup_timeout_view as startup
@@ -22,6 +23,7 @@ try:
 except ImportError:
     import autocode_no_progress_recovery as no_progress
     import autocode_operational_block_view as blocked
+    import autocode_operational_disposition as disposition
     import autocode_operational_hold as hold
     import autocode_recovery_progress as recovery_progress
     import autocode_startup_timeout_view as startup
@@ -37,6 +39,8 @@ def presentation(state: RunState, *, include_hold=False):
     specific = blocked.presentation(state) or startup.presentation(state)
     if specific or not include_hold:
         return specific
+    if not disposition.inspectable(state):
+        return hold.presentation(state)
     check = state.get("active_runner_check")
     if state.get("status") == "PAUSED_VERIFICATION_UNCERTAIN" and isinstance(check, dict) and check.get("supervision"):
         return {
@@ -47,10 +51,6 @@ def presentation(state: RunState, *, include_hold=False):
                 "Saved work and evidence are retained; no result was accepted."
             ),
         }
-    if (
-        recovery_progress.routine_resume(state, state.get("resolver_human_request"))
-        or validation.pending(state)
-        or no_progress.pending_legacy(state)
-    ):
+    if recovery_progress.pending(state) or validation.pending(state) or no_progress.pending_legacy(state):
         return None
     return hold.presentation(state)
