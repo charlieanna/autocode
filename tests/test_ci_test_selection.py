@@ -29,6 +29,27 @@ class AccessTransportConsumerTests(unittest.TestCase):
         kept, _ = run_suite.drop_slow(selected, dict.fromkeys(consumers, "30s"))
         self.assertEqual(consumers, set(kept))
 
+    def test_nullable_public_observations_keep_each_client_and_protected_action_consumer_when_slow(self):
+        consumers = {
+            "tests.test_actionless_consumers",
+            "tests.test_issue",
+            "tests.test_multicomponent",
+            "tests.test_demo",
+            "tests.test_conformance_actionless",
+            "tests.test_taskrun_no_action",
+            "tests.test_taskrun_recovery",
+        }
+        for path in (
+            "tools/autocode_issue.py",
+            "tools/autocode_multicomponent.py",
+            "tools/autocode_demo.py",
+            "scenarios/harness/driver.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {**dict.fromkeys(consumers, ""), "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, dict.fromkeys(consumers, "30s"))
+                self.assertEqual(consumers, set(kept))
+
     def test_conformance_harness_keeps_actionless_and_existing_allowance_contracts(self):
         consumers = {"tests.test_conformance_actionless", "tests.test_planning_allowance_cli"}
         selected = run_suite.select_tests(

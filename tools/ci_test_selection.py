@@ -34,6 +34,15 @@ CORE_CONSUMERS = (
     "tests.test_inprocess_cli",
 )
 PUBLIC_FLOW_CONSUMERS = ("tests.test_launch_state_cli", "tests.test_completion_status")
+ACTIONLESS_CONSUMERS = (
+    "tests.test_actionless_consumers",
+    "tests.test_issue",
+    "tests.test_multicomponent",
+    "tests.test_demo",
+    "tests.test_conformance_actionless",
+    "tests.test_taskrun_no_action",
+    "tests.test_taskrun_recovery",
+)
 REFUSAL_CONSUMERS = (
     "tests.test_session_boundary",
     "tests.test_process_session_admission",
@@ -465,6 +474,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "scenarios/harness/conformance.py",
         ("tests.test_planning_allowance_cli", "tests.test_conformance_actionless"),
     ),
+    ("scenarios/harness/driver.py", ACTIONLESS_CONSUMERS),
     (
         "scenarios/harness/fake_codex.py",
         (
@@ -639,6 +649,14 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # that previously broke master would remain. These are fake-provider consumers,
 # never a request to qualify against live models.
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (
+        (
+            "tools/autocode_issue.py",
+            "tools/autocode_multicomponent.py",
+            "tools/autocode_demo.py",
+        ),
+        ACTIONLESS_CONSUMERS,
+    ),
     # Captured commands execute this private helper by file path, beyond Python imports.
     (
         (

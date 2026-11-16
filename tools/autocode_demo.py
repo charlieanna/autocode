@@ -164,14 +164,14 @@ def _prepare(root: Path, name: str, *, failed_check=False) -> TaskRun:
 
 def _plan(run: TaskRun) -> dict:
     view = run.advance_until_input()
-    if view["needs"]["kind"] == "answer":
+    if (view["needs"] or {}).get("kind") == "answer":
         question = view["needs"]["questions"][0]
         if question["id"] != "Q1":
             raise TaskRunError("The demo stopped at an unexpected question")
         print("Requirements: choose the local CLI for this sample.", flush=True)
         run.answer(question["id"], "CLI", resolver_token=view["needs"].get("resolver_token"))
         view = run.advance_until_input()
-    if view["needs"]["kind"] != "approve_plan":
+    if (view["needs"] or {}).get("kind") != "approve_plan":
         # The stop's own reason says what to fix (a root shell's refused session, a missing tool).
         reason = f" ({view['stop_reason']})" if view.get("stop_reason") else ""
         raise TaskRunError(f"The demo did not produce an approval-ready plan: {view['status']}{reason}")
@@ -200,7 +200,7 @@ def run_demo(root: Path) -> dict:
     accepted = _prepare(root, "greeting")
     pending = _plan(accepted)
     replay = pending["evidence"].get("check_replay") or {}
-    if pending["done"] or pending["needs"]["kind"] != "review" or replay.get("verdict") != "PASS":
+    if pending["done"] or (pending["needs"] or {}).get("kind") != "review" or replay.get("verdict") != "PASS":
         raise TaskRunError("The demo did not stop for human acceptance after passing checks: " + pending["status"])
     if [row.get("id") for row in pending["evidence"]["acceptance"]] != ["C1"] or not all(
         row.get("status") == "verified" for row in pending["evidence"]["acceptance"]

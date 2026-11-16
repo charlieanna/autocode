@@ -421,6 +421,8 @@ run = TaskRun.start(workspace, brief, options=("--engine", "codex"))
 view = run.advance_until_input()
 while not view["done"]:
     need = view["needs"]
+    if need is None:
+        break  # Preserve an actionless incomplete result; no action is authorized.
     if need["kind"] == "answer" and need.get("resolver_scope") in ("blocker", "operational_exhaustion"):
         break  # Inspect recovery guidance; respond_operational() handles these requests.
     if need["kind"] == "approve_plan":
