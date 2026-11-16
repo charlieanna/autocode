@@ -11,10 +11,12 @@ from copy import deepcopy
 from pathlib import Path
 
 try:
+    from . import autocode_answer_options as answer_options
     from . import autocode_regression_state as regression_state
     from . import autocode_replay_dependency_evidence as copy_evidence
     from . import autocode_util as util
 except ImportError:
+    import autocode_answer_options as answer_options
     import autocode_regression_state as regression_state
     import autocode_replay_dependency_evidence as copy_evidence
     import autocode_util as util
@@ -344,25 +346,27 @@ def _project(state: RunState, *, run_dir=None):
         elif kind == "gate_message":
             match: dict = {"kind": "approve_plan"}
             if event.get("gate_kind") == "requirements":
-                fields = ("id", "question", "why", "options", "proposed_default")
                 match = {
                     "kind": "answer",
-                    "questions": [
-                        {key: deepcopy(question.get(key)) for key in fields}
-                        for question in event.get("questions") or []
-                    ],
+                    "questions": [answer_options.question_view(question) for question in event.get("questions") or []],
                 }
             actions.append(
                 {"before_dispatch": anchor, "kind": "feedback", "match": match, "payload": {"text": event["text"]}}
             )
         elif kind in ("answer", "delegated", "checkpoint_answer"):
             question = event.get("question") or {}
-            fields = ("id", "question", "why", "options", "proposed_default")
             actions.append(
                 {
                     "before_dispatch": anchor,
                     "kind": "answer",
-                    "match": {"kind": "answer", "questions": [{key: deepcopy(question.get(key)) for key in fields}]},
+                    "match": {
+                        "kind": "answer",
+                        "questions": [
+                            answer_options.question_view(
+                                question, request_kind="blocker" if kind == "checkpoint_answer" else None
+                            )
+                        ],
+                    },
                     "payload": {"question_id": event.get("question_id"), "text": event.get("text")},
                 }
             )

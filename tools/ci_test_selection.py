@@ -1284,7 +1284,13 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tests.test_coordination_gate_cli",),
     ),
     (
-        ("tools/autocode_gate_chat.py", "tools/prompts/gate-chat.md", "tools/autocode_chat_client.py"),
+        (
+            "tools/autocode_gate_chat.py",
+            "tools/prompts/gate-chat.md",
+            "tools/autocode_chat_client.py",
+            "tools/autocode_answer_options.py",
+            "tools/autocode_replay_view.py",
+        ),
         ("tests.test_gate_chat_cli",),
     ),
     (
