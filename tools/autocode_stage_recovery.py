@@ -1620,11 +1620,18 @@ def _inspected_pause(state: RunState, origin):
     return origin if entry["identity"]["proposal"]["origin"].get("pause_status") == origin else None
 
 
+def _completion_recovery_phase(paused, initial, *, applied):
+    """An owned outcome survives normal dispatch; RUNNING never selects a recovery."""
+    return paused in initial or (applied and paused == "RUNNING")
+
+
 def abandoned_completion_evidence(state: RunState, workspace, *, origin=None, applied=False):
     """The original owner's archive/source/task/contract checks, without mutation."""
     paused = _inspected_pause(state, origin)
     if (
-        paused not in ("PAUSED_STAGE_ABANDONED", "PAUSED_INVALID_OUTPUT", "PAUSED_REPEATED_FAILURE")
+        not _completion_recovery_phase(
+            paused, ("PAUSED_STAGE_ABANDONED", "PAUSED_INVALID_OUTPUT", "PAUSED_REPEATED_FAILURE"), applied=applied
+        )
         or state.get("next_stage") != (workflow.review_stage(state) if applied else "review_completion")
         or state.get("validation")
         or any(state.get(key) for key in ("active_stage", "pending_report_repair", "uncertain_artifacts"))
@@ -1701,7 +1708,7 @@ def abandoned_completion_evidence(state: RunState, workspace, *, origin=None, ap
         }
         if not failure.get("attempts") or not set(failure["attempts"]) <= attempts:
             return False
-    elif paused != "PAUSED_STAGE_ABANDONED":
+    elif not applied and paused != "PAUSED_STAGE_ABANDONED":
         return False
     stage = workflow.review_stage(state)
     if failures.repeated(state, {"stage": stage, "source_revision": revision}):
@@ -1760,7 +1767,9 @@ def timeout_completion_evidence(state: RunState, workspace, *, origin=None, rest
     task_id = (state.get("current_task") or {}).get("id")
     paused = _inspected_pause(state, origin)
     if (
-        paused not in ("PAUSED_COMPLETION_GATE", "PAUSED_REPEATED_FAILURE")
+        not _completion_recovery_phase(
+            paused, ("PAUSED_COMPLETION_GATE", "PAUSED_REPEATED_FAILURE"), applied=restored is not None
+        )
         or state.get("next_stage") != "review_completion"
         or (state.get("validation") if restored is None else state.get("validation") != restored.get("validation"))
         or not attempt

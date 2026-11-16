@@ -900,6 +900,12 @@ class OperationalDispositionTests(unittest.TestCase):
                     writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided
                 )
             )
+            self.state.update(status="RUNNING", phase="EXECUTING")
+            self.assertIsNone(
+                admission.work_guard(
+                    writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided, final=True
+                )
+            )
         with patch.object(stage_recovery.source_scope, "snapshot", return_value={"revision": "foreign-source"}):
             with self.assertRaises(ValueError):
                 admission.work_guard(
@@ -958,6 +964,12 @@ class OperationalDispositionTests(unittest.TestCase):
             self.assertTrue(admission.ready(self.state, decided))
             self.assertIsNotNone(disposition.held(self.state))
             self.assertNotEqual("TASK_COMPLETE", self.state["status"])
+            self.state.update(status="RUNNING", phase="EXECUTING")
+            self.assertIsNone(
+                admission.work_guard(
+                    writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided, final=True
+                )
+            )
             reviewed = next(iter(validation["evidence_hashes"]))
             Path(reviewed).write_text("changed independently reviewed evidence")
             with self.assertRaises(ValueError):
@@ -965,6 +977,22 @@ class OperationalDispositionTests(unittest.TestCase):
                     writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided
                 )
         self.assertIsNotNone(disposition.held(self.state))
+
+    def test_archive_outcome_survives_dispatch_without_failed_retries_but_cannot_select_itself(self):
+        revision, _ = self.archived_completion_incident()
+        self.state.update(status="PAUSED_STAGE_ABANDONED", stages=self.state["stages"][:1], failure_history={})
+        with patch.object(stage_recovery.source_scope, "snapshot", return_value={"revision": revision}):
+            proof = stage_recovery.abandoned_completion_evidence(self.state, self.root)
+            self.assertTrue(proof)
+            self.assertTrue(stage_recovery.prepare_abandoned_completion_revalidation(self.state, self.run, self.root))
+            self.state.update(status="RUNNING", phase="EXECUTING")
+            self.assertFalse(stage_recovery.abandoned_completion_evidence(self.state, self.root))
+            stage_recovery.validate_abandoned_completion_evidence(self.state, self.root, proof)
+            for status in ("PAUSED_COST_LIMIT", "PAUSED_TIME_LIMIT", "TASK_COMPLETE"):
+                with self.subTest(status=status):
+                    self.state["status"] = status
+                    with self.assertRaises(ValueError):
+                        stage_recovery.validate_abandoned_completion_evidence(self.state, self.root, proof)
 
     def test_completion_archive_does_not_ignore_a_retagged_or_nonresolver_work_record(self):
         revision, _ = self.archived_completion_incident()
