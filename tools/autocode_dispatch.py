@@ -37,8 +37,10 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_budget_state as budget_state
     from . import autocode_interaction_timing as interaction_timing
 except ImportError:
+    import autocode_budget_state as budget_state
     import autocode_interaction_timing as interaction_timing
 
 try:
@@ -693,7 +695,7 @@ def account_workers(state: RunState, run_dir, batch, *, defer_denials=False):
                 continue
             state.setdefault("stages", []).append(entry)
             state.setdefault("history", []).append(entry)
-            state["active_seconds"] = state.get("active_seconds", 0) + duration
+            budget_state.add_active_seconds(state, duration)
             accounted.add(identity)
         key = f"{batch['contract_hash']}:{row['milestone_id']}"
         if not blocked and key in child.get("milestone_progress", {}):

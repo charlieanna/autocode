@@ -24,8 +24,10 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_budget_state as budget_state
     from . import autocode_milestone_scope as milestone_scope
 except ImportError:
+    import autocode_budget_state as budget_state
     import autocode_milestone_scope as milestone_scope
 
 
@@ -50,7 +52,7 @@ def run_time(state: RunState):
     limit = _seconds(_section(state, "limits").get("max_seconds"))
     if not limit:
         return None
-    return {"used": _seconds(state.get("active_seconds")) or 0, "limit": limit}
+    return {"used": _seconds(budget_state.raw_active_seconds(state)) or 0, "limit": limit}
 
 
 def milestone_time(state: RunState):

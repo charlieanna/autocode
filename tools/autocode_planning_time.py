@@ -7,10 +7,15 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
+try:
+    from . import autocode_budget_state as budget_state
+except ImportError:
+    import autocode_budget_state as budget_state
+
 
 def context(state: RunState):
     limits = (state.get("settings") or {}).get("limits") or {}
-    used = state.get("active_seconds", 0)
+    used = budget_state.active_seconds(state)
     maximum = limits.get("max_seconds")
     return {
         "run_active_seconds_used": used,

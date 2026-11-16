@@ -21,6 +21,7 @@ try:
     from . import autocode_acceptance_tests as acceptance_tests
     from . import autocode_acceptance_verification_retry as acceptance_retry
     from . import autocode_approval_provenance as approval_provenance
+    from . import autocode_budget_state as budget_state
     from . import autocode_build_worktree as build_worktree
     from . import autocode_checkout_lock as checkout_lock
     from . import autocode_climb_cap as climb_cap
@@ -53,6 +54,7 @@ except ImportError:
     import autocode_acceptance_tests as acceptance_tests
     import autocode_acceptance_verification_retry as acceptance_retry
     import autocode_approval_provenance as approval_provenance
+    import autocode_budget_state as budget_state
     import autocode_build_worktree as build_worktree
     import autocode_checkout_lock as checkout_lock
     import autocode_climb_cap as climb_cap
@@ -227,7 +229,7 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
             raise support.Paused("PAUSED_ITERATION_LIMIT", "Saved iteration ceiling reached")
         if (
             limits["max_seconds"]
-            and current.get("active_seconds", 0) >= limits["max_seconds"]
+            and budget_state.active_seconds(current) >= limits["max_seconds"]
             and not runner.recover_default_budget(current, run_dir, workspace, "max_seconds")
         ):
             raise support.Paused("PAUSED_TIME_LIMIT", "Saved active-time limit reached at stage boundary")

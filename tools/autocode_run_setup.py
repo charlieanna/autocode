@@ -27,12 +27,14 @@ from contextlib import ExitStack
 from pathlib import Path
 
 try:
+    from . import autocode_budget_state as budget_state
     from . import autocode_cost as cost
     from . import autocode_interaction_timing as interaction_timing
     from . import autocode_operational_block as operational_block
     from . import autocode_planning_calls as planning_calls
     from . import autocode_roles as roles
 except ImportError:
+    import autocode_budget_state as budget_state
     import autocode_cost as cost
     import autocode_interaction_timing as interaction_timing
     import autocode_operational_block as operational_block
@@ -165,7 +167,7 @@ REASSERTABLE_BOUNDS = (
         "PAUSED_TIME_LIMIT",
         "max_seconds",
         "max_seconds",
-        "active_seconds",
+        budget_state.active_seconds,
         "Operator explicitly resumed with an available active-time limit",
     ),
     (

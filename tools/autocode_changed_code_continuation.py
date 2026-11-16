@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_budget_state as budget_state
     from . import autocode_changed_code_proof as changed_code
     from . import autocode_mutation_check as mutation
     from . import autocode_mutation_checkpoint as mutation_checkpoint
@@ -30,6 +31,7 @@ try:
     from . import autocode_verification_schedule as schedule
     from . import autocode_verify as verify
 except ImportError:
+    import autocode_budget_state as budget_state
     import autocode_changed_code_proof as changed_code
     import autocode_mutation_check as mutation
     import autocode_mutation_checkpoint as mutation_checkpoint
@@ -58,7 +60,7 @@ def allowance(state: RunState):
     seconds = limits.get("stage_timeout_seconds") or mutation.BUDGET_SECONDS
     total = limits.get("max_seconds")
     if total:
-        seconds = min(seconds, max(0, total - (state.get("active_seconds") or 0)))
+        seconds = min(seconds, max(0, total - budget_state.active_seconds_or_zero(state)))
     return max(0, seconds)
 
 
@@ -263,7 +265,7 @@ def _window(
         # Extra windows are active verification work, counted even when stopped.
         # The saved cap is never raised and the next model preflight sees the use.
         elapsed = max(0, time.monotonic() - started)
-        state["active_seconds"] = (state.get("active_seconds") or 0) + elapsed
+        budget_state.add_active_seconds(state, elapsed, treat_falsy_as_zero=True)
         if failure is not None:
             attempt = out / "attempt.json"
             record = {

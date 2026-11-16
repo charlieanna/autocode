@@ -31,12 +31,12 @@ from pathlib import Path
 
 try:
     from . import autocode_patch_containment as containment
+    from . import autocode_test_results as test_results
     from . import autocode_util as util
-    from . import autocode_verify as verify
 except ImportError:
     import autocode_patch_containment as containment
+    import autocode_test_results as test_results
     import autocode_util as util
-    import autocode_verify as verify
 
 
 def pin(path, workspace, base):
@@ -50,7 +50,7 @@ def pin(path, workspace, base):
     except ValueError as exc:
         raise ValueError(f"--base-patch {path} does not apply to the original code: {exc}") from exc
     files = sorted(change.name for change in changes)
-    tests = [name for name in files if verify.is_test_path(name)]
+    tests = [name for name in files if test_results.is_test_path(name)]
     if tests:
         raise ValueError(
             "--base-patch may not change test files, so the proof runs the candidate's tests "
@@ -74,7 +74,7 @@ def check(saved, workspace, base):
     try:
         changes = containment.applied_files(workspace, base, contents)
         for change in changes:
-            if verify.is_test_path(change.name):
+            if test_results.is_test_path(change.name):
                 return None, f"the operator base patch {patch.name} changes a test file: {change.name}"
             problem = containment.candidate_problem(change, workspace)
             if problem:

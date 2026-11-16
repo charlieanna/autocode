@@ -19,9 +19,11 @@ from pathlib import Path
 
 try:
     from . import autocode_evidence_document as document
+    from . import autocode_interaction_timing as interaction_timing
     from . import autocode_util as util
 except ImportError:
     import autocode_evidence_document as document
+    import autocode_interaction_timing as interaction_timing
     import autocode_util as util
 
 COMPLETE = ("TASK_COMPLETE", "COMPLETE")
@@ -77,8 +79,9 @@ def binding(state: RunState, accounting):
     if "prompts_hash" in state:
         stable["prompts_hash"] = state["prompts_hash"]
     # Preserve authentication of historical reports whose state predates timing.
-    if "interaction_timing" in state:
-        stable["interaction_timing"] = state["interaction_timing"]
+    timing = interaction_timing.TimingSlice.from_state(state)
+    if timing.present:
+        stable["interaction_timing"] = timing.to_state_value()
     # Only the newly displayed repair decisions add a binding; unrelated old
     # proof history must not invalidate saved reports that never displayed it.
     repairs = [

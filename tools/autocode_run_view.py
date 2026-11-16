@@ -898,7 +898,7 @@ def evidence(state: RunState) -> dict:
     moves = finding_rescope.history(state.get("findings_ledger"))
     return {
         "created_at": state.get("created_at"),
-        **({"interaction_timing": interaction_timing.project(state)} if state.get("interaction_timing") else {}),
+        **({"interaction_timing": interaction_timing.project(state)} if interaction_timing.has_record(state) else {}),
         "outcome": contract.get("intended_outcome"),
         "workflow_result": workflow_result(state),
         "base_commit": state.get("base_commit"),

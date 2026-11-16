@@ -10,10 +10,12 @@ from copy import deepcopy
 from pathlib import Path
 
 try:
+    from . import autocode_budget_state as budget_state
     from . import autocode_contract_identity as contract
     from . import autocode_cost as cost
     from . import autocode_util as util
 except ImportError:
+    import autocode_budget_state as budget_state
     import autocode_contract_identity as contract
     import autocode_cost as cost
     import autocode_util as util
@@ -96,7 +98,7 @@ def create(original, checkpoint, workspace, run_dir, branch, project, operation,
     # Spend is an allowance consumed like time: the money cap keeps counting what the original spent,
     # and the original's unpriced or partial stages keep the child's total a floor.
     if inherited := cost.carried(original):
-        child["inherited_spend"] = inherited
+        budget_state.write_inherited_spend(child, inherited)
     # A new source commit changes candidate identity. All milestones face fresh
     # verification, including earlier ones; time/failure allowances never reset.
     # Preserve the one-time budget-extension fence without inheriting pending

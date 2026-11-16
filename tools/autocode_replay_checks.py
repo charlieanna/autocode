@@ -22,6 +22,7 @@ try:
     from . import autocode_changed_code_proof as proof_policy
     from . import autocode_command_receipt as receipts
     from . import autocode_liveness as liveness
+    from . import autocode_regression_state as regression_state
     from . import autocode_replay_bindings as identity_bindings
     from . import autocode_replay_recording as recording
     from . import autocode_replay_source_trace as trace_binding
@@ -33,6 +34,7 @@ except ImportError:
     import autocode_changed_code_proof as proof_policy
     import autocode_command_receipt as receipts
     import autocode_liveness as liveness
+    import autocode_regression_state as regression_state
     import autocode_replay_bindings as identity_bindings
     import autocode_replay_recording as recording
     import autocode_replay_source_trace as trace_binding
@@ -439,19 +441,22 @@ def regression(state: RunState, workspace, *, case_ids, suite, regression_comman
         commands = value.get("commands") or {}
         if _portable([commands.get("suite"), commands.get("regression")]) != _portable([suite, regression_command]):
             raise recording.RecordingError("Replay diverged: retained archival executable obligations differ")
-        _retained(state, tape, state.get("regression_baseline") or {}, "regression_baseline", case_ids=case_ids)
+        _retained(state, tape, regression_state.mapping(state), "regression_baseline", case_ids=case_ids)
         return saved
     base = _obligation(state, workspace, None, "regression_baseline", [suite], case_ids=case_ids)
     baseline = base["recorded"]
     if not isinstance(baseline.get("receipt"), dict) or _portable([baseline.get("command")]) != _portable([suite]):
         raise recording.RecordingError("Replay diverged: archived baseline is incomplete")
-    state["regression_baseline"] = {
-        **copy.deepcopy(baseline),
-        "simulated": True,
-        "current_proof": False,
-        "path": base["receipt"],
-        "archival": base,
-    }
+    regression_state.write_record(
+        state,
+        {
+            **copy.deepcopy(baseline),
+            "simulated": True,
+            "current_proof": False,
+            "path": base["receipt"],
+            "archival": base,
+        },
+    )
     envelope = _obligation(state, workspace, None, "regression_proof", [suite, regression_command], case_ids=case_ids)
     value = copy.deepcopy(envelope["recorded"])
     names, scope = value.get("case_tests"), value.get("case_scope")
@@ -564,7 +569,7 @@ def _proof_retained(state: RunState, revision, case_ids):
     ):
         return False
     _retained(state, tape, proof, "regression_proof", case_ids=case_ids)
-    _retained(state, tape, state.get("regression_baseline") or {}, "regression_baseline", case_ids=case_ids)
+    _retained(state, tape, regression_state.mapping(state), "regression_baseline", case_ids=case_ids)
     return True
 
 

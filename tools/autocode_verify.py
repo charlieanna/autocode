@@ -38,14 +38,12 @@ import copy
 import hashlib
 import json
 import os
-import posixpath
 import re
 import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
-import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -81,14 +79,14 @@ try:
     from . import autocode_scratch_overlay as scratch_overlay
     from . import autocode_scratch_preparation as scratch_preparation
     from . import autocode_scratch_suites as scratch_suites
+    from . import autocode_suite_boundary as suite_boundary
     from . import autocode_suite_definition_inputs as definition_inputs
-    from . import autocode_suite_definition_policy as definition_policy
     from . import autocode_suite_definition_scan as definition_scan
     from . import autocode_suite_flakes as suite_flakes
     from . import autocode_test_environment as test_env
+    from . import autocode_test_results as test_results
     from . import autocode_test_role_inventory as role_inventory
     from . import autocode_test_root as test_roots
-    from . import autocode_test_setup as test_setup
     from . import autocode_toolchain_suite as toolchain_suite
     from . import autocode_util as util
     from . import autocode_verification_preparation as preparation
@@ -131,14 +129,14 @@ except ImportError:
     import autocode_scratch_overlay as scratch_overlay
     import autocode_scratch_preparation as scratch_preparation
     import autocode_scratch_suites as scratch_suites
+    import autocode_suite_boundary as suite_boundary
     import autocode_suite_definition_inputs as definition_inputs
-    import autocode_suite_definition_policy as definition_policy
     import autocode_suite_definition_scan as definition_scan
     import autocode_suite_flakes as suite_flakes
     import autocode_test_environment as test_env
+    import autocode_test_results as test_results
     import autocode_test_role_inventory as role_inventory
     import autocode_test_root as test_roots
-    import autocode_test_setup as test_setup
     import autocode_toolchain_suite as toolchain_suite
     import autocode_util as util
     import autocode_verification_preparation as preparation
@@ -172,13 +170,8 @@ DEFAULT_TIMEOUT = 900
 # --- classification --------------------------------------------------------
 
 
-def is_test_path(path: str) -> bool:
-    """True for files that belong to the test suite rather than the product (autocode_project_kinds)."""
-    return project_kinds.is_test_path(path)
-
-
-def is_code_path(path: str) -> bool:
-    return PurePosixPath(path).suffix in CODE_SUFFIXES
+is_test_path = test_results.is_test_path
+is_code_path = test_results.is_code_path
 
 
 def _scratch_env(workspace, scratch, *, keep_objects=False):
@@ -275,31 +268,8 @@ def _untested_base(workspace, base) -> bool:
     return paths is not None and not any(map(project_kinds.test_rule(paths), paths))
 
 
-def _package_scripts(text) -> dict:
-    try:
-        package = json.loads(text or "{}")
-    except ValueError:
-        return {}
-    scripts = package.get("scripts")
-    return dict(scripts) if isinstance(scripts, dict) else {}
-
-
-def _suite_package_script(command):
-    """The package.json script name an npm/yarn/pnpm suite command runs, if any."""
-    if not isinstance(command, str) or re.search(r"[;&|<>`$\n\r]", command):
-        return None
-    try:
-        words = shlex.split(command)
-    except ValueError:
-        return None
-    if not words or PurePosixPath(words[0]).name not in ("npm", "npm.cmd", "yarn", "yarn.cmd", "pnpm", "pnpm.cmd"):
-        return None
-    positional = [word for word in words[1:] if not word.startswith("-")]
-    if not positional:
-        return None
-    if positional[0] in ("run", "run-script"):
-        return positional[1] if len(positional) > 1 else None
-    return "test" if positional[0] in ("test", "t") else None
+_package_scripts = suite_boundary.package_scripts
+_suite_package_script = suite_boundary.suite_package_script
 
 
 def _ignored(path: str) -> bool:
@@ -462,17 +432,7 @@ def diff_stats(workspace, base, changes, *, roles=None, allow_ambiguous=False) -
 def removed_python_tests(workspace, base, changes, *, roles=None, replaced=None) -> list[str]:
     """Names of ``def test*`` functions deleted from modified Python test files, except the tests the approved
     plan replaces (``replaced``, a test of an id)."""
-    roles = roles or role_inventory.from_git(workspace, base, is_test_path, changes=changes)
-    removed = []
-    pattern = re.compile(r"^\s*(?:async\s+)?def\s+(test\w*)\s*\(", re.M)
-    for path, status in changes.items():
-        if not (path.endswith(".py") and roles.protected(path)) or status == "added":
-            continue
-        before = set(pattern.findall(_git(workspace, "show", f"{base}:{path}", check=False)))
-        after_file = Path(workspace) / path
-        after = set(pattern.findall(after_file.read_text(errors="replace"))) if after_file.is_file() else set()
-        removed += [f"{path}::{name}" for name in sorted(before - after)]
-    return [name for name in removed if not (replaced and replaced(name))]
+    return test_results.removed_python_tests(workspace, base, changes, git=_git, roles=roles, replaced=replaced)
 
 
 # --- project test frameworks -----------------------------------------------
@@ -739,119 +699,26 @@ def run_command(
     )
 
 
-def _with_results(framework, command, xml_path, tree=None, *, scripts=True):
-    """``command`` asking its runner for per-test results. ``scripts`` false leaves an ``npm test`` whose
-    script is node's own test runner as written (a native check runs exactly the command it planned)."""
-    if instrumented := reporters.instrument(command, xml_path, tree if scripts else None, tree):
-        return instrumented
-    if vitest_tests.command_words(command, tree):
-        return vitest_tests.instrument(command, xml_path, tree)
-    if framework and framework.name == "pytest" and " -m pytest" in command:
-        return f"{command} --junitxml={shlex.quote(str(xml_path))}"
-    if framework and framework.name == "go" and (invocation := go_tests.parse(command)):
-        # Go reports per-test results only as `go test -json` events (a live Go port could not be
-        # proven without them, 2026-09-29). The flag goes before the packages, where go test reads it.
-        return invocation.instrument()
-    # Unittest names each test only at -v. A quiet or default command still runs
-    # the same tests; the proof needs those names to tell a passing baseline
-    # from a count with no identities.
-    return python_tests.verbose_unittest(command)
-
-
-def expects_results(framework, command, tree=None, *, scripts=True):
-    """True when this command, run by the runner, must yield per-test results."""
-    if framework is not None and framework.name == "junit":
-        return bool(command)
-    if reporters.reports(command, tree if scripts else None, tree):
-        return True
-    if vitest_tests.command_words(command, tree):
-        return True
-    if not framework or not framework.per_test or not command:
-        return False
-    if framework.name == "go":
-        return _go_test(command)
-    return (
-        (" -m pytest" in command)
-        if framework.name == "pytest"
-        else ((" -m unittest" in command or "autocode_component_tests.py" in command) and " -v" in command)
-    )
-
+with_results = test_results.with_results
+_with_results = test_results.with_results
+expects_results = test_results.expects_results
 
 _go_results = go_tests.results
-
 
 _unittest_id = python_tests._unittest_id
 _unittest_results = python_tests.unittest_results
 
 
 def per_test_results(framework, receipt, xml_path, *, tree=None) -> dict | None:
-    """Passed, failed and skipped test ids, or None when the run produced no parseable results.
-
-    ``collection_errors`` are failures of a module to import or collect; they are
-    failures, but they never name a test that ran. ``uncollected`` is the subset
-    that never imported, collected or built at all: a failed hook or fixture that
-    Node and Vitest report as a collection error executed and is judged like any
-    other failing test, so it is not in ``uncollected``.
-    """
-    if read := reporters.reader(xml_path, receipt, tree):
-        return read(xml_path)
-    if str(xml_path).endswith(".vitest.json"):
-        return vitest_tests.results(xml_path, tree)
-    if not framework or not framework.per_test or framework.name not in ("pytest", "unittest", "go"):
-        return None
-    if framework.name == "go":
-        invocation = go_tests.parse(package_scope.split(framework, receipt.get("command") or framework.suite)[1])
-        if invocation is None or invocation.json_disabled:
-            return None
-        output = receipt.get("output")
-        return _go_results(Path(output).read_text(errors="replace")) if output and Path(output).is_file() else None
-    passed, failed, skipped, collection = set(), set(), set(), set()
-    setup_errors = {}
-    roles = getattr(framework, "test_roles", None)
-    is_test = (lambda path: roles.role(path) == "test") if roles else is_test_path
-    if framework.name == "pytest":
-        if not Path(xml_path).is_file():
-            return None
-        try:
-            result_tree = ET.parse(xml_path)
-        except ET.ParseError:
-            return None
-        for test, case in python_tests.pytest_case_names(result_tree.iter("testcase"), tree):
-            problem = case.find("failure") if case.find("failure") is not None else case.find("error")
-            if problem is not None:
-                failed.add(test)
-                reason = test_setup.setup_error(problem.text or "", tree, is_test)
-                if reason:
-                    setup_errors[test] = reason
-                if not case.get("classname") or "collection failure" in (problem.get("message") or ""):
-                    collection.add(test)
-            elif case.find("skipped") is not None:
-                skipped.add(test)
-            else:
-                passed.add(test)
-        # A test that fails and then errors in teardown is two testcases of one id; a test reported
-        # with two different outcomes stays a duplicate id, never a complete result.
-        total = len(passed | failed | skipped)
-        complete = True
-    else:
-        text = Path(receipt["output"]).read_text(errors="replace")
-        return _unittest_results(
-            text,
-            component="autocode_component_tests.py" in framework.suite,
-            classify_setup=lambda detail: test_setup.setup_error(detail, tree, is_test),
-        )
-    results = {
-        "passed": sorted(passed),
-        "failed": sorted(failed),
-        "skipped": sorted(skipped),
-        "collection_errors": sorted(collection),
-        "uncollected": sorted(collection),
-        "total": total,
-        "complete": complete,
-    }
-    if setup_errors:
-        results["setup_errors"] = setup_errors
-    return results
+    """Passed, failed and skipped test ids, or None when the run produced no parseable results."""
+    return test_results.per_test_results(
+        framework,
+        receipt,
+        xml_path,
+        tree=tree,
+        go_results=_go_results,
+        unittest_results=_unittest_results,
+    )
 
 
 # --- scratch trees ----------------------------------------------------------
@@ -1232,308 +1099,16 @@ def _base_suite_definition(workspace, base, suite_command, *, base_patch=None, c
         is_test = lambda path: roles.test_path(path) and roles.protected(path)
         if junit:
             return junit_proof.definition(workspace, suite_command, entries, read, patched, changes, is_test=is_test)
-        tracked = set(entries)
-        found = definition_policy.Definition(set(), "", patched)
-        manifests = {}
-        for path in sorted(tracked):
-            if PurePosixPath(path).name != "package.json":
-                continue
-            target, seen = path, set()
-            while entries.get(target, (None,))[0] == "120000":
-                if target in seen:
-                    raise ValueError(f"cyclic package manifest at {path}")
-                seen.add(target)
-                target = posixpath.normpath(posixpath.join(posixpath.dirname(target), read(target)))
-            if target in entries:
-                manifests[path] = read(target)
-        tests = {path for path in tracked if is_test(path)}
-        fixed = {path for path in tracked if _definition_file(path)}
-        definition = definition_inputs.linked_inputs(entries, read, fixed | tests, data=tests - fixed)
-
-        def resolve(literal, directory):
-            for root in (directory, ".") if directory != "." else (".",):
-                candidate = posixpath.normpath(posixpath.join(root, literal))
-                if not candidate.startswith("../") and candidate in tracked:
-                    return candidate
-            return None
-
-        # Product code: what base tests import transitively through relative literals.
-        # The candidate's version must enter the definition tree, or a runner importing
-        # the module under test would pin it (#587's product carve-out).
-        product, queue, seen = set(), sorted(tests), set(tests)
-        while queue:
-            path = queue.pop()
-            for specifier, _ in _import_sites(read(path)):
-                if not specifier or not specifier.startswith(("./", "../")):
-                    continue
-                target = resolve(specifier, posixpath.dirname(path) or ".")
-                if target and target not in seen:
-                    seen.add(target)
-                    product.add(target)
-                    queue.append(target)
-        found.sourced = definition_scan.sourced_product(tests, tracked, read)
-
-        def shell_bindings(command, directory):
-            # shlex keeps an ordinary quoted filename as one operand. A shell's
-            # -c operand is itself a command line, expanded in the directory
-            # active where that shell appears, so `sh -c 'node run-tests.js'`
-            # pins the base runner. A literal `cd <dir> &&` or `cd <dir>;`
-            # moves that directory for what follows: `sh -c 'cd lib && node
-            # run-tests.js'` must pin lib/run-tests.js, not a root file of the
-            # same name. A computed cd target cannot establish the boundary.
-            try:
-                parsed = shlex.split(command)
-            except ValueError:
-                return [], "a shell command could not be parsed, so the suite definition boundary is unestablished"
-            bindings, segment, current = [], [], directory
-
-            def finish(keep_directory):
-                nonlocal current
-                if segment[:1] == ["cd"] and keep_directory:
-                    target = segment[1] if len(segment) == 2 else ""
-                    if (
-                        len(segment) != 2
-                        or not target
-                        or target.startswith(("-", "/", "~"))
-                        or any(mark in target for mark in ("$", "`", "*", "?"))
-                    ):
-                        return "a cd target is computed, so the suite definition boundary is unestablished"
-                    landed = posixpath.normpath(posixpath.join(current, target))
-                    inside = landed in ("", ".") or (
-                        not landed.startswith("../")
-                        and any(path == landed or path.startswith(landed + "/") for path in tracked)
-                    )
-                    if not inside:
-                        return f"cd {target} does not name a directory in the base tree"
-                    current = "." if landed in ("", ".") else landed
-                else:
-                    bindings.extend((word, current) for word in segment)
-                segment.clear()
-                return ""
-
-            index = 0
-            while index < len(parsed):
-                word = parsed[index]
-                if (
-                    posixpath.basename(word) in {"sh", "bash", "dash", "zsh"}
-                    and index + 2 < len(parsed)
-                    and parsed[index + 1] == "-c"
-                ):
-                    if segment:
-                        reason = finish(False)
-                        if reason:
-                            return [], reason
-                    nested, reason = shell_bindings(parsed[index + 2], current)
-                    if reason:
-                        return [], reason
-                    bindings.extend(nested)
-                    index += 3
-                    continue
-                if word in {"&&", ";"}:
-                    reason = finish(True)
-                    if reason:
-                        return [], reason
-                    bindings.append((word, current))
-                    index += 1
-                    continue
-                if word in {"||", "|", "&"}:
-                    reason = finish(False)
-                    if reason:
-                        return [], reason
-                    bindings.append((word, current))
-                    index += 1
-                    continue
-                segment.append(word)
-                index += 1
-            reason = finish(False)
-            if reason:
-                return [], reason
-            return bindings, ""
-
-        cwd_of = {}
-        pinned, queue, queued, selected_scripts = set(), [], set(), set()
-        loading_readers = set()
-        package_names = set()
-        for text in manifests.values():
-            try:
-                value = json.loads(text)
-            except ValueError:
-                continue
-            if isinstance(value, dict) and isinstance(value.get("name"), str):
-                package_names.add(value["name"])
-
-        def loading_reference(text):
-            # The same fields may route a runner's selector as well as product
-            # code. Such a dual use cannot safely take the candidate's mapping.
-            for specifier, _ in _import_sites(text):
-                if (
-                    specifier is None
-                    or specifier in {"module", "node:module"}
-                    or (
-                        specifier.startswith("#")
-                        or any(specifier == name or specifier.startswith(name + "/") for name in package_names)
-                    )
-                ):
-                    return True
-            # Aliased loaders and resolution-only calls are not ordinary import
-            # sites. Their target can still depend on a candidate loading map.
-            mask, _ = _js_scan(text)
-            return bool(re.search(r"\brequire\b(?!\s*\()|\bimport\s*\.\s*meta\s*\.\s*resolve\s*\(", mask))
-
-        for path in definition | product:
-            if path in entries and (
-                path in tests or path in product or PurePosixPath(path).name in _RUNNER_CONFIG_BASENAMES
-            ):
-                text = read(path)
-                if loading_reference(text) or "package.json" in text:
-                    loading_readers.add(path)
-
-        def consider(candidate, directory):
-            """Queue a tracked file the suite command reaches. Tests are scanned only when they
-            are shell scripts; product code and manifests are never queued from here."""
-            if (
-                not candidate
-                or candidate.startswith("../")
-                or candidate not in tracked
-                or candidate in product
-                or _definition_file(candidate)
-                or candidate in queued
-            ):
-                return
-            cwd_of.setdefault(candidate, directory)
-            queued.add(candidate)
-            if not is_test(candidate):
-                pinned.add(candidate)
-            queue.append(candidate)
-
-        def follow_shell(command, directory):
-            if any("npm_package_" + field in command for field in definition_policy.LOADING_FIELDS):
-                loading_readers.add("package script environment")
-            bindings, reason = shell_bindings(command, directory)
-            if reason:
-                return reason
-            for word, effective in bindings:
-                # Inline JavaScript (node -e/--eval) is a runner input too. shlex
-                # has removed its enclosing shell quotes from this operand.
-                if loading_reference(word):
-                    loading_readers.add("suite command")
-                consider(posixpath.normpath(posixpath.join(effective, word)), effective)
-            try:
-                roots = list(definition_policy.script_roots(bindings, manifests))
-            except ValueError as error:
-                return str(error)
-            for manifest, name, script in roots:
-                key = (manifest, name)
-                if key in selected_scripts:
-                    continue
-                selected_scripts.add(key)
-                reason = follow_shell(script, posixpath.dirname(manifest) or ".")
-                if reason:
-                    return f"{manifest} script {name}: {reason}"
-            return ""
-
-        unestablished = follow_shell(suite_command or "", ".")
-        scanned = set()
-        fallback_scanned = False
-        while not unestablished:
-            if not queue:
-                if selected_scripts or fallback_scanned or not manifests:
-                    break
-                # An opaque task runner (for example make) can invoke package
-                # scripts without a literal manager call. Keep the conservative
-                # roots there rather than silently dropping its runner inputs.
-                fallback_scanned = True
-                for manifest, text in manifests.items():
-                    for name, script in _package_scripts(text).items():
-                        selected_scripts.add((manifest, name))
-                        unestablished = follow_shell(str(script), posixpath.dirname(manifest) or ".")
-                        if unestablished:
-                            break
-                    if unestablished:
-                        break
-                if unestablished or not queue:
-                    break
-            path = queue.pop()
-            if path in scanned:
-                continue
-            scanned.add(path)
-            text = read(path)
-            if loading_reference(text) or "package.json" in text:
-                loading_readers.add(path)
-            file_dir = posixpath.dirname(path) or "."
-            cwd = cwd_of.get(path, ".")
-            if _shell_script(path, text):
-                # A test-directory script is pinned wholesale and would otherwise not be read,
-                # which hides `sh test/run.sh` → `node list.js` (#662).
-                unestablished = follow_shell(text, cwd)
-                continue
-            if is_test(path):
-                continue  # JS tests are pinned wholesale, never scanned
-            for specifier, inside_exec in _import_sites(text):
-                if specifier is None:
-                    unestablished = f"{path} selects its suite inputs through a computed path"
-                    break
-                if not specifier.startswith(("./", "../")):
-                    continue  # a package or core module, resolved by the runtime
-                target = resolve(specifier, file_dir)
-                if not target or target in product:
-                    continue
-                if is_test(target) or _definition_file(target):
-                    continue
-                if inside_exec:
-                    consider(target, file_dir)
-                else:
-                    unestablished = (
-                        f"{path} reaches {target}, which is neither a test, a manifest "
-                        "nor an input of the executed test command"
-                    )
-                    break
-            if unestablished:
-                break
-            for kind, specifier in _read_paths(text):
-                # ``fs`` paths are cwd-relative; ``path.join(__dirname, ...)`` is file-relative.
-                directory = cwd if kind == "cwd" else file_dir
-                target = resolve(specifier, directory)
-                if target and target not in product:
-                    consider(target, directory)
-            for command in _exec_command_literals(text):
-                unestablished = follow_shell(command, cwd)
-                if unestablished:
-                    break
-        found.paths = definition_inputs.linked_inputs(entries, read, definition | pinned, data=tests - fixed)
-        found.boundary = unestablished
-        if changes is not None:
-            measured = definition_inputs.reviewed_changes(workspace, changes, patched)
-            # An incomplete runner closure need not refuse a change confined to
-            # known product code and retained test policy. Everything whose role
-            # is unknown stays byte-for-byte on base in that case. A changed
-            # unknown selector still makes preservation unproven (T15).
-            unclassified = {
-                path
-                for path in measured
-                if path not in found.paths and path not in product and not _definition_file(path) and not is_test(path)
-            }
-            if unestablished and not unclassified:
-                found.boundary = ""
-            found.changed = any(path in found.paths or _definition_file(path) or is_test(path) for path in measured)
-            for path, status in measured.items():
-                if (
-                    PurePosixPath(path).name != "package.json"
-                    or is_test(path)
-                    or status == "deleted"
-                    or (Path(workspace) / path).is_symlink()
-                    or (path in entries and entries[path][0] != "100644" and entries[path][0] != "100755")
-                ):
-                    continue
-                original = manifests.get(path)
-                merged = definition_policy.merged_manifest(original, (Path(workspace) / path).read_text())
-                if merged is not None and merged != original:
-                    found.manifests[path] = merged
-            if found.manifests and loading_readers:
-                found.boundary = "candidate package loading fields may also select runner inputs in " + ", ".join(
-                    sorted(loading_readers)
-                )
-        return found
+        return suite_boundary.analyze(
+            workspace,
+            entries,
+            read,
+            patched,
+            suite_command,
+            changes=changes,
+            is_test=is_test,
+            read_paths=_read_paths,
+        )
 
 
 # --- verification -----------------------------------------------------------
@@ -2906,20 +2481,7 @@ def verify(
     )
 
 
-def product_files(changes, *, roles=None, source_files=None) -> list[tuple[str, str]]:
-    """The changed product code (not tests, deletions or installed dependencies, #3164) diff coverage and mutants read."""
-    return [
-        (path, status)
-        for path, status in changes.items()
-        if status != "deleted"
-        and is_code_path(path)
-        and not dependency_dirs.installed(path)
-        and (
-            path in source_files
-            if source_files is not None
-            else not (roles.is_test(path) if roles else is_test_path(path))
-        )
-    ]
+product_files = test_results.product_files
 
 
 def product_diff(workspace, base, files) -> str:

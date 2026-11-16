@@ -23,6 +23,11 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
+try:
+    from . import autocode_budget_state as budget_state
+except ImportError:
+    import autocode_budget_state as budget_state
+
 MAX_EXTENSIONS = 2
 EVENT = "automatic_job_stage_deadline_extended"
 
@@ -70,7 +75,7 @@ def plan(state: RunState, failure: dict, recovery: dict, *, abandoned: bool, dea
     new = old * 2
     total = _number(limits.get("max_seconds"))
     if total is not None and total > 0:
-        new = min(new, int(total - (_number(state.get("active_seconds")) or 0)))
+        new = min(new, int(total - (_number(budget_state.raw_active_seconds(state)) or 0)))
     if new <= old:
         return None
     return {"from": old, "to": new, "extension": spent + 1, "of": MAX_EXTENSIONS}

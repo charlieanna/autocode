@@ -48,11 +48,13 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_budget_state as budget_state
     from . import autocode_cost as cost
     from . import autocode_milestone_scope as milestone_scope
     from . import autocode_roles as roles
     from . import autocode_util as util
 except ImportError:
+    import autocode_budget_state as budget_state
     import autocode_cost as cost
     import autocode_milestone_scope as milestone_scope
     import autocode_roles as roles
@@ -117,7 +119,7 @@ def time_crossing(state: RunState, record):
     projected = projected_seconds(settings, record) if limit is not None else None
     if projected is None:
         return None
-    used = _seconds(state.get("active_seconds")) or 0
+    used = _seconds(budget_state.raw_active_seconds(state)) or 0
     total = used + projected["seconds"]
     if total <= limit:
         return None

@@ -10,6 +10,7 @@ import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import Any, TypedDict
 
 try:
     from . import autocode_resolver_human as human
@@ -23,6 +24,19 @@ except ImportError:
 
 TERMINAL_CODE = {"TASK_COMPLETE"}
 TERMINAL_UI = {"COMPLETE"}
+
+
+class TaskFlowState(TypedDict, total=False):
+    """Saved multi-lane task flow checkpoint state (not a RunState)."""
+
+    version: int
+    name: str
+    manifest: str
+    manifest_sha256: str
+    project_workspace: str
+    created_at: str
+    status: str
+    lanes: dict[str, Any]
 
 
 def load_manifest(path):
@@ -131,7 +145,7 @@ def refresh_task(record):
         record["status"] = "PAUSED"
 
 
-def ready(manifest, state):
+def ready(manifest, state: TaskFlowState):
     rows = []
     for lane in manifest["lanes"]:
         saved = state["lanes"][lane["id"]]
@@ -193,7 +207,7 @@ def launch_task(project, flow_dir, lane, task, record, lane_state):
     return record
 
 
-def summarize(manifest, state, state_path):
+def summarize(manifest, state: TaskFlowState, state_path):
     lanes = []
     for lane in manifest["lanes"]:
         saved = state["lanes"][lane["id"]]

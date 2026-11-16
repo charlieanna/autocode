@@ -57,6 +57,7 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_answer_options as answer_options
+    from . import autocode_budget_state as budget_state
     from . import autocode_interventions as interventions
     from . import autocode_job_deadline as job_deadline
     from . import autocode_process as processes
@@ -64,6 +65,7 @@ try:
     from . import autocode_util as util
 except ImportError:
     import autocode_answer_options as answer_options
+    import autocode_budget_state as budget_state
     import autocode_interventions as interventions
     import autocode_job_deadline as job_deadline
     import autocode_process as processes
@@ -208,7 +210,7 @@ def admission(state: RunState) -> dict:
         }
     active_cap = _finite(limits.get("max_seconds"))
     if active_cap is not None:
-        usage = _recorded_active_seconds(state.get("active_seconds"))
+        usage = _recorded_active_seconds(budget_state.raw_active_seconds(state))
         if usage is None:
             return {
                 "admitted": False,

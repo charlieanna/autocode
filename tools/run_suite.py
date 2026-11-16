@@ -216,6 +216,8 @@ def select_tests(changed: list[str], sources: dict[str, str]) -> dict[str, str]:
                 name = test.removeprefix("tests.")
                 if name == f"test_{stem}" or name.startswith(f"test_{stem}_") or module in imports[test]:
                     selected.setdefault(test, f"tests {path}")
+            if "tests.test_run_state" in sources:
+                selected.setdefault("tests.test_run_state", f"tests {path}")
             if not ci_test_selection.dependencies(path) and path not in ci_test_selection.SUITE_PATHS:
                 for test in (*ci_test_selection.CORE_CONSUMERS, *ci_test_selection.PUBLIC_FLOW_CONSUMERS):
                     if test in sources:

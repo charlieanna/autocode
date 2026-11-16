@@ -311,6 +311,30 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "tests.test_multicomponent_fake_reasons",
         ),
     ),
+    ("tools/autocode_fixture_state.py", ("tests.test_run_state", "tests.test_run_state_slices")),
+    (
+        "tools/autocode_budget_state.py",
+        ("tests.test_run_state", "tests.test_run_state_slices", "tests.test_cost", "tests.test_cost_breakdown"),
+    ),
+    (
+        "tools/autocode_regression_state.py",
+        ("tests.test_run_state", "tests.test_run_state_slices", "tests.test_focused_suite"),
+    ),
+    (
+        "tools/autocode_test_results.py",
+        (
+            "tests.test_verify_domain_split",
+            "tests.test_cargo_tests",
+            "tests.test_go_tests",
+            "tests.test_jest_tests",
+            "tests.test_rspec_tests",
+            "tests.test_vitest_tests",
+        ),
+    ),
+    (
+        "tools/autocode_suite_boundary.py",
+        ("tests.test_verify_domain_split", "tests.test_suite_definition_policy", "tests.test_definition_refusals"),
+    ),
     ("tools/autocode_draft_failure_correction.py", ("tests.test_draft_failure_correction_cli",)),
     (
         "tools/autocode_report_repair_context.py",

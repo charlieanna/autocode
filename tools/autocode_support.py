@@ -19,7 +19,12 @@ import os
 import re
 import shlex
 import subprocess  # noqa: F401 - existing legacy-process inspection seam
+from collections.abc import Mapping
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_names as names
@@ -518,17 +523,17 @@ MILESTONE_POLICY = prompts.get("fragments/support/milestone-policy.md")
 COMMON = prompts.get("fragments/support/common.md")
 
 
-def migrate_v1(state, run_dir, workspace, settings, schemas):
+def migrate_v1(state: Mapping[str, Any], run_dir, workspace, settings, schemas) -> RunState:
     """Reconcile saved role finals, including a completed role missing from history.
 
     A partially emitted/failed turn is uncertain; never automatically replay it.
     Legacy validation lacks source revision pins, so it cannot authorize completion.
     """
-    state = json.loads(json.dumps(state))
-    state.update(
+    migrated: dict[str, Any] = json.loads(json.dumps(state))
+    migrated.update(
         version=2,
         settings=settings,
-        stages=state.get("stages", []),
+        stages=migrated.get("stages", []),
         next_stage="plan_task",
         acceptance_criteria=[],
         criteria_revision=None,
@@ -547,10 +552,12 @@ def migrate_v1(state, run_dir, workspace, settings, schemas):
         complete = any(e.get("type") == "turn.completed" for e in rows)
         # Preserve earlier failed launcher attempts as history, not pending work.
         if not complete or not final.exists():
-            if iteration == state["iteration"]:
-                state.update(status="PAUSED_UNCERTAIN_STAGE", stop_reason=f"Reconcile unfinished legacy {role}: {path}")
-                state["next_stage"] = "review_completion" if role == "task_planner" else role
-                state["uncertain_artifacts"] = str(path)
+            if iteration == migrated["iteration"]:
+                migrated.update(
+                    status="PAUSED_UNCERTAIN_STAGE", stop_reason=f"Reconcile unfinished legacy {role}: {path}"
+                )
+                migrated["next_stage"] = "review_completion" if role == "task_planner" else role
+                migrated["uncertain_artifacts"] = str(path)
             continue
         value = read(final)
         validate_schema(
@@ -558,15 +565,15 @@ def migrate_v1(state, run_dir, workspace, settings, schemas):
         )
         thread = next((e.get("thread_id") for e in rows if e.get("type") == "thread.started"), None)
         if thread:
-            state.setdefault("sessions", {})[role] = thread
+            migrated.setdefault("sessions", {})[role] = thread
         stage = (
             "plan_task"
-            if role == "task_planner" and not state["acceptance_criteria"]
+            if role == "task_planner" and not migrated["acceptance_criteria"]
             else "review_completion"
             if role == "task_planner"
             else role
         )
-        state["stages"].append(
+        migrated["stages"].append(
             {
                 "stage": stage,
                 "iteration": iteration,
@@ -577,22 +584,22 @@ def migrate_v1(state, run_dir, workspace, settings, schemas):
                 "metrics": event_metrics(path),
             }
         )
-        state.setdefault("evidence_locations", []).append(str(final))
+        migrated.setdefault("evidence_locations", []).append(str(final))
         if role == "task_planner":
-            state["acceptance_criteria"] = value["acceptance_criteria"]
-            state["criteria_revision"] = digest(criteria_definition(value["acceptance_criteria"]))
-            state["next_action"] = value["next_objective"]
-            state["plan"] = [value["next_objective"]]
-            state["next_stage"] = "builder" if value["status"] == "CONTINUE" else "tester"
+            migrated["acceptance_criteria"] = value["acceptance_criteria"]
+            migrated["criteria_revision"] = digest(criteria_definition(value["acceptance_criteria"]))
+            migrated["next_action"] = value["next_objective"]
+            migrated["plan"] = [value["next_objective"]]
+            migrated["next_stage"] = "builder" if value["status"] == "CONTINUE" else "tester"
         elif role == "builder":
-            state["implementation"] = value
-            state["changed_files"] = value["changed_files"]
-            state["next_stage"] = "tester"
+            migrated["implementation"] = value
+            migrated["changed_files"] = value["changed_files"]
+            migrated["next_stage"] = "tester"
         else:
-            state["validation"] = {**value, "source_revision": None, "criteria_revision": None}
-            state["unresolved_findings"] = value["findings"]
-            state["next_stage"] = "review_completion"
-    state["migration"] = {"from": 1, "at": now(), "legacy_validation_requires_freshness_review": True}
-    if state.get("status") == "TASK_COMPLETE":
-        state.update(status="PAUSED_LEGACY_COMPLETION_UNVERIFIED", next_stage="tester")
-    return state
+            migrated["validation"] = {**value, "source_revision": None, "criteria_revision": None}
+            migrated["unresolved_findings"] = value["findings"]
+            migrated["next_stage"] = "review_completion"
+    migrated["migration"] = {"from": 1, "at": now(), "legacy_validation_requires_freshness_review": True}
+    if migrated.get("status") == "TASK_COMPLETE":
+        migrated.update(status="PAUSED_LEGACY_COMPLETION_UNVERIFIED", next_stage="tester")
+    return cast("RunState", migrated)

@@ -142,6 +142,13 @@ class SelectTestsTests(unittest.TestCase):
             {"tests.test_architecture", "tests.test_opencode"}, set(self.select("tools/providers/opencode.py"))
         )
 
+    def test_a_changed_runtime_module_runs_the_run_state_contract_when_present(self):
+        sources = {**self.SOURCES, "tests.test_run_state": ""}
+        selected = run_suite.select_tests(["tools/autocode_review_job.py"], sources)
+        self.assertIn("tests.test_run_state", selected)
+        docs_only = run_suite.select_tests(["docs/workflow.md"], sources)
+        self.assertEqual({"tests.test_architecture": "always"}, docs_only)
+
     def test_a_changed_test_runs_itself(self):
         self.assertEqual("changed", self.select("tests/test_other.py")["tests.test_other"])
 

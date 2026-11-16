@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_budget_state as budget_state
     from . import autocode_contract_identity as goals
     from . import autocode_plan_retention as retention
     from . import autocode_progressive_activation as activation
@@ -49,6 +50,7 @@ try:
     from . import autocode_util as util
     from . import autocode_verification_plan as verification
 except ImportError:
+    import autocode_budget_state as budget_state
     import autocode_contract_identity as goals
     import autocode_plan_retention as retention
     import autocode_progressive_activation as activation
@@ -552,7 +554,7 @@ def prepare_seal(state: RunState, contract_token):
         local_limit = limits["slice_stage_seconds"] or 0
         run_limit = limits["run_max_seconds"] or 0
         provenance = "default" if (review_limit, local_limit, run_limit) == (2, 5400, 43200) else "configured"
-        used = state.get("active_seconds", 0)
+        used = budget_state.active_seconds(state)
         ledger = budget.new_ledger(
             review_limit=review_limit,
             local_seconds_limit=local_limit,

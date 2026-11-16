@@ -40,6 +40,7 @@ try:
     from . import autocode_package_writes as package_writes
     from . import autocode_protected_oracles as protected_oracles
     from . import autocode_ready_capture_batch as ready_capture_batch
+    from . import autocode_regression_state as regression_state
     from . import autocode_review_source as review_source
     from . import autocode_roles as roles
     from . import autocode_stage_roles as stage_roles
@@ -55,6 +56,7 @@ except ImportError:
     import autocode_package_writes as package_writes
     import autocode_protected_oracles as protected_oracles
     import autocode_ready_capture_batch as ready_capture_batch
+    import autocode_regression_state as regression_state
     import autocode_review_source as review_source
     import autocode_roles as roles
     import autocode_stage_roles as stage_roles
@@ -65,7 +67,7 @@ except ImportError:
 
 
 def _uses_baseline_comparator(state: RunState, *, legacy: bool) -> bool:
-    if legacy or state.get("regression_baseline") is not None:
+    if legacy or regression_state.has_value(state):
         return True
     for value in (
         state.get("task"),
