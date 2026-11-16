@@ -908,6 +908,19 @@ class OperationalDispositionTests(unittest.TestCase):
         self.assertIsNotNone(disposition.held(self.state))
         self.assertNotEqual("TASK_COMPLETE", self.state["status"])
 
+    def test_ordinary_continuation_revalidates_archived_completion_without_operator_resume(self):
+        revision, _ = self.archived_completion_incident()
+        runtime.record_operational_exhaustion(
+            self.runner, self.state, self.run, support.Paused("PAUSED_REPEATED_FAILURE", "Retained completion failure")
+        )
+        writer, args, decided = self.recovery_writer(), Arguments(), actions.Decided()
+        with patch.object(stage_recovery.source_scope, "snapshot", return_value={"revision": revision}):
+            self.assertIsNone(self.apply_selected_owner(writer, args, decided))
+            self.assertEqual("archive_completion", decided.operational_selection)
+            self.assertEqual("tester", self.state["next_stage"])
+            self.assertTrue(admission.ready(self.state, decided))
+        self.assertNotEqual("TASK_COMPLETE", self.state["status"])
+
     def test_owner_lane_restores_only_exact_archived_validation_and_rechecks_its_real_pins(self):
         from .test_completion_timeout_recovery import SOURCE, TimeoutArchivedCompletionTests
 
@@ -1325,6 +1338,23 @@ class OperationalDispositionTests(unittest.TestCase):
             actions._admit_build(writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided)
         )
         self.assertEqual(counts, self.state["planning"])
+        self.assertIsNone(disposition.held(self.state))
+
+    def test_ordinary_continuation_reconsiders_proven_reserve_without_operator_resume(self):
+        _, writer = self.reserve_incident()
+        args, decided = Arguments(), actions.Decided()
+        original_settings = copy.deepcopy(self.state["settings"])
+        with patch.object(writer, "reset_report_repair_for_resume", side_effect=AssertionError("no reset")):
+            self.assertIsNone(self.apply_selected_owner(writer, args, decided))
+            self.assertEqual("planning_reserve", decided.operational_selection)
+            self.assertEqual(2, self.state["planning"]["plan_review_calls"])
+            self.assertEqual(1, len(self.state["planning"]["recovery_review_grants"]))
+            self.assertEqual(original_settings, self.state["settings"])
+            self.assertIsNone(
+                actions._admit_build(
+                    writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided
+                )
+            )
         self.assertIsNone(disposition.held(self.state))
 
     def test_reserve_metadata_cannot_admit_from_changed_ledger_or_tampered_archive(self):

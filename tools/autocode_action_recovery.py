@@ -167,25 +167,37 @@ def operations(args, state: RunState | None = None):
     """Only this family's explicit reset-free handlers, in their ordinary order."""
     if getattr(args, "abandon_stage", None) is not None:
         return (OPERATIONS["abandon"],)
-    if not getattr(args, "resume_paused", False):
-        return ()
     selected = []
-    if getattr(args, "grant_recovery", None) is not None:
-        selected.append(OPERATIONS["grant"])
-    if getattr(args, "retry_report", None):
-        selected.append(OPERATIONS["report"])
-    elif getattr(args, "retry_failed_stage", False):
-        selected.append(
-            OPERATIONS[
-                "resolver_retry" if state is not None and resolver_recovery.retry_hold(state) else "failure_retry"
-            ]
-        )
-    if not selected and getattr(args, "_explicit_budget_flags", None):
-        selected.append(OPERATIONS["bound"])
+    if getattr(args, "resume_paused", False):
+        if getattr(args, "grant_recovery", None) is not None:
+            selected.append(OPERATIONS["grant"])
+        if getattr(args, "retry_report", None):
+            selected.append(OPERATIONS["report"])
+        elif getattr(args, "retry_failed_stage", False):
+            selected.append(
+                OPERATIONS[
+                    "resolver_retry" if state is not None and resolver_recovery.retry_hold(state) else "failure_retry"
+                ]
+            )
+        if not selected and getattr(args, "_explicit_budget_flags", None):
+            selected.append(OPERATIONS["bound"])
+    # Observing retained evidence grants no authority itself. The owner must
+    # prove its existing credit and pass final admission on plain continuation
+    # too; an operator's resume flag adds nothing to that proof.
     if (
         not selected
         and not any(owned_operations.user_actions(args).values())
-        and not any((args.retry_builder, args.diagnose_failed_stage, args.accept_source_edit))
+        and not any(
+            (
+                args.retry_builder,
+                args.diagnose_failed_stage,
+                args.accept_source_edit,
+                args.grant_recovery is not None,
+                args.retry_report,
+                args.retry_failed_stage,
+                getattr(args, "_explicit_budget_flags", None),
+            )
+        )
         and state is not None
         and (
             resolver_runtime.reconsideration_request(state)
