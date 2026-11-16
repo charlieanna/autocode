@@ -696,7 +696,9 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
             self.assert_held((code, stages, output), status, settled=False)
             if disposition.held(self.saved()) is not None:
                 for key in ("builder_retries", "builder_retry_decisions"):
-                    self.assertEqual(before_retry.get(key), self.saved().get(key), "an unchecked selector grants no retry")
+                    self.assertEqual(
+                        before_retry.get(key), self.saved().get(key), "an unchecked selector grants no retry"
+                    )
                 self.assert_blocked()
             else:
                 self.assertIn("--retry-builder was not applied", output)
