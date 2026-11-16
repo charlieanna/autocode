@@ -677,7 +677,10 @@ from `tools/autocode_mutants.py`).
   reachability closure of selected tests (`tools/autocode_affected_tests.py`, recorded
   in `test_selection` and per-mutant `selected_tests`/`selection_rule`), falling back
   to all selected tests on dynamic or unmapped edges and recording provably unobserved
-  lines as `survived` without launching unrelated tests.
+  lines as `survived` without launching unrelated tests. An import reaches every workspace
+  module whose path ends in the imported name, so a module reached through any `sys.path`
+  entry (a directory a test or `conftest.py` inserts, `PYTHONPATH`, `src/`, a start
+  directory) selects the tests that import it.
   Older advisory collectors
   select only the named proving tests. Each collection starts with a fresh bytecode
   cache and reuses unchanged dependencies within that collection. Every mutated
