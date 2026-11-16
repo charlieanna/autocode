@@ -212,6 +212,7 @@ class RunViewTests(unittest.TestCase):
                 "execution",
                 "observation",
                 "planning_depth",
+                "plan_review",
                 "stage_policy",
                 "stage_decisions",
                 "changes_by_criterion",
@@ -1044,6 +1045,19 @@ class TaskRunTests(unittest.TestCase):
                     {key: value for key, value in depth.items() if key != "size_signals"},
                 )
                 self.assertEqual(1, depth["size_signals"]["milestones"])
+                # The verdict behind that early approval reaches --status too, not only state.json.
+                review = view["plan_review"]
+                self.assertEqual(
+                    ("review_plan", "Plan Reviewer", "approved", [], False),
+                    (
+                        review["stage"],
+                        review["role"],
+                        review["verdict"],
+                        review["blocking"],
+                        review["from_earlier_plan"],
+                    ),
+                )
+                self.assertTrue(review["model"], review)
                 stages = [row["stage"] for row in util.read(run.run_dir / "state.json")["stages"]]
                 self.assertEqual("requirements_gather", stages[0], stages)
                 self.assertNotIn("recognize_workflow", stages)

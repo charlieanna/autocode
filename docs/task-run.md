@@ -2503,6 +2503,21 @@ whenever `workflow` is.
 The Plan Reviewer still reviews every build plan and you still approve it; these
 fields only report the decisions.
 
+`plan_review` shows the Plan Reviewer's latest accepted verdict in the current planning cycle
+(`tools/autocode_plan_review_view.py`). It is `null` until the first review is accepted; then:
+
+| Field | Meaning |
+| --- | --- |
+| `stage` | `review_plan` (a first-style review) or `finalize_plan` (the final review) |
+| `role` | The job's screen name (`Plan Reviewer`) |
+| `model`, `reasoning_effort` | The model and level the accepted review ran on, or `null` when the saved report has no launch record |
+| `verdict` | `approved`; `changes_requested` (a first-style review with a blocking concern); or `unresolved` (a final review that left a concern unresolved or a blocking question for you) |
+| `blocking` | The blocking concern ids, or the concern ids the final review left unresolved |
+| `concerns` | The first-style review's concerns: `id`, `concern`, `blocking`, `requested_change` |
+| `from_earlier_plan` | `true` when the review was carried over from an earlier plan after a planning restart, so it judged that plan, not the one shown |
+
+It is display only and grants nothing.
+
 `stage_policy` records which planning path a bug-fix run took and why
 ([compact planning](adaptive-planning.md#compact-planning-for-bug-fixes)). It is `null` until a
 bug-fix run's Investigator has reported (and for every other job); then:
