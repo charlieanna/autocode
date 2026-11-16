@@ -13,7 +13,7 @@ import unittest
 
 import autocode as runner
 import autocode_support as support
-from harness.conformance import ConformanceDriver, ConformanceGap
+from harness.conformance import ConformanceDriver
 
 from . import test_operational_information as operational_fixture
 from . import test_planning as planning_fixture
@@ -197,41 +197,37 @@ class PlanningAllowanceCLITests(unittest.TestCase):
         self.assertNotEqual(self.original_plan["token"], self.status()["displayed_plan"]["token"])
         self.assert_unapproved(used=3)
 
-    def test_the_paused_question_names_the_allowance_and_feedback_not_an_internal_category(self):
-        # #1815: a live worker run waited on "AutoResolver could not resolve internal_default".
+    def test_managed_planning_exhaustion_retains_evidence_without_a_machinery_question(self):
         self.checkpoint(operational=True)
-        status = self.status()
-        shown = json.dumps(status["needs"]["questions"])
-        self.assertIn("Allow more plan reviews", status["needs"]["questions"][0]["options"])
-        self.assertNotIn("resolve internal_default", shown)
-        # #3145: the question is shown to a person, so the commands stay in the stop reason the terminal prints.
-        self.assertNotIn("--", shown)
-        self.assertIn("--planning-review-call-limit N", status["stop_reason"])
-        self.assertIn("--feedback TEXT", status["stop_reason"])
-        self.assertNotIn("resolve internal_default", status["stop_reason"])
-
-    def test_held_choice_only_saves_without_resuming_or_approving(self):
-        view = self.checkpoint(operational=True)
-        self.inform(view, "The operator requests total4 review calls; keep scope and plan approval unchanged")
-        self.assertNotIn("command_inputs", self.status()["needs"], "Information itself cannot choose an allowance")
+        before = self.payload()
+        view = before["view"]
+        self.assertEqual("blocked", view["recovery"]["category"])
+        self.assertIsNone(view["needs"])
+        self.assertIsNone(view["next_command"])
+        self.assertIsNone(view["chat"]["input"])
+        self.assertIsNone(view["chat"]["gate"])
         code, launched, output = self.resume()
         self.assertEqual((2, False), (code, launched), output)
-        held = self.status()
-        self.assertEqual("held", held["information_review"]["status"])
-        selected, env = self.choose(held)
-        self.assertNotIn("--resume-paused", selected)
-        code, launched, output = self.invoke(*selected, env=env)
+        after = self.payload()
+        self.assertEqual(before["settings"], after["settings"])
+        self.assertEqual(
+            before["view"]["usage"]["accounting"]["attempts"], after["view"]["usage"]["accounting"]["attempts"]
+        )
+        self.assertFalse((self.project / "greet.py").exists())
+
+    def test_explicit_operator_allowance_only_saves_without_resuming_or_approving(self):
+        self.checkpoint(operational=True)
+        self.assertIsNone(self.status()["needs"])
+        # The public CLI still accepts an explicit operator decision. No client
+        # invents an action, and no person is asked to repair internal machinery.
+        code, launched, output = self.invoke("--planning-review-call-limit", "4")
         self.assertEqual((0, False), (code, launched), output)
         self.assert_unapproved()
         current = self.status()
-        words, _, _ = self.client.named_command(current)
-        self.assertEqual(["--resume-paused"], words)
-        # Only this separately named continuation returns to the retained,
-        # unread plan. The allowance-setting action above launched nothing.
-        code, launched, output = self.invoke(*words)
-        self.assertEqual((2, True), (code, launched), output)
-        self.assertEqual("approve_plan", self.status()["needs"]["kind"])
-        self.assert_unapproved(used=3)
+        self.assertIsNone(current["needs"])
+        self.assertIsNone(current["next_command"])
+        self.assertEqual("blocked", current["recovery"]["category"])
+        self.assertFalse((self.project / "greet.py").exists())
 
     def test_restarted_reduced_plan_keeps_the_explicit_finite_allowance(self):
         self.checkpoint()
@@ -267,32 +263,14 @@ class PlanningAllowanceCLITests(unittest.TestCase):
         self.assertEqual(2, len(reviews))
         self.assertEqual(self.initial_settings, self.payload()["settings"])
 
-    def test_finite_recovery_grant_replenishes_one_slot_without_other_authority(self):
-        view = self.checkpoint(operational=True, grant=True)
+    def test_explicit_operator_grant_replenishes_one_slot_without_other_authority(self):
+        self.checkpoint(operational=True, grant=True)
         before = self.status()["usage"]["accounting"]["attempts"]
-        self.inform(view, "The operator inspected the retained evidence; do not change any saved model or limit")
-        pending = self.status()
-        self.assertNotIn("command_inputs", pending["needs"])
-        code, launched, output = self.resume()
+        self.assertIsNone(self.status()["needs"])
+        self.assertIsNone(self.status()["next_command"])
+        code, launched, output = self.invoke("--resume-paused", "--grant-recovery", "0")
         self.assertEqual((2, False), (code, launched), output)
-        held = self.status()
-        self.assertEqual("held", held["information_review"]["status"])
-        self.assertIn("command_inputs", held["needs"])
-        row = held["needs"]["command_inputs"][0]
-        self.assertEqual(
-            ("grant_recovery", 3, 3, 1, 3), (row["id"], row["current"], row["used"], row["minimum"], row["maximum"])
-        )
-        words, env, _ = self.client.named_command(held)
-        for invalid in ("", "0", "1.5", "4", "9007199254740992"):
-            with self.subTest(invalid=invalid), self.assertRaises(ConformanceGap):
-                self.client.decide(held["needs"], words, command_inputs={"grant_recovery": invalid}, view=held, env=env)
-        selected = self.client.decide(held["needs"], words, command_inputs={"grant_recovery": "1"}, view=held, env=env)
-        self.assertEqual(["--resume-paused", "--grant-recovery", "1", "--expected-recovery-token", "-"], selected)
-        stale = {**env, "AUTOCODE_EXPECTED_RECOVERY_TOKEN": env["AUTOCODE_EXPECTED_RECOVERY_TOKEN"] + "stale"}
-        code, launched, output = self.invoke(*selected, env=stale)
-        self.assertEqual((2, False), (code, launched), output)
-        self.assertIn("saved pause changed", output)
-        code, launched, output = self.invoke(*selected, env=env)
+        code, launched, output = self.invoke("--resume-paused", "--grant-recovery", "1")
         self.assertEqual((2, False), (code, launched), output)
         self.assertIn("Recovery grant recorded: 1", output)
         self.assertIn("(3 -> 2 counted); history retained", output)
