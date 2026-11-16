@@ -226,7 +226,7 @@ def _norm_command(command: object) -> str | None:
 
 def _collect_baseline_timeouts(state: Mapping[str, Any], source_revision: str | None) -> set[str]:
     timed_out: set[str] = set()
-    reg_base = state.get("regression_base")
+    reg_base = state.get("base_commit")
     cached = state.get("regression_baseline")
     if isinstance(cached, Mapping):
         settled = cached.get("settled_timeouts")

@@ -517,7 +517,7 @@ class ReadyCaptureBatchTimeoutTests(unittest.TestCase):
             )
             state_baseline = {
                 **base_state,
-                "regression_base": "base-sha",
+                "base_commit": "base-sha",
                 "regression_baseline": {
                     "settled_timeouts": {"k1": {"binding": {"base": "base-sha"}, "path": str(baseline_json)}}
                 },
@@ -527,6 +527,11 @@ class ReadyCaptureBatchTimeoutTests(unittest.TestCase):
             self.assertEqual([commands[1]], pkt_baseline["ready_capture_batch_withheld"]["timed_out_commands"])
             self.assertEqual(commands, pkt_baseline["verification_obligations"]["required_commands"])
             self.assertIn("capture_command", pkt_baseline)
+
+            # A stale baseline from a different base_commit does not withhold the batch.
+            pkt_other_base = render({**state_baseline, "base_commit": "other-base"}, "rev1")
+            self.assertIn("ready_capture_batch", pkt_other_base)
+            self.assertNotIn("ready_capture_batch_withheld", pkt_other_base)
 
             state_fallback = {
                 **base_state,
