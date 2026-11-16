@@ -1155,6 +1155,8 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         (
             "tools/autocode_validation_exhaustion_recovery.py",
             "tools/autocode_validation_scope_recovery.py",
+            "tests/test_validation_scope_recovery.py",
+            "tests/operational_fixtures.py",
             "tools/autocode_validation_rounds.py",
             "tools/autocode_resolver_human.py",
             "tools/autocode_action_authority.py",

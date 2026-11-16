@@ -291,8 +291,9 @@ class RunnerCheckTests(unittest.TestCase):
         self.state["status"] = "PAUSED_VERIFICATION_UNCERTAIN"
         view = run_view.view(self.state, run_dir=self.run, workspace=self.project.root)
         self.assertFalse(view["done"])
-        self.assertEqual("resume", view["needs"]["kind"], "the operator's public recheck remains available")
-        self.assertIn("--resume-paused", view["next_command"])
+        self.assertIsNone(view["needs"])
+        self.assertIsNone(view["next_command"])
+        self.assertIn("active_runner_check", self.state)
         self.assertEqual("blocked", view["recovery"]["category"])
         self.assertIsNone(view["chat"]["input"])
         self.assertNotIn("inspect the pause", str(view["chat"]).lower())

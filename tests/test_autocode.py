@@ -14,11 +14,10 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import autocode as runner
-import autocode_action_authority as action_authority
 import autocode_builder_policy as builder_policy
 import autocode_completion as completion_gate
 import autocode_configure
@@ -33,7 +32,7 @@ import autopilot
 from goal_fixtures import approve_fixture, envelope
 
 from . import LOGIN_SHELL
-from .operational_fixtures import assert_operational_block
+from .operational_fixtures import assert_operational_block, legacy_publication
 
 
 class DetachedOutputTest(unittest.TestCase):
@@ -1135,14 +1134,8 @@ class RetrofitTest(unittest.TestCase):
         # its retained pause comes to the recovery as an argument. The recovery re-authenticates that
         # request, judges the pause it retained, and withdraws it only once the recovery is proven.
         _, selected = self.saved_abandoned_completion()
-        self.assertTrue(
-            runner.resolver_runtime.record_operational_exhaustion(
-                runner, self.state, self.run, s.Paused("PAUSED_REPEATED_FAILURE", "Recovery exhausted")
-            )
-        )
-        self.assertEqual("escalate", runner.resolver_human.evaluate(self.state))
+        published = legacy_publication(self.state, self.run, pause="PAUSED_REPEATED_FAILURE")
         self.assertEqual("WAITING_FOR_USER", self.state["status"])
-        published = runner.resolver_human.current(self.state)
         self.assertEqual("operational_exhaustion", published["scope"])
         s.atomic_json(self.run / "state.json", self.state)
         saved = (self.run / "state.json").read_bytes()
@@ -1184,22 +1177,13 @@ class RetrofitTest(unittest.TestCase):
                 self.assertEqual(saved, (self.run / "state.json").read_bytes())
         history = copy.deepcopy(self.state["failure_history"])
 
-        class Held(Exception):
-            pass
-
-        args = runner.cli_args.build_parser(None, runner.DEFAULT_ROLE_MODELS).parse_args(
-            ["--run-dir", str(self.run), "--resume-paused", "--no-chat"]
-        )
-        resume = Mock(wraps=runner)
-        resume.stale_report_repair.side_effect = Held  # Stop the resume right after the recovery.
-        with self.assertRaises(Held):
-            action_authority.settle(
-                resume, args, None, self.state, self.run / "state.json", self.run, self.root, Mock()
+        # The archived-evidence owner authenticates this historical request;
+        # current CLI observation dispatch is covered by operational reconsideration.
+        self.assertTrue(
+            runner.prepare_abandoned_completion_revalidation(
+                self.state, self.run, self.root, origin="PAUSED_REPEATED_FAILURE"
             )
-        resume.prepare_abandoned_completion_revalidation.assert_called_once_with(
-            self.state, self.run, self.root, origin="PAUSED_REPEATED_FAILURE"
         )
-        resume.prepare_timeout_archived_completion.assert_not_called()
         note = self.state["reconciliation_notes"][-1]
         self.assertEqual((selected, "PAUSED_REPEATED_FAILURE"), (note["attempt_id"], note["previous_status"]))
         self.assertEqual(
