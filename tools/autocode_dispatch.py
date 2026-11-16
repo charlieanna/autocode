@@ -297,6 +297,11 @@ INHERITED_KEYS = (
     "answers",
     "brief_feedback",
     "milestone_progress",
+    "orchestration_history",
+    "task_archive",
+    "direct_rework_assignments",
+    "reasoning_escalations",
+    "builder_retries",
 )
 
 

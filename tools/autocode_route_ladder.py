@@ -35,12 +35,16 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_planner_escalation as planner_escalation
+    from . import autocode_route_fit as route_fit
     from . import autocode_route_permission as permission
     from . import autocode_verifier_independence as independence
 except ImportError:
     import autocode_planner_escalation as planner_escalation
+    import autocode_route_fit as route_fit
     import autocode_route_permission as permission
     import autocode_verifier_independence as independence
+
+_DYNAMIC_ORIGINS = ("stage_choice", "auto_selected", "runner_default")
 
 # Effort rungs per route role (the settings["roles"] key a stage runs on and
 # escalates by), strongest last. Only the Resolver climbs GPT-6 Astra: it is
@@ -218,7 +222,7 @@ def next_route(settings, role, evidence=None):
     ladder = ladders(settings).get(role, ())
     index = rung_index(ladder, route.get("model"), route.get("reasoning_effort"))
     if index is None:
-        return {"stay": "off_ladder"}
+        return _dynamic_next_route(settings, role, route)
     rung = next_rung(ladder, route.get("model"), route.get("reasoning_effort"))
     if rung is None:
         return {"stay": "ladder_end"}
@@ -230,6 +234,46 @@ def next_route(settings, role, evidence=None):
         "reasoning_effort": effort,
         "profile": label,
         "previous_profile": ladder[index][2],
+    }
+
+
+def _offered_levels(settings, model):
+    if not isinstance(model, str):
+        return None
+    listed = route_fit.declared_for(settings, model)
+    if listed is None:
+        return None
+    return sorted(
+        (level for level in set(listed) | set(route_fit.certified_for(settings, model)) if level in route_fit.SCALE),
+        key=route_fit.SCALE.index,
+    )
+
+
+def _dynamic_next_route(settings, role, route):
+    """Climb one offered reasoning level on the role's own model when static ladders do not name it."""
+    if role == "task_planner":
+        return {"stay": "off_ladder"}
+    origins = settings.get("effort_origins") or {}
+    origin = origins.get(role) or (origins.get("task_planner") if role == "resolver" else None)
+    if origin not in _DYNAMIC_ORIGINS:
+        return {"stay": "off_ladder"}
+    model = route.get("model")
+    current = route.get("reasoning_effort")
+    offered_levels = _offered_levels(settings, model)
+    if not offered_levels or current not in route_fit.SCALE or current not in offered_levels:
+        return {"stay": "off_ladder"}
+    rank = route_fit.SCALE.index(current)
+    higher = next((level for level in route_fit.SCALE[rank + 1 :] if level in offered_levels), None)
+    if higher is None:
+        return {"stay": "ladder_end"}
+    if not permission.allows(settings, role, model, higher):
+        return {"stay": "not_permitted"}
+    formatted = format_model(model, route.get("engine", settings.get("engine", "codex")))
+    return {
+        "model": formatted,
+        "reasoning_effort": higher,
+        "profile": f"{formatted} {higher}",
+        "previous_profile": f"{formatted} {current}",
     }
 
 

@@ -39,14 +39,12 @@ try:
     from . import autocode_output_policy as output_policy
     from . import autocode_pause_authority as pause_authority
     from . import autocode_pause_command as pause_command
-    from . import autocode_plan_difficulty as plan_difficulty
     from . import autocode_planner_routes as planner_routes
     from . import autocode_planning_calls as planning_calls
     from . import autocode_quota_route as quota_route
     from . import autocode_requirements_review as requirements_review
     from . import autocode_requirements_triage as requirements_triage
     from . import autocode_retired_token_budget as retired_token_budget
-    from . import autocode_review_effort as review_effort
     from . import autocode_review_routing as review_routing
     from . import autocode_role_route as role_route
     from . import autocode_role_transport as role_transport
@@ -75,7 +73,6 @@ except ImportError:
     import autocode_output_policy as output_policy
     import autocode_pause_authority as pause_authority
     import autocode_pause_command as pause_command
-    import autocode_plan_difficulty as plan_difficulty
     import autocode_planner_routes as planner_routes
     import autocode_planning_calls as planning_calls
     import autocode_providers
@@ -83,7 +80,6 @@ except ImportError:
     import autocode_requirements_review as requirements_review
     import autocode_requirements_triage as requirements_triage
     import autocode_retired_token_budget as retired_token_budget
-    import autocode_review_effort as review_effort
     import autocode_review_routing as review_routing
     import autocode_role_route as role_route
     import autocode_role_transport as role_transport
@@ -191,29 +187,20 @@ def check_subscription(identity):
         )
 
 
-def _declared_levels(provider_mod, workspace, model):
+def _declared_levels(provider_mod, workspace, model, *, engine=None):
     """The reasoning variants the tool declares for ``model``, from its own listing; None when it has no
     readable listing (the launch check decides then). Never a model request."""
-    return _listed_levels(provider_mod, workspace, {model}).get(model)
+    return _listed_levels(provider_mod, workspace, {model}, engine=engine).get(model)
 
 
-def _listed_levels(provider_mod, workspace, models) -> dict:
+def _listed_levels(provider_mod, workspace, models, *, engine=None) -> dict:
     """``{model: levels}`` for each of ``models`` the tool's own listing names, read once; empty when it
     has no readable listing. Never a model request."""
     try:
         from . import autocode_route_discovery as discovery
     except ImportError:
         import autocode_route_discovery as discovery
-    found: dict = {}
-    try:
-        for row in discovery.discover(provider_mod, Path(workspace)).get("candidates") or []:
-            if row.get("model") in models and isinstance(row.get("levels"), list):
-                found.setdefault(row["model"], list(row["levels"]))
-    except captured.ProcessError:
-        raise
-    except Exception:  # noqa: BLE001 - an unreadable optional listing never blocks a launch
-        return {}
-    return found
+    return discovery.listed_levels(provider_mod, workspace, models, engine=engine)
 
 
 def _list_review_ceilings(settings, provider_mod, workspace) -> None:
@@ -228,15 +215,12 @@ def _list_review_ceilings(settings, provider_mod, workspace) -> None:
     and a fixed default route reads nothing, so a run that opted out of selection makes no listing call.
     """
     origins = settings.get("effort_origins") or {}
-    plan_roles = set(plan_difficulty.STAGES.values())
-    roles = {
-        role for role in set(review_effort.STAGES.values()) | plan_roles if origins.get(role) == role_route.STAGE_CHOICE
-    }
-    selected = {role for role in plan_roles if origins.get(role) == role_route.AUTO_SELECTED}
+    roles = {role for role, origin in origins.items() if origin == role_route.STAGE_CHOICE}
+    selected = {role for role, origin in origins.items() if origin == role_route.AUTO_SELECTED}
     if selected_levels := _selection_levels(settings, _models(settings, selected)):
         settings.setdefault(route_fit.DECLARED, {}).update(selected_levels)
     models = _models(settings, roles) - set(settings.get(route_fit.DECLARED) or {})
-    if models and (listed := _listed_levels(provider_mod, workspace, models)):
+    if models and (listed := _listed_levels(provider_mod, workspace, models, engine=settings.get("engine"))):
         settings.setdefault(route_fit.DECLARED, {}).update(listed)
 
 
@@ -1045,7 +1029,7 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         # One model for every role: each role keeps its profile effort, which the model may not declare
         # (#2006). After every role exists, a runner-chosen effort moves to the nearest declared variant
         # and the move is recorded; an effort a person named refuses here, naming its flag.
-        declared = _declared_levels(provider_mod, state["workspace"], single_model)
+        declared = _declared_levels(provider_mod, state["workspace"], single_model, engine=engine)
         if declared is not None:
             # Kept for the efforts derived later in the run (the Plan Reviewer's reduced tier, #2020).
             settings[route_fit.DECLARED] = {single_model: list(declared)}

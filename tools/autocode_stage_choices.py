@@ -123,7 +123,7 @@ BACKEND_LABELS = {"claude": "Claude Code", "codex": "Codex", "opencode": "OpenCo
 # Codex has no model listing. These are the bare GPT names AutoCode runs on it (autocode_configure
 # DEFAULT_ROLE_MODELS, whose joint planning copies the task_planner route into Requirements and the Planner
 # and gives the Plan Reviewer CODEX_PLAN_REVIEWER_MODELS[0]; tests keep them in step).
-CODEX_MODELS = ("gpt-5.6-terra", "gpt-5.6-sol", "gpt-6-astra")
+CODEX_MODELS = route_discovery.CODEX_MODELS
 CODEX_DEFAULTS = {role: "gpt-5.6-sol" for role in ORDER} | {"builder": "gpt-5.6-terra", "plan_reviewer": "gpt-6-astra"}
 # The level a model with no reasoning variants takes: its own default, sent as no level at all.
 OWN_DEFAULT = "default"

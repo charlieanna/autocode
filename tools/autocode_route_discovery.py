@@ -55,8 +55,44 @@ OPENCODE_ROUTES = {
 # past their limits, so discovery records them as the Zen catalogue they are.
 OPENCODE_FREE_PREFIX = "opencode/"
 OPENCODE_FREE_ACCOUNT = "OpenCode Zen"
+CODEX_MODELS = ("gpt-5.6-terra", "gpt-5.6-sol", "gpt-6-astra")
+CODEX_EFFORTS = ("low", "medium", "high", "xhigh", "max")
 _ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 VERBOSE_LISTING_SECONDS = 60
+
+
+def listed_levels(provider, workspace, models, *, engine=None) -> dict[str, list[str]]:
+    """``{model: levels}`` for each of ``models`` the backend declares without a model request.
+
+    Native Codex and static built-in facades such as Claude Code publish their offered models and
+    effort levels in code rather than an account-discovery listing; OpenCode and command facades read
+    ``discover``. Never blocks a launch when an optional listing cannot be read.
+    """
+    wanted = {model for model in (models or ()) if isinstance(model, str)}
+    if not wanted:
+        return {}
+    if engine == "codex":
+        return {model: list(CODEX_EFFORTS) for model in wanted if model in CODEX_MODELS}
+    if (
+        provider is not None
+        and not callable(getattr(provider, "auth_table", None))
+        and not callable(getattr(provider, "auth_logins", None))
+    ):
+        efforts = getattr(provider, "EFFORTS", None)
+        available = getattr(provider, "LISTED_MODELS", None)
+        if isinstance(efforts, (list, tuple)) and isinstance(available, (list, tuple, set, frozenset)):
+            return {model: list(efforts) for model in wanted if model in available}
+    found: dict[str, list[str]] = {}
+    try:
+        root = Path(workspace) if workspace is not None else None
+        for row in discover(provider, root).get("candidates") or []:
+            if row.get("model") in wanted and isinstance(row.get("levels"), list):
+                found.setdefault(row["model"], list(row["levels"]))
+    except captured.ProcessError:
+        raise
+    except Exception:  # noqa: BLE001 - an unreadable optional listing never blocks a launch
+        return {}
+    return found
 
 
 def discover(provider, workspace=None, *, env=None, inventory=None) -> dict:
