@@ -1812,7 +1812,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/fc9f9b4b2854babb75c3b7595af63e22d001e52d/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/3629b4c65c15fa1ca9540c638ba7b1813758ac4b/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -2192,6 +2192,8 @@ run = TaskRun.start(workspace, brief, options=(&quot;--engine&quot;, &quot;codex
 view = run.advance_until_input()
 while not view[&quot;done&quot;]:
     need = view[&quot;needs&quot;]
+    if need is None:
+        break  # Preserve an actionless incomplete result; no action is authorized.
     if need[&quot;kind&quot;] == &quot;answer&quot; and need.get(&quot;resolver_scope&quot;) in (&quot;blocker&quot;, &quot;operational_exhaustion&quot;):
         break  # Inspect recovery guidance; respond_operational() handles these requests.
     if need[&quot;kind&quot;] == &quot;approve_plan&quot;:
@@ -3125,7 +3127,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/fc9f9b4b2854babb75c3b7595af63e22d001e52d/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/3629b4c65c15fa1ca9540c638ba7b1813758ac4b/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3725,11 +3727,11 @@ or the saved per-step deadline, respectively. Saving changes no model route and
 does not authorize a retry. The job issues a new token, so a client must read a
 fresh view before offering or taking any subsequent action. The VS Code sidebar
 and Run Details accept an explicit number for each row and confirm the save.</p>
-<p>At an idle intervention boundary, <code>needs.command_inputs</code> can also name a
-separate, pause-token-bound increase to the per-step time limit. This action
-resumes the run as well as saving the limit for later steps; its confirmation
-states both effects. It is not offered while a stage, runner check, report
-repair or uncertain artifact is active.</p>
+<p>An intervention boundary (the person's own pause) offers no <code>needs.command_inputs</code>:
+resuming it asks for no number. The per-step time limit is a setting, not a field on
+the pause (owner request 2026-11-16): <code>--max-stage-seconds</code> or <code>max-stage-seconds</code> in
+<code>.autocode/config.toml</code> for new runs, <code>autocode.maxStageSeconds</code> in the VS Code client,
+and <code>--resume-paused --max-stage-seconds N</code> on the command line for a paused run.</p>
 <p><code>needs.command_inputs</code> describes the one number a pause leaves to a person, so a
 client can ask for it instead of handing the command off (#2044). Every bound a
 budget pause names is described, with the same row shape:</p>
@@ -3941,7 +3943,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/fc9f9b4b2854babb75c3b7595af63e22d001e52d/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/3629b4c65c15fa1ca9540c638ba7b1813758ac4b/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
@@ -4439,6 +4441,47 @@ whenever <code>workflow</code> is.</p>
 </table>
 <p>The Plan Reviewer still reviews every build plan and you still approve it; these
 fields only report the decisions.</p>
+<p><code>plan_review</code> shows the Plan Reviewer's latest accepted verdict in the current planning cycle
+(<code>tools/autocode_plan_review_view.py</code>). It is <code>null</code> until the first review is accepted; then:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>stage</code></td>
+<td><code>review_plan</code> (a first-style review) or <code>finalize_plan</code> (the final review)</td>
+</tr>
+<tr>
+<td><code>role</code></td>
+<td>The job's screen name (<code>Plan Reviewer</code>)</td>
+</tr>
+<tr>
+<td><code>model</code>, <code>reasoning_effort</code></td>
+<td>The model and level the accepted review ran on, or <code>null</code> when the saved report has no launch record</td>
+</tr>
+<tr>
+<td><code>verdict</code></td>
+<td><code>approved</code>; <code>changes_requested</code> (a first-style review with a blocking concern); or <code>unresolved</code> (a final review that left a concern unresolved or a blocking question for you)</td>
+</tr>
+<tr>
+<td><code>blocking</code></td>
+<td>The blocking concern ids, or the concern ids the final review left unresolved</td>
+</tr>
+<tr>
+<td><code>concerns</code></td>
+<td>The first-style review's concerns: <code>id</code>, <code>concern</code>, <code>blocking</code>, <code>requested_change</code></td>
+</tr>
+<tr>
+<td><code>from_earlier_plan</code></td>
+<td><code>true</code> when the review was carried over from an earlier plan after a planning restart, so it judged that plan, not the one shown</td>
+</tr>
+</tbody>
+</table>
+<p>It is display only and grants nothing.</p>
 <p><code>stage_policy</code> records which planning path a bug-fix run took and why
 (<a href="../adaptive-planning/#compact-planning-for-bug-fixes">compact planning</a>). It is <code>null</code> until a
 bug-fix run's Investigator has reported (and for every other job); then:</p>
