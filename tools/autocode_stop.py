@@ -122,7 +122,8 @@ def ended_sentence(ended: dict[str, Any]) -> str:
     reason = str(ended.get("reason") or "").rstrip()
     if reason and not reason.endswith((".", "!", "?")):
         reason += "."
-    evidence = ended.get("evidence") if isinstance(ended.get("evidence"), dict) else {}
+    recorded = ended.get("evidence")
+    evidence: dict[str, Any] = recorded if isinstance(recorded, dict) else {}
     checks = [
         item[len("check:") :]
         for item in evidence.get("failing_checks") or ()
