@@ -696,6 +696,7 @@ SETTINGS_KEYS = frozenset(
         "sensitive_paths",
         "review_routing",
         "spec_first",
+        "requirements_triage",
         "reviewer_routing",
         "conversation_handoff",
         "output_transport",

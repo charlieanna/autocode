@@ -14,7 +14,6 @@ try:
     from .. import autocode_planning_time as planning_time
     from .. import autocode_prompts as prompts
     from .. import autocode_requirements_observations as requirements_observations
-    from .. import autocode_requirements_triage as requirements_triage
 except ImportError:
     import autocode_ambiguity_audit as ambiguity_audit
     import autocode_code_citations as code_citations
@@ -27,7 +26,6 @@ except ImportError:
     import autocode_planning_time as planning_time
     import autocode_prompts as prompts
     import autocode_requirements_observations as requirements_observations
-    import autocode_requirements_triage as requirements_triage
 
 
 import copy
@@ -740,7 +738,7 @@ SCHEMAS["requirements_gather"]["properties"]["task_kind"] = goals.TASK_KIND
 # Work that belongs to another repository, validated on acceptance (autocode_workspace_scope, #2066).
 SCHEMAS["requirements_gather"]["properties"]["workspace_scope"] = workspace_scope.SCHEMA
 # Where each dimension of the change's behavior comes from (autocode_ambiguity_audit): optional for
-# saved reports and the triage pass, required on the wire, checked against its refs on acceptance.
+# saved reports, required on the wire, checked against its refs on acceptance.
 SCHEMAS["requirements_gather"]["properties"][ambiguity_audit.FIELD] = ambiguity_audit.SCHEMA
 for _stage in planning_scope.STAGES:
     SCHEMAS[_stage]["properties"]["workspace_scope"] = workspace_scope.SCHEMA
@@ -1784,26 +1782,6 @@ def prepare(state: RunState, stage, state_path, schema_dir):
         raise ValueError(f"Autoplanner cannot run {stage}")
     joint = is_planning(state, stage)
     state["phase"] = "PLANNING" if joint else "DISCOVERING"
-    if joint and stage == requirements_triage.STAGE and requirements_triage.due(state):
-        # The triage pass (#2940): a small prompt and schema at the floor effort level, so the
-        # first blocking question reaches the person before the full Requirements report runs.
-        prompt = requirements_triage.prompt(
-            state,
-            workspace_inventory(state["workspace"], state["task"]),
-            engine_for(state["settings"], route_for(state, stage)),
-        )
-        role = role_for(state, stage)
-        return ModelRequest(
-            role,
-            route_for(state, stage, role),
-            prompt,
-            {
-                **prompt_layout.refresh_metrics(prompt),
-                "soft_budget_tokens": state["settings"].get("context_soft_tokens", 10000),
-            },
-            requirements_triage.request_schema(_requirements_model_schema(state)),
-            False,
-        )
     schema = _requirements_model_schema(state) if joint and stage == "requirements_gather" else None
     try:
         if joint and stage == "requirements_gather":

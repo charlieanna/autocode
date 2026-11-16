@@ -42,9 +42,13 @@ def decide(state, stage, role, configured="high", report_only=False):
 
 
 def triage_state():
-    """A fresh joint default-flow run whose first Requirements pass is the triage pass (#2940)."""
+    """A replayed legacy joint default-flow run whose first Requirements pass was recorded as triage (#2940, #3652)."""
     state = run_state()
-    state["settings"].update(requirements_triage=True, joint_planning=True)
+    state["settings"].update(
+        requirements_triage=True,
+        joint_planning=True,
+        replay_recording={"path": "recording.json"},
+    )
     state["settings"]["roles"]["requirements"] = {"model": MIMO, "reasoning_effort": "high"}
     return state
 
