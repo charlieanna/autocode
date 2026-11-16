@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import patch
 
 import autocode as runner
+import autocode_action_authority as authority
 import autocode_action_retained_recovery as owners
 import autocode_args
 import autocode_operational_admission as admission
@@ -88,6 +89,45 @@ class RetainedOwnerTests(unittest.TestCase):
         receipts = copy.deepcopy(self.state["resolver"]["operational_receipts"])
         self.assertEqual(2, self.advance()[0])
         self.assertEqual(receipts, self.state["resolver"]["operational_receipts"])
+
+    def test_explicit_resume_returns_the_retained_owners_terminal_result(self):
+        self.retained(proof=False)
+        parser = autocode_args.build_parser(None, autocode_args.DEFAULT_ROLE_MODELS)
+        args = parser.parse_args(["--run-dir", str(self.run_dir), "--no-chat", "--resume-paused"])
+        with patch.object(owners, "settle", wraps=owners.settle) as settled:
+            code = authority.settle(
+                runner,
+                args,
+                parser,
+                self.state,
+                self.run_dir / "state.json",
+                self.run_dir,
+                self.workspace,
+                actions.Decided(),
+            )
+        settled.assert_called_once()
+        self.assertEqual(2, code)
+        self.assertEqual("could_not_finish", stop.outcome(self.state)["result"])
+
+    def test_acceptance_owner_rejects_spent_proof_or_new_pause_before_dispatch(self):
+        self.retained()
+        self.assertIsNone(self.advance()[0])
+        proof = owners.no_progress.authenticated_intervening_proof(self.state, self.workspace)
+        self.assertIsNotNone(proof)
+
+        def validate(state):
+            return owners.validate_acceptance(
+                runner, None, state, self.run_dir, self.workspace, None, None, {"result": proof}, final=True
+            )
+
+        self.assertIsNotNone(validate(self.state))
+        spent = copy.deepcopy(self.state)
+        spent["resolver"]["operational_receipts"]["spent-proof"] = {
+            "receipt": {"scope": owners.no_progress.RECOVERY_SCOPE, "evidence": proof}
+        }
+        self.assertIsNone(validate(spent))
+        (self.run_dir / "pause-requested").write_text("pause")
+        self.assertIsNone(validate(self.state))
 
     def test_explicit_limit_and_uncertain_work_are_not_automatic_recovery_authority(self):
         for mutation in (
@@ -172,3 +212,41 @@ class RetainedOwnerTests(unittest.TestCase):
                     self.assertIsNone(validate(changed))
         with patch.object(owners, "_revision", return_value="changed-revision"):
             self.assertIsNone(validate(state))
+
+    def test_accounting_owner_rejects_malformed_correction_evidence_without_mutation(self):
+        from .test_recovery_streak import legacy_state
+
+        state = legacy_state()
+        state.update(goal_contract=self.contract)
+        state["user_events"].append(self.approval)
+        self.assertTrue(
+            owners.progress.reconcile(
+                state,
+                issued={"request_id": "request", "scope": "operational_exhaustion"},
+                approved=True,
+                supersede=lambda *_: True,
+                now=lambda: "now",
+            )
+        )
+        event = copy.deepcopy(state["user_events"][-1])
+        invalid = [None, {}, {**event, "kind": "other"}]
+        invalid.extend({**event, "previous_count": value} for value in (None, True, -1, "1"))
+        before = copy.deepcopy(state)
+        with patch.object(owners, "_revision", return_value="revision"):
+            for changed in invalid:
+                with self.subTest(event=changed):
+                    proof = {"event": changed, "source_revision": "revision"}
+                    self.assertIsNone(
+                        owners.validate_accounting(
+                            runner,
+                            None,
+                            state,
+                            self.run_dir,
+                            self.workspace,
+                            None,
+                            None,
+                            {"result": proof},
+                            final=True,
+                        )
+                    )
+                    self.assertEqual(before, state)
