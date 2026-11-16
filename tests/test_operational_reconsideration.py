@@ -29,7 +29,9 @@ class ReconsiderationTests(unittest.TestCase):
 
     def publish(self, status="PAUSED_PLANNING_BUDGET"):
         legacy_publication(self.state, self.run, pause=status)
-        runner.write_json(self.run / "state.json", self.state)
+        # Seed historical bytes. Today's writer retires machinery questions;
+        # using it here would erase the old input before recovery observes it.
+        s.atomic_json(self.run / "state.json", self.state)
         self.assertEqual("operational_exhaustion", human.retained(self.state)["scope"])
 
     def reconsider(self):
@@ -120,7 +122,7 @@ class ReconsiderationTests(unittest.TestCase):
                 self.state = copy.deepcopy(pristine)
                 public = human.retained(self.state)
                 legacy_response(self.state, public, action, text)
-                runner.write_json(self.run / "state.json", self.state)
+                s.atomic_json(self.run / "state.json", self.state)
                 self.assert_unchanged()
 
     def test_stale_proof_pause_and_intervention_are_failure_atomic(self):
@@ -177,7 +179,7 @@ class ReconsiderationCLITests(unittest.TestCase):
         self.timeout(1)
         self.timeout(2)
         legacy_publication(self.state, self.run, pause="PAUSED_PLANNING_BUDGET")
-        runner.write_json(self.run / "state.json", self.state)
+        s.atomic_json(self.run / "state.json", self.state)
 
     def test_cli_continuation_reconsiders_but_status_is_read_only(self):
         self.prepare()
