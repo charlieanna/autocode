@@ -609,3 +609,56 @@ class ReadyCaptureBatchTimeoutTests(unittest.TestCase):
             pkt_stage_rev2 = render(state_stage, "rev2")
             self.assertIn("ready_capture_batch", pkt_stage_rev2)
             self.assertNotIn("ready_capture_batch_withheld", pkt_stage_rev2)
+
+            # 4) regression_proof.checks list-command timeout and capture -- / direct stalled commands also withhold.
+            state_checks = {
+                **base_state,
+                "regression_proof": {
+                    "source_revision": "rev1",
+                    "checks": {"c1": {"command": shlex.split(commands[1]), "timed_out": True}},
+                },
+            }
+            pkt_checks = render(state_checks, "rev1")
+            self.assertNotIn("ready_capture_batch", pkt_checks)
+            self.assertEqual([commands[1]], pkt_checks["ready_capture_batch_withheld"]["timed_out_commands"])
+
+            capture_events = it_dir / "tester-capture.jsonl"
+            capture_events.write_text(
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "type": "item.started",
+                                "item": {
+                                    "id": "c-cap",
+                                    "type": "command_execution",
+                                    "command": f"{initial['capture_command']} --output /tmp/r.json -- {commands[1]}",
+                                },
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "type": "item.started",
+                                "item": {"id": "c-raw", "type": "command_execution", "command": commands[0]},
+                            }
+                        ),
+                    ]
+                )
+                + "\n"
+            )
+            state_capture = {
+                **base_state,
+                "stages": [
+                    {
+                        "stage": "tester",
+                        "iteration": 2,
+                        "timed_out": True,
+                        "output": str(it_dir / "tester-02.json"),
+                        "before_ref": str(before_ref),
+                        "events": str(capture_events),
+                    }
+                ],
+            }
+            pkt_capture = render(state_capture, "rev1")
+            self.assertNotIn("ready_capture_batch", pkt_capture)
+            self.assertEqual(commands, pkt_capture["ready_capture_batch_withheld"]["timed_out_commands"])

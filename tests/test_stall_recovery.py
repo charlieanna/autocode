@@ -898,6 +898,17 @@ class ExecutedPacketTests(unittest.TestCase):
             abandoned_handoff = json.loads(abandoned_prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
             self.assertEqual(1, len(abandoned_handoff["retained_executed_work"]["calls"]))
 
+            # Validated revision or a clean exit_code==0 attempt advances cutoff and clears retained work.
+            self.assertIsNone(
+                stall_recovery.pending(
+                    {**state, "validation": {"source_revision": rev1, "contract_hash": "contract-h1"}},
+                    "tester",
+                    rev1,
+                )
+            )
+            state_clean = {**state, "stages": [*state["stages"], {"stage": "tester", "iteration": 4, "exit_code": 0}]}
+            self.assertIsNone(stall_recovery.pending(state_clean, "tester", rev1))
+
             # Advancing source_revision or completing cleanly clears retained work.
             (root / "app.py").write_text("updated\n")
             rev2 = source_scope.snapshot(root, {})["revision"]

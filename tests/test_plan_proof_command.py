@@ -84,8 +84,13 @@ class ChoiceTests(unittest.TestCase):
             ("python3 -m unittest discover -s tests", set()),
             ("pytest tests/test_run_state.py::RunStateTests::test_pause", {"tests/test_run_state.py"}),
             ("bundle exec rspec spec/pager_spec.rb:42", {"spec/pager_spec.rb"}),
+            ("bundle exec rspec spec/pager_spec.rb:42:5", {"spec/pager_spec.rb"}),
             ("pytest --pyargs pkg.tests.test_api", {"pkg/tests/test_api.py"}),
+            ("python -m pytest -k slow --pyargs -- pkg.tests.test_api", {"pkg/tests/test_api.py"}),
+            ("unittest -k chat tests.test_run_state", {"tests/test_run_state.py"}),
             ("python3 -m unittest tests.test_api", {"pkg/tests/test_api.py"}),
+            ("pytest pkg.tests.test_api", set()),
+            ("python3 -m unittest .", set()),
         )
         for command, expected in cases:
             with self.subTest(command=command):
