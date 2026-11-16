@@ -12,8 +12,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import autocode_conversation_ingress as conversation_ingress
 import autocode_model_listing_failure as failure
 import autocode_model_listing_failure_recovery as recovery
+import autocode_role_transport as role_transport
 import autocode_run_actions as actions
 import autocode_run_view as run_view
 import autocode_status_summary as status_summary
@@ -110,12 +112,19 @@ class ModelListingFailureTests(unittest.TestCase):
         with (
             contextlib.redirect_stderr(shown),
             patch.object(actions.skip_requirements, "settle", return_value=False),
-            patch.object(actions.conversation_ingress, "require_expected_goal"),
-            patch.object(actions.conversation_ingress, "record_build_start") as build,
-            patch.object(actions.role_transport, "check_models", side_effect=self.error()) as listing,
+            patch.object(conversation_ingress, "require_expected_goal"),
+            patch.object(conversation_ingress, "record_build_start") as build,
+            patch.object(role_transport, "check_models", side_effect=self.error()) as listing,
         ):
             result = actions.admit(
-                self.runner, args, None, self.state, self.run / "state.json", self.run, self.workspace, None
+                self.runner,
+                args,
+                None,
+                self.state,
+                self.run / "state.json",
+                self.run,
+                self.workspace,
+                actions.Decided(),
             )
         self.assertEqual(result, 2)
         self.assertIn("AutoCode is blocked", shown.getvalue())

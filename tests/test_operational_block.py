@@ -72,7 +72,7 @@ class OperationalBlockTests(unittest.TestCase):
             for node in ast.walk(tree)
             if isinstance(node, ast.ImportFrom) and node.module and node.module.lstrip(".").startswith("autocode_")
         )
-        self.assertEqual(set(), imported - {"autocode_run_state"})
+        self.assertEqual(set(), imported - {"autocode_run_state", "autocode_operational_receipt_identity"})
         for domain in (listing, verification):
             self.assertIs(domain.operational_block, block_view)
 
@@ -302,13 +302,13 @@ class OperationalBlockTests(unittest.TestCase):
 
     def test_legacy_blocks_keep_their_existing_advancement_policy(self):
         self.state["resolver"] = {
-            "operational_diagnostics": ["legacy"],
+            "operational_diagnostics": ["model-listing-1"],
             "operational_receipts": {
-                "legacy": {
+                "model-listing-1": {
                     "runner_owned": True,
                     "engine": "runner",
                     "decision": {"action": "blocked"},
-                    "receipt": {"scope": "model_listing"},
+                    "receipt": {"id": "model-listing-1", "scope": "model_listing"},
                 }
             },
         }
@@ -353,13 +353,17 @@ class OperationalBlockTests(unittest.TestCase):
             ("model_listing", listing, "AutoCode is blocked on its model listing"),
         ):
             with self.subTest(scope=scope):
+                # Use each historical producer's actual identity spelling.
+                identity = scope.replace("_", "-") + "-1"
                 record = {
                     "runner_owned": True,
                     "engine": "runner",
                     "decision": {"action": "blocked"},
-                    "receipt": {"id": "one", "scope": scope},
+                    "receipt": {"id": identity, "scope": scope},
                 }
-                state = {"resolver": {"operational_diagnostics": ["one"], "operational_receipts": {"one": record}}}
+                state = {
+                    "resolver": {"operational_diagnostics": [identity], "operational_receipts": {identity: record}}
+                }
                 self.assertIs(record, owner.blocked(state))
                 self.assertEqual(expected, block.presentation(state)["title"])
                 self.assertEqual(block.presentation(state), owner.presentation(state))

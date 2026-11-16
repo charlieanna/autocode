@@ -472,13 +472,18 @@ def run_module(module: str, verbosity: int, timeout: float | None = None) -> dic
     # test is measuring it for verification. Propagate this to test subprocesses
     # as well; a -B flag on the suite controller alone does not reach them.
     environment = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
-    timed_out = False
-    returncode: int | None
-    if timeout is None:
-        completed = subprocess.run(command, cwd=REPO_ROOT, env=environment, capture_output=True, text=True)
-        returncode, stdout, stderr = completed.returncode, completed.stdout, completed.stderr
-    else:
-        returncode, stdout, stderr, timed_out = _run_bounded(command, environment, timeout)
+    # Fault-injection tests can retain uncertain metadata ownership. Each module
+    # needs a private store, shared with its children but never with other modules
+    # or the developer's own Core. Preserve every other environment setting.
+    with tempfile.TemporaryDirectory(prefix="autocode-suite-state-") as state_root:
+        environment["XDG_STATE_HOME"] = str(Path(state_root).resolve())
+        timed_out = False
+        returncode: int | None
+        if timeout is None:
+            completed = subprocess.run(command, cwd=REPO_ROOT, env=environment, capture_output=True, text=True)
+            returncode, stdout, stderr = completed.returncode, completed.stdout, completed.stderr
+        else:
+            returncode, stdout, stderr, timed_out = _run_bounded(command, environment, timeout)
     ran = re.search(r"^Ran (\d+) tests?", stderr, re.MULTILINE)
     output = stdout + stderr
     if timed_out:

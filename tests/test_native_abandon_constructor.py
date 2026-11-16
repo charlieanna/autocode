@@ -222,7 +222,7 @@ class NativeAbandonConstructorTests(unittest.TestCase):
                     _state_path,
                     run,
                     workspace,
-                    SimpleNamespace(gate=None, retained_report=None, information_admitted=False),
+                    runner.run_actions.Decided(),
                 )
                 native.guard(state, state["next_stage"], allow_write=False)
                 binary = str(Path(sys.executable).resolve())
