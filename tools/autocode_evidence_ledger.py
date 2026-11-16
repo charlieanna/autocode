@@ -3,7 +3,7 @@
 Pure functions over plain values: the caller passes the latest validation, the findings ledger and the
 changed files, and keeps the rows. A failure's items are the checks that exited nonzero, the criteria
 not met (FAIL or UNVERIFIED) and the open blocking findings; its signature is those items with the
-changed files. Against the milestone's earlier failures a new one is:
+changed files. A finding is the defect it states, not the id the runner gave it. Against the milestone's earlier failures a new one is:
 
 - ``replay``: its evidence is already recorded, so it charges nothing again;
 - ``repeat``: it has failing items and the signature of an earlier failure, so it adds no evidence;
@@ -24,6 +24,24 @@ def _rows(value) -> list[dict]:
     return [row for row in value or () if isinstance(row, dict)]
 
 
+def _finding_item(finding) -> str | None:
+    """What a finding says, else its id.
+
+    The runner allocates a fresh id to each finding a report raises (autocode_findings.allocate_id), so
+    a reviewer that reports the same defect again after each attempt adds a row with a new id. Keyed by
+    id, that defect looked new on every attempt and a rework loop on one failing check never repeated
+    (#611): it spent every retry and the stronger attempt. What the finding says is the observable
+    defect, so two rows saying the same thing are one failing item here; the ledger keeps both rows.
+    The runner's own finding is the exception: it keeps one row per check and rewrites its text with
+    each source revision it fails on (autocode_findings SOURCES "runner"), so its id is its identity.
+    """
+    text = finding.get("finding")
+    if finding.get("source") != "runner" and isinstance(text, str) and text.strip():
+        return " ".join(text.split())
+    ident = finding.get("id")
+    return ident if isinstance(ident, str) else None
+
+
 def observe(validation, findings, changed_files) -> dict:
     """The failing and resolved items and the changed files, each sorted and unique."""
     failing: set[str] = set()
@@ -38,8 +56,8 @@ def observe(validation, findings, changed_files) -> dict:
         if isinstance(ident, str) and status in ("PASS", "FAIL", "UNVERIFIED"):
             (resolved if status == "PASS" else failing).add("criterion:" + ident)
     for finding in _rows(findings):
-        ident, status = finding.get("id"), finding.get("status")
-        if not isinstance(ident, str) or not isinstance(status, str):
+        ident, status = _finding_item(finding), finding.get("status")
+        if not ident or not isinstance(status, str):
             continue
         if status != "open":
             resolved.add("finding:" + ident)

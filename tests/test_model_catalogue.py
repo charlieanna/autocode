@@ -352,7 +352,7 @@ class ChooseTest(unittest.TestCase):
         self.assertEqual(
             "AutoCode could not finish this task: "
             + policy.NOT_OFFERED.format(model="openai/gpt-6-sol")
-            + " This run launches no further stages.",
+            + ". This run launches no further stages.",
             state["stop_reason"],
         )
 

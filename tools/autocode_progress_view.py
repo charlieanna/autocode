@@ -25,9 +25,11 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_attempt_ledger as attempt_ledger
+    from . import autocode_run_status as run_status
     from . import autocode_stage_activity as stage_activity
 except ImportError:
     import autocode_attempt_ledger as attempt_ledger
+    import autocode_run_status as run_status
     import autocode_stage_activity as stage_activity
 
 COMPLETE = ("TASK_COMPLETE", "COMPLETE")
@@ -49,6 +51,9 @@ NOT_APPLIED = "Stored during an open correction; not applied to the current cand
 # finish caught between the worker exiting and its report landing, so a chat log waits for a second
 # reading that says the same before writing it as history (#2608).
 STOP_CLAIM = "stopped without saving a report"
+# The headline of a run AutoCode ended itself with a recorded outcome (autocode_stop.end, #2485). No stage
+# runs again, so naming the next one ("Next: Builder") read as work still to come.
+ENDED = "Stopped: AutoCode could not finish this task"
 # The stage in which the Tester writes the approved tests before the Builder starts
 # (autocode_acceptance_tests_job.STAGE; kept literal to avoid importing a workflow job).
 # "Tester working" there read as a Tester checking finished work while no task was done yet.
@@ -124,6 +129,9 @@ def progress(
         asked = "nothing needed from you"
     elif done:
         headline = "Complete"
+    elif status == "PAUSED_INTERVENTION" and str(state.get("stop_reason") or "").startswith(run_status.ENDED_PREFIX):
+        headline, stage = ENDED, None
+        asked = "nothing needed from you"
     elif stopped:
         headline = f"{stage or 'The stage'} {STOP_CLAIM}"
         asked = stopped

@@ -700,6 +700,24 @@ class StopPersistenceTests(unittest.TestCase):
         writer(Path("fixture/report.json"), state)
         ordinary.assert_called_once_with(Path("fixture/report.json"), state)
 
+    def test_an_ended_runs_reason_is_a_sentence_that_names_the_checks_still_failing(self):
+        # A rework loop ended with "... the stronger Builder attempt This run launches ..." (no full stop,
+        # and nothing said which check failed), though the outcome's evidence recorded it.
+        import autocode_stop as stop_policy
+
+        state = {"status": "RUNNING"}
+        evidence = {"failing_checks": ["check:python3 -m unittest", "criterion:C1", "finding:F-1", "check:"]}
+        stop_policy.end(state, "Implementation remains blocked", evidence, at="2026-11-16T07:00:00Z")
+        self.assertEqual(
+            "AutoCode could not finish this task: Implementation remains blocked. "
+            "Still failing: python3 -m unittest. This run launches no further stages.",
+            state["stop_reason"],
+        )
+        # A reason that already names its check, or ends its own sentence, is not repeated or re-punctuated.
+        named = {"reason": "The check pytest -q kept failing!", "evidence": {"failing_checks": ["check:pytest -q"]}}
+        self.assertEqual("The check pytest -q kept failing!", stop_policy.ended_sentence(named))
+        self.assertEqual("Blocked.", stop_policy.ended_sentence({"reason": "Blocked", "evidence": None}))
+
     def test_a_run_autocode_ends_itself_records_the_outcome_and_stays_stopped(self):
         # #2485: when AutoCode cannot continue, it ends the run with a finished, failed outcome of its
         # own, as a stop receipt, so every rule that keeps a person's stop in force keeps this one.

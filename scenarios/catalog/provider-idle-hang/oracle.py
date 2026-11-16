@@ -1,4 +1,4 @@
-"""A silent provider hang must stop on the idle bound with a CLI-accepted recovery.
+"""A silent provider hang must stop on the idle bound, with a CLI-accepted recovery or an honest block.
 
 In check mode (``run is None``) the oracle scores the greenfield-greeting-cli product,
 so OracleControlTests can reject the seed and accept the reference without a run.
@@ -53,7 +53,13 @@ def check(project, scenario, run=None):
     next_command = view.get("next_command")
     accepted = False
     accept_detail = "no next_command"
-    if next_command:
+    summary = view.get("summary") or {}
+    if not next_command and view.get("needs") is None and summary.get("state") == "blocked":
+        # Exhausted startup recovery ends as an honest block that asks the person for nothing
+        # (autocode_startup_timeout_view); offering no command is then the correct outcome.
+        accepted = True
+        accept_detail = "blocked with nothing asked of the person: " + str(summary.get("sentence") or "")
+    elif next_command:
         try:
             accept(next_command)
             accepted = True
@@ -79,5 +85,5 @@ def check(project, scenario, run=None):
         Check("stopped_for_provider_idle", stopped, f"status={status!r}; idle={len(idle)}"),
         Check("timeout_kind_idle", bool(idle), f"idle records: {len(idle)}; reason={reason[:200]}"),
         Check("idle_bound_not_tool", idle_bound, reason[:200]),
-        Check("recovery_command_accepted", accepted, accept_detail[:300]),
+        Check("recovery_command_accepted_or_honest_block", accepted, accept_detail[:300]),
     ]

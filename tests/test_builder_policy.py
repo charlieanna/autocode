@@ -73,7 +73,7 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual("PAUSED_INTERVENTION", state["status"])
         self.assertEqual(
             "AutoCode could not finish this task: Implementation remains blocked after the configured retries "
-            "and the stronger Builder attempt This run launches no further stages.",
+            "and the stronger Builder attempt. This run launches no further stages.",
             state["stop_reason"],
         )
         with self.assertRaises(policy.s.Paused):
@@ -176,6 +176,7 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual("PAUSED_INTERVENTION", state["status"])
         self.assertIn("remains blocked after the configured retries", state["stop_reason"])
         self.assertIn("repeats an earlier one of this milestone with no new evidence", state["stop_reason"])
+        self.assertIn("Builder attempt. The last failure repeats", state["stop_reason"], "two sentences, not a run-on")
         decisions = state["builder_retry_decisions"]
         self.assertEqual(["new", "repeat", "repeat"], [row["novelty"] for row in decisions])
         self.assertIn("no new evidence", decisions[1]["reason"])
@@ -503,7 +504,7 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(
             "AutoCode could not finish this task: "
             + policy.NOT_OFFERED.format(model="zai-coding-plan/glm-5.3")
-            + " This run launches no further stages.",
+            + ". This run launches no further stages.",
             state["stop_reason"],
         )
         self.assertIn("does not offer zai-coding-plan/glm-5.3", state["stop_reason"])
@@ -520,7 +521,7 @@ class PolicyTests(unittest.TestCase):
         route_ladder.serve(state["settings"], {"openai/gpt-6-luna", "zai-coding-plan/glm-5.3"})
         self.assertEqual(["retry", "pause"], [policy.failure(state, f"e{n}", "failure") for n in (1, 2)])
         self.assertEqual(
-            "AutoCode could not finish this task: " + policy.EXHAUSTED + " This run launches no further stages.",
+            "AutoCode could not finish this task: " + policy.EXHAUSTED + ". This run launches no further stages.",
             state["stop_reason"],
         )
 
@@ -966,7 +967,7 @@ class ToolProviderPolicyTests(unittest.TestCase):
         CLAUDE_PROVIDER.check_models(roles)  # every route is a model the tool serves, spelled as it spells it
         self.assertEqual("pause", policy.failure(state, "e3", "f"))
         self.assertEqual(
-            "AutoCode could not finish this task: " + policy.EXHAUSTED + " This run launches no further stages.",
+            "AutoCode could not finish this task: " + policy.EXHAUSTED + ". This run launches no further stages.",
             state["stop_reason"],
         )
         state = json.loads(json.dumps(state))
@@ -1072,7 +1073,7 @@ class ToolProviderPolicyTests(unittest.TestCase):
         state = self.state(older)
         self.assertEqual(["retry", "retry", "pause"], [policy.failure(state, f"e{n}", "f") for n in (1, 2, 3)])
         self.assertEqual(
-            "AutoCode could not finish this task: " + policy.NO_STRONG_MODEL + " This run launches no further stages.",
+            "AutoCode could not finish this task: " + policy.NO_STRONG_MODEL + ". This run launches no further stages.",
             state["stop_reason"],
         )
         # The outcome reports what the run had; a client-rendered route for a stronger model is not
