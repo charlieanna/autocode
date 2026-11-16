@@ -494,9 +494,9 @@ class SubprocessFlow(unittest.TestCase):
         provider = lambda rows: [r for r in rows if not r.get("runner_owned")]
         self.assertEqual(provider(abandoned["stages"]), provider(held["stages"]))
         if legacy:
-            from tools.goal_fixtures import assert_operational_wait
+            from .operational_fixtures import assert_operational_block
 
-            assert_operational_wait(self, held, "PAUSED_REPEATED_FAILURE")
+            assert_operational_block(self, held, "PAUSED_REPEATED_FAILURE")
 
         self.launch([*args, "--resume-paused", "--unit", "autoreview"], 0)
         _, final = self.saved()
@@ -520,10 +520,9 @@ class SubprocessFlow(unittest.TestCase):
         self.env["AUTOCODE_FIXTURE_SESSION_DRIFT"] = "1"
         self.launch(args, 2)
         _, paused = self.saved()
-        # The uncertain-stage pause is now published as an operational AutoResolver request.
-        from tools.goal_fixtures import assert_operational_wait
+        from .operational_fixtures import assert_operational_block
 
-        published = assert_operational_wait(self, paused, "PAUSED_UNCERTAIN_STAGE")
+        diagnostic = assert_operational_block(self, paused, "PAUSED_UNCERTAIN_STAGE")
         self.assertEqual(initial["sessions"], paused["sessions"])
         self.assertEqual(
             1, len([r for r in paused["stages"] if not r.get("runner_owned")]), [r["stage"] for r in paused["stages"]]
@@ -536,8 +535,13 @@ class SubprocessFlow(unittest.TestCase):
         _, abandoned = self.saved()
         self.assertEqual("PAUSED_STAGE_ABANDONED", abandoned["status"])
         self.assertEqual(2, len([r for r in abandoned["stages"] if not r.get("runner_owned")]))
-        self.assertTrue(abandoned["stages"][-1]["abandoned"])
-        self.assertEqual("superseded", abandoned["resolver"]["human_escalations"][published["request_id"]]["status"])
+        provider = [record for record in abandoned["stages"] if not record.get("runner_owned")]
+        self.assertTrue(provider[-1]["abandoned"])
+        self.assertEqual(
+            paused["resolver"]["operational_receipts"][diagnostic],
+            abandoned["resolver"]["operational_receipts"][diagnostic],
+            "the original failure evidence is retained after settlement",
+        )
         self.assertNotIn("task_planner", abandoned["sessions"])
         self.assertFalse((self.project / "greet.py").exists())
         del self.env["AUTOCODE_FIXTURE_SESSION_DRIFT"]

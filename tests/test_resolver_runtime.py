@@ -17,6 +17,7 @@ from goal_fixtures import approve_fixture, assert_operational_wait, body, envelo
 
 from . import test_autocode as base
 from . import test_report_repair as repairs
+from .operational_fixtures import assert_operational_block
 from .supervision_fixture import launcher
 
 runner, support = base.runner, base.s
@@ -1180,8 +1181,7 @@ class OperationalDiagnosisTests(unittest.TestCase):
         self.assertEqual(2, len(launches))
         self.assertEqual(2, saved["resolver"]["diagnostic_calls"])
         self.assertEqual(2, len(saved["automatic_timeout_recoveries"]))
-        # The exhausted pause is surfaced as an AutoResolver operational request.
-        assert_operational_wait(self, saved, "PAUSED_REPEATED_FAILURE")
+        assert_operational_block(self, saved, "PAUSED_REPEATED_FAILURE")
         self.assertNotIn("active_stage", saved)
 
     def test_cli_capacity_and_denial_relaunches_stop_at_their_own_budgets(self):
@@ -1260,8 +1260,8 @@ class OperationalDiagnosisTests(unittest.TestCase):
                     self.state = support.read(self.run / "state.json")
         self.assertEqual(3, len(set(blockers)))
         self.assertEqual([1, 2], [row["iteration"] for row in launches])
-        # The lifetime cap still refuses a third diagnosis; the pause is published as an operational request.
-        assert_operational_wait(self, self.state, "PAUSED_REPEATED_FAILURE")
+        # The lifetime cap still refuses a third diagnosis without a machinery question.
+        assert_operational_block(self, self.state, "PAUSED_REPEATED_FAILURE")
 
     def test_cli_rejected_output_resume_does_not_spend_another_diagnosis(self):
         self.repeated_terra_failure()

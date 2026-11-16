@@ -184,6 +184,9 @@ class OperationalDispositionTests(unittest.TestCase):
         self.assertEqual([], self.state.get("pending_questions", []))
         self.assertEqual(1, self.state["active_stage"]["exit_code"])
         self.assertEqual(1, self.state["settings"]["limits"]["planning_calls"])
+        from .operational_fixtures import assert_operational_block
+
+        assert_operational_block(self, self.state, "PAUSED_PROVIDER_UNCERTAIN")
 
     def test_authentic_legacy_reply_is_refused_before_any_response_is_saved(self):
         public = self.legacy()
@@ -527,6 +530,183 @@ class OperationalDispositionTests(unittest.TestCase):
         ):
             setattr(writer, name, getattr(core, name))
         return writer
+
+    def approved_contract(self):
+        contract = {"task_id": "task-fixture", "revision": 1, "body": body()}
+        contract["hash"] = support.digest(contract)
+        approval = {"kind": "goal_approval", "actor": "user_cli", "token": goals.token(contract)}
+        contract.update(approval_status="approved", approval_event=approval)
+        self.state.update(goal_contract=contract, task_id=contract["task_id"], user_events=[approval])
+        self.assertTrue(goals.approved(self.state))
+        return contract
+
+    def parallel_retry_incident(self):
+        import autocode_dispatch as dispatch
+        import autocode_legacy_process as legacy_process
+
+        def process_listing(command, **options):
+            self.assertEqual(["ps", "-axo", "pid=,command="], command)
+            self.assertEqual(
+                {"capture_output": True, "text": True, "timeout": legacy_process.INSPECTION_SECONDS}, options
+            )
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        # Execute the real legacy inspection/parent retry policy against one
+        # observed empty process listing, without starting even a ps child.
+        self.enterContext(patch.object(legacy_process.subprocess, "run", side_effect=process_listing))
+
+        self.state.pop("active_stage")
+        contract = self.approved_contract()
+        workers = []
+        for mid in ("M1", "M2"):
+            workspace = self.root / mid
+            run = workspace / ".autocode/runs/child"
+            run.mkdir(parents=True)
+            workers.append({"milestone_id": mid, "workspace": str(workspace), "run_dir": str(run)})
+            support.atomic_json(run / "result.json", {"status": "BUILT" if mid == "M1" else "PAUSED_INVALID_OUTPUT"})
+        self.state.update(
+            next_stage="orchestrator",
+            orchestration_batch={
+                "id": "batch-fixture",
+                "status": "BUILDING",
+                "contract_hash": contract["hash"],
+                "workers": workers,
+            },
+        )
+        original = runtime._operational_receipt(
+            self.state,
+            self.run,
+            "blocked",
+            "A Builder could not finish",
+            {
+                "status": "PAUSED_ORCHESTRATOR_WORKER",
+                "stage": "orchestrator",
+                "budget": disposition.budget(self.state, "PAUSED_ORCHESTRATOR_WORKER"),
+            },
+        )
+        self.state["status"] = "PAUSED_ORCHESTRATOR_WORKER"
+        return dispatch, original, workers
+
+    def test_actual_parallel_retry_keeps_completed_sibling_and_requires_owner_commit_before_admission(self):
+        dispatch, original, workers = self.parallel_retry_incident()
+        before_result = (Path(workers[0]["run_dir"]) / "result.json").read_bytes()
+        saved = copy.deepcopy(self.state)
+        with self.assertRaises(ValueError):
+            dispatch.request_retry(self.state, self.run, ["M1"])
+        self.assertEqual(saved, self.state)
+        owner = copy.deepcopy(self.state)
+        dispatch.request_retry(owner, self.run, ["M2"])
+        self.assertFalse(owner["orchestration_batch"]["workers"][0].get("retry_requested"))
+        self.assertTrue(owner["orchestration_batch"]["workers"][1]["retry_requested"])
+        self.assertEqual(before_result, (Path(workers[0]["run_dir"]) / "result.json").read_bytes())
+        decided, writer, args = actions.Decided(), self.writer(), Arguments(resume_paused=True, retry_builder=["M2"])
+        self.assertIsNone(
+            admission.guard(writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided)
+        )
+        self.assertFalse(admission.ready(self.state, decided), "a selector has no worker retry authority")
+        dispatch.request_retry(self.state, self.run, ["M2"])
+        admission.checked(writer, self.state, self.run, decided, "builder", {"milestone": ["M2"]})
+        self.assertTrue(admission.ready(self.state, actions.Decided()))
+        self.assertEqual(original, disposition.incident_identity(self.state, disposition.held(self.state)))
+        self.assertEqual(before_result, (Path(workers[0]["run_dir"]) / "result.json").read_bytes())
+
+    def archived_completion_incident(self):
+        self.state.pop("active_stage")
+        contract = self.approved_contract()
+        revision = "a" * 40
+        self.state["current_task"] = {"id": "current-task", "kind": "implement", "milestone_id": "M1"}
+        archived = {
+            "stage": "review_completion_report_repair",
+            "original_stage": "review_completion",
+            "role": "task_planner",
+            "iteration": 1,
+            "output": str(self.run / "completion-repair.json"),
+            "source_revision": revision,
+            "abandoned": True,
+            "rejected": True,
+            "task_id": "current-task",
+            "contract_hash": contract["hash"],
+        }
+        selected = stage_recovery.records.attempt_id(archived)
+        self.state.update(
+            status="PAUSED_REPEATED_FAILURE",
+            next_stage="review_completion",
+            stages=[archived],
+            recovery_context={"attempt_id": selected, "source_revision": revision},
+            validation_archive=[{"reason": "Uncertain stage abandoned", "validation": {"verdict": "PASS"}}],
+        )
+        self.state["user_events"].append({"kind": "stage_abandoned", "actor": "user_cli", "attempt_id": selected})
+        error = support.Paused(
+            "PAUSED_COMPLETION_GATE", "Completion rejected: missing, stale, failed or unverified independent evidence"
+        )
+        for index in range(3):
+            rejected = {
+                "stage": "review_completion",
+                "role": "task_planner",
+                "iteration": 1,
+                "output": str(self.run / f"completion-rejected-{index}.json"),
+                "source_revision": revision,
+                "rejected": True,
+                "rejection_reason": str(error),
+            }
+            failures.record(self.state, rejected, error, support.now())
+            self.state["stages"].append(rejected)
+        return revision, selected
+
+    def test_actual_archived_completion_recovery_ignores_only_authenticated_runner_observations(self):
+        revision, _ = self.archived_completion_incident()
+        pristine = copy.deepcopy(self.state)
+        with patch.object(stage_recovery.source_scope, "snapshot", return_value={"revision": revision}):
+            self.assertTrue(stage_recovery.prepare_abandoned_completion_revalidation(self.state, self.run, self.root))
+            self.state = copy.deepcopy(pristine)
+            runtime.record_operational_exhaustion(
+                self.runner,
+                self.state,
+                self.run,
+                support.Paused("PAUSED_REPEATED_FAILURE", "Retained completion failure"),
+            )
+            history = copy.deepcopy(self.state["failure_history"])
+            self.assertTrue(stage_recovery.prepare_abandoned_completion_revalidation(self.state, self.run, self.root))
+        self.assertEqual(history, self.state["failure_history"])
+        self.assertEqual("tester", self.state["next_stage"])
+        self.assertNotEqual("TASK_COMPLETE", self.state["status"])
+
+    def test_existing_planning_limit_metadata_keeps_used_calls_and_requires_its_real_commit(self):
+        import autocode_planning as planning
+
+        self.state.pop("active_stage")
+        self.approved_contract()
+        self.state.update(status="PAUSED_PLANNING_BUDGET", next_stage="review_plan", planning={"plan_review_calls": 2})
+        self.state["settings"]["joint_planning"] = True
+        runtime.record_operational_exhaustion(
+            self.runner,
+            self.state,
+            self.run,
+            support.Paused("PAUSED_PLANNING_BUDGET", "Plan review allowance exhausted"),
+        )
+        owner = copy.deepcopy(self.state)
+        planning.set_review_call_limit(owner, 3)
+        self.assertEqual(2, owner["planning"]["plan_review_calls"])
+        self.assertEqual(3, planning.review_call_limit(owner))
+        self.assertEqual("user_explicit", owner["planning"]["review_call_limit_origin"])
+        event = owner["user_events"][-1]
+        self.assertEqual(
+            ("planning_budget_change", "user_cli", 2, 2, 3),
+            (
+                event["kind"],
+                event["actor"],
+                event["calls_used"],
+                event["previous_limit"],
+                event["limit"],
+            ),
+        )
+        writer, decided, args = self.writer(), actions.Decided(), Arguments(planning_review_call_limit=3)
+        self.assertIsNone(
+            admission.guard(writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided)
+        )
+        self.assertFalse(admission.ready(self.state, decided), "requesting a bound is not a committed owner change")
+        self.assertEqual(2, self.state["planning"]["plan_review_calls"])
+        self.assertEqual(2, planning.review_call_limit(self.state))
 
     def test_plain_resume_is_refused_before_epochs_or_report_repairs_can_change(self):
         self.legacy()
@@ -1007,6 +1187,118 @@ class OperationalDispositionTests(unittest.TestCase):
         self.assertIsNone(shown["needs"])
         self.assertIsNone(shown["chat"]["input"])
         self.assertEqual("blocked", shown["recovery"]["category"])
+
+    def test_receipt_inventory_authenticates_listed_facts_once_across_all_incident_shapes(self):
+        class Inventory(list):
+            comparisons = 0
+
+            def __contains__(self, selected):
+                for value in self:
+                    self.comparisons += 1
+                    if value == selected:
+                        return True
+                return False
+
+        pristine = copy.deepcopy(self.state)
+        for shape in ("hold", "normalized", "blocked", "recovered", "mixed_typed", "publications"):
+            for count in (16, 32):
+                with self.subTest(shape=shape, count=count):
+                    self.state = copy.deepcopy(pristine)
+                    for index in range(count):
+                        self.state.setdefault("user_events", []).append(
+                            {"kind": "recorded_observation", "index": index}
+                        )
+                        if shape == "publications":
+                            self.legacy()
+                            continue
+                        evidence = {
+                            "status": "PAUSED_PROVIDER_UNCERTAIN",
+                            "stage": "requirements_gather",
+                            "budget": {
+                                "category": "operational_recovery",
+                                "kind": None,
+                                "origin": "unknown",
+                                "limit": None,
+                            },
+                        }
+                        original = runtime._operational_receipt(
+                            self.state,
+                            self.run,
+                            "hold" if shape in ("hold", "normalized") else "blocked",
+                            "Retained internal recovery",
+                            evidence,
+                        )
+                        if shape == "normalized":
+                            runtime._operational_receipt(
+                                self.state,
+                                self.run,
+                                "blocked",
+                                disposition.MESSAGE,
+                                {**evidence, "original_receipt_id": original},
+                            )
+                        elif shape == "recovered":
+                            runtime._operational_receipt(
+                                self.state,
+                                self.run,
+                                "recovered",
+                                "Exact recovery retained",
+                                {**evidence, "recovered_receipt_id": original},
+                            )
+                        elif shape == "mixed_typed":
+                            typed_block.record(
+                                self.state,
+                                custody.CustodyUncertain(),
+                                run_dir=self.run,
+                                workspace=self.root,
+                            )
+                    resolver = self.state["resolver"]
+                    inventory = Inventory(resolver["operational_diagnostics"])
+                    resolver["operational_diagnostics"] = inventory
+                    digest = util.digest
+                    published = []
+
+                    def observed_digest(value):
+                        if (
+                            isinstance(value, dict)
+                            and value.get("issuer") == "resolver"
+                            and value.get("action") == "escalate"
+                        ):
+                            published.append(value)
+                        return digest(value)
+
+                    original = next(
+                        key
+                        for key in inventory
+                        if resolver["operational_receipts"][key]["receipt"]["scope"] == receipt_identity.DIAGNOSTIC
+                    )
+                    with patch.object(receipt_identity, "scope", wraps=receipt_identity.scope) as owners:
+                        with patch.object(util, "digest", side_effect=observed_digest):
+                            incidents = disposition.incidents(self.state)
+                            decided = disposition.decision(self.state)
+                            checked = disposition.checked_recovery(
+                                self.state, resolver["operational_receipts"][original]
+                            )
+                    expected = 0 if shape == "recovered" else count
+                    self.assertEqual(expected, len(incidents))
+                    self.assertEqual(bool(expected), decided is not None)
+                    self.assertIsNone(checked, "none of these observations supplies a checked handler result")
+                    with self.subTest(work="ownership_authentication"):
+                        self.assertEqual(
+                            3 * len(inventory),
+                            owners.call_count,
+                            "each exact listed row is authenticated once per read",
+                        )
+                    with self.subTest(work="membership"):
+                        self.assertLessEqual(
+                            inventory.comparisons, 6 * len(inventory), "no repeated linear membership scans"
+                        )
+                    with self.subTest(work="publication_authentication"):
+                        self.assertEqual(3 * count if shape == "publications" else 0, len(published))
+                    self.assertIsNotNone(disposition.diagnostic(self.state, original))
+                    resolver["operational_diagnostics"] = []
+                    self.assertIsNone(
+                        disposition.diagnostic(self.state, original), "an unlisted ID has no standalone authority"
+                    )
 
     def test_queued_feedback_is_applied_under_hold_and_rederived_on_a_later_admit(self):
         original = self.planning_incident()

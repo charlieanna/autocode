@@ -6,6 +6,24 @@ from unittest.mock import patch
 import autocode_operational_disposition as disposition
 import autocode_resolver_human as human
 import autocode_resolver_runtime as runtime
+import autocode_run_view as run_view
+
+
+def assert_operational_block(test, state, pause):
+    """A known machinery failure stays retained without asking for recovery."""
+    test.assertEqual(pause, state["status"])
+    test.assertIsNone(human.current(state))
+    test.assertEqual([], state.get("pending_questions", []))
+    row = disposition.held(state)
+    test.assertIsNotNone(row)
+    test.assertEqual(pause, row["receipt"]["evidence"]["status"])
+    shown = run_view.view(state)
+    test.assertFalse(shown["done"])
+    test.assertEqual("blocked", shown["recovery"]["category"])
+    test.assertIsNone(shown["needs"])
+    test.assertIsNone(shown["next_command"])
+    test.assertIsNone(shown["chat"]["input"])
+    return row["receipt"]["id"]
 
 
 def legacy_publication(state, run_dir, *, pause=None, request=None, questions=None):

@@ -12,9 +12,10 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import autocode as runner
-import autocode_action_authority as action_authority
 import autocode_args
 import autocode_dependency as dependency
+import autocode_operational_admission as operational_admission
+import autocode_operational_disposition as disposition
 import autocode_recovery_limits as recovery_limits
 import autocode_resolver_human as human
 import autocode_run_actions as run_actions
@@ -22,6 +23,7 @@ import autocode_run_view as run_view
 import autocode_support as support
 
 from . import test_resolver_human, test_subprocess
+from .operational_fixtures import legacy_publication, legacy_response
 
 
 class HumanPublicationTests(unittest.TestCase):
@@ -33,11 +35,7 @@ class HumanPublicationTests(unittest.TestCase):
 
     def test_resume_companions_recognize_only_a_current_operational_pause(self):
         run = Path(self.state["run_dir"])
-        self.assertTrue(
-            runner.resolver_runtime.record_operational_exhaustion(
-                runner, self.state, run, support.Paused("PAUSED_TIMEOUT_RECOVERY", "Recovery exhausted")
-            )
-        )
+        legacy_publication(self.state, run, pause="PAUSED_TIMEOUT_RECOVERY")
         runner.write_json(run / "state.json", self.state)
         self.assertEqual("WAITING_FOR_USER", self.state["status"])
         argv = ["resume", "--run-dir", str(run)]
@@ -82,11 +80,9 @@ class HumanPublicationTests(unittest.TestCase):
         )
         self.state["resolver"] = {"attempts": {"external-directory": 3}}
         run = Path(self.state["run_dir"])
-        runner.resolver_runtime.record_operational_exhaustion(
-            runner, self.state, run, support.Paused("PAUSED_TIMEOUT_RECOVERY", "Recovery exhausted")
-        )
+        legacy_publication(self.state, run)
         runner.write_json(run / "state.json", self.state)
-        published = human.current(self.state)
+        published = human.retained(self.state)
         self.assertIsNotNone(published)
         args = autocode_args.build_parser(None, runner.DEFAULT_ROLE_MODELS).parse_args(
             ["--run-dir", str(run), "--resume-paused", "--grant-recovery", "1", "--no-chat"]
@@ -103,68 +99,43 @@ class HumanPublicationTests(unittest.TestCase):
         self.assertEqual(2, self.state["automatic_recoveries_since_resume"])
         self.assertEqual(1, len(self.state["recovery_grants"]))
         self.assertEqual(published["request_id"], self.state["recovery_grants"][0]["request_id"])
-        self.assertEqual(3, self.state["resolver"]["lifetime_attempts"])
+        self.assertEqual({"external-directory": 3}, self.state["resolver"]["attempts"])
+        self.assertNotIn(
+            "lifetime_attempts", self.state["resolver"], "grant metadata must not renew the evaluation epoch"
+        )
         self.assertEqual("superseded", self.state["resolver"]["human_escalations"][published["request_id"]]["status"])
         fake_runner.run_role.assert_not_called()
 
-    def test_resume_inspection_never_republishes_the_retained_pause_over_the_request(self):
-        # #3020: a resume holding an operational request whose retained pause is a repeated failure
-        # asks the two completion recoveries whether they apply. It hands them that pause instead of
-        # publishing it as the run's status, so a check that declines or raises leaves the request
-        # and the status the person was shown exactly as they were.
+    def test_plain_resume_does_not_inspect_or_republish_the_retained_machinery_request(self):
+        # The public prefix now refuses the old machinery request before either
+        # completion inspection, retaining the same checkpoint immutability.
         self.state.update(status="PAUSED_REPEATED_FAILURE", next_stage="review_completion")
         run = Path(self.state["run_dir"])
-        self.assertTrue(
-            runner.resolver_runtime.record_operational_exhaustion(
-                runner, self.state, run, support.Paused("PAUSED_REPEATED_FAILURE", "Recovery exhausted")
-            )
-        )
+        legacy_publication(self.state, run)
         runner.write_json(run / "state.json", self.state)
         self.assertEqual("WAITING_FOR_USER", self.state["status"])
-        published = human.current(self.state)
+        published = human.retained(self.state)
         self.assertEqual("operational_exhaustion", published["scope"])
         saved = copy.deepcopy(self.state)
         args = autocode_args.build_parser(None, runner.DEFAULT_ROLE_MODELS).parse_args(
             ["--run-dir", str(run), "--resume-paused", "--no-chat"]
         )
 
-        class Inspection(OSError):
-            pass
-
-        class Held(Exception):
-            pass
-
-        for first, second in ((Inspection, None), (False, Inspection), (False, False)):
-            with self.subTest(first=first, second=second):
-                state = copy.deepcopy(saved)
-                seen = []
-
-                def observer(result):
-                    def inspect(observed, run_dir, workspace, **kwargs):
-                        seen.append((observed["status"], kwargs))
-                        if result is Inspection:
-                            raise Inspection("inspection failed before any change")
-                        return result
-
-                    return inspect
-
-                fake_runner = Mock(wraps=runner)
-                fake_runner.prepare_abandoned_completion_revalidation.side_effect = observer(first)
-                fake_runner.prepare_timeout_archived_completion.side_effect = observer(second)
-                # Hold the resume right after the inspection, before anything downstream acts.
-                fake_runner.stale_report_repair.side_effect = Held
-                with self.assertRaises(Inspection if Inspection in (first, second) else Held):
-                    action_authority.settle(fake_runner, args, None, state, run / "state.json", run, self.root, Mock())
-                self.assertEqual(saved, state)
-                self.assertEqual(published, human.current(state))
-                origin = {"origin": "PAUSED_REPEATED_FAILURE"}
-                self.assertEqual(
-                    [("WAITING_FOR_USER", origin)] * (1 if first is Inspection else 2),
-                    seen,
-                    "each check reads the retained pause as an argument, never as the run's status",
-                )
-                fake_runner.write_json.assert_not_called()
-                fake_runner.run_role.assert_not_called()
+        fake_runner = Mock(wraps=runner)
+        before = (run / "state.json").read_bytes()
+        prefix = run_actions.STEPS[: run_actions.STEPS.index(operational_admission.guard) + 1]
+        with patch.object(run_actions, "STEPS", prefix):
+            self.assertEqual(
+                2, run_actions.handle(fake_runner, args, None, self.state, run / "state.json", run, self.root)
+            )
+        self.assertEqual(saved, self.state)
+        self.assertEqual(before, (run / "state.json").read_bytes())
+        self.assertEqual(published, human.retained(self.state))
+        self.assertIsNone(human.current(self.state))
+        fake_runner.prepare_abandoned_completion_revalidation.assert_not_called()
+        fake_runner.prepare_timeout_archived_completion.assert_not_called()
+        fake_runner.write_json.assert_not_called()
+        fake_runner.run_role.assert_not_called()
 
     def test_generic_answer_cannot_reclassify_operational_question_as_new_requirements(self):
         self.contract()
@@ -181,11 +152,12 @@ class HumanPublicationTests(unittest.TestCase):
         self.publish_operational()
         before = copy.deepcopy(self.state)
         with (
-            patch("builtins.input", return_value="The environment was repaired; do not change scope"),
+            patch("builtins.input", return_value="The environment was repaired; do not change scope") as ask,
             contextlib.redirect_stdout(io.StringIO()),
             contextlib.redirect_stderr(io.StringIO()),
         ):
             self.assertFalse(runner.chat_checkpoint(self.state))
+        ask.assert_not_called()
         for key in (
             "goal_contract",
             "planning",
@@ -197,10 +169,10 @@ class HumanPublicationTests(unittest.TestCase):
             "automatic_recoveries_since_resume",
         ):
             self.assertEqual(before.get(key), self.state.get(key), key)
-        self.assertEqual("PAUSED_RESOLVER_OPERATIONAL", self.state["status"])
+        self.assertEqual(before, self.state)
         self.assertIsNone(human.current(self.state))
         self.assertNotIn("pending_human_response", self.state["resolver"])
-        self.assertEqual("hold", next(iter(self.state["resolver"]["human_response_resolutions"].values()))["action"])
+        self.assertFalse(self.state["resolver"].get("human_response_resolutions"))
 
     def test_state_persistence_authorizes_before_progress_publication(self):
         self.queue_question()
@@ -248,23 +220,23 @@ class HumanPublicationTests(unittest.TestCase):
         self.assertEqual([], payload["pending_questions"])
         self.assertEqual(before, path.read_bytes())
 
-    def test_operational_exhaustion_is_published_by_resolver_not_overwritten(self):
+    def test_operational_exhaustion_records_a_block_without_publishing_a_machinery_question(self):
         self.state.update(status="PAUSED_TIMEOUT_RECOVERY", next_stage="review_plan")
         run = Path(self.state["run_dir"])
         error = support.Paused("PAUSED_TIMEOUT_RECOVERY", "Bounded recovery exhausted")
         self.assertTrue(runner.resolver_runtime.record_operational_exhaustion(runner, self.state, run, error))
-        self.assertEqual("RESOLVER_PENDING", self.state["status"])
+        self.assertEqual("PAUSED_TIMEOUT_RECOVERY", self.state["status"])
         with contextlib.redirect_stderr(io.StringIO()):
             runner.write_json(run / "state.json", self.state)
         saved = support.read(run / "state.json")
-        self.assertEqual("WAITING_FOR_USER", saved["status"])
+        self.assertEqual("PAUSED_TIMEOUT_RECOVERY", saved["status"])
         public = human.current(saved)
-        self.assertEqual("operational_exhaustion", public["scope"])
-        self.assertEqual("resolver", public["issuer"])
-        self.assertIn("cannot continue safely", public["request"]["impact"])
+        self.assertIsNone(public)
+        self.assertEqual([], saved.get("pending_questions", []))
+        self.assertIsNone(run_view.view(saved, run_dir=run, workspace=self.root)["chat"]["input"])
         self.assertEqual(3, saved["failure_history"]["failure"]["count"])
 
-    def test_operational_exhaustion_publishes_with_pending_resolve_request_and_deduplicates_grant_advice(self):
+    def test_operational_exhaustion_keeps_pending_resolve_evidence_without_a_recovery_question(self):
         self.state.update(
             status="PAUSED_TIMEOUT_RECOVERY",
             next_stage="resolve",
@@ -275,16 +247,19 @@ class HumanPublicationTests(unittest.TestCase):
         run = Path(self.state["run_dir"])
         error = support.Paused("PAUSED_TIMEOUT_RECOVERY", f"Bounded recovery exhausted. {recovery_limits.GRANT_ADVICE}")
         self.assertTrue(runner.resolver_runtime.record_operational_exhaustion(runner, self.state, run, error))
-        self.assertEqual("RESOLVER_PENDING", self.state["status"])
+        self.assertEqual("PAUSED_TIMEOUT_RECOVERY", self.state["status"])
         self.assertEqual(1, self.state["stop_reason"].count(recovery_limits.GRANT_ADVICE))
         with contextlib.redirect_stderr(io.StringIO()):
             runner.write_json(run / "state.json", self.state)
         saved = support.read(run / "state.json")
-        self.assertEqual("WAITING_FOR_USER", saved["status"])
+        self.assertEqual("PAUSED_TIMEOUT_RECOVERY", saved["status"])
         public = human.current(saved)
-        self.assertEqual("operational_exhaustion", public["scope"])
+        self.assertIsNone(public)
+        self.assertEqual({"reason": "need diagnosis"}, saved["resolution_request"])
         view = run_view.view(saved, run_dir=run, workspace=Path(saved["workspace"]))
-        self.assertEqual("grant_recovery", view["needs"]["command_inputs"][0]["id"])
+        self.assertIsNone(view["needs"])
+        self.assertIsNone(view["next_command"])
+        self.assertIsNone(view["chat"]["input"])
         self.assertEqual(1, view["stop_reason"].count(recovery_limits.GRANT_ADVICE))
 
     def test_a_time_limit_question_names_the_limit_without_its_flags(self):
@@ -322,15 +297,14 @@ class HumanPublicationTests(unittest.TestCase):
     def test_answered_operational_request_allows_explicit_stage_abandonment(self):
         import autocode_args
 
+        self.state["active_stage"] = {
+            "stage": "review_plan",
+            "role": "review_checkpoint",
+            "iteration": 1,
+            "output": str(Path(self.state["run_dir"]) / "terra-01.json"),
+        }
         published = self.publish_operational()
-        human.respond_operational(
-            self.state,
-            published["request_id"],
-            published["request_token"],
-            "provide_information",
-            "Inspected the uncertain attempt",
-        )
-        human.review_operational_response(self.state)
+        legacy_response(self.state, published, text="Inspected the uncertain attempt")
         self.assertTrue(human.response_holds_current_frontier(self.state))
         args = autocode_args.build_parser(None, runner.DEFAULT_ROLE_MODELS).parse_args(
             ["--run-dir", self.state["run_dir"], "--abandon-stage", "001/terra-01", "--no-chat"]
@@ -355,6 +329,9 @@ class HumanPublicationTests(unittest.TestCase):
         self.assertEqual(0, result)
         fake_runner.abandon_stage.assert_called_once()
         publish.assert_not_called()
+        self.assertFalse(
+            operational_admission.ready(self.state, run_actions.Decided()), "fake metadata proves no settlement"
+        )
 
 
 class HumanResponseCLITests(unittest.TestCase):
@@ -370,14 +347,12 @@ class HumanResponseCLITests(unittest.TestCase):
         run, paused = self.saved()
         self.launch(["--run-dir", str(run), "--abandon-stage", runner.attempt_id(paused["active_stage"])], 0)
         run, stopped = self.saved()
-        # Publish a fresh, reconciled operational checkpoint. The test then
-        # exercises only answering it, not uncertain-provider recovery.
+        # Retain an authentic request from the old publisher. Current Core must
+        # refuse its cached machinery offer; genuine explicit/unknown caps are
+        # covered independently without changing this managed-default origin.
         human.supersede_operational(stopped, "Fixture reconciled its provider attempt")
-        self.assertTrue(
-            runner.resolver_runtime.record_operational_exhaustion(
-                runner, stopped, run, support.Paused("PAUSED_TIME_LIMIT", "Fixture execution allowance exhausted")
-            )
-        )
+        self.assertEqual("runner_default", disposition.budget(stopped, "PAUSED_TIME_LIMIT")["origin"])
+        legacy_publication(stopped, run, pause="PAUSED_TIME_LIMIT")
         runner.write_json(run / "state.json", stopped)
         return run, self.saved()[1]
 
@@ -400,13 +375,16 @@ class HumanResponseCLITests(unittest.TestCase):
             {"stage": "builder", "timeout_reason": "idle watchdog"},
         ]
         if publish_request:
-            self.assertTrue(
-                runner.resolver_runtime.record_operational_exhaustion(
-                    runner,
-                    stopped,
-                    run,
-                    support.Paused("PAUSED_TIMEOUT_RECOVERY", "Automatic recovery budget exhausted"),
-                )
+            legacy_publication(
+                stopped,
+                run,
+                request={
+                    "kind": "blocker",
+                    "discovered": "Automatic recovery budget exhausted",
+                    "impact": "Recorded attempts retained",
+                    "decision_needed": recovery_limits.GRANT_ADVICE,
+                    "options": ["Authorize more recoveries"],
+                },
             )
         runner.write_json(run / "state.json", stopped)
         return run, self.saved()[1]
@@ -429,14 +407,15 @@ class HumanResponseCLITests(unittest.TestCase):
         self.assertNotEqual("PAUSED_UNANSWERED_QUESTION", resumed["status"])
         self.assertGreater(len(resumed["stages"]), stages_before)
 
-    def test_real_cli_stale_request_response_rebinds_in_one_invocation(self):
+    def test_real_cli_stale_machinery_response_is_refused_without_rebinding_or_launch(self):
         run, exhausted = self.timeout_exhausted_checkpoint()
-        published = human.current(exhausted)
+        published = human.retained(exhausted)
         self.assertIsNotNone(published)
         path = run / "state.json"
         saved = json.loads(path.read_text())
         saved["active_seconds"] = saved.get("active_seconds", 0) + 1
         path.write_text(json.dumps(saved))
+        before = path.read_bytes()
         result = self.launch(
             [
                 "--run-dir",
@@ -450,24 +429,22 @@ class HumanResponseCLITests(unittest.TestCase):
                 "--resolver-token",
                 published["request_token"],
             ],
-            0,
+            2,
         )
-        self.assertIn("AutoResolver received the response", result.stdout)
+        self.assertIn(disposition.MESSAGE, result.stderr)
         _, answered = self.saved()
         self.assertIsNone(human.current(answered))
-        resolution = answered["resolver"]["human_response_resolutions"]
-        self.assertEqual(1, len(resolution))
+        self.assertFalse(answered["resolver"].get("human_response_resolutions"))
         reborn = answered["resolver"]["human_escalations"][published["request_id"]]
-        self.assertEqual("superseded", reborn["status"])
-        self.assertIn("Re-bound", reborn["superseded_reason"])
-        self.assertEqual("user_cli", next(iter(resolution.values()))["response"]["actor"])
+        self.assertEqual("pending", reborn["status"])
+        self.assertEqual(before, path.read_bytes())
         self.assertEqual(
             len(exhausted["stages"]), len(answered["stages"]), "recording a response must not launch a provider"
         )
 
     def test_stale_rebind_rejects_forged_tokens_and_newer_requests(self):
         run, exhausted = self.timeout_exhausted_checkpoint()
-        published = human.current(exhausted)
+        published = human.retained(exhausted)
         path = run / "state.json"
         saved = json.loads(path.read_text())
         saved["active_seconds"] = saved.get("active_seconds", 0) + 1
@@ -488,12 +465,12 @@ class HumanResponseCLITests(unittest.TestCase):
             ],
             2,
         )
-        self.assertIn("requires the exact current", result.stderr)
+        self.assertIn(disposition.MESSAGE, result.stderr)
         self.assertEqual(before, path.read_bytes())
 
     def test_real_cli_grant_recovery_resumes_an_exhausted_timeout_run(self):
         run, exhausted = self.timeout_exhausted_checkpoint()
-        published = human.current(exhausted)
+        published = human.retained(exhausted)
         self.assertEqual("operational_exhaustion", published["scope"])
         self.assertIn("--grant-recovery", published["request"]["decision_needed"])
         stages_before = len(exhausted["stages"])
@@ -502,7 +479,8 @@ class HumanResponseCLITests(unittest.TestCase):
         _, held = self.saved()
         self.assertEqual(stages_before, len(held["stages"]))
         self.assertEqual(3, held["automatic_recoveries_since_resume"])
-        self.assertIsNotNone(human.current(held))
+        self.assertIsNone(human.current(held))
+        self.assertEqual(published, human.retained(held))
         self.launch(["--run-dir", str(run), "--resume-paused", "--grant-recovery", "1", "--no-chat"], 2)
         _, granted = self.saved()
         self.assertGreater(len(granted["stages"]), stages_before)
@@ -525,7 +503,7 @@ class HumanResponseCLITests(unittest.TestCase):
         for resume in ("--resume-paused", "resume"):
             with self.subTest(resume=resume):
                 result = self.launch([resume, "--run-dir", str(run), "--grant-recovery", "1", "--no-chat"], 2)
-                self.assertIn("requires a run paused for exhausted timeout recovery", result.stderr)
+                self.assertIn(disposition.MESSAGE, result.stderr)
                 self.assertEqual(before, (run / "state.json").read_bytes())
 
     def test_resume_word_grants_recovery_for_a_published_timeout_pause(self):
@@ -542,7 +520,7 @@ class HumanResponseCLITests(unittest.TestCase):
 
     def test_grant_accepts_corrected_timeouts_in_the_same_cli_invocation(self):
         run, exhausted = self.timeout_exhausted_checkpoint()
-        published = human.current(exhausted)
+        published = human.retained(exhausted)
         probe = self.root / "corrected-timeout-launches.jsonl"
         self.env["AUTOCODE_REGISTRY_LAUNCH_PROBE"] = str(probe)
         result = self.launch(
@@ -615,7 +593,7 @@ class HumanResponseCLITests(unittest.TestCase):
             ],
             2,
         )
-        self.assertIn("requires a run paused for exhausted timeout recovery", result.stderr)
+        self.assertIn(disposition.MESSAGE, result.stderr)
         self.assertFalse(probe.exists(), "a stale source binding must not launch a provider")
         self.assertFalse(self.saved()[1].get("recovery_grants"))
         # A refused grant is no settings write either (#2479): neither the corrected limits,
@@ -636,7 +614,7 @@ class HumanResponseCLITests(unittest.TestCase):
 
     def test_real_cli_generic_answer_rejects_operational_request_without_changing_approval(self):
         run, paused = self.stopped_operational_checkpoint()
-        published = human.current(paused)
+        published = human.retained(paused)
         question = published["questions"][0]["id"]
         before = (run / "state.json").read_bytes()
         result = self.launch(
@@ -650,7 +628,7 @@ class HumanResponseCLITests(unittest.TestCase):
             ],
             2,
         )
-        self.assertIn("Use --resolver-response", result.stderr)
+        self.assertIn(disposition.MESSAGE, result.stderr)
         self.assertEqual(before, (run / "state.json").read_bytes())
 
     def test_real_cli_chat_operational_response_does_not_start_discovery_or_another_provider(self):
@@ -659,15 +637,13 @@ class HumanResponseCLITests(unittest.TestCase):
             ["--run-dir", str(run), "--chat"], 2, answers="Provider access restored; keep the approved scope\n"
         )
         run, saved = self.saved()
-        self.assertIn("No retry, approval, permission or budget increase", result.stdout)
+        self.assertIn(disposition.MESSAGE, result.stdout)
         self.assertTrue(runner.goals.approved(saved))
         self.assertEqual(before["goal_contract"], saved["goal_contract"])
         self.assertEqual(before["stages"], saved["stages"])
         self.assertNotEqual("draft_plan", saved["next_stage"])
         self.assertIsNone(human.current(saved))
-        resolutions = saved["resolver"]["human_response_resolutions"]
-        self.assertEqual(1, len(resolutions))
-        self.assertEqual("hold", next(iter(resolutions.values()))["action"])
+        self.assertFalse(saved["resolver"].get("human_response_resolutions"))
         stages = copy.deepcopy(saved["stages"])
         self.launch(["--run-dir", str(run), "--resume-paused", "--no-chat"], 2)
         held = self.saved()[1]

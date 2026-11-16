@@ -122,14 +122,14 @@ def diagnostic(state: RunState, identity):
     return row
 
 
-def incident_identity(state: RunState, row):
+def incident_identity(state: RunState, row, *, _ledger=None):
     """A normalized witness names the exact original diagnostic, never a new incident."""
     detail = row.get("receipt") or {}
     evidence = detail.get("evidence") or {}
     original = evidence.get("original_receipt_id")
     if original is None:
         return detail.get("id")
-    source = diagnostic(state, original)
+    source = _ledger.diagnostic(original) if _ledger else diagnostic(state, original)
     if source is None or (source.get("decision") or {}).get("action") != "hold":
         return None
     facts = source["receipt"].get("evidence") or {}
@@ -142,14 +142,15 @@ def incident_identity(state: RunState, row):
     return original
 
 
-def saved_disposition(state: RunState, proposal):
+def saved_disposition(state: RunState, proposal, *, _ledger=None):
     """Interpret a request only against its exact runner-held diagnostic facts."""
     if not isinstance(proposal, dict) or proposal.get("scope") != SCOPE:
         return None
     references, origin = proposal.get("evidence"), proposal.get("origin")
     if not isinstance(references, dict) or not isinstance(origin, dict):
         return "invalid"
-    row = diagnostic(state, references.get("resolver_receipt_id"))
+    identity = references.get("resolver_receipt_id")
+    row = _ledger.diagnostic(identity) if _ledger else diagnostic(state, identity)
     if row is None:
         return "invalid"
     evidence = row["receipt"].get("evidence") or {}
@@ -158,14 +159,14 @@ def saved_disposition(state: RunState, proposal):
         for key, field in (("pause_status", "status"), ("stage", "stage"), ("budget", "budget"))
     ):
         return "invalid"
-    answer = record_answer(state, row)
+    answer = record_answer(state, row, _ledger=_ledger)
     if proposal.get("questions", []) != answer["questions"]:
         return "invalid"
     return answer["kind"]
 
 
-def record_disposition(state: RunState, row):
-    return record_answer(state, row)["kind"]
+def record_disposition(state: RunState, row, *, _ledger=None):
+    return record_answer(state, row, _ledger=_ledger)["kind"]
 
 
 def _publications(state: RunState):
@@ -188,7 +189,37 @@ def _publications(state: RunState):
             yield identity["proposal"]
 
 
-def record_answer(state: RunState, row):
+class _Ledger:
+    """One read's listed identities and authenticated facts; never saved or global."""
+
+    def __init__(self, state: RunState):
+        resolver = state.get("resolver") or {}
+        records = resolver.get("operational_receipts") if isinstance(resolver, dict) else None
+        identities = resolver.get("operational_diagnostics") if isinstance(resolver, dict) else None
+        self.records = records if isinstance(records, dict) else {}
+        self.identities = identities if isinstance(identities, list) else []
+        self.listed = {key for key in self.identities if isinstance(key, str)}
+        self.owners: dict[str, str | None] = {}
+        self.publications: dict[str | None, list[dict]] = {}
+        self.proposals = list(_publications(state))
+        for proposal in self.proposals:
+            identity = _reference(proposal)
+            self.publications.setdefault(identity, []).append(proposal)
+
+    def scope(self, identity):
+        if not isinstance(identity, str):
+            return None
+        if identity not in self.owners:
+            self.owners[identity] = receipt_identity.scope(self.records.get(identity), identity)
+        return self.owners[identity]
+
+    def diagnostic(self, identity):
+        if not isinstance(identity, str) or identity not in self.listed:
+            return None
+        return self.records.get(identity) if self.scope(identity) == receipt_identity.DIAGNOSTIC else None
+
+
+def record_answer(state: RunState, row, *, _ledger=None):
     """Read the Core-recorded answer, never new hints in a mutable proposal."""
     detail = row.get("receipt") or {}
     facts = detail.get("evidence") or {}
@@ -205,7 +236,8 @@ def record_answer(state: RunState, row):
     protected = classify({"scope": SCOPE, "origin": origin}) == "limit"
     # Old queued hints were never part of the diagnostic's identity. A model
     # choice survives only in an existing complete, authenticated publication.
-    for proposal in _publications(state):
+    publications = _ledger.publications.get(detail.get("id"), []) if _ledger else _publications(state)
+    for proposal in publications:
         offered_origin, references = proposal.get("origin"), proposal.get("evidence")
         if (
             proposal.get("scope") == SCOPE
@@ -225,8 +257,8 @@ def record_answer(state: RunState, row):
     return {"kind": "limit" if protected else "machinery", "questions": []}
 
 
-def refused(state: RunState, proposal):
-    return saved_disposition(state, proposal) in ("machinery", "invalid")
+def refused(state: RunState, proposal, *, _ledger=None):
+    return saved_disposition(state, proposal, _ledger=_ledger) in ("machinery", "invalid")
 
 
 def _reference(proposal):
@@ -235,7 +267,7 @@ def _reference(proposal):
     return identity if isinstance(identity, str) else None
 
 
-def incidents(state: RunState):
+def incidents(state: RunState, *, _ledger=None):
     """Unresolved generic incidents; existing typed domains retain their own reader."""
     resolver = state.get("resolver") or {}
     if not isinstance(resolver, dict):
@@ -243,16 +275,17 @@ def incidents(state: RunState):
     identities, records = resolver.get("operational_diagnostics") or [], resolver.get("operational_receipts") or {}
     if not isinstance(identities, list) or not isinstance(records, dict):
         return [{"receipt": {"id": None}, "summary": MESSAGE}]
+    ledger = _ledger or _Ledger(state)
     retired = set()
     found = []
     for identity in reversed(identities):
         if not isinstance(identity, str):
             found.append({"receipt": {"id": None}, "summary": MESSAGE})
             continue
-        owner = receipt_identity.scope(records.get(identity), identity)
+        owner = ledger.scope(identity)
         if owner is not None and owner != receipt_identity.DIAGNOSTIC:
             continue
-        row = diagnostic(state, identity)
+        row = ledger.diagnostic(identity)
         if row is None:
             # Missing or altered runner evidence cannot silently discharge an
             # incident. This is denial only; no identity can authorize recovery.
@@ -262,31 +295,33 @@ def incidents(state: RunState):
         evidence = detail.get("evidence") or {}
         action = row["decision"].get("action")
         if action == "recovered":
-            original = diagnostic(state, evidence.get("recovered_receipt_id"))
+            original = ledger.diagnostic(evidence.get("recovered_receipt_id"))
             facts = (original.get("receipt") or {}).get("evidence") or {} if original else {}
             if original and all(evidence.get(key) == facts.get(key) for key in ("status", "stage", "budget")):
                 retired.add(evidence["recovered_receipt_id"])
         elif (
-            action == "blocked" or action == "hold" and record_disposition(state, row) in ("machinery", "invalid")
-        ) and incident_identity(state, row) not in retired:
+            action == "blocked"
+            or action == "hold"
+            and record_disposition(state, row, _ledger=ledger) in ("machinery", "invalid")
+        ) and incident_identity(state, row, _ledger=ledger) not in retired:
             found.append(row)
     # Authenticate legacy publications (including consumed replies) before reading facts.
-    for proposal in reversed(list(_publications(state))):
-        if not refused(state, proposal):
+    for proposal in reversed(ledger.proposals):
+        if not refused(state, proposal, _ledger=ledger):
             continue
         source = _reference(proposal)
-        row = diagnostic(state, source)
+        row = ledger.diagnostic(source)
         if source not in retired:
             found.append(row or {"receipt": {"id": None}, "summary": MESSAGE})
     proposal = state.get(RESOLVER_PROPOSAL_KEY)
-    if isinstance(proposal, dict) and refused(state, proposal):
+    if isinstance(proposal, dict) and refused(state, proposal, _ledger=ledger):
         source = _reference(proposal)
-        row = diagnostic(state, source)
+        row = ledger.diagnostic(source)
         if source not in retired:
             found.append(row or {"receipt": {"id": None}, "summary": MESSAGE})
     unique: dict[str | None, dict] = {}
     for row in found:
-        unique.setdefault(incident_identity(state, row), row)
+        unique.setdefault(incident_identity(state, row, _ledger=ledger), row)
     return list(unique.values())
 
 
@@ -295,8 +330,9 @@ def held(state: RunState):
     return next(iter(incidents(state)), None)
 
 
-def original_detail(state: RunState, row):
-    original = diagnostic(state, incident_identity(state, row))
+def original_detail(state: RunState, row, *, _ledger=None):
+    identity = incident_identity(state, row, _ledger=_ledger)
+    original = _ledger.diagnostic(identity) if _ledger else diagnostic(state, identity)
     return original["receipt"] if original else {}
 
 
@@ -304,9 +340,9 @@ def same_run(state: RunState, binding):
     return all(binding.get(key) == state.get(key) for key in ("task_id", "task", "workspace", "run_dir"))
 
 
-def planning_input(state: RunState, row):
+def planning_input(state: RunState, row, *, _ledger=None):
     """A committed owner correction to this planning incident, never a flag or answer."""
-    detail = original_detail(state, row)
+    detail = original_detail(state, row, _ledger=_ledger)
     evidence, binding = detail.get("evidence") or {}, detail.get("evaluation_binding") or {}
     if evidence.get("status") not in pause_authority.FEEDBACK_ACKNOWLEDGES or not same_run(state, binding):
         return None
@@ -368,9 +404,9 @@ def _later_events(state: RunState, binding):
     return events[start:] if start is not None else None
 
 
-def recovery_facts(state: RunState, row, selection, result):
+def recovery_facts(state: RunState, row, selection, result, *, _ledger=None):
     """Revalidate an actual handler result against its existing saved ledger."""
-    detail = original_detail(state, row)
+    detail = original_detail(state, row, _ledger=_ledger)
     evidence, binding = detail.get("evidence") or {}, detail.get("evaluation_binding") or {}
     later = _later_events(state, binding)
     if later is None:
@@ -579,15 +615,15 @@ def recovery_facts(state: RunState, row, selection, result):
 
 def checked_recovery(state: RunState, row):
     """A diagnostic is insufficient: its exact handler ledger must still agree."""
-    original = incident_identity(state, row)
-    detail = original_detail(state, row)
+    ledger = _Ledger(state)
+    original = incident_identity(state, row, _ledger=ledger)
+    detail = original_detail(state, row, _ledger=ledger)
     facts = detail.get("evidence") or {}
     binding = detail.get("evaluation_binding") or {}
     if not original or not same_run(state, binding):
         return None
-    resolver = state.get("resolver") or {}
-    for identity in reversed(resolver.get("operational_diagnostics") or []):
-        witness = diagnostic(state, identity)
+    for identity in reversed(ledger.identities):
+        witness = ledger.diagnostic(identity)
         if witness is None or witness["decision"].get("action") != "recovery_checked":
             continue
         detail = witness["receipt"]
@@ -608,7 +644,7 @@ def checked_recovery(state: RunState, row):
             or _later_events(state, checked_binding) is None
         ):
             continue
-        current = recovery_facts(state, row, evidence.get("selection"), evidence.get("result"))
+        current = recovery_facts(state, row, evidence.get("selection"), evidence.get("result"), _ledger=ledger)
         if current is not None and current == evidence.get("facts"):
             return {"receipt_id": identity, "selection": evidence["selection"], "facts": current}
     return None
@@ -616,15 +652,16 @@ def checked_recovery(state: RunState, row):
 
 def decision(state: RunState):
     """One saved-fact disposition for admission and the public projection."""
-    rows = incidents(state)
+    ledger = _Ledger(state)
+    rows = incidents(state, _ledger=ledger)
     if not rows:
         return None
-    blocked = next((row for row in rows if planning_input(state, row) is None), None)
+    blocked = next((row for row in rows if planning_input(state, row, _ledger=ledger) is None), None)
     row = blocked or rows[0]
     return {
         "kind": "blocked" if blocked is not None else "planning_input",
         "record": row,
-        "input": planning_input(state, row),
+        "input": planning_input(state, row, _ledger=ledger),
     }
 
 
