@@ -234,21 +234,31 @@ def dispatch(run: TaskRun, view: dict, command: actions.NamedCommand) -> None:
 
 
 def answer_all(run: TaskRun, answers: dict[str, str]) -> str:
-    """Answer each open question in its own invocation; every answer reissues the request's token."""
-    answered = []
-    for _ in range(len(answers)):
-        view = run.status()
-        need = view.get("needs") or {}
-        if need.get("kind") != "answer":
-            break
-        open_ids = [str(row.get("id")) for row in need.get("questions") or ()]
-        wanted = next((key for key in answers if key in open_ids), None)
-        if wanted is None:
-            break  # the remaining answers name questions this request no longer carries
-        run.answer(wanted, answers[wanted], resolver_token=need.get("resolver_token"))
-        answered.append(wanted)
-    if not answered:
+    """Answer all open questions from ``answers`` in a single CLI invocation when batched (#3650)."""
+    view = run.status()
+    need = view.get("needs") or {}
+    open_ids = [str(row.get("id")) for row in need.get("questions") or ()] if need.get("kind") == "answer" else []
+    batch = {key: value for key, value in answers.items() if key in open_ids}
+    if not batch:
         raise BridgeError("the run no longer carries those questions; the current gate is being relayed")
+    token = need.get("resolver_token")
+    if len(batch) == 1:
+        qid, text = next(iter(batch.items()))
+        run.answer(qid, text, resolver_token=token)
+        answered = [qid]
+    elif hasattr(run, "answer_many"):
+        run.answer_many(batch, resolver_token=token)
+        answered = list(batch)
+    else:
+        answered = []
+        for idx, (qid, text) in enumerate(batch.items()):
+            if idx:
+                need = run.status().get("needs") or {}
+                if need.get("kind") != "answer" or qid not in [str(r.get("id")) for r in need.get("questions") or ()]:
+                    break
+                token = need.get("resolver_token")
+            run.answer(qid, text, resolver_token=token)
+            answered.append(qid)
     missing = [key for key in answers if key not in answered]
     note = "Answered " + ", ".join(answered) + "."
     return note + (f" Still open, answer again: {', '.join(missing)}." if missing else "")

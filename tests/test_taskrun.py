@@ -220,6 +220,7 @@ class RunViewTests(unittest.TestCase):
                 "coordination",
                 "related_profile",
                 "proxied_requirements",
+                "requirements",
             },
             set(run_view.view({"status": "RUNNING"})),
         )
@@ -302,6 +303,72 @@ class RunViewTests(unittest.TestCase):
         self.assertFalse(activity["search_arguments"]["complete"])
         self.assertEqual("unavailable", activity["basis"])
         self.assertFalse(activity["complete"], "Historical tool activity is unavailable, never complete zero")
+
+    def test_requirements_projection_and_pre_contract_handoff_binding(self):
+        import autocode_goals as goals
+
+        self.assertIsNone(run_view.view({"status": "RUNNING"})["requirements"])
+        report = {
+            "intended_outcome": "Build a greeting CLI",
+            "requirements": [{"id": "R1", "text": "Print Hello NAME", "source_quote": "greeting CLI"}],
+            "proposed_assumptions": [
+                {
+                    "id": "A1",
+                    "text": "Exit 2 on missing name",
+                    "category": "behavior",
+                    "convention_ref": "",
+                    "rationale": "Standard CLI usage exit code",
+                    "supports": ["R1"],
+                }
+            ],
+            "acceptance_tests": ["greet.py Ana -> Hello, Ana"],
+            "conflicts": ["README says exit 1 while brief leaves exit code unspecified"],
+        }
+        state = {
+            "status": "WAITING_FOR_USER",
+            "settings": {"joint_planning": True},
+            "requirements_handoff": {"report": report, "output": "/runs/r1/req-01.json"},
+            "pending_questions": [
+                {
+                    "id": "Q1",
+                    "question": "Which interface?",
+                    "why": "Sets entry point",
+                    "options": ["CLI", "Web"],
+                    "proposed_default": "CLI",
+                    "category": "behavior",
+                    "delegable": True,
+                }
+            ],
+        }
+        shown = run_view.view(copy.deepcopy(state))
+        req_view = shown["requirements"]
+        self.assertIsNotNone(req_view)
+        self.assertEqual("Build a greeting CLI", req_view["intended_outcome"])
+        self.assertEqual(
+            [{"id": "R1", "text": "Print Hello NAME", "source_quote": "greeting CLI"}], req_view["requirements"]
+        )
+        self.assertEqual(["greet.py Ana -> Hello, Ana"], req_view["acceptance_tests"])
+        self.assertEqual(["README says exit 1 while brief leaves exit code unspecified"], req_view["conflicts"])
+        self.assertEqual(1, len(req_view["proposed_assumptions"]))
+        self.assertEqual("A1", req_view["proposed_assumptions"][0]["id"])
+        self.assertEqual("Standard CLI usage exit code", req_view["proposed_assumptions"][0]["rationale"])
+        self.assertFalse(req_view["proposed_assumptions"][0]["confirmed"])
+        self.assertIs(True, shown["needs"]["questions"][0]["allow_custom"])
+
+        # Before goal_contract exists, check_displayed_handoff and reject_assumption bind to handoff_ref.
+        with self.assertRaisesRegex(ValueError, "Act only on the current displayed revision"):
+            goals.check_displayed_handoff(state, "stale-ref")
+        goals.check_displayed_handoff(state, req_view["handoff_ref"])
+        delegated_state = copy.deepcopy(state)
+        goals.delegate_all(delegated_state, req_view["handoff_ref"])
+        self.assertEqual("CLI", delegated_state["answers"]["Q1"]["text"])
+        rejected_state = copy.deepcopy(state)
+        obligation = goals.reject_assumption(rejected_state, "A1", req_view["handoff_ref"])
+        self.assertEqual("A1", obligation["assumption_id"])
+        self.assertEqual("requirements_gather", rejected_state["next_stage"])
+        # Rejected assumption is excluded from active proposed_assumptions projection.
+        after_reject = run_view.view(rejected_state)["requirements"]
+        self.assertEqual([], after_reject["proposed_assumptions"])
 
     def test_dev_server_is_the_callers_inspection_copied(self):
         self.assertIsNone(run_view.view({"status": "RUNNING"})["dev_server"])
@@ -786,7 +853,16 @@ class RunViewTests(unittest.TestCase):
         need = run_view.needs(state)
         self.assertEqual(("answer", "permission"), (need["kind"], need["request_kind"]))
         self.assertEqual(
-            [{"id": "q1", "question": "Use a network?", "why": "tests", "options": ["no"], "proposed_default": "no"}],
+            [
+                {
+                    "id": "q1",
+                    "question": "Use a network?",
+                    "why": "tests",
+                    "options": ["no"],
+                    "proposed_default": "no",
+                    "allow_custom": False,
+                }
+            ],
             need["questions"],
         )
 

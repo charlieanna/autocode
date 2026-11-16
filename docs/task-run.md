@@ -1448,7 +1448,7 @@ All commands take `--workspace WORKSPACE`; commands on an existing run add
 | Resume a pause | `autocode resume --no-chat [options]`; after editing the design at `PAUSED_DESIGN_CONFLICT`, `autocode --resume-paused --no-chat [options]` | 0 complete, 2 stopped for input |
 | Grant N recoveries after resolving the cause | `autocode --resume-paused --grant-recovery N --no-chat [options]` | 0 complete, 2 stopped for input |
 | Accept a changed OpenCode transport | `autocode --resume-paused --accept-transport-change --no-chat [options]` | 0 complete, 2 stopped for input |
-| Answer | `autocode --answer QUESTION_ID=TEXT --resolver-token TOKEN` (`--answer` repeatable); a question with `options` takes only one of its option labels or its `proposed_default`, exactly | 0 saved, 2 rejected |
+| Answer | `autocode --answer QUESTION_ID=TEXT --resolver-token TOKEN` (`--answer` repeatable; `TaskRun.answer_many(...)` batches multiple open answers into one invocation); a question with `options` accepts custom free-text when `allow_custom` is `true` (#3650), and otherwise takes only one of its option labels or its `proposed_default`, matched modulo formatting | 0 saved, 2 rejected |
 | Respond to an operational Resolver request | `autocode --resolver-request ID --resolver-token TOKEN --resolver-response provide_information --resolver-message TEXT`; the next resume re-evaluates it once ([below](#operational-information)) | 0 saved, 2 rejected |
 | Name the model a role stopped on quota, a content-filter refusal or an authenticated output limit continues on | `autocode --answer route-ROLE=MODEL --resolver-token TOKEN`, then resume the pause | 0 saved, 2 rejected |
 | Name the model a stopped workflow job continues on (`retry_job` with `route`) | `autocode --answer route-ROLE=MODEL --job-retry-token TOKEN`, then retry the job with the new token | 0 saved, 2 rejected |
@@ -1510,13 +1510,21 @@ before an earlier answer is rejected. Without `resolver_token`,
 `TaskRun.answer()` reads the status view and uses the current request's token
 after checking that the request lists the question. When a person chose the
 answer, pass the token of the view they saw, so it cannot apply to a request
-they never saw. A question that lists `options` is a choice AutoCode acts on, so its
-answer must be one of those labels or the question's `proposed_default`, matched exactly
-apart from surrounding spaces (#1013). Any other text is rejected with the valid labels
+they never saw. When multiple questions are open, `next_command` emits one
+`--answer ID=ANSWER` slot per pending question so clients and `TaskRun.answer_many()`
+submit the batch in one invocation (#3650). Each projected question carries boolean
+`allow_custom`: product and assumption clarifications set `allow_custom: true` and
+accept custom free-text directly through `--answer ID=TEXT` without wiping sibling
+pending questions, while operational, route, effort, scope and rewording questions
+set `allow_custom: false` and require one of `options` or `proposed_default`, matched
+modulo formatting (#1013). On a strict choice question, any other text is rejected with the valid labels
 (`Input rejected:`, exit 2; `TaskRun.answer()` raises): nothing is saved, the token stays
 current, and something the options do not cover goes in `--feedback` (`/feedback` in
 `--chat`, which asks again after a rejected answer). A question without options takes any
-nonempty text. The terminal CLI also shows the remaining question IDs and
+nonempty text. When the current turn has an accepted Requirements handoff, `view.requirements`
+projects `{handoff_ref, intended_outcome, requirements, proposed_assumptions, acceptance_tests, conflicts}`
+(`null` otherwise), and `--delegate-all` / `--reject-assumption` bind `--review-token` to
+`handoff_ref` before a goal contract exists (#3650). The terminal CLI also shows the remaining question IDs and
 the exact `--answer` command on stderr after each successful answer and on `--status`; that
 command names `--resolver-token -`, which reads the current token from the run it names, so the
 value never appears in a terminal, a log or a relayed message (#2958). `--status`
@@ -2589,7 +2597,7 @@ run is waiting for:
 | `kind` | Waiting for | Extra fields | Answer with |
 | --- | --- | --- | --- |
 | `approve_plan` | approval of the plan AutoCode displayed | `token` | Approve the plan |
-| `answer` | answers to clarifying questions or a decision | `questions` (id, question, why, options, proposed_default), `request_kind`; for a question Resolver published, also `resolver_request_id`, `resolver_token` and `resolver_scope`; with `resolver_scope` `blocker` or `operational_exhaustion` (and no `route`), `action` is the response command; when `pause_origin` is `PAUSED_NO_PROGRESS` because a repeated incident was held, also `retry_action` (`--resume-paused --retry-failed-stage`), the one scoped retry the hold admits after inspection | Answer, with the current `resolver_token`; the questions left return under a new one. A question with `options` takes exactly one of those labels or its `proposed_default`; free text answers only a question without options. A `blocker` or `operational_exhaustion` request refuses `--answer` and takes `action` (`respond_operational()`), or, after inspection, `retry_action` (`retry_failed_stage()`) |
+| `answer` | answers to clarifying questions or a decision | `questions` (id, question, why, options, proposed_default, allow_custom), `request_kind`; for a question Resolver published, also `resolver_request_id`, `resolver_token` and `resolver_scope`; with `resolver_scope` `blocker` or `operational_exhaustion` (and no `route`), `action` is the response command; when `pause_origin` is `PAUSED_NO_PROGRESS` because a repeated incident was held, also `retry_action` (`--resume-paused --retry-failed-stage`), the one scoped retry the hold admits after inspection | Answer, with the current `resolver_token` (`next_command` lists every open `--answer ID=ANSWER`); remaining questions return under a new token. A question with `options` accepts free text when `allow_custom` is `true`, and otherwise takes one of those labels or its `proposed_default`. A `blocker` or `operational_exhaustion` request refuses `--answer` and takes `action` (`respond_operational()`), or, after inspection, `retry_action` (`retry_failed_stage()`) |
 | `review` | a person to accept specific acceptance criteria | `criteria`, `token`, `question` | Approve a review, per criterion |
 | `planning_budget` | more plan-review calls | `reason` | Plan feedback, or `--planning-review-call-limit N` |
 | `recover_source` | an attempt without a saved original source identity | retained retry metadata, `recovery_hint`; `action` is null | Inspect the archive and current changes before a new run |

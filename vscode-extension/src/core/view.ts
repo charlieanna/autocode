@@ -62,6 +62,38 @@ export interface Question {
   why?: string;
   options?: string[];
   proposed_default?: string | null;
+  allow_custom?: boolean;
+}
+
+export interface RequirementRow {
+  id: string;
+  text: string;
+  source_quote: string;
+}
+
+export interface ProposedAssumption {
+  id: string;
+  text: string;
+  category: string;
+  convention_ref: string;
+  rationale: string;
+  confirmed: boolean;
+}
+
+export type RequirementConflict = string | { requirement_ids: string[]; description: string };
+
+export interface RequirementsView {
+  handoff_ref: string;
+  intended_outcome: string;
+  requirements: RequirementRow[];
+  proposed_assumptions: ProposedAssumption[];
+  acceptance_tests: string[];
+  conflicts: RequirementConflict[];
+}
+
+export interface ChatGate {
+  kind: string;
+  [key: string]: unknown;
 }
 
 export interface Route {
@@ -227,6 +259,8 @@ export interface StatusView {
   } | null;
   /** Ready to go on, but another run holds the folder its next step needs: display text, never authority. */
   checkout_wait?: { run_dir?: string; since?: string | null; text?: string } | null;
+  /** Structured current-turn Requirements handoff (#3650), or null before the turn has one. */
+  requirements?: RequirementsView | null;
   chat?: {
     messages: { id: string; role: string; text: string; streaming?: boolean }[];
     phase?: "requirements" | null;
@@ -241,6 +275,7 @@ export interface StatusView {
     now?: { agent: string; text: string }[];
     review?: { question_id: string; answer: string; label: string; summary?: string;
       spend_confirmation?: { title: string; detail: string; label: string; match?: "trim_lower" } } | null;
+    gate?: ChatGate | null;
     context: string;
     /** `message` is offered while the run works: saved for the next stage boundary (#3259). */
     input: { kind: "feedback" | "follow_up" | "resolver_response" | "message"; label: string; next_command: string } | null;

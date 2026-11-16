@@ -1713,7 +1713,9 @@ def chat_checkpoint(state: RunState, run_dir=None, *, persist=None, native=None)
                             action(
                                 lambda candidate: goals.resolve_permission(candidate, question["id"], reply), published
                             )
-                        elif refused := goals.answer_options.refusal(question, reply, feedback="/feedback TEXT"):
+                        elif refused := goals.answer_options.state_refusal(
+                            state, question, reply, feedback="/feedback TEXT", resolver_scope=published.get("scope")
+                        ):
                             print(refused)
                             continue
                         else:

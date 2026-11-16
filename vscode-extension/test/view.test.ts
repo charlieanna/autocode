@@ -305,3 +305,32 @@ test("approval refuses missing, empty or malformed canonical review content", ()
     assert.equal(planForApproval(approvalProjection({ review_markdown })), null, JSON.stringify(review_markdown));
   }
 });
+
+test("readStatusPayload preserves additive requirements, allow_custom, and chat.gate fields (#3650)", () => {
+  const view = readStatusPayload(envelope({
+    status: "WAITING_FOR_USER",
+    done: false,
+    needs: {
+      kind: "answer",
+      questions: [{ id: "Q1", question: "Format?", why: "Sets parser", options: ["JSON", "TOML"], proposed_default: "JSON", allow_custom: true }],
+    },
+    requirements: {
+      handoff_ref: "abc123def456",
+      intended_outcome: "Parse config",
+      requirements: [{ id: "R1", text: "Support config file", source_quote: "parse config" }],
+      proposed_assumptions: [{ id: "A1", text: "Default ~/.app.json", category: "behavior", convention_ref: "", rationale: "Standard user path", confirmed: false }],
+      acceptance_tests: ["Reads ~/.app.json"],
+      conflicts: [],
+    },
+    chat: {
+      messages: [],
+      context: "ctx-1",
+      input: null,
+      gate: { kind: "answer", summary: "Waiting on Q1" },
+    },
+  }));
+  assert.equal(view.needs?.questions?.[0]?.allow_custom, true);
+  assert.equal(view.requirements?.handoff_ref, "abc123def456");
+  assert.equal(view.requirements?.proposed_assumptions?.[0]?.id, "A1");
+  assert.equal(view.chat?.gate?.kind, "answer");
+});

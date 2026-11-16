@@ -28,7 +28,7 @@
         "provider", "route_assignments", "stage_models", "project_notes", "implementation_discrepancy", "information_review", "tool_containment", "job_report_recovery", "report_repair",
         "efficiency", "conversation", "chat", "workspace", "run_dir", "planning_depth", "stage_policy", "stage_decisions", "pause", "package",
         "tool_containment_backend", "changes_by_criterion", "dev_server", "execution", "observation", "attention",
-        "scope", "coordination", "related_profile", "proxied_requirements", "request_sources", "run_metrics", "pipeline", "worktree", "checkout_wait"
+        "scope", "coordination", "related_profile", "proxied_requirements", "requirements", "request_sources", "run_metrics", "pipeline", "worktree", "checkout_wait"
       ],
       "properties": {
         "execution": {
@@ -99,7 +99,22 @@
           "required": ["kind"],
           "properties": {
             "kind": {"type": "string"},
-            "confirmation_required": {"type": "boolean", "description": "False only for a plain resume of a clean requested pause: the Resume click needs no duplicate dialog. It remains person-only and never authorizes automatic continuation. Missing retains the client's confirmation policy."}
+            "confirmation_required": {"type": "boolean", "description": "False only for a plain resume of a clean requested pause: the Resume click needs no duplicate dialog. It remains person-only and never authorizes automatic continuation. Missing retains the client's confirmation policy."},
+            "questions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["id", "question", "why", "options", "proposed_default", "allow_custom"],
+                "properties": {
+                  "id": {"type": ["string", "null"]},
+                  "question": {"type": ["string", "null"]},
+                  "why": {"type": ["string", "null"]},
+                  "options": {"type": ["array", "null"], "items": {"type": "string"}},
+                  "proposed_default": {"type": ["string", "null"]},
+                  "allow_custom": {"type": "boolean", "description": "True when custom free-text is accepted via --answer ID=TEXT beyond the offered options (#3650); false for strict operational, route, effort, scope and rewording choices."}
+                }
+              }
+            }
           }
         },
         "pause_category": {
@@ -1059,7 +1074,55 @@
             }
           }
         },
-        "proxied_requirements": {"type": "array", "items": {"type": "object", "required": ["requirement_id", "evidence", "proxy_reason"], "properties": {"requirement_id": {"type": ["string", "null"]}, "evidence": {"type": ["string", "null"]}, "proxy_reason": {"type": ["string", "null"]}}}, "description": "The requirements the current plan proves only on a stand-in because code outside this checkout renders what the user sees (#2068): the criteria it cites (evidence) and why (proxy_reason); [] when none or no plan yet. Documented in docs/task-run.md."}
+        "proxied_requirements": {"type": "array", "items": {"type": "object", "required": ["requirement_id", "evidence", "proxy_reason"], "properties": {"requirement_id": {"type": ["string", "null"]}, "evidence": {"type": ["string", "null"]}, "proxy_reason": {"type": ["string", "null"]}}}, "description": "The requirements the current plan proves only on a stand-in because code outside this checkout renders what the user sees (#2068): the criteria it cites (evidence) and why (proxy_reason); [] when none or no plan yet. Documented in docs/task-run.md."},
+        "requirements": {
+          "type": ["object", "null"],
+          "description": "Structured current-turn Requirements handoff (#3650): intended_outcome, requirements, proposed_assumptions, acceptance_tests, conflicts and handoff_ref; null before the current turn has a Requirements handoff.",
+          "required": ["handoff_ref", "intended_outcome", "requirements", "proposed_assumptions", "acceptance_tests", "conflicts"],
+          "properties": {
+            "handoff_ref": {"type": "string"},
+            "intended_outcome": {"type": "string"},
+            "requirements": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["id", "text", "source_quote"],
+                "properties": {
+                  "id": {"type": "string"},
+                  "text": {"type": "string"},
+                  "source_quote": {"type": "string"}
+                }
+              }
+            },
+            "proposed_assumptions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["id", "text", "category", "convention_ref", "rationale", "confirmed"],
+                "properties": {
+                  "id": {"type": "string"},
+                  "text": {"type": "string"},
+                  "category": {"type": "string"},
+                  "convention_ref": {"type": "string"},
+                  "rationale": {"type": "string"},
+                  "confirmed": {"type": "boolean"}
+                }
+              }
+            },
+            "acceptance_tests": {"type": "array", "items": {"type": "string"}},
+            "conflicts": {
+              "type": "array",
+              "items": {
+                "type": ["string", "object"],
+                "required": ["requirement_ids", "description"],
+                "properties": {
+                  "requirement_ids": {"type": "array", "items": {"type": "string"}},
+                  "description": {"type": "string"}
+                }
+              }
+            }
+          }
+        }
       }
     },
     "result": {

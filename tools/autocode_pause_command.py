@@ -76,10 +76,16 @@ def command(
                 "--resolver-message",
                 "WHAT CHANGED",
             ]
-        elif token and (route.get("question_id") or need.get("questions")):
-            question = route.get("question_id") or need["questions"][0].get("id")
-            if question:
-                flags = ["--answer", f"{question}={'MODEL' if route else 'ANSWER'}", "--resolver-token", token]
+        elif token and route.get("question_id"):
+            flags = ["--answer", f"{route['question_id']}=MODEL", "--resolver-token", token]
+        elif token and need.get("questions"):
+            question_ids = [str(row["id"]) for row in need["questions"] if isinstance(row, dict) and row.get("id")]
+            if question_ids:
+                flags = [
+                    *(item for qid in question_ids for item in ("--answer", f"{qid}=ANSWER")),
+                    "--resolver-token",
+                    token,
+                ]
         elif route.get("question_id"):
             # A cross-model stop derives its question from the saved routes; no issued
             # token binds it. The answer is its own action; --resume-paused comes next.

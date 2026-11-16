@@ -1718,3 +1718,294 @@ test('walk project index isolation creates and cleans up a temporary index home 
   assert.equal(isolateWalkProjectIndex(explicitEnv), null);
   assert.equal(explicitEnv.AUTOCODE_PROJECT_INDEX_HOME, '/custom/index-home');
 });
+
+test('walk: multi-question batch answers with custom Other input and structured assumption card work end-to-end (#3650)', { skip }, async (t) => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'walk-batch-3650-')));
+  const xdg = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'walk-batch-3650-xdg-')));
+  t.after(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(xdg, { recursive: true, force: true });
+  });
+  const git = (...args) => execFileSync('git', ['-C', root, ...args], { stdio: 'pipe' });
+  git('init', '-q');
+  git('config', 'user.email', 'walk@test');
+  git('config', 'user.name', 'Walk');
+  fs.writeFileSync(path.join(root, 'greet.py'), "print('hi')\n");
+  git('add', 'greet.py');
+  git('commit', '-qm', 'seed');
+
+  const providers = path.join(xdg, 'autocode', 'providers');
+  fs.mkdirSync(providers, { recursive: true });
+  const providerScript = path.join(xdg, 'batch_provider.py');
+  fs.writeFileSync(
+    providerScript,
+    String.raw`#!/usr/bin/env python3
+import json, sys
+from pathlib import Path
+
+if sys.argv[1:] == ["login", "status"]:
+    print("Logged in (offline fixture)")
+    raise SystemExit(0)
+
+prompt = sys.stdin.read()
+schema_path = Path(sys.argv[sys.argv.index("--output-schema") + 1])
+schema = json.loads(schema_path.read_text())
+report_path = Path(sys.argv[sys.argv.index("-o") + 1])
+
+if "open_questions" in schema.get("properties", {}):
+    props = schema.get("properties", {})
+    q_props = ((props.get("open_questions") or {}).get("items") or {}).get("properties") or {}
+    data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+    saved = data.get("saved_answers") or {}
+    by_qid = {
+        qid: row.get("text")
+        for qid, row in saved.items()
+        if isinstance(row, dict) and isinstance(row.get("text"), str) and row.get("text")
+    }
+    na = {"status": "not_applicable", "refs": []}
+    base = {
+        "project_conventions": [],
+        "ignored_requirements": [],
+        "machine_resolutions": [],
+        "access_blockers": [],
+        "task_kind": "build",
+        "workspace_scope": {"spans_repositories": False, "external_parts": []},
+    }
+    if not {"Q1", "Q2"} <= set(by_qid):
+        questions = [
+            {
+                "id": "Q1",
+                "question": "Which output format should greet.py emit?",
+                "why": "Sets the CLI output contract.",
+                "options": ["Plain text", "JSON"],
+                "proposed_default": "Plain text",
+                "kind": "decision",
+                "category": "behavior",
+                "delegable": True,
+                "convention_ref": "",
+            },
+            {
+                "id": "Q2",
+                "question": "Where should greeting history be stored?",
+                "why": "Determines persistence path.",
+                "options": ["SQLite", "JSONL"],
+                "proposed_default": "SQLite",
+                "kind": "decision",
+                "category": "behavior",
+                "delegable": True,
+                "convention_ref": "",
+            },
+        ]
+        full = {
+            **base,
+            "ready": False,
+            "job": "build",
+            "design_document": "",
+            "clarity": "vague",
+            "summary": "Clarifying output format and storage.",
+            "assistant_reply": "Let's settle two quick choices before planning.",
+            "intended_outcome": "Greeting CLI with history",
+            "requirements": [],
+            "required_behaviors": [],
+            "acceptance_tests": [],
+            "constraints": [],
+            "source_refs": [],
+            "proposed_assumptions": [],
+            "open_questions": [{k: v for k, v in q.items() if not q_props or k in q_props} for q in questions],
+            "ignored_statements": [],
+            "conflicts": [],
+            "proposed_reframes": [],
+            "ambiguity_audit": {
+                "outcome_scope": {"status": "open_question", "refs": ["Q1", "Q2"]},
+                "inputs_and_edge_cases": dict(na),
+                "error_and_failure_behavior": dict(na),
+                "compatibility_and_callers": dict(na),
+                "ux_and_output_contract": dict(na),
+                "state_and_side_effects": dict(na),
+            },
+        }
+    else:
+        full = {
+            **base,
+            "job": "build",
+            "design_document": "",
+            "clarity": "clear",
+            "summary": f"Format={by_qid['Q1']}, Storage={by_qid['Q2']}.",
+            "assistant_reply": "Here is the complete specification with one assumption to confirm.",
+            "intended_outcome": f"Emit {by_qid['Q1']} greetings stored in {by_qid['Q2']}",
+            "requirements": [
+                {"id": "R1", "text": f"Emit {by_qid['Q1']}", "source_quote": by_qid["Q1"]},
+                {"id": "R2", "text": f"Persist to {by_qid['Q2']}", "source_quote": by_qid["Q2"]},
+            ],
+            "required_behaviors": [f"Emit {by_qid['Q1']}", f"Store in {by_qid['Q2']}"],
+            "acceptance_tests": [f"Running greet.py writes to {by_qid['Q2']}"],
+            "constraints": [],
+            "source_refs": ["greet.py:1"],
+            "proposed_assumptions": [
+                {
+                    "id": "A1",
+                    "text": "Create parent directory automatically if missing",
+                    "kind": "inferable",
+                    "category": "behavior",
+                    "convention_ref": "greet.py:1",
+                    "rationale": "First-run CLI invocation should not fail on missing directory",
+                    "supports": ["R2"],
+                }
+            ],
+            "open_questions": [],
+            "ignored_statements": [],
+            "conflicts": [],
+            "proposed_reframes": [],
+            "ambiguity_audit": {
+                "outcome_scope": {"status": "specified_in_source", "refs": ["task", "Q1", "Q2"]},
+                "inputs_and_edge_cases": dict(na),
+                "error_and_failure_behavior": dict(na),
+                "compatibility_and_callers": dict(na),
+                "ux_and_output_contract": dict(na),
+                "state_and_side_effects": dict(na),
+            },
+        }
+    out = {k: v for k, v in full.items() if k in props}
+else:
+    raise SystemExit("unexpected schema in batch walk test")
+
+report_path.write_text(json.dumps(out))
+print(
+    json.dumps(
+        {
+            "type": "item.completed",
+            "item": {
+                "id": "read-sources",
+                "type": "command_execution",
+                "command": "head -n 1 greet.py",
+                "exit_code": 0,
+                "aggregated_output": "",
+            },
+        }
+    )
+)
+print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 100, "output_tokens": 50}}))
+`,
+  );
+  fs.chmodSync(providerScript, 0o755);
+  const toml = [
+    'name = "fake"',
+    'output = "report_file"',
+    `command = ${JSON.stringify([CLI, providerScript, '--output-schema', '{schema}', '-o', '{report}', '--model', '{model}', '-'])}`,
+    '',
+    '[roles]',
+  ];
+  for (const role of ['task_planner', 'planner', 'plan_reviewer', 'builder', 'tester', 'completion']) {
+    toml.push(`${role} = { model = "fake/${role}", effort = "medium" }`);
+  }
+  fs.writeFileSync(path.join(providers, 'fake.toml'), toml.join('\n') + '\n');
+
+  const prevXdg = process.env.XDG_CONFIG_HOME;
+  process.env.XDG_CONFIG_HOME = xdg;
+  t.after(() => {
+    if (prevXdg === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = prevXdg;
+  });
+
+  host.config.set('cliPath', CLI);
+  host.config.set('cliArgs', [SCRIPT]);
+  host.config.set('provider', 'fake');
+  host.config.set('confirmPersonOnly', false);
+  host.config.set('notify', false);
+  host.config.set('pollSeconds', 1);
+
+  let selectedRun = null;
+  const controller = new RunController(host.log);
+  let receive;
+  const webview = {
+    html: '',
+    options: {},
+    onDidReceiveMessage: (callback) => { receive = callback; },
+    postMessage: async (data) => { webview.deliver?.(data); return true; },
+  };
+  const shell = { visible: true, webview, onDidChangeVisibility: () => {}, onDidDispose() {} };
+  const chat = new ChatView(
+    controller,
+    { get: () => undefined, update: async () => {} },
+    { pickWorkspace: async () => root, confirmStart: async () => true, changed() {}, selected: (r) => { selectedRun = r; } },
+  );
+  t.after(() => chat.dispose());
+  chat.resolveWebviewView(shell);
+  const dom = new JSDOM(webview.html, { runScripts: 'outside-only' });
+  t.after(() => dom.window.close());
+  let saved = {};
+  dom.window.acquireVsCodeApi = () => ({
+    postMessage: (message) => receive(message),
+    getState: () => saved,
+    setState: (value) => { saved = value; },
+  });
+  webview.deliver = (data) => dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data }));
+  dom.window.eval(dom.window.document.querySelector('script').textContent);
+  await flush();
+
+  const diag = () => `error=${dom.window.document.querySelector('#chat-error').textContent} | app=${dom.window.document.querySelector('#app').textContent}`;
+  assert.ok(
+    await waitFor(() => dom.window.document.querySelector('#composer') && !dom.window.document.querySelector('#message').disabled, 15000),
+    `composer ready: ${diag()}`,
+  );
+
+  const msg = dom.window.document.querySelector('#message');
+  msg.value = 'Build a greeting CLI with history';
+  msg.dispatchEvent(new dom.window.Event('input'));
+  dom.window.document.querySelector('#composer').dispatchEvent(new dom.window.Event('submit', { cancelable: true }));
+
+  // Both Q1 and Q2 render together in the batch card with rationale and defaults once the turn settles.
+  assert.ok(
+    await waitFor(
+      () => {
+        const btn = dom.window.document.querySelector('#take-action');
+        return (
+          dom.window.document.querySelector('[data-question="Q1"]') &&
+          dom.window.document.querySelector('[data-question="Q2"]') &&
+          btn &&
+          !btn.disabled
+        );
+      },
+      30000,
+    ),
+    `both batch questions rendered and ready: ${diag()}`,
+  );
+  const appText = dom.window.document.querySelector('#app').textContent;
+  assert.ok(appText.includes('Sets the CLI output contract.'), 'Q1 why rendered');
+  assert.ok(appText.includes('Determines persistence path.'), 'Q2 why rendered');
+
+  const q1 = dom.window.document.querySelector('[data-question="Q1"]');
+  const q2 = dom.window.document.querySelector('[data-question="Q2"]');
+  assert.equal(q1.value, 'Plain text', 'Q1 proposed_default preselected');
+  // Choose custom answer on Q2 without wiping Q1!
+  q2.value = '__autocode_custom__';
+  q2.dispatchEvent(new dom.window.Event('change'));
+  const customQ2 = dom.window.document.querySelector('[data-custom-for="Q2"]');
+  assert.ok(customQ2 && !customQ2.hidden, 'Q2 custom input shown');
+  customQ2.value = 'Custom DuckDB file';
+  customQ2.dispatchEvent(new dom.window.Event('input'));
+
+  const take = dom.window.document.querySelector('#take-action');
+  assert.equal(take.disabled, false);
+  take.click();
+
+  // Turn advances in one batch to the structured assumption confirmation gate!
+  assert.ok(
+    await waitFor(
+      () => {
+        const card = dom.window.document.querySelector('#app .requirements-card');
+        return card && card.textContent.includes('A1') && card.textContent.includes('First-run CLI invocation should not fail');
+      },
+      30000,
+    ),
+    `structured assumption card rendered after batch submit: ${diag()}`,
+  );
+  assert.ok(selectedRun?.runDir, 'runDir recorded');
+  const statusJson = JSON.parse(
+    execFileSync(CLI, [SCRIPT, '--run-dir', selectedRun.runDir, '--status', '--json'], {
+      env: { ...process.env, XDG_CONFIG_HOME: xdg },
+      encoding: 'utf8',
+    }),
+  );
+  assert.equal(statusJson.view.requirements.intended_outcome, 'Emit Plain text greetings stored in Custom DuckDB file');
+});
