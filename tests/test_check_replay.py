@@ -130,7 +130,7 @@ class ReplayTests(unittest.TestCase):
         import autocode_report_repair_queue as report_repair_queue
 
         repair_state = {"settings": {"report_repair": {"max_attempts": 2}}}
-        valid_record = {"exit_code": 0, "source_revision": "rev1"}
+        valid_record = {"exit_code": 0, "source_revision": "rev1", "stage": "validator"}
         self.assertFalse(
             report_repair_queue.queue(repair_state, valid_record, rejected.exception, completed=lambda: True)
         )
