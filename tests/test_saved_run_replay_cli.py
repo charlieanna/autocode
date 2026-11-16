@@ -550,6 +550,220 @@ class SavedRunReplayCliTest(unittest.TestCase):
         self.assertFalse(refused_destination.parent.parent.parent.exists())
         self.assertEqual(evidence_bytes(source), original)
 
+    def test_multi_question_answer_many_and_legacy_five_key_actions_export_and_replay_cleanly(self):
+        project = self.root / "batch-replay-project"
+        project.mkdir()
+        (project / "greet.py").write_text("print('hi')\n")
+        env = {
+            key: value
+            for key, value in os.environ.items()
+            if not key.startswith(("GIT_", "AUTOCODE_FIXTURE_", "BUILD_AUDIT_LIVE_", "REVIEW_AUDIT_LIVE_"))
+            and key
+            not in (
+                "AUTOCODE_PROVIDER",
+                "AUTOCODE_TEST_CLI",
+                "AUTOCODE_TEST_WHEEL",
+                "OPENAI_API_KEY",
+                "CODEX_API_KEY",
+                "OPENAI_BASE_URL",
+                "OPENCODE_CONFIG_CONTENT",
+            )
+        }
+        git_env = {**env, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull}
+        subprocess.run(["git", "init", "-q", str(project)], check=True, env=git_env, timeout=30)
+        for name, value in (("maintenance.auto", "false"), ("gc.auto", "0")):
+            subprocess.run(["git", "-C", str(project), "config", name, value], check=True, env=git_env, timeout=30)
+        subprocess.run(["git", "-C", str(project), "add", "greet.py"], check=True, env=git_env, timeout=30)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(project),
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.test",
+                "commit",
+                "-qm",
+                "Seed greeting fixture",
+            ],
+            check=True,
+            env=git_env,
+            timeout=30,
+        )
+        xdg = self.root / "batch-xdg"
+        providers = xdg / "autocode" / "providers"
+        providers.mkdir(parents=True)
+        provider_script = xdg / "batch_provider.py"
+        provider_script.write_text(
+            "#!/usr/bin/env python3\n"
+            "import json, sys\n"
+            "from pathlib import Path\n"
+            "if sys.argv[1:] == ['login', 'status']:\n"
+            "    print('Logged in (offline fixture)')\n"
+            "    raise SystemExit(0)\n"
+            "prompt = sys.stdin.read()\n"
+            "schema = json.loads(Path(sys.argv[sys.argv.index('--output-schema') + 1]).read_text())\n"
+            "report_path = Path(sys.argv[sys.argv.index('-o') + 1])\n"
+            "props = schema.get('properties', {})\n"
+            "q_props = ((props.get('open_questions') or {}).get('items') or {}).get('properties') or {}\n"
+            "data = json.loads(prompt.split('CURRENT HANDOFF DATA\\n', 1)[1])\n"
+            "saved = data.get('saved_answers') or {}\n"
+            "by_qid = {k: v.get('text') for k, v in saved.items() if isinstance(v, dict) and v.get('text')}\n"
+            "na = {'status': 'not_applicable', 'refs': []}\n"
+            "base = {\n"
+            "    'project_conventions': [], 'ignored_requirements': [], 'machine_resolutions': [],\n"
+            "    'access_blockers': [], 'task_kind': 'build',\n"
+            "    'workspace_scope': {'spans_repositories': False, 'external_parts': []},\n"
+            "}\n"
+            "if not {'Q1', 'Q2'} <= set(by_qid):\n"
+            "    questions = [\n"
+            "        {'id': 'Q1', 'question': 'Which output format?', 'why': 'Sets CLI output.',\n"
+            "         'options': ['Plain text', 'JSON'], 'proposed_default': 'Plain text',\n"
+            "         'kind': 'decision', 'category': 'behavior', 'delegable': True, 'convention_ref': ''},\n"
+            "        {'id': 'Q2', 'question': 'Where should history live?', 'why': 'Sets storage path.',\n"
+            "         'options': ['SQLite', 'JSONL'], 'proposed_default': 'SQLite',\n"
+            "         'kind': 'decision', 'category': 'behavior', 'delegable': True, 'convention_ref': ''},\n"
+            "    ]\n"
+            "    full = {\n"
+            "        **base, 'job': 'build', 'design_document': '', 'clarity': 'vague',\n"
+            "        'summary': 'Clarify output format and storage.', 'intended_outcome': 'Greeting CLI',\n"
+            "        'requirements': [], 'required_behaviors': [], 'acceptance_tests': [], 'constraints': [],\n"
+            "        'source_refs': [], 'proposed_assumptions': [],\n"
+            "        'open_questions': [{k: v for k, v in q.items() if not q_props or k in q_props} for q in questions],\n"
+            "        'ignored_statements': [], 'conflicts': [], 'proposed_reframes': [],\n"
+            "        'ambiguity_audit': {\n"
+            "            'outcome_scope': {'status': 'open_question', 'refs': ['Q1', 'Q2']},\n"
+            "            'inputs_and_edge_cases': dict(na), 'error_and_failure_behavior': dict(na),\n"
+            "            'compatibility_and_callers': dict(na), 'ux_and_output_contract': dict(na),\n"
+            "            'state_and_side_effects': dict(na),\n"
+            "        },\n"
+            "    }\n"
+            "else:\n"
+            "    full = {\n"
+            "        **base, 'job': 'build', 'design_document': '', 'clarity': 'clear',\n"
+            "        'summary': f\"Format={by_qid['Q1']}, Storage={by_qid['Q2']}.\",\n"
+            "        'intended_outcome': f\"Emit {by_qid['Q1']} greetings stored in {by_qid['Q2']}\",\n"
+            "        'requirements': [\n"
+            "            {'id': 'R1', 'text': f\"Emit {by_qid['Q1']}\", 'source_quote': by_qid['Q1']},\n"
+            "            {'id': 'R2', 'text': f\"Persist to {by_qid['Q2']}\", 'source_quote': by_qid['Q2']},\n"
+            "        ],\n"
+            "        'required_behaviors': [f\"Emit {by_qid['Q1']}\", f\"Store in {by_qid['Q2']}\"],\n"
+            "        'acceptance_tests': [f\"Running greet.py writes to {by_qid['Q2']}\"],\n"
+            "        'constraints': [], 'source_refs': ['greet.py:1'],\n"
+            "        'proposed_assumptions': [{\n"
+            "            'id': 'A1', 'text': 'Create parent directory automatically if missing',\n"
+            "            'kind': 'inferable', 'category': 'behavior', 'convention_ref': 'greet.py:1',\n"
+            "            'rationale': 'First-run CLI should not fail on missing directory', 'supports': ['R2'],\n"
+            "        }],\n"
+            "        'open_questions': [], 'ignored_statements': [], 'conflicts': [], 'proposed_reframes': [],\n"
+            "        'ambiguity_audit': {\n"
+            "            'outcome_scope': {'status': 'specified_in_source', 'refs': ['task', 'Q1', 'Q2']},\n"
+            "            'inputs_and_edge_cases': dict(na), 'error_and_failure_behavior': dict(na),\n"
+            "            'compatibility_and_callers': dict(na), 'ux_and_output_contract': dict(na),\n"
+            "            'state_and_side_effects': dict(na),\n"
+            "        },\n"
+            "    }\n"
+            "report_path.write_text(json.dumps({k: v for k, v in full.items() if k in props}))\n"
+            "print(json.dumps({'type': 'item.completed', 'item': {'id': 'read-sources', 'type': 'command_execution',\n"
+            "    'command': 'head -n 1 greet.py', 'exit_code': 0, 'aggregated_output': ''}}))\n"
+            "print(json.dumps({'type': 'turn.completed', 'usage': {'input_tokens': 100, 'output_tokens': 50}}))\n"
+        )
+        provider_script.chmod(0o755)
+        roles_toml = "\n".join(
+            f'{role} = {{ model = "fake/{role}", effort = "medium" }}'
+            for role in ("task_planner", "planner", "plan_reviewer", "builder", "tester", "completion")
+        )
+        cmd_json = json.dumps(
+            [
+                sys.executable,
+                str(provider_script),
+                "--output-schema",
+                "{schema}",
+                "-o",
+                "{report}",
+                "--model",
+                "{model}",
+                "-",
+            ]
+        )
+        (providers / "fake.toml").write_text(
+            f'name = "fake"\noutput = "report_file"\ncommand = {cmd_json}\n\n[roles]\n{roles_toml}\n'
+        )
+        env.update(
+            XDG_CONFIG_HOME=str(xdg),
+            CODEX_HOME=str(self.root / "batch-codex"),
+            AUTOCODE_HOME=str(self.root / "batch-registry"),
+            PYTHONDONTWRITEBYTECODE="1",
+        )
+        command = (sys.executable, str(ROOT / "tools/autocode.py"))
+        task = TaskRun.start(
+            project,
+            "Build a greeting CLI with history",
+            command=command,
+            env=env,
+            cwd=project,
+            timeout=180,
+            options=("--provider", "fake", "--evidence-provenance", "fake", "--max-parallel-builders", "1"),
+        )
+        paused = task.advance_until_input()
+        self.assertEqual(["Q1", "Q2"], [q["id"] for q in paused["needs"]["questions"]])
+        task.answer_many(
+            {"Q1": "Plain text", "Q2": "Custom DuckDB file"},
+            resolver_token=paused["needs"]["resolver_token"],
+        )
+        after = task.advance_until_input()
+        self.assertEqual("WAITING_FOR_USER", after["status"])
+        self.assertEqual(
+            "Emit Plain text greetings stored in Custom DuckDB file",
+            after["requirements"]["intended_outcome"],
+        )
+
+        recording_dir = self.root / "batch-recording"
+        exported = subprocess.run(
+            [*command, "replay", str(task.run_dir), "--export", str(recording_dir), "--json"],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=120,
+        )
+        self.assertEqual(0, exported.returncode, exported.stdout + exported.stderr)
+        manifest = Path(json.loads(exported.stdout)["manifest"])
+        doc = json.loads(manifest.read_text())
+        self.assertEqual(2, len(doc["actions"]))
+        self.assertEqual(["Q1", "Q2"], [q["id"] for q in doc["actions"][0]["match"]["questions"]])
+        self.assertEqual([True, True], [q["allow_custom"] for q in doc["actions"][0]["match"]["questions"]])
+        self.assertEqual(["Q2"], [q["id"] for q in doc["actions"][1]["match"]["questions"]])
+        self.assertEqual([True], [q["allow_custom"] for q in doc["actions"][1]["match"]["questions"]])
+
+        legacy_dir = self.root / "batch-recording-pre-3685"
+        shutil.copytree(recording_dir, legacy_dir)
+        legacy_manifest = legacy_dir / manifest.name
+        legacy_doc = json.loads(legacy_manifest.read_text())
+        for act in legacy_doc["actions"]:
+            for q in act["match"].get("questions") or []:
+                q.pop("allow_custom", None)
+        legacy_manifest.write_text(json.dumps(legacy_doc, indent=2, sort_keys=True) + "\n")
+
+        for label, target_manifest in (("exported", manifest), ("pre-3685-five-key", legacy_manifest)):
+            with self.subTest(bundle=label):
+                dest = self.root / f"replayed-{label}/.autocode/runs/reproduction"
+                replayed = subprocess.run(
+                    [*command, "replay", str(target_manifest), "--into", str(dest), "--json"],
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                    timeout=180,
+                )
+                self.assertEqual(0, replayed.returncode, replayed.stdout + replayed.stderr)
+                payload = json.loads(replayed.stdout)
+                self.assertEqual("WAITING_FOR_USER", payload["view"]["status"])
+                self.assertEqual("end", payload["view"]["replay_progress"]["next_dispatch"])
+                self.assertEqual(
+                    "Emit Plain text greetings stored in Custom DuckDB file",
+                    payload["view"]["requirements"]["intended_outcome"],
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

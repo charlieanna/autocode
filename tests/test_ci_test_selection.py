@@ -1233,6 +1233,25 @@ class DynamicDependenciesTests(unittest.TestCase):
                 kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
                 self.assertEqual([consumer], list(kept))
 
+    def test_question_and_replay_producers_select_gate_and_replay_consumers_even_when_slow(self):
+        consumers = {
+            "tests.test_gate_chat_cli",
+            "tests.test_replay_recording",
+            "tests.test_saved_run_replay_cli",
+        }
+        for path in (
+            "tools/autocode_run_view.py",
+            "tools/autocode_answer_options.py",
+            "tools/autocode_replay_view.py",
+            "tools/autocode_replay_recording.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests(
+                    [path], {**{name: "" for name in consumers}, "tests.test_unrelated": ""}
+                )
+                kept, _ = run_suite.drop_slow(selected, {name: "30s" for name in consumers})
+                self.assertEqual(consumers, set(kept))
+
     def test_kilo_launch_and_native_hook_keep_the_progress_consumer_even_when_slow(self):
         consumer = "tests.test_kilo_progress"
         for path in ("tools/providers/kilocode.py", "tools/providers/opencode_activity.mjs"):

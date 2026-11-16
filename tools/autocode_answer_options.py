@@ -10,13 +10,36 @@ any nonempty text. Pure: imports nothing from AutoCode, so every answer surface 
 
 from __future__ import annotations
 
+import copy
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
+QUESTION_FIELDS = ("id", "question", "why", "options", "proposed_default")
 _STRICT_PREFIXES = ("route-", "effort-", "workspace-scope-", "rewording-", "resolver-")
 _STRICT_CATEGORIES = ("quota", "effort")
+
+
+def question_view(
+    question: dict,
+    *,
+    request_kind=None,
+    resolver_scope=None,
+    route: bool = False,
+    effort: bool = False,
+) -> dict:
+    """Project one question onto the public status-view and replay-action contract (#3650)."""
+    return {
+        **{field: copy.deepcopy(question.get(field)) for field in QUESTION_FIELDS},
+        "allow_custom": allows_custom(
+            question,
+            request_kind=request_kind,
+            resolver_scope=resolver_scope,
+            route=route,
+            effort=effort,
+        ),
+    }
 
 
 def allows_custom(

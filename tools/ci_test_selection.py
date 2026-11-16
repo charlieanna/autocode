@@ -1179,6 +1179,19 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tools/units/autoplanner.py", "tools/autocode_replay_"),
         ("tests.test_saved_run_replay_cli",),
     ),
+    (
+        (
+            "tools/autocode_run_view.py",
+            "tools/autocode_answer_options.py",
+            "tools/autocode_replay_view.py",
+            "tools/autocode_replay_recording.py",
+        ),
+        (
+            "tests.test_gate_chat_cli",
+            "tests.test_replay_recording",
+            "tests.test_saved_run_replay_cli",
+        ),
+    ),
     (("tools/autocode_replay_recording.py",), ("tests.test_replay_native_capture_export_cli",)),
     (
         ("tools/providers/kilocode.py", "tools/providers/kilocode_policy.py"),

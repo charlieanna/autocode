@@ -929,6 +929,139 @@ class SemanticActionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "operator request differs"):
             recording.match_action(None, action, view)
 
+    def test_question_projection_and_matching_align_with_status_view_and_legacy_five_key_bundles(self):
+        import autocode_goals as goals
+        import autocode_replay_view as replay_view
+        import autocode_run_view as run_view
+
+        q1 = {
+            "id": "Q1",
+            "question": "Which output format?",
+            "why": "Sets CLI output.",
+            "options": ["Plain text", "JSON"],
+            "proposed_default": "Plain text",
+            "kind": "decision",
+            "category": "behavior",
+            "delegable": True,
+        }
+        q2 = {
+            "id": "Q2",
+            "question": "Where should history live?",
+            "why": "Sets storage path.",
+            "options": ["SQLite", "JSONL"],
+            "proposed_default": "SQLite",
+            "kind": "decision",
+            "category": "behavior",
+            "delegable": True,
+        }
+        checkpoint_q = {
+            "id": "decision-cp1",
+            "question": "Validator checkpoint needs reconciliation",
+            "why": "Confirm milestone M1",
+            "options": ["Reconcile Validator evidence"],
+            "proposed_default": "",
+        }
+        state = {
+            "task": "Build a greeting CLI",
+            "workspace": "/tmp/ws",
+            "status": "WAITING_FOR_USER",
+            "phase": "DISCOVERING",
+            "next_stage": "draft_plan",
+            "pending_questions": [copy.deepcopy(q1), copy.deepcopy(q2)],
+            "answers": {},
+            "user_events": [
+                {
+                    "kind": "gate_message",
+                    "id": "gate-1",
+                    "actor": "user_cli",
+                    "at": "2026-11-16T00:00:01Z",
+                    "gate_kind": "requirements",
+                    "text": "why two questions?",
+                    "questions": [copy.deepcopy(q1), copy.deepcopy(q2)],
+                }
+            ],
+            "stages": [],
+            "settings": {},
+        }
+        before_q1 = run_view.needs(state)["questions"]
+        self.assertEqual([True, True], [row["allow_custom"] for row in before_q1])
+        goals.answer(state, "Q1", "Plain text")
+        state["status"] = "WAITING_FOR_USER"
+        before_q2 = run_view.needs(state)["questions"]
+        self.assertEqual(["Q2"], [row["id"] for row in before_q2])
+        goals.answer(state, "Q2", "Custom DuckDB file")
+        # Append a legacy single-question answer (no "questions" list) and a blocker checkpoint_answer.
+        state["user_events"].append(
+            {
+                "kind": "answer",
+                "actor": "user_cli",
+                "at": "2026-11-16T00:00:05Z",
+                "question_id": "Q1",
+                "question": copy.deepcopy(q1),
+                "text": "Plain text",
+            }
+        )
+        state["user_events"].append(
+            {
+                "kind": "checkpoint_answer",
+                "actor": "user_cli",
+                "at": "2026-11-16T00:00:06Z",
+                "question_id": "decision-cp1",
+                "question": copy.deepcopy(checkpoint_q),
+                "text": "Reconcile Validator evidence",
+            }
+        )
+        checkpoint_view = run_view.needs(
+            {
+                "status": "WAITING_FOR_USER",
+                "user_request": {"kind": "blocker"},
+                "pending_questions": [copy.deepcopy(checkpoint_q)],
+            }
+        )["questions"]
+        self.assertEqual([False], [row["allow_custom"] for row in checkpoint_view])
+
+        projected = replay_view.project(state, run_dir="/tmp/ws/.autocode/runs/r1")
+        self.assertIsNotNone(projected)
+        actions = projected["actions"]
+        self.assertEqual(5, len(actions))
+        # 0: requirements gate_message carries allow_custom matching status-view.
+        self.assertEqual(before_q1, actions[0]["match"]["questions"])
+        # 1 & 2: multi-question batch answers preserve [Q1, Q2] before Q1 and [Q2] before Q2.
+        self.assertEqual(before_q1, actions[1]["match"]["questions"])
+        self.assertEqual(before_q2, actions[2]["match"]["questions"])
+        # 3: legacy single-"question" event still projects [Q1_view].
+        self.assertEqual([before_q1[0]], actions[3]["match"]["questions"])
+        # 4: checkpoint_answer projects allow_custom=False matching blocker status-view.
+        self.assertEqual(checkpoint_view, actions[4]["match"]["questions"])
+
+        # New 6-key match_action checks allow_custom strictly.
+        live_view = {"needs": {"kind": "answer", "questions": copy.deepcopy(before_q1), "resolver_token": "tok"}}
+        self.assertEqual(actions[1]["payload"], recording.match_action(None, actions[1], live_view))
+        flipped = copy.deepcopy(actions[1])
+        flipped["match"]["questions"][0]["allow_custom"] = False
+        with self.assertRaisesRegex(ValueError, "operator request differs"):
+            recording.match_action(None, flipped, live_view)
+
+        # Pre-#3685 5-key recordings (without allow_custom) still match 6-key status-view questions,
+        # while still refusing semantic differences in question text, options, or question count.
+        legacy_action = {
+            "kind": "answer",
+            "match": {
+                "kind": "answer",
+                "questions": [{k: v for k, v in row.items() if k != "allow_custom"} for row in before_q1],
+            },
+            "payload": {"question_id": "Q1", "text": "Plain text"},
+        }
+        self.assertEqual(legacy_action["payload"], recording.match_action(None, legacy_action, live_view))
+        wrong_count = copy.deepcopy(legacy_action)
+        wrong_count["match"]["questions"] = wrong_count["match"]["questions"][:1]
+        with self.assertRaisesRegex(ValueError, "operator request differs"):
+            recording.match_action(None, wrong_count, live_view)
+        wrong_option = copy.deepcopy(legacy_action)
+        wrong_option["match"]["questions"][0]["options"] = ["YAML"]
+        with self.assertRaisesRegex(ValueError, "operator request differs"):
+            recording.match_action(None, wrong_option, live_view)
+
     def test_unused_dispatch_or_wrong_terminal_verdict_cannot_be_reported_as_reproduced(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
