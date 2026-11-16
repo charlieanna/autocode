@@ -121,14 +121,58 @@ def resume_refused(saved_settings: dict, requested) -> bool:
     return bool(requested) != bool(saved_settings.get(SETTING))
 
 
-def requirements_judge_clarity(state: RunState) -> bool:
-    """Whether Requirements reports clarity: in an adaptive run, while it names the job (#1846, #1860).
-
-    Requirements is the first stage of every run and names the job, so it judges clarity. Without it
-    autocode_review_effort.small_clear never saw a small clear brief. A known job (pinned with --workflow, or named earlier in the turn) is
-    not judged again."""
+def _turn_judged_requirements(state: RunState) -> bool:
+    """Whether the current turn already completed its initial software-goal Requirements pass."""
     workflow = state.get("workflow")
-    return enabled(state) and isinstance(workflow, dict) and workflow.get("kind") is None
+    if isinstance(workflow, dict) and (
+        workflow.get("clarity") in CLARITY
+        or workflow.get("source") in ("model", "default")
+        or (workflow.get("kind") is not None and workflow.get("source") != "user")
+    ):
+        return True
+    handoff = state.get("requirements_handoff")
+    if not isinstance(handoff, dict):
+        return False
+    turns = state.get("turns") or []
+    if turns and isinstance(turns[-1], dict):
+        prior_output = (turns[-1].get("previous") or {}).get("requirements_output")
+        if (
+            prior_output
+            and handoff.get("output") == prior_output
+            and not any(
+                isinstance(row, dict) and row.get("output") == prior_output
+                for row in state.get("requirements_history") or ()
+            )
+        ):
+            return False
+        stage_index = turns[-1].get("stage_index")
+        if prior_output is None and isinstance(stage_index, int) and len(state.get("stages") or ()) <= stage_index:
+            return False
+    report = handoff.get("report")
+    if not isinstance(report, dict):
+        return False
+    questions = [row for row in report.get("open_questions") or () if isinstance(row, dict)]
+    answers = state.get("answers") or {}
+    return not (
+        questions
+        and not str(report.get("intended_outcome") or "").strip()
+        and not any(report.get(key) for key in ("requirements", "required_behaviors", "acceptance_tests"))
+        and all(
+            str(row.get("id") or "").startswith("outcome-")
+            or (isinstance(answers.get(row.get("id")), dict) and answers[row["id"]].get("actor") == "technical_default")
+            for row in questions
+        )
+    )
+
+
+def requirements_judge_clarity(state: RunState) -> bool:
+    """Whether Requirements reports clarity: on the current turn's first software-goal pass (#3651).
+
+    Judged once per turn in every adaptive run — including --workflow pins — before initial clarity
+    is sealed, so multi-round clarification never overwrites the turn's initial brief judgment.
+    """
+    workflow = state.get("workflow")
+    return enabled(state) and isinstance(workflow, dict) and not _turn_judged_requirements(state)
 
 
 def report_schema(state: RunState, stage: str, base: dict, planning_body: dict) -> dict:
