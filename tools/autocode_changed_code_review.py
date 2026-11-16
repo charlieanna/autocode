@@ -16,9 +16,27 @@ except ImportError:
     import autocode_changed_code_evidence as line_evidence
 
 FIELD = "changed_code_exceptions"
+CURRENT_PROOF_REF = "proof:current"
 KINDS = ("defensive_unreachable", "instrumentation_unavailable", "equivalent_mutant")
 REJECT_KINDS = ("missing_test",)
 DECISION_KINDS = (*KINDS, *REJECT_KINDS)
+
+
+def proof_reference(proof, source_revision):
+    """An exact citation choice for the core's current proof, never a model-derived path."""
+    if (
+        isinstance(source_revision, str)
+        and source_revision
+        and proof.get("source_revision") == source_revision
+        and isinstance(proof.get("path"), str)
+        and proof["path"]
+    ):
+        return {
+            "proof_reference": proof["path"],
+            "current_proof_reference": CURRENT_PROOF_REF,
+            "source_revision": source_revision,
+        }
+    return {}
 
 
 def prompt_order(schema: dict) -> dict:

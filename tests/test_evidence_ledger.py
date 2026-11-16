@@ -10,8 +10,11 @@ def validation(checks=(), criteria=()):
     }
 
 
-def finding(ident, status="open", blocking=True):
-    return {"id": ident, "status": status, "blocking": blocking}
+def finding(ident, status="open", blocking=True, text=None):
+    row = {"id": ident, "status": status, "blocking": blocking}
+    if text is not None:
+        row["finding"] = text
+    return row
 
 
 def row(evidence, seen, novelty="new"):
@@ -46,6 +49,40 @@ class ObserveTests(unittest.TestCase):
             {"failing": [], "resolved": [], "changed": []},
             ledger.observe({"checks": ["x", {"command": "y"}], "criterion_results": [None]}, ["F-1"], [3]),
         )
+
+
+class FindingIdentityTests(unittest.TestCase):
+    def test_the_same_defect_reported_again_under_a_fresh_id_is_a_repeat(self):
+        checks = validation(checks=[("python3 -m unittest", 1)], criteria=[("C1", "FAIL")])
+        first = ledger.observe(checks, [finding("F-1", text="The required checks fail")], ["greet.py"])
+        again = ledger.observe(
+            checks,
+            [finding("F-1", text="The required checks fail"), finding("F-2", text="The required  checks fail")],
+            ["greet.py"],
+        )
+        self.assertEqual(first["failing"], again["failing"])
+        self.assertEqual("repeat", ledger.assess([row("e1", first)], "e2", again))
+
+    def test_the_runner_finding_rewritten_for_a_new_source_is_still_one_item(self):
+        def runner(text):
+            return {**finding("F-r", text=text), "source": "runner"}
+
+        checks = validation(checks=[("python3 -m unittest", 1)])
+        first = ledger.observe(checks, [runner("The proof does not pass on source 5a47")], ["greet.py"])
+        again = ledger.observe(checks, [runner("The proof does not pass on source aea9")], ["greet.py"])
+        self.assertEqual(["check:python3 -m unittest", "finding:F-r"], again["failing"])
+        self.assertEqual("repeat", ledger.assess([row("e1", first)], "e2", again))
+
+    def test_findings_saying_different_things_stay_distinct(self):
+        seen = ledger.observe(None, [finding("F-1", text="A fails"), finding("F-2", text="B fails")], [])
+        self.assertEqual(["finding:A fails", "finding:B fails"], seen["failing"])
+
+    def test_a_resolved_defect_reported_again_is_failing_not_resolved(self):
+        seen = ledger.observe(
+            None, [finding("F-1", status="resolved", text="A fails"), finding("F-2", text="A fails")], []
+        )
+        self.assertEqual(["finding:A fails"], seen["failing"])
+        self.assertEqual([], seen["resolved"])
 
 
 class SignatureTests(unittest.TestCase):

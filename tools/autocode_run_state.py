@@ -57,6 +57,22 @@ class StageObservationMetadata(TypedDict, total=False):
     repair_fresh_reason: str
 
 
+class FixtureState(TypedDict, total=False):
+    """Test-only fixture sub-envelope owned by ``autocode_fixture_state`` (#3468)."""
+
+    accepted: Any
+    attempt: Any
+    interventions: Any
+    model_confirm_mode: Any
+    model_reconcile_proposed: Any
+    model_reconcile_reads: Any
+    model_reconcile_role: Any
+    monitor: Any
+    pause_reconcile_reads: Any
+    saved_diff: Any
+    verification: Any
+
+
 # Every key tools/ reads or writes on a run state dict.
 # Generated from the source; add a new one here in the same change that introduces it.
 # scope_exclusion_corrections (#2467): person-authorized exact rewords of authenticated
@@ -70,19 +86,9 @@ class StageObservationMetadata(TypedDict, total=False):
 KEYS: frozenset[str] = frozenset(
     {
         "_authorized_bound_change",
+        "_fixture",
         "scope_exclusion_corrections",
         "runner",
-        "_fixture_accepted",
-        "_fixture_attempt",
-        "_fixture_interventions",
-        "_fixture_model_confirm_mode",
-        "_fixture_model_reconcile_proposed",
-        "_fixture_model_reconcile_reads",
-        "_fixture_model_reconcile_role",
-        "_fixture_monitor",
-        "_fixture_pause_reconcile_reads",
-        "_fixture_saved_diff",
-        "_fixture_verification",
         "acceptance_criteria",
         "acceptance_tests",
         "active_runner_check",
@@ -478,18 +484,9 @@ class RunState(TypedDict, total=False):
     finished_at: str | None  # legacy completion time read by evidence_export; no new writer
 
     _authorized_bound_change: Any
-    _fixture_accepted: Any
-    _fixture_attempt: Any
-    _fixture_interventions: Any
-    _fixture_model_confirm_mode: Any
-    _fixture_model_reconcile_proposed: Any
-    _fixture_model_reconcile_reads: Any
-    _fixture_model_reconcile_role: Any
-    _fixture_monitor: Any
-    _fixture_pause_reconcile_reads: Any
-    _fixture_saved_diff: Any
-    _fixture_verification: Any
-    active_seconds: Any  # stage accounting and changed_code_continuation charge active work; budget gates read it
+    # Test-only fixture hooks live in ``_fixture`` (owned by autocode_fixture_state, #3468).
+    _fixture: FixtureState
+    active_seconds: Any  # autocode_budget_state owns active_seconds (#3468)
     active_stage_workers: Any
     affected_paths: Any
     agent_request: Any

@@ -75,3 +75,65 @@ def request_serial_retry(state: RunState, selected, *, pause_status=None):
     # Exhaustion can precede assignment of the Resolver's proposed repair. Let
     # the ordinary Resolver path apply its contract/scope checks before building.
     state["next_stage"] = "resolve" if pending else "builder"
+
+
+def serial_retry_outcome(state: RunState, selected):
+    """The committed serial owner's exact decision, independent of its target stage."""
+    task = state.get("current_task") or {}
+    members = task.get("milestone_ids") or [task.get("milestone_id") or task.get("id")]
+    key = policy.key(state)
+    current = (state.get("builder_retries") or {}).get(key) or {}
+    decisions = state.get("builder_retry_decisions") or []
+    decision = decisions[-1] if isinstance(decisions, list) and decisions else None
+    event = next(
+        (
+            event
+            for event in reversed(state.get("user_events") or [])
+            if isinstance(event, dict) and event.get("kind") == "builder_retry"
+        ),
+        None,
+    )
+    pending = state.get("resolution_request")
+    target = "resolve" if pending else "builder"
+    route = (state.get("settings") or {}).get("roles", {}).get("builder") or {}
+    if (
+        state.get("parent_run")
+        or not policy.enabled(state)
+        or current.get("action") != "retry"
+        or not current.get("failures")
+        or not members
+        or None in members
+        or len(selected) != len(set(selected))
+        or set(selected) != set(members)
+        or any(state.get(key) for key in ("active_stage", "active_runner_check", "pending_report_repair"))
+        or pending
+        and pending.get("contract_hash") != (state.get("goal_contract") or {}).get("hash")
+        or not pending
+        and task.get("kind") != "implement"
+        or state.get("next_stage") != target
+        or not isinstance(decision, dict)
+        or decision.get("owner") != "user_cli"
+        or decision.get("action") != "retry"
+        or decision.get("milestone_key") != key
+        or decision.get("failure") != current["failures"][-1]
+        or decision.get("attempt") != len(current["failures"])
+        or decision.get("selected_model") != route.get("model")
+        or decision.get("selected_effort") != route.get("reasoning_effort")
+        or not isinstance(event, dict)
+        or event.get("actor") != "user_cli"
+        or event.get("mode") != "serial"
+        or event.get("milestone_ids") != list(selected)
+        or event.get("failure") != decision.get("failure")
+        or event.get("at") != decision.get("at")
+    ):
+        raise ValueError("The serial Builder retry no longer matches its exact committed decision")
+    return {
+        "mode": "serial",
+        "milestone_key": key,
+        "decision": copy.deepcopy(decision),
+        "event": copy.deepcopy(event),
+        "pending": util.digest(pending),
+        "task": util.digest(task),
+        "contract": util.digest(state.get("goal_contract")),
+        "target": target,
+    }

@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_operational_receipt_identity as receipt_identity
     from . import autocode_recovery_limits as limits
     from . import autocode_run_status as run_status
     from . import autocode_source_snapshot as source
@@ -24,6 +25,7 @@ try:
     from . import autocode_util as util
     from . import autocode_verification_failure as failure
 except ImportError:
+    import autocode_operational_receipt_identity as receipt_identity
     import autocode_recovery_limits as limits
     import autocode_run_status as run_status
     import autocode_source_snapshot as source
@@ -84,7 +86,7 @@ def recover(runtime, state: RunState, run_dir, workspace, error):
     receipts = resolver.setdefault("operational_receipts", {})
     # An append-only local journal ordinal, not a digest/token a model can cite
     # and not authority to replay, accept source or clear a hold.
-    identity = "verification-preparation-" + str(len(identities) + 1)
+    identity = receipt_identity.ordinal("verification_preparation", len(identities) + 1)
     at = util.now()
     record = {
         "stage": "resolver",

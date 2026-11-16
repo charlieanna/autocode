@@ -8,6 +8,11 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import TYPE_CHECKING, TypedDict
 
+try:
+    from . import autocode_operational_receipt_identity as receipt_identity
+except ImportError:
+    import autocode_operational_receipt_identity as receipt_identity
+
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
@@ -63,6 +68,15 @@ _PRESENTATIONS = {
 }
 
 
+def record_scope(row, *, identity=None):
+    """A presentation only for a receipt authenticated to its owning domain."""
+    if identity is None:
+        detail = row.get("receipt") if isinstance(row, dict) else None
+        identity = detail.get("id") if isinstance(detail, dict) else None
+    owner = receipt_identity.scope(row, identity)
+    return owner if owner in _PRESENTATIONS else None
+
+
 def receipt(state: RunState, scope=None):
     """Read the latest runner receipt per scope; no files, locks or probes.
 
@@ -80,17 +94,10 @@ def receipt(state: RunState, scope=None):
     selected = None
     for identity in reversed(identities):
         row = records.get(identity) if isinstance(identity, str) else None
-        if not isinstance(row, dict) or row.get("runner_owned") is not True or row.get("engine") != "runner":
+        kind = record_scope(row, identity=identity)
+        if kind is None or kind in seen or (scope is not None and kind != scope):
             continue
-        detail = row.get("receipt") or {}
-        kind = detail.get("scope") if isinstance(detail, dict) else None
-        if (
-            not isinstance(kind, str)
-            or kind not in _PRESENTATIONS
-            or kind in seen
-            or (scope is not None and kind != scope)
-        ):
-            continue
+        assert isinstance(row, dict)  # record_scope accepted this record's shape.
         seen.add(kind)
         decision = row.get("decision")
         # Corruption of a known runner hold cannot erase that hold.

@@ -21,6 +21,7 @@ try:
     from . import autocode_proof_stability as proof_stability
     from . import autocode_python_tests as python_tests
     from . import autocode_source_snapshot as source_snapshot
+    from . import autocode_test_results as test_results
     from . import autocode_util as util
     from . import autocode_verify as verify
 except ImportError:
@@ -34,6 +35,7 @@ except ImportError:
     import autocode_proof_stability as proof_stability
     import autocode_python_tests as python_tests
     import autocode_source_snapshot as source_snapshot
+    import autocode_test_results as test_results
     import autocode_util as util
     import autocode_verify as verify
 
@@ -58,9 +60,9 @@ def collect(
     source_revision = proof["source_revision"]
     context = util.digest(execution_context)
     changes = result.get("changes") or {}
-    files = verify.product_files(changes, source_files=result.get("source_files"))
+    files = test_results.product_files(changes, source_files=result.get("source_files"))
     installed = dependency_dirs.summary(
-        path for path, status in changes.items() if status != "deleted" and verify.is_code_path(path)
+        path for path, status in changes.items() if status != "deleted" and test_results.is_code_path(path)
     )
     diff = verify.product_diff(workspace, result["base"], files)
     inventory = measurement.inventory(tree, files, diff)

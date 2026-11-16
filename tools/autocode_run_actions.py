@@ -35,20 +35,18 @@ try:
     from . import autocode_action_resolver as action_resolver
     from . import autocode_action_scope as action_scope
     from . import autocode_action_stage_model as action_stage_model
-    from . import autocode_conversation_ingress as conversation_ingress
     from . import autocode_goal_lifecycle as lifecycle
     from . import autocode_goals as goals
     from . import autocode_jobs as jobs
-    from . import autocode_model_listing_failure as model_listing_failure
-    from . import autocode_model_listing_failure_recovery as model_listing_recovery
+    from . import autocode_operational_admission as operational_admission
     from . import autocode_operational_block as operational_block
     from . import autocode_operational_information as operational_information
+    from . import autocode_owned_operations as operation_contract
     from . import autocode_planning as planning
     from . import autocode_project_delivery as project_delivery
     from . import autocode_recovery_limits as recovery_limits
     from . import autocode_resolver_human as resolver_human
     from . import autocode_resolver_runtime as resolver_runtime
-    from . import autocode_role_transport as role_transport
     from . import autocode_run_finder as run_finder
     from . import autocode_run_records as records
     from . import autocode_skip_requirements as skip_requirements
@@ -66,20 +64,18 @@ except ImportError:
     import autocode_action_resolver as action_resolver
     import autocode_action_scope as action_scope
     import autocode_action_stage_model as action_stage_model
-    import autocode_conversation_ingress as conversation_ingress
     import autocode_goal_lifecycle as lifecycle
     import autocode_goals as goals
     import autocode_jobs as jobs
-    import autocode_model_listing_failure as model_listing_failure
-    import autocode_model_listing_failure_recovery as model_listing_recovery
+    import autocode_operational_admission as operational_admission
     import autocode_operational_block as operational_block
     import autocode_operational_information as operational_information
+    import autocode_owned_operations as operation_contract
     import autocode_planning as planning
     import autocode_project_delivery as project_delivery
     import autocode_recovery_limits as recovery_limits
     import autocode_resolver_human as resolver_human
     import autocode_resolver_runtime as resolver_runtime
-    import autocode_role_transport as role_transport
     import autocode_run_finder as run_finder
     import autocode_run_records as records
     import autocode_skip_requirements as skip_requirements
@@ -99,8 +95,33 @@ class Decided:
     information_admitted: bool = False  # AutoResolver admitted corrective information for one continuation
     evidence_reconciled: bool = False  # exact retained evidence corrected; ordinary admission, no allowance resets
     checked_authority: bool = False  # the held pause's own authority, checked before queued input applies
+    operational_incident: str | None = None  # Exact retained diagnostic for this invocation.
+    operational_selection: str | None = None  # Permits trying its existing handler, never dispatch.
+    operational_recovery_checked: dict | None = None  # Handler-return evidence, not a saved grant.
+    operational_resume_deferred: bool = False  # Generic resume bookkeeping waits for final guards.
+    owned_operations: tuple | None = None  # Exact owner selection, never saved or supplied by a client.
+    owner_lane: bool = False  # Invoke only those selected owners, without ambient recovery.
+    completed_operations: tuple[str, ...] = ()  # Skip only the exact owner already applied in this invocation.
+    failure_retry_authorization: dict | None = None  # The actual returned object, never a loaded audit row.
+    failure_retry_consumed: bool = False  # The ordinary guard consumed that invocation's single use.
+    resume_initialization: bool = False  # Ordinary resume reached its existing final work initialization.
     issued: dict | None = None  # AutoResolver's current request when that authority was weighed
     released: bool = False  # that authority released the held pause (autocode_stop)
+
+
+def owned_operations(args, state: RunState | None = None):
+    """One registered owner selection; uncovered actions never become metadata."""
+    selected = list(action_recovery.operations(args, state))
+    if operation := action_prepare.operation(args):
+        selected.append(operation)
+    if operation := action_decisions.operation(args):
+        selected.append(operation)
+    requested = {name for name, present in operation_contract.user_actions(args).items() if present}
+    covered = {name for operation in selected for name in operation.actions}
+    return tuple(selected) if requested <= covered else ()
+
+
+apply_owned = operational_admission.apply_owned  # The same runtime boundary is available to direct callers.
 
 
 def next_command(state: RunState, issued, run_dir, workspace):
@@ -211,6 +232,8 @@ def admit(runner, args, parser, state: RunState, state_path, run_dir, workspace,
 
     It runs only when no user decision was given: action_decisions.apply stops for every one.
     """
+    if not operational_admission.authorized(state, decided):
+        return operational_admission.refuse()
     if state.get("status") != "TASK_COMPLETE" and (retired := workflows.retired_stage(state)):
         print(f"Input rejected: {retired}", file=sys.stderr)
         return 2
@@ -278,28 +301,12 @@ def admit(runner, args, parser, state: RunState, state_path, run_dir, workspace,
         runner.write_json(state_path, state)
     if runner.migrate_opencode_roles(state, run_dir, workspace):
         print("Saved roles now use OpenCode; previous sessions archived and task progress retained.", flush=True)
-    try:
-        conversation_ingress.require_expected_goal(
-            state, getattr(args, "expected_goal_token", None), token_for=goals.token, is_approved=goals.approved
-        )
-    except ValueError as error:
-        print(f"Input rejected: {error}", file=sys.stderr)
-        return 2
-    if state["settings"].get("engine") == "opencode":
-        try:
-            role_transport.check_models(
-                state["settings"], runner.opencode, workspace, inventory=getattr(args, "_model_inventory", None)
-            )
-        except model_listing_failure.ModelListingTimeout as error:
-            if model_listing_recovery.settle(runner, state, run_dir, workspace, error):
-                print(f"{state['status']}: {state['stop_reason']}", file=sys.stderr)
-                return 2
-            raise
-    if conversation_ingress.record_build_start(
-        state, getattr(args, "expected_goal_token", None), token_for=goals.token, is_approved=goals.approved
-    ):
-        runner.write_json(state_path, state)
-    return None
+    return _admit_build(runner, args, parser, state, state_path, run_dir, workspace, decided)
+
+
+_admit_build = operational_admission.finalize  # Existing final guard boundary, shared with checked dispatch.
+_dispatch = operational_admission.dispatch
+_apply = operational_admission.apply_step
 
 
 def read_shown_tokens(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
@@ -330,6 +337,7 @@ STEPS = (
     action_discrepancy.apply,  # --report-discrepancy: a report against the approved plan, kept for the Tester; no launch
     hold_operational_block,  # advancement only; stops and nonadvancing records keep their existing precedence
     action_decisions.preflight,  # invalid approval cannot reconcile or migrate a stopped attempt
+    operational_admission.guard,  # Exhausted machinery grants no ordinary advancement.
     action_edits.apply,  # a standalone edit: design revision, dependency, report recovery, repair handoff
     action_recovery.gate_failures,  # a classification or job failure, and its exact retry
     action_authority.settle,  # the held pause's own authority, before queued input applies
@@ -348,7 +356,7 @@ def handle(runner, args, parser, state: RunState, state_path, run_dir, workspace
     args._failure_retry_authorization = None  # Invocation-local; saved history is audit data, not credit.
     decided = action_authority.prepare_actions(runner, args, state, Decided)
     for step in STEPS:
-        code = step(runner, args, parser, state, state_path, run_dir, workspace, decided)
+        code = _apply(step, runner, args, parser, state, state_path, run_dir, workspace, decided)
         if code is not None or decided.dispatch:
-            return code
+            return _dispatch(code, runner, args, parser, state, state_path, run_dir, workspace, decided)
     return None

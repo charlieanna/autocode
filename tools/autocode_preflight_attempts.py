@@ -23,11 +23,13 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_budget_state as budget_state
     from . import autocode_command_receipt as receipts
     from . import autocode_process as processes
     from . import autocode_support as support
     from . import autocode_util as util
 except ImportError:
+    import autocode_budget_state as budget_state
     import autocode_command_receipt as receipts
     import autocode_process as processes
     import autocode_support as support
@@ -93,7 +95,7 @@ def _charge(runner, state: RunState, record):
             account(state, record)
         else:
             # check() also supports a minimal, in-memory runner facade.
-            state["active_seconds"] = state.get("active_seconds", 0) + delta
+            budget_state.add_active_seconds(state, delta)
             record["accounted"] = True
     finally:
         record["duration_seconds"] = duration

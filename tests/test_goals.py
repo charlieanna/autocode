@@ -29,6 +29,8 @@ import autocode_stage_context as stage_context
 import autocode_support as s
 from goal_fixtures import assert_operational_wait, body, envelope, seed_greeting_workspace
 
+from .operational_fixtures import assert_operational_block
+
 
 class GoalTests(unittest.TestCase):
     def test_model_schema_requires_ownership_without_invalidating_legacy_contracts(self):
@@ -2060,8 +2062,8 @@ class GoalTests(unittest.TestCase):
         )
         self.state["sessions"]["builder"] = "interrupted-session"
         self.assertEqual(2, self.invoke("--resume-paused"))
-        assert_operational_wait(self, self.state, "PAUSED_PROVIDER_UNCERTAIN")
-        self.assertIn("--abandon-stage 001/terra-01", self.stderr)
+        assert_operational_block(self, self.state, "PAUSED_PROVIDER_UNCERTAIN")
+        self.assertIn("AutoCode could not safely continue its internal recovery", self.stderr)
         self.assertEqual(0, self.invoke("--abandon-stage", "001/terra-01"))
         self.assertEqual("PAUSED_STAGE_ABANDONED", self.state["status"])
         self.assertNotIn("active_stage", self.state)

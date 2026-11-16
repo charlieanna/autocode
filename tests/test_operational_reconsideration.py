@@ -11,6 +11,7 @@ import autocode_planning as planning
 
 from . import test_operational_recovery as fixtures
 from . import test_subprocess
+from .operational_fixtures import legacy_publication, legacy_response
 
 runner, s, resolver = fixtures.runner, fixtures.s, fixtures.resolver
 human = runner.resolver_human
@@ -27,13 +28,9 @@ class ReconsiderationTests(unittest.TestCase):
         )
 
     def publish(self, status="PAUSED_PLANNING_BUDGET"):
-        self.assertTrue(
-            resolver.record_operational_exhaustion(
-                runner, self.state, self.run, s.Paused(status, "Saved planning cap reached")
-            )
-        )
+        legacy_publication(self.state, self.run, pause=status)
         runner.write_json(self.run / "state.json", self.state)
-        self.assertEqual("operational_exhaustion", human.current(self.state)["scope"])
+        self.assertEqual("operational_exhaustion", human.retained(self.state)["scope"])
 
     def reconsider(self):
         return resolver.reconsider_operational_request(runner, self.state, self.run, self.root)
@@ -52,7 +49,7 @@ class ReconsiderationTests(unittest.TestCase):
     def test_repaired_discovery_withdraws_once_and_charges_preserved_counts(self):
         self.publish()
         original = copy.deepcopy(self.state)
-        issued = human.current(self.state)
+        issued = human.retained(self.state)
         with patch.object(runner, "run_role") as launch:
             self.assertTrue(self.reconsider())
             launch.assert_not_called()
@@ -92,7 +89,7 @@ class ReconsiderationTests(unittest.TestCase):
                 mutate()
                 self.assert_unchanged()
         self.state = copy.deepcopy(pristine)
-        public = human.current(self.state)
+        public = human.retained(self.state)
         human.supersede_operational(self.state, "fixture replaced by real permission request")
         human.queue(
             self.state, "permission", {"stage": "review_plan"}, request={**public["request"], "kind": "permission"}
@@ -121,9 +118,8 @@ class ReconsiderationTests(unittest.TestCase):
         for action, text in (("provide_information", "The lookup was repaired"), ("leave_paused", "")):
             with self.subTest(action=action):
                 self.state = copy.deepcopy(pristine)
-                public = human.current(self.state)
-                human.respond_operational(self.state, public["request_id"], public["request_token"], action, text)
-                human.review_operational_response(self.state)
+                public = human.retained(self.state)
+                legacy_response(self.state, public, action, text)
                 runner.write_json(self.run / "state.json", self.state)
                 self.assert_unchanged()
 
@@ -180,9 +176,7 @@ class ReconsiderationCLITests(unittest.TestCase):
             self.state["planning"].update(review_call_limit=2, review_call_limit_origin="user_explicit")
         self.timeout(1)
         self.timeout(2)
-        resolver.record_operational_exhaustion(
-            runner, self.state, self.run, s.Paused("PAUSED_PLANNING_BUDGET", "Saved cap reached")
-        )
+        legacy_publication(self.state, self.run, pause="PAUSED_PLANNING_BUDGET")
         runner.write_json(self.run / "state.json", self.state)
 
     def test_cli_continuation_reconsiders_but_status_is_read_only(self):

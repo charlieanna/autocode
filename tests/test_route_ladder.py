@@ -128,6 +128,31 @@ class NextRouteTests(unittest.TestCase):
         codex = self.settings(model="gpt-6-sol", engine="codex")
         self.assertEqual("gpt-6-sol", route_ladder.next_route(codex, "tester")["model"])
 
+    def test_explicit_effort_stays_exact_across_static_dynamic_and_inherited_ladders(self):
+        for role, model, effort, origin_role in (
+            ("tester", "openai/gpt-6-sol", "high", "tester"),
+            ("tester", "gpt-6-sol", "high", "tester"),
+            ("resolver", "openai/gpt-6-astra", "high", "resolver"),
+            ("resolver", "gpt-6-astra", "high", "task_planner"),
+            ("planner", "zai-coding-plan/glm-5.3", "low", "planner"),
+        ):
+            with self.subTest(role=role, model=model, inherited=origin_role):
+                settings = self.settings(role, model, effort)
+                settings["effort_origins"] = {origin_role: "user_explicit"}
+                settings["declared_variants"] = {model: [effort, "high", "xhigh", "max"]}
+                before = copy.deepcopy(settings)
+                self.assertEqual({"stay": "explicit_effort"}, route_ladder.next_route(settings, role))
+                self.assertEqual(before, settings)
+        # This guard protects the typed level, not all automatic effort choices.
+        settings = self.settings()
+        settings["effort_origins"] = {"tester": "stage_choice"}
+        self.assertEqual("xhigh", route_ladder.next_route(settings, "tester")["reasoning_effort"])
+        settings["effort_origins"] = {"task_planner": "user_explicit"}
+        self.assertEqual("xhigh", route_ladder.next_route(settings, "tester")["reasoning_effort"])
+        settings = self.settings("resolver", "openai/gpt-6-astra", "high")
+        settings["effort_origins"] = {"resolver": "stage_choice", "task_planner": "user_explicit"}
+        self.assertEqual("xhigh", route_ladder.next_route(settings, "resolver")["reasoning_effort"])
+
     def test_every_reason_a_role_stays_is_named(self):
         climbed = {"struggle_id": "iteration:3", "escalations": [{"role": "tester", "struggle_id": "iteration:3"}]}
         cases = {
@@ -136,6 +161,7 @@ class NextRouteTests(unittest.TestCase):
             "climbed": (self.settings(), "tester", climbed),
             "no_route": (self.settings(), "completion", None),
             "pinned": (self.settings(model_pinned=True), "tester", None),
+            "explicit_effort": ({**self.settings(), "effort_origins": {"tester": "user_explicit"}}, "tester", None),
             "other_provider": (self.settings(provider="custom"), "tester", None),
             "off_ladder": (self.settings(model="zai-coding-plan/glm-5.3"), "tester", None),
             "ladder_end": (self.settings(effort="max"), "tester", None),
@@ -194,7 +220,7 @@ class NextRouteTests(unittest.TestCase):
         settings["roles"]["resolver"]["reasoning_effort"] = "high"
         self.assertEqual({"stay": "ladder_end"}, route_ladder.next_route(settings, "resolver"))
         settings["effort_origins"]["planner"] = "user_explicit"
-        self.assertEqual({"stay": "off_ladder"}, route_ladder.next_route(settings, "planner"))
+        self.assertEqual({"stay": "explicit_effort"}, route_ladder.next_route(settings, "planner"))
 
 
 class ServeTests(unittest.TestCase):

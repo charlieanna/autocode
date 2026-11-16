@@ -12,11 +12,13 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_model_listing_failure as failure
+    from . import autocode_operational_receipt_identity as receipt_identity
     from . import autocode_recovery_limits as limits
     from . import autocode_run_status as run_status
     from . import autocode_util as util
 except ImportError:
     import autocode_model_listing_failure as failure
+    import autocode_operational_receipt_identity as receipt_identity
     import autocode_recovery_limits as limits
     import autocode_run_status as run_status
     import autocode_util as util
@@ -58,7 +60,7 @@ def settle(runtime, state: RunState, run_dir, workspace, error):
     receipts = resolver.setdefault("operational_receipts", {})
     # Local append-only journal ordinal, not a token or model-citable replay
     # identity. This denial cannot authorize source acceptance or another call.
-    identity = "model-listing-" + str(len(identities) + 1)
+    identity = receipt_identity.ordinal("model_listing", len(identities) + 1)
     at = util.now()
     record = {
         "stage": "resolver",

@@ -27,6 +27,7 @@ import autopilot
 from goal_fixtures import assert_operational_wait, body
 
 from . import test_subprocess
+from .operational_fixtures import assert_operational_block
 
 
 class PlanningTests(unittest.TestCase):
@@ -1682,8 +1683,7 @@ class JointFlow(unittest.TestCase):
         )
         self.launch(["--run-dir", str(run), "--resume-paused", "--no-chat"], 2)
         paused = self.saved()[1]
-        # An exhausted planning budget is now an operational AutoResolver request.
-        assert_operational_wait(self, paused, "PAUSED_PLANNING_BUDGET")
+        assert_operational_block(self, paused, "PAUSED_PLANNING_BUDGET")
         self.assertEqual(2, paused["planning"]["plan_review_calls"])
         # Only a runner-owned AutoResolver receipt was added; no third provider call. The one
         # investigate_stuck attempt happened in the draft, before the resume.

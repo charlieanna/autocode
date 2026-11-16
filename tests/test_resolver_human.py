@@ -195,25 +195,34 @@ class ResolverHumanTests(unittest.TestCase):
             automatic_recoveries_since_resume=3,
             planning={"plan_review_calls": 3},
         )
-        receipt = {
-            "stage": "resolver",
-            "runner_owned": True,
-            "decision": {"action": "hold"},
-            "receipt": {"evaluation_binding": human._binding(self.state)},
-        }
-        self.state["resolver"] = {
-            "operational_diagnostics": ["op-receipt"],
-            "operational_receipts": {"op-receipt": receipt},
-        }
+        # An authentic publication from an older Core, before the machinery
+        # disposition existed. Current admission must refuse its cached offer.
+        budget = runtime.disposition.budget(self.state, self.state["status"])
+        receipt = runtime._operational_receipt(
+            self.state,
+            self.state["run_dir"],
+            "hold",
+            "Legacy operational recovery exhausted",
+            {"status": self.state["status"], "stage": "review_plan", "budget": budget},
+        )
         human.queue(
             self.state,
             "operational_exhaustion",
-            {"stage": "review_plan"},
+            {"stage": "review_plan", "pause_status": "PAUSED_RESOLVER_OPERATIONAL", "budget": budget},
             request=self.request(),
-            evidence={"resolver_receipt_id": "op-receipt"},
+            evidence={"resolver_receipt_id": receipt},
         )
-        self.assertEqual("escalate", human.evaluate(self.state))
-        return human.current(self.state)
+        proposal = copy.deepcopy(self.state[human.PRIVATE])
+        identity = {
+            "version": human.VERSION,
+            "issuer": "resolver",
+            "binding": human._binding(self.state),
+            "proposal": proposal,
+            "action": "escalate",
+            "reason": "Legacy operational hold",
+        }
+        self.state["resolver"].setdefault("human_escalations", {})
+        return human._publish(self.state, identity)
 
     def test_role_proposals_are_private_until_resolver_publication(self):
         before = copy.deepcopy(self.state["goal_contract"])
@@ -342,38 +351,21 @@ class ResolverHumanTests(unittest.TestCase):
         self.assertEqual("recover", human.evaluate(self.state))
         self.assertFalse(human.projection(self.state)["human_request_authorized"])
 
-    def test_operational_response_is_information_not_retry_or_approval(self):
+    def test_legacy_operational_response_cannot_authorize_information_retry_or_approval(self):
         public = self.publish_operational()
-        history = copy.deepcopy(self.state["failure_history"])
-        contract = copy.deepcopy(self.state["goal_contract"])
-        counters = copy.deepcopy(self.state["planning"])
-        event = human.respond_operational(
-            self.state,
-            public["request_id"],
-            public["request_token"],
-            "provide_information",
-            "The provider incident has been investigated",
-        )
-        self.assertEqual(history, self.state["failure_history"])
-        self.assertEqual(contract, self.state["goal_contract"])
-        self.assertEqual(counters, self.state["planning"])
-        self.assertEqual(3, self.state["automatic_recoveries_since_resume"])
-        self.assertEqual("PAUSED_RESOLVER_OPERATIONAL", self.state["status"])
-        self.assertEqual(event, self.state["resolver"]["pending_human_response"])
         before = copy.deepcopy(self.state)
-        self.assertEqual(
-            event,
-            human.respond_operational(
-                self.state,
-                public["request_id"],
-                public["request_token"],
-                "provide_information",
-                "The provider incident has been investigated",
-            ),
-        )
-        self.assertEqual(before, self.state)
-        with self.assertRaises(ValueError):
-            human.respond_operational(self.state, public["request_id"], public["request_token"], "leave_paused")
+        for action in ("provide_information", "leave_paused"):
+            with self.subTest(action=action), self.assertRaises(ValueError):
+                human.respond_operational(
+                    self.state,
+                    public["request_id"],
+                    public["request_token"],
+                    action,
+                    "The provider incident has been investigated",
+                )
+            self.assertEqual(before, self.state)
+        self.assertIsNone(human.current(self.state))
+        self.assertFalse(human.projection(self.state)["human_request_authorized"])
 
     def test_wrong_tokens_and_generic_retry_answers_do_not_mutate_state(self):
         public = self.publish_operational()
@@ -392,7 +384,7 @@ class ResolverHumanTests(unittest.TestCase):
         # request. A typed value comes back untouched, so a stale token still fails at the caller's
         # own authority check instead of being silently repaired here.
         public = self.publish_operational()
-        self.assertEqual(public["request_token"], human.cli_token(self.state, "-"))
+        self.assertEqual("-", human.cli_token(self.state, "-"), "No current machinery offer is answerable")
         self.assertEqual(public["request_token"], human.cli_token(self.state, "-", public["request_id"]))
         self.assertEqual("stale", human.cli_token(self.state, "stale"))
         self.assertEqual("stale", human.cli_token(self.state, "stale", public["request_id"]))
@@ -447,7 +439,7 @@ class ResolverHumanTests(unittest.TestCase):
         report.write_text('{"diagnosis":"changed"}')
         self.assertIsNone(human.current(self.state))
 
-    def test_stale_binding_answer_names_the_refresh_command_not_a_wrong_token(self):
+    def test_stale_legacy_machinery_answer_is_refused_without_a_refresh_question(self):
         public = self.publish_operational()
         request_id, token = public["request_id"], public["request_token"]
         # The frontier moves after the request was displayed, for example an
@@ -455,12 +447,12 @@ class ResolverHumanTests(unittest.TestCase):
         self.state["active_seconds"] += 1
         self.assertIsNone(human.current(self.state))
         before = copy.deepcopy(self.state)
-        with self.assertRaisesRegex(ValueError, "out of date"):
+        with self.assertRaisesRegex(ValueError, "internal recovery"):
             human.require_response(self.state, request_id, token)
-        with self.assertRaisesRegex(ValueError, "out of date"):
+        with self.assertRaisesRegex(ValueError, "internal recovery"):
             human.respond_operational(self.state, request_id, token, "leave_paused")
         self.assertEqual(before, self.state)
-        with self.assertRaisesRegex(ValueError, "exact current AutoResolver request and token"):
+        with self.assertRaisesRegex(ValueError, "internal recovery"):
             human.require_response(self.state, request_id, "forged-token")
 
     def test_publishing_a_new_request_supersedes_the_replaced_pending_one(self):
@@ -473,7 +465,7 @@ class ResolverHumanTests(unittest.TestCase):
         self.assertNotEqual(first["request_id"], second["request_id"])
         self.assertEqual("superseded", ledger[first["request_id"]]["status"])
         self.assertEqual([second["request_id"]], [key for key, entry in ledger.items() if entry["status"] == "pending"])
-        with self.assertRaisesRegex(ValueError, "newer AutoResolver request is active"):
+        with self.assertRaisesRegex(ValueError, "internal recovery"):
             human.respond_operational(self.state, first["request_id"], first["request_token"], "leave_paused")
 
     def test_project_free_intake_still_requires_resolver_owned_input_identity(self):

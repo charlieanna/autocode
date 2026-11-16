@@ -19,8 +19,25 @@ import autocode_run_state as run_state
 # a separate migration. A new plain-dict signature must not silently undo this.
 MAX_DICT_TYPED_STATE_PARAMS = 0
 # Unannotated ``state`` parameters still to move onto RunState, one module at a
-# time (#695). Lower this when a module moves; it must never grow.
-MAX_UNTYPED_STATE_PARAMS = 11
+# time (#695). Every parameter is now annotated (#3468); keep this at 0.
+MAX_UNTYPED_STATE_PARAMS = 0
+
+# Domain-owned state keys whose raw access on ``state`` is confined to their
+# owner module(s) (#3468). Extend this map as each Phase 2 slice migrates.
+OWNED_STATE_KEYS: dict[str, frozenset[str]] = {
+    "_fixture": frozenset({"autocode_fixture_state"}),
+    "interaction_timing": frozenset({"autocode_interaction_timing"}),
+    "active_seconds": frozenset({"autocode_budget_state"}),
+    "inherited_spend": frozenset({"autocode_budget_state"}),
+    "regression_baseline": frozenset({"autocode_regression_state"}),
+    "test_homes": frozenset({"autocode_test_homes"}),
+    "plan_command_roles": frozenset({"autocode_plan_command_roles"}),
+    "scope_exclusion_corrections": frozenset({"autocode_scope_question"}),
+    "implementation_discrepancies": frozenset({"autocode_implementation_discrepancy"}),
+    "superseded_corrections": frozenset({"autocode_superseded_correction"}),
+    "reported_check_reruns": frozenset({"autocode_reported_check_rerun"}),
+    "validation_only_rounds": frozenset({"autocode_validation_rounds"}),
+}
 
 
 def _state_params(root: Path):
@@ -102,8 +119,26 @@ def _touched_keys_in(source: str) -> set[str]:
                 if node.args and isinstance(node.args[0], ast.Dict):
                     for key in node.args[0].keys:
                         keys.add(literal(key))
+        elif (
+            isinstance(node, ast.Compare)
+            and any(isinstance(op, (ast.In, ast.NotIn)) for op in node.ops)
+            and any(_is_state(comparator) for comparator in node.comparators)
+        ):
+            keys.add(literal(node.left))
     keys.discard(None)
     return keys
+
+
+def owned_key_violations(root: Path = TOOLS) -> dict[str, list[str]]:
+    """{owned key: sorted violating module names} outside declared owner modules."""
+    violations: dict[str, list[str]] = {}
+    for path in python_sources(root):
+        module = ".".join(path.relative_to(root).with_suffix("").parts)
+        touched = _touched_keys_in(path.read_text(errors="ignore"))
+        for key, owners in OWNED_STATE_KEYS.items():
+            if key in touched and module not in owners:
+                violations.setdefault(key, []).append(module)
+    return {key: sorted(modules) for key, modules in sorted(violations.items())}
 
 
 def _string_constants(tree: ast.Module) -> dict[str, str]:
@@ -139,9 +174,10 @@ class RunStateTests(unittest.TestCase):
 
     def test_untyped_state_params_do_not_grow(self):
         count = untyped_state_params()
-        self.assertLessEqual(count, MAX_UNTYPED_STATE_PARAMS, "annotate new state parameters as RunState")
-        self.assertGreater(
-            count + 20, MAX_UNTYPED_STATE_PARAMS, f"{count} untyped state parameters remain: lower the ratchet"
+        self.assertEqual(
+            MAX_UNTYPED_STATE_PARAMS,
+            count,
+            "annotate all state parameters as RunState or their typed contract",
         )
 
     def test_untyped_ratchet_counts_only_unannotated_state_params(self):
@@ -278,6 +314,38 @@ class RunStateTests(unittest.TestCase):
         self.assertEqual(len(run_state.KEYS), len(set(run_state.KEYS)))
         for key in run_state.KEYS:
             self.assertRegex(key, r"^[a-z_][a-z0-9_]*$", key)
+
+    def test_top_level_keys_exclude_legacy_fixture_fields(self):
+        self.assertIn("_fixture", run_state.KEYS)
+        legacy = sorted(key for key in run_state.KEYS if key.startswith("_fixture_"))
+        self.assertEqual([], legacy)
+
+    def test_owned_slice_keys_are_not_touched_outside_their_owner_modules(self):
+        self.assertEqual(set(), set(OWNED_STATE_KEYS) - set(run_state.KEYS))
+        self.assertEqual(
+            {},
+            owned_key_violations(),
+            "raw dict access to migrated state slices must go through their owner codec",
+        )
+
+    def test_owned_key_scanner_catches_direct_and_membership_access_outside_owner(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "autocode_budget_state.py").write_text('val = state.get("active_seconds", 0)\n')
+            (root / "autocode_other.py").write_text(
+                'KEY = "regression_baseline"\n'
+                'used = state["active_seconds"]\n'
+                'has_timing = "interaction_timing" in state\n'
+                "cached = state.get(KEY)\n"
+            )
+            self.assertEqual(
+                {
+                    "active_seconds": ["autocode_other"],
+                    "interaction_timing": ["autocode_other"],
+                    "regression_baseline": ["autocode_other"],
+                },
+                owned_key_violations(root),
+            )
 
 
 if __name__ == "__main__":

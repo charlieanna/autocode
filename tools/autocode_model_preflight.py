@@ -51,6 +51,7 @@ try:
     from . import autocode_access_evidence as access_evidence
     from . import autocode_access_identity as access_identity
     from . import autocode_agent_env as agent_env
+    from . import autocode_budget_state as budget_state
     from . import autocode_build_worktree as build_worktree
     from . import autocode_builder_policy as builder_policy
     from . import autocode_cost as cost
@@ -68,6 +69,7 @@ except ImportError:
     import autocode_access_evidence as access_evidence
     import autocode_access_identity as access_identity
     import autocode_agent_env as agent_env
+    import autocode_budget_state as budget_state
     import autocode_build_worktree as build_worktree
     import autocode_builder_policy as builder_policy
     import autocode_cost as cost
@@ -310,12 +312,12 @@ def _allowance(runner, state: RunState, run_dir, workspace, timeout):
         )
     limits = (state.get("settings") or {}).get("limits") or {}
     maximum = limits.get("max_seconds")
-    if maximum and state.get("active_seconds", 0) >= maximum:
+    if maximum and budget_state.active_seconds(state) >= maximum:
         recover = getattr(runner, "recover_default_budget", None)
         if recover is None or not recover(state, run_dir, workspace, "max_seconds"):
             raise support.Paused("PAUSED_TIME_LIMIT", "Saved active-time limit reached before model access")
         maximum = ((state.get("settings") or {}).get("limits") or {}).get("max_seconds")
-    remaining = maximum - state.get("active_seconds", 0) if maximum else None
+    remaining = maximum - budget_state.active_seconds(state) if maximum else None
     return min(timeout, remaining) if timeout is not None and remaining is not None else remaining or timeout
 
 

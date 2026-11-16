@@ -321,6 +321,24 @@ before, and changed product lines still need the Tester's evidence. A project wh
 runner names its tests keeps naming them: a command guard there is refused when the
 plan is drafted (`tools/autocode_command_guards.py`, owner decision 2026-11-13).
 
+A bug can be in what the tests are given rather than in the code they test: a fixture that
+builds the wrong week, a helper that rounds too early, a data file with a wrong row. The
+right fix edits only those files, and "Only test files changed; a fix must change product
+code" refused it. Such a change is proven like a repair whose test the project already had (owner
+decision, 2026-11-16)
+(`tools/autocode_test_support.py`): the task is a bug fix, every path its approved plan
+changes is a test file, no changed file is deleted, and the runner's own per-test results
+name no test defined in any changed file, on the original code and with the change. The
+tests that ran and failed on the original code and pass with the change are then the proof,
+and every test that passed there must still pass. The proof records those files as its
+`test_support`, and the original-test gate reads that answer: it puts back the original bytes of
+every other changed test file and keeps the repaired support, so the original tests' own
+assertions run on it, where before it put the broken fixture back and could never pass. A
+changed test file, a test edited in
+place, a plan that also names product code, a helper that comes to define a test and a
+runner that names no test keep the rule as it was: a test's own assertions never change to
+make it pass.
+
 A repair whose regression test the project already had changes no test. Where the runner
 names its tests, the tests that fail on the original code and pass with the change are
 the proof. Code that cannot be loaded at all (a syntax error, merge conflict markers left
@@ -659,7 +677,10 @@ from `tools/autocode_mutants.py`).
   reachability closure of selected tests (`tools/autocode_affected_tests.py`, recorded
   in `test_selection` and per-mutant `selected_tests`/`selection_rule`), falling back
   to all selected tests on dynamic or unmapped edges and recording provably unobserved
-  lines as `survived` without launching unrelated tests.
+  lines as `survived` without launching unrelated tests. An import reaches every workspace
+  module whose path ends in the imported name, so a module reached through any `sys.path`
+  entry (a directory a test or `conftest.py` inserts, `PYTHONPATH`, `src/`, a start
+  directory) selects the tests that import it.
   Older advisory collectors
   select only the named proving tests. Each collection starts with a fresh bytecode
   cache and reuses unchanged dependencies within that collection. Every mutated

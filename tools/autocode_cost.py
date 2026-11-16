@@ -41,16 +41,18 @@ Uses the usage ledger, dated prices and pure breakdown projection; never reads p
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_budget_state as budget_state
     from . import autocode_cost_breakdown as breakdown
     from . import autocode_prices as prices
     from . import autocode_usage as usage
 except ImportError:
+    import autocode_budget_state as budget_state
     import autocode_cost_breakdown as breakdown
     import autocode_prices as prices
     import autocode_usage as usage
@@ -90,7 +92,7 @@ def spend(state: RunState):
     rows = usage.stage_rows(state, estimator=prices.estimate)
     reported = [row["cost_usd"] for row in rows if row["basis"] == "reported"]
     estimated = [row["cost_usd"] for row in rows if row["basis"] == "estimated"]
-    carried = cast(dict, state.get("inherited_spend")) if isinstance(state.get("inherited_spend"), dict) else {}
+    carried = budget_state.inherited_spend_dict(state)
     inherited = _money(carried.get("usd")) or 0.0
     return {
         "reported_usd": round(sum(reported), 6) if reported else None,

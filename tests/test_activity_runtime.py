@@ -27,9 +27,10 @@ import autocode_support as support
 import autocode_validation_recovery as validation_recovery
 import autopilot
 from autocode_activity import ActivityMonitor
-from goal_fixtures import assert_operational_wait, envelope
+from goal_fixtures import envelope
 
 from . import test_goals, test_stuck_job
+from .operational_fixtures import assert_operational_block
 from .supervision_fixture import launcher
 
 
@@ -1151,8 +1152,7 @@ class ActivityRuntimeTests(unittest.TestCase):
         self.assertEqual(2, test_goals.GoalTests.invoke(self, role=inspect))
         self.assertEqual([], calls, "An ordinary invocation must retain the exhausted pause")
         self.assertEqual(3, self.state["consecutive_timeout_recoveries"])
-        published = assert_operational_wait(self, self.state, "PAUSED_TIMEOUT_RECOVERY")
-        self.assertIn("--grant-recovery", published["request"]["decision_needed"])
+        assert_operational_block(self, self.state, "PAUSED_TIMEOUT_RECOVERY")
         # Since 009c8b8 a plain explicit resume no longer replenishes the spent
         # allowance; only an audited --grant-recovery N does.
         self.assertEqual(2, test_goals.GoalTests.invoke(self, "--resume-paused", role=inspect))
@@ -1163,7 +1163,7 @@ class ActivityRuntimeTests(unittest.TestCase):
         self.assertEqual(history, self.state["automatic_timeout_recoveries"])
         grants = [event for event in self.state["user_events"] if event.get("kind") == "recovery_grant"]
         self.assertEqual([1], [event["amount"] for event in grants])
-        self.assertEqual(published["request_id"], grants[0]["request_id"])
+        self.assertIsNone(grants[0]["request_id"], "a fresh blocked incident never published a person request")
 
     def fake_provider(self, script):
         """Install a workspace-local offline executable, never the user's Codex."""

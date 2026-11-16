@@ -20,6 +20,10 @@ from __future__ import annotations
 import difflib
 import json
 import re
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from .autocode_requirement_cues import coverage_checklist, sentences
@@ -152,7 +156,7 @@ def resolve_checklist_id(quote, checklist):
     return checklist[number - 1] if 1 <= number <= len(checklist) else quote
 
 
-def ground_cited(quote, sources, state):
+def ground_cited(quote, sources, state: RunState):
     """Ground a source_quote that may cite a checklist sentence by id, filling the runner's own bytes.
 
     Requirements are told to copy each requirement_coverage_checklist sentence in full, so a quote

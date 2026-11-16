@@ -13,10 +13,12 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_changed_code_review as changed_code_review
     from . import autocode_execution_prompt as execution_prompt
     from . import autocode_prompt_layout as prompt_layout
     from . import autocode_prompts as prompts
 except ImportError:
+    import autocode_changed_code_review as changed_code_review
     import autocode_execution_prompt as execution_prompt
     import autocode_prompt_layout as prompt_layout
     import autocode_prompts as prompts
@@ -40,6 +42,7 @@ try:
     from . import autocode_package_writes as package_writes
     from . import autocode_protected_oracles as protected_oracles
     from . import autocode_ready_capture_batch as ready_capture_batch
+    from . import autocode_regression_state as regression_state
     from . import autocode_review_source as review_source
     from . import autocode_roles as roles
     from . import autocode_stage_roles as stage_roles
@@ -55,6 +58,7 @@ except ImportError:
     import autocode_package_writes as package_writes
     import autocode_protected_oracles as protected_oracles
     import autocode_ready_capture_batch as ready_capture_batch
+    import autocode_regression_state as regression_state
     import autocode_review_source as review_source
     import autocode_roles as roles
     import autocode_stage_roles as stage_roles
@@ -65,7 +69,7 @@ except ImportError:
 
 
 def _uses_baseline_comparator(state: RunState, *, legacy: bool) -> bool:
-    if legacy or state.get("regression_baseline") is not None:
+    if legacy or regression_state.has_value(state):
         return True
     for value in (
         state.get("task"),
@@ -283,6 +287,12 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
         proof = regression.handoff(state)
         if proof:
             base["regression_proof"] = proof
+            if stage in ("tester", "review_checkpoint"):
+                citation = changed_code_review.proof_reference(
+                    state.get("regression_proof") or {}, (state.get("regression_proof") or {}).get("source_revision")
+                )
+                if citation:
+                    base["changed_code_citation_context"] = citation
             proof_note = regression.PROMPT_NOTES["passed" if proof["verdict"] == "PASS" else "open"][
                 "validator" if stage == "tester" else "owner"
             ] + regression.mutation_note(proof)

@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_budget_state as budget_state
     from . import autocode_goal_lifecycle as lifecycle
     from . import autocode_goals as goals
     from . import autocode_job_failure as job_failure
@@ -44,6 +45,7 @@ try:
     from . import autocode_workflow as workflow
     from . import autopilot
 except ImportError:
+    import autocode_budget_state as budget_state
     import autocode_goal_lifecycle as lifecycle
     import autocode_goals as goals
     import autocode_job_failure as job_failure
@@ -372,7 +374,7 @@ def account_stage(state: RunState, record):
         if not progressive.account_stage(state, record):
             record["accounted"] = True
             return
-        state["active_seconds"] = state.get("active_seconds", 0) + (duration or 0)
+        budget_state.add_active_seconds(state, duration or 0)
         milestones.account(state, record)
         record["accounted"] = True
 

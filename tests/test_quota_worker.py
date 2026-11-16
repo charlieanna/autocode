@@ -22,6 +22,7 @@ from autocode_role_schema import role_schema
 from goal_fixtures import assert_operational_wait
 
 from . import test_subprocess
+from .operational_fixtures import assert_operational_block
 
 QUOTA = {"type": "error", "error": {"message": "subscription usage limit reached"}}
 # OpenCode's ContentFilterError, as tools/fixtures/opencode-content-filter-run.jsonl captured it (#441, #465).
@@ -445,10 +446,10 @@ class ParallelQuotaTests(unittest.TestCase):
             self.assertEqual(0, main(row["run_dir"], "retry"))
         self.assertEqual("BUILT", json.loads((Path(row["run_dir"]) / "result.json").read_text())["status"])
 
-    def test_ac8_non_quota_worker_failure_keeps_the_generic_inspection_pause(self):
+    def test_ac8_non_quota_worker_failure_keeps_evidence_without_a_machinery_question(self):
         _, state = self.paused("AUTOCODE_BUILDER_FAIL")
-        request = assert_operational_wait(self, state, "PAUSED_ORCHESTRATOR_WORKER")
-        self.assertFalse(any(q.get("id") == "route-builder" for q in request.get("questions", [])))
+        assert_operational_block(self, state, "PAUSED_ORCHESTRATOR_WORKER")
+        self.assertFalse(any(q.get("id") == "route-builder" for q in state.get("pending_questions", [])))
 
     def test_ac9_invalid_answers_are_refused_and_launch_nothing(self):
         run, _ = self.paused()
@@ -494,10 +495,10 @@ class ParallelQuotaTests(unittest.TestCase):
         self.assertEqual(["zai-coding-plan/glm-5.3", "xiaomi-token-plan-sgp/mimo-v2"], self.attempts(rows["M1"]))
         self.assertEqual(["zai-coding-plan/glm-5.3"], self.attempts(rows["M2"]))
 
-    def test_ac12_present_non_quota_paused_result_keeps_the_generic_inspection_pause(self):
+    def test_ac12_present_non_quota_paused_result_keeps_evidence_without_a_machinery_question(self):
         _, state = self.paused("AUTOCODE_BUILDER_RESULT_STATUS")
-        request = assert_operational_wait(self, state, "PAUSED_ORCHESTRATOR_WORKER")
-        self.assertFalse(any(q.get("id") == "route-builder" for q in request.get("questions", [])))
+        assert_operational_block(self, state, "PAUSED_ORCHESTRATOR_WORKER")
+        self.assertFalse(any(q.get("id") == "route-builder" for q in state.get("pending_questions", [])))
 
     def test_ac13_a_quota_stopped_member_is_asked_for_a_model_and_retried_only_when_named(self):
         # #465: the view offers no same-model retry; --retry-builder still runs it, the quota having reset.

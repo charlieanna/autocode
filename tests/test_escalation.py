@@ -11,6 +11,24 @@ import autocode_route_ladder as route_ladder
 
 
 class EscalationTests(unittest.TestCase):
+    def test_rejected_output_cannot_change_explicit_effort_or_rotate_the_session(self):
+        for role, model in (("tester", "openai/gpt-6-sol"), ("resolver", "openai/gpt-6-astra")):
+            with self.subTest(role=role):
+                state = {
+                    "settings": {
+                        "engine": "opencode",
+                        "roles": {role: {"model": model, "reasoning_effort": "high"}},
+                        "effort_origins": {role: "user_explicit"},
+                        "limits": {"max_cost_usd": 19},
+                    },
+                    "sessions": {role: "existing-session"},
+                    "reasoning_escalations": [],
+                    "history": [{"stage": "tester", "rejected": True, "cost_usd": 0.12}],
+                }
+                before = deepcopy(state)
+                self.assertIsNone(escalation.advance(state, role, trigger="rejected_output", detail="bad citation"))
+                self.assertEqual(before, state)
+
     def state(self, role, model, effort, *, engine="opencode", provider=None):
         return {
             "settings": {

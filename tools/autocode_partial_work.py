@@ -5,9 +5,15 @@ files are restored or changed. The inline patch is bounded, the complete retaine
 tree is pinned, and none of this grants verification or completion authority.
 """
 
+from __future__ import annotations
+
 import hashlib
 import subprocess
 import tempfile
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_code_checkpoints as checkpoints
@@ -31,7 +37,7 @@ def _pin(workspace, kind, commit):
     checkpoints.git(workspace, "update-ref", ref, commit)
 
 
-def pending(state, revision):
+def pending(state: RunState, revision):
     """Keep an unfinished Builder delta across intervening read-only reviews.
 
     A later Builder attempt consumes it. Another timeout publishes that attempt's
@@ -78,7 +84,7 @@ def pending(state, revision):
     return None
 
 
-def capture_start(record, before, workspace, run_dir, *, state=None):
+def capture_start(record, before, workspace, run_dir, *, state: RunState | None = None):
     """Save the exact launch tree before a Builder starts, including dirty source."""
     try:
         commit = checkpoints.capture_tree(workspace, before, run_dir)

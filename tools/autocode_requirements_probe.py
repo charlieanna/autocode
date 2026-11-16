@@ -110,16 +110,17 @@ CHECKS = (
     "asks",  # asked when it should, and not when it should not
     "tool_calls",  # read no more than the request needs
     "handoff",  # a clear build names behaviours and acceptance tests
-    "clarity",  # not marked clear while it asks the person what outcome they want
+    "clarity",  # not marked clear while it stops to ask the person something
     "reply_matches_question",  # the reply asks every question the open questions list, word for word
     "no_blocking_confirmation",  # a clear request is not stopped by "Is that correct?"
+    "first_report_accepted",  # the runner accepted the first report, with no report repair (#3659 review)
     "latency",  # answered within LATENCY_LIMIT_SECONDS
 )
 # The checks a request passes or fails on; latency ranks models instead (#3630 step 4).
 QUALITY_CHECKS = tuple(check for check in CHECKS if check != "latency")
 
 
-def grade(request, report, *, seconds=None, tool_calls=None, tokens=None, cost_usd=None):
+def grade(request, report, *, seconds=None, tool_calls=None, tokens=None, cost_usd=None, report_repairs=None):
     """``{"request", "checks": {name: bool}, "passed": bool, "failed": [names], measurements}``.
 
     ``report`` is the decoded Requirements answer; anything that is not a dict fails every check
@@ -129,7 +130,9 @@ def grade(request, report, *, seconds=None, tool_calls=None, tokens=None, cost_u
         request = BY_ID[request]
     report = report if isinstance(report, dict) else {}
     questions = _questions(report)
-    asked = bool(questions)
+    # A question the runner itself added stops the run for the person, so the model asked; but its
+    # wording is AutoCode's, so the reply is matched only against the model's own questions.
+    asked = bool(questions) or bool(_questions(report, runner=True))
     clarity = report.get("clarity")
     reply = _text(report.get("assistant_reply"))
     checks = {
@@ -140,11 +143,15 @@ def grade(request, report, *, seconds=None, tool_calls=None, tokens=None, cost_u
         "handoff": not request.needs_handoff
         or asked
         or (bool(report.get("required_behaviors")) and bool(report.get("acceptance_tests"))),
-        "clarity": not (asked and clarity == "clear" and _asks_outcome(report)),
+        # A question that stops the run for the person contradicts "clear" (#3630 known issues).
+        "clarity": not (asked and clarity == "clear"),
         "reply_matches_question": (not asked or _reply_asks(reply, questions)),
         "no_blocking_confirmation": not (
             request.asks is False and any(CONFIRMATION.search(text) for text in [reply, *questions])
         ),
+        # A report the runner had to send back for repair cost the person time and money; None means
+        # the caller did not observe it (a report graded on its own), which is not a failure.
+        "first_report_accepted": report_repairs in (None, 0),
         "latency": isinstance(seconds, (int, float)) and seconds <= LATENCY_LIMIT_SECONDS,
     }
     if not report:
@@ -161,6 +168,7 @@ def grade(request, report, *, seconds=None, tool_calls=None, tokens=None, cost_u
         "tool_calls": tool_calls,
         "tokens": tokens,
         "cost_usd": cost_usd,
+        "report_repairs": report_repairs,
     }
 
 
@@ -188,18 +196,16 @@ def _text(value):
     return _SPACE.sub(" ", value).strip() if isinstance(value, str) else ""
 
 
-def _questions(report):
+def _questions(report, *, runner=False):
+    """The open questions' text: the model's own, or with ``runner`` the ones AutoCode added."""
     questions = report.get("open_questions")
     if not isinstance(questions, list):
         return []
-    return [_text(q.get("question")) for q in questions if isinstance(q, dict) and _text(q.get("question"))]
-
-
-def _asks_outcome(report):
-    """An open question about what the person wants, by the report's own category."""
-    return any(
-        isinstance(q, dict) and q.get("category") == "requested_outcome" for q in report.get("open_questions") or ()
-    )
+    return [
+        _text(q.get("question"))
+        for q in questions
+        if isinstance(q, dict) and _text(q.get("question")) and bool(q.get("runner")) == runner
+    ]
 
 
 def _reply_asks(reply, questions):

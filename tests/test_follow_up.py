@@ -16,6 +16,8 @@ from pathlib import Path
 
 import autocode_contract_revision as revision
 import autocode_follow_up as follow_up
+import autocode_run_view as run_view
+import autocode_status as status_view
 import autocode_util as util
 import autocode_workflows as workflows
 from units import autoplanner
@@ -179,6 +181,38 @@ class FollowUpTests(unittest.TestCase):
     def requirements_flow(self):
         """The run's saved flow starts every turn at Requirements, which names the next job."""
         self.state["settings"] = {"roles": {"requirements": {"model": "r"}}}
+
+    def test_follow_up_archives_the_finished_assignment_before_showing_or_planning_the_next_turn(self):
+        for requirements in (False, True):
+            for assigned_at in (None, "2026-11-14T00:00:00+00:00"):
+                with self.subTest(requirements=requirements, assigned_at=assigned_at):
+                    state = copy.deepcopy(self.state)
+                    if requirements:
+                        state["settings"] = {"roles": {"requirements": {"model": "r"}}}
+                    old = {"id": "prior-task", "objective": "Old task label"}
+                    if assigned_at:
+                        old["assigned_at"] = assigned_at
+                    state["current_task"] = old
+                    follow_up.accept(state, "New task request", self.workspace, "2026-11-15T00:00:00+00:00")
+                    self.assertIsNone(run_view.view(state, workspace=self.workspace)["current_task"])
+                    label = status_view.record(state, timestamp=100)["text"]
+                    self.assertNotIn("Old task label", label)
+                    self.assertIn("New task request", label)
+                    self.assertEqual(old, state["task_archive"][-1])
+                    self.assertIn("New task request", state["task"])
+                    self.assertIn("Review pr-184.patch", state["task"])
+                    state["current_task"] = {"id": "new-task", "objective": "New assignment"}
+                    self.assertIn("New assignment", status_view.record(state, timestamp=101)["text"])
+
+    def test_new_follow_up_updates_progress_even_when_the_stage_is_unchanged(self):
+        self.requirements_flow()
+        follow_up.accept(self.state, "First follow-up", self.workspace, "t1")
+        self.assertIn("First follow-up", status_view.record(self.state, timestamp=100)["text"])
+        first_stage = self.state["next_stage"]
+        self.state["status"] = "TASK_COMPLETE"
+        follow_up.accept(self.state, "Second follow-up", self.workspace, "t2")
+        self.assertEqual(first_stage, self.state["next_stage"])
+        self.assertIn("Second follow-up", status_view.record(self.state, timestamp=101)["text"])
 
     def test_requirements_reads_the_new_message_with_the_earlier_turn_as_context(self):
         self.requirements_flow()

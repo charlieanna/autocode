@@ -633,7 +633,7 @@ def failure(state: RunState, evidence, reason, *, classification="execution"):
     if action == "escalate":
         action, checkers, stop_reason = _escalate(state, current, config, state["settings"]["roles"]["builder"])
     if novelty == "repeat" and action == "pause":
-        stop_reason += REPEATED
+        stop_reason = stop_reason.rstrip(".") + "." + REPEATED  # two sentences, not one run-on
     if novelty in NOVELTY_NOTES:
         reason = f"{reason}; {NOVELTY_NOTES[novelty]}"
     _decide(state, current, action, evidence, reason, checkers, stop_reason, novelty)

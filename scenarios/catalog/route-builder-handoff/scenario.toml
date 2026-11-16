@@ -9,4 +9,4 @@ requires_stages = ["builder", "tester"]
 [fake]
 check = "python3 -m unittest test_greet.py"
 fault = "builder_quota_once"
-answers = { "route-terra" = "gpt-6-luna" }
+answers = { "route-builder" = "gpt-6-luna" }

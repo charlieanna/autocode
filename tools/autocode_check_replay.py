@@ -247,14 +247,16 @@ def _outcome(row, timeout):
     return what
 
 
-def probe(command, workspace, out, scratch_run, *, state=None, base_run=None, timeout=TIMEOUT_SECONDS):
+def probe(
+    command, workspace, out, scratch_run, *, state: RunState | None = None, base_run=None, timeout=TIMEOUT_SECONDS
+):
     """Run ``command`` once as ``replay`` runs a planned check; None when it passes, else how it failed.
 
     For a step whose author can still change it (autocode_validate_task_steps): the same clean copy of the
     current source, limit and reading of the receipt, and a failure the base revision has identically is the
     base's, as it is in the replay. The failure is ``{"what", "tail"}``; nothing is saved as validation evidence.
     """
-    selected = source_scope.paths(cast("RunState", state or {}))
+    selected = source_scope.paths(state or {})
     if selected:
         scratch_run = partial(scratch_run, source_paths=selected)
     out = Path(out)

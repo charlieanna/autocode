@@ -23,6 +23,10 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_package_scope as package_scope
@@ -67,7 +71,7 @@ def command(names, workspace) -> str | None:
 _PATH_OPTIONS = ("-c", "--rootdir", "--confcutdir", "--ignore", "--ignore-glob", "--deselect")
 
 
-def detected(state) -> bool:
+def detected(state: RunState) -> bool:
     """Whether the run's original-test command is the one AutoCode detected, not one the person typed
     (``--test-command``, or a later correction of the original tests' command). A typed command says
     where it runs, and the proof runs it there too."""

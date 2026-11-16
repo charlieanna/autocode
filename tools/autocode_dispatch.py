@@ -37,8 +37,10 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_budget_state as budget_state
     from . import autocode_interaction_timing as interaction_timing
 except ImportError:
+    import autocode_budget_state as budget_state
     import autocode_interaction_timing as interaction_timing
 
 try:
@@ -693,7 +695,7 @@ def account_workers(state: RunState, run_dir, batch, *, defer_denials=False):
                 continue
             state.setdefault("stages", []).append(entry)
             state.setdefault("history", []).append(entry)
-            state["active_seconds"] = state.get("active_seconds", 0) + duration
+            budget_state.add_active_seconds(state, duration)
             accounted.add(identity)
         key = f"{batch['contract_hash']}:{row['milestone_id']}"
         if not blocked and key in child.get("milestone_progress", {}):
@@ -1091,17 +1093,25 @@ def member_retry_refusal(state: RunState, selected, *, issued=None):
     return None
 
 
-def request_retry(state: RunState, run_dir, selected, *, issued=None):
-    """Explicitly retry a stopped serial milestone or named parallel members."""
+def retry_frontier(state: RunState, run_dir, selected, *, issued=None):
+    """The original stopped-worker approval/liveness frontier, without a commit."""
     if state.get("next_stage") == "builder":
         goals.execution_guard(state)
+        s.assert_no_legacy_process(run_dir, Path(state["workspace"]))
+    elif refused := member_retry_refusal(state, selected, issued=issued):
+        raise refused
+
+
+def request_retry(state: RunState, run_dir, selected, *, issued=None):
+    """Explicitly retry a stopped serial milestone or named parallel members."""
+    retry_frontier(state, run_dir, selected, issued=issued)
+    if state.get("next_stage") == "builder":
         try:
             from . import autocode_builder_recovery as recovery
             from . import autocode_resolver_human as human
         except ImportError:
             import autocode_builder_recovery as recovery
             import autocode_resolver_human as human
-        s.assert_no_legacy_process(run_dir, Path(state["workspace"]))
         # Explicit resume may append an audited resolver epoch before reaching us.
         # The CLI verified this receipt before that bookkeeping changed its binding.
         public = human.current(state) or issued
@@ -1113,9 +1123,6 @@ def request_retry(state: RunState, run_dir, selected, *, issued=None):
         human.supersede_operational(state, "Operator explicitly retried the stopped serial Builder")
         autocode_status.persist(run_dir / "state.json", state)
         return
-    refused = member_retry_refusal(state, selected, issued=issued)
-    if refused:
-        raise refused
     batch = cast(dict, state["orchestration_batch"])
     rows = {row["milestone_id"]: row for row in batch["workers"]}
     worker_limits.assign_selected(state, run_dir, [rows[mid] for mid in selected], persist=autocode_status.persist)
@@ -1147,3 +1154,53 @@ def request_retry(state: RunState, run_dir, selected, *, issued=None):
         }
     )
     autocode_status.persist(run_dir / "state.json", state)
+
+
+def retry_evidence(state: RunState, selected):
+    """The exact current batch and retained result bytes after this owner's commit."""
+    event = next(
+        (
+            event
+            for event in reversed(state.get("user_events") or [])
+            if isinstance(event, dict) and event.get("kind") == "builder_retry"
+        ),
+        None,
+    )
+    if event and event.get("mode") == "serial":
+        try:
+            from . import autocode_builder_recovery as recovery
+        except ImportError:
+            import autocode_builder_recovery as recovery
+        return recovery.serial_retry_outcome(state, selected)
+    batch = state.get("orchestration_batch")
+    if not isinstance(batch, dict) or batch.get("status") != "BUILDING":
+        return None
+    rows = batch.get("workers") or []
+    chosen = [row for row in rows if row.get("milestone_id") in selected]
+    if len(chosen) != len(selected) or any(row.get("retry_requested") is not True for row in chosen):
+        return None
+    event = next(
+        (event for event in reversed(state.get("user_events") or []) if event.get("kind") == "builder_retry"), None
+    )
+    if not event or event.get("batch_id") != batch.get("id") or event.get("milestone_ids") != list(selected):
+        return None
+    files = {}
+    for row in rows:
+        directory = Path(row["run_dir"])
+        for path in (directory / "result.json", *sorted(directory.glob("result-history-*.json"))):
+            if path.is_file():
+                files[str(path)] = s.file_hash(path)
+    return {"batch": copy.deepcopy(batch), "event": copy.deepcopy(event), "files": files}
+
+
+def validate_retry_evidence(state: RunState, selected, evidence):
+    """Repeat the original member/approval/liveness gates and exact byte binding."""
+    if isinstance(evidence, dict) and evidence.get("mode") == "serial":
+        # The serial owner can route its committed repair to Resolver. Current
+        # next_stage therefore cannot select which owner's frontier to repeat.
+        goals.execution_guard(state)
+        s.assert_no_legacy_process(Path(state["run_dir"]), Path(state["workspace"]))
+    else:
+        retry_frontier(state, Path(state["run_dir"]), selected)
+    if retry_evidence(state, selected) != evidence:
+        raise ValueError("Stopped Builder retry evidence changed; no work was started")

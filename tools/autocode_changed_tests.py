@@ -13,11 +13,13 @@ try:
     from . import autocode_go_tests as go_tests
     from . import autocode_rust_inline_tests as rust_inline_tests
     from . import autocode_test_parts as test_parts
+    from . import autocode_test_support as test_support
 except ImportError:
     import autocode_cargo_tests as cargo_tests
     import autocode_go_tests as go_tests
     import autocode_rust_inline_tests as rust_inline_tests
     import autocode_test_parts as test_parts
+    import autocode_test_support as test_support
 
 
 def inline_tests(workspace, base, tests, sources, changes) -> tuple[list[str], list[str]]:
@@ -26,14 +28,19 @@ def inline_tests(workspace, base, tests, sources, changes) -> tuple[list[str], l
     return test_parts.partition(workspace, base, tests, sources, changes)
 
 
-def proving(workspace, base, tests, sources, changes, test_side, is_code) -> tuple[list[str], list[str]]:
-    """(the changed test files that must fail first, the product files): ``inline_tests``, and where no
-    rule names a changed test, the code files of ``test_side`` that were seen to be tests
-    (autocode_plan_command_roles.find_tests). Those stay product files too, as a Rust file with inline
-    tests does: their changed lines are still checked as code."""
+def proving(
+    workspace, base, tests, sources, changes, test_side, is_code, *, ambiguous=(), base_suite=None, planned=False
+) -> tuple[list[str], list[str], list[str]]:
+    """(the changed test files that must fail first, the product files, the changed test support):
+    ``inline_tests``, and where no rule names a changed test, the code files of ``test_side`` that were seen
+    to be tests (autocode_plan_command_roles.find_tests). Those stay product files too, as a Rust file with
+    inline tests does: their changed lines are still checked as code. Test support (a fixture, a helper,
+    test data: autocode_test_support.support, where the approved plan changes test files only, ``planned``)
+    is no test of the change: the project's own tests, unchanged, show its repair."""
     runnable, sources = inline_tests(workspace, base, tests, sources, changes)
     seen = [path for path in test_side if is_code(path) and changes.get(path, "deleted") != "deleted"]
-    return runnable or seen, sources
+    held = test_support.support(tests, sources, ambiguous, changes, base_suite, planned)
+    return [path for path in runnable or seen if path not in held], sources, held
 
 
 def inline_tests_kept(workspace, base, changes) -> bool:

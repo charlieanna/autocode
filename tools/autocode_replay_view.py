@@ -11,9 +11,11 @@ from copy import deepcopy
 from pathlib import Path
 
 try:
+    from . import autocode_regression_state as regression_state
     from . import autocode_replay_dependency_evidence as copy_evidence
     from . import autocode_util as util
 except ImportError:
+    import autocode_regression_state as regression_state
     import autocode_replay_dependency_evidence as copy_evidence
     import autocode_util as util
 
@@ -118,7 +120,9 @@ def _projectable(state: RunState):
         value = state.get(key)
         if value is not None and not _dict_rows(value):
             return False
-    if not all(_optional_dict(state.get(key)) for key in ("goal_contract", "validation", "regression_baseline")):
+    if not all(_optional_dict(state.get(key)) for key in ("goal_contract", "validation")) or not (
+        regression_state.is_optional_dict(state)
+    ):
         return False
     contracts = [*(state.get("contract_history") or []), state.get("goal_contract") or {}]
     if any(not _optional_dict(row.get(key)) for row in contracts for key in ("approval_event", "body")):
@@ -227,7 +231,7 @@ def _check_projection(state: RunState, records):
                 }
             )
     proofs = state.get("regression_proofs") or []
-    baseline = state.get("regression_baseline") or {}
+    baseline = regression_state.mapping(state)
     for proof in proofs:
         if not proof.get("path"):
             continue

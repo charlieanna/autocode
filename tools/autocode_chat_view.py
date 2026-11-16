@@ -181,7 +181,7 @@ def tester_disagreement(public) -> str:
     return text + " Tell me how the plan should change; the Tester then runs again on the revised plan."
 
 
-def notice(public, *, state=None):
+def notice(public, *, state: RunState | None = None):
     """Explain the next human step without exposing the diagnostic dashboard."""
     status = public.get("status") or ""
     recovery = public.get("recovery") or {}

@@ -10,4 +10,4 @@ requires_stages = ["tester"]
 [fake]
 check = "python3 -m unittest test_greet.py"
 fault = "quota_once"
-answers = { "route-sol" = "gpt-6-luna" }
+answers = { "route-tester" = "gpt-6-luna" }

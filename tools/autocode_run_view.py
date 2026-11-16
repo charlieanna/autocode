@@ -265,6 +265,10 @@ def requirements_view(state: RunState) -> dict | None:
         "proposed_assumptions": proposed_assumptions,
         "acceptance_tests": tests,
         "conflicts": conflicts,
+        # What Requirements named in this report, before the person confirms it (#3630): the
+        # workflow field reports the job only once it starts, and the model probe grades both.
+        "job": report.get("job") if report.get("job") in (*workflows.WORKFLOWS, "none") else None,
+        "clarity": report.get("clarity") if report.get("clarity") in adaptive_planning.CLARITY else None,
     }
 
 
@@ -338,7 +342,7 @@ def view(
         import autocode_checkpoint_reconciliation as reconciliation
     reconcile = (
         None
-        if (operational_block.presentation(state))
+        if (operational_block.presentation(state, include_hold=True))
         else reconciliation.offer(state, liveness, controller=controller, stop_pending=stop_pending)
     )
     if reconcile is not None:
@@ -898,7 +902,7 @@ def evidence(state: RunState) -> dict:
     moves = finding_rescope.history(state.get("findings_ledger"))
     return {
         "created_at": state.get("created_at"),
-        **({"interaction_timing": interaction_timing.project(state)} if state.get("interaction_timing") else {}),
+        **({"interaction_timing": interaction_timing.project(state)} if interaction_timing.has_record(state) else {}),
         "outcome": contract.get("intended_outcome"),
         "workflow_result": workflow_result(state),
         "base_commit": state.get("base_commit"),
@@ -1100,7 +1104,7 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
             "pause_category_label": pause_category.LABELS.get(category) if category else None,
             "next_command": None,
         }
-    if operational_block.presentation(state):
+    if operational_block.presentation(state, include_hold=True):
         return {"needs": None, "pause_category": "autocode", "pause_category_label": "AutoCode", "next_command": None}
     if changeset_barrier.held_approval(state):
         held_need = {
@@ -1276,7 +1280,11 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
                                                      --abandon-stage ATTEMPT as deterministic recovery
     """
     status = state.get("status", "")
-    if stop.applied_stop(state) is not None or status in COMPLETE or (operational_block.presentation(state)):
+    if (
+        stop.applied_stop(state) is not None
+        or status in COMPLETE
+        or (operational_block.presentation(state, include_hold=True))
+    ):
         return None
     if retired := workflows.retired_stage(state):
         # Saved at a stage this runtime no longer runs (owner decision 2026-11-10): nothing resumes it.

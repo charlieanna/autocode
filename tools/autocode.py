@@ -1586,6 +1586,9 @@ def chat_checkpoint(state: RunState, run_dir=None, *, persist=None, native=None)
     overlap = requirements_overlap.Controller.wired(sys.modules[__name__], now=now)
     if native is not None and (state.get("user_request") or {}).get("kind") == "human_review":
         raise support.Paused("PAUSED_VISUAL_EVIDENCE", "Native image/human artifact review requires later scopes")
+    if (notice := action_resolver.blocked_chat_notice(state)) is not None:
+        print(notice)
+        return False
     normalize_human_boundary(state, run_dir)
 
     def action(callback, published=None):
@@ -1633,9 +1636,9 @@ def chat_checkpoint(state: RunState, run_dir=None, *, persist=None, native=None)
     background, literal = None, {}  # the overlap call (#3233) and the exact replies the person typed
     try:
         while state["status"] == "WAITING_FOR_USER":
-            published = resolver_human.current(state)
+            published, notice = action_resolver.chat_request(state)
             if not published:
-                print("The Resolver is still deciding whether this needs you; it asks once it does.")
+                print(notice)
                 return False
             if published["scope"] in ("operational_exhaustion", "blocker"):
                 show_question()

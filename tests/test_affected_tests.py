@@ -365,6 +365,69 @@ class AffectedTestsSelectionTests(unittest.TestCase):
         self.assertEqual(sorted(ut_ids), sorted(sites_ut[("calc.py", 2)]["tests"]))
         self.assertEqual(affected_tests.RULE_ALL, sites_ut[("calc.py", 2)]["rule"])
 
+    def test_a_module_imported_through_any_sys_path_entry_selects_its_tests(self):
+        """However a directory reaches sys.path, the test importing a module from it is selected.
+
+        The local compose component imported ``server`` after inserting its own directory into
+        sys.path; no test was selected, so every changed line was recorded as unobserved."""
+        body = "def f():\n    return 1\n"
+        case = "class T(unittest.TestCase):\n    def test_a(self):\n        self.assertEqual(1, f())\n"
+        unrelated = (
+            "import unittest\nclass U(unittest.TestCase):\n    def test_u(self):\n        self.assertEqual(2, 2)\n"
+        )
+        insert = "import os, sys\nsys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))\n"
+        layouts = {
+            "test inserts its parent, hyphenated directory": (
+                "components/link-service/server.py",
+                "components/link-service/tests/test_s.py",
+                "components.link-service.tests.test_s",
+                insert + "import unittest\nimport server\nf = server.f\n",
+                "python -m unittest discover -v",
+            ),
+            "conftest appends the directory": (
+                "app/lib.py",
+                "tests/test_s.py",
+                "tests.test_s",
+                "import unittest\nfrom lib import f\n",
+                "python -m pytest -v",
+            ),
+            "PYTHONPATH names the directory": (
+                "app/lib.py",
+                "tests/test_s.py",
+                "tests.test_s",
+                "import unittest\nfrom lib import f\n",
+                "PYTHONPATH=app python -m unittest discover -v",
+            ),
+            "src package": (
+                "src/pkg/lib.py",
+                "tests/test_s.py",
+                "tests.test_s",
+                "import unittest\nfrom pkg.lib import f\n",
+                "python -m unittest discover -v",
+            ),
+        }
+        for name, (module, test_file, dotted, header, command) in layouts.items():
+            with self.subTest(name):
+                files = {
+                    module: body,
+                    test_file: header + case,
+                    "tests/test_unrelated.py": unrelated,
+                    "tests/conftest.py": "import sys, pathlib\n"
+                    "sys.path.append(str(pathlib.Path(__file__).parent.parent / 'app'))\n",
+                }
+                for directory in {str(Path(test_file).parent), "tests"}:
+                    files.setdefault(f"{directory}/__init__.py", "")
+                root = self._tree(files)
+                pytest = "pytest" in command
+                wanted = f"{test_file}::T::test_a" if pytest else f"{dotted}.T.test_a"
+                other = "tests/test_unrelated.py::U::test_u" if pytest else "tests.test_unrelated.U.test_u"
+                selection = affected_tests.select(
+                    "pytest" if pytest else "unittest", command, [wanted, other], root, [module]
+                )
+                sites, summary = affected_tests.plan_for_mutants(selection, [(module, 2)])
+                self.assertIn(wanted, sites[(module, 2)]["tests"])
+                self.assertEqual(0, summary["unobserved_mutants"])
+
     def test_unobserved_file_and_fallbacks(self):
         root = self._tree(
             {

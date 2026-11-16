@@ -18,9 +18,9 @@ from unittest.mock import patch
 import autocode as runner
 import autocode_goals as goals
 import autocode_support as support
-from goal_fixtures import assert_operational_wait
 
 from . import test_subprocess
+from .operational_fixtures import assert_operational_block
 from .supervision_fixture import launcher
 
 
@@ -179,8 +179,7 @@ class FinalizerTimeoutTests(unittest.TestCase):
         _, state = self.saved()
         self.assertEqual(3, len(self.finals))
         self.assertEqual(3, sum(bool(row.get("timed_out")) for row in self.finalizer_attempts(state)))
-        public = assert_operational_wait(self, state, "PAUSED_TIMEOUT_RECOVERY")
-        self.assertIn("--grant-recovery", public["request"]["decision_needed"])
+        assert_operational_block(self, state, "PAUSED_TIMEOUT_RECOVERY")
         self.assertLessEqual(state["planning"]["plan_review_calls"], runner.planning.review_call_limit(state))
         self.assert_no_planning_recovery_grant(state)
         self.assertFalse(goals.approved(state))

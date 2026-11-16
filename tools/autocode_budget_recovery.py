@@ -22,8 +22,10 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_budget_state as budget_state
     from . import autocode_planning_correction_budget as correction_budget
 except ImportError:
+    import autocode_budget_state as budget_state
     import autocode_planning_correction_budget as correction_budget
 
 HARD_CEILINGS = {
@@ -421,7 +423,7 @@ def recover(state: RunState, *, kind, now) -> bool:
             unknown_usage = True  # Preserved explicitly below; never converted to zero.
         else:
             return False
-    used = state.get("iteration") if kind == "iteration_ceiling" else state.get("active_seconds")
+    used = state.get("iteration") if kind == "iteration_ceiling" else budget_state.raw_active_seconds(state)
     if kind == PLANNING_KIND:
         if not isinstance(planning, dict):
             return False

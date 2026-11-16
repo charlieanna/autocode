@@ -191,6 +191,17 @@ test that ran and failed, and the person was asked to set a regression command o
 unproven proof. Do not extend this to code that loads, or to a change that edits one of the
 project's test files.
 
+**A bug in test support is proven by the tests it feeds, owner decision 2026-11-16.** A bug can be
+in what the tests are given (a fixture, a test helper, a test data file) rather than in the code
+they test, and its fix edits only test files. When the task is a bug fix, the approved plan changes
+test files only, none is deleted, and the runner's own per-test results name no test defined in
+any changed file, on the original code and with the change, the tests that ran and failed on the
+original code and pass with the change are the proof, and every test that passed there must still
+pass (`autocode_test_support`). The proof records those files as its `test_support`, and the
+original-test gate reads that one answer rather than restoring the broken fixture. Before, the fix
+was refused as "Only test files changed" and the person was asked whether to make an exception. Do
+not extend this to a change of a test's own assertions, or to a runner that names no test.
+
 The changed-code evidence gate (#2474) combines authenticated diff coverage
 (`tools/autocode_diff_coverage.py`, #701), behavioral mutation observations and
 exact per-line reasons checked by the existing independent Tester. Raw coverage
@@ -425,7 +436,7 @@ were archived at tag `archive/pre-restructure-2026-09-26`
    functions over state) → runtime (processes, providers) → controller
    (`autopilot`, owns the loop) → interfaces (CLI). Lower layers never import
    higher ones.
-4. **Run state is a dict of about 255 named keys.** `tools/autocode_run_state.py`
+4. **Run state is a dict of about 247 named keys.** `tools/autocode_run_state.py`
    is the typed contract that names every key with who writes and who reads it;
    `tests/test_run_state.py` fails when `tools/` touches a key it does not name.
    Prefer an existing key: read the contract before adding one. If you must add

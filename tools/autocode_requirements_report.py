@@ -11,6 +11,11 @@ canonical report.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_requirements_review as requirements_review
 except ImportError:
@@ -37,7 +42,7 @@ def backfill_assumption_text(report: dict) -> dict:
     return {**report, "proposed_assumptions": rows} if updated else report
 
 
-def normalize(value, state, schema, record):
+def normalize(value, state: RunState | None, schema, record):
     stage = str(record.get("original_stage") or record.get("stage", "")).removesuffix("_report_repair")
     if stage == "requirements_gather" and isinstance(value, dict):
         backfilled = backfill_assumption_text(value)

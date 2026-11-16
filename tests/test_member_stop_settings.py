@@ -11,15 +11,16 @@ import json
 import unittest
 from pathlib import Path
 
+from autocode_operational_disposition import MESSAGE
 from goal_fixtures import assert_operational_wait
 
 from . import test_quota_worker as quota_worker
 from . import test_subprocess
+from .operational_fixtures import assert_operational_block
 
 QUOTA, REFUSAL, GLM, MIMO = quota_worker.QUOTA, quota_worker.REFUSAL, quota_worker.GLM, quota_worker.MIMO
 LUNA = "openai/gpt-6-luna"
 ADVICE = "--answer route-builder=MODEL"
-RESOLVER_ADVICE = "AutoResolver could not resolve"
 GUARD = "belongs to another implementation task"
 
 
@@ -121,19 +122,16 @@ class MemberStopSettingsTests(unittest.TestCase):
         self.assertEqual("TASK_COMPLETE", state["status"])
         self.assertEqual([[GLM, MIMO], [GLM]], [self.attempts(self.workers(state)[mid]) for mid in ("M1", "M2")])
 
-    def test_a_settings_flag_asks_a_failed_member_again_with_its_advice_once(self):
-        # A generic Builder failure asks no model question. Asked again after the settings write, its
-        # request starts from the member's own cause, not from the stop reason the withdrawn request
-        # composed, so AutoResolver's advice is given once.
+    def test_a_settings_flag_retains_failed_member_evidence_without_republishing_a_question(self):
         run, state = self.paused("AUTOCODE_BUILDER_FAIL")
-        assert_operational_wait(self, state, "PAUSED_ORCHESTRATOR_WORKER")
-        self.assertEqual(1, state["stop_reason"].count(RESOLVER_ADVICE), state["stop_reason"])
+        assert_operational_block(self, state, "PAUSED_ORCHESTRATOR_WORKER")
+        self.assertEqual(1, state["stop_reason"].count(MESSAGE), state["stop_reason"])
         self.resume_with(run, "--tester-model", LUNA)
         state = self.saved()[1]
         self.assertEqual(LUNA, state["settings"]["roles"]["tester"]["model"])
-        request = assert_operational_wait(self, state, "PAUSED_ORCHESTRATOR_WORKER")
-        self.assertFalse([q for q in request["questions"] if q["id"] == "route-builder"])
-        self.assertEqual(1, state["stop_reason"].count(RESOLVER_ADVICE), state["stop_reason"])
+        assert_operational_block(self, state, "PAUSED_ORCHESTRATOR_WORKER")
+        self.assertFalse([q for q in state.get("pending_questions", []) if q["id"] == "route-builder"])
+        self.assertEqual(1, state["stop_reason"].count(MESSAGE), state["stop_reason"])
         del self.env["AUTOCODE_BUILDER_FAIL"]  # the cause was fixed
         self.resume_with(run, "--retry-builder", "M1", expected=0)
         self.assertEqual("TASK_COMPLETE", self.saved()[1]["status"])
@@ -205,11 +203,11 @@ class MemberStopSettingsTests(unittest.TestCase):
 
     def test_a_failed_members_saved_route_is_retried_only_after_the_parent_route_is_restored(self):
         run, state = self.paused("AUTOCODE_BUILDER_FAIL", members="M2")
-        assert_operational_wait(self, state, "PAUSED_ORCHESTRATOR_WORKER")
+        assert_operational_block(self, state, "PAUSED_ORCHESTRATOR_WORKER")
         self.resume_with(run, "--builder-model", MIMO)
         state = self.saved()[1]
-        request = assert_operational_wait(self, state, "PAUSED_ORCHESTRATOR_WORKER")
-        self.assertFalse([q for q in request["questions"] if q["id"] == "route-builder"])
+        assert_operational_block(self, state, "PAUSED_ORCHESTRATOR_WORKER")
+        self.assertFalse([q for q in state.get("pending_questions", []) if q["id"] == "route-builder"])
         child = Path(self.workers(state)["M2"]["run_dir"]) / "state.json"
         before = child.read_bytes()
 
@@ -261,7 +259,7 @@ class MemberStopSettingsTests(unittest.TestCase):
 
     def test_a_failed_member_gets_its_second_attempt_under_the_new_settings(self):
         run, state = self.paused("AUTOCODE_BUILDER_FAIL")
-        assert_operational_wait(self, state, "PAUSED_ORCHESTRATOR_WORKER")
+        assert_operational_block(self, state, "PAUSED_ORCHESTRATOR_WORKER")
         del self.env["AUTOCODE_BUILDER_FAIL"]  # the cause was fixed
         # A Builder model would not reach the member's retry, and a failed member has no model question.
         before = (run / "state.json").read_bytes()

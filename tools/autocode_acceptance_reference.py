@@ -4,7 +4,13 @@ These observations classify acceptance generation only. They never supply the
 final regression proof, inherit a historical failure, or authorize completion.
 """
 
+from __future__ import annotations
+
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_base_patch as base_patch
@@ -61,7 +67,7 @@ def candidate_problem(run):
     return ""
 
 
-def collect(state, workspace, run_dir, out, selected, files, command=None):
+def collect(state: RunState, workspace, run_dir, out, selected, files, command=None):
     """Run exactly the observed cases on original product code plus today's tests."""
     workspace, out = Path(workspace), Path(out)
     tree = out / "tree"
