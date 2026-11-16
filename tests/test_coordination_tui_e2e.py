@@ -691,10 +691,8 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
             self.assertFalse(view["done"])
             self.assertEqual("blocked", view["recovery"]["category"])
             self.assertIsNone(view["chat"]["input"])
-            self.assertEqual(
-                ("operational_exhaustion", "PAUSED_REPEATED_FAILURE"),
-                (view["needs"].get("resolver_scope"), view["needs"].get("pause_origin")),
-            )
+            self.assertIsNone(view["needs"])
+            self.assertIsNone(view["next_command"])
             self.assertEqual(
                 [], (view.get("scope") or {}).get("external_parts", []), "No ungrounded scope was persisted"
             )
