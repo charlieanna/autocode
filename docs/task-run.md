@@ -1831,11 +1831,11 @@ does not authorize a retry. The job issues a new token, so a client must read a
 fresh view before offering or taking any subsequent action. The VS Code sidebar
 and Run Details accept an explicit number for each row and confirm the save.
 
-At an idle intervention boundary, `needs.command_inputs` can also name a
-separate, pause-token-bound increase to the per-step time limit. This action
-resumes the run as well as saving the limit for later steps; its confirmation
-states both effects. It is not offered while a stage, runner check, report
-repair or uncertain artifact is active.
+An intervention boundary (the person's own pause) offers no `needs.command_inputs`:
+resuming it asks for no number. The per-step time limit is a setting, not a field on
+the pause (owner request 2026-11-16): `--max-stage-seconds` or `max-stage-seconds` in
+`.autocode/config.toml` for new runs, `autocode.maxStageSeconds` in the VS Code client,
+and `--resume-paused --max-stage-seconds N` on the command line for a paused run.
 
 `needs.command_inputs` describes the one number a pause leaves to a person, so a
 client can ask for it instead of handing the command off (#2044). Every bound a

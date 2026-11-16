@@ -311,6 +311,7 @@ The jsdom tests alone establish neither editor-host nor live-provider compatibil
 | `autocode.cliArgs` | `[]` | Leading arguments, for a source checkout. |
 | `autocode.provider` | `""` | `--provider` for new chats. |
 | `autocode.extraOptions` | `[]` | Extra engine and model flags for new chats. |
+| `autocode.maxStageSeconds` | empty | Time limit for each step of a new chat, in seconds (`--max-stage-seconds`). Empty uses AutoCode's default or `max-stage-seconds` in `.autocode/config.toml`; `0` turns it off. A pause never asks for it. |
 | `autocode.pollSeconds` | `5` | Seconds between read-only status updates. |
 | `autocode.confirmPersonOnly` | `true` | Ask before acting on a pause the run stopped for a person. |
 

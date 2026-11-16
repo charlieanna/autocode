@@ -15,11 +15,14 @@ export function readSettings(): Settings {
   const config = vscode.workspace.getConfiguration("autocode");
   const provider = config.get<string>("provider", "").trim();
   const extra = config.get<string[]>("extraOptions", []);
+  const stageSeconds = config.get<number | null>("maxStageSeconds", null);
   return {
     command: config.get<string>("cliPath", "autocode").trim() || "autocode",
     prefix: config.get<string[]>("cliArgs", []),
     runOptions: [
       ...(provider ? ["--provider", provider] : []),
+      // The per-step limit is a setting, never a field on a pause (owner request 2026-11-16).
+      ...(Number.isSafeInteger(stageSeconds) && stageSeconds! >= 0 ? ["--max-stage-seconds", String(stageSeconds)] : []),
       ...extra.filter((word) => typeof word === "string" && word.length > 0),
     ],
     pollMs: Math.max(1, config.get<number>("pollSeconds", 5)) * 1000,
