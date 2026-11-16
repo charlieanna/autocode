@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import autocode_operational_disposition as disposition
 import autocode_resolver_human as human
 import autocode_resolver_runtime as runtime
 import autocode_run_view as run_view
@@ -144,6 +145,8 @@ class OperationalExhaustionPublicContractTests(unittest.TestCase):
         self.assertIsNone(human.current(self.state))
         self.assertEqual([], self.state.get("pending_questions", []))
         self.assert_blocked_public()
+        # The cause stays in the receipt; the person is told no machinery detail to act on.
+        self.assertEqual(disposition.MESSAGE, self.state["stop_reason"])
         self.assertEqual(attempt, self.state["active_stage"])
         self.assertEqual(1, self.state["settings"]["limits"]["planning_calls"])
         self.assertEqual(0, self.state["settings"]["limits"]["max_cost_usd"])
