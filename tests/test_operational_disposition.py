@@ -504,6 +504,7 @@ class OperationalDispositionTests(unittest.TestCase):
             resolver_human=human,
             milestones=milestones,
             write_json=support.atomic_json,
+            run_actions=actions,
         )
 
     def recovery_writer(self):
@@ -527,9 +528,18 @@ class OperationalDispositionTests(unittest.TestCase):
             "planning",
             "timeout_recovery_guard",
             "abandon_stage",
+            "recovery_count",
         ):
             setattr(writer, name, getattr(core, name))
         return writer
+
+    def apply_selected_owner(self, writer, args, decided):
+        code = admission.guard(writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided)
+        if code is None and decided.owner_lane:
+            return actions.apply_owned(
+                writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided
+            )
+        return code
 
     def approved_contract(self):
         contract = {"task_id": "task-fixture", "revision": 1, "body": body()}
@@ -540,8 +550,7 @@ class OperationalDispositionTests(unittest.TestCase):
         self.assertTrue(goals.approved(self.state))
         return contract
 
-    def parallel_retry_incident(self):
-        import autocode_dispatch as dispatch
+    def observe_no_legacy_processes(self):
         import autocode_legacy_process as legacy_process
 
         def process_listing(command, **options):
@@ -554,6 +563,11 @@ class OperationalDispositionTests(unittest.TestCase):
         # Execute the real legacy inspection/parent retry policy against one
         # observed empty process listing, without starting even a ps child.
         self.enterContext(patch.object(legacy_process.subprocess, "run", side_effect=process_listing))
+
+    def parallel_retry_incident(self):
+        import autocode_dispatch as dispatch
+
+        self.observe_no_legacy_processes()
 
         self.state.pop("active_stage")
         contract = self.approved_contract()
@@ -605,10 +619,204 @@ class OperationalDispositionTests(unittest.TestCase):
         )
         self.assertFalse(admission.ready(self.state, decided), "a selector has no worker retry authority")
         dispatch.request_retry(self.state, self.run, ["M2"])
-        admission.checked(writer, self.state, self.run, decided, "builder", {"milestone": ["M2"]})
+        admission.checked(
+            writer,
+            self.state,
+            self.run,
+            decided,
+            "builder",
+            {"milestone": ["M2"], "batch": dispatch.retry_evidence(self.state, ["M2"])},
+        )
         self.assertTrue(admission.ready(self.state, actions.Decided()))
         self.assertEqual(original, disposition.incident_identity(self.state, disposition.held(self.state)))
         self.assertEqual(before_result, (Path(workers[0]["run_dir"]) / "result.json").read_bytes())
+
+    def test_owner_lane_rechecks_named_parallel_retry_and_retains_successful_sibling_bytes(self):
+        _, _, workers = self.parallel_retry_incident()
+        self.state["version"] = 3
+        writer, args, decided = (
+            self.writer(),
+            Arguments(resume_paused=True, retry_builder=["M2"], run_dir=str(self.run)),
+            actions.Decided(),
+        )
+        writer.consume_interventions = lambda *_args, **_kwargs: False
+        before = (Path(workers[0]["run_dir"]) / "result.json").read_bytes()
+        self.assertIsNone(self.apply_selected_owner(writer, args, decided))
+        self.assertTrue(admission.ready(self.state, decided))
+        self.assertEqual(("builder",), decided.completed_operations)
+        self.assertIsNotNone(disposition.held(self.state), "work guards do not retire evidence")
+        self.assertEqual(before, (Path(workers[0]["run_dir"]) / "result.json").read_bytes())
+        counts = copy.deepcopy(self.state.get("automatic_recoveries_since_resume"))
+        support.atomic_json(Path(workers[0]["run_dir"]) / "result.json", {"status": "BUILT", "changed": True})
+        with self.assertRaises(ValueError):
+            admission.work_guard(writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided)
+        self.assertEqual(counts, self.state.get("automatic_recoveries_since_resume"))
+        self.assertIsNotNone(disposition.held(self.state))
+
+    def test_invalid_builder_owner_never_walks_ambient_prepare_and_pending_input_still_precedes_retry(self):
+        self.parallel_retry_incident()
+        self.state["version"] = 3
+        writer, args, decided = (
+            self.writer(),
+            Arguments(resume_paused=True, retry_builder=["M1"], run_dir=str(self.run)),
+            actions.Decided(),
+        )
+        visited = []
+        writer.consume_interventions = lambda *_args, **_kwargs: visited.append("consume") or False
+        before = copy.deepcopy(self.state)
+        with patch.object(
+            actions.action_prepare.milestones,
+            "apply_queued_activation",
+            side_effect=lambda *_: visited.append("milestone activation") or False,
+        ):
+            self.assertEqual(2, self.apply_selected_owner(writer, args, decided))
+        self.assertEqual([], visited, "a rejected worker selection grants no ambient preparation")
+        self.assertEqual(before, self.state)
+        args.retry_builder = ["M2"]
+        with patch.object(
+            human, "pending_interruptions", return_value={"pending": [{"kind": "feedback", "id": "queued-owner-input"}]}
+        ):
+            self.assertEqual(
+                2,
+                admission.guard(
+                    writer, args, None, self.state, self.run / "state.json", self.run, self.root, actions.Decided()
+                ),
+            )
+        self.assertEqual(["consume"], visited)
+        self.assertFalse(any(row.get("retry_requested") for row in self.state["orchestration_batch"]["workers"]))
+
+    def test_serial_builder_repeats_its_actual_approval_and_liveness_frontier_after_commit(self):
+        import autocode_dispatch as dispatch
+
+        self.observe_no_legacy_processes()
+        self.state.pop("active_stage")
+        self.approved_contract()
+        self.state.update(next_stage="builder", current_task={"id": "T1", "milestone_id": "M1", "kind": "implement"})
+        self.state["settings"]["builder_retry"] = {"enabled": True}
+        self.state["settings"]["roles"] = {"builder": {"model": "saved-model", "reasoning_effort": "medium"}}
+        key = builder_policy.key(self.state)
+        self.state["builder_retries"] = {key: {"action": "pause", "failures": [{"cause": "retained failure"}]}}
+        self.legacy(pause="PAUSED_BUILDER_RETRY_LIMIT")
+        writer, args, decided = self.writer(), Arguments(resume_paused=True, retry_builder=["M1"]), actions.Decided()
+        self.assertIsNone(self.apply_selected_owner(writer, args, decided))
+        self.assertEqual(("builder",), decided.completed_operations)
+        self.assertTrue(admission.ready(self.state, decided))
+        before = copy.deepcopy(self.state)
+        with patch.object(
+            dispatch.s, "assert_no_legacy_process", side_effect=ValueError("ownership changed")
+        ) as checked:
+            with self.assertRaises(ValueError):
+                admission.work_guard(
+                    writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided
+                )
+            self.assertEqual(1, checked.call_count)
+            with self.assertRaises(ValueError):
+                actions._admit_build(
+                    writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided
+                )
+        self.assertEqual(before, self.state)
+        self.assertIsNotNone(disposition.held(self.state))
+
+    def test_owner_lane_never_walks_ambient_steps_before_missing_stale_or_failed_authority(self):
+        original = actions.STEPS
+        safe = {
+            actions.read_shown_tokens,
+            actions.honor_stops,
+            actions.hold_operational_block,
+            actions.action_stage_model.apply,
+            actions.action_discrepancy.apply,
+            actions.action_recovery.reconcile_checkpoint,
+            actions.action_decisions.preflight,
+            admission.guard,
+        }
+
+        def unsafe(*_args, **_kwargs):
+            self.fail("ambient recovery, source writes, result application or provider work preceded owner authority")
+
+        pristine = copy.deepcopy(self.state)
+        for variant in ("no_owner", "stale", "failed_owner", "unregistered_write"):
+            with self.subTest(variant=variant):
+                self.state = copy.deepcopy(pristine)
+                self.state.pop("active_stage")
+                self.state.update(
+                    automatic_recoveries_since_resume=3,
+                    consecutive_timeout_recoveries=3,
+                    automatic_timeout_recoveries=[{"stage": "requirements_gather"}] * 3,
+                )
+                self.queued(pause="PAUSED_TIMEOUT_RECOVERY")
+                args = Arguments(resume_paused=True)
+                if variant in ("stale", "failed_owner"):
+                    args.grant_recovery = 0 if variant == "failed_owner" else 1
+                if variant == "stale":
+                    self.state["settings"]["changed"] = True
+                if variant == "unregistered_write":
+                    args.submit_repair = "unreviewed.patch"
+                writer = self.recovery_writer()
+                writer.cli_args = SimpleNamespace(user_actions=actions.operation_contract.user_actions)
+                before = copy.deepcopy(self.state)
+                with patch.object(actions, "STEPS", tuple(step if step in safe else unsafe for step in original)):
+                    self.assertEqual(
+                        2, actions.handle(writer, args, None, self.state, self.run / "state.json", self.run, self.root)
+                    )
+                self.assertIsNotNone(disposition.held(self.state))
+                self.assertEqual(
+                    before.get("automatic_timeout_recoveries"), self.state.get("automatic_timeout_recoveries")
+                )
+                self.assertEqual(
+                    before.get("automatic_recoveries_since_resume"), self.state.get("automatic_recoveries_since_resume")
+                )
+
+    def test_owner_lane_and_ordinary_grant_use_one_handler_without_double_spending(self):
+        self.state.pop("active_stage")
+        self.state.update(
+            automatic_recoveries_since_resume=3,
+            consecutive_timeout_recoveries=3,
+            automatic_timeout_recoveries=[{"stage": "requirements_gather"}] * 3,
+        )
+        self.queued(pause="PAUSED_TIMEOUT_RECOVERY")
+        writer, args, decided = (
+            self.recovery_writer(),
+            Arguments(resume_paused=True, grant_recovery=1),
+            actions.Decided(),
+        )
+        self.assertIsNone(self.apply_selected_owner(writer, args, decided))
+        self.assertEqual(2, writer.recovery_count(self.state))
+        self.assertEqual(1, len(self.state["recovery_grants"]))
+        before = copy.deepcopy(self.state)
+        self.assertIsNone(
+            actions.action_recovery.grant(
+                writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided
+            )
+        )
+        self.assertEqual(before, self.state)
+        self.assertEqual(("grant",), decided.completed_operations)
+        self.assertIsNotNone(disposition.held(self.state))
+
+    def test_public_prefix_commits_actual_owner_before_entering_any_ambient_step(self):
+        import autocode_args as cli_args
+
+        self.state.pop("active_stage")
+        self.state.update(
+            automatic_recoveries_since_resume=3,
+            consecutive_timeout_recoveries=3,
+            automatic_timeout_recoveries=[{"stage": "requirements_gather"}] * 3,
+        )
+        self.queued(pause="PAUSED_TIMEOUT_RECOVERY")
+        writer, args = self.recovery_writer(), Arguments(resume_paused=True, grant_recovery=1)
+        writer.cli_args = cli_args
+
+        def next_ambient_step(*_args):
+            self.assertEqual(2, writer.recovery_count(self.state), "the real owner must commit before ambient handling")
+            self.assertEqual(1, len(self.state["recovery_grants"]))
+            self.assertTrue(admission.ready(self.state, actions.Decided()))
+            self.assertIsNotNone(disposition.held(self.state), "metadata exit cannot retire the incident")
+            return 0
+
+        boundary = actions.STEPS.index(admission.guard)
+        with patch.object(actions, "STEPS", (*actions.STEPS[: boundary + 1], next_ambient_step)):
+            self.assertEqual(
+                0, actions.handle(writer, args, None, self.state, self.run / "state.json", self.run, self.root)
+            )
 
     def archived_completion_incident(self):
         self.state.pop("active_stage")
@@ -671,12 +879,119 @@ class OperationalDispositionTests(unittest.TestCase):
         self.assertEqual("tester", self.state["next_stage"])
         self.assertNotEqual("TASK_COMPLETE", self.state["status"])
 
-    def test_existing_planning_limit_metadata_keeps_used_calls_and_requires_its_real_commit(self):
+    def test_owner_lane_revalidates_archived_completion_without_ambient_reconciliation(self):
+        revision, _ = self.archived_completion_incident()
+        runtime.record_operational_exhaustion(
+            self.runner, self.state, self.run, support.Paused("PAUSED_REPEATED_FAILURE", "Retained completion failure")
+        )
+        writer, args, decided = self.recovery_writer(), Arguments(resume_paused=True), actions.Decided()
+        writer.reconcile_active = lambda *_: self.fail("archive selection must not reconcile a different attempt")
+        with patch.object(stage_recovery.source_scope, "snapshot", return_value={"revision": revision}):
+            self.assertIsNone(self.apply_selected_owner(writer, args, decided))
+            self.assertEqual("archive_completion", decided.operational_selection)
+            self.assertTrue(admission.ready(self.state, decided))
+            self.assertIsNotNone(disposition.held(self.state))
+            self.assertEqual("tester", self.state["next_stage"])
+            self.assertIsNone(
+                admission.work_guard(
+                    writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided
+                )
+            )
+        with patch.object(stage_recovery.source_scope, "snapshot", return_value={"revision": "foreign-source"}):
+            with self.assertRaises(ValueError):
+                admission.work_guard(
+                    writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided
+                )
+        self.assertIsNotNone(disposition.held(self.state))
+        self.assertNotEqual("TASK_COMPLETE", self.state["status"])
+
+    def test_owner_lane_restores_only_exact_archived_validation_and_rechecks_its_real_pins(self):
+        from .test_completion_timeout_recovery import SOURCE, TimeoutArchivedCompletionTests
+
+        fixture = TimeoutArchivedCompletionTests()
+        fixture.root, fixture.workspace, fixture.run_dir = self.root, self.root, self.run
+        fixture.proof_dir = self.run / "proof-01"
+        fixture.proof_dir.mkdir(parents=True)
+        (self.root / "calc.py").write_text(SOURCE)
+        revision = "a" * 40
+        fixture.head = lambda: revision
+        snapshot = {"revision": revision, "files": {}}
+        with patch.object(stage_recovery.source_scope, "snapshot", return_value=snapshot):
+            self.state, _, validation = fixture.checkpoint()
+            self.state.update(task="Verify the exact current change", run_dir=str(self.run))
+            contract = self.state["goal_contract"]
+            contract["task_id"] = self.state["task_id"] = "fixture-request"
+            contract["hash"] = util.digest({key: contract[key] for key in ("task_id", "revision", "body")})
+            validation["contract_hash"] = contract["hash"]
+            for attempt in self.state["stages"]:
+                if "contract_hash" in attempt:
+                    attempt["contract_hash"] = contract["hash"]
+            self.assertTrue(
+                runtime.record_operational_exhaustion(
+                    self.runner,
+                    self.state,
+                    self.run,
+                    support.Paused("PAUSED_REPEATED_FAILURE", "Validation was retired after a stopped review"),
+                )
+            )
+            writer, args, decided = self.recovery_writer(), Arguments(resume_paused=True), actions.Decided()
+            self.assertIsNone(self.apply_selected_owner(writer, args, decided))
+            self.assertEqual("archive_timeout", decided.operational_selection)
+            self.assertEqual(validation, self.state["validation"])
+            self.assertEqual([], self.state["validation_archive"])
+            self.assertTrue(admission.ready(self.state, decided))
+            self.assertIsNotNone(disposition.held(self.state))
+            self.assertNotEqual("TASK_COMPLETE", self.state["status"])
+            reviewed = next(iter(validation["evidence_hashes"]))
+            Path(reviewed).write_text("changed independently reviewed evidence")
+            with self.assertRaises(ValueError):
+                admission.work_guard(
+                    writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided
+                )
+        self.assertIsNotNone(disposition.held(self.state))
+
+    def test_completion_archive_does_not_ignore_a_retagged_or_nonresolver_work_record(self):
+        revision, _ = self.archived_completion_incident()
+        identity = runtime._operational_receipt(
+            self.state,
+            self.run,
+            "blocked",
+            "Retained internal observation",
+            {
+                "status": "PAUSED_REPEATED_FAILURE",
+                "stage": "review_completion",
+                "budget": disposition.budget(self.state, "PAUSED_REPEATED_FAILURE"),
+            },
+        )
+        pristine = copy.deepcopy(self.state)
+        with patch.object(stage_recovery.source_scope, "snapshot", return_value={"revision": revision}):
+            self.assertTrue(stage_recovery.abandoned_completion_evidence(self.state, self.root))
+            for changed in ("unlisted", "retagged", "nonresolver"):
+                with self.subTest(changed=changed):
+                    self.state = copy.deepcopy(pristine)
+                    row = self.state["stages"][-1]
+                    if changed == "unlisted":
+                        self.state["resolver"]["operational_diagnostics"] = []
+                    elif changed == "retagged":
+                        row["receipt"]["scope"] = "model_listing"
+                    else:
+                        forged = "model-listing-1"
+                        row.update(stage="review_completion", role="task_planner")
+                        row["receipt"].update(scope="model_listing", id=forged)
+                        self.state["resolver"]["operational_receipts"][forged] = copy.deepcopy(row)
+                    self.assertFalse(receipt_identity.observation(self.state, row))
+                    self.assertFalse(stage_recovery.abandoned_completion_evidence(self.state, self.root))
+            self.state = copy.deepcopy(pristine)
+            self.assertEqual(identity, self.state["stages"][-1]["receipt"]["id"])
+
+    def planning_limit_incident(self):
         import autocode_planning as planning
 
         self.state.pop("active_stage")
         self.approved_contract()
-        self.state.update(status="PAUSED_PLANNING_BUDGET", next_stage="review_plan", planning={"plan_review_calls": 2})
+        self.state.update(
+            status="PAUSED_PLANNING_BUDGET", next_stage="review_plan", planning={"plan_review_calls": 2, "reports": {}}
+        )
         self.state["settings"]["joint_planning"] = True
         runtime.record_operational_exhaustion(
             self.runner,
@@ -684,6 +999,10 @@ class OperationalDispositionTests(unittest.TestCase):
             self.run,
             support.Paused("PAUSED_PLANNING_BUDGET", "Plan review allowance exhausted"),
         )
+        return planning
+
+    def test_existing_planning_limit_metadata_keeps_used_calls_and_requires_its_real_commit(self):
+        planning = self.planning_limit_incident()
         owner = copy.deepcopy(self.state)
         planning.set_review_call_limit(owner, 3)
         self.assertEqual(2, owner["planning"]["plan_review_calls"])
@@ -707,6 +1026,135 @@ class OperationalDispositionTests(unittest.TestCase):
         self.assertFalse(admission.ready(self.state, decided), "requesting a bound is not a committed owner change")
         self.assertEqual(2, self.state["planning"]["plan_review_calls"])
         self.assertEqual(2, planning.review_call_limit(self.state))
+
+    def test_owner_lane_keeps_actual_planning_metadata_exit_and_saved_proof_for_later_admission(self):
+        import autocode as core
+
+        self.run = self.root / ".autocode" / "runs" / "fixture"
+        self.run.mkdir(parents=True)
+        (self.root / ".git").mkdir()
+        self.state["run_dir"] = str(self.run)
+        self.planning_limit_incident()
+        support.atomic_json(self.run / "state.json", self.state)
+        writer = SimpleNamespace(**core.__dict__)
+        args = Arguments(
+            planning_review_call_limit=3,
+            run_dir=str(self.run),
+            answer=[],
+            delegate=[],
+            approve_review=[],
+            reject_assumption=[],
+        )
+        decided = actions.Decided()
+        shown = io.StringIO()
+        with contextlib.redirect_stdout(shown):
+            self.assertEqual(0, self.apply_selected_owner(writer, args, decided))
+        self.assertIn("internal recovery remains blocked", shown.getvalue())
+        self.assertNotIn("Continue with:", shown.getvalue())
+        self.assertEqual(2, self.state["planning"]["plan_review_calls"])
+        self.assertEqual(3, self.state["planning"]["review_call_limit"])
+        self.assertTrue(admission.ready(self.state, actions.Decided()))
+        self.assertIsNotNone(disposition.held(self.state), "a metadata exit is not final admission")
+        self.assertFalse(decided.completed_operations, "code 0 returns before ordinary work")
+        self.state["planning"]["plan_review_calls"] = 0
+        self.assertFalse(admission.ready(self.state, actions.Decided()), "a changed call ledger invalidates the proof")
+
+    def test_rejected_planning_limit_transaction_does_not_repair_or_normalize_an_ambient_draft(self):
+        import autocode as core
+        import autocode_draft_assignment as draft_assignment
+
+        self.run = self.root / ".autocode" / "runs" / "fixture"
+        self.run.mkdir(parents=True)
+        (self.root / ".git").mkdir()
+        self.state["run_dir"] = str(self.run)
+        self.planning_limit_incident()
+        support.atomic_json(self.run / "state.json", self.state)
+        writer, visited = SimpleNamespace(**core.__dict__), []
+        writer.normalize_human_boundary = lambda *_: visited.append("normalize")
+        writer.status_command = SimpleNamespace(reject_input=lambda *_: 2)
+        args = Arguments(
+            planning_review_call_limit=1,
+            run_dir=str(self.run),
+            answer=[],
+            delegate=[],
+            approve_review=[],
+            reject_assumption=[],
+        )
+        before = copy.deepcopy(self.state)
+        with patch.object(
+            draft_assignment, "reconcile", side_effect=lambda *_: visited.append("draft repair") or False
+        ):
+            self.assertEqual(2, self.apply_selected_owner(writer, args, actions.Decided()))
+        self.assertEqual([], visited)
+        self.assertEqual(before, self.state)
+
+    def test_saved_owner_continuation_requires_its_registered_validator_even_when_operation_is_completed(self):
+        from dataclasses import replace
+
+        import autocode_owned_operations as operations
+
+        self.actual_grant()
+        original = operations.resolve("grant")
+        before = copy.deepcopy(self.state)
+        for altered in ("missing", "noncallable", "renamed"):
+            with self.subTest(altered=altered), patch.dict(operations._OPERATIONS, {}):
+                if altered == "noncallable":
+                    operations._OPERATIONS["grant"] = replace(original, validate=None)
+                else:
+                    operations._OPERATIONS.pop("grant")
+                    if altered == "renamed":
+                        operations._OPERATIONS["foreign-owner"] = original
+                decided = actions.Decided(completed_operations=("grant",))
+                self.assertTrue(admission.ready(self.state, decided))
+                self.assertEqual(2, self.apply_selected_owner(self.writer(), Arguments(resume_paused=True), decided))
+                self.assertEqual(
+                    2,
+                    actions._admit_build(
+                        self.writer(),
+                        Arguments(resume_paused=True),
+                        None,
+                        self.state,
+                        self.run / "state.json",
+                        self.run,
+                        self.root,
+                        decided,
+                    ),
+                )
+                self.assertEqual(before, self.state)
+        self.assertIs(operations.resolve("grant"), original)
+
+    def test_duplicate_owner_and_metadata_only_outcome_never_gain_stage_authority(self):
+        import autocode_owned_operations as operations
+
+        original = operations.resolve("grant")
+        with self.assertRaises(ValueError):
+            operations.register(
+                operations.Operation("grant", lambda *_: self.fail("foreign owner called"), operations.no_work)
+            )
+        with self.assertRaises(ValueError):
+            operations.register(operations.Operation("new-invalid", lambda *_: None, None))
+        self.assertIs(operations.resolve("grant"), original)
+        self.assertIsNone(operations.resolve("new-invalid"))
+        self.actual_grant()
+        # Even a future trusted recorded metadata result has no stage permission.
+        observed = {"selection": "metadata", "facts": {"saved": True}}
+        before = copy.deepcopy(self.state)
+        with patch.object(disposition, "checked_recovery", return_value=observed):
+            self.assertTrue(admission.ready(self.state, actions.Decided()))
+            self.assertEqual(
+                2,
+                admission.work_guard(
+                    self.writer(),
+                    Arguments(resume_paused=True),
+                    None,
+                    self.state,
+                    self.run / "state.json",
+                    self.run,
+                    self.root,
+                    actions.Decided(),
+                ),
+            )
+        self.assertEqual(before, self.state)
 
     def test_plain_resume_is_refused_before_epochs_or_report_repairs_can_change(self):
         self.legacy()
@@ -840,9 +1288,7 @@ class OperationalDispositionTests(unittest.TestCase):
         self.assertIsNone(human.current(self.state))
         self.assertEqual(public, human.recovery_request(self.state))
         args, decided = Arguments(resume_paused=True), actions.Decided()
-        self.assertIsNone(
-            admission.guard(writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided)
-        )
+        self.assertIsNone(self.apply_selected_owner(writer, args, decided))
         self.assertEqual("planning_reserve", decided.operational_selection)
         self.assertEqual("superseded", self.state["resolver"]["human_escalations"][public["request_id"]]["status"])
         self.assertEqual(2, self.state["planning"]["plan_review_calls"])
@@ -876,9 +1322,7 @@ class OperationalDispositionTests(unittest.TestCase):
     def test_reserve_metadata_cannot_admit_from_changed_ledger_or_tampered_archive(self):
         _, writer = self.reserve_incident()
         decided, args = actions.Decided(), Arguments(resume_paused=True)
-        self.assertIsNone(
-            admission.guard(writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided)
-        )
+        self.assertIsNone(self.apply_selected_owner(writer, args, decided))
         pristine = copy.deepcopy(self.state)
         for changed in ("count", "reserve", "foreign_run"):
             with self.subTest(changed=changed):
@@ -913,16 +1357,7 @@ class OperationalDispositionTests(unittest.TestCase):
 
         writer.write_json = uncertain
         with self.assertRaises(util.JSONCommitUncertain) as raised:
-            admission.guard(
-                writer,
-                Arguments(resume_paused=True),
-                None,
-                self.state,
-                self.run / "state.json",
-                self.run,
-                self.root,
-                actions.Decided(),
-            )
+            self.apply_selected_owner(writer, Arguments(resume_paused=True), actions.Decided())
         self.assertIs(error, raised.exception)
         self.assertIsNotNone(disposition.held(self.state))
         self.assertFalse(admission.ready(self.state, actions.Decided()))
@@ -1172,12 +1607,10 @@ class OperationalDispositionTests(unittest.TestCase):
             {"kind": "recorded_observation", "id": f"event-{index}", "payload": "x" * 30} for index in range(1024)
         )
         canonical = util._canonical_json
-        with patch.object(util, "digest_prefix_length", wraps=util.digest_prefix_length) as scans:
+        with patch.object(util, "digest_prefixes", wraps=util.digest_prefixes) as scans:
             with patch.object(util, "_canonical_json", wraps=canonical) as encoded:
                 shown = run_view.view(self.state, run_dir=self.run, workspace=self.root)
         self.assertGreater(scans.call_count, 0)
-        # Each exact-prefix lookup serializes every event once. Other digest
-        # calls authenticate whole saved records; none scans all prefix lists.
         event_values = [
             call.args[0]
             for call in encoded.call_args_list
@@ -1187,6 +1620,131 @@ class OperationalDispositionTests(unittest.TestCase):
         self.assertIsNone(shown["needs"])
         self.assertIsNone(shown["chat"]["input"])
         self.assertEqual("blocked", shown["recovery"]["category"])
+
+    def test_owner_outcome_is_exact_equality_evidence_and_never_a_recovery_capability(self):
+        import autocode_operational_outcome as outcomes
+
+        self.queued()
+        event = {"kind": "owner-commit", "id": "exact-event"}
+        self.state["user_events"] = [event]
+        answer = {"proof": {"owner": "test-only"}, "facts": {"committed": "exact"}}
+        bound = outcomes.bind(self.state, answer, fields=("settings",), members=(("user_events", event),))
+        before = copy.deepcopy(self.state)
+        self.assertEqual(answer, outcomes.read(self.state, bound))
+        self.assertIsNone(outcomes.bind(self.state, None))
+        self.assertFalse(
+            admission.ready(self.state, actions.Decided()), "a standalone outcome is never a selected incident"
+        )
+        for shape in (
+            None,
+            False,
+            {},
+            {**bound, "extra": 1},
+            {**bound, "schema": True},
+            {**bound, "answer": {}},
+            {**bound, "fields": []},
+            {**bound, "members": False},
+            {**bound, "fields": {0: {"present": True, "digest": util.digest(None)}}},
+            {**bound, "members": [{"key": [], "value": event}]},
+            {**bound, "members": [{"key": "user_events", "value": {"id": "foreign"}}]},
+        ):
+            with self.subTest(shape=shape):
+                self.assertIsNone(outcomes.read(self.state, shape))
+        self.assertEqual(before, self.state)
+        self.state["settings"]["limits"]["planning_calls"] = 2
+        self.assertIsNone(outcomes.read(self.state, bound))
+        self.state = before
+        self.state["user_events"] = False
+        self.assertIsNone(outcomes.read(self.state, bound))
+
+    def test_authentic_malformed_event_prefix_evidence_is_an_actionless_public_denial(self):
+        pristine = copy.deepcopy(self.state)
+        for invalid in (None, False, 0, [], {}, "unknown-prefix"):
+            with self.subTest(prefix=invalid):
+                self.state = copy.deepcopy(pristine)
+                self.planning_incident()
+                binding = self.binding(self.state)
+                binding["user_events"] = invalid
+                with patch.object(human, "_binding", return_value=binding):
+                    identity = runtime._operational_receipt(
+                        self.state,
+                        self.run,
+                        "blocked",
+                        disposition.MESSAGE,
+                        {
+                            "status": "PAUSED_PLANNING_BUDGET",
+                            "stage": self.state["next_stage"],
+                            "budget": disposition.budget(self.state, "PAUSED_PLANNING_BUDGET"),
+                        },
+                    )
+                row = self.state["resolver"]["operational_receipts"][identity]
+                self.assertEqual(receipt_identity.DIAGNOSTIC, receipt_identity.scope(row, identity))
+                before = copy.deepcopy(self.state)
+                self.assertEqual("blocked", disposition.decision(self.state)["kind"])
+                shown = run_view.view(self.state, run_dir=self.run, workspace=self.root)
+                self.assertIsNone(shown["needs"])
+                self.assertIsNone(shown["next_command"])
+                self.assertIsNone(shown["chat"]["input"])
+                self.assertFalse(admission.ready(self.state, actions.Decided()))
+                self.assertEqual(before, self.state)
+
+    def test_distinct_incidents_share_one_exact_event_prefix_observation_per_public_decision(self):
+        pristine = copy.deepcopy(self.state)
+        for count, history, distinct in (
+            (1, 32, False),
+            (4, 32, False),
+            (16, 32, False),
+            (4, 32, True),
+            (16, 128, True),
+            (16, 512, True),
+        ):
+            with self.subTest(incidents=count, history=history, distinct=distinct):
+                self.state = copy.deepcopy(pristine)
+                originals = [self.planning_incident()]
+                for number in range(1, count):
+                    if distinct:
+                        self.state["user_events"].append({"kind": "observation", "id": str(number)})
+                    originals.append(
+                        runtime._operational_receipt(
+                            self.state,
+                            self.run,
+                            "blocked",
+                            disposition.MESSAGE,
+                            {
+                                "status": "PAUSED_PLANNING_BUDGET",
+                                "stage": "review_plan",
+                                "budget": disposition.budget(self.state, "PAUSED_PLANNING_BUDGET"),
+                            },
+                        )
+                    )
+                while len(self.state["user_events"]) < history - 2:
+                    self.state["user_events"].append({"kind": "observation", "id": str(len(self.state["user_events"]))})
+                goals.feedback(self.state, "Keep the requested work local", interpret=False)
+                event_ids = {id(event) for event in self.state["user_events"]}
+                canonical = util._canonical_json
+                seen = []
+
+                def observed(value):
+                    if id(value) in event_ids:
+                        seen.append(value)
+                    return canonical(value)
+
+                with patch.object(util, "_canonical_json", side_effect=observed):
+                    answer = disposition.decision(self.state)
+                self.assertEqual("planning_input", answer["kind"])
+                self.assertEqual(
+                    len(self.state["user_events"]),
+                    len(seen),
+                    "one read must observe all exact prefixes once, even when every incident has a different prefix",
+                )
+                if distinct:
+                    prefixes = {
+                        self.state["resolver"]["operational_receipts"][identity]["receipt"]["evaluation_binding"][
+                            "user_events"
+                        ]
+                        for identity in originals
+                    }
+                    self.assertEqual(count, len(prefixes))
 
     def test_receipt_inventory_authenticates_listed_facts_once_across_all_incident_shapes(self):
         class Inventory(list):
@@ -1299,6 +1857,30 @@ class OperationalDispositionTests(unittest.TestCase):
                     self.assertIsNone(
                         disposition.diagnostic(self.state, original), "an unlisted ID has no standalone authority"
                     )
+
+    def test_one_diagnostic_with_many_authentic_publications_classifies_its_group_once_per_read(self):
+        public = self.legacy()
+        identity = copy.deepcopy(self.state["resolver"]["human_escalations"][public["request_id"]]["identity"])
+        original = identity["proposal"]["evidence"]["resolver_receipt_id"]
+        pristine = copy.deepcopy(self.state)
+        for count in (16, 32):
+            with self.subTest(count=count):
+                self.state = copy.deepcopy(pristine)
+                self.state["resolver"]["human_escalations"] = {}
+                for index in range(count):
+                    publication = copy.deepcopy(identity)
+                    publication["reason"] = f"Retained observation {index} of the same original failure"
+                    human._publish(self.state, publication)
+                self.assertEqual(count, len(disposition._Ledger(self.state).publications[original]))
+                with patch.object(disposition, "classify", wraps=disposition.classify) as classify:
+                    found = disposition.incidents(self.state)
+                    answer = disposition.decision(self.state)
+                    self.assertIsNone(disposition.checked_recovery(self.state, found[0]))
+                self.assertEqual([original], [disposition.incident_identity(self.state, row) for row in found])
+                self.assertEqual("blocked", answer["kind"])
+                self.assertLessEqual(
+                    classify.call_count, 2 * (count + 1), "a publication group is answered once per read"
+                )
 
     def test_queued_feedback_is_applied_under_hold_and_rederived_on_a_later_admit(self):
         original = self.planning_incident()
@@ -1685,8 +2267,103 @@ class OperationalDispositionTests(unittest.TestCase):
             admission.ready(self.state, actions.Decided()), "a changed ledger is not the checked owner change"
         )
 
+    def test_milestone_time_initialization_waits_for_final_guards_and_keeps_the_selected_cap(self):
+        self.state.pop("active_stage")
+        self.state["user_events"] = []
+        self.state["milestone_progress"] = {"saved": {"seconds": 12, "seconds_by_role": {"builder": 12}}}
+        self.state["settings"].update(
+            milestone_checkpoints={"max_seconds": 12}, budget_origins={"milestone_max_seconds": "runner_default"}
+        )
+        self.legacy(pause="PAUSED_MILESTONE_BUDGET", budget=disposition.budget(self.state, "PAUSED_MILESTONE_BUDGET"))
+        previous = copy.deepcopy(self.state["settings"])
+        self.state["settings"]["milestone_checkpoints"]["max_seconds"] = 24
+        self.state["settings"]["budget_origins"]["milestone_max_seconds"] = "user_explicit"
+        writer, decided, args = (
+            self.recovery_writer(),
+            actions.Decided(),
+            Arguments(
+                resume_paused=True,
+                max_milestone_seconds=24,
+                _explicit_budget_flags={"max_milestone_seconds"},
+                _recovery_grant_settings=previous,
+            ),
+        )
+        self.assertIsNone(self.apply_selected_owner(writer, args, decided))
+        for name in (
+            "prepare_abandoned_completion_revalidation",
+            "prepare_timeout_archived_completion",
+            "prepare_planning_retry",
+            "prepare_exhausted_execution_report_retry",
+            "archive_stale_report_repair",
+            "reconcile_active",
+        ):
+            setattr(writer, name, lambda *_args: None)
+        before = copy.deepcopy(self.state["milestone_progress"])
+        self.assertIsNone(
+            actions.action_recovery.resume(
+                writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided
+            )
+        )
+        self.assertEqual(
+            before, self.state["milestone_progress"], "entering resume cannot renew time before final guards"
+        )
+        args.expected_goal_token = "not-the-reviewed-plan"
+        self.assertEqual(
+            2,
+            actions._admit_build(writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided),
+        )
+        self.assertEqual(before, self.state["milestone_progress"])
+        self.assertIsNotNone(disposition.held(self.state))
+        args.expected_goal_token = None
+        self.assertIsNone(
+            actions._admit_build(writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided)
+        )
+        self.assertEqual({"saved": {"seconds": 0, "seconds_by_role": {}}}, self.state["milestone_progress"])
+        self.assertEqual(24, self.state["settings"]["milestone_checkpoints"]["max_seconds"])
+        self.assertIsNone(disposition.held(self.state))
+
+    def test_existing_milestone_initialization_preserves_progressive_budgets_and_requires_resume_admission(self):
+        import autocode_recovery_accounting as accounting
+
+        original = {"saved": {"seconds": 12, "seconds_by_role": {"builder": 12}}, "unknown": "retained"}
+        for selected in (None, 0, 24):
+            for progressive in (False, True):
+                with self.subTest(selected=selected, progressive=progressive):
+                    state = {"milestone_progress": copy.deepcopy(original), "settings": {"selected_cap": selected}}
+                    if progressive:
+                        state["progressive"] = {"budget": {"local_seconds": 12}}
+                    accounting.initialize_milestone_time(state, selected)
+                    expected = (
+                        original
+                        if selected is None or progressive
+                        else {"saved": {"seconds": 0, "seconds_by_role": {}}, "unknown": "retained"}
+                    )
+                    self.assertEqual(expected, state["milestone_progress"])
+                    self.assertEqual({"selected_cap": selected}, state["settings"])
+        self.state.pop("active_stage")
+        self.state["milestone_progress"] = copy.deepcopy(original)
+        self.assertIsNone(
+            actions._admit_build(
+                self.writer(),
+                Arguments(resume_paused=True, max_milestone_seconds=24),
+                None,
+                self.state,
+                self.run / "state.json",
+                self.run,
+                self.root,
+                actions.Decided(),
+            )
+        )
+        self.assertEqual(
+            original,
+            self.state["milestone_progress"],
+            "an isolated flag or fast dispatch cannot initialize ordinary resume",
+        )
+
     def test_existing_serial_builder_handler_validates_list_selector_before_checked_credit(self):
         self.state.pop("active_stage")
+        self.approved_contract()
+        self.observe_no_legacy_processes()
         self.state.update(
             next_stage="builder", current_task={"id": "task-M1", "milestone_id": "M1", "kind": "implement"}
         )
@@ -1704,11 +2381,254 @@ class OperationalDispositionTests(unittest.TestCase):
             builder_recovery.request_serial_retry(self.state, ["M-foreign"])
         self.assertFalse(admission.ready(self.state, decided))
         builder_recovery.request_serial_retry(self.state, args.retry_builder)
-        admission.checked(writer, self.state, self.run, decided, "builder", {"milestone": args.retry_builder})
+        admission.checked(
+            writer,
+            self.state,
+            self.run,
+            decided,
+            "builder",
+            {
+                "milestone": args.retry_builder,
+                "batch": actions.action_prepare.dispatch.retry_evidence(self.state, args.retry_builder),
+            },
+        )
         self.assertTrue(admission.ready(self.state, actions.Decided()))
         self.assertEqual("saved-model", self.state["settings"]["roles"]["builder"]["model"])
         self.state["builder_retry_decisions"][-1]["owner"] = "model"
         self.assertFalse(admission.ready(self.state, actions.Decided()))
+
+    def test_actual_serial_builder_outcome_keeps_resolver_repair_target_and_same_liveness_owner(self):
+        import autocode_dispatch as dispatch
+
+        self.observe_no_legacy_processes()
+        self.state.pop("active_stage")
+        contract = self.approved_contract()
+        self.state.update(
+            next_stage="builder",
+            current_task={"id": "T1", "milestone_id": "M1", "kind": "repair"},
+            resolution_request={"contract_hash": contract["hash"], "summary": "Exact approved repair"},
+        )
+        self.state["settings"].update(
+            builder_retry={"enabled": True}, roles={"builder": {"model": "saved-model", "reasoning_effort": "medium"}}
+        )
+        self.state["builder_retries"] = {
+            builder_policy.key(self.state): {"action": "pause", "failures": [{"cause": "retained failure"}]}
+        }
+        self.legacy(pause="PAUSED_BUILDER_RETRY_LIMIT")
+        writer, args, decided = self.writer(), Arguments(resume_paused=True, retry_builder=["M1"]), actions.Decided()
+        with patch.object(
+            dispatch, "member_retry_refusal", side_effect=AssertionError("serial outcome became parallel")
+        ):
+            self.assertIsNone(self.apply_selected_owner(writer, args, decided))
+            self.assertEqual("resolve", self.state["next_stage"])
+            self.assertTrue(admission.ready(self.state, decided))
+            self.assertIsNone(
+                admission.work_guard(
+                    writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided
+                )
+            )
+        checked = disposition.checked_recovery(self.state, disposition.held(self.state))
+        self.assertEqual("serial", checked["facts"]["facts"]["evidence"]["mode"])
+        before = copy.deepcopy(self.state)
+        self.state["resolution_request"]["contract_hash"] = "foreign-contract"
+        self.assertFalse(admission.ready(self.state, decided))
+        self.state = before
+        with patch.object(dispatch.s, "assert_no_legacy_process", side_effect=ValueError("unknown ownership")) as live:
+            with self.assertRaises(ValueError):
+                admission.work_guard(
+                    writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided
+                )
+            self.assertEqual(1, live.call_count)
+
+    def test_report_owner_rechecks_archived_source_schema_pins_attempt_and_original_bound(self):
+        self.state.pop("active_stage")
+        self.state.update(next_stage="tester")
+        self.state["settings"]["report_repair"] = {"max_attempts": 2}
+        self.run.mkdir(parents=True, exist_ok=True)
+        schemas = [self.run / "original-schema.json", self.run / "repair-schema.json"]
+        pinned = self.run / "original-input.json"
+        pinned.write_text("original input")
+        original = {
+            "stage": "tester",
+            "role": "tester",
+            "iteration": 1,
+            "output": str(self.run / "tester.json"),
+            "schema": str(schemas[0]),
+            "source_revision": "a" * 40,
+        }
+        repair = {
+            **original,
+            "stage": "tester_report_repair",
+            "original_stage": "tester",
+            "report_only": True,
+            "rejected": True,
+            "output": str(self.run / "repair.json"),
+            "schema": str(schemas[1]),
+        }
+        pristine = copy.deepcopy(self.state)
+        for mutation in (None, "source", "both_schema_bytes", "pinned_bytes", "attempt", "bound"):
+            with self.subTest(changed=mutation):
+                self.state = copy.deepcopy(pristine)
+                for schema in schemas:
+                    schema.write_text("{}")
+                pinned.write_text("original input")
+                self.state["stages"].extend(copy.deepcopy([original, repair]))
+                self.state["pending_report_repair"] = {
+                    "original": copy.deepcopy(original),
+                    "latest_rejected": copy.deepcopy(repair),
+                    "attempts": 2,
+                    "pins": {str(pinned): util.file_hash(pinned)},
+                    "contract_hash": None,
+                    "error": "Check is not supported by an exact executed Validator event",
+                }
+                self.legacy(pause="PAUSED_REPEATED_FAILURE")
+                selected = stage_recovery.records.attempt_id(repair)
+                writer, args, decided = (
+                    self.writer(),
+                    Arguments(resume_paused=True, retry_report=selected),
+                    actions.Decided(),
+                )
+                writer.retry_format_failed_report = stage_recovery.retry_format_failed_report
+                with patch.object(stage_recovery.source_scope, "snapshot", return_value={"revision": "a" * 40}):
+                    self.assertIsNone(self.apply_selected_owner(writer, args, decided))
+                self.assertTrue(admission.ready(self.state, decided))
+                if mutation == "both_schema_bytes":
+                    for schema in schemas:
+                        schema.write_text('{"changed": true}')
+                elif mutation == "pinned_bytes":
+                    pinned.write_text("changed original input")
+                elif mutation == "attempt":
+                    next(row for row in self.state["stages"] if row.get("stage") == "tester_report_repair")[
+                        "output"
+                    ] = str(self.run / "foreign-attempt.json")
+                elif mutation == "bound":
+                    self.state["report_repair_archive"][-1]["repair"]["attempts"] = 0
+                revision = "b" * 40 if mutation == "source" else "a" * 40
+                before = copy.deepcopy(self.state)
+                with patch.object(stage_recovery.source_scope, "snapshot", return_value={"revision": revision}):
+                    if mutation is None:
+                        self.assertIsNone(
+                            admission.work_guard(
+                                writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided
+                            )
+                        )
+                    elif mutation == "bound":
+                        self.assertEqual(
+                            2,
+                            admission.work_guard(
+                                writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided
+                            ),
+                        )
+                    else:
+                        with self.assertRaises(ValueError):
+                            admission.work_guard(
+                                writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided
+                            )
+                self.assertEqual(before, self.state)
+                self.assertEqual(1, len(self.state["report_repair_archive"]))
+
+    def test_actual_resolver_novelty_owner_keeps_its_distinct_live_outcome_not_a_saved_retry_grant(self):
+        import autocode_resolver_recovery as recovery
+
+        from .test_recovery_novelty import RecoveryPacketTests
+
+        fixture = RecoveryPacketTests("runTest")
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        contract = {"task_id": "approved-job", "revision": 1, "body": body()}
+        contract["hash"] = util.digest(contract)
+        approval = {"kind": "goal_approval", "actor": "user_cli", "token": goals.token(contract)}
+        contract.update(approval_status="approved", approval_event=approval)
+        fixture.state.update(goal_contract=contract, user_events=[approval])
+        fixture.state["settings"].update(
+            limits={"no_progress_batches": 3}, budget_origins={"no_progress_batches": "runner_default"}
+        )
+        base = copy.deepcopy(self.state)
+        fixture.state.update(task=base["task"], task_id="approved-job")
+        fixture.state["settings"].setdefault("limits", {}).update(base["settings"]["limits"])
+        self.state = {**base, **fixture.legacy_failure()}
+        self.state.pop("active_stage", None)
+        self.root, self.run = fixture.root, fixture.run
+        self.state["status"] = "PAUSED_NO_PROGRESS"
+        with self.assertRaises(util.Paused):
+            recovery.admit_dispatch(
+                self.state, {"stage": "resolve", "output": str(self.run / "held.json")}, self.root, self.run
+            )
+        self.assertTrue(self.state["resolution_request"]["novelty_hold"])
+        self.legacy(pause="PAUSED_NO_PROGRESS", budget=disposition.budget(self.state, "PAUSED_NO_PROGRESS"))
+        writer, args, decided = (
+            self.recovery_writer(),
+            Arguments(resume_paused=True, retry_failed_stage=True),
+            actions.Decided(),
+        )
+        writer.resolver_recovery = recovery
+        self.assertIsNone(self.apply_selected_owner(writer, args, decided))
+        self.assertEqual("resolver_retry", decided.operational_selection)
+        authorization = args._failure_retry_authorization
+        self.assertIs(authorization, decided.failure_retry_authorization)
+        self.assertTrue(authorization["consumed"])
+        self.assertNotIn("consumed", self.state["failure_retry_authorizations"][-1])
+        self.assertTrue(admission.ready(self.state, decided))
+        self.assertIsNone(
+            admission.work_guard(writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided)
+        )
+        original = copy.deepcopy(self.state)
+        for changed in ("saved_only", "copied_object", "already_used", "foreign_ledger", "source"):
+            with self.subTest(changed=changed):
+                self.state = copy.deepcopy(original)
+                decided.failure_retry_authorization = authorization
+                args._failure_retry_authorization = authorization
+                if changed == "saved_only":
+                    decided.failure_retry_authorization = args._failure_retry_authorization = self.state[
+                        "failure_retry_authorizations"
+                    ][-1]
+                elif changed == "copied_object":
+                    args._failure_retry_authorization = copy.deepcopy(authorization)
+                elif changed == "already_used":
+                    authorization["_novelty_consumed"] = True
+                elif changed == "foreign_ledger":
+                    self.state["failure_retry_authorizations"][-1]["ordinal"] += 1
+                before = copy.deepcopy(self.state)
+                with (
+                    patch.object(recovery, "_source_revision", return_value="foreign-source")
+                    if changed == "source"
+                    else contextlib.nullcontext()
+                ):
+                    if changed == "source":
+                        with self.assertRaises((ValueError, util.Paused)):
+                            admission.work_guard(
+                                writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided
+                            )
+                    else:
+                        self.assertEqual(
+                            2,
+                            admission.work_guard(
+                                writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided
+                            ),
+                        )
+                self.assertEqual(before, self.state)
+                authorization.pop("_novelty_consumed", None)
+
+    def test_actual_grant_preserves_exhausted_allowance_owner_under_a_non_timeout_incident(self):
+        self.state.pop("active_stage")
+        self.state.update(
+            automatic_recoveries_since_resume=3,
+            consecutive_timeout_recoveries=3,
+            automatic_timeout_recoveries=[{"stage": "requirements_gather"}] * 3,
+        )
+        original = self.queued(pause="PAUSED_PROVIDER_UNCERTAIN")
+        writer = self.recovery_writer()
+        writer.recovery_count = lambda state: 3
+        args, decided = Arguments(resume_paused=True, grant_recovery=1), actions.Decided()
+        self.assertIsNone(self.apply_selected_owner(writer, args, decided))
+        self.assertEqual(2, self.state["automatic_recoveries_since_resume"])
+        self.assertEqual(original, disposition.incident_identity(self.state, disposition.held(self.state)))
+        self.assertTrue(admission.ready(self.state, decided))
+        self.assertIsNone(
+            admission.work_guard(writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided)
+        )
+        self.state["recovery_grants"][-1]["request_id"] = "foreign-request"
+        self.assertFalse(admission.ready(self.state, decided))
 
     def test_existing_report_handler_requires_exact_rejected_attempt_and_retained_archive(self):
         self.state.pop("active_stage")
@@ -1753,8 +2673,8 @@ class OperationalDispositionTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 stage_recovery.retry_format_failed_report(self.state, self.run, self.root, selected + "-foreign")
             self.assertFalse(admission.ready(self.state, decided))
-            stage_recovery.retry_format_failed_report(self.state, self.run, self.root, selected)
-        admission.checked(writer, self.state, self.run, decided, "report", {"attempt": selected})
+            outcome = stage_recovery.retry_format_failed_report(self.state, self.run, self.root, selected)
+            admission.checked(writer, self.state, self.run, decided, "report", outcome)
         self.assertTrue(admission.ready(self.state, actions.Decided()))
         self.assertEqual(2, self.state["report_repair_archive"][-1]["repair"]["attempts"])
         self.state["report_repair_archive"][-1]["repair"]["attempts"] = 0
@@ -1956,7 +2876,7 @@ class OperationalDispositionTests(unittest.TestCase):
         self.assertFalse(admission.ready(self.state, decided))
         self.assertIsNone(decided.operational_recovery_checked)
 
-    def checked_retry(self):
+    def checked_retry(self, *, authorize=True, consumed=True):
         self.state.pop("active_stage")
         revision = "a" * 40
         for index in range(3):
@@ -1973,15 +2893,113 @@ class OperationalDispositionTests(unittest.TestCase):
         original = self.queued(pause="PAUSED_REPEATED_FAILURE")
         decided = actions.Decided()
         args = Arguments(resume_paused=True, retry_failed_stage=True, _explicit_budget_flags=set())
-        writer = self.writer()
+        writer = self.recovery_writer()
+        self.enterContext(patch.object(stage_recovery.source_scope, "snapshot", return_value={"revision": revision}))
         self.assertIsNone(
             admission.guard(writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided)
         )
-        with patch.object(stage_recovery.source_scope, "snapshot", return_value={"revision": revision}):
-            proof = stage_recovery.authorize_failure_retry(self.state, self.run, self.root)
-        admission.checked(self.writer(), self.state, self.run, decided, "failure_retry", proof)
+        if not authorize:
+            return writer, args, decided, original
+        self.assertIsNone(
+            actions.apply_owned(writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided)
+        )
+        proof = args._failure_retry_authorization
+        if consumed:
+            writer.repeated_failure_resume_guard(self.state, self.root, authorization=proof)
+            decided.failure_retry_consumed = proof.get("consumed") is True
         self.assertTrue(admission.ready(self.state, decided))
         return writer, args, decided, original
+
+    def test_failure_retry_requires_this_invocation_outcome_and_fresh_owner_frontier_before_work(self):
+        pristine = copy.deepcopy(self.state)
+        for changed in ("saved_only", "foreign", "consumed", "source", "count", "missing_ledger"):
+            with self.subTest(changed=changed):
+                self.state = copy.deepcopy(pristine)
+                writer, args, decided, original = self.checked_retry(consumed=False)
+                self.assertTrue(
+                    admission.ready(self.state, decided), "the retained diagnostic alone is only a checked fact"
+                )
+                if changed == "saved_only":
+                    args._failure_retry_authorization = copy.deepcopy(self.state["failure_retry_authorizations"][-1])
+                    decided.failure_retry_authorization = None
+                elif changed == "foreign":
+                    args._failure_retry_authorization["identity"]["stage"] = "foreign-stage"
+                elif changed == "consumed":
+                    args._failure_retry_authorization["consumed"] = True
+                elif changed == "count":
+                    next(iter(self.state["failure_history"].values()))["count"] += 1
+                elif changed == "missing_ledger":
+                    self.state["failure_retry_authorizations"] = []
+                before = copy.deepcopy(self.state)
+                revision = "foreign-source" if changed == "source" else "a" * 40
+                with patch.object(stage_recovery.source_scope, "snapshot", return_value={"revision": revision}):
+                    self.assertEqual(
+                        2,
+                        admission.work_guard(
+                            writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided
+                        ),
+                    )
+                    self.assertEqual(
+                        2,
+                        actions._admit_build(
+                            writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided
+                        ),
+                    )
+                self.assertEqual(before, self.state)
+                self.assertEqual(original, disposition.incident_identity(self.state, disposition.held(self.state)))
+
+    def test_actual_failure_retry_owner_preserves_its_one_use_and_final_frontier_without_restoring_flags(self):
+        writer, args, decided, original = self.checked_retry(authorize=False)
+        with patch.object(stage_recovery.source_scope, "snapshot", return_value={"revision": "a" * 40}):
+            self.assertIsNone(
+                actions.apply_owned(
+                    writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided
+                )
+            )
+            authorization = args._failure_retry_authorization
+            self.assertIs(authorization, decided.failure_retry_authorization)
+            self.assertNotIn("consumed", authorization)
+            self.assertEqual(1, len(self.state["failure_retry_authorizations"]))
+            self.assertEqual("PAUSED_REPEATED_FAILURE", self.state["status"])
+            # These ordinary callbacks are unrelated to the actual retry owner;
+            # they are reachable only after the checked pre-work frontier.
+            for name in (
+                "prepare_abandoned_completion_revalidation",
+                "prepare_timeout_archived_completion",
+                "prepare_planning_retry",
+                "prepare_exhausted_execution_report_retry",
+                "archive_stale_report_repair",
+                "reconcile_active",
+            ):
+                setattr(writer, name, lambda *_args: None)
+            with patch.object(
+                writer, "repeated_failure_resume_guard", wraps=writer.repeated_failure_resume_guard
+            ) as consumed:
+                self.assertIsNone(
+                    actions.action_recovery.resume(
+                        writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided
+                    )
+                )
+                self.assertEqual(1, consumed.call_count)
+            self.assertTrue(authorization["consumed"])
+            self.assertTrue(decided.failure_retry_consumed)
+            self.assertEqual(1, len(self.state["failure_retry_authorizations"]))
+            before = copy.deepcopy(self.state)
+            self.assertIsNone(
+                admission.work_guard(
+                    writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided, final=True
+                )
+            )
+            self.assertEqual(before, self.state)
+            self.assertTrue(authorization["consumed"], "fresh validation never restores a spent one-use object")
+        with patch.object(stage_recovery.source_scope, "snapshot", return_value={"revision": "changed-source"}):
+            self.assertEqual(
+                2,
+                actions._admit_build(
+                    writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided
+                ),
+            )
+        self.assertEqual(original, disposition.incident_identity(self.state, disposition.held(self.state)))
 
     def test_actual_scoped_retry_and_final_guards_retire_only_the_exact_original_pair(self):
         writer, args, decided, original = self.checked_retry()
@@ -2397,23 +3415,31 @@ class OperationalDispositionTests(unittest.TestCase):
         self.assertEqual(before, self.state)
 
     def test_checked_fast_dispatch_runs_final_guards_without_generic_resume_bookkeeping(self):
-        writer, args, decided, original = self.checked_retry()
+        writer, args, _, original = self.checked_retry(authorize=False)
+        checkpoint = []
+        stale = True
 
         def dispatch(*parameters):
-            parameters[-1].dispatch = True
+            decided = parameters[-1]
+            self.assertIsNone(self.apply_selected_owner(writer, args, decided))
+            authorization = args._failure_retry_authorization
+            writer.repeated_failure_resume_guard(self.state, self.root, authorization=authorization)
+            decided.failure_retry_consumed = authorization.get("consumed") is True
+            args.expected_goal_token = "stale-plan" if stale else None
+            checkpoint.append(copy.deepcopy(self.state))
+            decided.dispatch = True
 
         writer.reset_report_repair_for_resume = lambda *_: self.fail("fast dispatch must not reset report repair")
-        before = copy.deepcopy(self.state)
         with (
-            patch.object(actions.action_authority, "prepare_actions", return_value=decided),
+            patch.object(actions.action_authority, "prepare_actions", side_effect=lambda *_: actions.Decided()),
             patch.object(actions, "STEPS", (dispatch,)),
             patch.object(runtime, "reset_for_resume", side_effect=AssertionError("generic resume not admitted")),
         ):
-            args.expected_goal_token = "stale-plan"
             self.assertEqual(
                 2, actions.handle(writer, args, None, self.state, self.run / "state.json", self.run, self.root)
             )
-            self.assertEqual(before, self.state)
+            self.assertEqual(checkpoint[-1], self.state)
+            stale = False
             args.expected_goal_token = None
             self.assertIsNone(
                 actions.handle(writer, args, None, self.state, self.run / "state.json", self.run, self.root)

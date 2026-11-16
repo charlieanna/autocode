@@ -41,6 +41,7 @@ try:
     from . import autocode_operational_admission as operational_admission
     from . import autocode_operational_block as operational_block
     from . import autocode_operational_information as operational_information
+    from . import autocode_owned_operations as operation_contract
     from . import autocode_planning as planning
     from . import autocode_project_delivery as project_delivery
     from . import autocode_recovery_limits as recovery_limits
@@ -69,6 +70,7 @@ except ImportError:
     import autocode_operational_admission as operational_admission
     import autocode_operational_block as operational_block
     import autocode_operational_information as operational_information
+    import autocode_owned_operations as operation_contract
     import autocode_planning as planning
     import autocode_project_delivery as project_delivery
     import autocode_recovery_limits as recovery_limits
@@ -97,8 +99,29 @@ class Decided:
     operational_selection: str | None = None  # Permits trying its existing handler, never dispatch.
     operational_recovery_checked: dict | None = None  # Handler-return evidence, not a saved grant.
     operational_resume_deferred: bool = False  # Generic resume bookkeeping waits for final guards.
+    owned_operations: tuple | None = None  # Exact owner selection, never saved or supplied by a client.
+    owner_lane: bool = False  # Invoke only those selected owners, without ambient recovery.
+    completed_operations: tuple[str, ...] = ()  # Skip only the exact owner already applied in this invocation.
+    failure_retry_authorization: dict | None = None  # The actual returned object, never a loaded audit row.
+    failure_retry_consumed: bool = False  # The ordinary guard consumed that invocation's single use.
+    resume_initialization: bool = False  # Ordinary resume reached its existing final work initialization.
     issued: dict | None = None  # AutoResolver's current request when that authority was weighed
     released: bool = False  # that authority released the held pause (autocode_stop)
+
+
+def owned_operations(args, state: RunState | None = None):
+    """One registered owner selection; uncovered actions never become metadata."""
+    selected = list(action_recovery.operations(args, state))
+    if operation := action_prepare.operation(args):
+        selected.append(operation)
+    if operation := action_decisions.operation(args):
+        selected.append(operation)
+    requested = {name for name, present in operation_contract.user_actions(args).items() if present}
+    covered = {name for operation in selected for name in operation.actions}
+    return tuple(selected) if requested <= covered else ()
+
+
+apply_owned = operational_admission.apply_owned  # The same runtime boundary is available to direct callers.
 
 
 def next_command(state: RunState, issued, run_dir, workspace):
@@ -283,6 +306,7 @@ def admit(runner, args, parser, state: RunState, state_path, run_dir, workspace,
 
 _admit_build = operational_admission.finalize  # Existing final guard boundary, shared with checked dispatch.
 _dispatch = operational_admission.dispatch
+_apply = operational_admission.apply_step
 
 
 def read_shown_tokens(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
@@ -312,8 +336,8 @@ STEPS = (
     action_stage_model.apply,  # --stage-model: one stage's route on a started run, between stages; no launch
     action_discrepancy.apply,  # --report-discrepancy: a report against the approved plan, kept for the Tester; no launch
     hold_operational_block,  # advancement only; stops and nonadvancing records keep their existing precedence
-    operational_admission.guard,  # Exhausted machinery grants no ordinary advancement.
     action_decisions.preflight,  # invalid approval cannot reconcile or migrate a stopped attempt
+    operational_admission.guard,  # Exhausted machinery grants no ordinary advancement.
     action_edits.apply,  # a standalone edit: design revision, dependency, report recovery, repair handoff
     action_recovery.gate_failures,  # a classification or job failure, and its exact retry
     action_authority.settle,  # the held pause's own authority, before queued input applies
@@ -332,7 +356,7 @@ def handle(runner, args, parser, state: RunState, state_path, run_dir, workspace
     args._failure_retry_authorization = None  # Invocation-local; saved history is audit data, not credit.
     decided = action_authority.prepare_actions(runner, args, state, Decided)
     for step in STEPS:
-        code = step(runner, args, parser, state, state_path, run_dir, workspace, decided)
+        code = _apply(step, runner, args, parser, state, state_path, run_dir, workspace, decided)
         if code is not None or decided.dispatch:
             return _dispatch(code, runner, args, parser, state, state_path, run_dir, workspace, decided)
     return None

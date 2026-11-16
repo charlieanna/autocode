@@ -27,6 +27,7 @@ try:
     from . import autocode_first_reply_budget as first_reply_budget
     from . import autocode_interventions as interventions
     from . import autocode_job_failure as job_failure
+    from . import autocode_operational_receipt_identity as receipt_identity
     from . import autocode_partial_work as partial_work
     from . import autocode_permission_recovery as permission_recovery
     from . import autocode_planning as planning
@@ -54,6 +55,7 @@ except ImportError:
     import autocode_first_reply_budget as first_reply_budget
     import autocode_interventions as interventions
     import autocode_job_failure as job_failure
+    import autocode_operational_receipt_identity as receipt_identity
     import autocode_partial_work as partial_work
     import autocode_permission_recovery as permission_recovery
     import autocode_planning as planning
@@ -1409,7 +1411,7 @@ def restart_unlaunchable_repair(state: RunState, run_dir, workspace, error):
     return True
 
 
-def stale_report_repair(state: RunState, workspace):
+def stale_report_repair(state: RunState, workspace, *, revision=None):
     """(repaired source, current source) when only the source moved under a queued report repair, else None.
 
     A repair restates the original report for the source that attempt ran on, so after an operator
@@ -1435,7 +1437,8 @@ def stale_report_repair(state: RunState, workspace):
         or (state.get("goal_contract") or {}).get("hash") != pending.get("contract_hash")
     ):
         return None
-    revision = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)["revision"]
+    if revision is None:
+        revision = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)["revision"]
     if checked == revision or any(
         not Path(p).is_file() or support.file_hash(p) != h for p, h in pending.get("pins", {}).items()
     ):
@@ -1499,14 +1502,13 @@ def archive_stale_report_repair(state: RunState, run_dir, workspace):
     return message
 
 
-def retry_format_failed_report(state: RunState, run_dir, workspace, selected):
-    """Explicitly request fresh evidence after a bounded report rejection."""
-    pending = state.get("pending_report_repair") or {}
+def report_retry_frontier(state: RunState, workspace, selected, pending):
+    """The original source/schema/pin/bound checks over one retained repair input."""
     original = pending.get("original") or {}
     # A fresh attempt the failure bound stopped before any repair is retried itself, never an earlier repair.
     repair = (
         original
-        if not pending.get("latest_rejected") and report_retry.rejected_attempt(state)
+        if not pending.get("latest_rejected") and report_retry.rejected_attempt(state, pending=pending)
         else next(
             (
                 row
@@ -1517,8 +1519,7 @@ def retry_format_failed_report(state: RunState, run_dir, workspace, selected):
         )
     )
     if (
-        state.get("status") != "PAUSED_REPEATED_FAILURE"
-        or any(state.get(key) for key in ("active_stage", "active_runner_check", "uncertain_artifacts"))
+        any(state.get(key) for key in ("active_stage", "active_runner_check", "uncertain_artifacts"))
         or not report_retry.retryable(pending.get("error"))
         or original.get("stage") != "tester"
         or not repair
@@ -1530,33 +1531,75 @@ def retry_format_failed_report(state: RunState, run_dir, workspace, selected):
         or not Path(repair["schema"]).is_file()
         or not Path(original["schema"]).is_file()
         or support.file_hash(repair["schema"]) != support.file_hash(original["schema"])
-        or not report_retry.bounded_failure(state, records.repair_limit(state))
+        or not report_retry.bounded_failure_evidence(state, pending, records.repair_limit(state))
     ):
         raise ValueError("--retry-report must match the bounded rejected report-only attempt")
-    if stale_report_repair(state, workspace):
+    revision = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)["revision"]
+    if pending is state.get("pending_report_repair") and stale_report_repair(state, workspace, revision=revision):
         raise ValueError(
             "The source changed after this report was rejected, so it cannot be retried; "
             "use --resume-paused to archive the stale repair and validate the current source afresh"
         )
     if (
-        source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)["revision"]
-        != original["source_revision"]
+        revision != original["source_revision"]
         or (state.get("goal_contract") or {}).get("hash") != pending.get("contract_hash")
         or any(not Path(p).is_file() or support.file_hash(p) != h for p, h in pending.get("pins", {}).items())
     ):
         raise ValueError("Saved report inputs changed; reconcile them before retrying")
+    return {
+        "attempt": selected,
+        "pending": support.digest(pending),
+        "repair": support.digest(repair),
+        "source_revision": revision,
+        "contract_hash": (state.get("goal_contract") or {}).get("hash"),
+        "schemas": {path: support.file_hash(path) for path in {repair["schema"], original["schema"]}},
+        "pins": copy.deepcopy(pending.get("pins") or {}),
+    }
+
+
+def retry_format_failed_report(state: RunState, run_dir, workspace, selected):
+    """Explicitly request fresh evidence after a bounded report rejection."""
+    if state.get("status") != "PAUSED_REPEATED_FAILURE":
+        raise ValueError("--retry-report must match the bounded rejected report-only attempt")
+    pending = state.get("pending_report_repair") or {}
+    original = pending.get("original") or {}
+    frontier = report_retry_frontier(state, workspace, selected, pending)
     if not prepare_exhausted_execution_report_retry(state, run_dir, workspace, allow_repeated=True):
         raise ValueError("Saved stage cannot be retried as a fresh execution report")
-    state.setdefault("user_events", []).append(
-        {
-            "kind": "report_retry_after_format_fix",
-            "actor": "user_cli",
-            "at": records.now(),
-            "attempt_id": selected,
-            "source_revision": original["source_revision"],
-        }
-    )
+    event = {
+        "kind": "report_retry_after_format_fix",
+        "actor": "user_cli",
+        "at": records.now(),
+        "attempt_id": selected,
+        "source_revision": original["source_revision"],
+    }
+    state.setdefault("user_events", []).append(event)
     records.write_json(run_dir / "state.json", state)
+    return {"attempt": selected, "frontier": frontier, "event": copy.deepcopy(event)}
+
+
+def validate_report_retry_outcome(state: RunState, workspace, outcome):
+    """Revalidate this exact committed archive/event and the owner's original frontier."""
+    if not isinstance(outcome, dict) or not isinstance(outcome.get("frontier"), dict):
+        raise ValueError("A report retry needs its exact committed owner outcome")
+    frontier, event = outcome["frontier"], outcome.get("event")
+    archived = [
+        row.get("repair")
+        for row in state.get("report_repair_archive") or []
+        if support.digest(row.get("repair")) == frontier.get("pending")
+    ]
+    if (
+        len(archived) != 1
+        or state.get("pending_report_repair")
+        or not isinstance(event, dict)
+        or event not in (state.get("user_events") or [])
+        or event.get("kind") != "report_retry_after_format_fix"
+        or event.get("actor") != "user_cli"
+        or event.get("attempt_id") != outcome.get("attempt")
+        or event.get("source_revision") != frontier.get("source_revision")
+        or report_retry_frontier(state, workspace, outcome.get("attempt"), archived[0]) != frontier
+    ):
+        raise ValueError("The report retry's source, schema, inputs or owned archive changed")
 
 
 def _inspected_pause(state: RunState, origin):
@@ -1570,22 +1613,19 @@ def _inspected_pause(state: RunState, origin):
     """
     if origin is None:
         return state.get("status")
-    issued = resolver_human.current(state)
+    issued = resolver_human.current(state) or resolver_human.recovery_request(state)
     if not issued or issued["scope"] != "operational_exhaustion":
         return None
     entry = state["resolver"]["human_escalations"][issued["request_id"]]
     return origin if entry["identity"]["proposal"]["origin"].get("pause_status") == origin else None
 
 
-def prepare_abandoned_completion_revalidation(state: RunState, run_dir, workspace, *, origin=None):
-    """Repair old completion-abandonment routing on explicit resume only.
-
-    ``origin`` is the retained pause of the current operational request (``_inspected_pause``).
-    """
+def abandoned_completion_evidence(state: RunState, workspace, *, origin=None, applied=False):
+    """The original owner's archive/source/task/contract checks, without mutation."""
     paused = _inspected_pause(state, origin)
     if (
         paused not in ("PAUSED_STAGE_ABANDONED", "PAUSED_INVALID_OUTPUT", "PAUSED_REPEATED_FAILURE")
-        or state.get("next_stage") != "review_completion"
+        or state.get("next_stage") != (workflow.review_stage(state) if applied else "review_completion")
         or state.get("validation")
         or any(state.get(key) for key in ("active_stage", "pending_report_repair", "uncertain_artifacts"))
     ):
@@ -1624,9 +1664,12 @@ def prepare_abandoned_completion_revalidation(state: RunState, run_dir, workspac
         r
         for r in stages[index + 1 :]
         if not (
-            r.get("runner_owned")
-            and r.get("stage") == "resolver"
-            and (r.get("decision") or {}).get("action") in ("retry", "hold")
+            receipt_identity.observation(state, r)
+            or (
+                r.get("runner_owned")
+                and r.get("stage") == "resolver"
+                and (r.get("decision") or {}).get("action") in ("retry", "hold")
+            )
         )
     ]
     if any(
@@ -1663,6 +1706,27 @@ def prepare_abandoned_completion_revalidation(state: RunState, run_dir, workspac
     stage = workflow.review_stage(state)
     if failures.repeated(state, {"stage": stage, "source_revision": revision}):
         return False
+    return {
+        "attempt": selected,
+        "revision": revision,
+        "stage": stage,
+        "archive": support.digest(abandoned),
+        "retries": support.digest(retries),
+        "failures": support.digest(state.get("failure_history")),
+        "context": support.digest(recovery),
+        "validation_archive": support.digest(state.get("validation_archive")),
+        "contract": support.digest(state.get("goal_contract")),
+        "task": support.digest(state.get("current_task")),
+    }
+
+
+def prepare_abandoned_completion_revalidation(state: RunState, run_dir, workspace, *, origin=None):
+    """Repair old completion-abandonment routing on explicit resume only."""
+    proof = abandoned_completion_evidence(state, workspace, origin=origin)
+    if not proof:
+        return False
+    selected, stage = proof["attempt"], proof["stage"]
+    paused = _inspected_pause(state, origin)
     state.setdefault("reconciliation_notes", []).append(
         {
             "at": records.now(),
@@ -1683,17 +1747,14 @@ def prepare_abandoned_completion_revalidation(state: RunState, run_dir, workspac
     return True
 
 
-def prepare_timeout_archived_completion(state: RunState, run_dir, workspace, *, origin=None):
-    """Re-open one checkpoint whose current validation a stopped completion review retired.
+def validate_abandoned_completion_evidence(state: RunState, workspace, proof):
+    """Recheck the same owner's exact evidence after routing and before work."""
+    if not proof or abandoned_completion_evidence(state, workspace, applied=True) != proof:
+        raise ValueError("Archived completion evidence changed; no work was started")
 
-    A read-only Completion Review that stopped mid-call changed nothing, so the Tester report its
-    recovery archived can still bind this exact source, contract, criteria set and task with every
-    evidence pin intact. That archived report is the one thing the completion gate lacked, so it is
-    put back — never adopted for a source it did not check, and never as a claim of completion: the
-    ordinary gate re-decides it. A checkpoint whose evidence no longer binds stays paused, because
-    the runner cannot restore authority an inspection would not re-establish. ``origin`` is the
-    retained pause of the current operational request (``_inspected_pause``).
-    """
+
+def timeout_completion_evidence(state: RunState, workspace, *, origin=None, restored=None):
+    """The existing owner's exact pinned-validation proof, before or after restoration."""
     recovery = state.get("recovery_context") or {}
     attempt = recovery.get("attempt_id")
     task_id = (state.get("current_task") or {}).get("id")
@@ -1701,7 +1762,7 @@ def prepare_timeout_archived_completion(state: RunState, run_dir, workspace, *, 
     if (
         paused not in ("PAUSED_COMPLETION_GATE", "PAUSED_REPEATED_FAILURE")
         or state.get("next_stage") != "review_completion"
-        or state.get("validation")
+        or (state.get("validation") if restored is None else state.get("validation") != restored.get("validation"))
         or not attempt
         or recovery.get("stage") != "review_completion"
         or recovery.get("role") != "task_planner"
@@ -1731,6 +1792,10 @@ def prepare_timeout_archived_completion(state: RunState, run_dir, workspace, *, 
         for row in state.get("validation_archive") or []
         if row.get("reason") == TIMEOUT_ARCHIVED_VALIDATION and (row.get("validation") or {}).get("task_id") == task_id
     ]
+    if restored is not None:
+        if restored in (state.get("validation_archive") or []):
+            return False
+        archived = [restored]
     if len(archived) != 1:
         return False
     validation = archived[0].get("validation") or {}
@@ -1760,7 +1825,10 @@ def prepare_timeout_archived_completion(state: RunState, run_dir, workspace, *, 
         or row.get("source_revision") != revision
         or (row.get("original_stage") or row.get("stage")) != "review_completion"
         for row in stages[index + 1 :]
-        if not (row.get("runner_owned") and (row.get("decision") or {}).get("action") in ("retry", "hold"))
+        if not (
+            receipt_identity.observation(state, row)
+            or (row.get("runner_owned") and (row.get("decision") or {}).get("action") in ("retry", "hold"))
+        )
     ):
         return False
     try:
@@ -1772,8 +1840,26 @@ def prepare_timeout_archived_completion(state: RunState, run_dir, workspace, *, 
         state, revision, all_due=True, require_changed_code=False
     ):
         return False
-    state["validation"] = validation
-    state["validation_archive"] = [row for row in state["validation_archive"] if row is not archived[0]]
+    return {
+        "attempt": attempt,
+        "archive": copy.deepcopy(archived[0]),
+        "revision": revision,
+        "remaining": support.digest([row for row in state.get("validation_archive") or [] if row is not archived[0]]),
+        "context": support.digest(recovery),
+        "contract": support.digest(contract),
+        "task": support.digest(state.get("current_task")),
+        "failures": support.digest(state.get("failure_history")),
+    }
+
+
+def prepare_timeout_archived_completion(state: RunState, run_dir, workspace, *, origin=None):
+    """Restore only the current pinned validation; ordinary completion still decides it."""
+    proof = timeout_completion_evidence(state, workspace, origin=origin)
+    if not proof:
+        return False
+    state["validation"] = proof["archive"]["validation"]
+    state["validation_archive"] = [row for row in state["validation_archive"] if row != proof["archive"]]
+    attempt, paused = proof["attempt"], _inspected_pause(state, origin)
     state.setdefault("reconciliation_notes", []).append(
         {
             "at": records.now(),
@@ -1792,6 +1878,50 @@ def prepare_timeout_archived_completion(state: RunState, run_dir, workspace, *, 
     )
     records.write_json(Path(run_dir) / "state.json", state)
     return True
+
+
+def validate_timeout_completion_evidence(state: RunState, workspace, proof):
+    """Repeat this owner's original source, regression and exact-report checks."""
+    if not proof or timeout_completion_evidence(state, workspace, restored=proof.get("archive")) != proof:
+        raise ValueError("Archived validation evidence changed; no work was started")
+
+
+def failure_retry_frontier(state: RunState, workspace):
+    """One exact source/stage/count answer shared by retry and revalidation."""
+    record = next((row for row in reversed(state.get("stages", [])) if row.get("failure_key")), None)
+    repeated = (failures.repeated(state, record) or stage_stalls.retry_entry(state, record)) if record else None
+    if not repeated:
+        raise ValueError("No unchanged repeated failure to authorize; fix the cause, then resume")
+    selected = cast(dict, record).get("failure_key")
+    revision = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)["revision"]
+    identity = repeated["identity"]
+    if (
+        (state.get("failure_history") or {}).get(selected) is not repeated
+        or failures.key(identity) != selected
+        or identity["artifact_hash"] != revision
+        or cast(dict, record).get("source_revision") != revision
+        or identity["stage"] != (cast(dict, record).get("original_stage") or cast(dict, record).get("stage"))
+        or identity["stage"] != state.get("next_stage")
+    ):
+        raise ValueError("Retry authorization requires the exact current source, stage and failure identity")
+    return {
+        "failure_key": selected,
+        "identity": copy.deepcopy(identity),
+        "count": cast(dict, repeated)["count"],
+        "source_revision": revision,
+    }
+
+
+def validate_failure_retry_authorization(state: RunState, workspace, authorization):
+    """Recheck a caller-owned outcome without consuming or recreating its one use."""
+    if not isinstance(authorization, dict):
+        raise ValueError("The current invocation did not authorize a failure retry")
+    expected = failure_retry_frontier(state, workspace)
+    if any(authorization.get(key) != value for key, value in expected.items()) or not any(
+        saved == {key: value for key, value in authorization.items() if key != "consumed"}
+        for saved in state.get("failure_retry_authorizations") or []
+    ):
+        raise ValueError("The failure retry outcome no longer matches its exact owner commit")
 
 
 def authorize_failure_retry(state: RunState, run_dir, workspace):
@@ -1820,38 +1950,17 @@ def authorize_failure_retry(state: RunState, run_dir, workspace):
         raise ValueError("--retry-failed-stage requires a run paused for repeated failure")
     if refusal := recovery_limits.repeated_failure_retry_refusal(state):
         raise ValueError(refusal)
-    record = next((row for row in reversed(state.get("stages", [])) if row.get("failure_key")), None)
-    repeated = (failures.repeated(state, record) or stage_stalls.retry_entry(state, record)) if record else None
-    if not repeated:
-        raise ValueError("No unchanged repeated failure to authorize; fix the cause, then resume")
-    selected = cast(dict, record).get("failure_key")
-    revision = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)["revision"]
-    identity = repeated["identity"]
-    if (
-        (state.get("failure_history") or {}).get(selected) is not repeated
-        or failures.key(identity) != selected
-        or identity["artifact_hash"] != revision
-        or cast(dict, record).get("source_revision") != revision
-        or identity["stage"] != (cast(dict, record).get("original_stage") or cast(dict, record).get("stage"))
-        or identity["stage"] != state.get("next_stage")
-    ):
-        raise ValueError("Retry authorization requires the exact current source, stage and failure identity")
-    authorization = {
-        "at": records.now(),
-        "failure_key": selected,
-        "identity": copy.deepcopy(identity),
-        "count": cast(dict, repeated)["count"],
-        "source_revision": revision,
-    }
+    frontier = failure_retry_frontier(state, workspace)
+    authorization = {"at": records.now(), **frontier}
     resolver_human.supersede_operational(state, "Operator explicitly authorized one scoped failure retry")
     state.setdefault("failure_retry_authorizations", []).append(authorization)
     state.setdefault("user_events", []).append(
         {
             "kind": "failure_retry_authorized",
             "at": records.now(),
-            "failure_key": selected,
-            "stage": cast(dict, repeated)["identity"].get("stage"),
-            "count": cast(dict, repeated)["count"],
+            "failure_key": authorization["failure_key"],
+            "stage": authorization["identity"].get("stage"),
+            "count": authorization["count"],
         }
     )
     records.write_json(run_dir / "state.json", state)

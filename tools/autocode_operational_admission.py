@@ -18,7 +18,8 @@ try:
     from . import autocode_model_listing_failure_recovery as model_listing_recovery
     from . import autocode_operational_block_view as block_view
     from . import autocode_operational_disposition as disposition
-    from . import autocode_pause_authority as pause_authority
+    from . import autocode_owned_operations as operation_contract
+    from . import autocode_recovery_accounting as recovery_accounting
     from . import autocode_resolver_human as human
     from . import autocode_resolver_runtime as resolver_runtime
     from . import autocode_role_transport as role_transport
@@ -32,7 +33,8 @@ except ImportError:
     import autocode_model_listing_failure_recovery as model_listing_recovery
     import autocode_operational_block_view as block_view
     import autocode_operational_disposition as disposition
-    import autocode_pause_authority as pause_authority
+    import autocode_owned_operations as operation_contract
+    import autocode_recovery_accounting as recovery_accounting
     import autocode_resolver_human as human
     import autocode_resolver_runtime as resolver_runtime
     import autocode_role_transport as role_transport
@@ -111,108 +113,71 @@ def _fresh_try(state: RunState, identity, previous_settings):
     return False
 
 
+def _frontier_matches(state: RunState, binding):
+    """The retained attempt/repair and spent recovery ledger did not change."""
+    return (
+        binding.get("active_stage") == util.digest(state.get("active_stage"))
+        and binding.get("failure_history") == util.digest(state.get("failure_history", {}))
+        and _same_repair(state, binding)
+        and all(
+            value == state.get(key)
+            for key, value in (binding.get("accounting") or {}).items()
+            if key
+            in (
+                "automatic_timeout_recoveries",
+                "consecutive_timeout_recoveries",
+                "automatic_recoveries_since_resume",
+            )
+        )
+    )
+
+
+def original_cause(state: RunState, decided):
+    """The authenticated saved incident, without changing the handler's status."""
+    row = disposition.diagnostic(state, decided.operational_incident)
+    return ((row or {}).get("receipt", {}).get("evidence") or {}).get("status")
+
+
 def guard(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
-    """Refuse ordinary advancement before recovery bookkeeping or dispatch can run."""
+    """Select only a registered owner; ordinary advancement has no authority."""
     current = disposition.decision(state)
     if current is None:
         return None
     row = current["record"]
     decided.operational_incident = disposition.incident_identity(state, row)
     evidence = (row.get("receipt") or {}).get("evidence") or {}
-    cause, stage = evidence.get("status"), evidence.get("stage")
-    interruptions = human.pending_interruptions(run_dir)
-    if getattr(args, "stage_model", None) and not getattr(args, "resume_paused", False):
-        return None  # This existing metadata handler returns without task admission.
-    selection = None
     binding = (row.get("receipt") or {}).get("evaluation_binding") or {}
     same_context = _same_context(state, binding)
-    if same_context and (observed := disposition.checked_recovery(state, row)):
+    if getattr(args, "stage_model", None) and not getattr(args, "resume_paused", False):
+        return None  # The existing earlier metadata handler returns without admission.
+    if decided.owned_operations is None:
+        decided.owned_operations = runner.run_actions.owned_operations(args, state)
+    continuation = not decided.owned_operations or all(
+        operation.name == "observe" for operation in decided.owned_operations
+    )
+    if continuation and same_context and (observed := disposition.checked_recovery(state, row)):
         decided.operational_selection = observed["selection"]
         decided.operational_recovery_checked = {"incident": decided.operational_incident, **observed}
+        decided.owned_operations = ()  # A saved owner commit is revalidated, never replayed.
+        decided.owner_lane = True
         return None
-    if decided.operational_incident and disposition.same_run(state, binding):
-        if proof := disposition.planning_input(state, row):
-            decided.operational_selection = "planning_input"
-            decided.operational_recovery_checked = {
-                "incident": decided.operational_incident,
-                "selection": "planning_input",
-                "proof": proof,
-            }
-            return None
-        if (
-            cause in pause_authority.FEEDBACK_ACKNOWLEDGES
-            and same_context
-            and (
-                getattr(args, "feedback", None) is not None
-                or getattr(args, "edit_goal", None)
-                or getattr(args, "goal_file", None)
-            )
-        ):
-            selection = "planning_input"
-    if decided.operational_incident and same_context and stage == state.get("next_stage"):
-        active = state.get("active_stage") or {}
-        bound_active = (row["receipt"].get("evaluation_binding") or {}).get("active_stage")
-        same_active = bool(active) and bound_active == util.digest(active)
-        repair = state.get("pending_report_repair") or {}
-        bound_repair = (row["receipt"].get("evaluation_binding") or {}).get("pending_report_repair")
-        same_repair = bool(repair) and bound_repair == util.digest(repair)
-        if getattr(args, "abandon_stage", None) and same_active and args.abandon_stage == records.attempt_id(active):
-            selection = "abandon"
-        elif getattr(args, "resume_paused", False):
-            if (
-                cause == "PAUSED_REPEATED_FAILURE"
-                and getattr(args, "retry_failed_stage", False)
-                and binding.get("failure_history") == util.digest(state.get("failure_history", {}))
-                and _same_repair(state, binding)
-                and (not active or same_active)
-            ):
-                selection = "failure_retry"
-            elif (
-                cause == "PAUSED_TIMEOUT_RECOVERY"
-                and getattr(args, "grant_recovery", None) is not None
-                and all(
-                    (binding.get("accounting") or {}).get(key) == state.get(key)
-                    for key in (
-                        "automatic_timeout_recoveries",
-                        "consecutive_timeout_recoveries",
-                        "automatic_recoveries_since_resume",
-                    )
-                )
-            ):
-                selection = "grant"
-            elif (
-                cause in ("PAUSED_REPEATED_FAILURE", "PAUSED_REPORT_REPAIR_LIMIT")
-                and getattr(args, "retry_report", None)
-                and (
-                    same_active
-                    and args.retry_report == records.attempt_id(active)
-                    or same_repair
-                    and any(
-                        args.retry_report == records.attempt_id(record)
-                        and (record.get("original_stage") or record.get("stage")) == stage
-                        for record in [repair.get("original") or {}, *(state.get("stages") or [])]
-                        if isinstance(record, dict)
-                    )
-                )
-            ):
-                selection = "report"
-            elif cause == "PAUSED_BUILDER_RETRY_LIMIT" and getattr(args, "retry_builder", None):
-                selection = "builder"
-            elif pause_authority.changes_held_bound(
-                getattr(args, "_explicit_budget_flags", None) or set(),
-                {"pause_status": cause, "budget": evidence.get("budget")},
-            ):
-                selection = "bound"
-    if selection is None:
-        if same_context and cause == "PAUSED_PLANNING_BUDGET" and human.recovery_request(state):
-            _normalize(runner, state, state_path, run_dir, row, decided.operational_incident)
-            decided.operational_selection = "planning_reserve"
-            if not resolver_runtime.reconsider_operational_request(runner, state, run_dir, workspace):
-                return refuse()
-            proof = resolver_runtime.validate_operational_grant(state, stage, workspace)
-            checked(runner, state, run_dir, decided, "planning_reserve", proof)
-            return None if authorized(state, decided) else refuse()
-        if interruptions.get("pending"):
+    planning_input = (
+        disposition.planning_input(state, row)
+        if decided.operational_incident and disposition.same_run(state, binding)
+        else None
+    )
+    operations = decided.owned_operations
+    if planning_input and not operations:
+        decided.operational_selection = "planning_input"
+        decided.operational_recovery_checked = {
+            "incident": decided.operational_incident,
+            "selection": "planning_input",
+            "proof": planning_input,
+        }
+        decided.owner_lane = True
+        return None
+    if not operations:
+        if human.pending_interruptions(run_dir).get("pending"):
             _normalize(runner, state, state_path, run_dir, row, decided.operational_incident)
             runner.consume_interventions(state, run_dir, workspace, released=False)
             return refuse()
@@ -222,25 +187,27 @@ def guard(runner, args, parser, state: RunState, state_path, run_dir, workspace,
         except ValueError as error:
             print(f"Requested milestone settings remain queued: {error}", file=sys.stderr)
         return refuse()
-    inspected_request = state.get("status") in ("WAITING_FOR_USER", "RESOLVER_PENDING") and selection in (
-        "grant",
-        "failure_retry",
-        "report",
-        "builder",
-    )
-    if inspected_request and not _fresh_try(
-        state, decided.operational_incident, getattr(args, "_recovery_grant_settings", None)
+    if not decided.operational_incident or not (same_context or planning_input):
+        return refuse()
+    if human.pending_interruptions(run_dir).get("pending"):
+        _normalize(runner, state, state_path, run_dir, row, decided.operational_incident)
+        runner.consume_interventions(state, run_dir, workspace, released=False)
+        return refuse()
+    if any(operation.frontier_bound for operation in operations) and not _frontier_matches(state, binding):
+        return refuse()
+    inspecting_request = state.get("status") in ("WAITING_FOR_USER", "RESOLVER_PENDING")
+    if (
+        inspecting_request
+        and any(operation.request_bound for operation in operations)
+        and not _fresh_try(state, decided.operational_incident, getattr(args, "_recovery_grant_settings", None))
     ):
         return refuse()
     _normalize(runner, state, state_path, run_dir, row, decided.operational_incident)
-    decided.operational_selection = selection
-    # Selection permits trying the existing exact handler, not another stage.
-    # These handlers read a cause status and may archive their exact repair
-    # before the next handler runs. Only a fresh request can hand them its cause.
-    # Grant instead keeps the original publication: its owner distinguishes a
-    # bare timeout from a request and records that request's exact identity.
-    if inspected_request and selection != "grant":
-        run_status.pause(state, cast(str, cause), state.get("stop_reason"))
+    decided.operational_selection = operations[0].name
+    decided.owner_lane = True
+    first = operations[0]
+    if inspecting_request and first.request_bound and not first.preserve_request:
+        run_status.pause(state, cast(str, evidence.get("status")), state.get("stop_reason"))
     return None
 
 
@@ -262,14 +229,28 @@ def checked(runner, state: RunState, run_dir, decided, selection, proof):
     if row is None:
         return
     evidence = (row.get("receipt") or {}).get("evidence") or {}
-    if selection == "failure_retry" and (
-        not isinstance(proof, dict)
-        or (proof.get("stage") or (proof.get("identity") or {}).get("stage")) != evidence.get("stage")
-    ):
-        return
     if getattr(decided, "operational_selection", None) == selection and proof is not None:
-        facts = disposition.recovery_facts(state, row, selection, proof)
+        operation = operation_contract.resolve(selection)
+        if operation is None or not callable(operation.validate):
+            return
+        outcome = operation.validate(
+            runner,
+            None,
+            state,
+            run_dir,
+            Path(state["workspace"]),
+            decided,
+            row,
+            {"selection": selection, "result": proof},
+            final=False,
+        )
+        facts = disposition.recovery_facts(state, row, selection, outcome)
         if facts is None:
+            return
+        events = disposition.later_events(state, row)
+        if events is None or any(
+            member["value"] not in events for member in outcome["members"] if member["key"] == "user_events"
+        ):
             return
         candidate = copy.deepcopy(state)
         identity = runner.resolver_runtime._operational_receipt(
@@ -283,7 +264,7 @@ def checked(runner, state: RunState, run_dir, decided, selection, proof):
                 "stage": evidence.get("stage"),
                 "budget": evidence.get("budget"),
                 "selection": selection,
-                "result": None if selection == "bound" else copy.deepcopy(proof),
+                "result": copy.deepcopy(outcome),
                 "facts": facts,
             },
         )
@@ -399,8 +380,8 @@ def retire(runner, state: RunState, run_dir, decided):
     return True
 
 
-def finalize(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
-    """Final guards shared with a checked fast dispatch, without generic resume resets."""
+def work_guard(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided, *, final=False):
+    """Fresh existing work guards, without consuming or retiring any authority."""
     if not ready(state, decided):
         return refuse()
     try:
@@ -412,13 +393,17 @@ def finalize(runner, args, parser, state: RunState, state_path, run_dir, workspa
         return 2
     for row in disposition.incidents(state):
         observed = disposition.checked_recovery(state, row)
-        if observed and observed["selection"] == "planning_reserve":
-            # A saved diagnostic never replaces the existing file/source and
-            # allowance validator at the final provider admission frontier.
-            resolver_runtime.validate_operational_grant(state, state.get("next_stage"), workspace)
-        elif observed and observed["selection"] == "abandon":
-            witness = disposition.diagnostic(state, observed["receipt_id"])
-            _validate_abandoned_archive(witness["receipt"]["evidence"]["result"])
+        if observed is None:
+            proof = disposition.planning_input(state, row)
+            observed = {"selection": "planning_input", "proof": proof} if proof else None
+        operation = operation_contract.resolve(observed.get("selection")) if observed else None
+        if (
+            operation is None
+            or not callable(operation.validate)
+            or operation.validate(runner, args, state, run_dir, workspace, decided, row, observed, final=final)
+            != observed.get("result", observed.get("proof"))
+        ):
+            return refuse()
     if state["settings"].get("engine") == "opencode":
         try:
             role_transport.check_models(
@@ -429,10 +414,22 @@ def finalize(runner, args, parser, state: RunState, state_path, run_dir, workspa
                 print(f"{state['status']}: {state['stop_reason']}", file=sys.stderr)
                 return 2
             raise
+    return None
+
+
+def finalize(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
+    """Final guards shared with a checked fast dispatch, without generic resume resets."""
+    if (
+        code := work_guard(runner, args, parser, state, state_path, run_dir, workspace, decided, final=True)
+    ) is not None:
+        return code
     if conversation_ingress.record_build_start(
         state, getattr(args, "expected_goal_token", None), token_for=goals.token, is_approved=goals.approved
     ):
         runner.write_json(state_path, state)
+    if decided.resume_initialization:
+        recovery_accounting.initialize_milestone_time(state, args.max_milestone_seconds)
+        decided.resume_initialization = False
     if ready(state, decided) and getattr(decided, "operational_resume_deferred", False):
         resolver_runtime.reset_for_resume(state)
         runner.reset_report_repair_for_resume(state)
@@ -453,3 +450,49 @@ def dispatch(code, runner, args, parser, state: RunState, state_path, run_dir, w
     if getattr(decided, "operational_incident", None) is not None or disposition.held(state) is not None:
         return finalize(runner, args, parser, state, state_path, run_dir, workspace, decided)
     return None
+
+
+def apply_owned(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
+    """No ambient step runs until an actual selected owner established authority."""
+    selected = () if decided.operational_recovery_checked and ready(state, decided) else decided.owned_operations
+    for operation in selected or ():
+        if not operation_contract.authentic(operation):
+            return refuse()
+        decided.operational_selection = operation.name
+        code = operation.apply(runner, args, parser, state, state_path, run_dir, workspace, decided)
+        if code is not None:
+            return code  # Metadata exit: the incident and committed evidence remain.
+        decided.completed_operations = (*decided.completed_operations, operation.name)
+    if not ready(state, decided):
+        return refuse()
+    if (code := work_guard(runner, args, parser, state, state_path, run_dir, workspace, decided)) is not None:
+        return code
+    if state.get("status") in ("WAITING_FOR_USER", "RESOLVER_PENDING") and any(
+        operation.request_bound and not operation.preserve_request for operation in selected or ()
+    ):
+        # The owner's durable save can normalize the still-retained legacy
+        # request. Only its now-validated outcome restores the same cause for
+        # ordinary status-gated guards; the request is retired only at final admission.
+        run_status.pause(state, original_cause(state, decided), state.get("stop_reason"))
+    decided.owner_lane = False
+    return None
+
+
+def apply_step(step, runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
+    """Keep owner execution at admission, before returning to ordinary steps."""
+    code = step(runner, args, parser, state, state_path, run_dir, workspace, decided)
+    return (
+        apply_owned(runner, args, parser, state, state_path, run_dir, workspace, decided)
+        if code is None and decided.owner_lane
+        else code
+    )
+
+
+def recorded_frontier(state: RunState, row, observed):
+    """One authenticated current-state outcome; owners add their real I/O frontier."""
+    return disposition.checked_recovery(state, row) == observed
+
+
+def planning_frontier(state: RunState, row, observed):
+    proof = disposition.planning_input(state, row)
+    return proof is not None and observed == {"selection": "planning_input", "proof": proof}

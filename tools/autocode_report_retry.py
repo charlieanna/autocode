@@ -36,11 +36,11 @@ def retryable(error) -> bool:
     )
 
 
-def rejected_attempt(state: RunState):
+def rejected_attempt(state: RunState, *, pending=None):
     """The latest rejected attempt of the pending repair, or None: its latest report-only repair,
     or the original itself when no correction or repair followed it and it is still the last
     attempt of its failure ledger entry (bounded_failure decides whether the bound stopped it)."""
-    pending = state.get("pending_report_repair") or {}
+    pending = state.get("pending_report_repair") or {} if pending is None else pending
     if pending.get("latest_rejected"):
         return pending["latest_rejected"]
     original = pending.get("original") or {}
@@ -59,19 +59,25 @@ def rejected_attempt(state: RunState):
 def bounded_failure(state: RunState, limit):
     """Whether this pending repair reached its full-repair or exact failure bound."""
     pending = state.get("pending_report_repair") or {}
+    return bounded_failure_evidence(state, pending, limit) and (
+        pending.get("attempts") == limit or state.get("status") == "PAUSED_REPEATED_FAILURE"
+    )
+
+
+def bounded_failure_evidence(state: RunState, pending, limit):
+    """The retained input's bound; its caller separately owns command admission."""
     used = pending.get("attempts")
     if type(limit) is not int or not 1 <= limit <= 2 or type(used) is not int or not 0 <= used <= limit:
         return False
     if used == limit:
         return True
     original = pending.get("original") or {}
-    rejected = rejected_attempt(state) or {}
+    rejected = rejected_attempt(state, pending=pending) or {}
     key = original.get("failure_key")
     entry = (state.get("failure_history") or {}).get(key) or {}
     identity = entry.get("identity") or {}
     return bool(
-        state.get("status") == "PAUSED_REPEATED_FAILURE"
-        and key
+        key
         and rejected.get("failure_key") == key
         and failures.key(identity) == key
         and identity.get("stage") == original.get("stage")

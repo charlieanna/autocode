@@ -221,25 +221,29 @@ def digest(value):
     return hashlib.sha256(_canonical_json(value)).hexdigest()
 
 
-def digest_prefix_length(values, expected):
-    """Longest exact canonical-list prefix, serializing each value only once.
-
-    A copied hash adds only the list terminator for each candidate. This keeps
-    old whole-prefix digests valid without repeatedly serializing their history.
-    """
-    if not isinstance(values, list) or not isinstance(expected, str):
-        return None
+def digest_prefixes(values):
+    """Canonical list-prefix digests in order, serializing each value once."""
+    if not isinstance(values, list):
+        return
     stream = hashlib.sha256(b"[")
-    matched = None
     for index in range(len(values) + 1):
         candidate = stream.copy()
         candidate.update(b"]")
-        if candidate.hexdigest() == expected:
-            matched = index
+        yield index, candidate.hexdigest()
         if index < len(values):
             if index:
                 stream.update(b",")
             stream.update(_canonical_json(values[index]))
+
+
+def digest_prefix_length(values, expected):
+    """Longest exact canonical-list prefix, serializing each value only once."""
+    if not isinstance(values, list) or not isinstance(expected, str):
+        return None
+    matched = None
+    for index, digest in digest_prefixes(values):
+        if digest == expected:
+            matched = index
     return matched
 
 

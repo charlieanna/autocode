@@ -1417,10 +1417,15 @@ def route_known_change(runtime, state: RunState, decision, record, *, run_dir, r
     return True
 
 
+def retry_hold(state: RunState):
+    """The actual scoped-retry owner's retained input, not authorization."""
+    return _request(state, state.get("next_stage")).get("novelty_hold")
+
+
 def authorize_retry(runner, state: RunState, run_dir, workspace, *, previous_settings=None, preview=False):
     """Existing explicit CLI control, bound to the actual suppressed frontier."""
     request = _request(state, state.get("next_stage"))
-    held = request.get("novelty_hold")
+    held = retry_hold(state)
     if not held:
         return None
     if any(state.get(key) for key in recovery_limits.UNSETTLED):
@@ -1448,7 +1453,8 @@ def authorize_retry(runner, state: RunState, run_dir, workspace, *, previous_set
         raise ValueError("Scoped recovery retry is stale; source, settings or approved scope changed")
     # The saved-state admission rule is shared with the status view, which names this retry only
     # where it holds (#1770). A route change is checked against the request under the old settings.
-    public = runner.resolver_human.current({**state, "settings": previous_settings} if route_change else state)
+    issued_state = {**state, "settings": previous_settings} if route_change else state
+    public = runner.resolver_human.current(issued_state) or runner.resolver_human.recovery_request(issued_state)
     refusal = recovery_limits.scoped_retry_refusal(state, public)
     if refusal:
         raise ValueError(refusal)
@@ -1783,8 +1789,8 @@ def recover_no_progress(runner, state: RunState, run_dir, workspace, error):
     return True
 
 
-def admit_dispatch(state: RunState, record, workspace, run_dir, *, retry_authorization=None):
-    """Run inside the caller's final locked admission, before any allowance charge."""
+def _dispatch_frontier(state: RunState, record, workspace, run_dir):
+    """The existing non-consuming packet/source/input/scope dispatch frontier."""
     stage = record.get("stage")
     if stage not in ("builder", "resolve", "diagnose") or record.get("report_only") or record.get("dry_run"):
         return
@@ -1832,6 +1838,16 @@ def admit_dispatch(state: RunState, record, workspace, run_dir, *, retry_authori
         within = _narrows(packet["scope"], scope, _decided(packet))
     if not _holds(expected, state, revision) or not within:
         _stale("current source, task, settings, contract or scope changed before admission")
+    return request, pointer, packet, revision, bound
+
+
+def admit_dispatch(state: RunState, record, workspace, run_dir, *, retry_authorization=None):
+    """Run inside the caller's final locked admission, before any allowance charge."""
+    checked = _dispatch_frontier(state, record, workspace, run_dir)
+    if checked is None:
+        return
+    request, pointer, packet, revision, bound = checked
+    stage = record["stage"]
     active = state.get("active_stage")
     if active and active is not record and active.get("output") != record.get("output"):
         raise util.Paused(
@@ -1936,3 +1952,43 @@ def admit_dispatch(state: RunState, record, workspace, run_dir, *, retry_authori
     }
     if grant_kind == "invocation":
         retry_authorization["_novelty_consumed"] = True
+
+
+def retry_authorization_outcome(state: RunState, workspace, run_dir, authorization):
+    """Revalidate the actual scoped owner's live result without using it."""
+    if (
+        not isinstance(authorization, dict)
+        or not authorization.get("novelty_packet")
+        or authorization.get("consumed") is not True
+        or authorization.get("_novelty_consumed")
+        or any(state.get(key) for key in recovery_limits.UNSETTLED)
+    ):
+        raise ValueError("A scoped retry needs this invocation's unspent owner outcome")
+    stage = authorization.get("stage")
+    checked = _dispatch_frontier(state, {"stage": stage}, workspace, run_dir)
+    if checked is None:
+        raise ValueError("The scoped retry no longer has its owned packet frontier")
+    request, pointer, packet, revision, bound = checked
+    identity = _live_grant(state, packet, {"stage": stage}, authorization)
+    durable = {key: value for key, value in authorization.items() if key not in ("consumed", "_novelty_consumed")}
+    ordinal = durable.get("ordinal")
+    grants = state.get("failure_retry_authorizations") or []
+    event = {"kind": "failure_retry_authorized", **copy.deepcopy(durable)}
+    if (
+        identity is None
+        or type(ordinal) is not int
+        or not 0 <= ordinal < len(grants)
+        or grants[ordinal] != durable
+        or event not in (state.get("user_events") or [])
+        or any(row.get("grant_id") == identity for row in receipts(state))
+    ):
+        raise ValueError("The scoped retry's exact owner commit changed or was already used")
+    return {
+        "authorization": durable,
+        "event": event,
+        "grant_id": identity,
+        "packet": copy.deepcopy(pointer),
+        "packet_digest": util.digest(packet),
+        "source_revision": revision,
+        "binding": bound,
+    }

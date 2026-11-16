@@ -41,6 +41,15 @@ except ImportError:
 MAX_AUTOMATIC_RECOVERIES = 3
 
 
+def initialize_milestone_time(state: RunState, selected_seconds):
+    """The existing explicit-resume initialization, after admission succeeds."""
+    if selected_seconds is not None and not (state.get("progressive") or {}).get("budget"):
+        for row in state.get("milestone_progress", {}).values():
+            if isinstance(row, dict):
+                row["seconds"] = 0
+                row["seconds_by_role"] = {}
+
+
 def spent(state: RunState) -> int:
     """Recovery failures since valid saved progress. Writes nothing.
 

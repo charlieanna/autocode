@@ -59,12 +59,18 @@ class AccessTransportConsumerTests(unittest.TestCase):
             "tests.test_member_stop_settings",
             "tests.test_subprocess",
             "tests.test_unlimited_iterations",
+            "tests.test_completion_timeout_recovery",
+            "tests.test_milestone_checkpoints",
+            "tests.test_saved_run_replay_cli",
         }
         for path in (
             "tools/autocode_operational_disposition.py",
             "tools/autocode_operational_admission.py",
+            "tools/autocode_operational_outcome.py",
             "tools/autocode_operational_receipt_identity.py",
             "tools/autocode_operational_hold.py",
+            "tools/autocode_owned_operations.py",
+            "tools/autocode_recovery_accounting.py",
             "tests/operational_fixtures.py",
         ):
             with self.subTest(path=path):
@@ -73,6 +79,15 @@ class AccessTransportConsumerTests(unittest.TestCase):
                 )
                 kept, _ = run_suite.drop_slow(selected, {name: "30s" for name in consumers})
                 self.assertEqual(consumers, set(kept))
+
+    def test_shared_action_inventory_retains_every_original_argument_consumer(self):
+        original = dependencies.dependencies("tools/autocode_args.py")
+        selected = dependencies.dependencies("tools/autocode_owned_operations.py")
+        self.assertLessEqual(original, selected)
+        self.assertLessEqual(set(dependencies.OPERATIONAL_CONSUMERS), selected)
+        choices = run_suite.select_tests(["tools/autocode_owned_operations.py"], {name: "" for name in selected})
+        kept, _ = run_suite.drop_slow(choices, {name: "30s" for name in selected})
+        self.assertEqual(selected, set(kept))
 
     def test_digest_prefix_keeps_its_direct_no_process_consumer_when_slow(self):
         selected = run_suite.select_tests(

@@ -29,16 +29,21 @@ try:
     from . import autocode_classification_recovery as classification_recovery
     from . import autocode_job_failure as job_failure
     from . import autocode_job_route as job_route
+    from . import autocode_limit_events as limit_events
     from . import autocode_model_listing_failure as model_listing_failure
     from . import autocode_operational_admission as operational_admission
+    from . import autocode_operational_outcome as owner_outcome
+    from . import autocode_owned_operations as owned_operations
     from . import autocode_recovery_accounting as recovery_accounting
     from . import autocode_recovery_dispatch as recovery_dispatch
     from . import autocode_recovery_grants as recovery_grants
     from . import autocode_resolver_human as resolver_human
+    from . import autocode_resolver_recovery as resolver_recovery
     from . import autocode_resolver_runtime as resolver_runtime
     from . import autocode_route_advisory as route_advisory
     from . import autocode_run_status as run_status
     from . import autocode_runner_check as runner_check
+    from . import autocode_stage_recovery as stage_recovery
     from . import autocode_stop as stop
     from . import autocode_support as support
     from . import autocode_verification_failure as verification_failure
@@ -47,16 +52,21 @@ except ImportError:
     import autocode_classification_recovery as classification_recovery
     import autocode_job_failure as job_failure
     import autocode_job_route as job_route
+    import autocode_limit_events as limit_events
     import autocode_model_listing_failure as model_listing_failure
     import autocode_operational_admission as operational_admission
+    import autocode_operational_outcome as owner_outcome
+    import autocode_owned_operations as owned_operations
     import autocode_recovery_accounting as recovery_accounting
     import autocode_recovery_dispatch as recovery_dispatch
     import autocode_recovery_grants as recovery_grants
     import autocode_resolver_human as resolver_human
+    import autocode_resolver_recovery as resolver_recovery
     import autocode_resolver_runtime as resolver_runtime
     import autocode_route_advisory as route_advisory
     import autocode_run_status as run_status
     import autocode_runner_check as runner_check
+    import autocode_stage_recovery as stage_recovery
     import autocode_stop as stop
     import autocode_support as support
     import autocode_verification_failure as verification_failure
@@ -153,9 +163,158 @@ def gate_failures(runner, args, parser, state: RunState, state_path, run_dir, wo
     decided.gate = gate
 
 
+def operations(args, state: RunState | None = None):
+    """Only this family's explicit reset-free handlers, in their ordinary order."""
+    if getattr(args, "abandon_stage", None) is not None:
+        return (OPERATIONS["abandon"],)
+    if not getattr(args, "resume_paused", False):
+        return ()
+    selected = []
+    if getattr(args, "grant_recovery", None) is not None:
+        selected.append(OPERATIONS["grant"])
+    if getattr(args, "retry_report", None):
+        selected.append(OPERATIONS["report"])
+    elif getattr(args, "retry_failed_stage", False):
+        selected.append(
+            OPERATIONS[
+                "resolver_retry" if state is not None and resolver_recovery.retry_hold(state) else "failure_retry"
+            ]
+        )
+    if not selected and getattr(args, "_explicit_budget_flags", None):
+        selected.append(OPERATIONS["bound"])
+    if (
+        not selected
+        and not any(owned_operations.user_actions(args).values())
+        and not any((args.retry_builder, args.diagnose_failed_stage, args.accept_source_edit))
+        and state is not None
+        and (
+            resolver_human.recovery_request(state)
+            or (state.get("recovery_context") or {}).get("attempt_id")
+            and state.get("next_stage") == "review_completion"
+        )
+    ):
+        selected.append(OPERATIONS["observe"])
+    return tuple(selected)
+
+
+def observe(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
+    """Only the existing read-only recovery owners may establish a plain resume."""
+    if resolver_runtime.reconsider_operational_request(runner, state, run_dir, workspace):
+        decided.operational_selection = "planning_reserve"
+        proof = resolver_runtime.validate_operational_grant(state, state.get("next_stage"), workspace)
+        operational_admission.checked(runner, state, run_dir, decided, "planning_reserve", proof)
+        return None
+    origin = operational_admission.original_cause(state, decided)
+    origin = origin if state.get("status") in ("WAITING_FOR_USER", "RESOLVER_PENDING") else None
+    proof = stage_recovery.abandoned_completion_evidence(state, workspace, origin=origin)
+    if proof and stage_recovery.prepare_abandoned_completion_revalidation(state, run_dir, workspace, origin=origin):
+        decided.operational_selection = "archive_completion"
+        operational_admission.checked(runner, state, run_dir, decided, "archive_completion", proof)
+        return None
+    proof = stage_recovery.timeout_completion_evidence(state, workspace, origin=origin)
+    if proof and stage_recovery.prepare_timeout_archived_completion(state, run_dir, workspace, origin=origin):
+        decided.operational_selection = "archive_timeout"
+        operational_admission.checked(runner, state, run_dir, decided, "archive_timeout", proof)
+        return None
+    return operational_admission.refuse()
+
+
+def abandon(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
+    original = copy.deepcopy(state.get("active_stage"))
+    try:
+        runner.abandon_stage(state, run_dir, workspace, args.abandon_stage, launch=runner)
+        operational_admission.abandoned(runner, state, run_dir, decided, original)
+    except ValueError as error:
+        print(f"Input rejected: {error}", file=sys.stderr)
+        return 2
+    print(f"{state['status']}: {state['stop_reason']} No agent launched.")
+    return 0
+
+
+def grant(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
+    if owned_operations.completed(decided, "grant"):
+        return None
+    # Its single save validates the request as issued and commits the selected
+    # settings/deferred events together, before any resume bookkeeping.
+    try:
+        granted = recovery_grants.grant(
+            state,
+            run_dir,
+            args.grant_recovery,
+            previous_settings=getattr(args, "_recovery_grant_settings", None),
+            current_request=lambda saved: resolver_human.current(saved) or resolver_human.recovery_request(saved),
+            queued_request=resolver_human.queued_operational,
+            count=runner.recovery_count(state),
+            supersede=resolver_human.supersede_operational,
+            persist=runner.write_json,
+            maximum=recovery_accounting.MAX_AUTOMATIC_RECOVERIES,
+            pending_limit_events=getattr(args, "_grant_limit_events", None) or (),
+        )
+        operational_admission.checked(runner, state, run_dir, decided, "grant", granted)
+    except ValueError as error:
+        print(f"Input rejected: {error}", file=sys.stderr)
+        return 2
+    if run_dir is not None:
+        route_advisory.report_changes(getattr(args, "_recovery_grant_settings", None), state.get("settings"))
+    return None
+
+
+def retry_report(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
+    if owned_operations.completed(decided, "report"):
+        return None
+    try:
+        outcome = runner.retry_format_failed_report(state, run_dir, workspace, args.retry_report)
+        operational_admission.checked(runner, state, run_dir, decided, "report", outcome)
+    except ValueError as error:
+        print(f"Input rejected: {error}", file=sys.stderr)
+        return 2
+    return None
+
+
+def retry_failure(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
+    if owned_operations.completed(decided, "failure_retry") or owned_operations.completed(decided, "resolver_retry"):
+        return None
+    if decided.gate == "authorize":
+        return None  # The exact job owner already authorized its own retry.
+    try:
+        if getattr(decided, "operational_selection", None) == "failure_retry":
+            runner.prepare_planning_retry(state, run_dir)
+        authorization = runner.resolver_recovery.authorize_retry(
+            runner,
+            state,
+            run_dir,
+            workspace,
+            previous_settings=getattr(args, "_recovery_grant_settings", None)
+            if args.resolver_model or args.resolver_reasoning_effort
+            else None,
+        )
+        selection = "resolver_retry" if authorization is not None else "failure_retry"
+        if authorization is None:
+            authorization = runner.authorize_failure_retry(state, run_dir, workspace)
+        if decided.operational_selection == "failure_retry":
+            decided.operational_selection = selection
+        args._failure_retry_authorization = authorization
+        decided.failure_retry_authorization = authorization
+        operational_admission.checked(runner, state, run_dir, decided, selection, authorization)
+        print(
+            "Failure retry authorized for the recorded repeated failure; one fresh attempt proceeds under existing limits.",
+            flush=True,
+        )
+    except ValueError as error:
+        print(f"Input rejected: {error}", file=sys.stderr)
+        return 2
+    return None
+
+
+def acknowledge_bound(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
+    """The locked setup already committed its validated limit and owner event."""
+    operational_admission.checked(runner, state, run_dir, decided, "bound", {"settings": state.get("settings")})
+    return None
+
+
 def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
     """Set a stage aside (--abandon-stage), or apply an explicit resume's recovery to the saved run."""
-    gate, information_admitted = decided.gate, decided.information_admitted
+    information_admitted = decided.information_admitted
     if blocked := model_listing_failure.blocked(state):
         before = tuple(state.get(key) for key in ("status", "phase", "stop_reason"))
         run_status.pause(state, "PAUSED_TRANSPORT_UNVERIFIED", blocked["summary"])
@@ -185,15 +344,7 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
         # not reset internal recovery/report allowances before that commit.
         return None
     if args.abandon_stage is not None:
-        original = copy.deepcopy(state.get("active_stage"))
-        try:
-            runner.abandon_stage(state, run_dir, workspace, args.abandon_stage, launch=runner)
-            operational_admission.abandoned(runner, state, run_dir, decided, original)
-        except ValueError as error:
-            print(f"Input rejected: {error}", file=sys.stderr)
-            return 2
-        print(f"{state['status']}: {state['stop_reason']} No agent launched.")
-        return 0
+        return abandon(runner, args, parser, state, state_path, run_dir, workspace, decided)
     # Recovery interprets terminal artifacts only. It never replays a model call.
     try:
         if args.resume_paused:
@@ -213,41 +364,11 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
                     return 2
             # Validate the displayed grant before resume bookkeeping changes
             # the user events bound into the resolver request's identity.
-            if args.grant_recovery is not None:
-                # Validate the request as issued, then let the grant's single save carry the
-                # accepted settings and the invocation's deferred limit_change events together
-                # (#2479): no exit can persist one without the other (#2412), and a refused
-                # grant persists neither.
-                try:
-                    granted = recovery_grants.grant(
-                        state,
-                        run_dir,
-                        args.grant_recovery,
-                        previous_settings=getattr(args, "_recovery_grant_settings", None),
-                        current_request=lambda saved: (
-                            resolver_human.current(saved) or resolver_human.recovery_request(saved)
-                        ),
-                        queued_request=resolver_human.queued_operational,
-                        count=runner.recovery_count(state),
-                        supersede=resolver_human.supersede_operational,
-                        persist=runner.write_json,
-                        maximum=recovery_accounting.MAX_AUTOMATIC_RECOVERIES,
-                        pending_limit_events=getattr(args, "_grant_limit_events", None) or (),
-                    )
-                    operational_admission.checked(runner, state, run_dir, decided, "grant", granted)
-                except ValueError as error:
-                    print(f"Input rejected: {error}", file=sys.stderr)
-                    return 2
-                if run_dir is not None:
-                    route_advisory.report_changes(
-                        getattr(args, "_recovery_grant_settings", None), state.get("settings")
-                    )
-            # Reset milestone budget counters when raising the limit
-            if args.max_milestone_seconds is not None and not (state.get("progressive") or {}).get("budget"):
-                for row in state.get("milestone_progress", {}).values():
-                    if isinstance(row, dict):
-                        row["seconds"] = 0
-                        row["seconds_by_role"] = {}
+            if (
+                args.grant_recovery is not None
+                and (code := grant(runner, args, parser, state, state_path, run_dir, workspace, decided)) is not None
+            ):
+                return code
             # Renew the resolver evaluation epoch without resetting the
             # lifetime diagnostic allowance. Report repair is renewed
             # only after exhaustion-gated retry decisions below. A
@@ -260,45 +381,18 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
             ):
                 resolver_runtime.reset_for_resume(state)
             if args.retry_report:
-                try:
-                    runner.retry_format_failed_report(state, run_dir, workspace, args.retry_report)
-                    operational_admission.checked(
-                        runner, state, run_dir, decided, "report", {"attempt": args.retry_report}
-                    )
-                except ValueError as error:
-                    print(f"Input rejected: {error}", file=sys.stderr)
-                    return 2
+                if (
+                    code := retry_report(runner, args, parser, state, state_path, run_dir, workspace, decided)
+                ) is not None:
+                    return code
             else:
                 authorization = None
-                if args.retry_failed_stage and gate == "authorize":
-                    pass  # exact job authorization was validated before generic recovery
-                elif args.retry_failed_stage:
-                    try:
-                        if getattr(decided, "operational_selection", None) == "failure_retry":
-                            # The exact recorded repair was checked before this
-                            # handler. Archival preserves its original count and
-                            # grants nothing; real retry authorization must still
-                            # succeed below, before final admission can retire it.
-                            runner.prepare_planning_retry(state, run_dir)
-                        authorization = runner.resolver_recovery.authorize_retry(
-                            runner,
-                            state,
-                            run_dir,
-                            workspace,
-                            previous_settings=getattr(args, "_recovery_grant_settings", None)
-                            if args.resolver_model or args.resolver_reasoning_effort
-                            else None,
-                        ) or runner.authorize_failure_retry(state, run_dir, workspace)
-                        args._failure_retry_authorization = authorization
-                        operational_admission.checked(runner, state, run_dir, decided, "failure_retry", authorization)
-                        print(
-                            "Failure retry authorized for the recorded repeated failure; "
-                            "one fresh attempt proceeds under existing limits.",
-                            flush=True,
-                        )
-                    except ValueError as error:
-                        print(f"Input rejected: {error}", file=sys.stderr)
-                        return 2
+                if args.retry_failed_stage:
+                    if (
+                        code := retry_failure(runner, args, parser, state, state_path, run_dir, workspace, decided)
+                    ) is not None:
+                        return code
+                    authorization = getattr(args, "_failure_retry_authorization", None)
                 elif args.diagnose_failed_stage:
                     try:
                         resolver_runtime.admit_operational_diagnosis(runner, state, run_dir, workspace)
@@ -310,8 +404,9 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
                     except ValueError as error:
                         print(f"Input rejected: {error}", file=sys.stderr)
                         return 2
-                runner.prepare_abandoned_completion_revalidation(state, run_dir, workspace)
-                runner.prepare_timeout_archived_completion(state, run_dir, workspace)
+                if not owned_operations.completed(decided, "observe"):
+                    runner.prepare_abandoned_completion_revalidation(state, run_dir, workspace)
+                    runner.prepare_timeout_archived_completion(state, run_dir, workspace)
                 runner.prepare_planning_retry(state, run_dir)
                 runner.prepare_exhausted_execution_report_retry(state, run_dir, workspace)
                 discarded = runner.archive_stale_report_repair(state, run_dir, workspace)
@@ -321,6 +416,11 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
                 # exhausted or stale one, so this guard judges only what a resume cannot dispatch, and
                 # the retry it tells the operator to authorize is then actually admissible.
                 runner.repeated_failure_resume_guard(state, workspace, authorization=authorization)
+                decided.failure_retry_consumed = bool(
+                    authorization is not None
+                    and authorization is decided.failure_retry_authorization
+                    and authorization.get("consumed") is True
+                )
             # Reset report repair attempts on explicit resume, for whatever
             # repair record is still pending. An exhaustion-gated retry
             # above (which requires and archives the true attempt count)
@@ -368,6 +468,7 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
             "PAUSED_UNCERTAIN_STAGE",
             "Legacy partial stage remains unresolved: " + cast(str, state["uncertain_artifacts"]),
         )
+    decided.resume_initialization = bool(args.resume_paused)
     if getattr(decided, "operational_selection", None) == "bound":
         operational_admission.checked(runner, state, run_dir, decided, "bound", {"settings": state.get("settings")})
     if getattr(decided, "operational_incident", None):
@@ -378,3 +479,224 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
             return None
         if not operational_admission.ready(state, decided):
             return operational_admission.refuse()
+
+
+def validate_grant(runner, args, state: RunState, run_dir, workspace, decided, row, observed, *, final):
+    proof = owner_outcome.proof(state, observed)
+    facts = recovery_grants.committed_outcome(state, proof)
+    return owner_outcome.answer(
+        state,
+        proof,
+        facts,
+        fields=("recovery_grants", "automatic_recoveries_since_resume", "consecutive_timeout_recoveries"),
+        members=(("user_events", facts["event"]),),
+    )
+
+
+def validate_bound(runner, args, state: RunState, run_dir, workspace, decided, row, observed, *, final):
+    # This is evidence of the specific settings transition already validated by
+    # locked CLI setup, not a second eligibility rule for a pause status.
+    disposition = operational_admission.disposition
+    evidence = disposition.original_detail(state, row).get("evidence") or {}
+    original = evidence.get("budget") or {}
+    current = disposition.budget(state, evidence.get("status"))
+    if not (
+        current.get("kind")
+        and current.get("kind") == original.get("kind")
+        and current.get("origin") == "user_explicit"
+        and current.get("limit") != original.get("limit")
+    ):
+        return None
+    from_events = disposition.later_events(state, row)
+    if from_events is None:
+        return None
+    event = next(
+        (
+            event
+            for event in reversed(from_events)
+            if isinstance(event, dict)
+            and event.get("kind") == limit_events.KIND
+            and event.get("actor") == "user_cli"
+            and event.get("limit") == current["kind"]
+            and event.get("value") == current.get("limit")
+            and event.get("previous") == original.get("limit")
+        ),
+        None,
+    )
+    if current["kind"] in limit_events.LIMIT_FLAGS and event is None:
+        return None
+    facts = {"bound": current, "event": event}
+    return owner_outcome.answer(
+        state,
+        owner_outcome.proof(state, observed),
+        facts,
+        fields=("settings",),
+        members=(("user_events", event),) if event else (),
+    )
+
+
+def validate_abandon(runner, args, state: RunState, run_dir, workspace, decided, row, observed, *, final):
+    proof = owner_outcome.proof(state, observed)
+    if not isinstance(proof, dict):
+        return None
+    operational_admission._validate_abandoned_archive(proof)
+    original = operational_admission.disposition.original_detail(state, row)
+    evidence = original.get("evidence") or {}
+    if (
+        original.get("evaluation_binding", {}).get("active_stage") != support.digest(proof.get("original"))
+        or (proof.get("original") or {}).get("stage") != evidence.get("stage")
+        or operational_admission.disposition.budget(state, evidence.get("status")) != evidence.get("budget")
+    ):
+        return None
+    record = proof["record"]
+    event = next(
+        (
+            event
+            for event in reversed(state.get("user_events") or [])
+            if isinstance(event, dict)
+            and event.get("kind") == "stage_abandoned"
+            and event.get("actor") == "user_cli"
+            and event.get("attempt_id") == proof.get("selected")
+            and event.get("changed_files") == record.get("changed_files")
+        ),
+        None,
+    )
+    if state.get("active_stage") or event is None or record not in (state.get("stages") or []):
+        return None
+    return owner_outcome.answer(
+        state,
+        proof,
+        {"record": record, "event": event},
+        fields=(
+            "active_stage",
+            "recovery_context",
+            "settings",
+            "failure_history",
+            "recovery_grants",
+            "planning_history",
+            "report_repair_archive",
+            "active_seconds",
+            "milestone_active_seconds",
+            "automatic_recoveries_since_resume",
+            "consecutive_timeout_recoveries",
+            "automatic_timeout_recoveries",
+            "automatic_capacity_recoveries",
+            "automatic_permission_recoveries",
+            "no_progress_batches",
+        ),
+        members=(("stages", record), ("user_events", event)),
+    )
+
+
+def validate_reserve(runner, args, state: RunState, run_dir, workspace, decided, row, observed, *, final):
+    proof = owner_outcome.proof(state, observed)
+    current = resolver_runtime.validate_operational_grant(state, state.get("next_stage"), workspace)
+    if proof != current:
+        return None
+    return owner_outcome.answer(state, proof, {"grant": current}, fields=("planning",))
+
+
+def validate_archive(runner, args, state: RunState, run_dir, workspace, decided, row, observed, *, final):
+    proof = owner_outcome.proof(state, observed)
+    stage_recovery.validate_abandoned_completion_evidence(state, workspace, proof)
+    return owner_outcome.answer(
+        state,
+        proof,
+        {"archive": proof},
+        fields=("current_task", "goal_contract", "failure_history", "recovery_context", "validation_archive"),
+    )
+
+
+def validate_timeout_archive(runner, args, state: RunState, run_dir, workspace, decided, row, observed, *, final):
+    proof = owner_outcome.proof(state, observed)
+    stage_recovery.validate_timeout_completion_evidence(state, workspace, proof)
+    return owner_outcome.answer(
+        state,
+        proof,
+        {"archive": proof},
+        fields=(
+            "current_task",
+            "goal_contract",
+            "failure_history",
+            "recovery_context",
+            "validation_archive",
+            "validation",
+        ),
+    )
+
+
+def validate_report(runner, args, state: RunState, run_dir, workspace, decided, row, observed, *, final):
+    proof = owner_outcome.proof(state, observed)
+    stage_recovery.validate_report_retry_outcome(state, workspace, proof)
+    return owner_outcome.answer(
+        state,
+        proof,
+        {"report": proof},
+        fields=("pending_report_repair", "report_repair_archive", "failure_history"),
+        members=(("user_events", proof["event"]),),
+    )
+
+
+def validate_failure_retry(runner, args, state: RunState, run_dir, workspace, decided, row, observed, *, final):
+    authorization = decided.failure_retry_authorization
+    proof = owner_outcome.proof(state, observed)
+    if (
+        not isinstance(authorization, dict)
+        or args is not None
+        and authorization is not getattr(args, "_failure_retry_authorization", None)
+        or not isinstance(proof, dict)
+        or {key: value for key, value in authorization.items() if key != "consumed"}
+        != {key: value for key, value in proof.items() if key != "consumed"}
+        or (
+            authorization.get("consumed") is True
+            if not final
+            else (not decided.failure_retry_consumed or authorization.get("consumed") is not True)
+        )
+    ):
+        return None
+    try:
+        stage_recovery.validate_failure_retry_authorization(state, workspace, authorization)
+    except (ValueError, OSError) as error:
+        print(f"Input rejected: {error}", file=sys.stderr)
+        return None
+    durable = {key: value for key, value in authorization.items() if key != "consumed"}
+    return owner_outcome.answer(
+        state,
+        {**durable, "consumed": False},
+        {"authorization": durable},
+        fields=("failure_history", "failure_retry_authorizations"),
+    )
+
+
+def validate_resolver_retry(runner, args, state: RunState, run_dir, workspace, decided, row, observed, *, final):
+    authorization = decided.failure_retry_authorization
+    proof = owner_outcome.proof(state, observed)
+    if (
+        not isinstance(authorization, dict)
+        or authorization != proof
+        or args is not None
+        and authorization is not getattr(args, "_failure_retry_authorization", None)
+    ):
+        return None
+    facts = runner.resolver_recovery.retry_authorization_outcome(state, workspace, run_dir, authorization)
+    return owner_outcome.answer(
+        state,
+        proof,
+        facts,
+        fields=("failure_retry_authorizations", "failure_history"),
+        members=(("user_events", facts["event"]),),
+    )
+
+
+OPERATIONS = owned_operations.register(
+    owned_operations.Operation("abandon", abandon, validate_abandon, request_bound=False, actions=("--abandon-stage",)),
+    owned_operations.Operation("grant", grant, validate_grant, preserve_request=True),
+    owned_operations.Operation("report", retry_report, validate_report),
+    owned_operations.Operation("failure_retry", retry_failure, validate_failure_retry),
+    owned_operations.Operation("resolver_retry", retry_failure, validate_resolver_retry, preserve_request=True),
+    owned_operations.Operation("bound", acknowledge_bound, validate_bound, request_bound=False, frontier_bound=False),
+    owned_operations.Operation("observe", observe, owned_operations.no_work, preserve_request=True),
+    owned_operations.Operation("planning_reserve", observe, validate_reserve),
+    owned_operations.Operation("archive_completion", observe, validate_archive),
+    owned_operations.Operation("archive_timeout", observe, validate_timeout_archive),
+)

@@ -33,6 +33,7 @@ try:
     from . import autocode_goal_approval_args as goal_approval_args
     from . import autocode_job_args as job_args
     from . import autocode_names as names
+    from . import autocode_owned_operations as owned_operations
     from . import autocode_package_scope as package_scope
     from . import autocode_project_config as project_config
     from . import autocode_related_profile as related_profile
@@ -60,6 +61,7 @@ except ImportError:
     import autocode_goal_approval_args as goal_approval_args
     import autocode_job_args as job_args
     import autocode_names as names
+    import autocode_owned_operations as owned_operations
     import autocode_package_scope as package_scope
     import autocode_project_config as project_config
     import autocode_related_profile as related_profile
@@ -659,38 +661,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     return parser
 
 
-def user_actions(args) -> dict[str, bool]:
-    """Each user action flag and whether this invocation gives it; at most one may be given."""
-    return {
-        "--status": bool(args.status),
-        "--explain": bool(args.explain),
-        "--dry-run": bool(args.dry_run),
-        "--migrate-only": bool(args.migrate_only),
-        "--reconcile-only": getattr(args, "reconcile_only", None) is not None,
-        "--show-goal": bool(args.show_goal),
-        "--answer/--delegate": bool(args.answer or args.delegate),
-        "--delegate-all": bool(args.delegate_all),
-        "--reject-assumption": bool(args.reject_assumption),
-        "--approve-goal": bool(args.approve_goal),
-        "--edit-goal": bool(args.edit_goal),
-        "--goal-file": bool(args.goal_file),
-        "--approve-review": bool(args.approve_review),
-        "--reject-review": bool(args.reject_review),
-        "--reconcile-review": bool(args.reconcile_review),
-        "--feedback": args.feedback is not None,
-        "--report-discrepancy": getattr(args, "report_discrepancy", None) is not None,
-        "--stage-model": getattr(args, "stage_model", None) is not None,
-        "--follow-up": args.follow_up is not None,
-        "--accept-completion": bool(args.accept_completion),
-        "--abandon-stage": args.abandon_stage is not None,
-        "--export-repair": bool(args.export_repair),
-        "--submit-repair": args.submit_repair is not None,
-        "--close-finding": bool(args.close_finding),
-        "--request-milestone-checkpoints": bool(args.request_milestone_checkpoints),
-        "--planning-review-call-limit": args.planning_review_call_limit is not None,
-        "--bind-dependency": bool(args.bind_dependency),
-        "--receive-dependency": bool(args.receive_dependency),
-    }
+user_actions = owned_operations.user_actions  # One parser/owner inventory; signature and answers unchanged.
 
 
 def parse(unit, argv, default_models):

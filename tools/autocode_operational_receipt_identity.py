@@ -6,6 +6,11 @@ readers still validate their own evidence before granting any result or retry.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_util as util
 except ImportError:
@@ -65,3 +70,25 @@ def scope(row, identity):
         if number.isascii() and number.isdecimal() and number and number[0] != "0":
             return owner
     return None
+
+
+def observation(state: RunState, row):
+    """An exact saved runner observation, without treating it as recovery authority."""
+    if (
+        not isinstance(row, dict)
+        or not isinstance(row.get("receipt"), dict)
+        or row.get("stage") != "resolver"
+        or row.get("role") != "resolver"
+    ):
+        return False
+    identity = row["receipt"].get("id")
+    if not isinstance(identity, str):
+        return False
+    resolver = state.get("resolver") or {}
+    if not isinstance(resolver, dict):
+        return False
+    records = resolver.get("operational_receipts") or {}
+    if not isinstance(records, dict) or records.get(identity) != row:
+        return False
+    owner = scope(row, identity)
+    return owner is not None and (owner != DIAGNOSTIC or identity in (resolver.get("operational_diagnostics") or []))

@@ -3,30 +3,27 @@
 from __future__ import annotations
 
 import copy
+from bisect import bisect_left
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
-    from . import autocode_builder_policy as builder_policy
     from . import autocode_contract_identity as contract_identity
-    from . import autocode_limit_events as limit_events
+    from . import autocode_operational_outcome as owner_outcome
     from . import autocode_operational_receipt_identity as receipt_identity
     from . import autocode_pause_authority as pause_authority
     from . import autocode_quota_route as quota_route
-    from . import autocode_recovery_accounting as recovery_accounting
     from . import autocode_stop as stop
     from . import autocode_util as util
     from .autocode_goals import RESOLVER_PROPOSAL_KEY
 except ImportError:
-    import autocode_builder_policy as builder_policy
     import autocode_contract_identity as contract_identity
-    import autocode_limit_events as limit_events
+    import autocode_operational_outcome as owner_outcome
     import autocode_operational_receipt_identity as receipt_identity
     import autocode_pause_authority as pause_authority
     import autocode_quota_route as quota_route
-    import autocode_recovery_accounting as recovery_accounting
     import autocode_stop as stop
     import autocode_util as util
     from autocode_goals import RESOLVER_PROPOSAL_KEY
@@ -196,15 +193,61 @@ class _Ledger:
         resolver = state.get("resolver") or {}
         records = resolver.get("operational_receipts") if isinstance(resolver, dict) else None
         identities = resolver.get("operational_diagnostics") if isinstance(resolver, dict) else None
+        self.state = state
+        self.prefixes = None
+        self.feedback = None
         self.records = records if isinstance(records, dict) else {}
         self.identities = identities if isinstance(identities, list) else []
         self.listed = {key for key in self.identities if isinstance(key, str)}
         self.owners: dict[str, str | None] = {}
+        self.answers: dict[str, dict] = {}
         self.publications: dict[str | None, list[dict]] = {}
         self.proposals = list(_publications(state))
         for proposal in self.proposals:
             identity = _reference(proposal)
             self.publications.setdefault(identity, []).append(proposal)
+
+    def prefix(self, binding):
+        expected = binding.get("user_events") if isinstance(binding, dict) else None
+        if not isinstance(expected, str):
+            return None
+        if self.prefixes is None:
+            events = self.state.get("user_events")
+            self.prefixes = {digest: position for position, digest in util.digest_prefixes(events)}
+        return self.prefixes.get(expected)
+
+    def feedback_after(self, binding, token):
+        start = self.prefix(binding)
+        if start is None:
+            return None
+        if self.feedback is None:
+            self.feedback = {}
+            for position, event in enumerate(self.state.get("user_events") or []):
+                if not (
+                    isinstance(event, dict)
+                    and event.get("kind") == "brief_feedback"
+                    and event.get("actor") in ("user_cli", "user_intervention")
+                    and isinstance(event.get("id"), str)
+                    and event["id"]
+                    and isinstance(event.get("text"), str)
+                    and event["text"].strip()
+                    and event in (self.state.get("brief_feedback") or [])
+                ):
+                    continue
+                if event["actor"] == "user_intervention" and not any(
+                    isinstance(applied, dict)
+                    and applied.get("id") == event.get("receipt_id")
+                    and applied.get("kind") == "feedback"
+                    and applied.get("applied_at") == event.get("at")
+                    for applied in self.state.get("applied_interventions") or []
+                ):
+                    continue
+                contract = event.get("contract_token")
+                if isinstance(contract, str):
+                    self.feedback.setdefault(contract, []).append((position, event))
+        candidates = self.feedback.get(token, [])
+        index = bisect_left(candidates, start, key=lambda candidate: candidate[0])
+        return candidates[index][1] if index < len(candidates) else None
 
     def scope(self, identity):
         if not isinstance(identity, str):
@@ -221,6 +264,16 @@ class _Ledger:
 
 def record_answer(state: RunState, row, *, _ledger=None):
     """Read the Core-recorded answer, never new hints in a mutable proposal."""
+    identity = (row.get("receipt") or {}).get("id")
+    if _ledger is not None and isinstance(identity, str) and _ledger.diagnostic(identity) is row:
+        if identity not in _ledger.answers:
+            _ledger.answers[identity] = _record_answer(state, row, _ledger=_ledger)
+        return _ledger.answers[identity]
+    return _record_answer(state, row, _ledger=_ledger)
+
+
+def _record_answer(state: RunState, row, *, _ledger=None):
+    """Resolve a whole publication group once, preserving its authentic order."""
     detail = row.get("receipt") or {}
     facts = detail.get("evidence") or {}
     if "disposition" in facts:
@@ -355,30 +408,11 @@ def planning_input(state: RunState, row, *, _ledger=None):
     ):
         return None
     token = contract_identity.token(contract)
-    events = _later_events(state, binding)
-    if events is None:
+    ledger = _ledger or _Ledger(state)
+    if ledger.prefix(binding) is None:
         return None
-    for event in events:
-        if not (
-            isinstance(event, dict)
-            and event.get("kind") == "brief_feedback"
-            and event.get("actor") in ("user_cli", "user_intervention")
-            and isinstance(event.get("id"), str)
-            and event.get("id")
-            and isinstance(event.get("text"), str)
-            and event["text"].strip()
-            and event.get("contract_token") == token
-            and event in (state.get("brief_feedback") or [])
-        ):
-            continue
-        if event["actor"] == "user_intervention" and not any(
-            isinstance(applied, dict)
-            and applied.get("id") == event.get("receipt_id")
-            and applied.get("kind") == "feedback"
-            and applied.get("applied_at") == event.get("at")
-            for applied in state.get("applied_interventions") or []
-        ):
-            continue
+    event = ledger.feedback_after(binding, token)
+    if event:
         return {"kind": "brief_feedback", "event_id": event["id"], "contract_token": token}
     current = state.get("goal_contract")
     if (
@@ -396,221 +430,21 @@ def planning_input(state: RunState, row, *, _ledger=None):
     return None
 
 
-def _later_events(state: RunState, binding):
+def _later_events(state: RunState, binding, *, _ledger=None):
     events = state.get("user_events")
     if not isinstance(events, list):
         return None
-    start = util.digest_prefix_length(events, binding.get("user_events"))
+    start = (_ledger or _Ledger(state)).prefix(binding)
     return events[start:] if start is not None else None
 
 
+def later_events(state: RunState, row):
+    return _later_events(state, original_detail(state, row).get("evaluation_binding") or {})
+
+
 def recovery_facts(state: RunState, row, selection, result, *, _ledger=None):
-    """Revalidate an actual handler result against its existing saved ledger."""
-    detail = original_detail(state, row, _ledger=_ledger)
-    evidence, binding = detail.get("evidence") or {}, detail.get("evaluation_binding") or {}
-    later = _later_events(state, binding)
-    if later is None:
-        return None
-    events = [event for event in later if isinstance(event, dict)]
-    if selection == "abandon" and isinstance(result, dict):
-        original, archived = result.get("original"), result.get("record")
-        context = state.get("recovery_context") or {}
-        if not (
-            isinstance(original, dict)
-            and isinstance(archived, dict)
-            and binding.get("active_stage") == util.digest(original)
-            and not state.get("active_stage")
-            and all(archived.get(key) is True for key in ("accounted", "abandoned", "rejected"))
-            and archived in (state.get("stages") or [])
-            and all(archived.get(key) == original.get(key) for key in ("stage", "role", "iteration"))
-            and original.get("stage") == evidence.get("stage")
-            and (archived.get("archived_paths") or {}).get(original.get("events")) == archived.get("events")
-            and (archived.get("archived_paths") or {}).get(original.get("before_ref")) == archived.get("before_ref")
-            and context.get("attempt_id") == result.get("selected")
-            and context.get("role") == archived.get("role")
-            and context.get("events") == archived.get("events")
-            and context.get("source_snapshot") == archived.get("after_ref")
-            and context.get("source_revision") == archived.get("source_revision")
-            and context.get("changed_files") == archived.get("changed_files")
-            and budget(state, evidence.get("status")) == evidence.get("budget")
-        ):
-            return None
-        event = next(
-            (
-                event
-                for event in events
-                if event.get("kind") == "stage_abandoned"
-                and event.get("actor") == "user_cli"
-                and event.get("attempt_id") == result.get("selected")
-                and event.get("changed_files") == archived.get("changed_files")
-            ),
-            None,
-        )
-        if event is not None:
-            return {
-                "record": util.digest(archived),
-                "event": copy.deepcopy(event),
-                "files": copy.deepcopy(result.get("files")),
-                "accounting": {
-                    key: copy.deepcopy(state.get(key))
-                    for key in (
-                        "active_seconds",
-                        "milestone_active_seconds",
-                        "automatic_recoveries_since_resume",
-                        "consecutive_timeout_recoveries",
-                        "automatic_timeout_recoveries",
-                        "automatic_capacity_recoveries",
-                        "automatic_permission_recoveries",
-                        "no_progress_batches",
-                    )
-                },
-                "histories": {
-                    key: util.digest(state.get(key))
-                    for key in ("failure_history", "recovery_grants", "planning_history", "report_repair_archive")
-                },
-                "settings": util.digest(state.get("settings")),
-            }
-    if selection == "planning_reserve":
-        planning = state.get("planning") or {}
-        grants = planning.get("recovery_review_grants") or []
-        grant = next((grant for grant in grants if isinstance(grant, dict) and grant == result), None)
-        original = evidence.get("budget") or {}
-        if (
-            evidence.get("status") == "PAUSED_PLANNING_BUDGET"
-            and original.get("origin") == "runner_default"
-            and isinstance(grant, dict)
-            and grant.get("consumed") is False
-            and grant.get("run_dir") == state.get("run_dir")
-            and grant.get("binding", {}).get("stage") == evidence.get("stage") == state.get("next_stage")
-            and grant["binding"].get("plan_review_calls")
-            == evidence.get("plan_review_calls")
-            == planning.get("plan_review_calls")
-            and grant["binding"].get("recovery_calls_used")
-            == evidence.get("recovery_calls_used")
-            == planning.get("recovery_review_calls_used", 0)
-            and grant["binding"].get("settings_hash") == util.digest(state.get("settings"))
-            and grant["binding"].get("contract_digest") == util.digest(state.get("goal_contract"))
-        ):
-            # Files/source/ordinary-timeout proof remain the original runtime
-            # validator's authority, repeated at final task admission.
-            return {"grant": copy.deepcopy(grant), "planning": util.digest(planning)}
-    if selection == "grant" and evidence.get("status") == "PAUSED_TIMEOUT_RECOVERY":
-        grants = state.get("recovery_grants") or []
-        grant = grants[-1] if isinstance(grants, list) and grants else None
-        if not (
-            isinstance(grant, dict)
-            and grant.get("actor") == "user_cli"
-            and type(grant.get("amount")) is int
-            and grant["amount"] > 0
-            and type(grant.get("previous_count")) is int
-            and grant.get("remaining_count") == max(0, grant["previous_count"] - grant["amount"])
-            and result == grant["remaining_count"] == recovery_accounting.spent(state)
-            and state.get("consecutive_timeout_recoveries") == 0
-        ):
-            return None
-        event = next(
-            (
-                event
-                for event in reversed(events)
-                if event.get("kind") == "recovery_grant"
-                and all(event.get(key) == grant.get(key) for key in ("actor", "amount", "request_id", "previous_count"))
-            ),
-            None,
-        )
-        return {"grant": copy.deepcopy(grant), "event": copy.deepcopy(event)} if event else None
-    if selection == "failure_retry" and isinstance(result, dict):
-        identity = result.get("identity") or {}
-        saved = (state.get("failure_history") or {}).get(result.get("failure_key")) or {}
-        event = next(
-            (
-                event
-                for event in reversed(events)
-                if event.get("kind") == "failure_retry_authorized"
-                and event.get("failure_key") == result.get("failure_key")
-                and event.get("stage") == evidence.get("stage")
-                and event.get("count") == result.get("count")
-            ),
-            None,
-        )
-        if (
-            evidence.get("status") == "PAUSED_REPEATED_FAILURE"
-            and result in (state.get("failure_retry_authorizations") or [])
-            and identity.get("stage") == evidence.get("stage")
-            and saved.get("identity") == identity
-            and saved.get("count") == result.get("count")
-            and binding.get("failure_history") == util.digest(state.get("failure_history", {}))
-            and event
-        ):
-            return {"authorization": copy.deepcopy(result), "event": copy.deepcopy(event)}
-    if selection == "report" and isinstance(result, dict):
-        expected = binding.get("pending_report_repair")
-        archive = any(
-            isinstance(item, dict) and util.digest(item.get("repair")) == expected
-            for item in state.get("report_repair_archive") or []
-        )
-        event = next(
-            (
-                event
-                for event in reversed(events)
-                if event.get("kind") == "report_retry_after_format_fix"
-                and event.get("actor") == "user_cli"
-                and event.get("attempt_id") == result.get("attempt")
-            ),
-            None,
-        )
-        if archive and event and not state.get("pending_report_repair"):
-            return {"event": copy.deepcopy(event), "repair_digest": expected}
-    if selection == "builder" and evidence.get("status") == "PAUSED_BUILDER_RETRY_LIMIT" and isinstance(result, dict):
-        selected = result.get("milestone")
-        event = next(
-            (
-                event
-                for event in reversed(events)
-                if event.get("kind") == "builder_retry"
-                and event.get("actor") == "user_cli"
-                and event.get("milestone_ids") == selected
-            ),
-            None,
-        )
-        key = builder_policy.key(state)
-        current = (state.get("builder_retries") or {}).get(key) or {}
-        decisions = state.get("builder_retry_decisions") or []
-        latest = decisions[-1] if isinstance(decisions, list) and decisions else None
-        if (
-            event
-            and event.get("mode") == "serial"
-            and isinstance(latest, dict)
-            and latest.get("owner") == "user_cli"
-            and latest.get("action") == current.get("action") == "retry"
-            and latest.get("milestone_key") == key
-            and latest.get("failure") == event.get("failure")
-        ):
-            return {"event": copy.deepcopy(event), "decision": copy.deepcopy(latest), "milestone_key": key}
-    if selection == "bound":
-        original = evidence.get("budget") or {}
-        current = budget(state, evidence.get("status"))
-        if (
-            current.get("kind")
-            and current.get("kind") == original.get("kind")
-            and current.get("origin") == "user_explicit"
-            and current.get("limit") != original.get("limit")
-        ):
-            event = next(
-                (
-                    event
-                    for event in reversed(events)
-                    if event.get("kind") == limit_events.KIND
-                    and event.get("actor") == "user_cli"
-                    and event.get("limit") == current["kind"]
-                    and event.get("value") == current.get("limit")
-                    and event.get("previous") == original.get("limit")
-                ),
-                None,
-            )
-            if current["kind"] in limit_events.LIMIT_FLAGS and event is None:
-                return None
-            return {"bound": current, "settings": util.digest(state.get("settings")), "event": copy.deepcopy(event)}
-    return None
+    """Read an exact recorded owner answer, never reimplement its eligibility."""
+    return owner_outcome.read(state, result)
 
 
 def checked_recovery(state: RunState, row):
@@ -641,12 +475,17 @@ def checked_recovery(state: RunState, row):
         if (
             checked_binding.get("settings") != util.digest(state.get("settings", {}))
             or checked_binding.get("next_stage") != state.get("next_stage")
-            or _later_events(state, checked_binding) is None
+            or _later_events(state, checked_binding, _ledger=ledger) is None
         ):
             continue
         current = recovery_facts(state, row, evidence.get("selection"), evidence.get("result"), _ledger=ledger)
         if current is not None and current == evidence.get("facts"):
-            return {"receipt_id": identity, "selection": evidence["selection"], "facts": current}
+            return {
+                "receipt_id": identity,
+                "selection": evidence["selection"],
+                "facts": current,
+                "result": evidence["result"],
+            }
     return None
 
 

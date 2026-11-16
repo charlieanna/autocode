@@ -168,3 +168,34 @@ def grant(
         flush=True,
     )
     return remaining
+
+
+def committed_outcome(state: RunState, remaining):
+    """Exact post-commit allowance evidence; eligibility already ran in grant()."""
+    grants = state.get("recovery_grants") or []
+    grant = grants[-1] if isinstance(grants, list) and grants else None
+    if not (
+        type(remaining) is int
+        and isinstance(grant, dict)
+        and grant.get("actor") == "user_cli"
+        and type(grant.get("amount")) is int
+        and grant["amount"] > 0
+        and type(grant.get("previous_count")) is int
+        and grant.get("remaining_count") == max(0, grant["previous_count"] - grant["amount"])
+        and remaining == grant["remaining_count"] == accounting.spent(state)
+        and state.get("consecutive_timeout_recoveries") == 0
+    ):
+        raise ValueError("The recovery grant no longer matches its actual commit")
+    event = next(
+        (
+            event
+            for event in reversed(state.get("user_events") or [])
+            if isinstance(event, dict)
+            and event.get("kind") == "recovery_grant"
+            and all(event.get(key) == grant.get(key) for key in ("actor", "amount", "request_id", "previous_count"))
+        ),
+        None,
+    )
+    if event is None:
+        raise ValueError("The recovery grant has no matching committed event")
+    return {"grant": dict(grant), "event": dict(event)}
