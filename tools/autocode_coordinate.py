@@ -512,6 +512,11 @@ def _next_step(document, views, *, command=tasks.AUTOCODE):
         if actions.working(joint_view):
             return {"kind": "watch", "target": "Joint regression"}
         discovery_views = {**views, "Joint regression": joint_view}
+    for target, view in discovery_views.items():
+        recovery = view.get("recovery") or {}
+        if recovery.get("category") == "blocked" and not (view.get("chat") or {}).get("input"):
+            reason = recovery.get("what_happened") or "AutoCode could not continue this task."
+            return {"kind": "blocked", "reason": f"{target}: {reason}"}
     discovery = resolve_request(document, discovery_views)
     if discovery:
         return discovery

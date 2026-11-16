@@ -12,11 +12,11 @@ import hashlib
 import json
 
 try:
-    from . import autocode_operational_hold as operational_hold_view
+    from . import autocode_internal_failure_view as operational_hold_view
     from . import autocode_resolver_human as human
     from . import autocode_roles as roles
 except ImportError:
-    import autocode_operational_hold as operational_hold_view
+    import autocode_internal_failure_view as operational_hold_view
     import autocode_resolver_human as human
     import autocode_roles as roles
 
@@ -110,7 +110,7 @@ def record(state: RunState, *, timestamp=None):
         text = state.get("stop_reason") or "Waiting for prerequisite delivery. No user action needed."
     elif status == "DRY_RUN":
         text = "Dry run complete. No providers were launched."
-    elif failure := operational_hold_view.presentation(state):
+    elif failure := operational_hold_view.presentation(state, include_hold=True):
         text = failure["what_happened"]
     elif status.endswith("REWORK_REQUIRED"):
         text = "Design rework limit reached. Inspect the saved review before continuing."

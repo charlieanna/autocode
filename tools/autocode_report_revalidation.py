@@ -57,9 +57,11 @@ def revalidate(runtime, state: RunState, run_dir, workspace, *, resolver_request
     if not isinstance(original, dict):
         return False
     expected_stage = resolve_repair_job.STAGE if resolver_request else original.get("stage")
-    if state.get("next_stage") != expected_stage or not original.get("source_revision"):
+    if not original.get("stage") or state.get("next_stage") != expected_stage or not original.get("source_revision"):
         return False
-    if pending.get("revalidation_context") != revalidation_binding.context(state, original["stage"]):
+    if not pending.get("revalidation_context") or pending["revalidation_context"] != revalidation_binding.context(
+        state, original["stage"]
+    ):
         return False
     fingerprint = util.runtime_source_digest()
     if pending.get("validation_runtime") == fingerprint:
