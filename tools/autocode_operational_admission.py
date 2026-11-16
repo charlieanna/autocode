@@ -182,7 +182,11 @@ def guard(runner, args, parser, state: RunState, state_path, run_dir, workspace,
             "selection": "planning_input",
             "proof": planning_input,
         }
-        decided.owner_lane = True
+        # This input already committed through its owner. Let ordinary pause,
+        # source and approval guards run; dispatch still requires RUNNING and
+        # revalidates both input ledgers at the final admission boundary.
+        decided.owned_operations = ()
+        decided.owner_lane = False
         return None
     if not operations:
         if human.pending_interruptions(run_dir).get("pending"):
