@@ -8,6 +8,27 @@ import run_suite
 
 
 class AccessTransportConsumerTests(unittest.TestCase):
+    def test_stage_activity_keeps_public_display_and_existing_cli_consumers_when_slow(self):
+        consumers = {
+            "tests.test_retained_attempt_display",
+            "tests.test_stage_pipeline",
+            "tests.test_stage_decisions",
+            "tests.test_progress_view",
+            "tests.test_liveness",
+            "tests.test_run_stage_models",
+            "tests.test_chat_view",
+            "tests.test_chat_progress",
+            "tests.test_json_contract",
+            "tests.test_json_status_observer_cli",
+            *dependencies.CORE_CONSUMERS,
+            *dependencies.PUBLIC_FLOW_CONSUMERS,
+        }
+        selected = run_suite.select_tests(
+            ["tools/autocode_stage_activity.py"], {**dict.fromkeys(consumers, ""), "tests.test_unrelated": ""}
+        )
+        kept, _ = run_suite.drop_slow(selected, dict.fromkeys(consumers, "30s"))
+        self.assertEqual(consumers, set(kept))
+
     def test_conformance_harness_keeps_actionless_and_existing_allowance_contracts(self):
         consumers = {"tests.test_conformance_actionless", "tests.test_planning_allowance_cli"}
         selected = run_suite.select_tests(
