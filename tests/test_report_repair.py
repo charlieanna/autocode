@@ -275,6 +275,15 @@ class RepairTests(unittest.TestCase):
         pending = self.queue(report='{"summary":"saved"}')
         pending["validation_runtime"] = "earlier runtime"
         self.assertTrue(resolve_repair_job.queue_from_pending(self.state, self.run, force=True))
+        self.state["settings"].setdefault("transport_identities", {})["role:repair_resolver"] = {
+            "provider": "kilo",
+            "identity": {
+                "engine": "kilo",
+                "identity_version": 2,
+                "executable": "/usr/local/bin/kilo",
+                "launch_policy_sha256": "a" * 64,
+            },
+        }
         support.atomic_json(self.run / "state.json", self.state)
 
         def apply(state, stage, value, record, workspace, run):
@@ -301,6 +310,8 @@ class RepairTests(unittest.TestCase):
         self.assertEqual("tester", self.state["next_stage"])
         self.assertNotIn("resolve_repair_request", self.state)
         self.assertNotIn("pending_report_repair", self.state)
+        self.assertNotIn("repair_resolver", self.state["settings"]["roles"])
+        self.assertNotIn("role:repair_resolver", self.state["settings"].get("transport_identities", {}))
         self.assertEqual("revalidated", self.state["report_repair_history"][-1]["result"])
         self.assertEqual("report_revalidated_before_dispatch", self.state["resolve_repair_history"][-1]["kind"])
 

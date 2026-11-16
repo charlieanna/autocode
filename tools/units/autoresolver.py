@@ -244,12 +244,13 @@ def prepare_resolve_repair(state: RunState, state_path) -> ModelRequest:
     role_transport.inherit(state.get("settings"), resolve_repair_job.ROUTE, source)
     state.setdefault("sessions", {}).pop(resolve_repair_job.ROUTE, None)
     settings = state.setdefault("settings", {})
-    identities = settings.setdefault("transport_identities", {})
-    if (roles.get(resolve_repair_job.ROUTE) or {}).get("engine") == "opencode" and "opencode" not in identities:
-        workspace = state.get("workspace")
-        if workspace:
-            tool = autocode_providers.resolve(settings.get("provider") or "opencode")
-            identities["opencode"] = tool.local_settings(Path(workspace))
+    if (roles.get(resolve_repair_job.ROUTE) or {}).get("engine") == "opencode":
+        identities = settings.setdefault("transport_identities", {})
+        if "opencode" not in identities:
+            workspace = state.get("workspace")
+            if workspace:
+                tool = autocode_providers.resolve(settings.get("provider") or "opencode")
+                identities["opencode"] = tool.local_settings(Path(workspace))
     engine = autoplanner.engine_for(settings, resolve_repair_job.ROUTE)
     prompt = (
         resolve_repair_job.PROMPT
