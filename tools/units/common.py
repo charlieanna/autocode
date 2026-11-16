@@ -20,6 +20,7 @@ try:
     from .. import autocode_support as support
     from .. import autocode_test_cases as test_cases
     from .. import autocode_test_examples as test_examples
+    from .. import autocode_tool_handoff as tool_handoff
     from .. import autocode_util as util
     from .. import autocode_workflow as workflow
 except ImportError:
@@ -34,6 +35,7 @@ except ImportError:
     import autocode_support as support
     import autocode_test_cases as test_cases
     import autocode_test_examples as test_examples
+    import autocode_tool_handoff as tool_handoff
     import autocode_util as util
     import autocode_workflow as workflow
 from . import autoplanner
@@ -98,10 +100,6 @@ def execution_request(state: "RunState", stage, state_path, schema_dir, *, repor
         )
         metrics = prompt_layout.refresh_metrics(prompt, metrics)
     if stage == "tester":
-        prompt = prompt.replace(
-            "\nCURRENT HANDOFF DATA\n",
-            check_replay.VALIDATOR_NOTE + "\nCURRENT HANDOFF DATA\n",
-            1,
-        )
+        prompt = tool_handoff.before_handoff(prompt, check_replay.VALIDATOR_NOTE)
         metrics = prompt_layout.refresh_metrics(prompt, metrics)
     return ModelRequest(role, autoplanner.route_for(state, stage, role), prompt, metrics, schema, role == "builder")

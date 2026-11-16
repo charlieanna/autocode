@@ -90,6 +90,7 @@ try:
     from . import autocode_stage_access as stage_access
     from . import autocode_stop as stop
     from . import autocode_stray_writes as stray_writes
+    from . import autocode_tool_handoff as tool_handoff
     from .autocode_investigation_policy import MAX_CALLS as MAX_CALLS
     from .autocode_investigation_policy import enabled, max_calls
     from .autocode_test_cases import COUNTEREXAMPLE, run_probes
@@ -111,6 +112,7 @@ except ImportError:
     import autocode_stage_access as stage_access
     import autocode_stop as stop
     import autocode_stray_writes as stray_writes
+    import autocode_tool_handoff as tool_handoff
     from autocode_investigation_policy import MAX_CALLS as MAX_CALLS
     from autocode_investigation_policy import enabled, max_calls
     from autocode_test_cases import COUNTEREXAMPLE, run_probes
@@ -940,8 +942,7 @@ def with_guidance(state: RunState, stage: str, request):
     block = guidance(state, stage)
     if not block:
         return request
-    head, marker, tail = request.prompt.partition("CURRENT HANDOFF DATA\n")
-    return replace(request, prompt=head + block + marker + tail if marker else request.prompt + block)
+    return replace(request, prompt=tool_handoff.before_handoff(request.prompt, block))
 
 
 def guidance(state: RunState, stage: str) -> str:
