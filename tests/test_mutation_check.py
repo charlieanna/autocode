@@ -787,6 +787,117 @@ class ProofTests(unittest.TestCase):
             [(row["path"], row["line"], row["operator"]) for row in proof["mutation_check"]["survivors"]["T1"]],
         )
 
+    def test_affected_test_narrowing_runs_per_module_tests_and_keeps_changed_code_authority(self):
+        temporary = tempfile.TemporaryDirectory(prefix="mutation-narrow-")
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name) / "project"
+        (root / "tests").mkdir(parents=True)
+        (root / "calc.py").write_text("def limit(n):\n    return n\n")
+        (root / "billing.py").write_text("def with_tax(amount):\n    return amount\n")
+        (root / "tests" / "__init__.py").write_text("")
+        (root / "tests" / "test_small.py").write_text(
+            "import unittest\n\nclass Smoke(unittest.TestCase):\n    def test_ok(self): pass\n"
+        )
+        git(root, "init", "-q")
+        git(root, "config", "maintenance.auto", "false")
+        git(root, "config", "gc.auto", "0")
+        git(root, "add", "-A")
+        git(root, "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-qm", "seed")
+
+        (root / "calc.py").write_text("def limit(n):\n    if n > 10:\n        return 9\n    return n\n")
+        (root / "billing.py").write_text("def with_tax(amount):\n    return amount * 2\n")
+        (root / "tests" / "test_calc.py").write_text(
+            "import unittest\nfrom calc import limit\n\n"
+            "class CalcTests(unittest.TestCase):\n"
+            "    def test_c1_caps_value(self):\n"
+            "        self.assertEqual(9, limit(11))\n"
+            "        self.assertEqual(10, limit(10))\n"
+        )
+        (root / "tests" / "test_billing.py").write_text(
+            "import unittest\nfrom billing import with_tax\n\n"
+            "class BillingTests(unittest.TestCase):\n"
+            "    def test_c2_doubles_tax(self):\n"
+            "        self.assertEqual(10, with_tax(5))\n"
+        )
+        state = {
+            "base_commit": git(root, "rev-parse", "HEAD"),
+            "settings": {},
+            "iteration": 1,
+            "stages": [],
+            "history": [],
+            "goal_contract": {
+                "body": {
+                    "task_kind": "feature",
+                    "acceptance_criteria": [
+                        {
+                            "id": "C1",
+                            "criterion": "limit caps values > 10 to 9",
+                            "verification_method": "test: test_c1_caps_value",
+                        },
+                        {
+                            "id": "C2",
+                            "criterion": "with_tax doubles amount",
+                            "verification_method": "test: test_c2_doubles_tax",
+                        },
+                    ],
+                    "milestones": [{"id": "M1"}],
+                }
+            },
+        }
+        proof = regression.prove(state, root, Path(temporary.name) / "run")
+        self.assertEqual(verify.PASS, proof["verdict"], proof["failures"] + proof["unverified"])
+        self.assertEqual("PASS", proof["changed_code_evidence"]["status"], proof["changed_code_evidence"])
+        saved = json.loads(Path(proof["path"]).read_text())
+        self.assertTrue(changed_code_proof.intact(proof, saved))
+
+        report = proof["mutation_check"]
+        self.assertGreater(report["test_selection"]["narrowed_mutants"], 0)
+        self.assertEqual(report["test_selection"], proof["changed_code_inputs"]["test_selection"])
+        by_output = {row["output"]: row for row in saved["changed_code_receipts"]}
+
+        files = {item["path"]: item["mutants"] for item in report["files"]}
+        for mutant in files["calc.py"]:
+            self.assertEqual(["tests.test_calc.CalcTests.test_c1_caps_value"], mutant["selected_tests"])
+            self.assertIn(mutant["selection_rule"], ("import_closure", "symbol_closure"))
+            cmd = by_output[mutant["evidence"][0]]["command"]
+            self.assertIn("test_c1_caps_value", cmd)
+            self.assertNotIn("test_c2_doubles_tax", cmd)
+        for mutant in files["billing.py"]:
+            self.assertEqual(["tests.test_billing.BillingTests.test_c2_doubles_tax"], mutant["selected_tests"])
+            self.assertIn(mutant["selection_rule"], ("import_closure", "symbol_closure"))
+            cmd = by_output[mutant["evidence"][0]]["command"]
+            self.assertIn("test_c2_doubles_tax", cmd)
+            self.assertNotIn("test_c1_caps_value", cmd)
+
+    def test_unobserved_changed_module_runs_zero_mutant_commands_and_requires_reason(self):
+        self.state["investigation"]["test_cases"][0]["then"] = "returns 9"
+        (self.root / "calc.py").write_text("def limit(n):\n    if n > 10:\n        return 9\n    return n\n")
+        (self.root / "unused.py").write_text("def orphan(n):\n    return n + 1\n")
+        test = (
+            WEAK_TEST.replace("self.assertEqual(10, limit(50))", "self.assertEqual(9, limit(50))")
+            + "        self.assertEqual(9, limit(11))\n        self.assertEqual(10, limit(10))\n\n"
+            + "    def test_identity_low(self):\n        self.assertEqual(3, limit(3))\n"
+        )
+        (self.root / "tests/test_calc.py").write_text(test)
+
+        proof = regression.prove(self.state, self.root, self.run_dir)
+        self.assertEqual(verify.PASS, proof["verdict"], proof["failures"] + proof["unverified"])
+        self.assertEqual("UNVERIFIED", proof["changed_code_evidence"]["status"])
+        gaps = [row for row in proof["changed_code_evidence"]["obligations"] if row["status"] == "reason_required"]
+        self.assertTrue(any(row["path"] == "unused.py" and row["line"] == 2 for row in gaps), gaps)
+
+        report = proof["mutation_check"]
+        files = {item["path"]: item["mutants"] for item in report["files"]}
+        unused_mutants = files["unused.py"]
+        self.assertEqual(1, len(unused_mutants))
+        self.assertEqual([], unused_mutants[0]["selected_tests"])
+        self.assertEqual("survived", unused_mutants[0]["outcome"])
+        self.assertEqual([report["reference_output"]], unused_mutants[0]["evidence"])
+        self.assertEqual(len(unused_mutants), report["test_selection"]["unobserved_mutants"])
+        # Only reference + calc.py mutants launched subprocesses; 0 for unused.py
+        logs = list(Path(proof["path"]).parent.joinpath("mutation-check").glob("*.log"))
+        self.assertEqual(1 + len(files["calc.py"]), len(logs), logs)
+
 
 class DiffTests(unittest.TestCase):
     """The changed lines come from a zero-context diff that the person's git config cannot widen or color."""

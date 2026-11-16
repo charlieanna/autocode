@@ -24,13 +24,20 @@ class ExecutionTests(unittest.TestCase):
         for framework, discover in (("unittest", False), ("unittest", True), ("pytest", False)):
             with self.subTest(framework=framework, discover=discover), tempfile.TemporaryDirectory() as folder:
                 tree = Path(folder)
-                original = "def value():\n    return True\ndef unused():\n    return True\n"
+                original = (
+                    "def value(n):\n"
+                    "    if n > 10:\n"
+                    "        return True\n"
+                    "    return False\n"
+                    "def unused():\n"
+                    "    return True\n"
+                )
                 (tree / "app.py").write_text(original)
                 (tree / "test_value.py").write_text(
                     "import unittest\nfrom pathlib import Path\nfrom app import value\n"
                     "class ValueTests(unittest.TestCase):\n"
-                    "    def test_a_value(self):\n        self.assertTrue(value())\n"
-                    "    def test_z_later(self):\n        Path('later').write_text('ran')\n"
+                    "    def test_a_value(self):\n        self.assertTrue(value(20))\n"
+                    "    def test_z_later(self):\n        self.assertTrue(value(30))\n        Path('later').write_text('ran')\n"
                 )
                 selected = [
                     "test_value.ValueTests.test_a_value",
@@ -80,7 +87,7 @@ class ExecutionTests(unittest.TestCase):
                     tree,
                     tree / "evidence",
                     [("app.py", "modified")],
-                    lambda files: "diff --git a/app.py b/app.py\n+++ b/app.py\n@@ -2,3 +2,3 @@\n",
+                    lambda files: "diff --git a/app.py b/app.py\n+++ b/app.py\n@@ -2,5 +2,5 @@\n",
                     run,
                     enforcement=True,
                 )
@@ -95,6 +102,10 @@ class ExecutionTests(unittest.TestCase):
                 self.assertEqual(
                     {"killed", "survived"}, {row["outcome"] for file in check["files"] for row in file["mutants"]}
                 )
+                unobserved = [row for row in check["files"][0]["mutants"] if row["line"] == 6]
+                self.assertEqual(1, len(unobserved))
+                self.assertEqual([], unobserved[0]["selected_tests"])
+                self.assertEqual("survived", unobserved[0]["outcome"])
                 self.assertEqual(original, (tree / "app.py").read_text())
 
     def test_positional_options_and_unrecognized_commands_do_not_authorize_early_stop(self):

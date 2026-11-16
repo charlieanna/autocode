@@ -25,6 +25,7 @@ import time
 from pathlib import Path
 
 try:
+    from . import autocode_affected_tests as affected_tests
     from . import autocode_command_receipt as command_receipt
     from . import autocode_diff_coverage as diff_coverage
     from . import autocode_mutants as mutants
@@ -33,6 +34,7 @@ try:
     from . import autocode_python_tests as python_tests
     from . import autocode_test_cases as test_cases
 except ImportError:
+    import autocode_affected_tests as affected_tests
     import autocode_command_receipt as command_receipt
     import autocode_diff_coverage as diff_coverage
     import autocode_mutants as mutants
@@ -328,14 +330,32 @@ def _collect(
         return failed
     bound = max(MUTANT_FLOOR_SECONDS, MUTANT_FACTOR * float(reference.get("duration_seconds") or 0))
     mutant_command = mutation_results.stop_command(narrowed) if enforcement else narrowed
+    selection_by_site: dict[tuple[str, int], dict] = {}
+    selection_summary = None
+    if enforcement:
+        raw_selection = affected_tests.select(
+            framework_name,
+            command,
+            tests,
+            root,
+            [row["path"] for row in rows],
+            sources={row["path"]: source for row, _, source, _, _ in planned},
+        )
+        selection_by_site, selection_summary = affected_tests.plan_for_mutants(
+            raw_selection, [(row["path"], mutant.line) for row, _, _, _, mutant in planned]
+        )
     unrun = 0
     for number, (row, target, source, times, mutant) in enumerate(planned, 1):
         entry = {"line": mutant.line, "operator": mutant.operator, "before": mutant.before, "after": mutant.after}
+        site_selection = selection_by_site.get((row["path"], mutant.line)) if enforcement else None
+        mutant_tests = site_selection["tests"] if site_selection is not None else tests
         if enforcement:
             entry.update(
                 site_id=mutant.id,
                 end_line=mutant.end_line,
                 source_sha256=mutant.source_sha256,
+                selected_tests=list(mutant_tests),
+                selection_rule=site_selection["rule"] if site_selection is not None else affected_tests.RULE_ALL,
                 failed_tests=[],
                 evidence=[],
             )
@@ -345,19 +365,29 @@ def _collect(
             # sites the prior window never launched get another command.
             row["mutants"].append(copy.deepcopy(prior))
             continue
+        if enforcement and not mutant_tests:
+            # Proven unobserved by any selected test after passing the unmutated reference:
+            # retain as survived with no kill rather than running unrelated tests.
+            row["mutants"].append(
+                {**entry, "outcome": "survived", "survived_tests": [], "evidence": [reference["output"]]}
+            )
+            continue
         remaining = deadline - clock()
         if remaining < MUTANT_FLOOR_SECONDS:
             unrun += 1
             row["mutants"].append({**entry, "outcome": "not_run", "survived_tests": []})
             continue
         label, limit = f"mutant-{number:02d}", min(remaining, bound)
+        active_command = mutant_command
+        if enforcement and site_selection is not None and site_selection.get("command"):
+            active_command = mutation_results.stop_command(site_selection["command"])
         ownership_uncertain = False
         try:
             target.write_bytes(mutants.apply(source, mutant))
             # Each version its own whole second, so a cached compile keyed by modification time and size
             # (a test's own Python, started with a minimal environment, -E or -I) is never reused.
             os.utime(target, ns=(times.st_atime_ns, times.st_mtime_ns - number * 1_000_000_000))
-            receipt = run(isolated(mutant_command, cache), label, limit)
+            receipt = run(isolated(active_command, cache), label, limit)
         except command_receipt.OwnershipUncertain:
             ownership_uncertain = strict
             raise
@@ -365,9 +395,10 @@ def _collect(
             if not ownership_uncertain:
                 target.write_bytes(source)
                 os.utime(target, ns=(times.st_atime_ns, times.st_mtime_ns))
+        expected_tests = mutant_tests if enforcement else passed
         outcome, observed = (
             mutation_results.outcome(
-                receipt, passed, stopped=mutation_results.stops_after_failure(receipt.get("command", ""))
+                receipt, expected_tests, stopped=mutation_results.stops_after_failure(receipt.get("command", ""))
             )
             if enforcement
             else judge(receipt, passed)
@@ -375,7 +406,7 @@ def _collect(
         survived = observed if outcome == "survived" else []
         if enforcement:
             entry.update(failed_tests=observed if outcome == "killed" else [], evidence=[receipt["output"]])
-        if strict and outcome == "survived" and set(survived) != set(passed):
+        if strict and outcome == "survived" and set(survived) != set(expected_tests):
             outcome, survived = "not_run", []
         if outcome == "timeout" and limit < bound:  # the budget cut it short, not the mutant
             outcome, unrun = "not_run", unrun + 1
@@ -390,6 +421,7 @@ def _collect(
             reference_output=reference["output"],
             selection="all_eligible_changed_sites",
             execution_policy=mutation_results.STOP_POLICY,
+            test_selection=selection_summary,
             limit_per_file=max(len(source) for _, _, source, _, _ in planned),
         )
     return result

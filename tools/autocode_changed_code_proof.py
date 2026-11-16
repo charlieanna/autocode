@@ -37,7 +37,7 @@ except ImportError:
     import autocode_util as util
     import autocode_verify as verify
 
-VERSION = 4
+VERSION = 5
 
 
 def collect(
@@ -175,6 +175,7 @@ def collect(
         "line_texts": texts,
         # Recorded so a reviewer sees what the inventory left out, and why (#3164).
         "installed_dependencies": installed,
+        **({"test_selection": report["test_selection"]} if isinstance(report.get("test_selection"), dict) else {}),
     }
     proof["changed_code_evidence"] = assessment
     return mutation.final(report, proof["verdict"], proof.get("case_tests"))

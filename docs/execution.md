@@ -578,6 +578,16 @@ kept as `suite_flakes` (the shared failures under `suite_flakes.pre_existing`) i
 regression proof; a quarantine also adds a note and a review reason that the
 judging stages read. None of this is a question for the person.
 
+Authenticated passing and failing-suite baselines (`#2259` exclusions
+preserved), confirmed deterministic pre-existing base failures, and
+evidence-backed flaky quarantines are also stored per project in
+`.autocode/suite-health.json` (`tools/autocode_project_suite_health.py`) across
+runs and worktrees: cached baselines refresh automatically whenever the base
+commit, command, or runtime identity changes; quarantined tests still rerun on
+the candidate so a deterministic regression still fails the proof, and
+quarantines expire when a commit touches the test/runner configuration or after
+10 clean base commits.
+
 A test that failed in one proof is not quarantined when it was not seen
 failing on the original code, so that proof fails and opens the runner's
 blocking finding for that source. The finding is settled as a flaky test when

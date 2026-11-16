@@ -1,5 +1,6 @@
 """The flaky-test recheck before a suite failure counts as a regression (#2942)."""
 
+import json
 import subprocess
 import sys
 import tempfile
@@ -8,6 +9,7 @@ import unittest
 from pathlib import Path
 
 import autocode_completion_result as completion_result
+import autocode_project_suite_health as project_suite_health
 import autocode_proof_findings as proof_findings
 import autocode_regression as regression
 import autocode_suite_flakes as flakes
@@ -313,10 +315,6 @@ class ProofRunTests(unittest.TestCase):
         self.assertEqual(["base", "candidate", "candidate", "candidate"], runs)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class FlakeFindingTests(unittest.TestCase):
     """The runner's proof finding on a source whose only failure was a suite test that then passed (#2942)."""
 
@@ -395,3 +393,160 @@ class FlakeFindingTests(unittest.TestCase):
                 state, {"revision": revision}, {"stage": "review_completion"}, regression.complete
             )
         )
+
+
+class ProjectSuiteHealthFlakeTests(unittest.TestCase):
+    """Cross-run quarantine reuse, deterministic regression guards, invalidation, and pre-existing cache (#2942)."""
+
+    def _setup_flaky_repo(self):
+        temporary = tempfile.TemporaryDirectory(prefix="suite-health-flakes-")
+        self.addCleanup(temporary.cleanup)
+        tmp = Path(temporary.name).resolve()
+        root = tmp / "project"
+        sched_path = tmp / "schedule.json"
+        log_path = tmp / "runs.log"
+        sched_path.write_text(json.dumps({"candidate": [1], "base": [2]}), encoding="utf-8")
+
+        (root / "tests").mkdir(parents=True)
+        (root / "tests" / "__init__.py").write_text("")
+        (root / "clocked.py").write_text("def answer(n):\n    if n > 1:\n        return n\n    return 1\n")
+        (root / "tests" / "test_flaky.py").write_text(
+            textwrap.dedent(
+                f"""\
+                import json
+                import unittest
+                from pathlib import Path
+
+                SCHED = Path({str(sched_path)!r})
+                LOG = Path({str(log_path)!r})
+
+
+                class FlakyTests(unittest.TestCase):
+                    def test_sometimes(self):
+                        kind = "candidate" if "candidate" in Path(__file__).resolve().parts else "base"
+                        with LOG.open("a", encoding="utf-8") as handle:
+                            handle.write(kind + "\\n")
+                        count = LOG.read_text(encoding="utf-8").split().count(kind)
+                        fail_on = json.loads(SCHED.read_text(encoding="utf-8"))[kind]
+                        self.assertNotIn(count, fail_on)
+
+                    def test_steady(self):
+                        pass
+                """
+            )
+        )
+        git(root, "init", "-q")
+        git(root, "config", "maintenance.auto", "false")
+        git(root, "config", "gc.auto", "0")
+        git(root, "add", "-A")
+        git(root, "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-qm", "seed")
+        return root, tmp, sched_path, log_path
+
+    def _state(self, base: str, root: Path) -> dict:
+        case = {
+            "id": "C1",
+            "criterion": "Given n=2; when answer(2); then returns 9",
+            "verification_method": "test: test_c1_answers_nine",
+        }
+        return {
+            "version": 3,
+            "base_commit": base,
+            "workspace": str(root),
+            "settings": {},
+            "iteration": 1,
+            "stages": [],
+            "history": [],
+            "goal_contract": {
+                "body": {"task_kind": "feature", "acceptance_criteria": [case], "milestones": [{"id": "M1"}]}
+            },
+        }
+
+    def test_quarantine_reused_across_runs_catches_deterministic_break_and_invalidates_on_test_edit(self):
+        root, tmp, sched_path, log_path = self._setup_flaky_repo()
+        base1 = git(root, "rev-parse", "HEAD")
+
+        # Apply honest feature change + strong test
+        (root / "clocked.py").write_text("def answer(n):\n    if n > 1:\n        return 9\n    return 1\n")
+        (root / "tests" / "test_clocked.py").write_text(
+            "import unittest\n\nimport clocked\n\n\nclass ClockedTests(unittest.TestCase):\n"
+            "    def test_c1_answers_nine(self):\n"
+            "        self.assertEqual(9, clocked.answer(2))\n"
+            "        self.assertEqual(1, clocked.answer(1))\n"
+        )
+
+        # Run 1: quarantines FLAKY after failing once on candidate and once on base rerun
+        proof1 = regression.prove(self._state(base1, root), root, tmp / ".autocode" / "runs" / "20261115-run-1")
+        self.assertEqual(verify.PASS, proof1["verdict"], proof1["failures"] + proof1["unverified"])
+        self.assertIn("flake-base-2", proof1["checks"])
+        self.assertNotIn(".autocode", git(root, "status", "--porcelain", "--untracked-files=all"))
+        loaded = project_suite_health.load(root)
+        self.assertEqual([FLAKY], [r["test"] for r in loaded["document"]["quarantine"]])
+
+        # Commit an unrelated change to clocked.py -> new base commit, tests/test_flaky.py untouched
+        (root / "clocked.py").write_text("def answer(n):\n    if n > 1:\n        return 5\n    return 1\n")
+        git(root, "add", "clocked.py")
+        git(root, "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-qm", "bump clocked")
+        base2 = git(root, "rev-parse", "HEAD")
+        (root / "clocked.py").write_text("def answer(n):\n    if n > 1:\n        return 9\n    return 1\n")
+
+        # Run 2: base never fails now (`[]`), candidate fails once `[1]` -> reuses project_quarantine WITHOUT base reruns!
+        log_path.unlink(missing_ok=True)
+        sched_path.write_text(json.dumps({"candidate": [1], "base": []}), encoding="utf-8")
+        proof2 = regression.prove(self._state(base2, root), root, tmp / ".autocode" / "runs" / "20261115-run-2")
+        self.assertEqual(verify.PASS, proof2["verdict"], proof2["failures"] + proof2["unverified"])
+        self.assertNotIn("flake-base-2", proof2["checks"])
+        self.assertNotIn("flake-base-3", proof2["checks"])
+        self.assertEqual("project_quarantine", proof2["suite_flakes"]["tests"][0].get("source"))
+        self.assertEqual(["base", "candidate", "candidate", "candidate"], log_path.read_text().split())
+
+        # Run 3: deterministic break on candidate `[1, 2, 3]` -> still FAILS as regression despite quarantine
+        log_path.unlink(missing_ok=True)
+        sched_path.write_text(json.dumps({"candidate": [1, 2, 3], "base": []}), encoding="utf-8")
+        proof3 = regression.prove(self._state(base2, root), root, tmp / ".autocode" / "runs" / "20261115-run-3")
+        self.assertEqual(verify.FAIL, proof3["verdict"])
+        self.assertTrue(any(FLAKY in msg for msg in proof3["failures"]), proof3["failures"])
+
+        # Commit a touch to tests/test_flaky.py -> quarantine is invalidated on Run 4
+        text = (root / "tests" / "test_flaky.py").read_text(encoding="utf-8")
+        (root / "tests" / "test_flaky.py").write_text(text + "# touched\n", encoding="utf-8")
+        git(root, "add", "tests/test_flaky.py")
+        git(root, "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-qm", "edit test_flaky")
+        base3 = git(root, "rev-parse", "HEAD")
+
+        log_path.unlink(missing_ok=True)
+        sched_path.write_text(json.dumps({"candidate": [1], "base": []}), encoding="utf-8")
+        proof4 = regression.prove(self._state(base3, root), root, tmp / ".autocode" / "runs" / "20261115-run-4")
+        self.assertEqual(verify.FAIL, proof4["verdict"])
+        self.assertIn("flake-base-2", proof4["checks"], "invalidated quarantine must rerun base cleanly")
+
+    def test_confirmed_pre_existing_failure_skips_redundant_base_reruns_in_second_run(self):
+        root, tmp, sched_path, log_path = self._setup_flaky_repo()
+        base = git(root, "rev-parse", "HEAD")
+        (root / "clocked.py").write_text("def answer(n):\n    if n > 1:\n        return 9\n    return 1\n")
+        (root / "tests" / "test_clocked.py").write_text(
+            "import unittest\n\nimport clocked\n\n\nclass ClockedTests(unittest.TestCase):\n"
+            "    def test_c1_answers_nine(self):\n"
+            "        self.assertEqual(9, clocked.answer(2))\n"
+            "        self.assertEqual(1, clocked.answer(1))\n"
+        )
+        # Fails deterministically on base and candidate -> confirmed pre_existing
+        sched_path.write_text(json.dumps({"candidate": [1, 2, 3], "base": [1, 2, 3]}), encoding="utf-8")
+
+        proof1 = regression.prove(self._state(base, root), root, tmp / ".autocode" / "runs" / "20261115-pre-1")
+        self.assertEqual(verify.PASS, proof1["verdict"], proof1["failures"] + proof1["unverified"])
+        self.assertIn("pre-existing-base-2", proof1["checks"])
+        self.assertEqual(["base", "candidate", "base", "base"], log_path.read_text().split())
+
+        # Run 2 on fresh run_dir with same base restores baseline AND skips pre-existing-base reruns
+        log_path.unlink(missing_ok=True)
+        proof2 = regression.prove(self._state(base, root), root, tmp / ".autocode" / "runs" / "20261115-pre-2")
+        self.assertEqual(verify.PASS, proof2["verdict"], proof2["failures"] + proof2["unverified"])
+        self.assertNotIn("pre-existing-base-2", proof2["checks"])
+        self.assertNotIn("pre-existing-base-3", proof2["checks"])
+        self.assertEqual(["candidate"], log_path.read_text().split())
+        row = proof2["suite_flakes"]["pre_existing"]["tests"][0]
+        self.assertEqual("project_baseline", row.get("source"))
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -654,6 +654,12 @@ from `tools/autocode_mutants.py`).
   suite or regression receipt cannot replace it. This preference does not itself
   refresh a saved measurement at Completion Review; normal validation requests proof
   under the current runtime identity, while previously qualified evidence stays valid.
+  Once that unmutated reference run passes on all selected tests, enforcement mutation
+  checks narrow each mutant's test command to the conservative AST/import/symbol
+  reachability closure of selected tests (`tools/autocode_affected_tests.py`, recorded
+  in `test_selection` and per-mutant `selected_tests`/`selection_rule`), falling back
+  to all selected tests on dynamic or unmapped edges and recording provably unobserved
+  lines as `survived` without launching unrelated tests.
   Older advisory collectors
   select only the named proving tests. Each collection starts with a fresh bytecode
   cache and reuses unchanged dependencies within that collection. Every mutated

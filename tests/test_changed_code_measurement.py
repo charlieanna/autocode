@@ -468,6 +468,127 @@ class MeasurementTests(unittest.TestCase):
         receipt["supervision_sha256"] = util.file_hash(terminal_path)
         self.assertFalse(measurement.known_capture(receipt, self.root))
 
+    def test_narrowed_selected_tests_and_unobserved_survival_provenance(self):
+        all_tests = ["tests.test_value.Value.test_boundary", "tests.test_value.Value.test_extra"]
+        reference = self.receipt("ref_multi", passed=all_tests)
+        rec_kill = self.receipt("kill_one", failed=[all_tests[0]], passed=[])
+        rec_surv = self.receipt("surv_one", failed=[], passed=[all_tests[0]])
+        base_mutants = [
+            {
+                "line": 2,
+                "end_line": 2,
+                "operator": "constant_return",
+                "source_sha256": self.sha,
+                "selected_tests": [all_tests[0]],
+                "selection_rule": "symbol_closure",
+                "outcome": "killed",
+                "evidence": [rec_kill["output"]],
+                "failed_tests": [all_tests[0]],
+            },
+            {
+                "line": 2,
+                "end_line": 2,
+                "operator": "statement_drop",
+                "source_sha256": self.sha,
+                "selected_tests": [all_tests[0]],
+                "selection_rule": "import_closure",
+                "outcome": "survived",
+                "evidence": [rec_surv["output"]],
+                "failed_tests": [],
+            },
+            {
+                "line": 2,
+                "end_line": 2,
+                "operator": "negate_condition",
+                "source_sha256": self.sha,
+                "selected_tests": [],
+                "selection_rule": "import_closure",
+                "outcome": "survived",
+                "evidence": [reference["output"]],
+                "failed_tests": [],
+            },
+        ]
+        report = {
+            "collected": True,
+            "selected_tests": all_tests,
+            "reference_output": reference["output"],
+            "execution_policy": "stop_after_failure",
+            "files": [{"path": "app.py", "sha256": self.sha, "mutants": base_mutants}],
+        }
+        receipts = [reference, rec_kill, rec_surv]
+        rows = self.normalize_mutation(report, receipts)["files"][0]["mutants"]
+        self.assertEqual(["killed", "survived", "survived"], [r["outcome"] for r in rows])
+
+        # Security negatives must all fail closed to not_run
+        bad_cases = [
+            (
+                "empty_claims_killed",
+                {
+                    "selected_tests": [],
+                    "selection_rule": "import_closure",
+                    "outcome": "killed",
+                    "evidence": [reference["output"]],
+                    "failed_tests": [],
+                },
+            ),
+            (
+                "empty_without_rule",
+                {
+                    "selected_tests": [],
+                    "selection_rule": None,
+                    "outcome": "survived",
+                    "evidence": [reference["output"]],
+                    "failed_tests": [],
+                },
+            ),
+            (
+                "empty_with_rule_all",
+                {
+                    "selected_tests": [],
+                    "selection_rule": "all_selected_tests",
+                    "outcome": "survived",
+                    "evidence": [reference["output"]],
+                    "failed_tests": [],
+                },
+            ),
+            (
+                "empty_with_non_reference",
+                {
+                    "selected_tests": [],
+                    "selection_rule": "import_closure",
+                    "outcome": "survived",
+                    "evidence": [rec_surv["output"]],
+                    "failed_tests": [],
+                },
+            ),
+            (
+                "out_of_scope_test",
+                {
+                    "selected_tests": ["tests.other.Other.test_x"],
+                    "selection_rule": "import_closure",
+                    "outcome": "killed",
+                    "evidence": [rec_kill["output"]],
+                    "failed_tests": ["tests.other.Other.test_x"],
+                },
+            ),
+            (
+                "invalid_rule",
+                {
+                    "selected_tests": [all_tests[0]],
+                    "selection_rule": "magic_skip",
+                    "outcome": "killed",
+                    "evidence": [rec_kill["output"]],
+                    "failed_tests": [all_tests[0]],
+                },
+            ),
+        ]
+        for label, bad_row in bad_cases:
+            with self.subTest(case=label):
+                bad_report = copy.deepcopy(report)
+                bad_report["files"][0]["mutants"] = [{**base_mutants[0], **bad_row}]
+                res_rows = self.normalize_mutation(bad_report, receipts)["files"][0]["mutants"]
+                self.assertEqual(["not_run"], [r["outcome"] for r in res_rows], label)
+
 
 if __name__ == "__main__":
     unittest.main()

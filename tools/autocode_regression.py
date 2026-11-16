@@ -90,6 +90,7 @@ try:
     from . import autocode_pending_tests as pending_tests
     from . import autocode_plan_command_roles as plan_roles
     from . import autocode_plan_proof_command as plan_command
+    from . import autocode_project_suite_health as project_suite_health
     from . import autocode_python_test_roles as role_policy
     from . import autocode_recovery_review as recovery_review
     from . import autocode_regression_selection as selection
@@ -134,6 +135,7 @@ except ImportError:
     import autocode_pending_tests as pending_tests
     import autocode_plan_command_roles as plan_roles
     import autocode_plan_proof_command as plan_command
+    import autocode_project_suite_health as project_suite_health
     import autocode_python_test_roles as role_policy
     import autocode_recovery_review as recovery_review
     import autocode_regression_selection as selection
@@ -684,32 +686,84 @@ def _baseline(
                 return result
         except (OSError, ValueError, TypeError, KeyError):
             pass
-    directory = Path(run_dir) / "regression" / ("baseline-" + uuid.uuid4().hex)
-    if progress:
-        progress(
-            "Testing the original code before comparing the change",
-            command=suite,
-            output=directory / "baseline" / "suite-on-base.log",
+    directory = Path(run_dir).resolve() / "regression" / ("baseline-" + uuid.uuid4().hex)
+    proj_root = None
+    proj_digest = None
+    try:
+        proj_root = project_suite_health.project_root(dependencies or workspace)
+        proj_runtime = (
+            binding["runtime"]
+            if proj_root == Path(workspace).resolve() and inputs is None
+            else verify.baseline_identity(proj_root, command=suite, dependencies_from=dependencies)
         )
-    result = verify.baseline(
-        workspace,
-        base,
-        directory,
-        framework=framework,
-        suite_command=suite,
-        dependencies_from=dependencies,
-        timeout=suite_timeout(state),
-        base_patch=base_patch,
-        ignored_inputs=inputs,
-    )
-    path = directory / "baseline.json"
-    util.atomic_json(path, result)
+        if framework is not None and framework.name == "junit":
+            proj_runtime["reuse_supported"] = False
+        if project_suite_health.baseline_eligible(
+            base_patch=base_patch,
+            ignored_inputs=inputs,
+            framework=framework,
+            runtime_identity=proj_runtime,
+        ):
+            proj_digest = project_suite_health.binding_digest(
+                project_suite_health.project_binding(
+                    proj_root,
+                    base=base,
+                    suite=suite,
+                    framework=framework,
+                    timeout=suite_timeout(state),
+                    baseline_identity=proj_runtime,
+                )
+            )
+    except (OSError, ValueError, TypeError, subprocess.SubprocessError):
+        proj_root = proj_digest = None
+
+    result = None
+    path = None
+    baseline_source = None
+    if proj_root is not None and proj_digest is not None:
+        with contextlib.suppress(OSError, ValueError, TypeError):
+            restored = project_suite_health.restore_baseline(proj_root, proj_digest, directory)
+            if restored is not None:
+                result, path = restored
+                baseline_source = "project_baseline"
+
+    if result is None or path is None:
+        if progress:
+            progress(
+                "Testing the original code before comparing the change",
+                command=suite,
+                output=directory / "baseline" / "suite-on-base.log",
+            )
+        result = verify.baseline(
+            workspace,
+            base,
+            directory,
+            framework=framework,
+            suite_command=suite,
+            dependencies_from=dependencies,
+            timeout=suite_timeout(state),
+            base_patch=base_patch,
+            ignored_inputs=inputs,
+        )
+        path = directory / "baseline.json"
+        util.atomic_json(path, result)
+        if proj_root is not None and proj_digest is not None:
+            with contextlib.suppress(OSError, ValueError, TypeError):
+                project_suite_health.save_baseline(
+                    proj_root,
+                    proj_digest,
+                    result,
+                    directory,
+                    framework_name=framework.name if framework else None,
+                    run_name=project_suite_health.run_name_from(run_dir),
+                )
     if focused_suite.timed_out(result):
         timeouts[_settled_key(binding)] = {"path": str(path), "sha256": util.file_hash(path)}
     whole = cached.get("whole") or {}
     state["regression_baseline"] = {
         **({"settled_timeouts": timeouts} if timeouts else {}),
         **({"whole": whole} if whole and whole.get("command") != suite else {}),
+        **({"source": baseline_source} if baseline_source else {}),
         "base": base,
         "command": suite,
         "path": str(path),
