@@ -55,6 +55,7 @@ try:
     from . import autocode_build_worktree as build_worktree
     from . import autocode_builder_policy as builder_policy
     from . import autocode_cost as cost
+    from . import autocode_model_unavailable as model_unavailable
     from . import autocode_preflight_attempts as attempts
     from . import autocode_process as processes
     from . import autocode_provider_auth as provider_auth
@@ -73,6 +74,7 @@ except ImportError:
     import autocode_build_worktree as build_worktree
     import autocode_builder_policy as builder_policy
     import autocode_cost as cost
+    import autocode_model_unavailable as model_unavailable
     import autocode_preflight_attempts as attempts
     import autocode_process as processes
     import autocode_provider_auth as provider_auth
@@ -190,6 +192,8 @@ def _classify(events_path: Path, *, withheld_env=()) -> tuple[str | None, str]:
     error = failures[-1].get("error")
     if isinstance(error, dict):
         message = str(error.get("message") or error.get("data", {}).get("message") or "").strip()
+    if not message and (rejected := model_unavailable.unavailable(failures)):
+        message = rejected["message"]
     return status, message or status
 
 
@@ -622,7 +626,15 @@ def check(
         atomic_json(marker, {"version": MARKER_VERSION, "receipts": publication})
 
     pending = [
-        (adapter, identity, probed, model, efforts.get(model), roles.get(model))
+        (
+            adapter,
+            identity,
+            probed,
+            model,
+            efforts.get(model),
+            roles.get(model),
+            tuple(name for name in sorted(routes) if (routes[name] or {}).get("model") == model),
+        )
         for adapter, routes, identity, probed, wanted, efforts, roles in receipts
         for model in wanted
         # Keep the full route's local auth/billing checks above, including when
@@ -631,7 +643,7 @@ def check(
         or _imminent_requirements_binding(state, adapter, routes) != {"schema": 1, "identity": identity, "model": model}
     ]
     tools_checked = False
-    for adapter, identity, probed, model, effort, role in pending:
+    for adapter, identity, probed, model, effort, role, model_roles in pending:
         # A role bound with --role-transport names its tool; the same model may also be on the run's tool.
         where = "" if adapter is getattr(runner, "opencode", None) else f" on {(identity or {}).get('provider')}"
         before_probe()
@@ -693,9 +705,16 @@ def check(
             print(f"Model preflight: {model}{where} cannot be used; the Builder keeps its route", flush=True)
             raise support.Paused(state["status"], state.get("stop_reason") or "Builder retries exhausted")
         if outcome["blocking"]:
+            affected = (
+                f" (role: {model_roles[0]})"
+                if len(model_roles) == 1
+                else f" (roles: {', '.join(model_roles)})"
+                if model_roles
+                else ""
+            )
             raise support.Paused(
                 outcome["status"],
-                f"Model access preflight failed for {model}{where}: {outcome['detail'] or outcome['status']}. "
+                f"Model access preflight failed for {model}{where}{affected}: {outcome['detail'] or outcome['status']}. "
                 "Billing or login for this route cannot serve the model; fix it before any stage spend. "
                 f"Probe evidence: {outcome['evidence']}",
             )
