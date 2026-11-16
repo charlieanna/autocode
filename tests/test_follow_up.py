@@ -205,10 +205,13 @@ class FollowUpTests(unittest.TestCase):
                     self.assertIn("New assignment", status_view.record(state, timestamp=101)["text"])
 
     def test_new_follow_up_updates_progress_even_when_the_stage_is_unchanged(self):
+        self.requirements_flow()
         follow_up.accept(self.state, "First follow-up", self.workspace, "t1")
         self.assertIn("First follow-up", status_view.record(self.state, timestamp=100)["text"])
+        first_stage = self.state["next_stage"]
         self.state["status"] = "TASK_COMPLETE"
         follow_up.accept(self.state, "Second follow-up", self.workspace, "t2")
+        self.assertEqual(first_stage, self.state["next_stage"])
         self.assertIn("Second follow-up", status_view.record(self.state, timestamp=101)["text"])
 
     def test_requirements_reads_the_new_message_with_the_earlier_turn_as_context(self):
