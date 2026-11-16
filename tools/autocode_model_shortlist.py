@@ -15,11 +15,15 @@ What it drops, each for a stated reason:
   the stage's prompt needs (``MIN_CONTEXT``);
 - a narrow variant (an embedding, speech, image or vision model, or a mini, nano or lite cut),
   named by the listing's own model id (``NARROW``), since no listing field states it;
+- a gateway's router (``auto``, ``auto-frontier``), which answers with a model it picks per
+  request, so no measurement or independence check can say which family answered
+  (``autocode_model_identity.router``);
 - a second route to a model already listed (one model reached two ways is one model,
   ``autocode_model_identity.identity``): the route a subscription bills is kept;
 - an older version of a model line already listed (``gpt-6-sol`` when ``gpt-6.1-sol`` is there).
 
-Of what remains it suggests the newest ``PER_VENDOR`` lines from each vendor, then at most
+Of what remains it suggests the newest ``PER_VENDOR`` lines from each family
+(``autocode_model_identity.FAMILIES``, else the model's vendor segment), then at most
 ``LIMIT`` in all, subscription routes first. A field the listing leaves unknown never drops a
 model: unknown is not "no".
 
@@ -53,7 +57,7 @@ BILLING_ORDER = {"subscription": 0, None: 1, "pay per token": 2}
 # snapshot date ("-20250929") is not part of the version; it dates the release instead.
 _VERSION = re.compile(r"\d+(?:[.-]\d+)*")
 _SNAPSHOT = re.compile(r"[-_@](\d{4})(\d{2})(\d{2})$")
-KNOWN_FAMILIES = ("glm", "mimo", "claude", "openai")
+KNOWN_FAMILIES = model_identity.FAMILIES
 
 
 def shortlist(candidates, *, per_vendor=PER_VENDOR, limit=LIMIT, min_context=MIN_CONTEXT):
@@ -118,6 +122,8 @@ def _unfit(candidate, min_context):
     context = metadata.get("context")
     if type(context) is int and context < min_context:
         return f"its context ({context:,} tokens) is smaller than the stage needs ({min_context:,})"
+    if model_identity.router(candidate["model"]):
+        return "it is a router that picks a different model per request, so nothing can show which family answered"
     if NARROW.search(_name(candidate["model"])):
         return "its name marks a narrow variant (mini, lite, vision, speech or similar)"
     return None

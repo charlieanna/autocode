@@ -3,7 +3,8 @@
 Pure domain logic over route dicts; imports only autocode_model_identity and the screen
 names in autocode_roles. A verifier never runs the model that produced the work it judges:
 one model is always a clash, however its route is spelled (a gateway in front of its vendor,
-or the native Codex and OpenCode spellings of one GPT tier), and GLM, MiMo, Claude and OpenAI's GPT models are
+or the native Codex and OpenCode spellings of one GPT tier), and the labs in
+``autocode_model_identity.FAMILIES`` (GLM, MiMo, Claude, OpenAI's GPT, Gemini, Kimi, Grok and others) are
 families, so GLM checks MiMo work and MiMo checks GLM work (user 2026-09-26), and no Claude model
 checks another's. The built-in Claude Code engine reaches only Claude models, so a run on it keeps
 Claude checking Claude, never one model checking itself (``same_vendor_engine``).
