@@ -136,51 +136,24 @@ def _scan_python_files(root: Path, overrides: dict[str, bytes] | None = None) ->
     return files
 
 
-def _import_roots(files: dict[str, str], command: str, package_dir: str | None) -> list[str]:
-    roots = [""]
-    if any(p.startswith("src/") for p in files):
-        roots.append("src")
-    if package_dir:
-        roots.append(package_dir)
-        pkg_src = f"{package_dir}/src"
-        if any(p.startswith(pkg_src + "/") for p in files):
-            roots.append(pkg_src)
-    inner = package_scope.within(command) or command
-    invocation = python_tests.parse(inner)
-    if invocation and invocation.kind == "unittest":
-        args = invocation.arguments
-        for flag in ("-s", "--start-directory", "-t", "--top-level-directory"):
-            for i, word in enumerate(args):
-                if word == flag and i + 1 < len(args):
-                    val = args[i + 1].strip("./")
-                    if val and val != ".":
-                        rel = f"{package_dir}/{val}" if package_dir and not val.startswith(package_dir + "/") else val
-                        roots.append(rel)
-                elif word.startswith(flag + "="):
-                    val = word.split("=", 1)[1].strip("./")
-                    if val and val != ".":
-                        rel = f"{package_dir}/{val}" if package_dir and not val.startswith(package_dir + "/") else val
-                        roots.append(rel)
-    return list(dict.fromkeys(roots))
+def _build_aliases(files: dict[str, str]) -> dict[str, set[str]]:
+    """Every dotted name an import could use to reach each workspace file.
 
-
-def _build_aliases(files: dict[str, str], roots: list[str]) -> dict[str, set[str]]:
+    A test reaches a module through whatever is on ``sys.path`` when it runs: the repository
+    root, ``src/``, a package directory, a unittest start directory, a directory a test or
+    ``conftest.py`` inserts, ``PYTHONPATH`` or a ``pythonpath`` setting. None of these can be
+    read reliably without running the project, and a missed one under-selects. So every
+    trailing part of a file's module path names it: ``components/svc/server.py`` is
+    ``components.svc.server``, ``svc.server`` and ``server``. A name that also matches an
+    installed or standard module only selects more tests, never fewer.
+    """
     aliases: dict[str, set[str]] = {}
     for rel in files:
         parts = PurePosixPath(rel).with_suffix("").parts
         if parts and parts[-1] == "__init__":
             parts = parts[:-1]
-        if parts:
-            mod = ".".join(parts)
-            aliases.setdefault(mod, set()).add(rel)
-        for prefix in roots:
-            if not prefix:
-                continue
-            prefix_parts = PurePosixPath(prefix).parts
-            if parts[: len(prefix_parts)] == prefix_parts:
-                sub = parts[len(prefix_parts) :]
-                if sub:
-                    aliases.setdefault(".".join(sub), set()).add(rel)
+        for start in range(len(parts)):
+            aliases.setdefault(".".join(parts[start:]), set()).add(rel)
     return aliases
 
 
@@ -369,16 +342,9 @@ def _build_edges(
     infos: dict[str, _ModuleInfo], aliases: dict[str, set[str]], files: dict[str, str]
 ) -> dict[str, set[str]]:
     """Forward module reachability edges: file -> direct imported/ancestor files."""
-    # Sibling imports apply in directories without __init__.py (or when script dir is on sys.path)
-    by_dir_stem: dict[tuple[str, str], set[str]] = {}
-    for rel in files:
-        p = PurePosixPath(rel)
-        by_dir_stem.setdefault((str(p.parent), p.stem), set()).add(rel)
-
     edges: dict[str, set[str]] = {}
     for path, info in infos.items():
         targets: set[str] = set(_ancestor_inits(path, files))
-        cur_dir = str(PurePosixPath(path).parent)
         for mod in info.imports | info.star_imports | info.conftest_plugins:
             if mod in aliases:
                 targets |= aliases[mod]
@@ -386,11 +352,6 @@ def _build_edges(
                 top = mod.split(".", 1)[0]
                 if top in aliases:
                     targets |= aliases[top]
-            top_name = mod.split(".", 1)[0]
-            if (cur_dir, top_name) in by_dir_stem:
-                targets |= by_dir_stem[(cur_dir, top_name)]
-            if (cur_dir, mod) in by_dir_stem:
-                targets |= by_dir_stem[(cur_dir, mod)]
         for t in list(targets):
             targets |= _ancestor_inits(t, files)
         edges[path] = targets
@@ -793,8 +754,7 @@ def select(
     if not py_files:
         return full_result("no_python_files")
 
-    roots = _import_roots(py_files, command, package_dir)
-    aliases = _build_aliases(py_files, roots)
+    aliases = _build_aliases(py_files)
     infos = _analyze_modules(py_files, target_files)
     edges = _build_edges(infos, aliases, py_files)
     cli_plugins, cli_opaque = _pytest_cli_plugins(command, aliases)
