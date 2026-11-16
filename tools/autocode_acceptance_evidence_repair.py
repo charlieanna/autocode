@@ -30,14 +30,55 @@ def _intact(path, digest):
         return False
 
 
+def _review(state: RunState, output):
+    """Read one accepted review across its current and retired copies.
+
+    Retirement removes current validation authority, not the independently
+    recorded reason for an already queued repair. Never restore that authority
+    or let archive order choose between conflicting copies.
+    """
+    if not isinstance(output, str) or not output:
+        return None
+    current = state.get("validation") or {}
+    if current and current.get("output") != output:
+        return None
+    copies = [current] if current else []
+    for archived in state.get("validation_archive") or []:
+        validation = archived.get("validation") or {}
+        if validation.get("output") != output:
+            continue
+        if archived.get("rolled_back") or archived.get("checked_earlier"):
+            return None
+        copies.append(validation)
+    if not copies or any(row != copies[0] for row in copies[1:]):
+        return None
+    return copies[0]
+
+
 def pending(state: RunState, cases):
     """A current, pinned missing-test review whose existing round still needs a writer.
 
-    Reading the canonical validation also recovers runs saved by older runtimes
-    that queued the Builder before recognizing independent test ownership.
+    The latest rework for this task and contract names its one accepted review.
+    An earlier Builder interruption can have retired it into validation_archive;
+    it remains repair input only, subject to all the same current-source checks.
     """
     task, contract = state.get("current_task") or {}, state.get("goal_contract") or {}
-    proof, validation = state.get("regression_proof") or {}, state.get("validation") or {}
+    event = next(
+        (
+            row
+            for row in reversed(state.get("regression_proofs") or [])
+            if row.get("kind") == "changed_code_rework"
+            and row.get("task_id") == task.get("id")
+            and all(row.get("contract_" + key) == contract.get(key) for key in ("hash", "revision"))
+        ),
+        None,
+    )
+    if event is None:
+        return None
+    validation = _review(state, event.get("review_output"))
+    if validation is None:
+        return None
+    proof = state.get("regression_proof") or {}
     assessment = proof.get("changed_code_evidence") or {}
     source, output = proof.get("source_revision"), validation.get("output")
     case_ids = [
@@ -59,19 +100,9 @@ def pending(state: RunState, cases):
         or not _intact(output, (validation.get("evidence_hashes") or {}).get(output))
     ):
         return None
-    event = next(
-        (
-            row
-            for row in reversed(state.get("regression_proofs") or [])
-            if row.get("kind") == "changed_code_rework" and row.get("review_output") == output
-        ),
-        None,
-    )
-    if not event or (
+    if (
         event.get("action") != "builder"
         or event.get("source_revision") != source
-        or event.get("task_id") != task["id"]
-        or any(event.get("contract_" + key) != contract.get(key) for key in ("hash", "revision"))
         or event.get("assessment") != assessment
     ):
         return None
