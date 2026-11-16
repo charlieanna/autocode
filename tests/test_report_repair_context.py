@@ -440,7 +440,11 @@ class DecisionRepairContextTests(unittest.TestCase):
                 request = repair_fixtures.RepairTests.repair_request(self)
                 data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
                 self.assertEqual(
-                    {"proof_reference": proof_path, "source_revision": source},
+                    {
+                        "proof_reference": proof_path,
+                        "source_revision": source,
+                        "current_proof_reference": "proof:current",
+                    },
                     data.get("changed_code_citation_context"),
                 )
                 self.assertEqual(report, data["rejected_report"]["content"])
@@ -465,6 +469,33 @@ class DecisionRepairContextTests(unittest.TestCase):
             self.assertEqual(
                 {}, context.changed_code_citation_context({"regression_proof": invalid}, pending, "tester")
             )
+
+    def test_report_only_repair_has_every_open_line_beyond_the_error_excerpt(self):
+        rows = [
+            {
+                "status": "reason_required",
+                "handle": f"L{number}",
+                "source_line": f"return {number}",
+                "mutation_outcomes": ["survived"],
+            }
+            for number in range(1, 92)
+        ]
+        proof = {
+            "path": "/run/current-proof.json",
+            "source_revision": "current",
+            "changed_code_evidence": {
+                "source_revision": "current",
+                "obligations": [*rows, {"status": "tested", "handle": "L92"}],
+            },
+        }
+        before = copy.deepcopy(proof)
+        packet = context.changed_code_citation_context(
+            {"regression_proof": proof}, {"original": {"source_revision": "current"}}, "tester"
+        )
+        self.assertEqual(rows, packet["open_lines"])
+        self.assertEqual("proof:current", packet["current_proof_reference"])
+        packet["open_lines"][0]["mutation_outcomes"].clear()
+        self.assertEqual(before, proof)
 
     def test_combined_review_repair_receives_exact_batch_scope_without_reading_state(self):
         runner = repair_fixtures.runner

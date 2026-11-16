@@ -8,8 +8,10 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_changed_code_review as changed_code_review
     from . import autocode_prompts as prompts
 except ImportError:
+    import autocode_changed_code_review as changed_code_review
     import autocode_prompts as prompts
 
 
@@ -319,10 +321,13 @@ def prompt_parts(
         + (
             "CHANGED-CODE CITATION REPAIR. changed_code_citation_context names the enclosing runner proof "
             "for this source. Individual mutation logs and raw coverage files are not accepted "
-            "changed_code_exceptions evidence_refs; cite the enclosing proof_reference for those "
+            "changed_code_exceptions evidence_refs; cite current_proof_reference (proof:current) for those "
             "observations. You may also cite check:<n> from the report or exact inventoried product/test "
             "files, subject to ordinary authentication. The reference is a citation choice, not proof of "
             "PASS or permission to change a judgment. Preserve rejects, findings and missing evidence. "
+            "When open_lines is present it contains all current undecided line obligations and their "
+            "recorded observations, including those beyond the error's forty-line excerpt. Complete the "
+            "offered matrix on a missing-test FAIL; preserve uncertainty and never invent a test result. "
             "Repair the supplied JSON directly; do not return a shell command or request a tool call. "
             "Do not invent a new check or claim execution during report-only repair. All original check, "
             "source and citation admission still runs.\n"
@@ -434,13 +439,12 @@ def changed_code_citation_context(state: RunState, pending: dict, stage: str) ->
     if stage not in {"tester", "review_checkpoint"}:
         return {}
     proof = state.get("regression_proof") or {}
-    source = proof.get("source_revision")
-    if (
-        not isinstance(source, str)
-        or not source
-        or source != pending["original"].get("source_revision")
-        or not isinstance(proof.get("path"), str)
-        or not proof["path"]
-    ):
-        return {}
-    return {"proof_reference": proof["path"], "source_revision": source}
+    citation = changed_code_review.proof_reference(proof, pending["original"].get("source_revision"))
+    assessment = proof.get("changed_code_evidence") or {}
+    if citation and assessment.get("source_revision") == citation["source_revision"]:
+        # Report-only repair has no tools. The error lists only the first forty
+        # gaps, so give it every current open row, with its measured observations.
+        citation["open_lines"] = copy.deepcopy(
+            [row for row in assessment.get("obligations") or [] if row.get("status") == "reason_required"]
+        )
+    return citation

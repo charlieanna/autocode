@@ -59,6 +59,8 @@ class ProofReceiptContextTests(unittest.TestCase):
                 answers=state["saved_answers"],
             )
             proof = packet()["regression_proof"]
+            proof.update(source_revision="r", path=str(Path(tmp) / "current-proof.json"))
+            state["regression_proof"] = proof
             with (
                 patch.object(stage_context.support, "snapshot", return_value={"revision": "r", "head": "h"}),
                 patch.object(regression, "handoff", return_value=proof),
@@ -71,6 +73,17 @@ class ProofReceiptContextTests(unittest.TestCase):
                         self.assertEqual(proof["changed_code_receipts"], saved["regression_proof_receipts"])
                         self.assertIn("regression_proof_receipts", metrics["externalized_fields"])
                         self.assertEqual("FAIL", data["regression_proof"]["verdict"])
+                        if stage == "review_completion":
+                            self.assertNotIn("changed_code_citation_context", data)
+                        else:
+                            self.assertEqual(
+                                {
+                                    "proof_reference": proof["path"],
+                                    "source_revision": "r",
+                                    "current_proof_reference": "proof:current",
+                                },
+                                data["changed_code_citation_context"],
+                            )
                         self.assertGreater(metrics["handoff_bytes_saved"], 100000)
 
     def test_large_review_packet_preserves_every_outcome_and_retrievable_receipt(self):

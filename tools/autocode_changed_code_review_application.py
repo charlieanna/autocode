@@ -53,8 +53,20 @@ def preflight(state: RunState, validation, record, *, passing_claim):
     and the post-replay evidence binding in ``accept``.
     """
     report_repair_queue.require_executed_passes(validation, passing_claim=passing_claim)
-    require_exact_lines(state, validation, record)
-    require_tester_decisions(state, validation, record)
+    problems = []
+    for check in (require_exact_lines, require_tester_decisions):
+        try:
+            check(state, validation, record)
+        except ValueError as error:
+            problems.append(str(error))
+    verified, _ = _references(state, validation, record, state.get("workspace"))
+    unknown = sorted(_cited(validation) - verified.keys())
+    if unknown:
+        citation = review.proof_reference(state.get("regression_proof") or {}, record.get("source_revision"))
+        choice = f" Cite {citation['current_proof_reference']} for the current enclosing proof." if citation else ""
+        problems.append(f"Changed-code reasons cite unauthenticated evidence: {json.dumps(unknown)}.{choice}")
+    if problems:
+        raise ValueError("\n\n".join(problems))
 
 
 def accept(state: RunState, validation, record, workspace=None, *, pin):
@@ -64,6 +76,40 @@ def accept(state: RunState, validation, record, workspace=None, *, pin):
     if not decisions:
         return
     proof = state.get("regression_proof") or {}
+    verified, pins = _references(state, validation, record, workspace, pin=pin)
+    validation["evidence_hashes"].update(pins)
+    validation["changed_code_decisions"] = review.bind(
+        proof.get("changed_code_evidence"),
+        decisions,
+        record,
+        offered_schema=util.read(record["schema"]),
+        verified_refs=verified,
+    )
+
+
+def _cited(validation):
+    decisions = validation.get(review.FIELD)
+    return (
+        {
+            ref
+            for row in decisions
+            if isinstance(row, dict) and isinstance(row.get("evidence_refs"), list)
+            for ref in row["evidence_refs"]
+            if isinstance(ref, str)
+        }
+        if isinstance(decisions, list)
+        else set()
+    )
+
+
+def _references(state: RunState, validation, record, workspace, *, pin=None):
+    """One citation inventory for diagnostic preflight and pinned final admission.
+
+    Preflight recognizes names only; only final admission pins the actual files.
+    Mutation observations still authenticate their producing proof and receipts.
+    """
+    proof = state.get("regression_proof") or {}
+    pins = {}
     checks = validation["checks"]
     verified = {check["evidence_ref"]: check["evidence_ref"] for check in checks}
     verified.update({f"check:{number}": check["evidence_ref"] for number, check in enumerate(checks, 1)})
@@ -72,31 +118,23 @@ def accept(state: RunState, validation, record, workspace=None, *, pin):
     refs += list(proof.get("test_files") or [])
     for ref in refs:
         if ref:
-            validation["evidence_hashes"].update(pin([ref]))
+            if pin is not None:
+                pins.update(pin([ref]))
             for spelling in _spellings(ref, workspace):
                 verified[spelling] = ref
-    if isinstance(decisions, list):
-        cited = {
-            ref
-            for row in decisions
-            if isinstance(row, dict) and isinstance(row.get("evidence_refs"), list)
-            for ref in row["evidence_refs"]
-            if isinstance(ref, str) and ref not in verified
-        }
+    citation = review.proof_reference(proof, record.get("source_revision"))
+    if citation:
+        verified[citation["current_proof_reference"]] = citation["proof_reference"]
+    cited = _cited(validation) - verified.keys()
+    if cited:
         if workspace is not None:
             cited |= {str(Path(workspace) / ref) for ref in cited if not Path(ref).is_absolute()}
-        pins = proof_policy.cited_mutation_pins(proof, cited, source_revision=record.get("source_revision"))
-        validation["evidence_hashes"].update(pins)
-        for ref in pins:
+        mutation_pins = proof_policy.cited_mutation_pins(proof, cited, source_revision=record.get("source_revision"))
+        pins.update(mutation_pins)
+        for ref in mutation_pins:
             for spelling in _spellings(ref, workspace):
                 verified[spelling] = ref
-    validation["changed_code_decisions"] = review.bind(
-        proof.get("changed_code_evidence"),
-        decisions,
-        record,
-        offered_schema=util.read(record["schema"]),
-        verified_refs=verified,
-    )
+    return verified, pins
 
 
 def require_exact_lines(state: RunState, value, record):
@@ -121,11 +159,10 @@ def require_tester_decisions(state: RunState, value, record):
     """Request omitted decisions before another expensive replay or repair.
 
     A Builder round cannot settle a gap with no mutation outcome (autocode_changed_code_review
-    .tester_only_gaps), so the bounded report repair asks the Tester instead. The repair itself
-    is never refused for this: an undecided gap left after it keeps the existing Builder and
-    Investigator rounds. An explicit missing-test FAIL must decide the whole
-    offered matrix too, so its independent writer receives one complete review
-    instead of discovering the same missing assertions in successive rounds.
+    .tester_only_gaps), so the bounded report repair asks the Tester instead. A repaired PASS
+    keeps the existing Builder/Investigator fallback for unresolved evidence. An explicit
+    missing-test FAIL, including a repaired one, must decide the whole offered matrix so its
+    independent writer receives one complete review instead of successive partial reviews.
     """
     stage = str(record.get("stage", ""))
     # A repaired report is applied with its original stage's record, marked report_repaired.
@@ -139,7 +176,11 @@ def require_tester_decisions(state: RunState, value, record):
             for row in decisions
         )
     )
-    if (value.get("verdict") != "PASS" and not missing_tests) or repaired or not record.get("schema"):
+    if (
+        (value.get("verdict") != "PASS" and not missing_tests)
+        or (repaired and not missing_tests)
+        or not record.get("schema")
+    ):
         return
     assessment = (state.get("regression_proof") or {}).get("changed_code_evidence") or {}
     if assessment.get("source_revision") != record.get("source_revision"):
