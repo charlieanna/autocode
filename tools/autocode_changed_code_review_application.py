@@ -118,23 +118,33 @@ LISTED_GAPS = 40
 
 
 def require_tester_decisions(state: RunState, value, record):
-    """Return a PASS that leaves Tester-only gaps undecided for that decision.
+    """Request omitted decisions before another expensive replay or repair.
 
     A Builder round cannot settle a gap with no mutation outcome (autocode_changed_code_review
     .tester_only_gaps), so the bounded report repair asks the Tester instead. The repair itself
     is never refused for this: an undecided gap left after it keeps the existing Builder and
-    Investigator rounds.
+    Investigator rounds. An explicit missing-test FAIL must decide the whole
+    offered matrix too, so its independent writer receives one complete review
+    instead of discovering the same missing assertions in successive rounds.
     """
     stage = str(record.get("stage", ""))
     # A repaired report is applied with its original stage's record, marked report_repaired.
     repaired = stage.endswith("_report_repair") or record.get("report_repaired") is True
-    if value.get("verdict") != "PASS" or repaired or not record.get("schema"):
+    decisions = value.get(review.FIELD)
+    missing_tests = (
+        value.get("verdict") == "FAIL"
+        and isinstance(decisions, list)
+        and any(
+            isinstance(row, dict) and row.get("decision") == "reject" and row.get("reason_kind") == "missing_test"
+            for row in decisions
+        )
+    )
+    if (value.get("verdict") != "PASS" and not missing_tests) or repaired or not record.get("schema"):
         return
     assessment = (state.get("regression_proof") or {}).get("changed_code_evidence") or {}
     if assessment.get("source_revision") != record.get("source_revision"):
         return
-    decisions = value.get(review.FIELD)
-    gaps = review.tester_only_gaps(
+    gaps = (review.undecided_gaps if missing_tests else review.tester_only_gaps)(
         assessment,
         decisions if isinstance(decisions, list) else [],
         util.read(record["schema"]),
@@ -149,9 +159,13 @@ def require_tester_decisions(state: RunState, value, record):
         for row in gaps[:LISTED_GAPS]
     )
     more = f", and {len(gaps) - LISTED_GAPS} more in the gap_id enum" if len(gaps) > LISTED_GAPS else ""
+    problem = (
+        "The missing-test FAIL leaves other offered changed lines undecided"
+        if missing_tests
+        else "The PASS leaves changed lines that no added test can mark tested, because they have no mutation outcome"
+    )
     raise ValueError(
-        "The PASS leaves changed lines that no added test can mark tested, because they have no "
-        f"mutation outcome: {listed}{more}. Give one changed_code_exceptions decision for each, with its "
+        f"{problem}: {listed}{more}. Give one changed_code_exceptions decision for each, with its "
         "handle (such as L12) as gap_id and the quoted text of that line as source_line: accept "
         "with the concrete reason the tests cover the line, or reject with the test it still needs. "
         f"The lines and their tests are in {(state.get('regression_proof') or {}).get('path')}."

@@ -311,7 +311,10 @@ def _sent_back(state: RunState):
                 action="AutoCode requested review and reassignment within the approved plan before another Builder attempt.",
             )
             continue
-        if row.get("action") == "investigator":
+        writer = row.get("test_owner") == "write_acceptance_tests" and row.get("action") == "builder"
+        if writer:
+            action, by = "AutoCode sent the selected tests to the independent Tester for stronger assertions.", "Tester"
+        elif row.get("action") == "investigator":
             action, by = (
                 "The Builder had already been sent back twice, so AutoCode called the Investigator.",
                 "Investigator",
@@ -329,9 +332,9 @@ def _sent_back(state: RunState):
         yield _entry(
             "sent_back",
             row.get("at"),
-            "builder",
+            "write_acceptance_tests" if writer else "builder",
             state,
-            headline="Builder sent back for untested lines" + rounds,
+            headline=("Independent test strengthening" if writer else "Builder sent back for untested lines") + rounds,
             problem=problem,
             action=action,
             by=by,
