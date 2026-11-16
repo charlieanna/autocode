@@ -1464,6 +1464,10 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     ),
     (("tools/autocode_launch", "tools/autocode_input_preflight"), ("tests.test_launch_state_cli",)),
     (
+        ("tools/autocode_action_decisions", "tools/autocode_operational_admission", "tools/autocode_run_actions"),
+        ("tests.test_rejected_machinery_input",),
+    ),
+    (
         ("tools/autocode_completion", "tools/autocode_milestone", "tools/units/autoreview"),
         ("tests.test_completion_properties", "tests.test_completion_status"),
     ),
