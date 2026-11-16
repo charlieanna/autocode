@@ -84,6 +84,24 @@ class ProgressLineTests(unittest.TestCase):
         idle = project(state(active_stage=None), stage="Tester")
         self.assertEqual("Next: Tester", idle["headline"], "with no check running the next job is named")
 
+    def test_a_run_autocode_ended_says_stopped_not_the_next_job(self):
+        """A run AutoCode ended itself (autocode_stop.end) read "Next: Builder · ... · nothing needed from
+        you", though no stage runs again (2026-11-16 fake runs of rework-same-failure and
+        escalation-ladder-end on master)."""
+        ended = state(
+            status="PAUSED_INTERVENTION",
+            active_stage=None,
+            stop_reason="AutoCode could not finish this task: Blocked. This run launches no further stages.",
+        )
+        view = project(ended, stage="Builder")
+        self.assertEqual(progress_view.ENDED, view["headline"])
+        self.assertIsNone(view["stage"])
+        self.assertTrue(view["line"].startswith(progress_view.ENDED + " · "))
+        self.assertTrue(view["line"].endswith(" · nothing needed from you"))
+        # A person's own stop is not AutoCode's ending, and keeps its existing headline.
+        stopped = state(status="PAUSED_INTERVENTION", active_stage=None, stop_reason="Stopped at your request.")
+        self.assertNotEqual(progress_view.ENDED, project(stopped, stage="Builder")["headline"])
+
     def test_a_finished_run(self):
         saved = state(
             status="TASK_COMPLETE",

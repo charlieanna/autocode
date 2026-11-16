@@ -108,8 +108,29 @@ def outcome(state: RunState) -> dict[str, Any] | None:
 def stop_reason(state: RunState) -> str:
     ended = outcome(state)
     if ended and isinstance(ended.get("reason"), str) and ended["reason"]:
-        return f"{run_status.ENDED_PREFIX}{ended['reason']} This run launches no further stages."
+        return f"{run_status.ENDED_PREFIX}{ended_sentence(ended)} This run launches no further stages."
     return STOP_REASON
+
+
+def ended_sentence(ended: dict[str, Any]) -> str:
+    """The recorded reason of an ended run as a sentence a person reads, with the checks still failing.
+
+    A recorded reason is a clause ("Implementation remains blocked after ..."): it is ended with a full
+    stop, and the checks its evidence records as still failing (autocode_builder_policy's
+    ``failing_checks``) are named, so the stop says what failed and not only that retries ran out.
+    """
+    reason = str(ended.get("reason") or "").rstrip()
+    if reason and not reason.endswith((".", "!", "?")):
+        reason += "."
+    evidence = ended.get("evidence") if isinstance(ended.get("evidence"), dict) else {}
+    checks = [
+        item[len("check:") :]
+        for item in evidence.get("failing_checks") or ()
+        if isinstance(item, str) and item.startswith("check:") and len(item) > len("check:")
+    ]
+    if checks and not any(check in reason for check in checks):
+        reason += " Still failing: " + ", ".join(checks) + "."
+    return reason
 
 
 def end(state: RunState, reason: str, evidence: dict[str, Any], *, at: str) -> None:
