@@ -911,7 +911,7 @@ class RunViewTests(unittest.TestCase):
         self.assertEqual("resume", run_view.needs({"status": "PLAN_REWORK_REQUIRED"})["kind"])
 
     def test_saved_progress_recovery_is_a_continue_action_not_a_personal_resume(self):
-        with patch("autocode_run_view.recovery_progress.routine_resume", return_value={"remaining_count": 1}):
+        with patch("autocode_run_view.recovery_progress.pending", return_value={"remaining_count": 1}):
             need = run_view.needs({"status": "PAUSED_BUDGET"})
         self.assertEqual({"kind": "continue", "action": "--resume-paused"}, need)
 

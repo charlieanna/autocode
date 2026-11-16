@@ -167,7 +167,7 @@ def guard(runner, args, parser, state: RunState, state_path, run_dir, workspace,
         else None
     )
     operations = decided.owned_operations
-    if planning_input and not operations:
+    if planning_input and continuation:
         decided.operational_selection = "planning_input"
         decided.operational_recovery_checked = {
             "incident": decided.operational_incident,

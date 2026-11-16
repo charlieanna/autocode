@@ -1383,9 +1383,8 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             "producer_run": (state.get("dependency_wait") or {}).get("producer_run"),
             "producer_workspace": (state.get("dependency_wait") or {}).get("producer_workspace"),
         }
-    issued = state.get("resolver_human_request")
     if (
-        recovery_progress.routine_resume(state, issued)
+        recovery_progress.pending(state)
         or validation_recovery.pending(state)
         or no_progress_recovery.pending_legacy(state)
     ):
