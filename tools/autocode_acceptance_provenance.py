@@ -71,15 +71,21 @@ def prior_contract(state: RunState) -> dict | None:
             for row in [*history, state.get("goal_contract")]
             if isinstance(row, dict) and "revision" in row and "hash" in row and identity.token(row) == token
         ]
-        # Exact restoration keeps the discarded history, including an identical
-        # historical copy of the restored contract. Such copies have one
-        # identity; conflicting copies never establish completed-turn authority.
-        if not contracts or any(row != contracts[0] for row in contracts[1:]):
+        if not contracts:
             return None
         contract = contracts[0]
-        if not identity.approved({**state, "goal_contract": contract}):
+        retired = ("approval_status", "approval_event")
+        canonical = {key: value for key, value in contract.items() if key not in retired}
+        if any({key: value for key, value in row.items() if key not in retired} != canonical for row in contracts[1:]):
             return None
-        if events.index(contract["approval_event"]) >= events.index(matches[0]):
+        # A new turn retires execution approval on the archived contract. Its
+        # sealed body and recorded approval still authenticate what was delivered.
+        # Every copy must bind that same historical authority; metadata order
+        # never chooses a source or restores permission to execute an old plan.
+        approval = identity.historical_approval(state, contract)
+        if approval is None or any(identity.historical_approval(state, row) != approval for row in contracts[1:]):
+            return None
+        if events.index(approval) >= events.index(matches[0]):
             return None
         return contract
     except (AttributeError, KeyError, TypeError, ValueError):
