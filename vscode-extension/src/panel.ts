@@ -980,6 +980,7 @@ export function panelHtml(chat = false): string {
   h2 { font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; opacity: .75; margin: 22px 0 8px; }
   .line { font-size: .95rem; margin-bottom: 4px; }
   .meta { font-size: .8rem; opacity: .8; }
+  .message-content { white-space: pre-wrap; }
   .row { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; border-bottom: 1px solid var(--vscode-panel-border); }
   .state { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; padding: 1px 6px; border-radius: 3px;
            background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }

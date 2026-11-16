@@ -4563,6 +4563,17 @@ test('assistant review messages keep significant spaces visible', async (t) => {
   assert.equal(ui.window.getComputedStyle(body).whiteSpace, 'pre-wrap');
 });
 
+for (const surface of ['chat', 'Run details']) {
+  test(`plan approval in ${surface} preserves significant spaces`, async (t) => {
+    const view = approvalView();
+    view.displayed_plan.review_markdown = 'Required behavior: greet(" Ada ") returns "Hello,  Ada !"';
+    const ui = surface === 'chat' ? await openChat(t, view) : await openPanel(t, view);
+    const body = ui.document.querySelector('.plan-content');
+    assert.ok(body.textContent.includes('"Hello,  Ada !"'));
+    assert.equal(ui.window.getComputedStyle(body).whiteSpace, 'pre-wrap');
+  });
+}
+
 test('chat renders plan and action without button restlessness on poll', async (t) => {
   const ui = await openChat(t, approvalView());
   const card = ui.document.querySelector('#app .decision-card');
