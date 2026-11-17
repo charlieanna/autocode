@@ -1275,9 +1275,9 @@ def record_resume_change(
     return [copy.deepcopy(record)]
 
 
-# What a --<role>-model flag (and its --<role>-reasoning-effort) saves beside the model: the effort,
-# and that the route and its effort are now the person's own choice (#3159).
-_FLAG_ORIGINS = ("route_origins", "effort_origins")
+# What a --<role>-model or --stage-model change saves beside the model: the effort,
+# that the route and its effort are now the person's own choice, and any cleared effort_fits (#3159).
+_FLAG_ORIGINS = ("route_origins", "effort_origins", "effort_fits")
 
 
 def _flag_provenance(previous: dict, selected: dict, role: str) -> dict:
@@ -1295,8 +1295,8 @@ def _flag_provenance(previous: dict, selected: dict, role: str) -> dict:
         old, new = previous.get(section) or {}, selected.get(section) or {}
         if old.get(role) != new.get(role):
             change[section] = {
-                "from": old.get(role),
-                "to": new.get(role),
+                "from": copy.deepcopy(old.get(role)),
+                "to": copy.deepcopy(new.get(role)),
                 "present": role in old,
                 "section_present": section in previous,
             }
@@ -1315,14 +1315,17 @@ def _undo_flag_provenance(settings: dict, route: dict, event: dict) -> None:
             route["reasoning_effort"] = effort["from"]
     for section in _FLAG_ORIGINS:
         origin = change.get(section)
+        if not origin:
+            continue
         values = settings.get(section)
-        if not origin or not isinstance(values, dict) or values.get(role) != origin["to"]:
+        current = values.get(role) if isinstance(values, dict) else None
+        if (values is not None and not isinstance(values, dict)) or current != origin["to"]:
             continue
         if origin["present"]:
-            values[role] = origin["from"]
-        else:
+            settings.setdefault(section, {})[role] = copy.deepcopy(origin["from"])
+        elif isinstance(values, dict):
             values.pop(role, None)
-        if not values and not origin["section_present"]:
+        if isinstance(settings.get(section), dict) and not settings[section] and not origin["section_present"]:
             settings.pop(section, None)
 
 
@@ -1438,6 +1441,41 @@ def _undo_transport(settings: dict, role: str, change) -> None:
         identities[role_transport.PREFIX + role] = copy.deepcopy(before["identity"])
     if not identities:
         settings.pop("transport_identities")
+
+
+def unassigned_candidates(state: RunState, settings: dict, events: list | None = None) -> list[dict]:
+    """Candidate pre-route-assignment ``settings`` dicts, including pre-fix ``effort_fits`` entries."""
+    route_events = [
+        copy.deepcopy(event)
+        for event in (events if events is not None else (state.get("user_events") or []))
+        if isinstance(event, dict) and event.get("kind") == KIND and event.get("actor") == "user_cli"
+    ]
+    if not route_events:
+        return []
+    base = unassigned({"user_events": route_events}, settings)
+    candidates = [base]
+    missing_fit = [
+        event for event in reversed(route_events) if "effort_fits" not in (event.get("settings_change") or {})
+    ]
+    if missing_fit:
+        trial = copy.deepcopy(base)
+        for event in missing_fit:
+            role = event.get("role")
+            if not isinstance(role, str) or role not in (trial.get("roles") or {}):
+                continue
+            stage_name = event.get("stage") or next(
+                (
+                    row.get("stage")
+                    for row in reversed(state.get("stages") or [])
+                    if isinstance(row, dict) and (row.get("route_role") or row.get("role")) == role
+                ),
+                role,
+            )
+            with_fit = route_fit.fit(trial, role)
+            route_fit.record_unverified(trial, role, with_fit, stage=stage_name)
+        if trial != base:
+            candidates.append(trial)
+    return candidates
 
 
 def assignments(state: RunState) -> list[dict]:

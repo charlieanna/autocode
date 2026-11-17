@@ -657,6 +657,12 @@ def _attest(packet, change):
     if not isinstance(change, dict):
         return None, "not an object"
     operations = {row["operation"] for row in packet["incidents"]}
+    if operations <= {"review_completion", "review"}:
+        operations = operations | {
+            novelty.normalize(row["command"], packet["wrappers"])
+            for row in (packet.get("validation") or {}).get("checks") or ()
+            if isinstance(row, dict) and isinstance(row.get("command"), str) and row["command"].strip()
+        }
     allowed = set(packet["sources"]) - set(packet["protected_tests"].get("files", {}))
     ident = None
     is_input = change.get("target") in packet.get("permitted_controls", [])

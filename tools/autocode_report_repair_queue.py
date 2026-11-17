@@ -24,6 +24,7 @@ try:
     from . import autocode_check_refs as check_refs
     from . import autocode_receipt_repair_context as receipt_repair_context
     from . import autocode_report_revalidation_binding as revalidation_binding
+    from . import autocode_stage_stalls as stage_stalls
     from . import autocode_stray_writes as stray_writes
     from . import autocode_util as util
     from . import autocode_verification_plan as verification_plan
@@ -31,6 +32,7 @@ except ImportError:
     import autocode_check_refs as check_refs
     import autocode_receipt_repair_context as receipt_repair_context
     import autocode_report_revalidation_binding as revalidation_binding
+    import autocode_stage_stalls as stage_stalls
     import autocode_stray_writes as stray_writes
     import autocode_util as util
     import autocode_verification_plan as verification_plan
@@ -113,6 +115,7 @@ def pending_repair_dispatchable(state: RunState) -> bool:
         isinstance(original, dict)
         and state.get("next_stage") == original.get("stage")
         and pending.get("attempts", 0) < effective_repair_limit(state, pending)
+        and not stage_stalls.exhausted_unlaunchable_pending(state)
     )
 
 

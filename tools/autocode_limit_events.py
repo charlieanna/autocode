@@ -66,9 +66,20 @@ def record(state: RunState, previous: dict, selected: dict, *, at: str) -> list[
     return events
 
 
+def _runner_bookkeeping(event: dict) -> bool:
+    return (
+        event.get("actor") in ("runner", "core", "autocode")
+        and event.get("kind") != "goal_approval"
+        and event.get("changed_files") in (None, [])
+    )
+
+
 def last_decision(state: RunState) -> dict | None:
-    """The run's last recorded event that is not a limit change, or None."""
+    """The run's last recorded person/policy decision event (skipping limit raises and runner bookkeeping)."""
     for event in reversed(state.get("user_events") or []):
-        if not isinstance(event, dict) or event.get("kind") != KIND:
+        if not isinstance(event, dict):
             return event
+        if event.get("kind") == KIND or _runner_bookkeeping(event):
+            continue
+        return event
     return None

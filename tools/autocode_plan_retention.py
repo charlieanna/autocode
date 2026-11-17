@@ -19,11 +19,13 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_contract_identity as identity
+    from . import autocode_draft_failure_correction as failure_correction
     from . import autocode_plan_revision_reference as revision_reference
     from . import autocode_python_test_roles as test_roles
     from . import autocode_util as util
 except ImportError:
     import autocode_contract_identity as identity
+    import autocode_draft_failure_correction as failure_correction
     import autocode_plan_revision_reference as revision_reference
     import autocode_python_test_roles as test_roles
     import autocode_util as util
@@ -354,7 +356,8 @@ def prior_review_examples(state: RunState, route: str, snapshot_revision: Callab
         len(history) != 1
         or current.get("origin") != "revise_plan"
         or current.get("revision") != 2
-        or state.get("user_events")
+        or failure_correction.source_events(state)
+        or (state.get("user_events") is not None and not isinstance(state.get("user_events"), list))
         or state.get("answers")
         or state.get("brief_feedback")
         or not current.get("task_id")

@@ -12,6 +12,7 @@ it before a writer or diagnosis call, and retires it only on changed bound work.
 from __future__ import annotations
 
 import copy
+import json
 import shlex
 import sys
 from pathlib import Path
@@ -433,8 +434,172 @@ def route_in_context(state: RunState, evidence, reason, *, enabled, snapshot, mi
     )
 
 
+_HOLD_SUFFIX = "; failure classification requires reconciled evidence or operator action"
+
+
+def _prior_same_round_diagnosis(state: RunState, ev: dict) -> dict | None:
+    """Reuse an already-accepted execution diagnosis when no Builder ran since that charged round."""
+    if ev.get("diagnosis") is not None:
+        return None
+    milestone = policy.key(state)
+    current = (state.get("builder_retries") or {}).get(milestone)
+    if not policy.same_unretried_builder_round(state, current, (ev.get("record") or {}).get("output")):
+        return None
+    entry = next(
+        (
+            row
+            for row in reversed(state.get("stuck_investigations") or [])
+            if isinstance(row, dict)
+            and row.get("trigger") == "builder_failure"
+            and row.get("milestone_key") == milestone
+            and row.get("outcome") == "classified"
+            and row.get("cause") != "needs_user"
+            and row.get("failure_class") == "execution"
+        ),
+        None,
+    )
+    if entry is None:
+        return None
+    saved_report: dict | None = None
+    output_path = entry.get("output")
+    if isinstance(output_path, str) and Path(output_path).is_file():
+        try:
+            loaded = json.loads(Path(output_path).read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                saved_report = loaded
+        except (OSError, ValueError, TypeError):
+            saved_report = None
+    source = saved_report if saved_report is not None else entry
+    diagnosis = source.get("diagnosis")
+    if not isinstance(diagnosis, str) or not diagnosis.strip() or source.get("cause") == "needs_user":
+        return None
+    guidance_text = str(source.get("guidance") or "")
+    refs = list(ev.get("evidence_refs") or ())
+    if not refs:
+        return None
+    return {
+        "failure_id": ev.get("failure_id"),
+        "reused_from_failure_id": source.get("failure_id") or entry.get("failure_id"),
+        "evidence_refs": refs,
+        "diagnosis": diagnosis,
+        "guidance": guidance_text if guidance_text.strip() else diagnosis,
+        "example": str(source.get("example") or ""),
+        "recommendation": str(source.get("recommendation") or "retry"),
+        "cause": str(source.get("cause") or "other"),
+        "user_question": str(source.get("user_question") or ""),
+        "failure_class": "execution",
+    }
+
+
+def saved_resolver_continuation(state: RunState, source_revision) -> dict | None:
+    """Reconstruct an accepted ``resolve`` continuation whose post-save classification held."""
+    req = state.get("resolution_request")
+    contract_hash = (state.get("goal_contract") or {}).get("hash")
+    last_stage = (state.get("stages") or [None])[-1]
+    if (
+        not isinstance(req, dict)
+        or not isinstance(source_revision, str)
+        or not source_revision
+        or req.get("source_revision") != source_revision
+        or req.get("contract_hash") != contract_hash
+        or not isinstance(last_stage, dict)
+        or last_stage.get("stage") != "resolve"
+        or last_stage.get("exit_code") != 0
+        or last_stage.get("rejected")
+        or last_stage.get("abandoned")
+        or last_stage.get("source_revision") != source_revision
+    ):
+        return None
+    pins = req.get("evidence_hashes")
+    if isinstance(pins, dict) and any(
+        not Path(path).is_file() or util.file_hash(path) != digest for path, digest in pins.items()
+    ):
+        return None
+    output_path = last_stage.get("output")
+    if not isinstance(output_path, str) or not Path(output_path).is_file():
+        return None
+    try:
+        saved_value = json.loads(Path(output_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return None
+    if not isinstance(saved_value, dict) or (saved_value.get("next_task") or {}).get("kind") != "implement":
+        return None
+    return {"value": saved_value, "record": copy.deepcopy(last_stage)}
+
+
+def _reconcile_unqueued_hold(
+    state: RunState,
+    held: dict,
+    bound: dict,
+    failure_id: str,
+    workspace,
+    *,
+    enabled: bool,
+    route_failure,
+    apply_resolver_continuation,
+    prior_next_action: str | None,
+) -> bool:
+    held_reason = str(held.get("reason") or "")
+    if held_reason.startswith("Builder completed an implementation attempt without source changes") or (
+        "(The Investigator could not finish:" in held_reason
+    ):
+        return False
+    source_record = next(
+        (
+            row
+            for row in reversed(state.get("stages") or [])
+            if isinstance(row, dict) and row.get("output") == bound.get("output")
+        ),
+        None,
+    )
+    if source_record is None or not isinstance(bound.get("evidence_hashes"), dict):
+        return False
+    try:
+        guard(state, {"failure_evidence": {"binding": bound, "record": source_record}}, workspace)
+    except util.Paused:
+        return False
+    ev = evidence(state, source_record)
+    ev["failure_id"] = failure_id
+    ev["binding"] = copy.deepcopy(bound)
+    ev["evidence_hashes_verified"] = True
+    ev["evidence_refs"] = list(bound["evidence_hashes"])
+    ev.pop("evidence_hashes_verified", None)
+    reason = held_reason.removesuffix(_HOLD_SUFFIX)
+    prior_diag = _prior_same_round_diagnosis(state, ev)
+    if prior_diag is not None:
+        ev["diagnosis"] = prior_diag
+        state.pop("builder_failure_hold", None)
+        run_status.running(
+            state,
+            "EXECUTING",
+            next_stage="builder",
+            next_action=state.get("next_action") or prior_next_action,
+        )
+        if (
+            state.get("resolution_request")
+            and callable(apply_resolver_continuation)
+            and apply_resolver_continuation(state, prior_diag, bound["source_revision"])
+        ):
+            return True
+        route_failure(state, ev, reason)
+        return True
+    if not enabled or len(classified(state)) >= policy.classification_limit(state):
+        return False
+    saved_cont = saved_resolver_continuation(state, bound.get("source_revision"))
+    state.pop("builder_failure_hold", None)
+    if not queue(state, ev, reason, enabled=True):
+        return False
+    if saved_cont is not None and isinstance(state.get("stuck_investigation"), dict):
+        state["stuck_investigation"]["resolver_continuation"] = saved_cont
+    return True
+
+
 def route(state: RunState, evidence, reason, *, enabled, reassess, completed_record=None):
     """Consume cause-specific policy actions before assignment or stronger routing."""
+    if evidence.get("diagnosis") is None:
+        prior_diag = _prior_same_round_diagnosis(state, evidence)
+        if prior_diag is not None:
+            evidence["diagnosis"] = prior_diag
     action = policy.failure(
         state, evidence["record"].get("output"), reason, classification=classification.classify(evidence)
     )
@@ -461,3 +626,153 @@ def route(state: RunState, evidence, reason, *, enabled, reassess, completed_rec
     elif action not in ("retry", "escalate", "pause", "defer"):
         raise ValueError("Unrecognized Builder failure action: " + str(action))
     return action
+
+
+def reconcile_routable_hold(
+    state: RunState,
+    workspace,
+    *,
+    route_failure,
+    diagnose_rework=None,
+    apply_resolver_continuation=None,
+    prior_next_action: str | None = None,
+    enabled: bool = True,
+) -> bool:
+    """Reconcile a pre-fix PAUSED_BUILDER_CLASSIFICATION hold whose Investigator returned a concrete non-user class."""
+    held = state.get("builder_failure_hold")
+    if (
+        not isinstance(held, dict)
+        or held.get("status") != "PAUSED_BUILDER_CLASSIFICATION"
+        or held.get("classification_retry")
+        or state.get("next_stage") != "builder"
+        or any(
+            state.get(key)
+            for key in (
+                "active_stage",
+                "uncertain_artifacts",
+                "pending_report_repair",
+                "pending_builder_failure",
+                "stuck_investigation",
+            )
+        )
+    ):
+        return False
+    failure_id, bound = held.get("failure_id"), held.get("binding")
+    if not isinstance(failure_id, str) or not failure_id or not isinstance(bound, dict):
+        return False
+    entry = next(
+        (
+            row
+            for row in reversed(state.get("stuck_investigations") or [])
+            if isinstance(row, dict) and row.get("identity") == "builder-failure:" + failure_id
+        ),
+        None,
+    )
+    if entry is None:
+        return _reconcile_unqueued_hold(
+            state,
+            held,
+            bound,
+            failure_id,
+            workspace,
+            enabled=enabled,
+            route_failure=route_failure,
+            apply_resolver_continuation=apply_resolver_continuation,
+            prior_next_action=prior_next_action,
+        )
+    output_path = entry.get("output") if isinstance(entry, dict) else None
+    if (
+        entry.get("outcome") != "paused"
+        or entry.get("cause") == "needs_user"
+        or entry.get("failure_class") not in ("plan", "execution", "operational")
+        or not isinstance(output_path, str)
+        or not Path(output_path).is_file()
+    ):
+        return False
+    try:
+        saved_report = json.loads(Path(output_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return False
+    refs = saved_report.get("evidence_refs") if isinstance(saved_report, dict) else None
+    allowed_hashes = bound.get("evidence_hashes")
+    if (
+        not isinstance(saved_report, dict)
+        or saved_report.get("failure_id") != failure_id
+        or saved_report.get("cause") == "needs_user"
+        or saved_report.get("failure_class") not in ("plan", "execution", "operational")
+        or not isinstance(saved_report.get("diagnosis"), str)
+        or not saved_report["diagnosis"].strip()
+        or not isinstance(refs, list)
+        or not refs
+        or not isinstance(allowed_hashes, dict)
+        or not set(refs) <= set(allowed_hashes)
+    ):
+        return False
+    source_record = next(
+        (
+            row
+            for row in reversed(state.get("stages") or [])
+            if isinstance(row, dict) and row.get("output") == bound.get("output")
+        ),
+        {
+            "output": bound.get("output"),
+            "task_id": bound.get("task_id"),
+            "source_revision": bound.get("source_revision"),
+        },
+    )
+    try:
+        guard(state, {"failure_evidence": {"binding": bound, "record": source_record}}, workspace)
+    except util.Paused:
+        return False
+    effective_class = saved_report["failure_class"]
+    guidance_text = str(saved_report.get("guidance") or "")
+    diag_payload = {
+        **{
+            key: saved_report[key]
+            for key in (
+                "failure_id",
+                "evidence_refs",
+                "diagnosis",
+                "guidance",
+                "example",
+                "recommendation",
+                "cause",
+                "user_question",
+            )
+            if key in saved_report
+        },
+        "guidance": guidance_text if guidance_text.strip() else saved_report["diagnosis"],
+        "failure_class": effective_class,
+    }
+    ev = evidence(state, source_record)
+    ev["failure_id"] = failure_id
+    ev["binding"] = copy.deepcopy(bound)
+    ev["evidence_refs"] = list(allowed_hashes)
+    ev["diagnosis"] = diag_payload
+    reason = str(entry.get("reason") or held.get("reason") or "")
+    entry["outcome"] = "classified"
+    entry["failure_class"] = effective_class
+    state.pop("builder_failure_hold", None)
+    run_status.running(
+        state,
+        "EXECUTING",
+        next_stage="builder",
+        next_action=state.get("next_action") or prior_next_action,
+    )
+    if (
+        classification.classify(ev) == "execution"
+        and state.get("resolution_request")
+        and callable(apply_resolver_continuation)
+        and apply_resolver_continuation(state, diag_payload, bound["source_revision"])
+    ):
+        return True
+    action = route_failure(state, ev, reason)
+    if callable(diagnose_rework):
+        diagnose_rework(
+            state,
+            ev,
+            diag_payload,
+            {"output": output_path, "source_revision": bound["source_revision"]},
+            action,
+        )
+    return True

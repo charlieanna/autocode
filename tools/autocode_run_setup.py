@@ -978,6 +978,15 @@ def run_locked(
     with ExitStack() as ownership:
         ownership.enter_context(env_prep.reuse_checks(run_dir))  # chats in this project reuse its tool checks
         keep_awake.hold()  # a sleeping Mac cannot supervise a stage (#1717)
+        if (
+            getattr(args, "resume_paused", False)
+            and isinstance(receipt := runner.stop_policy.applied_stop(state), dict)
+            and receipt.get("actor") == "autocode"
+            and hasattr(runner, "autopilot")
+            and hasattr(runner.autopilot.changed_code_rework, "reconcile_false_changed_code_stop")
+            and runner.autopilot.changed_code_rework.reconcile_false_changed_code_stop(state, workspace)
+        ):
+            runner.write_json(state_path, state)
         if runner.stop_policy.applied_stop(state):
             return runner.stop_policy.refuse_before_configure(runner.write_json, state, state_path) or 0
         preload_denial = None

@@ -440,12 +440,12 @@
     "sha256": "7c159003e71e85e2e7d86750b787b8c52908c0a684691756512050c0b7a6bc2c"
   },
   "provider/command-output-contract/None": {
-    "bytes": 2190,
-    "sha256": "3f3c8fca36ba8321c9636dd43e491aa9ec396c43f0c4f95b7d88ded2fbdff3b9"
+    "bytes": 2159,
+    "sha256": "a5fb7c7ed6650e137bbf02eb8315717a84ff434f4763f5611e5dced5058c53f3"
   },
   "provider/command-output-contract/codex_artifacts": {
-    "bytes": 1025,
-    "sha256": "b306d5a2daab9306e33277650689607a86c13a4dad649faee7f32ca9fcd905c8"
+    "bytes": 994,
+    "sha256": "9b51a0530728a38d6f2da2f2e787c96434135cdd5054571bf6fe3eb478edf4f4"
   },
   "provider/opencode-output-contract": {
     "bytes": 5684,
