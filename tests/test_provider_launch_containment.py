@@ -159,7 +159,8 @@ class LaunchContainment(unittest.TestCase):
         from providers.kilocode import KiloProvider
 
         kilo = object.__new__(KiloProvider)
-        kilo.launch = mock.Mock(return_value=(["kilo", "run"], {}, {}))
+        contained = {"AUTOCODE_TOOL_CONTAINMENT": json.dumps(self.policy)}
+        kilo.launch = mock.Mock(return_value=(["kilo", "run"], contained, {}))
         options = {
             **self.options,
             "adapter": kilo,
@@ -170,10 +171,14 @@ class LaunchContainment(unittest.TestCase):
         }
         for platform in ("linux", "darwin"):
             with self.subTest(platform=platform), mock.patch.object(launch.sys, "platform", platform):
-                launch.prepare(**options)
+                _, _, _, worker = launch.prepare(**options)
                 request = kilo.launch.call_args.kwargs["containment"]
                 self.assertIn(str(self.options["run_dir"]), request["protected_paths"])
                 self.assertNotIn("private_run", request, "a writer's shell is not the planning shell")
+                # The stage record says so: a live Builder in Seatbelt was recorded without its boundary.
+                record = launch.stage_record(worker)
+                self.assertEqual("Kernel-constrained Kilo shell; other tools disabled", record["isolation"])
+                self.assertEqual(self.policy, record["tool_containment"])
 
     def test_a_planning_handoff_stays_compact_under_containment(self):
         packet = {"stage": "draft_plan", "joint_planning": True, "task": "x"}
