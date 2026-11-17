@@ -19,13 +19,35 @@ except ImportError:
     import autocode_util as util
 
 
-def _matching_schema(original, accepted, stage):
+def same_schema(original, repair, *, reports=()):
+    """Whether report-only ``repair`` answered under ``original``'s output schema.
+
+    Either the same schema, or the bounded-edits offer (autocode_report_edits) made from it and
+    pinned to the rejected report it edits: the original's output or one of ``reports``, the later
+    rejected repairs' reports. The offer is a different file by design, so comparing the two files
+    alone judged every timed-out edit repair as changed bindings and held the run for a person (a
+    Requirements repair, 2026-11-16). The timeout recovery, the report retry and the accepted-report
+    provenance check read this one answer.
+    """
+    try:
+        if Path(repair["schema"]).is_file() and util.file_hash(repair["schema"]) == util.file_hash(original["schema"]):
+            return True
+    except (KeyError, TypeError, OSError):
+        return False
+    return any(
+        _matching_schema(original, repair, original.get("stage"), report=report)
+        for report in (original.get("output"), *reports)
+        if report
+    )
+
+
+def _matching_schema(original, accepted, stage, *, report=None):
     if original.get("schema") == accepted.get("schema"):
         return True  # Preserve the original full-report transport.
     if not accepted.get("report_only") or stage not in report_edits.STAGES:
         return False
     try:
-        source = Path(original["output"])
+        source = Path(report or original["output"])
         schema_path, original_path = Path(accepted["schema"]), Path(original["schema"])
         if schema_path != source.with_name(source.stem + ".repair-edits.schema.json") or any(
             path.is_symlink() or not path.is_file() for path in (source, schema_path, original_path)

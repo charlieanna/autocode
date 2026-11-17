@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest import mock
 
 import autocode_run_view as run_view
+import autocode_saved_names as saved_names
 import autocode_workflows as workflows
 from units import autoplanner
 
@@ -168,25 +169,40 @@ class RetiredStageTests(unittest.TestCase):
             for saved in (stage, stage + "_report_repair"):
                 with self.subTest(saved=saved):
                     message = workflows.retired_stage({"next_stage": saved})
-                    self.assertIn(f"saved at the {job} stage ({stage})", message)
-                    self.assertIn("start a new task to continue the work", message)
+                    self.assertIn(f"stopped at the {job} step", message)
+                    self.assertIn("start a new chat to carry on with the task", message)
+                    self.assertNotIn(stage, message)
 
     def test_a_current_stage_is_not_retired(self):
         for stage in (None, "requirements_gather", "draft_plan", "builder", "check_design", "investigate_stuck"):
             with self.subTest(stage=stage):
                 self.assertIsNone(workflows.retired_stage({"next_stage": stage}))
 
-    def test_a_run_saved_with_the_old_plan_review_counter_is_refused(self):
-        message = workflows.retired_stage({"next_stage": "review_plan", "planning": {"astra_calls": 1}})
-        self.assertIn("its plan review count is kept as astra_calls", message)
-        self.assertIn("start a new task to continue the work", message)
+    def test_a_run_saved_under_the_old_names_continues_once_read_with_the_job_names(self):
+        for saved in (
+            {"next_stage": "astra_discovery", "settings": {"roles": {"terra": {}, "sol": {}}}},
+            {"next_stage": "review_plan", "planning": {"astra_calls": 1}},
+        ):
+            with self.subTest(saved=saved):
+                self.assertTrue(saved_names.migrate(saved))
+                self.assertIsNone(workflows.retired_stage(saved))
         self.assertIsNone(workflows.retired_stage({"next_stage": "review_plan", "planning": {"plan_review_calls": 1}}))
+
+    def test_old_names_no_rename_can_settle_are_refused_in_plain_words(self):
+        # One route spelled both ways: the read leaves the state as saved, and the refusal names no route.
+        state = {"next_stage": "builder", "settings": {"roles": {"terra": {"model": "a"}, "builder": {"model": "b"}}}}
+        with self.assertRaises(ValueError):
+            saved_names.migrate(state)
+        message = workflows.retired_stage(state)
+        self.assertIn("start a new chat to carry on with the task", message)
+        for word in ("terra", "astra", "glm", "sol ", "route", "runtime"):
+            self.assertNotIn(word, message)
 
     def test_the_status_view_asks_for_a_new_run_instead_of_resuming(self):
         state = {**fresh(), "next_stage": "investigate_bug", "status": "RUNNING", "phase": "INVESTIGATING"}
         needs = run_view.view(state)["needs"]
         self.assertEqual(("resume", True), (needs["kind"], needs["new_run_required"]))
-        self.assertIn("Investigator stage (investigate_bug)", needs["reason"])
+        self.assertIn("stopped at the Investigator step", needs["reason"])
 
 
 class FollowUpContextTests(unittest.TestCase):
