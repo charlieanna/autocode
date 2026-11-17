@@ -362,7 +362,7 @@ def read_json(path: Path) -> dict[str, Any]:
     value = json.loads(Path(path).read_text())
     if Path(path).name == "state.json" and isinstance(value, dict):
         with contextlib.suppress(ValueError):
-            saved_names.migrate(value)
+            saved_names.migrate(cast("RunState", value))
     return value
 
 

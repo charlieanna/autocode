@@ -26,7 +26,7 @@ Pure: imports only autocode_names, so any layer may call it.
 from __future__ import annotations
 
 import copy
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -163,6 +163,7 @@ def migrate(state: RunState) -> bool:
     if not needed(state):
         return False
     renamed = _walk(state, "state")
-    state.clear()
-    state.update(renamed)
+    saved = cast(dict, state)  # renamed keys are replaced in the caller's own dict
+    saved.clear()
+    saved.update(renamed)
     return True
