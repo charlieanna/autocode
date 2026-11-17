@@ -743,7 +743,9 @@ models all passed earlier in the run is not probed again. A pass on one tool
 never counts for the same model on another. Independent verification and all
 ordinary approval, evidence and completion gates still apply.
 
-The binding is immutable once the run starts. Do not repeat `--role-transport`
+The binding is immutable once the run starts, with one exception: at a quota stop, the
+answer `--answer route-ROLE=TOOL:MODEL` moves that one role to another connected tool,
+saved the same way ([Models](models.md#when-a-roles-quota-runs-out)). Do not repeat `--role-transport`
 when advancing or reattaching with `TaskRun`; pass it in `start_options` only.
 A missing or mismatched saved identity cannot fall back to the default tool.
 Changes to a bound config fingerprint, executable path or version pause rather than move its

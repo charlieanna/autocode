@@ -36,6 +36,7 @@ try:
     from . import autocode_resolver_human as resolver_human
     from . import autocode_resolver_recommendation as recommendation
     from . import autocode_role_transport as role_transport
+    from . import autocode_route_tool as route_tool
     from . import autocode_support as support
     from . import autocode_util as util
     from . import autocode_worker_quota as worker_quota
@@ -54,6 +55,7 @@ except ImportError:
     import autocode_resolver_human as resolver_human
     import autocode_resolver_recommendation as recommendation
     import autocode_role_transport as role_transport
+    import autocode_route_tool as route_tool
     import autocode_support as support
     import autocode_util as util
     import autocode_worker_quota as worker_quota
@@ -272,16 +274,28 @@ def answer_quota_question(runner, args, state: RunState, run_dir, workspace):
         parallel = worker_quota.current(candidate, proposal["origin"])
         # A batch member ran on its own model; a sibling's earlier answer may have moved the route (#465).
         ran_on = parallel[1].get("model") if parallel else None
+        tool = None
+        if quota_route.engine(candidate["settings"], role) == "opencode":
+            # Codex names models bare, so only a connected tool's job reads TOOL:MODEL.
+            tool, model = role_transport.split_answer(model)
+        moved = (
+            route_tool.prepare(candidate["settings"], role, tool, model, proposal["origin"], runner.opencode, workspace)
+            if tool and not parallel
+            else None
+        )
+        if tool and parallel:
+            raise ValueError("A parallel Builder continues on its own tool; name a model for it")
         quota_route.validate(
             candidate,
             role,
             model,
-            configured_tool=getattr(runner.opencode, "CONFIGURED", False),
+            configured_tool=moved["configured"] if moved else getattr(runner.opencode, "CONFIGURED", False),
             cross_check=dispatch.enforce_cross_model_verification,
             job=asked.get("job"),
             current=ran_on,
+            allow_unchanged=bool(moved and moved["binding"]),
         )
-        if quota_route.engine(candidate["settings"], role) == "opencode":
+        if moved is None and quota_route.engine(candidate["settings"], role) == "opencode":
             try:
                 facade = role_transport.adapter(candidate["settings"], role, runner.opencode, workspace)
                 facade.check_models({role: {"model": model}}, workspace)
@@ -320,6 +334,7 @@ def answer_quota_question(runner, args, state: RunState, run_dir, workspace):
                     attempt=attempt,
                     request_id=published["request_id"],
                     current=ran_on,
+                    tool=moved and moved["binding"],
                 )
                 route_source = candidate["user_events"][-1]
                 candidate["pending_questions"] = []
@@ -351,6 +366,7 @@ def answer_quota_question(runner, args, state: RunState, run_dir, workspace):
                     attempt=attempt,
                     request_id=published["request_id"],
                     current=ran_on,
+                    tool=moved and moved["binding"],
                 )
                 # Consume the answered routing question before finalization can
                 # mistake it for a remaining requirements clarification.
@@ -359,8 +375,9 @@ def answer_quota_question(runner, args, state: RunState, run_dir, workspace):
                 runner.finish_human_action(candidate, published)
             candidate["pending_questions"] = []
             candidate.pop("user_request", None)
+            on = f"{model} on {record['tool']['to']}" if record.get("tool") else model
             candidate["stop_reason"] = (
-                f"The {record['job']} now runs on {model} (was {record['from']}). The stopped "
+                f"The {record['job']} now runs on {on} (was {record['from']}). The stopped "
                 "attempt was set aside without replay; its partial work is retained. "
                 "Continue with --resume-paused."
             )
