@@ -12,10 +12,19 @@ import autocode_chat_stages as stages
 import autocode_chat_stages_panel as stages_panel
 import autocode_chat_tui as tui
 import autocode_stage_choices as stage_choices
+from providers import claude
 
 from tests.test_chat_tui import screen_ui
 
-HAIKU, SONNET, OPUS = "claude-haiku-4-5-20251001", "claude-sonnet-5-5", "claude-opus-5-5"
+HAIKU, SONNET, OPUS = claude.HAIKU, claude.SONNET, claude.OPUS
+# Every model Claude Code lists, in the order a stage offers them.
+LISTED = sorted(claude.LISTED_MODELS)
+
+
+def number(model):
+    return LISTED.index(model) + 1
+
+
 DOWN, UP, ENTER, ESC = tui.curses.KEY_DOWN, tui.curses.KEY_UP, "\n", "\x1b"
 
 
@@ -166,16 +175,18 @@ class RealCoreTests(unittest.TestCase):
         self.assertIn("Stages for new chats on Claude Code:", shown)
         self.assertIn("Builder: " + HAIKU + " at medium (default)", shown)
         self.assertIn("Advice: A fast, cheaper model at medium.", shown)
-        self.assertIn(f"2) {OPUS} [low, medium, high, xhigh, max]", shown)
-        self.assertIn("The Tester lists models 1 to 3.", self.history.slash("/stages", "tester 9 high"))
+        self.assertIn(f"{number(OPUS)}) {OPUS} [low, medium, high, xhigh, max]", shown)
+        self.assertIn(f"The Tester lists models 1 to {len(LISTED)}.", self.history.slash("/stages", "tester 9 high"))
         self.assertIn("Type /stages STAGE N LEVEL", self.history.slash("/stages", "nobody 1 high"))
-        self.assertIn("cannot run", self.history.slash("/stages", "builder 3 high"), "the Tester runs Sonnet")
-        said = self.history.slash("/stages", "tester 2 high")
+        self.assertIn(
+            "cannot run", self.history.slash("/stages", f"builder {number(SONNET)} high"), "the Tester runs Sonnet"
+        )
+        said = self.history.slash("/stages", f"tester {number(OPUS)} high")
         self.assertIn(f"New chats run the Tester on {OPUS} at high.", said)
         self.assertEqual({"model": OPUS, "effort": "high"}, stage_choices.load()["claude"]["tester"])
 
     def test_the_full_screen_drawer_chooses_a_model_and_level_with_the_arrow_keys(self):
-        self.history.slash("/stages", "tester 2 high")
+        self.history.slash("/stages", f"tester {number(OPUS)} high")
         ui = screen_ui()
         ui.bind(self.history.slash, run=False)
         with mock.patch.object(tui.curses, "curs_set"), mock.patch.object(tui.curses, "flushinp"):
@@ -186,9 +197,9 @@ class RealCoreTests(unittest.TestCase):
                 ui._handle(key, asking=True)
             menu = ui._stage_menu
             self.assertEqual(("models", "Builder: choose its model"), (menu.level, menu.title()))
-            self.assertEqual([HAIKU, OPUS, SONNET], [row["model"] for row in menu.current()["options"]])
-            ui._handle(DOWN, asking=True)
-            ui._handle(ENTER, asking=True)
+            self.assertEqual(LISTED, [row["model"] for row in menu.current()["options"]])
+            for key in [DOWN] * (number(OPUS) - number(HAIKU)) + [ENTER]:  # from the Builder's Haiku to Opus
+                ui._handle(key, asking=True)
             reason = "the Tester and the Completion Reviewer check this stage's work and run claude-opus-5-5; change both too"
             self.assertEqual(f"Not available: {reason}.", menu.note)
             drawn = {}
@@ -197,7 +208,7 @@ class RealCoreTests(unittest.TestCase):
             shown = " ".join(text.strip() for _, text in sorted(drawn.items()) if text.strip())
             self.assertIn(f"Not available: {reason}.", shown, "a narrow drawer wraps the reason instead of cutting it")
             self.assertIn("Advice: A fast, cheaper model at medium. It makes the most calls", shown)
-            for key in (DOWN, ENTER, DOWN, ENTER):  # Sonnet, then one level up from its default medium
+            for key in [DOWN] * (number(SONNET) - number(OPUS)) + [ENTER, DOWN, ENTER]:  # Sonnet, one level up
                 ui._handle(key, asking=True)
             self.assertEqual(f"Saved: the Builder runs {SONNET} at high in new chats.", menu.note)
             drawn = []

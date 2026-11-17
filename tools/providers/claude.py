@@ -74,7 +74,10 @@ PROMPT_MODE = "stdin"
 SUPPORTS_REPORT_RECOVERY = True
 ADAPTER = "claude-stream-1"
 HAIKU, SONNET, OPUS = "claude-haiku-4-5-20251001", "claude-sonnet-5-5", "claude-opus-5-5"
-LISTED_MODELS = [HAIKU, SONNET, OPUS]
+FABLE = "claude-fable-5-2"
+# The claude CLI has no model listing, so this is what a subscription login serves; a model it serves that is
+# missing here is refused before launch, as one was in a live run (2026-11-16) although the login ran it.
+LISTED_MODELS = [HAIKU, SONNET, OPUS, FABLE]
 # Verifiers differ from producers: Haiku builds, Sonnet drafts and tests, Opus reviews and completes.
 DEFAULT_MODELS = {
     "requirements": SONNET,

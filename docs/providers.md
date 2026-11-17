@@ -536,8 +536,8 @@ autocode --engine claude "Add a --json flag to the export command"
 Default routes: Sonnet (`claude-sonnet-5-5`) drafts requirements and plans and tests, Opus
 (`claude-opus-5-5`) reviews plans, resolves and completes, Haiku (`claude-haiku-4-5-20251001`) builds;
 every role at effort `medium`. A stuck Builder's stronger attempt runs Sonnet and its checkers move
-to Opus. The usual `--*-model` and `--*-reasoning-effort` flags take these bare ids and the efforts
-`low`, `medium`, `high`, `xhigh` and `max`.
+to Opus. The usual `--*-model` and `--*-reasoning-effort` flags take these bare ids, and Fable
+(`claude-fable-5-2`), and the efforts `low`, `medium`, `high`, `xhigh` and `max`.
 
 **How a stage runs.** Each stage is one process:
 `python -I tools/providers/claude_stream.py … -- claude -p --output-format stream-json …` with the
