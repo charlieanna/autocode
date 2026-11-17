@@ -390,6 +390,13 @@ def build(paths, read, hint, *, candidates=None, links=None, candidate_links=Non
         else packaging.declared(manifest)
     )
     roles, runtime = _classify(paths, read, hint, ownership, links)
+    # Code links whose bytes the original tree does not hold (absolute, or leading out of it): ambiguous only
+    # because nothing could be read, so they carry no claim about the original's tests (_classify).
+    unread = {
+        path
+        for path in links
+        if _endpoint(path, paths, links) is None and PurePosixPath(path).suffix in project_kinds.CODE_SUFFIXES
+    }
     original_products = frozenset(path for path in runtime if roles[path] == PRODUCT)
     original_test_links = {
         path: endpoint
@@ -421,6 +428,12 @@ def build(paths, read, hint, *, candidates=None, links=None, candidate_links=Non
                 roles[path] = role
             elif old == TEST and path in candidates and path not in runtime:
                 continue  # Removing declarations cannot erase an original oracle.
+            elif path in unread and candidates.get(path) is not None and path not in current_links:
+                # The change put readable code where the original had only a link out of the tree (a live run,
+                # 2026-11-17: the person replaced a link to a sibling directory with the file itself). That code
+                # is the first reading of the path, so its own role holds, except that it becomes a test only
+                # where the path is one.
+                roles[path] = role if role == PRODUCT or hint(path) else AMBIGUOUS
             elif path in candidates and (old == AMBIGUOUS or old != role):
                 roles[path] = AMBIGUOUS
     metadata = {"pyproject.toml": hashlib.sha256(manifest.encode()).hexdigest()} if manifest is not None else {}

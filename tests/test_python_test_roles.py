@@ -455,6 +455,51 @@ class PinnedRolePolicyTests(unittest.TestCase):
                     result = self.roles(original, candidates={"pkg/billing_tests.py": declaration})
                     self.assertEqual(role_policy.AMBIGUOUS, result.role("pkg/billing_tests.py"))
 
+    def test_code_replacing_a_link_out_of_the_tree_takes_its_own_role(self):
+        # Live run 2026-11-17: the person replaced a link to a sibling directory with the file itself, and every
+        # resume stopped on "ownership is ambiguous", although the tree had never held that path's bytes.
+        for target in ("/elsewhere/shared/discount.py", "../../../shared/discount.py"):
+            sources = {
+                "src/pricing/__init__.py": "",
+                "src/pricing/discount.py": target,
+                "src/pricing/cart.py": "from .discount import clamp\n",
+                "tests/test_cart.py": self.CASE,
+                "tests/test_shared.py": target,
+            }
+            links = {"src/pricing/discount.py": target, "tests/test_shared.py": target}
+            with self.subTest(target=target):
+                kept = self.roles(sources, links=links)
+                self.assertEqual(role_policy.AMBIGUOUS, kept.role("src/pricing/discount.py"))
+                still_a_link = self.roles(
+                    sources,
+                    links=links,
+                    candidates={"src/pricing/discount.py": target},
+                    candidate_links={"src/pricing/discount.py": target},
+                )
+                self.assertEqual(role_policy.AMBIGUOUS, still_a_link.role("src/pricing/discount.py"))
+                replaced = self.roles(
+                    sources,
+                    links=links,
+                    candidates={
+                        "src/pricing/discount.py": "def clamp(v):\n    return v\n",
+                        "tests/test_shared.py": self.CASE,
+                    },
+                    candidate_links={"src/pricing/discount.py": None, "tests/test_shared.py": None},
+                )
+                self.assertEqual(role_policy.PRODUCT, replaced.role("src/pricing/discount.py"))
+                self.assertFalse(replaced.is_test("src/pricing/discount.py"))
+                self.assertEqual(role_policy.TEST, replaced.role("tests/test_shared.py"))
+                disguised = self.roles(
+                    sources,
+                    links=links,
+                    candidates={"src/pricing/discount.py": self.CASE},
+                    candidate_links={"src/pricing/discount.py": None},
+                )
+                self.assertFalse(
+                    disguised.is_test("src/pricing/discount.py"),
+                    "code outside a test path does not become a test by declaring one",
+                )
+
     def test_deleted_test_declarations_keep_original_oracle_identity(self):
         result = self.roles({"checks_tests.py": self.CASE}, candidates={"checks_tests.py": "# removed tests\n"})
         self.assertEqual(role_policy.TEST, result.role("checks_tests.py"))
