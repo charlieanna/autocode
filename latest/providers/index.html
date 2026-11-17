@@ -2322,7 +2322,7 @@
 
 
 <h1 id="providers-and-adapters">Providers and adapters<a class="headerlink" href="#providers-and-adapters" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/784e2acec13dc9629dd7ba3cdfad0c642be3b556/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/839047b5009db08b4de2fc2f6a1d807c9b3faca1/README.md">← Back to README</a></p>
 <p>OpenCode is the default engine. Codex: <code>--engine codex</code>. Claude Code: <code>--engine claude</code>
 (<a href="#claude-code-provider">built in</a>). Any other tool registers with one TOML file.</p>
 <h2 id="you-do-not-need-to-choose-a-model">You do not need to choose a model<a class="headerlink" href="#you-do-not-need-to-choose-a-model" title="Permanent link">&para;</a></h2>
@@ -2387,12 +2387,13 @@ not qualify them.</p>
 <a href="https://github.com/charlieanna/autocode/pull/1204">#1204</a>). #1265 replaced it
 with strict refusal on 2026-10-14; the owner restored the fallback on
 2026-10-15, so local live qualification can run on macOS.</p>
-<p>The same holds for Kilo's read-only checkers (Tester, Completion Reviewer). On Linux they
-run a qualified Kilo 7.8.3 kernel shell (#1739). On macOS, which has no such shell, they
-keep Kilo's read tools and its own shell with edits denied, intersected with your Kilo
-permissions. Any source change a checker still makes is put back after the stage, and the
-run prints a one-line notice. Owner decision of 2026-10-21, in
-<a href="https://github.com/charlieanna/autocode/issues/1766">#1766</a>.</p>
+<p>Kilo's stages are the exception: its checkers (Tester, Completion Reviewer), Planner and
+Builder run their shell in the kernel sandbox on both platforms, bubblewrap on Linux (#1739)
+and Seatbelt on macOS, with a Kilo release qualified for that sandbox
+(<code>autocode_tool_containment.KILO_VERSIONS</code>). This replaces the macOS fallback to Kilo's own
+permissions of <a href="https://github.com/charlieanna/autocode/issues/1766">#1766</a>: a Kilo Builder's
+shell wrote outside the workspace there (#3770), and the owner chose on 2026-11-17 to qualify
+the installed Kilo release for Seatbelt instead.</p>
 <p>Normal detached shell tools remain allowed: the independent keeper records a
 prospective session before permitting <code>setsid()</code>. Its receipt preserves that
 ownership through controller or keeper loss. Cleanup is verified only when the
@@ -2565,11 +2566,10 @@ A network-disabled local API qualification observes <code>max_tokens: 64000</cod
 native default and the chosen operator override. This proves request construction,
 not that every remote provider honors it. Other configured providers and the
 separate native-isolation path retain their existing cap behavior.</p>
-<p>Ordinary Kilo planning and read-only verification both use Kilo 7.8.3's qualified
-kernel-constrained shell on Linux, with a writable verification copy and source writes
-denied; a planning shell also cannot read the run's private state. On macOS, which has no
-kernel shell for Kilo, both keep Kilo's read tools and its own shell with edits denied, and a
-source write is put back after the stage. Planning report recovery has no tools. Every other native tool is disabled there. Effective operator
+<p>Ordinary Kilo planning and read-only verification both use a qualified Kilo's
+kernel-constrained shell (bubblewrap on Linux, Seatbelt on macOS), with a writable
+verification copy and source writes denied; a planning shell also cannot read the run's
+private state. Planning report recovery has no tools. Every other native tool is disabled there. Effective operator
 denies are retained; headless asks are denied rather than auto-approved. Restricted
 stages start fresh sessions so previous session grants cannot override their policy.
 Builder permissions and the separate native-isolation route keep their existing contract.</p>
@@ -2910,7 +2910,7 @@ ids. <code>components</code> takes <code>--provider claude</code> rather than <c
 <code>default_provider = "claude"</code> or the project's <code>engine = "claude"</code>. Claude Code loads <code>CLAUDE.md</code> files of the workspace and its ancestors, so keep a
 scenario's <code>--out</code> outside this repository. In a root cloud container, the CLI drops the two
 prohibited capabilities automatically; see <a href="#provider-process-ownership">provider process ownership</a>
-for the opt-out and failure behavior (<a href="https://github.com/charlieanna/autocode/blob/784e2acec13dc9629dd7ba3cdfad0c642be3b556/examples/claude-provider/CLOUD-SESSION.md">cloud sessions</a>).</p>
+for the opt-out and failure behavior (<a href="https://github.com/charlieanna/autocode/blob/839047b5009db08b4de2fc2f6a1d807c9b3faca1/examples/claude-provider/CLOUD-SESSION.md">cloud sessions</a>).</p>
 <h2 id="add-a-tool">Add a tool<a class="headerlink" href="#add-a-tool" title="Permanent link">&para;</a></h2>
 <p>OpenCode and Claude Code are built in. Any other tool registers with one TOML file, not a Python
 package. <code>--provider &lt;name&gt;</code> loads <code>~/.config/autocode/providers/&lt;name&gt;.toml</code> and,
@@ -3200,10 +3200,14 @@ credit pauses the run with <code>PAUSED_BUDGET</code>, whichever provider behind
 and with whatever HTTP status (<a href="../models/#when-a-roles-quota-runs-out">Models</a>).</p>
 <h3 id="kilocode">KiloCode<a class="headerlink" href="#kilocode" title="Permanent link">&para;</a></h3>
 <p><code>tools/providers/configs/kilocode.toml</code> is bundled. It runs <code>kilo run --auto</code>,
-and on Linux a launch refuses any release but the qualified <strong>7.8.3</strong> (<code>npm install -g
-@kilocode/cli@7.8.3</code>): restricted read-only and planning stages need its kernel
-shell, so a newer Kilo stops before any spend instead of running uncontained. macOS
-has no such shell and no pin; its checkers run as described above (#1766).
+and a launch refuses any release not qualified for the host's sandbox: on Linux
+<strong>7.8.3</strong> (<code>npm install -g @kilocode/cli@7.8.3</code>), on macOS <strong>7.8.27</strong>
+(<code>npm install -g @kilocode/cli@7.8.27</code>), as listed in <code>autocode_tool_containment.KILO_VERSIONS</code>. Every Kilo stage that has tools needs its
+kernel shell, so another release stops before any spend instead of running uncontained. A
+release joins that list once the opt-in native Kilo tests in <code>tests/test_kilocode_policy.py</code>
+(<code>AUTOCODE_KILO_LOCAL_SSE_TEST=1</code>) pass with it in that sandbox. Seatbelt blocks loopback
+socket binds inside the stage, so on macOS a Kilo stage, like a contained OpenCode stage,
+cannot run tests that listen on 127.0.0.1; AutoCode's own runner checks still can.
 Isolated live Linux fixtures also need the backend's cached helpers to execute;
 follow the <a href="../testing/#executable-helpers-in-live-kilo-fixtures">Kilo cache execution preflight</a>
 before admitting a task or model call.
@@ -3390,23 +3394,18 @@ a request whose input is less than half of the previous one's (which held at lea
 is still refused. The native-isolation launches keep disabling Kilo's compaction
 agent as before. The rules are in <code>tools/autocode_context_window.py</code>.</p>
 <p>Where each stage's boundary comes from: on Linux, read-only planning and review
-stages are kernel-contained — AutoCode prepares a per-launch bubblewrap boundary
+stages are kernel-contained (Seatbelt on macOS): AutoCode prepares a per-launch bubblewrap boundary
 (fresh user, PID, IPC and network namespaces, a fresh <code>/proc</code>, every capability
 dropped, the workspace mounted read-only) and proves it with model-free probes
 before any launch, including the readonly planning shell's denial of private
-run-state reads where that boundary is supplied. On hosts where no kernel
-sandbox is qualified, such as macOS, read-only checks instead run with Kilo's
-own permission-restricted shell and edits denied, and any source change is put
-back by the workspace snapshot check. Writer stages (the Builder) run in the same
-kernel boundary on Linux, with only that contained shell: its writes are confined to
-the workspace, outside <code>.git</code> and <code>.autocode</code>, judged on the resolved path, so a link
-that leads out of the workspace cannot carry a write out of it (#3770). On macOS a
-writer still has no kernel sandbox until a Kilo release is qualified there: the
-workspace snapshot checks inspect changes afterwards and are not an OS boundary,
-<code>external_directory: "deny"</code> is a native tool policy, not a filesystem sandbox for
-bash, and the file tools are denied any workspace link that leads outside it
-(#3767). Use explicit Kilo permission restrictions for operations that must be
-blocked before execution there. See Kilo's
+run-state reads where that boundary is supplied. Writer stages (the Builder) run in the
+same kernel boundary, with only that contained shell: its writes are confined to the
+workspace, outside <code>.git</code> and <code>.autocode</code>, judged on the resolved path, so a link that
+leads out of the workspace cannot carry a write out of it (#3770). Only a run that
+accepted uncontained tools gives a writer Kilo's file tools instead; they are denied any
+workspace link that leads outside it (#3767), and <code>external_directory: "deny"</code> is a native
+tool policy, not a filesystem sandbox for bash. Use explicit Kilo permission restrictions
+for operations that must be blocked before execution there. See Kilo's
 <a href="https://kilo.ai/docs/code-with-ai/platforms/cli#permissions">permission reference</a>.</p>
 <p>The <code>alibaba-token-plan/</code> route serves that login's own plan rather than the
 Gateway: Qwen (<code>qwen3.8-max</code>, <code>qwen3.7-plus</code>, <code>qwen3.6-flash</code> and the rest of
@@ -3437,7 +3436,7 @@ dashboard; its model pickers list that tool's models.</p>
 <!-- BEGIN provider conformance matrix -->
 
 <p>Generated by <code>python tools/provider_matrix.py --write</code> from
-<a href="https://github.com/charlieanna/autocode/blob/784e2acec13dc9629dd7ba3cdfad0c642be3b556/tools/provider-matrix.json">tools/provider-matrix.json</a>. Do not edit by hand.
+<a href="https://github.com/charlieanna/autocode/blob/839047b5009db08b4de2fc2f6a1d807c9b3faca1/tools/provider-matrix.json">tools/provider-matrix.json</a>. Do not edit by hand.
 A version the offline conformance suite has not been run against is
 <code>untested</code> — never guess. Run the suite with
 <code>python tools/provider_conformance.py --fake</code> (no model calls).</p>
