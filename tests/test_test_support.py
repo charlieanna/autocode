@@ -8,9 +8,11 @@ and keep every way of getting a failing test to pass by editing tests failing.""
 from __future__ import annotations
 
 import importlib.util
+import os
 import shutil
 import sys
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
@@ -171,7 +173,13 @@ class ProofTests(unittest.TestCase):
         made = project(self, seed, ())
         made.write(change)
         state = run_state(made, contract(command, planned if planned is not None else change))
-        with mock.patch.object(verify.diff_coverage, "collect", return_value=None):
+        # The suite AutoCode detects runs `python3 -m pytest` from PATH; CI runs this interpreter without
+        # activating its venv, so the interpreter that has pytest goes first.
+        path = os.pathsep.join((str(Path(PY).parent), os.environ.get("PATH", "")))
+        with (
+            mock.patch.object(verify.diff_coverage, "collect", return_value=None),
+            mock.patch.dict(os.environ, PATH=path),
+        ):
             proof = regression.prove(state, made.root, made.root.parent / "run")
         return proof["verdict"], proof["failures"], proof
 

@@ -28,9 +28,10 @@ def assert_operational_block(test, state, pause):
     return row["receipt"]["id"]
 
 
-def legacy_publication(
+def legacy_queue(
     state, run_dir, *, pause=None, request=None, questions=None, budget=None, scope="operational_exhaustion"
 ):
+    """A request the old operational publisher staged and had not yet published (RESOLVER_PENDING)."""
     if pause is not None:
         state["status"] = pause
     status, stage = state["status"], state["next_stage"]
@@ -65,6 +66,12 @@ def legacy_publication(
         evidence={"resolver_receipt_id": receipt},
         next_stage=stage,
     )
+
+
+def legacy_publication(
+    state, run_dir, *, pause=None, request=None, questions=None, budget=None, scope="operational_exhaustion"
+):
+    legacy_queue(state, run_dir, pause=pause, request=request, questions=questions, budget=budget, scope=scope)
     identity = {
         "version": human.VERSION,
         "issuer": "resolver",

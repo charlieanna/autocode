@@ -1,6 +1,7 @@
 """Public exhaustion contracts using only APIs that also exist on master."""
 
 import copy
+import json
 import subprocess
 import tempfile
 import unittest
@@ -145,11 +146,29 @@ class OperationalExhaustionPublicContractTests(unittest.TestCase):
         self.assertIsNone(human.current(self.state))
         self.assertEqual([], self.state.get("pending_questions", []))
         self.assert_blocked_public()
-        # The cause stays in the receipt; the person is told no machinery detail to act on.
-        self.assertEqual(disposition.MESSAGE, self.state["stop_reason"])
+        # The saved reason keeps the cause, then says AutoCode stopped; nothing names an action.
+        self.assertEqual("fixture planner exited1. " + disposition.MESSAGE, self.state["stop_reason"])
         self.assertEqual(attempt, self.state["active_stage"])
         self.assertEqual(1, self.state["settings"]["limits"]["planning_calls"])
         self.assertEqual(0, self.state["settings"]["limits"]["max_cost_usd"])
+
+    def test_a_blocked_stop_keeps_its_cause_and_shows_the_person_no_command(self):
+        cause = "Provider authentication failed (HTTP 401); check or refresh the selected provider's credentials."
+        advice = "After review, use --abandon-stage 001/requirements-gather-01 to set aside this response."
+        error = support.Paused("PAUSED_PROVIDER_UNCERTAIN", f"{cause} {advice}")
+        self.assertTrue(runtime.record_operational_exhaustion(self.runner, self.state, self.run, error))
+        self.assertIsNone(human.current(self.state))
+        self.assert_blocked_public()
+        # The person reads what happened, not the operator's command; the receipt keeps both.
+        self.assertEqual(cause + " " + disposition.MESSAGE, self.state["stop_reason"])
+        self.assertIn(str(error), json.dumps(self.state["resolver"]["operational_receipts"]))
+        view = run_view.view(self.state, run_dir=self.run, workspace=self.workspace)
+        self.assertIn("authentication failed (HTTP 401)", view["recovery"]["saved_reason"])
+
+    def test_a_blocked_stop_whose_cause_is_all_operator_advice_says_only_that_autocode_stopped(self):
+        error = support.Paused("PAUSED_UNCERTAIN_STAGE", "Use --abandon-stage 001/builder-01 after review.")
+        self.assertTrue(runtime.record_operational_exhaustion(self.runner, self.state, self.run, error))
+        self.assertEqual(disposition.MESSAGE, self.state["stop_reason"])
 
     def test_authentic_legacy_machinery_reply_is_refused_without_saving_a_response(self):
         public = self.legacy()

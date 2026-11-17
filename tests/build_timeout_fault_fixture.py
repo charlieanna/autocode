@@ -31,6 +31,10 @@ def prepare(root, tools):
         "import autocode_supervision_keeper as keeper\n"
         "raise SystemExit(keeper.main(int(sys.argv[1]),int(sys.argv[2])))\n"
     )
+    # The test's clock starts at the real one. A deadline AutoCode hands to a process this fixture does
+    # not hook (the isolated helper that bounds a metadata command such as `codex login status`) is read
+    # against the real clock there, so it must stay a real future time, not a few seconds after boot.
+    (root / "clock-base").write_text(repr(time.monotonic()))
     advance(root, 0)
     return hooks
 
@@ -47,7 +51,8 @@ def install(root, tools, *, keeper=False):
     time._build_audit_timeout_fault = True
     real_clock = time.monotonic
     release = root / "cleanup-release"
-    time.monotonic = lambda: real_clock() if release.exists() else float((root / "clock").read_text())
+    base = float((root / "clock-base").read_text())
+    time.monotonic = lambda: real_clock() if release.exists() else base + float((root / "clock").read_text())
 
     if Path(sys.argv[0]).name == "codex":
         # The readiness barrier follows the provider's real SIGTERM disposition.

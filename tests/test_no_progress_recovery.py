@@ -1,6 +1,6 @@
 """Raising an exhausted no-progress bound through the CLI.
 
-A run held at PAUSED_NO_PROGRESS publishes an AutoResolver request. These tests
+A run held at a no-progress bound the person set publishes an AutoResolver request. These tests
 drive the public commands that answer it: raising the bound on resume, saving it
 first, and reasserting it after an informational response. A raised bound, or 0
 (no cap), must reach the Builder without resetting the retained count or granting
@@ -56,8 +56,11 @@ class NoProgressBoundTests(unittest.TestCase):
         return held, request
 
     def hold(self):
-        """Approve a plan, stop before the Builder, then hit the no-progress bound of 3."""
-        state = self.stop_before_builder()
+        """Approve a plan, stop before the Builder, then hit the no-progress bound of 3.
+
+        The person set that bound, so it is theirs to raise and the hold asks them (a bound AutoCode
+        chose itself is its own machinery: that hold stops blocked and asks nothing, #3682)."""
+        state = self.stop_before_builder("--no-progress-limit", "3")
         state.update(
             no_progress_batches=3,
             automatic_recoveries_since_resume=2,
@@ -276,7 +279,8 @@ class NoProgressBoundTests(unittest.TestCase):
         The run paused as PAUSED_TIMEOUT_RECOVERY and asked for --grant-recovery, a real grant,
         before the no-progress pause and its advice could even appear.
         """
-        held, request = self.hold_at("PAUSED_NO_PROGRESS", self.hold_without_a_recovery())
+        state = self.hold_without_a_recovery("--no-progress-limit", "3")
+        held, request = self.hold_at("PAUSED_NO_PROGRESS", state)
         decision = held["user_request"]["decision_needed"]
         self.assertIn("autocode resume --no-progress-limit N", decision)
         self.assertNotIn("--grant-recovery", decision)
@@ -318,7 +322,7 @@ class NoProgressBoundTests(unittest.TestCase):
         active-time request changes no setting and must leave that request as published.
         0 is a settings change: the stale binding is retired and the same hold republished.
         """
-        state = self.stop_before_builder("--no-progress-limit", "3")
+        state = self.stop_before_builder("--no-progress-limit", "3", "--max-seconds", "3600")
         state["active_seconds"] = state["settings"]["limits"]["max_seconds"]
         held, request = self.hold_at("PAUSED_TIME_LIMIT", state)
         for limit, kept in ((3, True), (0, False)):

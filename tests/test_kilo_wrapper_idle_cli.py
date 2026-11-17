@@ -109,8 +109,12 @@ class KiloWrapperIdleCliTests(unittest.TestCase):
         )
         envelope = json.loads(status.stdout)
         view = envelope["view"]
-        # The idle stop is an operational stop: AutoCode's bounded recoveries run, then it waits.
-        self.assertEqual("WAITING_FOR_USER", view["status"], view.get("stop_reason"))
+        # The idle stop is an operational stop: AutoCode's bounded recoveries run, then it stops blocked
+        # under the timeout's own status and asks the person nothing about its machinery.
+        self.assertEqual("PAUSED_TIMEOUT_RECOVERY", view["status"], view.get("stop_reason"))
+        self.assertEqual("blocked", view["recovery"]["category"])
+        self.assertIsNone(view["needs"])
+        self.assertIsNone(view["next_command"])
         stop_diagnostic = view["stop_reason"] + "\nNative name probes: " + json.dumps(native_names)
         if "No new provider activity" not in stop_diagnostic:
             observed = [row for row in view["usage"]["accounting"]["attempts"] if not row["runner_owned"]]

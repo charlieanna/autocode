@@ -6,10 +6,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock
 
-import autocode as runner
 import autocode_recovery_grants as grants
 import autocode_resolver_human as human
-import autocode_support as support
+
+from . import operational_fixtures
 
 
 class RecoveryGrantTests(unittest.TestCase):
@@ -173,8 +173,10 @@ class RecoveryGrantTests(unittest.TestCase):
                 "user_events": [],
                 "stages": [],
             }
-            error = support.Paused("PAUSED_TIMEOUT_RECOVERY", "Recovery exhausted")
-            self.assertTrue(runner.resolver_runtime.record_operational_exhaustion(runner, state, run_dir, error))
+            # Today's publisher stages no request for AutoCode's own exhausted recovery; a hold the old one
+            # staged and never published is still settled by the grant it was offered.
+            state["next_stage"] = "builder"
+            operational_fixtures.legacy_queue(state, run_dir)
             self.assertEqual("RESOLVER_PENDING", state["status"])
             queued = human.queued_operational(state)
             self.assertIsNotNone(queued)
@@ -207,11 +209,8 @@ class RecoveryGrantTests(unittest.TestCase):
                 "user_events": [],
                 "stages": [],
             }
-            self.assertTrue(
-                runner.resolver_runtime.record_operational_exhaustion(
-                    runner, cap_state, run_dir, support.Paused("PAUSED_OUTPUT_CAP", "Output cap")
-                )
-            )
+            cap_state["next_stage"] = "builder"
+            operational_fixtures.legacy_queue(cap_state, run_dir)
             self.assertTrue(
                 grants.eligible(
                     cap_state,

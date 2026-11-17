@@ -547,8 +547,15 @@ raise SystemExit(0)
             self.assertEqual(2, resumed.returncode, resumed.stderr)
             self.assertIn("lacks a verified uninterrupted result", resumed.stderr)
             self.assertIn("--abandon-stage", resumed.stderr)
-            held = self.inspect("--status")
-            self.assertEqual("WAITING_FOR_USER", json.loads(held.stdout)["status"])
+            held = json.loads(self.inspect("--status").stdout)
+            # The interrupted attempt is AutoCode's own recovery to settle: it stops blocked and asks
+            # the person nothing.
+            self.assertEqual("PAUSED_UNCERTAIN_STAGE", held["status"])
+            self.assertEqual("blocked", held["view"]["recovery"]["category"])
+            self.assertIsNone(held["view"]["needs"])
+            self.assertIsNone(held["view"]["next_command"])
+            self.assertIn("No provider call or recovered report is automatically accepted", held["view"]["stop_reason"])
+            self.assertNotIn("--abandon-stage", held["view"]["stop_reason"])
             self.assertEqual(launches, self.launches.read_bytes(), "Resume must not replay an interrupted provider")
             self.assertEqual([provider_pid], [int(p) for p in launches.splitlines()])
         finally:

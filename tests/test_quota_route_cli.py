@@ -253,21 +253,17 @@ class QuotaRouteCliTests(unittest.TestCase):
                 self.assertEqual(["route-tester"], [q["id"] for q in human.current(held)["questions"]])
                 self.assertEqual([], self.view()["route_assignments"])
 
-    def test_other_stops_ask_no_model_and_still_refuse_answers(self):
+    def test_other_stops_ask_no_model_and_refuse_a_model_answer(self):
         # The same Tester stop with a capacity error instead of a used-up quota: no model is asked for.
         self.env["AUTOCODE_FIXTURE_QUOTA_MESSAGE"] = "Selected model is at capacity"
+        # Exhausted capacity recovery is AutoCode's own (#3682): the stop is blocked and asks nothing.
         self.quota_stop()
         view = self.view()
-        self.assertNotIn("route", view["needs"])
-        questions = [q["id"] for q in view["needs"]["questions"]]
-        self.assertNotIn("route-tester", questions)
+        self.assertEqual("blocked", view["recovery"]["category"])
+        self.assertIsNone(view["needs"])
+        self.assertIsNone(view["next_command"])
         result = self.launch([*self.args, "--answer", "route-tester=" + OTHER_MODEL], 2)
-        self.assertIn(
-            "Only a quota, content-filter, output-limit, context-window, failed-job authentication, stopped-job timeout or cross-model stop is answered with a model",
-            result.stderr,
-        )
-        result = self.launch([*self.args, "--answer", questions[0] + "=retry please"], 2)
-        self.assertIn("Use --resolver-response for this operational request", result.stderr)
+        self.assertIn("Input rejected", result.stderr)
         self.assertEqual("gpt-5.6-sol", self.saved()[1]["settings"]["roles"]["tester"]["model"])
 
     def test_a_used_up_plan_sent_as_a_429_asks_for_a_model(self):

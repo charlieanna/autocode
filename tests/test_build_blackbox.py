@@ -377,7 +377,9 @@ class BuildBlackbox(unittest.TestCase):
                 problems.append(f"{milestone}: " + ", ".join(detail))
         return ready, problems
 
-    def seed(self, spec=None, checker="gpt-5.6-sol", max_parallel=3, planner_extra=()):
+    def seed(self, spec=None, checker="gpt-5.6-sol", max_parallel=3, planner_extra=(), tester_effort="high"):
+        """Plan and approve ``spec``. ``tester_effort`` None leaves the Tester's level to the runner's
+        default, which its retry ladder may climb; a typed level stays exact (autocode_route_ladder)."""
         self.spec = spec or independent()
         (self.root / "plan.json").write_text(json.dumps(self.spec, indent=2))
         self.invoke(
@@ -393,8 +395,7 @@ class BuildBlackbox(unittest.TestCase):
                 "medium",
                 "--tester-model",
                 checker,
-                "--tester-reasoning-effort",
-                "high",
+                *(("--tester-reasoning-effort", tester_effort) if tester_effort else ()),
                 "--completion-model",
                 checker,
                 "--completion-reasoning-effort",

@@ -91,12 +91,13 @@ class ResolverRecoveryLifecycleCliTests(unittest.TestCase):
             [row for row in after if not row["runner_owned"]],
             "reopening may record a runner decision but cannot launch another model",
         )
-        # Reopening publishes the repeated-failure operational exhaustion as WAITING_FOR_USER
-        # instead of leaving RESOLVER_PENDING, retaining the diagnosis without another attempt.
-        self.assertEqual("WAITING_FOR_USER", reopened["status"])
-        self.assertEqual("answer", reopened["needs"]["kind"])
-        self.assertEqual("operational_exhaustion", reopened["needs"]["resolver_scope"])
-        self.assertEqual("PAUSED_REPEATED_FAILURE", reopened["needs"]["pause_origin"])
+        # Reopening settles the repeated-failure exhaustion as a blocked stop under its own status
+        # instead of leaving RESOLVER_PENDING: the diagnosis is kept, no other attempt runs, and the
+        # person is asked nothing about AutoCode's own recovery.
+        self.assertEqual("PAUSED_REPEATED_FAILURE", reopened["status"])
+        self.assertEqual("blocked", reopened["recovery"]["category"])
+        self.assertIsNone(reopened["needs"])
+        self.assertIsNone(reopened["next_command"])
         self.assertIn("Offline fixture: it cannot diagnose", reopened["stop_reason"])
         for field in ("spent_usd", "running_usd", "reported_usd", "estimated_usd", "cap_usd"):
             self.assertEqual(view["cost"][field], reopened["cost"][field], field)

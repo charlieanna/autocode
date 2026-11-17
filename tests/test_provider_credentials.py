@@ -391,7 +391,10 @@ class ProviderCredentialCLI(unittest.TestCase):
         self.assertIn("account access denied (HTTP 403)", view["stop_reason"])
         self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", view["recovery"]["cause"], view["stop_reason"])
         self.assertIn("no automatic replay", view["stop_reason"])
-        self.assertIn("account or organization", view["recovery"]["what_happened"])
+        # An exhausted uncertain attempt is a blocked stop (#3682): the recovery card says AutoCode stopped,
+        # and the saved reason it shows beside it keeps the access denial.
+        self.assertEqual("blocked", view["recovery"]["category"])
+        self.assertIn("account access denied (HTTP 403)", view["recovery"]["saved_reason"])
         self.assertNotIn("private-auth-canary", view["stop_reason"])
         self.assertNotIn("private-auth-canary", json.dumps(view["recovery"]))
         calls = [json.loads(line) for line in self.log.read_text().splitlines()]

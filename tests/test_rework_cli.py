@@ -280,7 +280,7 @@ class CompletionReworkCLI(unittest.TestCase):
         self.assertNotIn("investigate_stuck", [row.get("stage") for row in state["stages"]])
         self.assertEqual("PAUSED_INTERVENTION", view["status"], view)
         self.assertFalse(view["done"])
-        self.assertNotEqual("answer", view["needs"]["kind"])
+        self.assertNotEqual("answer", (view["needs"] or {}).get("kind"))
         self.assertIsNone(view["next_command"])
         outcome = view["recovery"]["outcome"]
         self.assertEqual("could_not_finish", outcome["result"])
@@ -343,7 +343,7 @@ class CompletionReworkCLI(unittest.TestCase):
         self.assertEqual("PAUSED_INTERVENTION", view["status"])
         self.assertEqual("could_not_finish", view["recovery"]["outcome"]["result"])
         self.assertEqual("stopped", view["recovery"]["category"])
-        self.assertNotEqual("answer", view["needs"]["kind"])
+        self.assertNotEqual("answer", (view["needs"] or {}).get("kind"))
         self.assertEqual(pinned_model, view["routes"]["builder"]["model"])
         self.assertEqual([], view["escalations"])
         self.assertEqual(1, len(view["direct_rework_assignments"]))
