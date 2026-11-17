@@ -34,7 +34,10 @@ class KiloPolicyTests(unittest.TestCase):
         for version in ("7.8.3", "7.8.3-issue1063-source"):
             with self.subTest(version=version):
                 kilocode.check_version(version, platform="linux")
-        for platform, versions in (("linux", ("7.8.12", "7.8.2", "kilo 7.8.3", "", None)), ("darwin", ("7.8.2", ""))):
+        for platform, versions in (
+            ("linux", ("7.8.27", "7.8.12", "7.8.2", "kilo 7.8.3", "", None)),
+            ("darwin", ("7.8.3", "7.8.2", "")),
+        ):
             for version in versions:
                 with (
                     self.subTest(platform=platform, version=version),

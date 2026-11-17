@@ -98,6 +98,11 @@ def _seatbelt_connection_note(name: str) -> str:
             " On macOS, contained OpenCode stages run inside Seatbelt, which blocks 127.0.0.1 loopback socket binds "
             "while local runner checks permit them."
         )
+    if name == "kilocode":
+        return (
+            " On macOS, Kilo stages run inside Seatbelt, which blocks 127.0.0.1 loopback socket binds "
+            "while local runner checks permit them."
+        )
     return ""
 
 

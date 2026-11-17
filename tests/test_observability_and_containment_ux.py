@@ -285,7 +285,7 @@ class MacOSSeatbeltLoopbackGuidanceTests(unittest.TestCase):
             opencode_row = doctor.containment_check(containment)
             self.assertEqual(("containment", doctor.OK), (opencode_row.name, opencode_row.status))
             self.assertIn("127.0.0.1", opencode_row.detail)
-            self.assertIn("kilocode", opencode_row.detail)
+            self.assertNotIn("kilocode", opencode_row.detail, "Kilo stages run in Seatbelt too (#3770)")
             self.assertIn("--allow-uncontained-tools", opencode_row.detail)
 
             checks = doctor.engine_checks(
@@ -310,7 +310,8 @@ class MacOSSeatbeltLoopbackGuidanceTests(unittest.TestCase):
         self.assertIn("Seatbelt", codex_conn["detail"])
         self.assertFalse(person_text.machinery(codex_conn["detail"]))
         self.assertIn("127.0.0.1", opencode_conn["detail"])
-        self.assertNotIn("Seatbelt", kilo_conn["detail"])
+        self.assertIn("127.0.0.1", kilo_conn["detail"], "Kilo stages run in Seatbelt too (#3770)")
+        self.assertFalse(person_text.machinery(kilo_conn["detail"]))
 
         loopback_err = (
             "PermissionError: [Errno 1] Operation not permitted — socket.bind(('127.0.0.1', 0)) failed in test_rpc.py"

@@ -50,7 +50,7 @@ SEATBELT, BUBBLEWRAP = "seatbelt", "bubblewrap"
 POLICY_FILES = {SEATBELT: "policy.sb", BUBBLEWRAP: "policy.bwrap"}
 # The Kilo releases qualified on each backend: the contained-shell checks (tests.test_kilocode_policy's native
 # Kilo tests) passed with that release and that sandbox. A release is added here only after they pass on it.
-KILO_VERSIONS = {BUBBLEWRAP: ("7.8.3",), SEATBELT: ()}
+KILO_VERSIONS = {BUBBLEWRAP: ("7.8.3",), SEATBELT: ("7.8.27",)}
 SYSTEM_READ_ROOTS = (
     "/bin",
     "/sbin",

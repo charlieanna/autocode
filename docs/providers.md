@@ -974,8 +974,8 @@ and with whatever HTTP status ([Models](models.md#when-a-roles-quota-runs-out)).
 
 `tools/providers/configs/kilocode.toml` is bundled. It runs `kilo run --auto`,
 and a launch refuses any release not qualified for the host's sandbox: on Linux
-**7.8.3** (`npm install -g @kilocode/cli@7.8.3`), on macOS the releases listed for Seatbelt
-in `autocode_tool_containment.KILO_VERSIONS`. Every Kilo stage that has tools needs its
+**7.8.3** (`npm install -g @kilocode/cli@7.8.3`), on macOS **7.8.27**
+(`npm install -g @kilocode/cli@7.8.27`), as listed in `autocode_tool_containment.KILO_VERSIONS`. Every Kilo stage that has tools needs its
 kernel shell, so another release stops before any spend instead of running uncontained. A
 release joins that list once the opt-in native Kilo tests in `tests/test_kilocode_policy.py`
 (`AUTOCODE_KILO_LOCAL_SSE_TEST=1`) pass with it in that sandbox. Seatbelt blocks loopback
