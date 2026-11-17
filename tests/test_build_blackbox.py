@@ -271,7 +271,8 @@ class BuildBlackbox(unittest.TestCase):
             current = human.current(json.loads((Path(args[args.index("--run-dir") + 1]) / "state.json").read_text()))
             if current:
                 args = [*args, "--resolver-token", current["request_token"]]
-        limit = timeout if timeout is not None else 600 if self.env.get("BUILD_AUDIT_LIVE_CODEX") else 90
+        # A scripted provider still runs the local proof and can do several reviews in one call.
+        limit = timeout if timeout is not None else 600 if self.env.get("BUILD_AUDIT_LIVE_CODEX") else 300
         self.counter += 1
         receipt = self.root / f"cli-{self.counter}.json"
         started = time.monotonic()
@@ -1086,7 +1087,7 @@ class InvokeTimeoutEvidenceTests(unittest.TestCase):
                 patch.object(time, "monotonic", side_effect=[10.0, 100.25]),
                 self.assertRaises(AssertionError) as caught,
             ):
-                BuildBlackbox.invoke(harness, "autocode", ["--run-dir", "r1"])
+                BuildBlackbox.invoke(harness, "autocode", ["--run-dir", "r1"], timeout=90)
             receipt = json.loads((root / "cli-1.json").read_text())
         self.assertEqual(
             {

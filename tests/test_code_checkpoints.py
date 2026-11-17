@@ -755,6 +755,9 @@ class IntegratedBatchCheckpoint(unittest.TestCase):
 
 
 class RealCheckpointFlow(unittest.TestCase):
+    # An advance or resume can include mutation checks and independent reviews.
+    timeout_seconds = 300
+
     def test_report_only_builder_repair_preserves_a_public_restorable_checkpoint(self):
         fixture = test_subprocess.SubprocessFlow()
         fixture.setUp()
@@ -767,8 +770,7 @@ class RealCheckpointFlow(unittest.TestCase):
             options=("--engine", "codex"),
             start_options=("--workflow", "build"),
             env=fixture.env,
-            # One advance runs the build, repair, mutation checks and independent reviews.
-            timeout=300,
+            timeout=self.timeout_seconds,
             cwd=fixture.root,
         )
         view = client.status()
@@ -801,7 +803,9 @@ class RealCheckpointFlow(unittest.TestCase):
         fixture.env["AUTOCODE_FIXTURE_MODE"] = "no-human"
         fixture.launch(["Build greeting", "--chat"], 2, answers="CLI\nno\n")
         run, state = fixture.saved()
-        client = TaskRun(fixture.project, run, command=tuple(fixture.entry), env=fixture.env, timeout=60)
+        client = TaskRun(
+            fixture.project, run, command=tuple(fixture.entry), env=fixture.env, timeout=self.timeout_seconds
+        )
         client.approve_plan(state["displayed_goal"])
         for _ in range(3):
             fixture.launch(["--run-dir", str(run), "--resume-paused", "--pause-after-stage", "--no-chat"], 2)
