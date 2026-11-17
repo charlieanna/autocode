@@ -10,6 +10,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import autocode_replay_bindings as bindings
 import autocode_replay_recording as recording
 import autocode_util as util
 
@@ -53,6 +54,12 @@ def make_recording(directory, *, payload=b"print('hello')\n", head="a" * 40):
 
 
 class RecordingValidationTests(unittest.TestCase):
+    def test_report_repair_grant_is_rederived_from_replay_inputs(self):
+        recorded = {"original": {"output": "/old/run/report.json"}, "attempts": 1}
+        replayed = {"original": {"output": "/new/run/report.json"}, "attempts": 1}
+        self.assertNotEqual(bindings.report_repair_grant(recorded), bindings.report_repair_grant(replayed))
+        self.assertEqual(util.digest(replayed), bindings.report_repair_grant(replayed))
+
     def test_planning_and_review_policy_survives_recording_without_transport_authority(self):
         settings = {
             **self.document["launch"]["settings"],

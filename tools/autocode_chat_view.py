@@ -329,6 +329,7 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
             messages.append(
                 {
                     "id": f"{REQUIREMENTS_SAY}-{hashlib.sha256(spoken.encode()).hexdigest()[:12]}",
+                    "format": "plain",
                     "role": "assistant",
                     "text": spoken,
                 }
@@ -338,7 +339,9 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
             # Each question is its own message: a client shows a message id once, so a shared id
             # hid every Requirements question after the first (#1792).
             key = hashlib.sha256(json.dumps([asked, text]).encode()).hexdigest()[:12]
-            messages.append({"id": f"{REQUIREMENTS_QUESTION}-{key}", "role": "assistant", "text": text})
+            messages.append(
+                {"id": f"{REQUIREMENTS_QUESTION}-{key}", "role": "assistant", "text": text, "format": "plain"}
+            )
     action = None
     blocker_hold = False  # an answered semantic blocker waiting for its contract decision (#2434)
     # A completed stage record may remain as active_stage: use the public

@@ -286,7 +286,7 @@ export interface StatusView {
   /** Structured current-turn Requirements handoff (#3650), or null before the turn has one. */
   requirements?: RequirementsView | null;
   chat?: {
-    messages: { id: string; role: string; text: string; streaming?: boolean }[];
+    messages: { id: string; role: string; text: string; streaming?: boolean; format?: string }[];
     phase?: "requirements" | null;
     notice?: string | null;
     /** Core-authored activity and recent attempt descriptions; display text only. */

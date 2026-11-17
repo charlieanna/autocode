@@ -52,6 +52,10 @@ class GradeTests(unittest.TestCase):
         # "other.py" appears under Required behaviors only.
         self.assertNotIn("other.py", graded("P3", plan())["changed_files"])
 
+    def test_escaped_markdown_deliverables_are_counted(self):
+        review = plan(files=(), deliverables=r"- tests/\_\_init\_\_\.py")
+        self.assertIn("__init__.py", planner_probe.changed_files(review))
+
     def test_a_criterion_checked_by_reading_fails_but_a_test_command_or_unchanged_file_does_not(self):
         criteria = [
             {"id": "AC1", "criterion": "returns 0.0", "verification_method": "test: test_empty"},

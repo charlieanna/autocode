@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_acceptance_provenance as provenance
     from . import autocode_acceptance_tests as acceptance
     from . import autocode_contract_identity as identity
     from . import autocode_planning_advice as recovery_binding
@@ -23,6 +24,7 @@ try:
     from . import autocode_source_scope as source_scope
     from . import autocode_util as util
 except ImportError:
+    import autocode_acceptance_provenance as provenance
     import autocode_acceptance_tests as acceptance
     import autocode_contract_identity as identity
     import autocode_planning_advice as recovery_binding
@@ -150,8 +152,6 @@ def dispatch(runtime, state: RunState, stage, workspace, run_dir, *, apply):
         if type(attempts) is not int or attempts < 0:
             raise ValueError("The saved acceptance verification retry count is invalid")
         diagnosis = _diagnosed_retry(state, pending) if attempts >= LIMIT else None
-        if attempts >= LIMIT and not diagnosis:
-            raise ValueError("The bounded acceptance verification retry is exhausted")
         if (
             set(pending["pins"]) != {record[key] for key in ARTIFACTS}
             or not _record_current(state, record, workspace)
@@ -161,9 +161,21 @@ def dispatch(runtime, state: RunState, stage, workspace, run_dir, *, apply):
         value = runtime.load_stage_report(record, workspace, state=state)
         if value != pending["value"]:
             raise ValueError("Retained acceptance report no longer matches its validated value")
+        passing = value.get("already_passing") or []
+        passing_ids = {row.get("case_id") for row in passing if isinstance(row, dict)}
+        inherited = (
+            provenance.inherited_cases(state, reports=value.get("tests"), workspace=workspace)
+            if attempts >= LIMIT and not diagnosis and not pending.get("provenance_retry") and passing_ids
+            else set()
+        )
+        provenance_retry = bool(passing_ids and len(passing_ids) == len(passing) and passing_ids <= inherited)
+        if attempts >= LIMIT and not diagnosis and not provenance_retry:
+            raise ValueError("The bounded acceptance verification retry is exhausted")
         pending["attempts"] += 1
         if diagnosis:
             pending.setdefault("investigations", []).append(diagnosis)
+        if provenance_retry:
+            pending["provenance_retry"] = True
         checking = True
         state.setdefault("reconciliation_notes", []).append(
             {

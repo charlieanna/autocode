@@ -652,6 +652,7 @@ class ChatViewTests(unittest.TestCase):
                 result = chat.project(state, public, workspace="/ws", run_dir="/run")
                 [message] = result["messages"]
                 self.assertTrue(message["id"].startswith("requirements-question-"))
+                self.assertEqual("plain", message["format"])
                 self.assertEqual(question, result["messages"][0]["text"])
                 self.assertIsNone(result["input"])
 
@@ -860,7 +861,9 @@ class ChatViewTests(unittest.TestCase):
                 {"kind": "answer", "question_id": "q-name", "question": {"question": "Name?"}, "text": "plan"},
             ],
         }
-        texts = [row["text"] for row in self.project(state, "done", True)["messages"]]
+        messages = self.project(state, "done", True)["messages"]
+        self.assertEqual("plain", next(row for row in messages if row["text"] == "Does this match?")["format"])
+        texts = [row["text"] for row in messages]
         self.assertEqual(
             [
                 "Build greet.py",

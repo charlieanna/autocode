@@ -105,6 +105,15 @@ class AcceptanceFixture:
 
 
 class AcceptanceProvenanceTests(AcceptanceFixture, unittest.TestCase):
+    def test_completed_test_survives_a_corrected_description_and_citations(self):
+        row = self.state["goal_contract"]["body"]["acceptance_criteria"][0]
+        row["current_behavior"] = "The earlier delivery already excludes negative inputs."
+        row["sources"].append({"source_id": "feedback:turn", "quote": "Correct the current behavior"})
+        self.reseal()
+        self.assertEqual(
+            {"AC1"}, provenance.inherited_cases(self.state, reports=self.reports, workspace=self.workspace)
+        )
+
     def test_completed_turn_resolves_its_exact_approved_contract_without_mutation(self):
         before = copy.deepcopy(self.state)
         self.assertEqual(self.old, provenance.prior_contract(self.state))
@@ -277,6 +286,16 @@ class AcceptanceProvenanceTests(AcceptanceFixture, unittest.TestCase):
         )
         self.assertEqual("already passes", current_receipt["results"]["AC1"])
         self.assertEqual(before, self.state)
+
+    def test_third_turn_keeps_fail_first_origin_after_description_correction(self):
+        self.third_turn()
+        row = self.state["goal_contract"]["body"]["acceptance_criteria"][0]
+        row["current_behavior"] = "The earlier delivery already excludes negative inputs."
+        row["sources"].append({"source_id": "feedback:turn", "quote": "Clarify the baseline"})
+        old_event = self.state["goal_contract"]["approval_event"]
+        self.state["user_events"].remove(old_event)
+        self.state["goal_contract"] = seal(self.state["goal_contract"]["body"], 3, self.state["user_events"])
+        self.assertIn("AC1", provenance.inherited_cases(self.state, reports=self.reports, workspace=self.workspace))
 
     def test_third_turn_requires_the_exact_authenticated_completed_fail_first_origin(self):
         self.third_turn()

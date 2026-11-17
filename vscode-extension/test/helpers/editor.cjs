@@ -69,7 +69,8 @@ function editor() {
             html: '', messages: [],
             onDidReceiveMessage: (callback) => { receive = callback; },
             postMessage(message) { this.messages.push(message); this.deliver?.(message); return Promise.resolve(true); },
-            receive: (message) => receive?.(message),
+            receive: (message) => receive?.(_type === 'autocode.stages' && message.generation === undefined
+              ? { ...message, generation: panel.webview.messages.at(-1)?.generation } : message),
           },
         };
         panels.push(panel);

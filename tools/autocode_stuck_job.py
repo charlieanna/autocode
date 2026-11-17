@@ -84,6 +84,7 @@ try:
     from . import autocode_project_notes_lifecycle as project_notes
     from . import autocode_recovery_accounting as recovery_accounting
     from . import autocode_rejection_retry as rejection_retry
+    from . import autocode_replay_bindings as replay_bindings
     from . import autocode_report_repair_route as report_repair_route
     from . import autocode_resolve_repair_job as resolve_repair_job
     from . import autocode_role_transport as role_transport
@@ -108,6 +109,7 @@ except ImportError:
     import autocode_project_notes_lifecycle as project_notes
     import autocode_recovery_accounting as recovery_accounting
     import autocode_rejection_retry as rejection_retry
+    import autocode_replay_bindings as replay_bindings
     import autocode_report_repair_route as report_repair_route
     import autocode_resolve_repair_job as resolve_repair_job
     import autocode_role_transport as role_transport
@@ -893,6 +895,7 @@ def apply(
         # attempt redoing everything the earlier repairs already fixed and failing anew (#2066 rerun).
         state["pending_report_repair"] = {**pending, "attempts": pending["attempts"] - 1}
         entry["retry_as"] = "report_repair"
+        entry["repair_grant"] = replay_bindings.report_repair_grant(state["pending_report_repair"])
     elif pending:
         state.setdefault("report_repair_archive", []).append(
             {

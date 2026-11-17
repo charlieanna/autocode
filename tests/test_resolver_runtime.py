@@ -144,6 +144,55 @@ class ResolverRuntimeTests(unittest.TestCase):
             self.boundary()
         self.assertEqual([2], list(self.state["resolver"]["attempts"].values()))
 
+    def test_investigator_grants_one_report_repair_after_resolver_budget(self):
+        import autocode_stuck_job as stuck
+
+        from .test_stuck_job import report
+
+        pending = self.queue()
+        current_error = pending["error"]
+        pending["error"] = "An earlier rejected repair"
+        self.boundary()
+        pending["attempts"] = 1
+        self.boundary()
+        pending["attempts"] = 2
+        pending["error"] = current_error
+        self.state["next_stage"] = pending["original"]["stage"]
+        self.assertTrue(stuck.intercept(self.state, "PAUSED_INVALID_OUTPUT", "Invalid report"))
+        stuck.apply(
+            self.state,
+            report(evidence_refs=[pending["original"]["output"]]),
+            {"output": "investigation.json"},
+            self.root,
+        )
+        granted = copy.deepcopy(self.state)
+        for field in ("error", "attempts"):
+            with self.subTest(changed=field):
+                self.state = copy.deepcopy(granted)
+                self.state["pending_report_repair"][field] = "changed" if field == "error" else 0
+                with self.assertRaises(support.Paused):
+                    self.boundary()
+        for field, value in (("outcome", "paused"), ("retry_as", "stage"), ("repair_grant", "different")):
+            with self.subTest(investigation_field=field):
+                self.state = copy.deepcopy(granted)
+                self.state["stuck_investigations"][-1][field] = value
+                with self.assertRaises(support.Paused):
+                    self.boundary()
+        self.state = copy.deepcopy(granted)
+        self.state["resolver"]["attempts"] = "invalid ledger"
+        with self.assertRaises(support.Paused) as caught:
+            self.boundary()
+        self.assertEqual("PAUSED_RESOLVER_STATE", caught.exception.status)
+        self.state = copy.deepcopy(granted)
+        self.assertTrue(self.boundary())
+        self.assertEqual([2], list(self.state["resolver"]["attempts"].values()))
+        with patch.object(runner, "run_role", side_effect=RuntimeError("offline stop")) as launch:
+            with self.assertRaisesRegex(RuntimeError, "offline stop"):
+                runner.execute_report_repair(self.state, self.run, self.root)
+        self.assertTrue(launch.call_args.kwargs["report_only"])
+        with self.assertRaises(support.Paused):
+            self.boundary()
+
     def test_distinct_validator_originals_have_distinct_budgets(self):
         self.queue(role="tester", stage="tester", task_id="milestone-task")
         self.boundary()
