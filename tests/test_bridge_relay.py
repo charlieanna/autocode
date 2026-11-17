@@ -89,6 +89,15 @@ class RelayTests(unittest.TestCase):
         self.assertIn("`resume`", result.messages[0])
         self.assertEqual("resume", relay.interpret({"gate": result.gate}, view, "resume").kind)
 
+    def test_a_pause_relays_its_reason_without_the_command_an_operator_would_type(self):
+        reason = "Completed requirements_gather output was rejected (cites src/pricing/discount.py:5, which is outside the workspace); attempt archived. Resume explicitly with autocode resume to retry with a fresh request.\nInvestigator (paused): src/pricing/discount.py is a link out of the project. Needs you: Replace the link with the file itself."
+        view = {"status": "PAUSED_INVALID_OUTPUT", "needs": {"kind": "resume", "reason": reason}}
+        result = relay.relay(view, {"gate": {}})
+        self.assertNotIn("autocode resume", result.messages[0])
+        self.assertIn("Needs you: Replace the link with the file itself.", result.messages[0])
+        self.assertIn("Reply `resume`", result.messages[0])
+        self.assertIn("autocode resume", relay.gate_key(view), "the gate's identity keeps the whole reason")
+
     def test_completion_relays_once(self):
         view = {"status": "COMPLETE", "done": True, "evidence": {"outcome": "delivered"}}
         result = relay.relay(view, {"gate": {}})
