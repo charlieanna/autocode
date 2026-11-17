@@ -867,7 +867,7 @@ def _moved(backend, saved, fallback, options) -> dict:
     fixed = {role for role in saved if saved[role]["model"] in listed}
     settled = {role for role in ORDER if route[role].get("model") in listed}
     queue = [role for role in ORDER if role not in settled]
-    moved = {}
+    moved: dict[str, dict] = {}
     for _attempt in range(len(ORDER) * max(len(options), 1) + 1):
         if not queue:
             return moved
