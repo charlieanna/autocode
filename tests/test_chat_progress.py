@@ -74,6 +74,8 @@ class ChatProgressTests(unittest.TestCase):
         for reason in (
             "ambiguity_audit.compatibility_and_callers entry R6 is not a file in the workspace",
             "source_trace.requirement_refs is missing an entry",
+            "Plan revision reference is stale, malformed or not a Planner revision "
+            "[plan_revision_reference:unexpected_reference_fields]",
             "Refreshed handoff dropped R1 without a user-backed omission in ignored_requirements; "
             'previous source_quote: "The request"; candidate user_feedback:feedback-123',
         ):

@@ -41,6 +41,7 @@ _SCHEMA_SUMMARY = "The answer was not in the format AutoCode requires"
 # Keep the raw rejection in the attempt evidence; summarize it in person-facing views.
 _INTERNAL_FIELD_PATH = re.compile(r"\b[a-z][a-z0-9_]*_[a-z0-9_]+\.[a-z][a-z0-9_]*_[a-z0-9_]+\b")
 _INTERNAL_FIELD_WORD = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b")
+_DIAGNOSTIC_CODE = re.compile(r"\[[a-z][a-z0-9_]*:[a-z][a-z0-9_]*\]$")
 # "Completed terra output was rejected (WHY); attempt archived. ..." keeps only WHY.
 _REJECTED = re.compile(r"^Completed \w+ output was rejected \((?P<why>.+)\)(?:;|\.|$)", re.S)
 # autocode_requirement_quotes.unsupported: requirements whose quote is not the person's own words.
@@ -171,7 +172,7 @@ def _is_schema_rejection(text: str) -> bool:
     return rejection_classes.is_schema_rejection(text)
 
 
-def _plain(text, limit=TEXT):
+def _plain(text, limit=TEXT, *, chat=False):
     """Redacted, bounded prose without a sentence that names an internal command."""
     if not isinstance(text, str) or not text.strip():
         return None
@@ -194,7 +195,8 @@ def _plain(text, limit=TEXT):
         summary = _summarize_schema(text)
         if summary:
             return summary
-    if _INTERNAL_FIELD_PATH.search(text) or len(set(_INTERNAL_FIELD_WORD.findall(text))) >= 2:
+    fields = text if chat else _DIAGNOSTIC_CODE.sub("", text)
+    if _INTERNAL_FIELD_PATH.search(fields) or len(set(_INTERNAL_FIELD_WORD.findall(fields))) >= 2:
         return "The answer did not meet AutoCode's report checks."
     kept = [sentence for sentence in _SENTENCE.split(text) if not _COMMAND.search(sentence)]
     text = util.redact(" ".join(kept).strip())
@@ -211,7 +213,7 @@ def explain(text) -> str | None:
     "answer rejected" and "needs correction" (2026-11-11), so a person waiting twelve minutes on
     Requirements could not tell what went wrong.
     """
-    return _plain(text)
+    return _plain(text, chat=True)
 
 
 def _times(count):
