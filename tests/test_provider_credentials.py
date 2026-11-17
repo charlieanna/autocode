@@ -23,6 +23,7 @@ import provider_conformance_transport as conformance
 from tools.providers import command
 
 from . import test_subprocess
+from .operational_fixtures import assert_view_blocked
 
 ROLES = "\n[roles]\n" + "\n".join(
     f'{role} = {{ model = "demo/{"builder" if role == "builder" else "reviewer"}", effort = "medium" }}'
@@ -388,10 +389,13 @@ class ProviderCredentialCLI(unittest.TestCase):
         self.env["AUTOCODE_TEST_AUTH_ACCESS_DENIED"] = "1"
         run = self.start(timeout=300)
         view = run.status()
-        self.assertIn("account access denied (HTTP 403)", view["stop_reason"])
+        # Recovery of the launched attempt is exhausted, so nothing is asked (#3682), but the refused
+        # account is the person's to fix, so the view still names it.
+        assert_view_blocked(self, view, "PAUSED_PROVIDER_UNCERTAIN")
         self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", view["recovery"]["cause"], view["stop_reason"])
-        self.assertIn("no automatic replay", view["stop_reason"])
-        self.assertIn("account or organization", view["recovery"]["what_happened"])
+        self.assertIn(
+            "denied access for the selected account or organization (HTTP 403)", view["recovery"]["what_happened"]
+        )
         self.assertNotIn("private-auth-canary", view["stop_reason"])
         self.assertNotIn("private-auth-canary", json.dumps(view["recovery"]))
         calls = [json.loads(line) for line in self.log.read_text().splitlines()]

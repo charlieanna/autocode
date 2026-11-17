@@ -35,6 +35,23 @@ AUTH_FAILED = (
     "provider authentication failed (HTTP 401); check or refresh the selected provider's credentials before retrying"
 )
 AUTH_ACCESS_DENIED = "provider account access denied (HTTP 403); check the selected account's access"
+# What a person can do about each, in plain words. A refused account is theirs to fix, so it is named
+# even when AutoCode's own recovery of the attempt is exhausted and nothing else is asked (#3682).
+ACCOUNT_CAUSES = {
+    AUTH_FAILED: (
+        "The model provider rejected the saved credentials (HTTP 401): the key or sign-in has expired or "
+        "been revoked. Sign in to the backend again."
+    ),
+    AUTH_ACCESS_DENIED: (
+        "The model provider denied access for the selected account or organization (HTTP 403). "
+        "Check that this account is allowed to use the selected backend and model."
+    ),
+}
+
+
+def account_cause(text) -> str | None:
+    """The plain sentence for the core's own authentication diagnostic in ``text``, or None."""
+    return next((cause for diagnostic, cause in ACCOUNT_CAUSES.items() if diagnostic in str(text or "")), None)
 
 
 def authentication_reason(rows) -> str | None:
