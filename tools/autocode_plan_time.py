@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import copy
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_budget_state as budget_state
@@ -12,7 +16,7 @@ except ImportError:
     import autocode_goals as goals
 
 
-def change(runner, state, state_path, args) -> None:
+def change(runner, state: RunState, state_path, args) -> None:
     """Change only max_seconds; leave the displayed plan pending and launch no provider."""
     contract = state.get("goal_contract")
     if (
