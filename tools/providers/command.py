@@ -12,11 +12,13 @@ from __future__ import annotations
 try:
     from .. import autocode_access_identity as access_identity
     from .. import autocode_agent_env as agent_env
+    from .. import autocode_changed_code_review as changed_code_review
     from .. import autocode_prompts as prompts
     from .. import autocode_provider_env as provider_env
 except ImportError:
     import autocode_access_identity as access_identity
     import autocode_agent_env as agent_env
+    import autocode_changed_code_review as changed_code_review
     import autocode_prompts as prompts
     import autocode_provider_env as provider_env
 
@@ -409,7 +411,7 @@ class CommandProvider:
             "\nTOOL OUTPUT CONTRACT\n"
             + persistence
             + prompts.get("fragments/provider-command/prompt-for-schema-06.md")
-            + json.dumps(schema, indent=2)
+            + json.dumps(changed_code_review.prompt_order(schema), separators=(",", ":"))
             + "\n"
         )
         if not final_message:

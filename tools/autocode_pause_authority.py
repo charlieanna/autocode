@@ -34,11 +34,15 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_planning_feedback as planning_feedback
     from . import autocode_provider_refusal as provider_refusal
     from .autocode_goals import RESOLVER_PROPOSAL_KEY, RESOLVER_REQUEST_KEY
 except ImportError:
+    import autocode_planning_feedback as planning_feedback
     import autocode_provider_refusal as provider_refusal
     from autocode_goals import RESOLVER_PROPOSAL_KEY, RESOLVER_REQUEST_KEY
+
+planning_incident_acknowledges = planning_feedback.planning_incident_acknowledges
 
 # Every pause AutoResolver publishes an operational_exhaustion request for
 # (autocode_resolver_runtime.record_operational_exhaustion asks for these only).
@@ -289,6 +293,8 @@ def feedback_acknowledges(state: RunState, pause_status):
     fresh approval instead of queueing under the pause (#2434).
     """
     if pause_status in FEEDBACK_ACKNOWLEDGES:
+        return True
+    if planning_feedback.planning_report_stop(state, pause_status):
         return True
     if pause_status == state.get("status") and answered_blocker_decision(state):
         return True

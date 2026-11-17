@@ -482,7 +482,7 @@ def run_workers(state: RunState, run_dir, batch):
                     mode = "retry"
                 elif row["status"] == "PENDING":
                     mode = "start"
-                elif result.get("status") in ("BUILT", builder_policy.SERIAL):
+                elif result.get("status") in ("BUILT", builder_policy.SERIAL, builder_policy.SERIAL_USER_REQUEST):
                     if row["status"] == "RUNNING":  # saved by a controller that died; its worker was found gone above
                         row["status"] = result["status"]
                     continue
@@ -730,6 +730,21 @@ def deferred_worker(batch, row):
     return child
 
 
+def deferred_user_request_worker(batch, row):
+    """A worker whose assignment needed shared paths or a user decision, with untouched checkout."""
+    child = s.read(Path(row["run_dir"]) / "state.json")
+    request = (child.get("implementation") or {}).get("user_request") or {}
+    if (
+        child.get("goal_contract", {}).get("hash") != batch["contract_hash"]
+        or child.get("current_task") != row["task"]
+        or child.get("active_stage")
+        or request.get("kind", "none") == "none"
+    ):
+        raise s.Paused("PAUSED_ORCHESTRATOR_WORKER", "Builder changed its assignment or requested a user decision")
+    check_deferred_checkout(batch, row)
+    return child
+
+
 def retire_deferred(batch, workspace):
     # A crash can leave live checkouts alongside relocated records; validate source without child state.
     for row in batch["workers"]:
@@ -755,7 +770,10 @@ def collect(state: RunState, workspace, run_dir, batch):
             raise s.Paused("PAUSED_ORCHESTRATOR_WORKER", f"Builder {row['milestone_id']} needs inspection: {directory}")
         result = s.read(result_path)
         if result.get("status") == builder_policy.SERIAL:
-            deferred.append((row, deferred_worker(batch, row)))
+            deferred.append((row, deferred_worker(batch, row), builder_policy.SERIAL))
+            continue
+        if result.get("status") == builder_policy.SERIAL_USER_REQUEST:
+            deferred.append((row, deferred_user_request_worker(batch, row), builder_policy.SERIAL_USER_REQUEST))
             continue
         stopped = worker_quota.stop(state, row, result, directory)  # quota or a refusal: route-builder (#458, #465)
         if stopped:
@@ -831,10 +849,11 @@ def collect(state: RunState, workspace, run_dir, batch):
             "Parent source changed during the build; parent files and Builder worktrees retained",
         )
     # Deferred members are left out of the patch; the parent builds each one serially later.
-    for row, child in deferred:
-        builder_policy.adopt(state, child)
-        row["status"] = builder_policy.SERIAL
-    batch["deferred"] = [row["milestone_id"] for row, _ in deferred]
+    for row, child, deferred_status in deferred:
+        if deferred_status == builder_policy.SERIAL:
+            builder_policy.adopt(state, child)
+        row["status"] = deferred_status
+    batch["deferred"] = [row["milestone_id"] for row, _, _ in deferred]
     if len(deferred) == len(batch["workers"]):
         # Dispatch replays retirement from this journal without rereading removed worker checkouts.
         batch["status"] = "DEFERRING"
@@ -1083,6 +1102,8 @@ def member_retry_refusal(state: RunState, selected, *, issued=None):
             return ValueError(f"Builder {mid} already completed; its work will be retained")
         if saved.get("status") == builder_policy.SERIAL:
             return ValueError(f"Builder {mid} left its stronger attempt to a serial build after this batch")
+        if saved.get("status") == builder_policy.SERIAL_USER_REQUEST:
+            return ValueError(f"Builder {mid} deferred its shared-change request to a serial build after this batch")
         refused = worker_quota.refused_retry(state, rows[mid], saved, asked=asked)
         if refused:
             return refused

@@ -22,8 +22,10 @@ try:
     from . import autocode_builder_policy as builder_policy
     from . import autocode_internal_failure_view as operational_block
     from . import autocode_member_stop as member_stop
+    from . import autocode_pause_authority as pause_authority
     from . import autocode_provider_auth as provider_auth
     from . import autocode_quota_route as quota_route
+    from . import autocode_recovery_limits as recovery_limits
     from . import autocode_run_messages as run_messages
     from . import autocode_stop as stop
     from .autocode_role_names import role_name
@@ -32,8 +34,10 @@ except ImportError:
     import autocode_builder_policy as builder_policy
     import autocode_internal_failure_view as operational_block
     import autocode_member_stop as member_stop
+    import autocode_pause_authority as pause_authority
     import autocode_provider_auth as provider_auth
     import autocode_quota_route as quota_route
+    import autocode_recovery_limits as recovery_limits
     import autocode_run_messages as run_messages
     import autocode_stop as stop
     from autocode_role_names import role_name
@@ -653,13 +657,22 @@ def project(state: RunState, need=None):
             )
         )
     elif need.get("action") == "--resume-paused" and state.get("pending_report_repair"):
-        actions.append(
-            _action(
-                "resume",
-                "Validate the edited source",
-                "Archive the stale report repair and collect fresh evidence. Existing limits and approvals still apply.",
+        if need.get("retry_unavailable"):
+            actions.append(
+                _action(
+                    "resume",
+                    "Resume report repair",
+                    "Continue the bounded report repair before retrying the stage. Existing limits and approvals still apply.",
+                )
             )
-        )
+        else:
+            actions.append(
+                _action(
+                    "resume",
+                    "Validate the edited source",
+                    "Archive the stale report repair and collect fresh evidence. Existing limits and approvals still apply.",
+                )
+            )
     elif need.get("action") == accepted_source.COMMAND:
         actions.append(
             _action(
@@ -686,9 +699,10 @@ def project(state: RunState, need=None):
                 "Authorize exactly one more attempt of the held step; a plain resume would hold again. Saved attempts and evidence are kept; existing limits, approvals and verification gates still apply.",
             )
         )
-    elif cause == "PAUSED_REPEATED_FAILURE" and not any(
-        state.get(key)
-        for key in ("active_stage", "active_runner_check", "uncertain_artifacts", "pending_report_repair")
+    elif (
+        cause == "PAUSED_REPEATED_FAILURE"
+        and not state.get("active_runner_check")
+        and not recovery_limits.repeated_failure_retry_refusal(state)
     ):
         actions.append(
             _action(
@@ -755,11 +769,12 @@ def project(state: RunState, need=None):
             "Retry only this stopped batch member. Completed members and their work are kept. The runner rechecks worker liveness and the approved batch.",
         )
         actions.append(_action("retry_builder", label, effect, milestone_ids=[member]))
-    actions.append(
-        _action(
-            "feedback",
-            "Explain what should change",
-            "Draft corrective information in chat. Sending it follows the existing confirmation or current-request path.",
+    if not pause_authority.feedback_refusal(state):
+        actions.append(
+            _action(
+                "feedback",
+                "Explain what should change",
+                "Draft corrective information in chat. Sending it follows the existing confirmation or current-request path.",
+            )
         )
-    )
     return result

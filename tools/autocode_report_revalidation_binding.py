@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import copy
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -42,3 +42,28 @@ def context(state: RunState, stage):
             },
         }
     )
+
+
+def matches(state: RunState, stage, saved, original) -> bool:
+    """Whether ``saved`` binds this handoff, disregarding the runner's own route climb since then.
+
+    After a rejected report the runner may climb its stage's route (a higher reasoning level for the
+    next attempt). That route never produced the saved report: the original record's
+    ``launch_route`` did. Read the context with that recorded route, so a validator fixed after the
+    climb re-checks the saved report instead of paying for a fresh attempt (#3735). Every other
+    input, and the pins, source and contract checks, stay exact.
+    """
+    if not saved:
+        return False
+    if saved == context(state, stage):
+        return True
+    route = original.get("launch_route") if isinstance(original, dict) else None
+    role = original.get("role") if isinstance(original, dict) else None
+    roles = (state.get("settings") or {}).get("roles")
+    if not isinstance(route, dict) or not isinstance(role, str) or not isinstance(roles, dict) or role not in roles:
+        return False
+    recorded = cast(
+        "RunState",
+        {**state, "settings": {**state["settings"], "roles": {**roles, role: copy.deepcopy(route)}}},
+    )
+    return saved == context(recorded, stage)

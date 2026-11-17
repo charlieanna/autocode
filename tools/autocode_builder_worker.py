@@ -43,6 +43,27 @@ except ImportError:
     import autocode_worker_quota as worker_quota
 
 
+def _untouched_checkout(state: RunState, current: dict) -> bool:
+    parent_dir = state.get("parent_run")
+    parent_state = Path(str(parent_dir)) / "state.json" if parent_dir else None
+    batch = (
+        (runner.read_json(parent_state).get("orchestration_batch") or {})
+        if parent_state and parent_state.is_file()
+        else {}
+    )
+    if batch:
+        expected = {p: h for p, h in (batch.get("baseline") or {}).get("files", {}).items() if h != "deleted"}
+        return bool(
+            batch.get("id") == state.get("parent_batch")
+            and current["head"] == batch.get("base_commit")
+            and current["files"] == expected
+        )
+    return bool(
+        not (state.get("implementation") or {}).get("changed_files")
+        and current["revision"] == (state.get("current_task") or {}).get("source_revision")
+    )
+
+
 def execute(state: RunState, directory, workspace, mode):
     operational_block.guard(runner, state, directory, workspace)
 
@@ -128,6 +149,20 @@ def execute(state: RunState, directory, workspace, mode):
         require_running()
     if mode == "retry":
         runner.prepare_exhausted_execution_report_retry(state, directory, workspace)
+        saved_impl = state.get("implementation")
+        if isinstance(saved_impl, dict) and (saved_impl.get("user_request") or {}).get("kind", "none") != "none":
+            current = source_scope.snapshot(workspace, state, base_snapshot=runner.support.snapshot)
+            if not _untouched_checkout(state, current) or current["revision"] != saved_impl.get("source_revision"):
+                state.pop("implementation", None)
+                state.pop("agent_request", None)
+                state["next_stage"] = "builder"
+                state.setdefault("reconciliation_notes", []).append(
+                    {
+                        "at": runner.now(),
+                        "stage": "builder",
+                        "reason": "Explicit parallel Builder retry cleared prior user_request on modified worktree",
+                    }
+                )
         state["status"] = "RUNNING"
     repair_reports()
     if (
@@ -221,16 +256,24 @@ def execute(state: RunState, directory, workspace, mode):
         return execute(state, directory, workspace, "retry")
     implementation = cast(dict, state.get("implementation", {}))
     runner.goals.execution_guard(state, implementation)
+    current = source_scope.snapshot(workspace, state, base_snapshot=runner.support.snapshot)
+    if implementation.get("source_revision") != current["revision"]:
+        raise runner.support.Paused("PAUSED_ORCHESTRATOR_DRIFT", "Builder source changed after its result")
     request = implementation.get("user_request", {})
     if request.get("kind") != "none":
-        raise runner.support.Paused(
-            "PAUSED_ORCHESTRATOR_WORKER", request.get("decision_needed", "Builder needs a user decision")
+        if not _untouched_checkout(state, current):
+            raise runner.support.Paused(
+                "PAUSED_ORCHESTRATOR_WORKER", request.get("decision_needed", "Builder needs a user decision")
+            )
+        reason = request.get("decision_needed") or "Builder requested shared changes; deferring to serial execution"
+        serial_status = runner.autopilot.builder_policy.SERIAL_USER_REQUEST
+        state.update({"status": serial_status, "next_stage": None, "stop_reason": reason})
+        runner.write_json(directory / "state.json", state)
+        runner.write_json(
+            directory / "result.json",
+            {"status": serial_status, "reason": reason, "report": state["stages"][-1]["output"]},
         )
-    if (
-        implementation.get("source_revision")
-        != source_scope.snapshot(workspace, state, base_snapshot=runner.support.snapshot)["revision"]
-    ):
-        raise runner.support.Paused("PAUSED_ORCHESTRATOR_DRIFT", "Builder source changed after its result")
+        return
     state.update({"status": "BUILT", "next_stage": None})
     runner.write_json(directory / "state.json", state)
     runner.write_json(directory / "result.json", {"status": "BUILT", "report": state["stages"][-1]["output"]})

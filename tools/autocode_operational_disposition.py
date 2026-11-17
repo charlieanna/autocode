@@ -466,7 +466,10 @@ def planning_input(state: RunState, row, *, _ledger=None):
     """A committed owner correction to this planning incident, never a flag or answer."""
     detail = original_detail(state, row, _ledger=_ledger)
     evidence, binding = detail.get("evidence") or {}, detail.get("evaluation_binding") or {}
-    if evidence.get("status") not in pause_authority.FEEDBACK_ACKNOWLEDGES or not same_run(state, binding):
+    if not (
+        evidence.get("status") in pause_authority.FEEDBACK_ACKNOWLEDGES
+        or pause_authority.planning_incident_acknowledges(evidence, binding)
+    ) or not same_run(state, binding):
         return None
     contract = binding.get("contract")
     if not (
@@ -516,9 +519,93 @@ def recovery_facts(state: RunState, row, selection, result, *, _ledger=None):
     return owner_outcome.read(state, result)
 
 
-def checked_recovery(state: RunState, row):
+_ROUTE_ONLY_KEYS = frozenset(
+    {
+        "roles",
+        "route_origins",
+        "effort_origins",
+        "effort_fits",
+        "stuck_investigation",
+        "declared_variants",
+        "certified_variants",
+    }
+)
+
+
+def _route_only_settings_change(previous: dict, selected: dict) -> bool:
+    """True only when ``previous`` and ``selected`` differ exclusively in model/effort route fields."""
+    if not isinstance(previous, dict) or not isinstance(selected, dict):
+        return False
+    if {k: v for k, v in previous.items() if k not in _ROUTE_ONLY_KEYS} != {
+        k: v for k, v in selected.items() if k not in _ROUTE_ONLY_KEYS
+    }:
+        return False
+    prev_roles, sel_roles = previous.get("roles") or {}, selected.get("roles") or {}
+    if not isinstance(prev_roles, dict) or not isinstance(sel_roles, dict) or prev_roles.keys() != sel_roles.keys():
+        return False
+    for role, prev_cfg in prev_roles.items():
+        sel_cfg = sel_roles[role]
+        if not isinstance(prev_cfg, dict) or not isinstance(sel_cfg, dict):
+            return False
+        changed = {k for k in prev_cfg.keys() | sel_cfg.keys() if prev_cfg.get(k) != sel_cfg.get(k)}
+        if not changed <= {"model", "reasoning_effort"}:
+            return False
+    return True
+
+
+def _authenticated_recovery_settings(
+    state: RunState, expected_digest: str | None, later_events: list | None
+) -> dict | None:
+    """Return ``state['settings']`` as bound at ``recovery_checked`` when only authenticated route changes followed."""
+    if not isinstance(expected_digest, str) or later_events is None:
+        return None
+    current = state.get("settings", {})
+    if not isinstance(current, dict):
+        return None
+    if util.digest(current) == expected_digest:
+        return current
+    # Disallow any intervening human event other than explicit CLI route assignments.
+    if any(
+        isinstance(event, dict)
+        and event.get("actor") not in ("runner", "core", "autocode")
+        and not (event.get("kind") == quota_route.KIND and event.get("actor") == "user_cli")
+        for event in later_events
+    ):
+        return None
+    cursor = copy.deepcopy(current)
+    for entry in reversed(state.get("configuration_changes") or []):
+        if (
+            isinstance(entry, dict)
+            and entry.get("selected") == cursor
+            and isinstance(entry.get("previous"), dict)
+            and _route_only_settings_change(entry["previous"], cursor)
+        ):
+            cursor = copy.deepcopy(entry["previous"])
+            if util.digest(cursor) == expected_digest:
+                return cursor
+    for candidate in quota_route.unassigned_candidates(state, cursor, events=later_events):
+        if _route_only_settings_change(candidate, current) and util.digest(candidate) == expected_digest:
+            return candidate
+    return None
+
+
+def recovery_validation_state(state: RunState, row, observed) -> RunState:
+    """State view with pre-route-change settings when validating an immutable ``recovery_checked`` proof."""
+    receipt_id = (observed or {}).get("receipt_id") if isinstance(observed, dict) else None
+    witness = diagnostic(state, receipt_id) if isinstance(receipt_id, str) else None
+    if witness is None:
+        return state
+    checked_binding = (witness.get("receipt") or {}).get("evaluation_binding") or {}
+    later = _later_events(state, checked_binding)
+    prior_settings = _authenticated_recovery_settings(state, checked_binding.get("settings"), later)
+    if prior_settings is None or prior_settings is state.get("settings"):
+        return state
+    return {**state, "settings": prior_settings}
+
+
+def checked_recovery(state: RunState, row, *, _ledger=None):
     """A diagnostic is insufficient: its exact handler ledger must still agree."""
-    ledger = _Ledger(state)
+    ledger = _ledger or _Ledger(state)
     original = incident_identity(state, row, _ledger=ledger)
     detail = original_detail(state, row, _ledger=ledger)
     facts = detail.get("evidence") or {}
@@ -541,13 +628,20 @@ def checked_recovery(state: RunState, row):
             for key in ("task_id", "workspace", "run_dir", "current_task", "contract")
         ):
             continue
-        if (
-            checked_binding.get("settings") != util.digest(state.get("settings", {}))
-            or checked_binding.get("next_stage") != state.get("next_stage")
-            or _later_events(state, checked_binding, _ledger=ledger) is None
-        ):
+        later = _later_events(state, checked_binding, _ledger=ledger)
+        if checked_binding.get("next_stage") != state.get("next_stage") or later is None:
             continue
-        current = recovery_facts(state, row, evidence.get("selection"), evidence.get("result"), _ledger=ledger)
+        prior_settings = _authenticated_recovery_settings(state, checked_binding.get("settings"), later)
+        if prior_settings is None:
+            continue
+        prior_state = state if prior_settings is state.get("settings") else {**state, "settings": prior_settings}
+        current = recovery_facts(
+            prior_state,
+            row,
+            evidence.get("selection"),
+            evidence.get("result"),
+            _ledger=ledger,
+        )
         if current is not None and current == evidence.get("facts"):
             return {
                 "receipt_id": identity,
@@ -580,17 +674,41 @@ def decision(state: RunState):
 
 
 def presentation(state: RunState):
-    current = decision(state)
-    if stop.applied_stop(state) or current is None:
+    ledger = _Ledger(state)
+    rows = incidents(state, _ledger=ledger)
+    if stop.applied_stop(state) or not rows:
         return None
-    if current["kind"] == "planning_input" and state.get("status") in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL"):
-        # Only existing genuine decision readers may publish their named action.
-        # An otherwise idle input receipt creates no Resume or new composer.
+    same_ctx = lambda row: all(  # noqa: E731
+        ((row.get("receipt") or {}).get("evaluation_binding") or {}).get(key) == value
+        for key, value in (
+            ("task_id", state.get("task_id")),
+            ("task", state.get("task")),
+            ("workspace", state.get("workspace")),
+            ("run_dir", state.get("run_dir")),
+            ("current_task", util.digest(state.get("current_task"))),
+        )
+    )
+    abandoned_ready = state.get("status") == "PAUSED_STAGE_ABANDONED"
+    unresolved = [
+        row
+        for row in rows
+        if planning_input(state, row, _ledger=ledger) is None
+        and not (
+            abandoned_ready
+            and same_ctx(row)
+            and (checked := checked_recovery(state, row, _ledger=ledger)) is not None
+            and checked.get("selection") == "abandon"
+        )
+    ]
+    if not unresolved and (abandoned_ready or state.get("status") in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL")):
+        # Only existing genuine decision readers (or an explicit PAUSED_STAGE_ABANDONED
+        # settlement whose stage abandonment is already verified) may publish their named action.
+        # An otherwise idle input or internal-allowance receipt creates no Resume or new composer.
         return None
     # The job and the reason come from the incident's saved facts, else the run's own stage and status.
     # The runner's rationale names a refused account with the core's fixed diagnostic, never the
     # provider's message; the person sees that much, since only they can fix their account.
-    record = current["record"]
+    record = unresolved[0] if unresolved else rows[0]
     facts = (record.get("receipt") or {}).get("evidence") or {}
     stage = facts.get("stage") or (state.get("active_stage") or {}).get("stage") or state.get("next_stage")
     status = facts.get("status") or state.get("status")

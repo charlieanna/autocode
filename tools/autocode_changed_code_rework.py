@@ -7,6 +7,9 @@ new retry allowance, route, approval or person question is manufactured here.
 
 from __future__ import annotations
 
+import copy
+import json
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -140,6 +143,10 @@ def route(state: RunState, record, *, investigation_enabled, rejected=()):
     )
     if event["action"] == "builder":
         state["iteration"] += 1
+    elif any(row.get("investigation") for row in previous) and builder_failure.policy.execution_exhausted(
+        state, record.get("output"), changed_code_evidence=assessment
+    ):
+        builder_failure.policy.failure(state, record.get("output"), reason, classification="execution")
     else:
         evidence = builder_failure.evidence(state, record, diagnosis={"changed_code_evidence": assessment})
         builder_failure.queue(
@@ -273,3 +280,223 @@ def owns_builder_round(state: RunState, revision):
         and (last.get("task_id"), last.get("contract_hash"), last.get("contract_revision"))
         == (task.get("id"), contract.get("hash"), contract.get("revision"))
     )
+
+
+def reconcile_classified_hold(state: RunState, workspace, *, route, prior_next_action: str | None = None) -> bool:
+    """Reconcile a saved PAUSED_BUILDER_CLASSIFICATION hold whose changed-code Investigator already returned retry."""
+    held = state.get("builder_failure_hold")
+    if (
+        not isinstance(held, dict)
+        or held.get("status") != "PAUSED_BUILDER_CLASSIFICATION"
+        or held.get("classification_retry")
+        or state.get("next_stage") != "builder"
+        or any(
+            state.get(key)
+            for key in (
+                "active_stage",
+                "uncertain_artifacts",
+                "pending_report_repair",
+                "pending_builder_failure",
+                "stuck_investigation",
+            )
+        )
+    ):
+        return False
+    failure_id, bound = held.get("failure_id"), held.get("binding")
+    if not isinstance(failure_id, str) or not failure_id or not isinstance(bound, dict):
+        return False
+    entry = next(
+        (
+            row
+            for row in reversed(state.get("stuck_investigations") or [])
+            if isinstance(row, dict) and row.get("identity") == "builder-failure:" + failure_id
+        ),
+        None,
+    )
+    output_path = entry.get("output") if isinstance(entry, dict) else None
+    if (
+        entry is None
+        or entry.get("outcome") != "classified"
+        or entry.get("failure_class") != "unknown"
+        or entry.get("cause") == "needs_user"
+        or not isinstance(entry.get("guidance"), str)
+        or not entry["guidance"].strip()
+        or not isinstance(output_path, str)
+        or not Path(output_path).is_file()
+    ):
+        return False
+    try:
+        saved_report = json.loads(Path(output_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return False
+    refs = saved_report.get("evidence_refs") if isinstance(saved_report, dict) else None
+    allowed_hashes = bound.get("evidence_hashes")
+    if (
+        not isinstance(saved_report, dict)
+        or saved_report.get("recommendation") != "retry"
+        or saved_report.get("failure_id") != failure_id
+        or not isinstance(refs, list)
+        or not refs
+        or not isinstance(allowed_hashes, dict)
+        or not set(refs) <= set(allowed_hashes)
+    ):
+        return False
+    rework_row = next(
+        (
+            row
+            for row in reversed(state.get("regression_proofs") or [])
+            if isinstance(row, dict)
+            and row.get("kind") == "changed_code_rework"
+            and row.get("action") == "investigator"
+            and not row.get("investigation")
+            and row.get("review_output") == bound.get("output")
+            and row.get("source_revision") == bound.get("source_revision")
+        ),
+        None,
+    )
+    if rework_row is None:
+        return False
+    review_record = next(
+        (
+            row
+            for row in reversed(state.get("stages") or [])
+            if isinstance(row, dict) and row.get("output") == bound.get("output")
+        ),
+        {
+            "output": bound.get("output"),
+            "task_id": bound.get("task_id"),
+            "source_revision": bound.get("source_revision"),
+        },
+    )
+    try:
+        builder_failure.guard(state, {"failure_evidence": {"binding": bound, "record": review_record}}, workspace)
+    except util.Paused:
+        return False
+    effective_class = "operational" if entry.get("cause") == "environment" else "execution"
+    entry["failure_class"] = effective_class
+    state.pop("builder_failure_hold", None)
+    ev = builder_failure.evidence(state, review_record)
+    ev["failure_id"] = failure_id
+    ev["binding"] = copy.deepcopy(bound)
+    ev["evidence_refs"] = list(allowed_hashes)
+    ev["changed_code_evidence"] = copy.deepcopy(rework_row.get("assessment"))
+    ev["diagnosis"] = {
+        **{
+            key: saved_report[key]
+            for key in (
+                "failure_id",
+                "evidence_refs",
+                "diagnosis",
+                "guidance",
+                "example",
+                "recommendation",
+                "cause",
+                "user_question",
+            )
+            if key in saved_report
+        },
+        "failure_class": effective_class,
+    }
+    reason = str((rework_row.get("assessment") or {}).get("reason") or entry.get("reason") or "")
+    if not state.get("next_action"):
+        state["next_action"] = prior_next_action or reason
+    action = route(state, ev, reason)
+    if state.get("status") != "RUNNING":
+        run_status.running(
+            state,
+            "EXECUTING",
+            next_stage="builder",
+            next_action=state.get("next_action") or prior_next_action or reason,
+        )
+    diagnosed(state, ev, ev["diagnosis"], {"output": output_path, "source_revision": bound["source_revision"]}, action)
+    return True
+
+
+def reconcile_false_changed_code_stop(state: RunState, workspace) -> bool:
+    """Retire a pre-fix runner could_not_finish stop recorded after changed_code_rework progress."""
+    if state.get("status") != "PAUSED_INTERVENTION" or state.get("next_stage") != "builder":
+        return False
+    if any(
+        state.get(key)
+        for key in (
+            "active_stage",
+            "uncertain_artifacts",
+            "pending_report_repair",
+            "pending_builder_failure",
+            "stuck_investigation",
+        )
+    ):
+        return False
+    proof = state.get("regression_proof")
+    if not isinstance(proof, dict) or proof.get("verdict") != "PASS":
+        return False
+    try:
+        current_rev = builder_failure.source_scope.snapshot(workspace, state)["revision"]
+    except Exception:
+        return False
+    if not current_rev or proof.get("source_revision") != current_rev:
+        return False
+    rework_row = next(
+        (
+            row
+            for row in reversed(state.get("regression_proofs") or ())
+            if isinstance(row, dict)
+            and row.get("kind") == "changed_code_rework"
+            and row.get("action") == "investigator"
+            and not row.get("investigation")
+            and row.get("source_revision") == current_rev
+        ),
+        None,
+    )
+    if not isinstance(rework_row, dict):
+        return False
+    failure_output = rework_row.get("review_output")
+    if not isinstance(failure_output, str) or not failure_output:
+        return False
+    milestone_key = builder_failure.policy.key(state)
+    inv_entry = next(
+        (
+            row
+            for row in reversed(state.get("stuck_investigations") or ())
+            if isinstance(row, dict)
+            and row.get("trigger") == "builder_failure"
+            and row.get("outcome") == "classified"
+            and row.get("failure_class") == "execution"
+            and row.get("milestone_key") == milestone_key
+        ),
+        None,
+    )
+    if not isinstance(inv_entry, dict):
+        return False
+    inv_output = inv_entry.get("output")
+    if not isinstance(inv_output, str) or not Path(inv_output).is_file():
+        return False
+    try:
+        saved_inv = json.loads(Path(inv_output).read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return False
+    if (
+        not isinstance(saved_inv, dict)
+        or saved_inv.get("recommendation") != "retry"
+        or saved_inv.get("cause") == "needs_user"
+        or not isinstance(saved_inv.get("guidance"), str)
+        or not saved_inv["guidance"].strip()
+        or not isinstance(saved_inv.get("diagnosis"), str)
+        or not isinstance(saved_inv.get("evidence_refs"), list)
+    ):
+        return False
+    if not builder_failure.policy.reconcile_false_progress_stop(state, failure_output):
+        return False
+    reason = str((rework_row.get("assessment") or {}).get("reason") or inv_entry.get("reason") or "")
+    if not state.get("next_action"):
+        state["next_action"] = reason
+    diagnosed(
+        state,
+        {"record": {"output": failure_output}},
+        saved_inv,
+        {"output": inv_output, "source_revision": current_rev},
+        "retry",
+    )
+    state.pop("paused_at", None)
+    run_status.running(state, "EXECUTING", next_stage="builder", next_action=state.get("next_action") or reason)
+    return True

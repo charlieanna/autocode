@@ -1225,13 +1225,14 @@ def prepare_planning_retry(state: RunState, run_dir):
         # The existing next repair still has its original input. Preserve its
         # pins/usage/allowance; normal dispatch rechecks them before spending.
         return False
+    unlaunchable_pending = stage_stalls.exhausted_unlaunchable_pending(state)
     if pending:
         state.setdefault("report_repair_archive", []).append(
             {
                 "at": records.now(),
                 "reason": (
                     "Explicit fresh planning retry: the report repair cannot launch from its saved inputs"
-                    if status == "PAUSED_REPORT_REPAIR_INPUT"
+                    if status == "PAUSED_REPORT_REPAIR_INPUT" or unlaunchable_pending
                     else "Explicit fresh planning retry after rejected output"
                 ),
                 "repair": state.pop("pending_report_repair"),
@@ -1255,7 +1256,7 @@ def prepare_exhausted_execution_report_retry(state: RunState, run_dir, workspace
     ) or state.get("active_stage"):
         return False
     # A repair whose saved inputs exceed the handoff limits can never launch: it is spent.
-    unlaunchable = state["status"] == "PAUSED_REPORT_REPAIR_INPUT"
+    unlaunchable = state["status"] == "PAUSED_REPORT_REPAIR_INPUT" or stage_stalls.exhausted_unlaunchable_pending(state)
     pending = state.get("pending_report_repair")
     original = pending.get("original") if isinstance(pending, dict) else None
     if not isinstance(original, dict):
@@ -1293,7 +1294,7 @@ def prepare_exhausted_execution_report_retry(state: RunState, run_dir, workspace
         )
     ):
         return False
-    repeated = failures.repeated(state, original)
+    repeated = failures.repeated(state, original) or stage_stalls.retry_entry(state, original)
     if (
         repeated
         and not allow_repeated
@@ -1350,8 +1351,8 @@ def prepare_exhausted_execution_report_retry(state: RunState, run_dir, workspace
     return True
 
 
-RESTARTS_PER_SOURCE = 2
-CANNOT_LAUNCH = "the report repair cannot launch from its saved inputs"
+RESTARTS_PER_SOURCE = stage_stalls.RESTARTS_PER_SOURCE
+CANNOT_LAUNCH = stage_stalls.CANNOT_LAUNCH
 
 
 def restart_unlaunchable_repair(state: RunState, run_dir, workspace, error):
@@ -1374,17 +1375,18 @@ def restart_unlaunchable_repair(state: RunState, run_dir, workspace, error):
     stage = original.get("stage")
     # The person-facing resume route no longer applies: the runner takes that step itself.
     cause = str(error).replace(report_source.REPAIR_INPUT_ROUTE, "")
-    earlier = [
-        row
-        for row in state.get("report_repair_archive") or []
-        if CANNOT_LAUNCH in str(row.get("reason"))
-        and ((row.get("repair") or {}).get("original") or {}).get("stage") == stage
-        and ((row.get("repair") or {}).get("original") or {}).get("source_revision") == original.get("source_revision")
-    ]
+    earlier = stage_stalls.unlaunchable_repairs(state, str(stage), original.get("source_revision"))
     if len(earlier) >= RESTARTS_PER_SOURCE:
         message = (
             f"{roles.screen_name(str(stage), state)}'s report repair could not launch "
             f"{len(earlier) + 1} times on unchanged source; another identical attempt is not started. " + cause
+        )
+        state.setdefault("report_repair_archive", []).append(
+            {
+                "at": records.now(),
+                "reason": f"Unchanged repeated failure hold: {CANNOT_LAUNCH}",
+                "repair": state.pop("pending_report_repair"),
+            }
         )
         run_status.pause(state, "PAUSED_REPEATED_FAILURE", message, paused_at=records.now())
         records.write_json(run_dir / "state.json", state)
@@ -1413,6 +1415,110 @@ def restart_unlaunchable_repair(state: RunState, run_dir, workspace, error):
     run_status.running(state, "PLANNING" if planning_stage else "EXECUTING", next_stage=state.get("next_stage"))
     records.write_json(run_dir / "state.json", state)
     return True
+
+
+class _LaunchableRepairProbePassed(Exception):
+    """Internal sentinel proving a dry-probed report repair passes every pre-launch size/pin check."""
+
+
+def restore_launchable_unlaunchable_repair(runner, state: RunState, run_dir, workspace) -> bool:
+    """Re-queue an attempts=0 repair archived solely as unlaunchable when it now fits within launch bounds."""
+    archive = state.get("report_repair_archive")
+    if (
+        state.get("status") != "RUNNING"
+        or state.get("pending_report_repair")
+        or state.get("active_stage")
+        or not isinstance(archive, list)
+        or not archive
+    ):
+        return False
+    entry = archive[-1]
+    repair = entry.get("repair") if isinstance(entry, dict) else None
+    original = repair.get("original") if isinstance(repair, dict) else None
+    if (
+        not isinstance(entry, dict)
+        or entry.get("reason") != f"Unchanged repeated failure hold: {CANNOT_LAUNCH}"
+        or not isinstance(repair, dict)
+        or repair.get("attempts") != 0
+        or not isinstance(original, dict)
+        or original.get("stage") != state.get("next_stage")
+    ):
+        return False
+    probe_state = copy.deepcopy(state)
+    probe_state["pending_report_repair"] = copy.deepcopy(repair)
+
+    def _probe_run_role(
+        *, role, prompt, sandbox, workspace, run_dir, state: RunState, schema, model, allow_write, **kwargs
+    ):
+        original_stage = str(original["stage"])
+        stage = f"{original_stage}_report_repair"
+        iteration = state.get("iteration", 1)
+        attempt = 1 + sum(r.get("stage") == stage and r.get("iteration") == iteration for r in state.get("stages", []))
+        base = runner.artifacts.reserve(run_dir, iteration, stage, attempt)
+        output, events, prompt_file = (
+            base.with_suffix(".json"),
+            base.with_suffix(".jsonl"),
+            base.with_suffix(".prompt.md"),
+        )
+        route_role = runner.planning.route_for(state, original_stage, role)
+        adapter, _ = runner.role_transport.session_adapter(state, route_role, runner.opencode, workspace)
+        engine = runner.planning.engine_for(state["settings"], route_role)
+        route = state["settings"]["roles"][route_role]
+        effort = route.get("reasoning_effort")
+        _, _, _, worker_context = runner.provider_launch.prepare(
+            engine=engine,
+            adapter=adapter,
+            role=role,
+            route_role=route_role,
+            workspace=workspace,
+            run_dir=run_dir,
+            session=kwargs.get("resume_session"),
+            model=model,
+            effort=effort,
+            allow_write=allow_write,
+            planning=True,
+            report=output,
+            schema=schema,
+            prompt_file=prompt_file,
+            sandbox=sandbox,
+            transport_args=runner.support.transport_arguments(state["settings"]),
+            chatgpt=runner.planning.enabled(state),
+            provider=route.get("provider"),
+            enforce_tool_boundary=False,
+            source_paths=runner.source_scope.paths(state),
+            settings=state["settings"],
+            planning_report_recovery=True,
+            report_only=True,
+        )
+        if engine == "opencode":
+            prompt = runner.role_launch.decorate_prompt(
+                state, original_stage, workspace, adapter, prompt, schema, events, worker_context, run_dir=run_dir
+            )
+        if len(prompt.encode("utf-8")) > runner.REPAIR_HANDOFF_BYTES:
+            raise support.Paused("PAUSED_REPORT_REPAIR_INPUT", "Still exceeds repair handoff bytes")
+        if runner.prompt_bound.refusal(prompt, job=runner.autocode_status.role_name(stage, state)):
+            raise support.Paused(runner.prompt_bound.STATUS, "Exceeds prompt bound")
+        raise _LaunchableRepairProbePassed
+
+    saved_write = runner.write_json
+    saved_run_role = runner.run_role
+    saved_format = runner.format_correction.execute
+    try:
+        runner.write_json = lambda *_a, **_kw: None
+        runner.format_correction.execute = lambda *_a, **_kw: False
+        runner.run_role = _probe_run_role
+        runner._execute_report_repair(probe_state, run_dir, workspace)
+    except _LaunchableRepairProbePassed:
+        state["pending_report_repair"] = archive.pop()["repair"]
+        saved_write(run_dir / "state.json", state)
+        return True
+    except Exception:
+        return False
+    finally:
+        runner.write_json = saved_write
+        runner.run_role = saved_run_role
+        runner.format_correction.execute = saved_format
+    return False
 
 
 def stale_report_repair(state: RunState, workspace, *, revision=None):
@@ -1970,6 +2076,8 @@ def authorize_failure_retry(state: RunState, run_dir, workspace):
         issued and issued["scope"] == "operational_exhaustion" and issued_cause == "PAUSED_REPEATED_FAILURE"
     ):
         raise ValueError("--retry-failed-stage requires a run paused for repeated failure")
+    if stage_stalls.exhausted_unlaunchable_pending(state) and not prepare_planning_retry(state, run_dir):
+        prepare_exhausted_execution_report_retry(state, run_dir, workspace, allow_repeated=True)
     if refusal := recovery_limits.repeated_failure_retry_refusal(state):
         raise ValueError(refusal)
     frontier = failure_retry_frontier(state, workspace)

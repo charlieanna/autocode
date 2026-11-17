@@ -1673,7 +1673,8 @@ class RepairTests(unittest.TestCase):
         self.assertIn(error.exception.status, stuck_job.STATUSES)
         saved = support.read(self.run / "state.json")
         self.assertEqual("PAUSED_REPEATED_FAILURE", saved["status"])
-        self.assertIn("pending_report_repair", saved)
+        self.assertNotIn("pending_report_repair", saved)
+        self.assertEqual(stage_recovery.RESTARTS_PER_SOURCE + 1, len(saved["report_repair_archive"]))
 
     def test_latest_rejected_report_overflow_does_not_charge_second_attempt(self):
         self.queue()["attempts"] = 1

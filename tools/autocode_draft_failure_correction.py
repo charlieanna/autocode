@@ -15,11 +15,15 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_names as names
     from . import autocode_requirement_cues as cues
+    from . import autocode_roles as roles
     from . import autocode_source_log as source_log
     from . import autocode_util as util
 except ImportError:
+    import autocode_names as names
     import autocode_requirement_cues as cues
+    import autocode_roles as roles
     import autocode_source_log as source_log
     import autocode_util as util
 
@@ -28,6 +32,46 @@ COMPATIBILITY = "unapproved_bugfix_compatibility_inference"
 TARGETS = {"unapproved_model_inference": "important_failure_cases", COMPATIBILITY: "required_behaviors"}
 ORIGINS = {"planner_draft", "draft_plan", "revise_plan", "finalize_plan"}
 LISTS = ("required_behaviors", "scope_exclusions", "constraints", "permission_boundaries")
+PLANNING_RECOVERY_STAGES = frozenset((*roles.ALL_PLANNING_STAGES, "investigate_stuck", "resolve_repair"))
+PLANNING_RECOVERY_ROLES = frozenset(
+    {"requirements", "planner", "plan_reviewer", "task_planner", "investigator", "repair_resolver"}
+)
+# Structural fields and gate kinds that carry human input, approvals, external drift or execution scope.
+_NON_BOOKKEEPING_KEYS = frozenset(
+    {
+        "text",
+        "answer_id",
+        "question_id",
+        "questions",
+        "assumption_id",
+        "criterion",
+        "contract_token",
+        "contract_hash",
+        "contract_revision",
+        "milestone_id",
+        "milestone_ids",
+        "batch_id",
+        "compared_binding",
+        "paused_attempt_id",
+    }
+)
+_PERSON_OR_APPROVAL_KINDS = frozenset(
+    {
+        "goal_approval",
+        "workflow_approval",
+        "brief_feedback",
+        "answer",
+        "delegated",
+        "checkpoint_answer",
+        "permission_answer",
+        "reject_assumption",
+        "human_review",
+        "plan_message",
+        "gate_message",
+        "run_message",
+        "completion_accept",
+    }
+)
 SOURCES = (
     "task",
     "source_log",
@@ -55,6 +99,42 @@ RECEIPT_SCHEMA = {
     "required": list(RECEIPT_FIELDS),
     "additionalProperties": False,
 }
+
+
+def _planning_stage(stage) -> bool:
+    if not isinstance(stage, str) or not stage:
+        return False
+    return names.stage(stage.removesuffix("_report_repair")) in PLANNING_RECOVERY_STAGES
+
+
+def readonly_planning_runner_event(event) -> bool:
+    """Whether ``event`` is internal read-only planning runner bookkeeping rather than person input."""
+    if (
+        not isinstance(event, dict)
+        or event.get("actor") != "runner"
+        or not isinstance(event.get("kind"), str)
+        or not event["kind"].strip()
+        or event["kind"] in _PERSON_OR_APPROVAL_KINDS
+        or any(event.get(key) not in (None, []) for key in ("changed_files", "changed", "changed_paths"))
+        or bool(_NON_BOOKKEEPING_KEYS & event.keys())
+    ):
+        return False
+    stages = [event[key] for key in ("stage", "next_stage") if event.get(key) is not None]
+    if stages:
+        return all(_planning_stage(stage) for stage in stages)
+    if event.get("role") is not None:
+        return names.route(str(event.get("role") or "")) in PLANNING_RECOVERY_ROLES
+    if event.get("attempt_id") is not None:
+        return _planning_stage(names.stage_from_attempt_id(event.get("attempt_id")))
+    return False
+
+
+def source_events(state: RunState) -> list:
+    """Events in ``user_events`` that reflect human input, approvals or non-planning mutations."""
+    events = state.get("user_events")
+    if not isinstance(events, list):
+        return []
+    return [event for event in events if not readonly_planning_runner_event(event)]
 
 
 def offered(schema):
@@ -118,11 +198,14 @@ def snapshot(state: RunState):
     for key in ("requirements", "required_behaviors", "constraints", "acceptance_tests"):
         if not isinstance(report.get(key, []), list):
             return None
+    sources = {key: state.get(key) for key in SOURCES}
+    if isinstance(state.get("user_events"), list):
+        sources["user_events"] = source_events(state)
     return "draft-failure-v1:" + util.digest(
         {
             "contract": contract,
             "history": history,
-            "sources": {key: state.get(key) for key in SOURCES},
+            "sources": sources,
         }
     )
 
@@ -179,16 +262,7 @@ def receipts(state: RunState, report):
                 or contract.get("revision") != 1
                 or (state.get("workflow") or {}).get("requirements_approved")
                 or any(state.get(key) for key in ("answers", "brief_feedback", "requirements_history"))
-                # A read-only retry changes the receipt snapshot without supplying new requirements.
-                or any(
-                    not (
-                        event.get("kind") == "automatic_timeout_recovery"
-                        and event.get("actor") == "runner"
-                        and event.get("next_stage") == "review_plan"
-                        and event.get("changed_files") == []
-                    )
-                    for event in state.get("user_events", [])
-                )
+                or bool(source_events(state))
                 or handoff.get(target, []).count(before) != 1
             ):
                 raise ValueError("Draft failure correction cannot replace protected human or dual-owned text")
