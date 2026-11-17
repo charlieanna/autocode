@@ -20,11 +20,13 @@ try:
     from .. import autocode_publish_guard as publish_guard
     from .. import autocode_tool_containment as containment
     from .. import autocode_tool_handoff as tool_handoff
+    from .. import autocode_workspace_links as workspace_links
 except ImportError:
     import autocode_captured_process as captured
     import autocode_publish_guard as publish_guard
     import autocode_tool_containment as containment
     import autocode_tool_handoff as tool_handoff
+    import autocode_workspace_links as workspace_links
 
 READ_TOOLS = ("read", "glob", "grep", "list")
 # Writable stage work stays in the one session whose commands/reports the core
@@ -156,6 +158,24 @@ def require_capture(policy, *, role, capture_command):
         )
 
 
+def _deny_outside_links(policy, workspace):
+    """Deny the file tools every workspace link that leads outside the workspace.
+
+    Kilo's ``external_directory`` judges the path as written, so its ``edit`` wrote through a tracked
+    link into a sibling directory while its ``read`` of the same path was refused (live run 2026-11-17).
+    A deny is the last matching pattern, so it holds over an operator's allow; it never grants anything.
+    The shell stays under the operator's bash rules, which a path pattern cannot narrow.
+    """
+    for name, directory in workspace_links.outside(workspace):
+        for tool in ("read", "edit"):
+            rules = policy.get(tool)
+            if not isinstance(rules, dict):
+                continue
+            for pattern in workspace_links.patterns(workspace, name, directory):
+                rules.pop(pattern, None)
+                rules[pattern] = "deny"
+
+
 def restrict(
     argv, child, workspace, *, role, request=None, report_recovery=False, portable_shell=False, write_stage=False
 ):
@@ -199,6 +219,7 @@ def restrict(
         for tool in ("todowrite", "todoread", "webfetch", "websearch"):
             rules = policy[tool]
             policy[tool] = rules["*"] if set(rules) == {"*"} else "deny"
+        _deny_outside_links(policy, workspace)
     config = json.loads(child["KILO_CONFIG_CONTENT"])
     agents = config.get("agent", {})
     if not isinstance(agents, dict):
