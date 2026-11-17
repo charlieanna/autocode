@@ -20,8 +20,10 @@ from dataclasses import dataclass, field
 
 try:
     from . import autocode_client_actions as actions
+    from . import autocode_person_text as person_text
 except ImportError:
     import autocode_client_actions as actions
+    import autocode_person_text as person_text
 
 APPROVE_WORDS = ("approve", "approved", "y", "yes", "lgtm")
 APPROVE_SET = "approve set"  # the reply that takes a change set's named set approval (#2066)
@@ -55,6 +57,12 @@ class ReplyAction:
 
 def _reason(need: dict) -> str:
     return str(need.get("reason") or need.get("guidance") or "the run stopped").strip()
+
+
+def _shown(need: dict) -> str:
+    """The reason as the issue shows it: without the sentences that tell an operator what to type at a
+    shell (`autocode resume`, flags), since a person here replies in words. The gate key keeps it whole."""
+    return person_text.plain(_reason(need))
 
 
 def gate_key(view: dict, changeset: dict | None = None) -> str:
@@ -227,7 +235,7 @@ def relay(view: dict, record: dict, changeset: dict | None = None) -> RelayResul
         result.messages = [route_markdown(need)]
     elif kind == "answer" and need.get("resolver_scope") in PERSON_ONLY_SCOPES:
         result.messages = [
-            f"**AutoCode is blocked and needs a person**: {_reason(need)}\n\n"
+            f"**AutoCode is blocked and needs a person**: {_shown(need)}\n\n"
             "Reply with the information or correction to pass to the Resolver. This stop is never resolved automatically."
         ]
     elif kind == "answer":
@@ -272,23 +280,23 @@ def relay(view: dict, record: dict, changeset: dict | None = None) -> RelayResul
     elif kind in actions.PERSON_ONLY_KINDS:
         if need.get("new_run_required"):
             result.messages = [
-                f"**The run stopped and cannot be repaired in place**: {_reason(need)}\n\n"
+                f"**The run stopped and cannot be repaired in place**: {_shown(need)}\n\n"
                 + str(need.get("recovery_hint") or "Inspect the retained run; a new run is needed.")
             ]
             result.gate["terminal"] = True
         elif need.get("edit_required"):
             result.messages = [
-                f"**The plan needs correction before the run can continue**: {_reason(need)}\n\n"
+                f"**The plan needs correction before the run can continue**: {_shown(need)}\n\n"
                 "Reply with the correction; it goes to the Requirements Gatherer as feedback."
             ]
         else:
             result.messages = [
-                f"**The run paused**: {_reason(need)}\n\nReply `resume` to continue it once the cause is resolved."
+                f"**The run paused**: {_shown(need)}\n\nReply `resume` to continue it once the cause is resolved."
             ]
     elif kind:
         # Any other stop a person steers with words (a planning budget, for example): plain text is feedback.
         result.messages = [
-            f"**AutoCode stopped**: {_reason(need)}\n\nReply with direction for the run; it reaches the planning stage as feedback."
+            f"**AutoCode stopped**: {_shown(need)}\n\nReply with direction for the run; it reaches the planning stage as feedback."
         ]
     return result
 

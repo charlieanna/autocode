@@ -74,6 +74,7 @@ try:
     from . import autocode_chat_worker as worker
     from . import autocode_client_actions as actions
     from . import autocode_events_command as events
+    from . import autocode_person_text as person_text
     from .autocode_util import redact
 except ImportError:
     import autocode_captured_process as captured
@@ -97,6 +98,7 @@ except ImportError:
     import autocode_chat_worker as worker
     import autocode_client_actions as actions
     import autocode_events_command as events
+    import autocode_person_text as person_text
     from autocode_util import redact
 
 AUTOCODE = (sys.executable, str(Path(__file__).resolve().parent / "autocode.py"))
@@ -1514,12 +1516,16 @@ class ChatClient:
         recovery, summary = view.get("recovery") or {}, view.get("summary") or {}
         if not need or (recovery.get("category") == "blocked" and not (view.get("chat") or {}).get("input")):
             heading = recovery.get("title") or summary.get("label") or "AutoCode has no next action"
-            why = recovery.get("what_happened") or summary.get("sentence") or view.get("stop_reason") or ""
+            why = person_text.plain(
+                recovery.get("what_happened") or summary.get("sentence") or view.get("stop_reason") or ""
+            )
             self.say(f"\n{heading.rstrip('.')}. {why}".rstrip())
             self.say(recovery.get("retained") or "The run is saved for inspection.")
             return False
         label = view.get("pause_category_label")
-        why = need.get("reason") or view.get("stop_reason") or ""
+        # The core's reason also carries operator advice for a shell (`autocode resume`, flags); a person
+        # here takes only the named action, so the sentences that tell them what to type are left out.
+        why = person_text.plain(need.get("reason") or view.get("stop_reason") or "")
         heading = f"AutoCode needs you for this one ({label})." if label else "AutoCode stopped here."
         self.say(f"\n{heading} {why}".rstrip())
         if need.get("kind") == "dependency":
@@ -1804,7 +1810,9 @@ class ChatClient:
         """A stop a person decides on: say why, and take the named action only on their yes."""
         need = view.get("needs") or {}
         label = view.get("pause_category_label") or need.get("kind")
-        why = need.get("reason") or view.get("stop_reason") or (view.get("progress") or {}).get("needs_you") or ""
+        why = person_text.plain(
+            need.get("reason") or view.get("stop_reason") or (view.get("progress") or {}).get("needs_you") or ""
+        )
         if need.get("kind") == "review":
             criteria = actions.review_criteria(view)
             if criteria is None:
