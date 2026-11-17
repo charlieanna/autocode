@@ -1,7 +1,13 @@
 """Default selection through the public TaskRun/CLI boundary, with local fake tools."""
 
+import contextlib
+import io
+import json
+import os
 import unittest
+from unittest import mock
 
+import autocode_stages_cli as stages_cli
 import autocode_taskrun as taskrun
 
 from . import test_taskrun as fixtures
@@ -100,6 +106,20 @@ data = json.loads(prompt.split""",
         self.assertEqual(routes, result["routes"])
         self.assertEqual(listings, sum(row.get("metadata", False) for row in self.operations("models")))
         self.assertTrue((self.workspace / "greet.py").is_file())
+
+    def test_selection_chooses_only_among_the_models_the_person_allows(self):
+        # Without the list the Builder is GPT-6 Sol (above); the person left every OpenAI model out.
+        allowed = ["zai-coding-plan/glm-5.3", "xiaomi-token-plan-sgp/mimo-v2.6-pro"]
+        argv = ["models", "--backend", "opencode", "--workspace", str(self.workspace), "--json"]
+        for model in allowed:
+            argv += ["--allow", model]
+        with mock.patch.dict(os.environ, self.env), contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(0, stages_cli.cli(argv))
+        self.assertEqual(allowed, json.loads(out.getvalue())["models"]["allowed"])
+        shown = self.start().status()
+        self.assertEqual("approve_plan", shown["needs"]["kind"], shown)
+        for role, route in shown["routes"].items():
+            self.assertIn(route["model"], allowed, (role, shown["routes"]))
 
     def test_explicit_model_and_tool_win_over_default_selection(self):
         run = self.start(("--tester-model", "fixture-claude", "--role-transport", "sol=fixture_command"))

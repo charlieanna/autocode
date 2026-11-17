@@ -71,6 +71,29 @@ export interface Stage {
 /** How a new chat starts with its picks: the stage flags to add to its start, and the list that names them. */
 export interface ChatStart { startArgs: string[]; list: string[]; changeable: boolean; reason: string | null }
 
+/** A model the backend's accounts serve, for the "models AutoCode may use" tick list. */
+export interface AllowedModelOption {
+  model: string;
+  family: string | null;
+  account: string | null;
+  billing: string | null;
+  /** The free shortlist, or a model a stage runs now. */
+  suggested: boolean;
+  /** Ticked when the list opens: the saved list, or the suggestion while there is none. */
+  ticked: boolean;
+  reason: string | null;
+}
+
+/** Which models AutoCode may use on the backend (`models`): `MODELS` is the only word a client fills. */
+export interface AllowedModels {
+  /** The person's list, in their order, or null for every model the accounts serve. */
+  allowed: string[] | null;
+  options: AllowedModelOption[];
+  set: string[];
+  /** Lets AutoCode use every model again; null while there is no list. */
+  clear: string[] | null;
+}
+
 export interface StageView {
   backend: string;
   label: string;
@@ -81,6 +104,8 @@ export interface StageView {
   reason: string | null;
   /** A new chat's list (`stages list --json`, with any `--chat-stage` picks); null from an older AutoCode. */
   chat: ChatStart | null;
+  /** Which models AutoCode may use; null for a started run's list or an older AutoCode. */
+  models: AllowedModels | null;
 }
 
 const text = (value: unknown): string => (typeof value === "string" ? value : "");
@@ -147,7 +172,43 @@ export function readStages(raw: string): StageView {
     backend: text(parsed.backend), label: text(parsed.label) || text(parsed.backend), optionsStop: textOrNull(parsed.options_stop), stages,
     changeable: parsed.changeable !== false, reason: textOrNull(parsed.reason),
     chat: list && startArgs ? { list, startArgs, changeable: chat?.changeable !== false, reason: textOrNull(chat?.reason) } : null,
+    models: readModels(parsed.models),
   };
+}
+
+const MODELS = "MODELS";
+
+/** The allowed-models offer, when its commands are `stages models` with one `MODELS` (and `--allow-all` to clear); else null. */
+function readModels(value: unknown): AllowedModels | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const isModels = (argv: string[] | null): argv is string[] => !!argv && argv[0] === "stages" && argv[1] === "models";
+  const set = words((row.set as Record<string, unknown> | null | undefined)?.next_command);
+  if (!isModels(set) || set.filter((word) => word === MODELS).length !== 1) return null;
+  let clear = words((row.clear as Record<string, unknown> | null | undefined)?.next_command);
+  if (!isModels(clear) || !clear.includes("--allow-all") || clear.includes(MODELS)) clear = null;
+  const options: AllowedModelOption[] = [];
+  for (const item of Array.isArray(row.options) ? (row.options as Record<string, unknown>[]) : []) {
+    if (typeof item?.model !== "string" || !item.model) continue;
+    options.push({
+      model: item.model, family: textOrNull(item.family), account: textOrNull(item.account), billing: textOrNull(item.billing),
+      suggested: item.suggested === true, ticked: item.ticked === true, reason: textOrNull(item.reason),
+    });
+  }
+  const allowed = Array.isArray(row.allowed) && row.allowed.every((model) => typeof model === "string") ? (row.allowed as string[]) : null;
+  return { allowed, options, set, clear };
+}
+
+/**
+ * The allowed-models command with `MODELS` replaced by `--allow MODEL` for each picked model, in the
+ * order given: only models the offer lists, never a typed one.
+ */
+export function fillModels(models: AllowedModels, picked: string[]): string[] {
+  const unknown = picked.filter((model) => !models.options.some((row) => row.model === model));
+  if (unknown.length) throw new Error(`Your accounts do not serve ${unknown.join(", ")}.`);
+  const chosen = [...new Set(picked)];
+  if (!chosen.length) throw new Error("Tick at least one model AutoCode may use.");
+  return models.set.flatMap((word) => (word === MODELS ? chosen.flatMap((model) => ["--allow", model]) : [word]));
 }
 
 const MEASURE = "MEASURE";

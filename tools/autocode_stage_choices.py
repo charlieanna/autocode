@@ -18,6 +18,10 @@ every saved choice out of the run, and a shared ``--reasoning-effort`` leaves ou
 One difference from a typed level (owner decision 2026-11-05): a saved level is a ceiling for the
 three review stages, which run one level below it on a small, clear task (autocode_review_effort).
 
+The person may also say which models AutoCode may use on a backend at all (``[allowed]`` in the same
+file, ``autocode_allowed_models``): ``offers`` then lists only those, so every stage list, measurement,
+automatic choice and fallback stays inside them.
+
 ``offers`` lists what a stage may run on: for OpenCode and Kilo the models their connected accounts
 serve, from the tools' own local listings (``autocode_route_discovery``), with the reasoning levels
 and family each listing declares; for Claude Code and Codex the models AutoCode runs on them. A
@@ -39,8 +43,10 @@ import tomllib
 from pathlib import Path
 
 try:
+    from . import autocode_allowed_models as allowed_models
     from . import autocode_captured_process as captured
     from . import autocode_model_identity as model_identity
+    from . import autocode_model_shortlist as model_shortlist
     from . import autocode_names as names
     from . import autocode_providers as providers
     from . import autocode_roles as roles
@@ -49,8 +55,10 @@ try:
     from . import autocode_stage_probe as stage_probe
     from . import autocode_verifier_independence as independence
 except ImportError:
+    import autocode_allowed_models as allowed_models
     import autocode_captured_process as captured
     import autocode_model_identity as model_identity
+    import autocode_model_shortlist as model_shortlist
     import autocode_names as names
     import autocode_providers as providers
     import autocode_roles as roles
@@ -152,14 +160,11 @@ def load(file=None) -> dict:
     no flag would take, so a run never silently runs models the person did not choose.
     """
     file = Path(file) if file is not None else path()
-    if not file.is_file():
-        return {}
-    try:
-        table = tomllib.loads(file.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, tomllib.TOMLDecodeError) as error:
-        raise ValueError(f"{file} cannot be read as TOML: {error}; fix it or run `autocode stages reset`") from error
+    table = _table(file)
     found: dict = {}
     for backend, stages in table.items():
+        if backend == allowed_models.TABLE:
+            continue  # the models AutoCode may use (allowed), read by ``allowed``
         if not isinstance(stages, dict) or not _BACKEND.fullmatch(str(backend)):
             raise ValueError(f"{file}: [{backend}] must be a table of stages")
         for written, choice in stages.items():
@@ -179,10 +184,40 @@ def load(file=None) -> dict:
     return found
 
 
-def save(choices: dict, file=None) -> Path:
-    """Write every backend's choices at once, replacing the file atomically."""
+def _table(file: Path) -> dict:
+    if not file.is_file():
+        return {}
+    try:
+        return tomllib.loads(file.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, tomllib.TOMLDecodeError) as error:
+        raise ValueError(f"{file} cannot be read as TOML: {error}; fix it or run `autocode stages reset`") from error
+
+
+def allowed(backend, file=None) -> tuple[str, ...] | None:
+    """The models the person allows AutoCode to use on ``backend``, in their order; None for every model.
+
+    Raises ValueError, naming the file, for a list no model name fits, as ``load`` does.
+    """
     file = Path(file) if file is not None else path()
-    lines = [HEADER]
+    return allowed_models.read(_table(file).get(allowed_models.TABLE), file).get(backend)
+
+
+_KEEP = object()
+
+
+def save(choices: dict, file=None, *, allowed=_KEEP) -> Path:
+    """Write every backend's choices at once, replacing the file atomically.
+
+    ``allowed`` (``{backend: (model, ...)}``) replaces the models AutoCode may use; by default the
+    file's own list is kept, or none when the file cannot be read.
+    """
+    file = Path(file) if file is not None else path()
+    if allowed is _KEEP:
+        try:
+            allowed = allowed_models.read(_table(file).get(allowed_models.TABLE), file)
+        except ValueError:
+            allowed = {}
+    lines = [HEADER, *allowed_models.lines(allowed)]
     for backend in sorted(choices):
         stages = choices[backend]
         lines.append(f"[{backend}]")
@@ -206,13 +241,20 @@ def save(choices: dict, file=None) -> Path:
     return file
 
 
-def offers(backend, workspace=None, *, resolve=None, discover=None) -> list[dict]:
+def offers(backend, workspace=None, *, resolve=None, discover=None, file=None, every=False) -> list[dict]:
     """The models a stage on ``backend`` may run, each with the levels it takes and its family.
 
+    Only the models the person allows AutoCode to use (``allowed``), unless ``every``: then every model
+    the backend's accounts serve, which is what a person picks that list from.
     ``levels_listed`` says whether the levels come from the tool's own listing; otherwise they are
     AutoCode's scale and the tool's own check decides at launch. Raises RuntimeError or ValueError when
     the tool cannot list what its accounts serve, so a person is never offered a guess.
     """
+    listed = _offers(backend, workspace, resolve=resolve, discover=discover)
+    return listed if every else allowed_models.keep(listed, allowed(backend, file))
+
+
+def _offers(backend, workspace, *, resolve, discover) -> list[dict]:
     if backend == "codex":
         return [_option(model, None, account="ChatGPT (Codex login)", billing="subscription") for model in CODEX_MODELS]
     provider = (resolve or providers.resolve)(backend)
@@ -352,10 +394,11 @@ def view(backend, workspace=None, *, file=None, resolve=None, discover=None) -> 
     option's ``effort_choices``, refusing anything else, and ``reset.next_command`` while a choice is
     saved. ``options_stop`` says why no options could be listed.
     """
-    return _build(backend, *_read(backend, workspace, file, resolve, discover), probe=True)
+    found = _read(backend, workspace, file, resolve, discover)
+    return _build(backend, *found[:5], probe=True, models=found[5])
 
 
-def _build(backend, file, saved, fallback, options, stop, effective=None, *, probe=False) -> dict:
+def _build(backend, file, saved, fallback, options, stop, effective=None, *, probe=False, models=None) -> dict:
     """``view`` from what ``_read`` found; ``effective`` (each role's model) defaults to the saved choices'.
 
     With ``probe``, each stage that has a probe also gets its measure-and-approve offer
@@ -407,6 +450,60 @@ def _build(backend, file, saved, fallback, options, stop, effective=None, *, pro
         "file": str(file),
         "options_stop": stop,
         "stages": stages,
+        "models": None if models is None else _models_view(backend, models, saved, fallback),
+    }
+
+
+def _models_view(backend, models, saved, fallback) -> dict:
+    """Which models AutoCode may use on ``backend`` and the command that changes that (``allow``).
+
+    ``options`` is every model the accounts serve. ``suggested`` marks the free shortlist
+    (autocode_model_shortlist) and every model a stage runs now, so taking the suggestion moves no stage;
+    ``reason`` says why a model is or is not suggested. A client replaces the word ``MODELS`` in
+    ``set.next_command`` with ``--allow MODEL`` for each model the person keeps, in their order.
+    """
+    every, chosen = models
+    running = {route["model"] for route in saved.values()} | {
+        fallback[role]["model"] for role in ORDER if fallback[role]["model"] and role not in saved
+    }
+    shortlist = {row["model"]: row for row in model_shortlist.shortlist([_candidate(option) for option in every])}
+    options = []
+    for option in every:
+        row = shortlist.get(option["model"]) or {}
+        runs = option["model"] in running
+        options.append(
+            {
+                "model": option["model"],
+                "family": option.get("family"),
+                "account": option.get("account"),
+                "billing": option.get("billing"),
+                "suggested": bool(row.get("suggested")) or runs,
+                # What a picker shows ticked: the saved list, or the suggestion while there is none.
+                "ticked": (bool(row.get("suggested")) or runs) if chosen is None else option["model"] in chosen,
+                "reason": "a stage runs it now" if runs and not row.get("suggested") else row.get("reason"),
+            }
+        )
+    options.sort(key=lambda item: (not item["suggested"], item["model"]))
+    base = ["stages", "models", "--backend", backend, "--json"]
+    return {
+        "allowed": None if chosen is None else list(chosen),
+        "options": options,
+        "set": {"next_command": [*base, "MODELS"]},
+        "clear": {"next_command": [*base, "--allow-all"]} if chosen is not None else None,
+    }
+
+
+def _candidate(option) -> dict:
+    """An option in the shape the shortlist reads (``autocode_route_discovery`` candidates)."""
+    return {
+        "model": option["model"],
+        "billing": option.get("billing"),
+        "levels": option.get("levels") if option.get("levels_listed") else None,
+        "metadata": {
+            "reasoning": option.get("reasoning"),
+            "context": option.get("context"),
+            "release_date": option.get("release_date"),
+        },
     }
 
 
@@ -454,6 +551,7 @@ def run_view(backend, routes, set_command, workspace=None, *, resolve=None, disc
         "file": None,
         "options_stop": stop,
         "stages": stages,
+        "models": None,  # a started run keeps its routes; Stage models changes which models AutoCode may use
     }
 
 
@@ -471,16 +569,20 @@ def _rows(role, options, effective, backend) -> list[dict]:
 
 
 def _read(backend, workspace, file, resolve, discover):
+    """``(file, saved, fallback, options, stop, (every, allowed))``: ``options`` are the allowed models,
+    ``every`` all the backend's accounts serve and ``allowed`` the person's list, or None."""
     file = Path(file) if file is not None else path()
     saved = load(file).get(backend, {})
+    chosen = allowed(backend, file)
     fallback = defaults(backend, resolve=resolve)
     try:
-        options, stop = offers(backend, workspace, resolve=resolve, discover=discover), None
+        every, stop = offers(backend, workspace, resolve=resolve, discover=discover, every=True), None
     except captured.ProcessError:
         raise
     except (RuntimeError, ValueError, OSError) as error:
-        options, stop = [], str(error)
-    return file, saved, fallback, options, stop
+        every, stop = [], str(error)
+    options = allowed_models.keep(every, chosen)
+    return file, saved, fallback, options, stop, (every, chosen)
 
 
 def _command(action, role, backend):
@@ -515,14 +617,14 @@ def choose(backend, picks, workspace=None, *, file=None, resolve=None, discover=
     for role in picks:
         if role not in ORDER:
             raise ValueError(f"{role} is not a stage; the stages are {', '.join(ORDER)}")
-    file, saved, fallback, options, stop = _read(backend, workspace, file, resolve, discover)
+    file, saved, fallback, options, stop, models = _read(backend, workspace, file, resolve, discover)
     _check(backend, picks, saved, fallback, options, stop)
     every = load(file)
     for role, (model, effort) in picks.items():
         every.setdefault(backend, {})[role] = {"model": model, "effort": None if effort == OWN_DEFAULT else effort}
     save(every, file)
     # Returning a successful save must not depend on a second backend discovery.
-    return _build(backend, file, every.get(backend, {}), fallback, options, stop, probe=True)
+    return _build(backend, file, every.get(backend, {}), fallback, options, stop, probe=True, models=models)
 
 
 def _check(backend, picks, saved, fallback, options, stop) -> dict:
@@ -642,10 +744,10 @@ def chat_view(
     tail = list((configured or {}).get("tail") or ())
     if single and picks:
         raise ValueError("--single-model cannot be combined with per-role model flags")
-    file, saved, fallback, options, stop = _read(backend, workspace, file, resolve, discover)
+    file, saved, fallback, options, stop, models = _read(backend, workspace, file, resolve, discover)
     resolved = _configured_routes(backend, configured, saved, fallback, options)
     if single is not None:
-        current = _build(backend, file, saved, fallback, options, stop, {})
+        current = _build(backend, file, saved, fallback, options, stop, {}, models=models)
         for stage in current["stages"]:
             stage["configured"] = resolved.get(stage["id"])
             stage["chat"] = None
@@ -661,7 +763,7 @@ def chat_view(
     baseline = {**saved, **{role: {"model": row["model"], "effort": row["effort"]} for role, row in resolved.items()}}
     effective = _check(backend, picks, baseline, fallback, options, stop)
     # Stage models (the list with no chat picks) offers to measure each probed stage's models.
-    current = _build(backend, file, saved, fallback, options, stop, effective, probe=not picks)
+    current = _build(backend, file, saved, fallback, options, stop, effective, probe=not picks, models=models)
     order = [role for role in ORDER if role in picks]
 
     def picked(*, without=None):
@@ -703,7 +805,103 @@ def reset(backend, role=None, workspace=None, *, file=None, resolve=None, discov
     if not stages:
         every.pop(backend, None)
     save(every, file)
+    try:
+        chosen = allowed(backend, file)
+    except ValueError:
+        chosen = None
+    if chosen is not None:
+        # A stage whose default is outside the models AutoCode may use takes one of them instead.
+        return allow(backend, list(chosen), workspace, file=file, resolve=resolve, discover=discover)
     return view(backend, workspace, file=file, resolve=resolve, discover=discover)
+
+
+def allow(backend, models, workspace=None, *, file=None, resolve=None, discover=None) -> dict:
+    """Save ``models`` as the only ones AutoCode may use on ``backend`` (None: every model); return the view.
+
+    Each model must be one the backend's accounts serve. A stage whose saved choice or default falls
+    outside the list moves to the first model in the list it may run beside the other stages (the
+    order the person gave), at the level nearest its default, and is saved as its choice, so no stage
+    runs a model the person left out. Refuses (ValueError), saving nothing, a model the backend does
+    not offer, or a list that leaves a stage no model it may run.
+    """
+    file, saved, fallback, _options, stop, (every, _old) = _read(backend, workspace, file, resolve, discover)
+    label = BACKEND_LABELS.get(backend, backend)
+    if stop:
+        raise ValueError(f"cannot list {label}'s models: {stop}")
+    by_model = {option["model"]: option for option in every}
+    chosen = None if models is None else allowed_models.checked(list(models), by_model, label=label)
+    options = every if chosen is None else [by_model[model] for model in chosen]
+    picks = _moved(backend, saved, fallback, options)
+    choices = load(file)
+    for role, route in picks.items():
+        choices.setdefault(backend, {})[role] = route
+    table = allowed_models.read(_table(file).get(allowed_models.TABLE), file)
+    if chosen is None:
+        table.pop(backend, None)
+    else:
+        table[backend] = chosen
+    save(choices, file, allowed=table)
+    return _build(
+        backend,
+        file,
+        choices.get(backend, {}),
+        fallback,
+        allowed_models.keep(every, chosen),
+        stop,
+        probe=True,
+        models=(every, chosen),
+    )
+
+
+def _moved(backend, saved, fallback, options) -> dict:
+    """``{role: {"model", "effort"}}``: the stages that must move so every stage runs a model in ``options``.
+
+    A stage outside them takes the first model, in the person's order, it may run beside the stages
+    already settled. When none is free, it takes the first one whose only clashes are with stages the
+    person did not choose (a default), and those move in turn, so allowing Sonnet and Opus on Claude
+    Code gives the Builder Sonnet and moves the Tester, which checks it, to Opus. A stage the person
+    chose inside the list never moves. Raises ValueError when no assignment is found.
+    """
+    listed = {option["model"] for option in options}
+    route = {role: saved.get(role) or fallback[role] for role in ORDER}
+    fixed = {role for role in saved if saved[role]["model"] in listed}
+    settled = {role for role in ORDER if route[role].get("model") in listed}
+    queue = [role for role in ORDER if role not in settled]
+    moved = {}
+    for _attempt in range(len(ORDER) * max(len(options), 1) + 1):
+        if not queue:
+            return moved
+        role = queue.pop(0)
+        others = {other: route[other]["model"] for other in settled if other != role}
+
+        def clashes(model):
+            return [other for other in others if unavailable(role, model, {other: others[other]}, backend=backend)]
+
+        found = next((option for option in options if not clashes(option["model"])), None)
+        if found is None:
+            found = next(
+                (option for option in options if not set(clashes(option["model"])) & fixed),
+                None,
+            )
+            if found is None:
+                break
+            for other in clashes(found["model"]):
+                settled.discard(other)
+                queue.append(other)
+        route[role] = moved[role] = {"model": found["model"], "effort": _level(found, fallback[role]["effort"])}
+        settled.add(role)
+    raise ValueError(
+        f"those models cannot run every stage: a stage never runs the model whose work it checks "
+        f"(the {LABELS[role]} found none); allow one more model"
+    )
+
+
+def _level(option, wanted) -> str | None:
+    """The level ``option`` takes nearest ``wanted`` (medium when unset); None for its own default."""
+    levels = [level for level in effort_choices(option) if level != OWN_DEFAULT]
+    if not levels:
+        return None
+    return route_fit.nearest(wanted or "medium", levels) or levels[0]
 
 
 def apply(args, backend, *, file=None, say=None) -> list[str]:
@@ -712,10 +910,14 @@ def apply(args, backend, *, file=None, say=None) -> list[str]:
     A stage whose model a flag or the project's file already set, or whose route another tool serves
     (``--ROLE-provider``), keeps that. ``--single-model`` and a replay take no saved choice, and a shared
     ``--reasoning-effort`` keeps every saved level out. One line names the file and the stages taken.
+    Sets ``args.allowed_models``: the models the person allows on ``backend``, or None (every model).
     """
-    if getattr(args, "single_model", None) or getattr(args, "replay_recording", None):
-        return []
     file = Path(file) if file is not None else path()
+    if getattr(args, "single_model", None) or getattr(args, "replay_recording", None):
+        args.allowed_models = None
+        return []
+    # The models AutoCode may use on this backend: automatic selection and escalation stay inside them.
+    args.allowed_models = allowed(backend, file)
     saved = load(file).get(backend, {})
     shared_effort = getattr(args, "reasoning_effort", None) is not None
     taken, levels = [], []

@@ -28,6 +28,7 @@ from urllib.parse import parse_qs, urlparse
 try:
     from . import autocode_acceptance_tests as acceptance_tests
     from . import autocode_adaptive_planning as adaptive
+    from . import autocode_allowed_models as allowed_models
     from . import autocode_base_patch as operator_patch
     from . import autocode_budget_recovery as budget_recovery
     from . import autocode_captured_process as captured
@@ -63,6 +64,7 @@ try:
 except ImportError:
     import autocode_acceptance_tests as acceptance_tests
     import autocode_adaptive_planning as adaptive
+    import autocode_allowed_models as allowed_models
     import autocode_base_patch as operator_patch
     import autocode_budget_recovery as budget_recovery
     import autocode_captured_process as captured
@@ -394,6 +396,8 @@ def _auto_select(
         raise
     except Exception as error:  # noqa: BLE001 - an ordinary failed defaulted listing is a fallback
         return soft(f"the tool's listings could not be read ({error}).")
+    # Only the models the person allows AutoCode to use on this backend (autocode_allowed_models).
+    found = {**found, "candidates": allowed_models.keep(found["candidates"], getattr(args, "allowed_models", None))}
     # The run's full role set, not the four DEFAULT_ROLE_MODELS the roles dict
     # holds here: joint planning adds Requirements, Planner and Plan Reviewer.
     pinned = {}
@@ -994,8 +998,12 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         joint=joint,
         started=started,
     )
-    builder_retry = autopilot.builder_policy.configured(
-        getattr(args, "builder_strong_model", None), provider_mod, single_model=single_model
+    allowed = getattr(args, "allowed_models", None)
+    builder_retry = allowed_models.restrict_retry(
+        autopilot.builder_policy.configured(
+            getattr(args, "builder_strong_model", None), provider_mod, single_model=single_model
+        ),
+        allowed,
     )
     settings = {
         workflows.IMPLEMENTATION_FLOW: workflows.STANDARD_IMPLEMENTATION,
@@ -1010,7 +1018,11 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         **({"route_selection": auto_selection} if auto_selection is not None else {}),
         # The effort rungs each role may climb, serveability-filtered for a
         # provider that publishes its models (autocode_route_ladder).
-        "route_ladders": route_ladder.configure_ladders(getattr(provider_mod, "LISTED_MODELS", None)),
+        # and to the models the person allows AutoCode to use (autocode_allowed_models).
+        "route_ladders": route_ladder.configure_ladders(
+            allowed_models.available(getattr(provider_mod, "LISTED_MODELS", None), allowed)
+        ),
+        **({"allowed_models": list(allowed)} if allowed is not None else {}),
         "orchestration": {
             "enabled": joint or getattr(args, "max_parallel_builders", None) is not None,
             "max_parallel": getattr(args, "max_parallel_builders", None) or 2,

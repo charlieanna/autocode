@@ -3277,6 +3277,18 @@ is saved) forgets the stage's choice. Both print the updated view, and a refused
 the reason on stderr and saves nothing. The view launches no model and reads no credential. A new
 task reads the choices when it starts; a running task keeps its own.
 
+The view also has `models`, which models AutoCode may use on the backend at all ([Which models
+AutoCode may use](models.md#which-models-autocode-may-use)): `allowed` (the person's list, in their
+order, or null for every model the accounts serve), `options` (every model the accounts serve, each
+with `model`, `family`, `account`, `billing`, `suggested`: the free shortlist or a model a stage runs
+now, `ticked`: the saved list, or the suggestion while there is none, and `reason`: why it is or is
+not suggested), `set` and `clear` (null while there is no list). A client shows the options as a
+searchable tick list with `ticked` ticked; to save, it takes `set.next_command`, replacing the word
+`MODELS` with `--allow MODEL` for each model the person ticked, in their order, and refuses any model
+not in `options`; `clear.next_command` lets AutoCode use every model again. Both print the updated
+view; a refused list exits 2 with the reason on stderr and saves nothing. Stage options, probes and
+new tasks then use only the allowed models. A started run's list has `models: null`.
+
 Stage models also offers to measure a stage's models (#3630; [Ranking your own models by
 measurement](models.md#ranking-your-own-models-by-measurement)). In the list with no chat picks, each
 stage that has a probe (Requirements, the Planner, the Plan Reviewer, the Builder, the Tester and the

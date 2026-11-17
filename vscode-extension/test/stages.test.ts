@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { backendArgs, chatRoute, chatSource, currentRoute, fillChatSet, fillProbe, fillSet, modelArgs, probeOutcome, readEstimate, readStages, sameEstimate } from "../src/core/stages";
+import { backendArgs, chatRoute, chatSource, currentRoute, fillChatSet, fillModels, fillProbe, fillSet, modelArgs, probeOutcome, readEstimate, readStages, sameEstimate } from "../src/core/stages";
 import { listKey, MAX_AGE_MS, StageListCache, STORAGE_KEY } from "../src/core/stage-cache";
 
 const OPUS = "claude-opus-5-5";
@@ -269,4 +269,31 @@ test("the estimate is read from the probe's own JSON, and a run binds to the cos
   assert.equal(sameEstimate(undefined, ["a/x"], estimate, 3.15), false, "nothing was shown");
   assert.match(probeOutcome("Builder", JSON.stringify({ spent_usd: 2, ranking: [{ model: "a/x", effort: "high", qualified: true, reason: "lowest level that qualifies: 5/5" }] })),
     /Measured the Builder's models for \$2\.00\. a\/x at high: qualified, lowest level/);
+});
+
+test("the models AutoCode may use are read with their named commands, and only listed models fill MODELS", () => {
+  const view = readStages(JSON.stringify({
+    version: 1, backend: "kilocode", label: "Kilo", options_stop: null, stages: [],
+    models: {
+      allowed: ["openai/gpt-6-sol"],
+      options: [
+        { model: "openai/gpt-6-sol", family: "gpt", account: "OpenAI", billing: "subscription", suggested: true, ticked: true, reason: "newest" },
+        { model: "zai-coding-plan/glm-5.3", family: "glm", account: null, billing: null, suggested: false, ticked: false, reason: null },
+        { family: "no model" },
+      ],
+      set: { next_command: ["stages", "models", "--backend", "kilocode", "--json", "MODELS"] },
+      clear: { next_command: ["stages", "models", "--backend", "kilocode", "--json", "--allow-all"] },
+    },
+  }));
+  const models = view.models!;
+  assert.deepEqual(models.allowed, ["openai/gpt-6-sol"]);
+  assert.deepEqual(models.options.map((row) => [row.model, row.ticked]), [["openai/gpt-6-sol", true], ["zai-coding-plan/glm-5.3", false]]);
+  assert.deepEqual(fillModels(models, ["zai-coding-plan/glm-5.3", "openai/gpt-6-sol"]),
+    ["stages", "models", "--backend", "kilocode", "--json", "--allow", "zai-coding-plan/glm-5.3", "--allow", "openai/gpt-6-sol"]);
+  assert.throws(() => fillModels(models, ["evil --flag"]), /do not serve evil --flag/);
+  assert.throws(() => fillModels(models, []), /Tick at least one/);
+  assert.deepEqual(models.clear, ["stages", "models", "--backend", "kilocode", "--json", "--allow-all"]);
+  const odd = readStages(JSON.stringify({ version: 1, stages: [], models: { options: [], set: { next_command: ["probe", "MODELS"] } } }));
+  assert.equal(odd.models, null, "a command that is not `stages models` is never taken");
+  assert.equal(readStages(JSON.stringify({ version: 1, stages: [] })).models, null);
 });

@@ -4,9 +4,10 @@ The person chooses once (``autocode setup`` asks, or ``autocode stages choose``)
 the choice for every new task, per backend (owner decision 2026-10-30, autocode_stage_choices).
 With no action it lists each stage: what it does, the model and level it runs and whether that is
 the person's choice or the default. ``choose`` walks the stages in a terminal, one numbered list
-per stage with advice on what suits it. ``set`` and ``reset`` change one stage without asking, and
-``--json`` returns the view clients render as one dropdown per stage, with the ``set`` and ``reset``
-argument arrays they take.
+per stage with advice on what suits it, after asking which models AutoCode may use at all. ``set`` and
+``reset`` change one stage without asking, ``models`` shows or changes which models AutoCode may use
+(``--allow MODEL``, repeatable, or ``--allow-all``), and ``--json`` returns the view clients render as
+one dropdown per stage, with the ``set``, ``reset`` and ``models.set`` argument arrays they take.
 
 Layer: interface over autocode_stage_choices. It launches no model and reads no credential.
 """
@@ -59,7 +60,11 @@ SET_FLAG = "--stage"
 def parser():
     result = argparse.ArgumentParser(prog="autocode stages", description=__doc__.split("\n\n")[0])
     result.add_argument(
-        "action", nargs="?", choices=("list", "choose", "set", "reset"), default="list", help="What to do"
+        "action",
+        nargs="?",
+        choices=("list", "choose", "set", "reset", "models"),
+        default="list",
+        help="What to do",
     )
     result.add_argument("stage", nargs="?", help=f"The stage to set or reset: {', '.join(STAGE_NAMES)}")
     result.add_argument("--model", help="set: the model the stage runs, one the backend offers")
@@ -94,6 +99,16 @@ def parser():
         metavar=("STAGE", "MODEL", "EFFORT"),
         help="list: a new chat's own model and level for one stage, shown and checked for that chat only; "
         "nothing is saved",
+    )
+    result.add_argument(
+        "--allow",
+        action="append",
+        metavar="MODEL",
+        help="models: a model AutoCode may use on the backend (repeatable, in the order stages should prefer); "
+        "these become the only ones",
+    )
+    result.add_argument(
+        "--allow-all", action="store_true", help="models: let AutoCode use every model the backend's accounts serve"
     )
     result.add_argument("--json", action="store_true", help="Print the stage view clients read")
     return result
@@ -130,6 +145,25 @@ def text(current) -> str:
     return "\n".join(lines)
 
 
+def models_text(current) -> str:
+    """The models AutoCode may use on the view's backend, in words."""
+    models = current.get("models") or {}
+    if current["options_stop"]:
+        return f"Models cannot be listed: {current['options_stop']}"
+    listed = len(models.get("options") or ())
+    if models.get("allowed") is None:
+        return (
+            f"AutoCode may use every model your {current['label']} accounts serve ({listed}). "
+            "Limit it with: autocode stages models --allow MODEL --allow MODEL ..."
+        )
+    lines = [
+        f"AutoCode may use {len(models['allowed'])} of the {listed} models your {current['label']} accounts serve:"
+    ]
+    lines += [f"  {model}" for model in models["allowed"]]
+    lines.append("Change them with: autocode stages models --allow MODEL ...  (or --allow-all)")
+    return "\n".join(lines)
+
+
 def _route(stage) -> str:
     picked = stage.get("chat")
     if picked:
@@ -154,6 +188,10 @@ def choose(backend, workspace=".", *, ask=input, out=print, file=None, resolve=N
     leaves out their models.
     """
     current = stage_choices.view(backend, workspace, file=file, resolve=resolve, discover=discover)
+    if not current["options_stop"]:
+        current = ask_models(
+            backend, current, workspace, ask=ask, out=out, file=file, resolve=resolve, discover=discover
+        )
     if current["options_stop"]:
         out(f"Cannot list {current['label']}'s models: {current['options_stop']}")
         return False
@@ -187,6 +225,59 @@ def choose(backend, workspace=".", *, ask=input, out=print, file=None, resolve=N
     out("")
     out(text(saved))
     return True
+
+
+def ask_models(backend, current, workspace=".", *, ask=input, out=print, file=None, resolve=None, discover=None):
+    """Ask which models AutoCode may use on ``backend``, save the answer and return the updated view.
+
+    Only the suggested models (the free shortlist and those the stages run now) and any already allowed
+    are numbered, so an account that serves hundreds of models is not printed in full; ``list`` prints
+    them all, and any model the accounts serve may be named. Enter keeps the ones marked ``*``. A list
+    that holds every model is saved as no list, so a model the accounts add later is offered too.
+    """
+    rows = current["models"]["options"]
+    if len(rows) < 2:
+        return current
+    shown = [row for row in rows if row["ticked"] or row["suggested"]] or rows
+    by_model = {row["model"]: row for row in rows}
+    out(f"Which models may AutoCode use on {current['label']}? Your accounts serve {len(rows)}.")
+    out("  Stages, measuring, automatic choices and fallbacks use only these; list them in the order you prefer.")
+    for number, row in enumerate(shown, 1):
+        out(f"  {number}) {'*' if row['ticked'] else ' '} {row['model']}{_facts(row)}")
+    if len(shown) < len(rows):
+        out(f"  {len(rows) - len(shown)} more are not suggested; type `list` to see them, or name any of them.")
+    while True:
+        answer = ask("  Models [Enter keeps the ones marked *; numbers or names; `all` for every model]: ").strip()
+        if answer == "list":
+            for row in rows:
+                out(f"    {row['model']}{_facts(row)}" + (f"  ({row['reason']})" if row.get("reason") else ""))
+            continue
+        if answer.lower() == "all":
+            picked = None
+        elif not answer:
+            picked = [row["model"] for row in shown if row["ticked"]]
+        else:
+            picked, unknown = [], []
+            for word in answer.replace(",", " ").split():
+                model = shown[int(word) - 1]["model"] if word.isdigit() and 0 < int(word) <= len(shown) else word
+                if model not in by_model:
+                    unknown.append(word)
+                elif model not in picked:
+                    picked.append(model)
+            if unknown:
+                out(f"  Not a number from 1 to {len(shown)} or a model your accounts serve: {', '.join(unknown)}")
+                continue
+        if picked == []:
+            out("  Name at least one model.")
+            continue
+        if picked is not None and set(picked) == set(by_model):
+            picked = None
+        if picked is None and current["models"]["allowed"] is None:
+            return current  # every model stays available, as it was
+        try:
+            return stage_choices.allow(backend, picked, workspace, file=file, resolve=resolve, discover=discover)
+        except ValueError as error:
+            out(f"  {error}")
 
 
 def _keep(stage, free):
@@ -429,6 +520,9 @@ def cli(argv=None) -> int:
                 file=sys.stderr,
             )
             return 2
+        if (args.allow or args.allow_all) and args.action != "models":
+            print("autocode stages: --allow and --allow-all change `autocode stages models`", file=sys.stderr)
+            return 2
         if args.stage_pick and args.action != "set":
             print(f"autocode stages: {SET_FLAG} names a stage for `autocode stages set`", file=sys.stderr)
             return 2
@@ -468,6 +562,18 @@ def cli(argv=None) -> int:
                         f"{error}. To change stages together, name each in one command: "
                         f"autocode stages set {SET_FLAG} STAGE MODEL EFFORT {SET_FLAG} STAGE MODEL EFFORT"
                     ) from error
+            elif args.action == "models":
+                backend = args.backend or current_backend(args.workspace)
+                if args.allow and args.allow_all:
+                    print("autocode stages models takes --allow MODEL or --allow-all, not both", file=sys.stderr)
+                    return 2
+                if args.allow or args.allow_all:
+                    current = stage_choices.allow(backend, None if args.allow_all else args.allow, args.workspace)
+                else:
+                    current = stage_choices.view(backend, args.workspace)
+                if not args.json:
+                    print(models_text(current))
+                    return 0
             elif args.action == "reset":
                 backend = args.backend or current_backend(args.workspace)
                 current = stage_choices.reset(backend, stage, args.workspace)

@@ -630,7 +630,8 @@ class StagesCommandTests(unittest.TestCase):
         # Planner runs, so it is refused and Opus is taken; the Builder takes Sonnet at high, so the
         # Tester's default (Sonnet) is not offered and Enter keeps the first free model.
         # Options are listed sorted: 1 Haiku, 2 Opus, 3 Sonnet.
-        answers = iter(["", "", "", "", "3", "2", "", "3", "high", "", "", "", "", "", "low"])
+        # The first answer keeps every model AutoCode may use.
+        answers = iter(["all", "", "", "", "", "3", "2", "", "3", "high", "", "", "", "", "", "low"])
         asked, said = [], []
 
         def ask(prompt):
@@ -652,7 +653,7 @@ class StagesCommandTests(unittest.TestCase):
 
     def test_choose_on_a_listed_tool_shows_each_models_facts_and_skips_a_level_it_does_not_list(self):
         # 1 GLM 5.3, 2 GPT-6 Sol, 3 a plain model with no levels. A wrong number or level is asked again.
-        answers = iter(["9", "1", "medium", "", "", "", "2", "", "1", "", "2", "", "", "", "3"])
+        answers = iter(["all", "9", "1", "medium", "", "", "", "2", "", "1", "", "2", "", "", "", "3"])
         said = []
         self.assertTrue(stages_cli.choose("opencode", ask=lambda prompt: next(answers), out=said.append))
         shown = "\n".join(said)

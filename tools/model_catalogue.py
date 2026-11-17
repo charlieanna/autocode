@@ -19,6 +19,7 @@ from collections import defaultdict
 from pathlib import Path
 
 try:
+    from . import autocode_allowed_models as allowed_models
     from . import autocode_captured_process as captured
     from . import autocode_model_identity as model_identity
     from . import autocode_prices as prices
@@ -29,6 +30,7 @@ try:
     from . import autocode_route_selector as route_selector
     from . import autocode_verifier_independence as verifier_independence
 except ImportError:
+    import autocode_allowed_models as allowed_models
     import autocode_captured_process as captured
     import autocode_model_identity as model_identity
     import autocode_prices as prices
@@ -496,6 +498,10 @@ def choose(
 
 
 def _serve(settings: dict, available, named_strong, roles=None) -> dict:
+    # A climb never lands on a model the person left out of the models AutoCode may use, unless they
+    # named the Builder's stronger model for this run: a typed flag stays exact.
+    if not named_strong:
+        available = allowed_models.available(available, settings.get("allowed_models"))
     try:
         return route_ladder.serve(settings, available, roles=roles, named_strong=named_strong)
     except ValueError as error:
