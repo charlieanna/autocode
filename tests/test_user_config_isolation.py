@@ -23,6 +23,32 @@ def run(code, environment):
 
 
 class UserConfigIsolationTests(unittest.TestCase):
+    def test_pure_planning_ignores_the_developers_source_catalog(self):
+        with tempfile.TemporaryDirectory() as person:
+            path = Path(person) / "source-catalog.json"
+            (Path(person) / ".git").mkdir()
+            for variable in ("AUTOCODE_HOME", "AUTOCODE_SOURCE_CATALOG_HOME"):
+                for entries in ("roots", "repositories"):
+                    with self.subTest(variable=variable, entries=entries):
+                        document = {"version": 1, "roots": [], "repositories": [], "remotes": []}
+                        document[entries] = [{"path": person}]
+                        path.write_text(json.dumps(document))
+                        original = path.read_bytes()
+                        environment = {**os.environ, variable: person}
+                        if variable == "AUTOCODE_HOME":
+                            environment.pop("AUTOCODE_SOURCE_CATALOG_HOME", None)
+                        code = (
+                            "import sys, unittest, tests; from pathlib import Path; "
+                            "import autocode_repo_catalog as catalog; "
+                            f"assert catalog.catalog_path() == Path({str(path)!r}).resolve(); "
+                            "from tests.test_planning import PlanningTests; "
+                            "case = PlanningTests('test_planning_prompts_show_remaining_run_time_and_saved_limits'); "
+                            "result = unittest.TextTestRunner().run(unittest.TestSuite([case])); "
+                            "sys.exit(0 if result.wasSuccessful() else 1)"
+                        )
+                        run(code, environment)
+                        self.assertEqual(original, path.read_bytes())
+
     def test_a_developer_who_sends_new_runs_to_kilo_does_not_change_what_a_test_runs(self):
         with tempfile.TemporaryDirectory() as developer:
             config = Path(developer) / "autocode" / "config.toml"
