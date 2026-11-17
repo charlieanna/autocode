@@ -73,6 +73,22 @@ def _valid_source(state: RunState, sources: set[str], ref: str) -> bool:
     return ref in sources or (ref.startswith("catalog/") and bool(source_catalog.evidence(state, ref)))
 
 
+def _code_hint(state: RunState, refs: list[str]) -> str:
+    """Name refs that are code this stage read, so a repair changes the status rather than the evidence.
+
+    The status and its refs disagree, not the evidence: a live Requirements report (2026-11-16) marked
+    file citations ``specified_in_source``, and both repairs deleted entries instead of relabeling them."""
+    if code_citations.greenfield(state):
+        return ""
+    code = [ref for ref in refs if code_citations.verify_citation(state, STAGE, ref) is None]
+    if not code:
+        return ""
+    return (
+        f" ({', '.join(code)} {'is code' if len(code) == 1 else 'are code'} this stage read, which a "
+        "repo_convention dimension cites; specified_in_source means the person's words or a pinned source)"
+    )
+
+
 def validate(state: RunState, report: dict) -> None:
     """Raise ValueError naming every dimension whose status its refs do not support."""
     audit = report.get(FIELD)
@@ -106,14 +122,22 @@ def validate(state: RunState, report: dict) -> None:
             if missing:
                 problems.append(
                     f"{label} cites {', '.join(missing)}: cite a requirement id of this report, a source_inventory "
-                    "or pinned catalog/... id, task, or a saved answer or user event id"
+                    "or pinned catalog/... id, task, or a saved answer or user event id" + _code_hint(state, missing)
                 )
         else:
-            problems.extend(
+            reasons = [
                 reason
                 for ref in refs
                 if (reason := code_citations.verify_citation(state, STAGE, ref, field=label)) is not None
-            )
+            ]
+            sourced = [ref for ref in refs if _valid_source(state, sources, ref)]
+            if reasons and sourced:
+                reasons[-1] += (
+                    f" ({', '.join(sourced)} {'is a source id' if len(sourced) == 1 else 'are source ids'}, "
+                    "which a specified_in_source dimension cites; repo_convention cites only path[:line] of code "
+                    "this stage read)"
+                )
+            problems.extend(reasons)
     unnamed = [
         question_id
         for question_id, row in questions.items()

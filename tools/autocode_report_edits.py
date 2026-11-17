@@ -151,9 +151,41 @@ def prepare(schema_path, source, stage):
     return target
 
 
+def _where(path) -> str:
+    return json.dumps(path, ensure_ascii=False)
+
+
+def _no_step(path, depth, current, part) -> str:
+    """Why ``path[depth]`` cannot be taken from ``current``, naming what the report holds there.
+
+    One sentence for every kind of miss, so a repair that guessed a path learns the actual shape:
+    a live repair (2026-11-16) indexed an object by number and was told only that "insertion before
+    existing array items is forbidden", then ran out of attempts."""
+    at = f"Report edit path {_where(path)}: {_where(path[:depth]) if depth else 'the report'}"
+    if isinstance(current, dict):
+        fields = ", ".join(list(current)[:12]) or "none"
+        if type(part) is int:
+            return f"{at} is an object, not an array, so it has no index {part}; its fields are: {fields}"
+        return f"{at} has no field {part!r}; its fields are: {fields}"
+    if isinstance(current, list):
+        if type(part) is int:
+            return f"{at} is an array of {len(current)} items, so index {part} is out of range"
+        return f"{at} is an array of {len(current)} items; address an item by its index, not {part!r}"
+    kind = (
+        "null"
+        if current is None
+        else "a boolean"
+        if isinstance(current, bool)
+        else "a string"
+        if isinstance(current, str)
+        else "a number"
+    )
+    return f"{at} is {kind}, which has no fields or items"
+
+
 def _parent(root, path):
     current = root
-    for part in path[:-1]:
+    for depth, part in enumerate(path[:-1]):
         if (
             isinstance(current, dict)
             and isinstance(part, str)
@@ -164,8 +196,26 @@ def _parent(root, path):
         ):
             current = current[part]
         else:
-            raise ValueError("Report edit parent path does not exist")
+            raise ValueError(_no_step(path, depth, current, part))
     return current, path[-1]
+
+
+def _bad_target(path, op, parent, key) -> str:
+    """Why ``op`` cannot act at ``path``, whose parent exists."""
+    if op not in ("add", "remove", "replace"):
+        return f"Report edit path {_where(path)}: unknown operation {op!r}; use add, remove or replace"
+    if isinstance(parent, list) and type(key) is int:
+        if op == "add":
+            return (
+                f"Report edit path {_where(path)}: add at index {key} of an array of {len(parent)} items would "
+                f"insert before existing array items, which is forbidden; append at index {len(parent)}, or "
+                "replace the existing item"
+            )
+        return (
+            f"Report edit path {_where(path)}: {op} needs an existing item, and the array has {len(parent)} "
+            f"items, so index {key} is out of range"
+        )
+    return _no_step(path, len(path) - 1, parent, key)
 
 
 def _schema_is_prose_string(schema, path) -> bool:
@@ -267,8 +317,14 @@ def apply(base, edits, schema=None):
             value = _plain_text(parent, key, op, path, undecoded, schema=schema)
         if isinstance(parent, dict) and isinstance(key, str):
             exists = key in parent
-            if (op == "add" and exists) or (op in ("remove", "replace") and not exists):
-                raise ValueError("Report edit operation does not match field existence")
+            if op == "add" and exists:
+                raise ValueError(f"Report edit path {_where(path)}: add needs an absent field; use replace for {key!r}")
+            if op in ("remove", "replace") and not exists:
+                fields = ", ".join(list(parent)[:12]) or "none"
+                raise ValueError(
+                    f"Report edit path {_where(path)}: {op} needs an existing field, and {key!r} is absent; "
+                    f"the fields there are: {fields}"
+                )
             if op == "remove":
                 if value is not None:
                     raise ValueError("Report remove edit must have null value")
@@ -276,7 +332,7 @@ def apply(base, edits, schema=None):
             elif op in ("add", "replace"):
                 parent[key] = copy.deepcopy(value)
             else:
-                raise ValueError("Unknown report edit operation")
+                raise ValueError(_bad_target(path, op, parent, key))
         elif isinstance(parent, list) and type(key) is int and key >= len(parent) and op == "add":
             additions.setdefault(id(parent), (parent, {}))[1][key] = copy.deepcopy(value)
         elif isinstance(parent, list) and type(key) is int and 0 <= key < len(parent) and op in ("replace", "remove"):
@@ -289,7 +345,7 @@ def apply(base, edits, schema=None):
                 # Overlap checks above forbid edits inside a removed item.
                 removals.setdefault(id(parent), (parent, []))[1].append(key)
         else:
-            raise ValueError("Report edit target is invalid; insertion before existing array items is forbidden")
+            raise ValueError(_bad_target(path, op, parent, key))
     for parent, items in additions.values():
         indices = sorted(items)
         if indices != list(range(len(parent), len(parent) + len(indices))):
