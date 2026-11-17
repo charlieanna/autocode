@@ -1,0 +1,21 @@
+name = "probe_script"
+# The scripted stages of `autocode probe --stage tester` and `--stage completion` (#3630): it calls no
+# model. Requirements, the Planner, the Plan Reviewer and the Builder of a probe's run are this script,
+# and the checking stage the probe does not measure passes; only the stage being measured is a model.
+# The probe puts `autocode-probe-script` on PATH and names its script in AUTOCODE_PROBE_SCRIPT; outside a
+# probe the tool refuses to run. See tools/probe_script_provider.py.
+command = ["autocode-probe-script", "run", "--model", "{model}", "--report", "{report}"]
+prompt = "stdin"
+output = "opencode_events"
+resume = ["--session", "{session}"]
+models = ["probe-script-plan", "probe-script-review", "probe-script-build", "probe-script-check"]
+version_command = ["autocode-probe-script", "--version"]
+
+[roles]
+task_planner = { model = "probe-script-plan", effort = "" }
+builder = { model = "probe-script-build", effort = "" }
+tester = { model = "probe-script-check", effort = "" }
+completion = { model = "probe-script-check", effort = "" }
+planner = { model = "probe-script-plan", effort = "" }
+requirements = { model = "probe-script-plan", effort = "" }
+plan_reviewer = { model = "probe-script-review", effort = "" }

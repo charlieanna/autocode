@@ -395,6 +395,26 @@ autocode probe --stage builder --measure zai-coding-plan/glm-5.3 high --measure 
   --requirements zai-coding-plan/glm-5.3 low --max-cost-usd 40
 ```
 
+The Tester's and the Completion Reviewer's probes (`autocode_check_probe`) measure checkers on
+changes with a known answer. Every other stage of each run is the bundled scripted tool
+(`probe_script`), which calls no model: Requirements and the Planner write the same greeting plan every
+time, and the Builder writes the files the probe gives it. Of five requests one is sound; in the
+other four the first build has one flaw the plan forbids in its own words (an empty name greeted, a
+second name ignored, the usage line on stdout, exit 1 for a usage error), with its tests changed so they
+still pass, and the build after it is sound. The checking stage not being measured is scripted as
+lenient, so each probe sees only its own stage's judgment. A checker passes a request when the run
+completed, it sent the flawed build back, it never sent the sound one back, the files the run left pass
+the plan's own tests and its own time stayed within 20 minutes. It qualifies when it has run all five
+and passed at least four. Only the measured stage spends money, so no `--planner`, `--checker` or
+`--requirements` applies; the probe needs OpenCode or Kilo, since the scripted stages run as a tool
+of their own:
+
+```sh
+autocode probe --stage tester --measure zai-coding-plan/glm-5.3 high --measure openai/gpt-6.1-sol medium \
+  --max-cost-usd 10
+autocode probe --stage completion --measure anthropic/claude-opus-5-5 medium --max-cost-usd 10
+```
+
 OpenCode and Kilo reasoning variants come from their local verbose model listings.
 An unsupported qualified level is omitted so the model uses its default. When older
 tools cannot report variants, the recorded qualification level is used. Preflight

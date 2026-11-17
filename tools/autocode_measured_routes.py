@@ -34,6 +34,7 @@ from pathlib import Path
 
 try:
     from . import autocode_builder_probe as builder_probe
+    from . import autocode_check_probe as check_probe
     from . import autocode_model_identity as model_identity
     from . import autocode_plan_reviewer_probe as reviewer_probe
     from . import autocode_planner_probe as planner_probe
@@ -41,6 +42,7 @@ try:
     from . import autocode_util as util
 except ImportError:
     import autocode_builder_probe as builder_probe
+    import autocode_check_probe as check_probe
     import autocode_model_identity as model_identity
     import autocode_plan_reviewer_probe as reviewer_probe
     import autocode_planner_probe as planner_probe
@@ -58,12 +60,16 @@ PROBES = {
     "planner": ("planner-v1", len(planner_probe.REQUESTS)),
     "plan_reviewer": ("plan-reviewer-v1", len(reviewer_probe.REQUESTS)),
     "builder": ("builder-v1", len(builder_probe.REQUESTS)),
+    "tester": ("tester-v1", len(check_probe.REQUESTS)),
+    "completion": ("completion-v1", len(check_probe.REQUESTS)),
 }
 LATENCY_LIMITS = {
     "requirements": requirements_probe.LATENCY_LIMIT_SECONDS,
     "planner": planner_probe.TIME_LIMIT_SECONDS,
     "plan_reviewer": reviewer_probe.TIME_LIMIT_SECONDS,
     "builder": builder_probe.TIME_LIMIT_SECONDS,
+    "tester": check_probe.TIME_LIMIT_SECONDS,
+    "completion": check_probe.TIME_LIMIT_SECONDS,
 }
 _LEVELS = {level: index for index, level in enumerate(util.EFFORTS)}
 
