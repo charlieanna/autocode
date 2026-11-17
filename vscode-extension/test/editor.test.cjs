@@ -4291,6 +4291,28 @@ for (const surface of ['chat', 'Run details']) {
     assert.ok(ui.document.querySelector('#start-new-conversation'));
   });
 
+  test(`a blocked chat in ${surface} says what stopped and offers a new conversation`, async (t) => {
+    // Ankur, 2026-11-17: "AutoCode is blocked on internal recovery" named no cause and offered nothing.
+    const said = "The Plan Reviewer step stopped: its model provider ended the call without a confirmed result, and AutoCode's own retries for it ran out.";
+    const view = {
+      status: 'PAUSED_PROVIDER_UNCERTAIN', done: false, needs: null, next_command: null,
+      recovery: { category: 'blocked', title: 'AutoCode is blocked on internal recovery', what_happened: said,
+        retained: '1 finished attempt(s) remain in the history.',
+        actions: [{ kind: 'inspect', label: 'Inspect saved work' },
+          { kind: 'new_conversation', label: 'Start a new conversation' }] },
+    };
+    const ui = surface === 'chat' ? await openChat(t, view) : await openPanel(t, view);
+    const text = ui.document.querySelector('#app').textContent;
+    assert.ok(text.includes('The Plan Reviewer step stopped'));
+    assert.ok(!text.includes('No action the client can take'));
+    const launch = t.mock.method(cli, 'stream', async () => ok);
+    const execute = t.mock.method(host.vscode.commands, 'executeCommand', async () => {});
+    ui.document.querySelector('#start-new-conversation').click(); await flush();
+    if (surface === 'chat') assert.equal(ui.chat.run, undefined);
+    else assert.equal(execute.mock.calls.at(-1).arguments[0], 'autocode.startRun');
+    assert.equal(launch.mock.callCount(), 0, 'opening a fresh chat must launch no provider');
+  });
+
   test(`${surface} applies polling interval changes without reload and disposes the listener`, async (t) => {
     const view = { status: 'RUNNING', done: false, needs: { kind: 'continue' } };
     const ui = surface === 'chat' ? await openChat(t, view) : await openPanel(t, view);

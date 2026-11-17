@@ -550,6 +550,14 @@ def project(state: RunState, need=None):
         return result
     if (failure := operational_block.presentation(state, include_hold=True)) and failure["category"] == "blocked":
         result.update(failure)
+        # Never a dead end: the person can start the task again in a new chat, which leaves this one as it is.
+        actions.append(
+            _action(
+                "new_conversation",
+                "Start a new conversation",
+                "Keep this blocked conversation and its saved work, and start the task again in the same project.",
+            )
+        )
         return result
     if fresh_run:
         why = need.get("reason") or need.get("recovery_hint") or result["what_happened"]

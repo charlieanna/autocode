@@ -110,7 +110,7 @@ class MetadataOperationalBlockTests(unittest.TestCase):
         self.assertIsNone(public["needs"])
         self.assertIsNone(public["next_command"])
         self.assertEqual("blocked", public["recovery"]["category"])
-        self.assertEqual(["inspect"], [row["kind"] for row in public["recovery"]["actions"]])
+        self.assertEqual(["inspect", "new_conversation"], [row["kind"] for row in public["recovery"]["actions"]])
         self.assertEqual("blocked", summary.project(public)["state"])
         self.assertNotIn("resume", public["chat"]["notice"].lower())
         self.assertNotIn("choose", public["chat"]["notice"].lower())
