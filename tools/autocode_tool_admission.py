@@ -53,6 +53,9 @@ class ShellPolicy:
     kilo_portable: bool
     uncontained: bool
     kernel_shell: bool
+    # A writing Kilo stage on a host with the kernel shell runs in it, shell only (#3770); macOS keeps Kilo's own
+    # permissions there, as for its checkers (#1766).
+    kilo_writer: bool = False
 
 
 def shell_policy(*, engine, adapter, planning, allow_write, settings, enforce=True, isolation=None, recovery=False):
@@ -64,15 +67,20 @@ def shell_policy(*, engine, adapter, planning, allow_write, settings, enforce=Tr
     )
     kilo_portable = kilo_readonly and sys.platform == "darwin"
     kilo_readonly = kilo_readonly and not kilo_portable
+    kilo_writer = (
+        type(adapter) is KiloProvider and allow_write and not planning and not kilo_owner and sys.platform != "darwin"
+    )
     uncontained = containment_policy.accepted(settings)
     kernel_shell = (
         engine == "opencode"
         and enforce
         and not uncontained
         and (not planning or planner_shell or isolation is not None)
-        and (not getattr(adapter, "CONFIGURED", False) or kilo_owner or kilo_readonly)
+        and (not getattr(adapter, "CONFIGURED", False) or kilo_owner or kilo_readonly or kilo_writer)
     )
-    return ShellPolicy(planner_shell, kilo_owner, kilo_readonly, kilo_portable, uncontained, kernel_shell)
+    return ShellPolicy(
+        planner_shell, kilo_owner, kilo_readonly, kilo_portable, uncontained, kernel_shell, kilo_writer and kernel_shell
+    )
 
 
 def environment(source=None):
@@ -92,7 +100,7 @@ def failure(error, *, kilo_readonly=False, isolation=None):
         if isinstance(error, KiloProbeTimeout)
         else ". Restore the qualified native setup; native role isolation requires its kernel tool boundary"
         if isolation is not None
-        else ". Restore qualified Kilo 7.8.3 and its kernel shell setup; readonly Kilo cannot waive this boundary"
+        else ". Restore qualified Kilo 7.8.3 and its kernel shell setup; a Kilo stage cannot waive this boundary"
         if kilo_readonly
         else ". Restore the qualified setup, or resume with --allow-uncontained-tools to run "
         "this run's stages with OpenCode's own permission checks only"

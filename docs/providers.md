@@ -1155,12 +1155,16 @@ before any launch, including the readonly planning shell's denial of private
 run-state reads where that boundary is supplied. On hosts where no kernel
 sandbox is qualified, such as macOS, read-only checks instead run with Kilo's
 own permission-restricted shell and edits denied, and any source change is put
-back by the workspace snapshot check. Writer stages get no kernel sandbox and
-no filesystem boundary from this command: the workspace snapshot checks
-inspect workspace changes afterwards and are not an OS boundary around the
-writer process, and `external_directory: "deny"` is a native tool policy, not
-a filesystem sandbox for bash. Use explicit Kilo permission restrictions for
-operations that must be blocked before execution. See Kilo's
+back by the workspace snapshot check. Writer stages (the Builder) run in the same
+kernel boundary on Linux, with only that contained shell: its writes are confined to
+the workspace, outside `.git` and `.autocode`, judged on the resolved path, so a link
+that leads out of the workspace cannot carry a write out of it (#3770). On macOS a
+writer still has no kernel sandbox until a Kilo release is qualified there: the
+workspace snapshot checks inspect changes afterwards and are not an OS boundary,
+`external_directory: "deny"` is a native tool policy, not a filesystem sandbox for
+bash, and the file tools are denied any workspace link that leads outside it
+(#3767). Use explicit Kilo permission restrictions for operations that must be
+blocked before execution there. See Kilo's
 [permission reference](https://kilo.ai/docs/code-with-ai/platforms/cli#permissions).
 
 The `alibaba-token-plan/` route serves that login's own plan rather than the

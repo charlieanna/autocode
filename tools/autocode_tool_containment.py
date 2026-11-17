@@ -1613,10 +1613,12 @@ def configure(
     """
     if transport not in ("opencode", "kilocode"):
         raise ValueError("Unsupported tool containment transport")
-    if transport == "kilocode" and (allow_write or retain_launch_identity):
-        raise ValueError("Ordinary Kilo containment supports readonly stages only")
+    if transport == "kilocode" and retain_launch_identity:
+        # A writing Kilo stage runs in the same shell-only boundary as an OpenCode writer (#3770); only the
+        # native-isolation owner observes its launch identity, and it has its own profile.
+        raise ValueError("Ordinary Kilo containment does not observe a native launch identity")
     if resolved_shell_policy is not None and transport != "kilocode":
-        raise ValueError("Resolved shell policy is only supported for ordinary read-only Kilo")
+        raise ValueError("Resolved shell policy is only supported for ordinary Kilo")
     supported_version = "7.8.3" if transport == "kilocode" else SUPPORTED_VERSION
     config_variable = "KILO_CONFIG_CONTENT" if transport == "kilocode" else "OPENCODE_CONFIG_CONTENT"
     if type(retain_launch_identity) is not bool:
@@ -1900,8 +1902,6 @@ def verify(boundary):
     expected_version = "7.8.3" if transport == "kilocode" else SUPPORTED_VERSION
     if (
         transport not in ("opencode", "kilocode")
-        or transport == "kilocode"
-        and boundary.get("allow_write") is not False
         or host is None
         or boundary.get("backend", SEATBELT) != host
         or boundary.get("native_version") != expected_version

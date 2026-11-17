@@ -50,8 +50,9 @@ class LaunchContainment(unittest.TestCase):
                 "Kilo's debug agent code check exhausted its 90-second setup budget after 2 attempt(s); "
                 "no model request was launched"
             )
+            # A Linux Kilo Builder is contained too since #3770, so its timeout names the boundary as a checker's does.
             cases = (
-                (True, "PAUSED_TRANSPORT_UNVERIFIED", "exhausted its 90-second setup budget"),
+                (True, "PAUSED_TOOL_CONTAINMENT", "Bounded setup retries were exhausted"),
                 (False, "PAUSED_TOOL_CONTAINMENT", "Bounded setup retries were exhausted"),
             )
             for writing, status, named in cases:
@@ -160,6 +161,32 @@ class LaunchContainment(unittest.TestCase):
                 self.assertNotIn("containment", kilo.launch.call_args.kwargs)
                 self.assertNotIn("portable_shell", kilo.launch.call_args.kwargs)
                 self.assertIn("all tools disabled", launch.stage_record(worker)["isolation"])
+
+    def test_a_kilo_builder_runs_in_the_kernel_shell_where_kilo_has_one(self):
+        # #3770: a Kilo Builder's shell wrote outside the workspace. Where Kilo's checkers already run in the kernel
+        # shell (Linux, qualified Kilo), the Builder runs there too; macOS keeps Kilo's own permissions (#1766).
+        from providers.kilocode import KiloProvider
+
+        kilo = object.__new__(KiloProvider)
+        kilo.launch = mock.Mock(return_value=(["kilo", "run"], {}, {}))
+        options = {
+            **self.options,
+            "adapter": kilo,
+            "allow_write": True,
+            "role": "builder",
+            "route_role": "builder",
+            "sandbox": "workspace-write",
+        }
+        with mock.patch.object(launch.sys, "platform", "linux"):
+            launch.prepare(**options)
+        request = kilo.launch.call_args.kwargs["containment"]
+        self.assertIn(str(self.options["run_dir"]), request["protected_paths"])
+        self.assertNotIn("private_run", request, "a writer's shell is not the planning shell")
+        self.assertNotIn("portable_shell", kilo.launch.call_args.kwargs)
+        with mock.patch.object(launch.sys, "platform", "darwin"):
+            launch.prepare(**options)
+        self.assertNotIn("containment", kilo.launch.call_args.kwargs)
+        self.assertNotIn("portable_shell", kilo.launch.call_args.kwargs)
 
     def test_a_planning_handoff_stays_compact_under_containment(self):
         packet = {"stage": "draft_plan", "joint_planning": True, "task": "x"}
