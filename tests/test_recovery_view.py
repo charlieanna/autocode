@@ -178,7 +178,11 @@ class RecoveryViewTests(unittest.TestCase):
         # Ankur, 2026-11-11: a chat saved under the old route names read "No action the client can
         # take", since its next_command only explains the stop (--explain), which no client may take.
         cases = {
-            "old route names": {"settings": {"roles": {"astra": {"model": "m"}, "terra": {"model": "m"}}}},
+            # A run saved under the old names is read with the job names and continues (test_saved_names);
+            # only one naming a route both ways, which no rename settles, still ends here.
+            "old names no rename settles": {
+                "settings": {"roles": {"builder": {"model": "m"}, "terra": {"model": "m"}}}
+            },
             "retired stage": {"next_stage": "investigate_bug"},
         }
         # Ankur, 2026-11-11, again: the same chat while the earlier runtime's worker still ran it read
@@ -190,8 +194,10 @@ class RecoveryViewTests(unittest.TestCase):
                 card = view["recovery"]
                 self.assertEqual(("stopped", "This chat can't continue"), (card["category"], card["title"]))
                 self.assertTrue(card["what_happened"].startswith(view["needs"]["reason"]))
-                self.assertEqual(status == "RUNNING", "still running" in card["what_happened"])
-                self.assertIn("start a new task", card["what_happened"])
+                self.assertEqual(status == "RUNNING", "the only one that can finish that step" in card["what_happened"])
+                self.assertIn("start a new chat", card["what_happened"])
+                for word in ("astra", "terra", "route", "runtime"):
+                    self.assertNotIn(word, card["what_happened"])
                 self.assertEqual(["inspect", "new_conversation"], [row["kind"] for row in card["actions"]])
         # A component run's immutable caller binding keeps its own fresh-run card.
         self.assertNotEqual("stopped", self.card(self.state("PAUSED_COMPONENT_PLAN"))["category"])

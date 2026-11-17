@@ -705,6 +705,11 @@ so a saved `medium` runs at `high`. The route assignment records the move and it
 A provider that reports a used-up quota, usage limit or credits stops the stage with
 `PAUSED_BUDGET`, and so does a used-up daily, weekly or monthly plan limit sent as an
 HTTP 429 (Z.AI's "Weekly/Monthly Limit Exhausted"); a per-minute rate limit does not.
+AutoCode recognizes a spent account by what the provider reports, not by one provider's
+wording: an HTTP 402, a billing error type, or a message saying the credit, balance,
+funds or spending limit is used up or must be bought or topped up. So Anthropic's
+"Your credit balance is too low" (an HTTP 400), OpenRouter's "Insufficient credits" and
+DeepSeek's "Insufficient Balance" are the same stop (`tools/autocode_provider_funds.py`).
 The stopped attempt is kept and never replayed. Unless the run can switch the role on
 its own (see the end of this section), AutoCode asks you which model the role should
 continue on, for example:

@@ -8,6 +8,7 @@ It imports nothing from autocode.py; autocode.py re-exports these names.
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import datetime as dt
 import json
@@ -39,6 +40,7 @@ try:
     from . import autocode_resolver_human as resolver_human
     from . import autocode_roles as roles
     from . import autocode_run_status as run_status
+    from . import autocode_saved_names as saved_names
     from . import autocode_support as support
     from . import autocode_util as util
     from . import autocode_worker_quota as worker_quota
@@ -63,6 +65,7 @@ except ImportError:
     import autocode_resolver_human as resolver_human
     import autocode_roles as roles
     import autocode_run_status as run_status
+    import autocode_saved_names as saved_names
     import autocode_support as support
     import autocode_util as util
     import autocode_worker_quota as worker_quota
@@ -351,7 +354,16 @@ def _restage_stale_request(state: RunState) -> bool:
 
 
 def read_json(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text())
+    """A saved JSON file; a run's ``state.json`` saved under the old code names is read with the job names.
+
+    The rename is in memory (autocode_saved_names.migrate); the next save under the run lock keeps
+    it. A state that names one route both ways stays as saved, and workflows.retired_stage explains it.
+    """
+    value = json.loads(Path(path).read_text())
+    if Path(path).name == "state.json" and isinstance(value, dict):
+        with contextlib.suppress(ValueError):
+            saved_names.migrate(cast("RunState", value))
+    return value
 
 
 def account_stage(state: RunState, record):

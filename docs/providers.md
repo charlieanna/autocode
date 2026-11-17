@@ -967,7 +967,8 @@ no reasoning level omits those arguments instead of passing an empty value, and 
 model uses its own default level.
 
 A tool that reports a subscription usage limit or runs out of pay-as-you-go
-credit pauses the run with `PAUSED_BUDGET`.
+credit pauses the run with `PAUSED_BUDGET`, whichever provider behind the tool said so
+and with whatever HTTP status ([Models](models.md#when-a-roles-quota-runs-out)).
 
 ### KiloCode
 

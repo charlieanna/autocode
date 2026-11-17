@@ -28,6 +28,16 @@ def assert_operational_block(test, state, pause):
     return row["receipt"]["id"]
 
 
+def assert_view_blocked(test, view, pause):
+    """The public view of exhausted internal recovery (#3682): stopped, not done, nothing to answer or type."""
+    test.assertEqual(pause, view["status"], view.get("stop_reason"))
+    test.assertFalse(view["done"])
+    test.assertEqual("blocked", view["recovery"]["category"], view["recovery"])
+    test.assertIsNone(view["needs"])
+    test.assertIsNone(view["next_command"])
+    test.assertNotIn("--", view["stop_reason"] or "")
+
+
 def legacy_publication(
     state, run_dir, *, pause=None, request=None, questions=None, budget=None, scope="operational_exhaustion"
 ):

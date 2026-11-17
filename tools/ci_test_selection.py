@@ -257,6 +257,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("tests.test_planning_scope_discipline",),
     ),
     ("tools/autocode_legacy_process.py", ("tests.test_json_status_observer_cli",)),
+    (
+        "tools/autocode_saved_names.py",
+        ("tests.test_saved_names", "tests.test_saved_names_cli", "tests.test_recovery_view"),
+    ),
     ("tools/autocode_chat_confirmation.py", ("tests.test_chat_confirmation", "tests.test_chat_client")),
     ("tools/prompts/acceptance-tests.md", ("tests.test_go_prerequisites_execution",)),
     ("tools/autocode_capability_startup.py", ("tests.test_capability_startup", "tests.test_demo")),
