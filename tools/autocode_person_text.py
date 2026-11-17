@@ -66,12 +66,12 @@ def seatbelt_loopback_diagnostic(*, for_person: bool = False) -> str:
     if for_person:
         return (
             "macOS Seatbelt blocked a local loopback socket bind (127.0.0.1: Operation not permitted) inside the "
-            "stage sandbox, while AutoCode's local runner checks run outside Seatbelt. Use Kilo on macOS or a "
-            "Linux host when stage tests bind local sockets."
+            "stage sandbox, while AutoCode's local runner checks run outside Seatbelt. Use a Linux host when "
+            "stage tests bind local sockets."
         )
     return (
         "macOS Seatbelt blocked a local loopback socket bind (127.0.0.1: Operation not permitted) inside the "
-        "stage sandbox, while AutoCode's local regression_proof, portable kilocode and --allow-uncontained-tools "
+        "stage sandbox, while AutoCode's local regression_proof and --allow-uncontained-tools "
         "permit loopback socket binds."
     )
 

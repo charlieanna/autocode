@@ -176,15 +176,9 @@ def _deny_outside_links(policy, workspace):
                 rules[pattern] = "deny"
 
 
-def restrict(
-    argv, child, workspace, *, role, request=None, report_recovery=False, portable_shell=False, write_stage=False
-):
-    """``portable_shell``: a read-only checker on a host without the kernel shell (macOS, #1766) keeps the read
-    tools and Kilo's own shell, intersected with the operator's policy; edits stay denied."""
-    if write_stage and (report_recovery or portable_shell):
+def restrict(argv, child, workspace, *, role, request=None, report_recovery=False, write_stage=False):
+    if write_stage and report_recovery:
         raise ValueError("A writable Kilo stage cannot use a read-only tool boundary")
-    if portable_shell and (request is not None or report_recovery):
-        raise ValueError("A portable Kilo shell replaces the kernel boundary; it cannot accompany one")
     argv, original = effective_agent(argv, child, workspace)
     prompt = original.get("prompt")
     if prompt is not None and not isinstance(prompt, str):
@@ -197,15 +191,7 @@ def restrict(
     # A kernel request narrows any stage to its contained shell (#3770): a writer then edits through that shell,
     # whose writes the kernel confines to the workspace, as an OpenCode writer does.
     permitted = (
-        ("bash",)
-        if request is not None
-        else WRITE_TOOLS
-        if write_stage
-        else ()
-        if report_recovery
-        else (*READ_TOOLS, "bash")
-        if portable_shell
-        else READ_TOOLS
+        ("bash",) if request is not None else WRITE_TOOLS if write_stage else () if report_recovery else READ_TOOLS
     )
     policy = intersect(original.get("permission"), permitted)
     if "bash" in policy:

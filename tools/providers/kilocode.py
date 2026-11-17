@@ -6,7 +6,6 @@ Native support is not a configuration flag and cannot fall back to that path.
 
 import json
 import re
-import sys
 import uuid
 from pathlib import Path
 
@@ -16,16 +15,16 @@ try:
     from .. import autocode_output_cap as output_cap
     from .. import autocode_route_fit as route_fit
     from .. import autocode_route_levels as route_levels
+    from .. import autocode_tool_containment as containment
 except ImportError:
     import autocode_output_cap as output_cap
     import autocode_route_fit as route_fit
     import autocode_route_levels as route_levels
+    import autocode_tool_containment as containment
 
-# The qualified Kilo release. On Linux, restricted stages already refuse another
-# version (autocode_tool_containment's kernel shell); this is the same pin at the
-# point a launch would otherwise reach the model, so a wrong install stops before
-# any spend. macOS checkers use Kilo's own shell instead (#1766), so it has no pin.
-RELEASE_VERSION = "7.8.3"
+# Kilo's restricted stages run in the kernel shell, which refuses a Kilo release not qualified for this host's
+# sandbox (autocode_tool_containment.KILO_VERSIONS). This is the same pin at the point a launch would otherwise
+# reach the model, so a wrong install stops before any spend.
 
 
 class KiloEffortError(RuntimeError):
@@ -33,14 +32,13 @@ class KiloEffortError(RuntimeError):
 
 
 def check_version(version, platform=None):
-    """Refuse a Kilo other than the qualified release where containment needs it; no request is launched."""
-    if (platform or sys.platform) == "darwin":
-        return
+    """Refuse a Kilo other than a release qualified for this host's sandbox; no request is launched."""
+    qualified = containment.kilo_versions(platform)
     match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)(?:[-+][\w.-]+)?", (version or "").strip())
-    if not match or ".".join(match.groups()) != RELEASE_VERSION:
+    if not match or ".".join(match.groups()) not in qualified:
+        wanted = " or ".join(qualified) if qualified else "a release qualified for this host's sandbox (none is yet)"
         raise RuntimeError(
-            f"kilocode requires Kilo {RELEASE_VERSION} (found {version or 'no version'}); "
-            "no provider request was launched"
+            f"kilocode requires Kilo {wanted} (found {version or 'no version'}); no provider request was launched"
         )
 
 
@@ -106,7 +104,6 @@ class KiloProvider(command.CommandProvider):
         isolation=None,
         image_preparation=None,
         report_recovery=False,
-        portable_shell=False,
         access_probe=False,
         declared_levels=None,
     ):
@@ -117,7 +114,6 @@ class KiloProvider(command.CommandProvider):
             or isolation is not None
             or image_preparation is not None
             or report_recovery
-            or portable_shell
         ):
             raise ValueError("Kilo access probe requires a fresh read-only unisolated launch")
         if report_recovery and (allow_write or not planning or isolation is not None):
@@ -189,7 +185,6 @@ class KiloProvider(command.CommandProvider):
                 role=role,
                 request=containment,
                 report_recovery=report_recovery,
-                portable_shell=portable_shell,
                 write_stage=allow_write and not planning,
             )
             return argv, child, saved
