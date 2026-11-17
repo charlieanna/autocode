@@ -11,6 +11,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **Connections keeps the latest check**: a slow earlier backend list could replace a newer connection check and show stale account status. Older reads can no longer overwrite newer results.
 - **Extend total active time before approving a plan** (#3749): VS Code's plan approval view now lets you raise the run's total active-time limit. Saving keeps that exact plan pending and starts no work; approval remains a separate action.
 - **Claude Code offers Fable 5.2**: the Claude Code backend refused Fable 5.2 before launch as a model it does not offer, although a Claude subscription login serves it. It is now listed, so any stage can run on it there.
 - **The Investigator runs on the tool that offers its model**: in a `kilocode` run whose roles use more than one tool, the default Investigator took another role's model but launched it on the Plan Reviewer's tool. A live run took the Planner's model, which ran on Claude Code, to Kilo, which does not list it, so the Investigator never started and the run paused for a person. The default Investigator now copies that role's whole route, its model, engine and tool, and that tool's saved identity.
