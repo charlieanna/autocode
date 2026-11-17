@@ -288,7 +288,9 @@ The person may change it at any time; every new task reads it before it begins, 
 task keeps its own. This is a requirements-level choice the person makes once, not a question
 about machinery. The terminal chat and the VS Code client may read `autocode stages list --json`
 and take only its named `set` and `reset` argument arrays, filled from the view's own options,
-to show one dropdown per stage. The VS Code client may also read the list a started run's status view
+to show one dropdown per stage. Stage models may also show each stage's `probe` offer and take only its
+`estimate` and `run` arrays, filled with the candidates the person ticked and, for `run`, the estimate's
+own cap; the press is the person's approval of that spend (owner direction on #3630, 2026-11-15). The VS Code client may also read the list a started run's status view
 names in `stage_models.next_command` (`stages list --run-dir RUN --json`) and take only its stages' `set`
 arrays, to change that chat's own models between stages (owner request 2026-11-10). Before a chat
 starts it may show the new-chat list's stages and take only each stage's `chat_set` and `chat_reset` arrays, and

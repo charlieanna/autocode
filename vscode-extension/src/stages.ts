@@ -2,7 +2,7 @@
 import * as vscode from "vscode";
 import { randomBytes } from "node:crypto";
 import { invoke, invokeRead, tail, STAGES_TIMEOUT_MS } from "./core/cli";
-import { backendArgs, currentRoute, fillSet, modelArgs, readStages, runListCommand, runRoute, type Stage, type StageRoute, type StageView } from "./core/stages";
+import { backendArgs, currentRoute, fillProbe, fillSet, modelArgs, probeOutcome, readEstimate, readStages, runListCommand, runRoute, sameEstimate, type ProbeEstimate, type Stage, type StageRoute, type StageView } from "./core/stages";
 import { listKey, type StageListCache } from "./core/stage-cache";
 import { readSettings, routeKeyOf, type Settings } from "./settings";
 
@@ -81,6 +81,10 @@ export class StagesPanel implements vscode.Disposable {
   private busy = false;
   private error = "";
   private note = "";
+  /** The estimate last shown per stage, for the exact models it priced: a run must match it. */
+  private estimates = new Map<string, { models: string[]; estimate: ProbeEstimate }>();
+  /** Stages whose probe is running now: it can take hours, so it runs beside the panel, not inside its busy flag. */
+  private measuring = new Set<string>();
 
   /** `lists` is the new-chat list the chat shows: this panel opens on it and keeps what it reads there. */
   constructor(private readonly lists?: StageListCache) {}
@@ -105,7 +109,9 @@ export class StagesPanel implements vscode.Disposable {
   private post(): void {
     const now = this.target ? runRoute : currentRoute;
     const view = this.view && { ...this.view, stages: this.view.stages.map((stage) => ({ ...stage, now: now(stage) })) };
-    void this.panel?.webview.postMessage({ view, busy: this.busy, error: this.error, note: this.note, scope: this.target ? "run" : "new" });
+    const estimates = Object.fromEntries(this.estimates);
+    void this.panel?.webview.postMessage({ view, busy: this.busy, error: this.error, note: this.note, scope: this.target ? "run" : "new",
+      estimates, measuring: [...this.measuring] });
   }
 
   private async refresh(): Promise<void> {
@@ -121,7 +127,50 @@ export class StagesPanel implements vscode.Disposable {
     this.post();
   }
 
-  private async receive(message: { type?: string; stage?: string; model?: string; effort?: string }): Promise<void> {
+  /**
+   * What measuring `models` for the stage can cost: its own `estimate` command, filled with the ticked
+   * candidates. Nothing runs; the panel shows the estimate the run button then binds to.
+   */
+  private async estimate(stage: Stage, models: string[]): Promise<ProbeEstimate> {
+    if (!stage.probe) throw new Error(`The ${stage.label} has no probe in this AutoCode.`);
+    const argv = fillProbe(stage.probe, stage.probe.estimate, models);
+    const result = await invokeRead(inFolder(readSettings()), argv, {}, STAGES_TIMEOUT_MS);
+    if (result.code !== 0) throw new Error(tail(result));
+    const estimate = readEstimate(result.stdout);
+    this.estimates.set(stage.id, { models: [...models], estimate });
+    return estimate;
+  }
+
+  /**
+   * Run the stage's probe on exactly the ticked models within the estimate the person was shown: the
+   * button press is their one approval of that spend. The estimate is read again first, and a run whose
+   * models or cost no longer match what was shown is refused rather than started.
+   */
+  private async measure(stage: Stage, models: string[], shownCap: number): Promise<void> {
+    if (!stage.probe?.run) throw new Error(stage.probe?.stop ?? `The ${stage.label} cannot be measured now.`);
+    if (this.measuring.has(stage.id)) return;
+    const shown = this.estimates.get(stage.id);
+    const estimate = await this.estimate(stage, models);
+    if (!sameEstimate(shown, models, estimate, shownCap)) {
+      throw new Error("The estimate changed since it was shown. Check it and press Measure again.");
+    }
+    const argv = fillProbe(stage.probe, stage.probe.run, models, estimate.maxUsd ?? undefined);
+    this.measuring.add(stage.id);
+    this.note = `Measuring ${models.length} model${models.length === 1 ? "" : "s"} for the ${stage.label}, up to $${(estimate.maxUsd ?? 0).toFixed(2)}. This can take a while.`;
+    void vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `AutoCode: measuring ${stage.label} models` }, async () => {
+      try {
+        const result = await invoke(inFolder(readSettings()), argv);
+        if (result.code !== 0) throw new Error(tail(result));
+        this.note = probeOutcome(stage.label, result.stdout);
+        this.estimates.delete(stage.id);
+        this.lists?.expire();
+        await this.refresh();
+      } catch (error) { this.error = error instanceof Error ? error.message : String(error); }
+      finally { this.measuring.delete(stage.id); this.post(); }
+    });
+  }
+
+  private async receive(message: { type?: string; stage?: string; model?: string; effort?: string; models?: unknown; cap?: unknown }): Promise<void> {
     if (this.busy) return;
     this.busy = true; this.error = ""; this.note = ""; this.post();
     try {
@@ -131,6 +180,13 @@ export class StagesPanel implements vscode.Disposable {
       await this.refresh();
       const stage = this.view?.stages.find((row) => row.id === message.stage);
       if (!stage) return;
+      const models = Array.isArray(message.models) ? message.models.filter((m): m is string => typeof m === "string") : [];
+      if (message.type === "estimate") {
+        if (models.length) await this.estimate(stage, models);
+        else this.estimates.delete(stage.id);
+        return;
+      }
+      if (message.type === "measure") { await this.measure(stage, models, Number(message.cap)); return; }
       let argv: string[] | null = null;
       if (message.type === "set") argv = fillSet(stage, String(message.model ?? ""), String(message.effort ?? ""));
       else if (message.type === "reset") argv = stage.reset;
@@ -188,5 +244,18 @@ const current=(stage.chosen&&stage.chosen.model)||stage.default.model;const curr
 for(const option of stage.options){const item=document.createElement('option');item.value=option.model;item.textContent=option.model+(option.family?' · '+option.family:'')+(option.unavailable?' — not available: '+option.unavailable:'');item.disabled=!!option.unavailable;item.selected=option.model===current;models.append(item);}
 const fill=()=>{levels.replaceChildren();const option=stage.options.find((row)=>row.model===models.value);for(const level of option?option.effortChoices:[]){const item=document.createElement('option');item.value=level;item.textContent=level;item.selected=level===currentEffort;levels.append(item);}};
 models.onchange=fill;fill();const save=document.createElement('button');save.textContent='Save';save.disabled=data.busy||locked||!stage.options.length;save.onclick=()=>vscode.postMessage({type:'set',stage:stage.id,model:models.value,effort:levels.value});card.append(models,levels,save);
-if(stage.reset){const reset=document.createElement('button');reset.textContent='Use the default';reset.disabled=data.busy;reset.onclick=()=>vscode.postMessage({type:'reset',stage:stage.id});card.append(reset);}main.append(card);}});vscode.postMessage({type:'ready'});</script></body></html>`;
+if(stage.reset){const reset=document.createElement('button');reset.textContent='Use the default';reset.disabled=data.busy;reset.onclick=()=>vscode.postMessage({type:'reset',stage:stage.id});card.append(reset);}
+if(stage.probe&&data.scope!=='run')card.append(probeSection(stage,data));main.append(card);}});
+function probeSection(stage,data){const probe=stage.probe;const box=document.createElement('details');const shown=(data.estimates||{})[stage.id];const running=(data.measuring||[]).includes(stage.id);box.open=!!shown||running;box.append(text('summary','Measure models for this stage'));
+box.append(text('p','The ticked models are suggested, at no cost, from what your accounts list. Measuring runs short tasks on each and ranks them for automatic selection. Nothing runs until you press Measure.','muted'));
+const filter=document.createElement('input');filter.type='search';filter.placeholder='Filter models';filter.setAttribute('aria-label',stage.label+' models to measure');box.append(filter);
+const list=document.createElement('div');const picked=new Set(shown?shown.models:probe.candidates.filter((row)=>row.ticked).map((row)=>row.model));const checks=[];
+for(const row of probe.candidates){const label=document.createElement('label');label.style.display='block';const check=document.createElement('input');check.type='checkbox';check.value=row.model;check.checked=picked.has(row.model);check.disabled=data.busy||running;checks.push(check);
+const facts=[row.effort||'its default level',row.family,row.billing,row.measured?(row.measured.qualified?'measured, qualified':'measured, did not qualify')+(row.measured.date?' on '+row.measured.date:''):'not measured'].filter(Boolean).join(' · ');
+label.append(check,document.createTextNode(' '+row.model+' · '+facts));label.title=[row.reason,row.measured&&row.measured.reason].filter(Boolean).join('. ');list.append(label);}
+filter.oninput=()=>{for(const label of list.children)label.style.display=label.textContent.toLowerCase().includes(filter.value.toLowerCase())?'block':'none';};
+const ticked=()=>checks.filter((c)=>c.checked).map((c)=>c.value);for(const check of checks)check.onchange=()=>vscode.postMessage({type:'estimate',stage:stage.id,models:ticked()});box.append(list);
+const estimate=shown&&shown.estimate;box.append(text('p',estimate?estimate.quickCalls+' to '+estimate.calls+' requests, '+(estimate.maxUsd===null?'cost unknown: a ticked model has no price on record, so it cannot run within a cap':'up to $'+estimate.maxUsd.toFixed(2))+' ('+estimate.basis+')':'Tick models to see what measuring them can cost.','muted'));
+const go=document.createElement('button');go.textContent=running?'Measuring…':estimate&&estimate.maxUsd!==null?'Measure '+shown.models.length+' model'+(shown.models.length===1?'':'s')+' (up to $'+estimate.maxUsd.toFixed(2)+')':'Measure';
+go.disabled=data.busy||running||!probe.run||!estimate||estimate.maxUsd===null;go.onclick=()=>vscode.postMessage({type:'measure',stage:stage.id,models:shown.models,cap:estimate.maxUsd});box.append(go);box.ontoggle=()=>{if(box.open&&!shown&&!running&&ticked().length)vscode.postMessage({type:'estimate',stage:stage.id,models:ticked()});};if(!probe.run&&probe.stop)box.append(text('p',probe.stop,'muted'));return box;}vscode.postMessage({type:'ready'});</script></body></html>`;
 }
