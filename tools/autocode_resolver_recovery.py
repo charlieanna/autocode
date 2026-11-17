@@ -47,6 +47,7 @@ try:
     from . import autocode_retained_work as retained
     from . import autocode_rework_policy as rework
     from . import autocode_role_names as role_names
+    from . import autocode_role_transport as role_transport
     from . import autocode_route_fit as route_fit
     from . import autocode_stop as stop
     from . import autocode_support as support
@@ -73,6 +74,7 @@ except ImportError:
     import autocode_retained_work as retained
     import autocode_rework_policy as rework
     import autocode_role_names as role_names
+    import autocode_role_transport as role_transport
     import autocode_route_fit as route_fit
     import autocode_stop as stop
     import autocode_support as support
@@ -192,6 +194,13 @@ def _bound_settings(state: RunState, ceilings, *, derived=False):
     roles = settings.get("roles") or {}
     if "task_planner" in roles:
         roles.setdefault("resolver", copy.deepcopy(roles["task_planner"]))
+        # The Resolver's tool binding is derived with its route, at its first launch
+        # (units.autoresolver): one not derived yet is bound as that launch derives it, or a run
+        # whose task planner has its own tool refuses the very launch the recovery was held for as
+        # a stale handoff. A binding already derived stays bound as it is.
+        identities = settings.get("transport_identities")
+        if isinstance(identities, dict) and role_transport.PREFIX + "resolver" not in identities:
+            role_transport.inherit(settings, "resolver", "task_planner")
     # The Investigator's own route: its preparation chooses one fresh for every investigation
     # (units.autoresolver.prepare_stuck), after the stuck stage's attempts were bound. Bound, it made
     # the Investigator's launch a stale handoff of the attempt it was called to explain, so an

@@ -17,8 +17,9 @@ unticked model is never measured.
 
 A probe pins the other stages it needs to the routes this list shows for them (the Planner's probe
 needs its Plan Reviewer, the Builder's needs its Planner and a checker), so the probe measures the
-candidate against the person's own setup. A stage whose pinned route has no model has no ``run``,
-and ``stop`` says why.
+candidate against the person's own setup; the Tester's and Completion Reviewer's probes pin nothing,
+since every other stage there is a script. A stage whose pinned route has no model, or a checker's
+probe on Codex, has no ``run``, and ``stop`` says why.
 
 Pure: the stage list's own options and routes in, the offer out; it launches nothing.
 """
@@ -35,7 +36,7 @@ except ImportError:
     import autocode_route_fit as route_fit
 
 # The stages `autocode probe --stage` measures (autocode_model_probe.STAGES; tests keep them equal).
-PROBED = ("requirements", "planner", "plan_reviewer", "builder")
+PROBED = ("requirements", "planner", "plan_reviewer", "builder", "tester", "completion")
 MEASURE = "MEASURE"
 CAP = "CAP"
 DEFAULT_LEVEL = "default"
@@ -45,7 +46,12 @@ PINNED = {
     "planner": (("--checker", "plan_reviewer"), ("--requirements", "requirements")),
     "plan_reviewer": (("--planner", "planner"), ("--requirements", "requirements")),
     "builder": (("--planner", "planner"), ("--checker", "tester"), ("--requirements", "requirements")),
+    # Every other stage of a checker's probe is the bundled script, which calls no model (autocode_check_probe).
+    "tester": (),
+    "completion": (),
 }
+# The checkers' probes run their scripted stages as a tool of their own, which Codex cannot run.
+SCRIPTED = ("tester", "completion")
 _STAGE_LABELS = {
     "plan_reviewer": "Plan Reviewer",
     "planner": "Planner",
@@ -89,6 +95,8 @@ def offer(role, options, routes, *, backend, default_effort=None, document=None)
         )
     candidates.sort(key=lambda item: (not item["ticked"], item["model"]))
     pinned, stop = [], None
+    if role in SCRIPTED and backend == "codex":
+        stop = "this probe runs on OpenCode, Kilo or Claude Code; Codex cannot run its scripted stages"
     for flag, stage in PINNED[role]:
         route = routes.get(stage) or {}
         if not route.get("model"):

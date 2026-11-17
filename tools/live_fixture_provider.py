@@ -94,6 +94,19 @@ Python standard library only.
 """
 
 
+# Why each greet.py line with no mutation site needs no test of its own: the reasons this fixture's
+# Tester gives, and the scripted Tester of a Tester or Completion Reviewer probe (autocode_check_probe).
+LINE_REASONS = {
+    "import sys": "Standard-library import with no supported mutation site. The CLI success and invalid-argument tests execute its argv/stderr/exit uses; deleting this import makes those CLI assertions fail.",
+    'USAGE = "usage: greet.py NAME"': "The shared usage literal has no supported mutation site. test_no_arg and test_cli_empty_name assert a usage message on stderr and exit 2; an empty or unrelated literal fails those assertions.",
+    "def greet(name: str) -> str:": "This line declares the function and builtin type annotations only. Its behavior is the separately checked return line; test_greet and test_unicode assert both results. There is no additional CLI behavior in this declaration to exercise.",
+    "def main(argv=None) -> int:": "This function header declares an optional argv argument and builtin return annotation. CLI tests exercise the default argument, parsing, output and exit behavior on the separately checked body lines; the header adds no separate task behavior.",
+    "print(greet(argv[0]))": "The output call has no supported mutation site. test_cli_success requires exact Hello, Ada plus newline on stdout with empty stderr; deleting or suppressing this call fails that assertion.",
+    'if __name__ == "__main__":': "The mutation tool deliberately excludes entrypoint guards. The module imports without exiting in the function tests, and the CLI tests invoke the entrypoint and check exact output and both success/error exits; disabling the guard fails those checks.",
+    "raise SystemExit(main())": "The entrypoint exit adapter has no supported mutation site. CLI tests require exit 0 for Ada and exit 2 for missing, multiple and empty arguments; omitting the adapter or discarding main's result fails these exit assertions.",
+}
+
+
 def _contract() -> dict:
     return {
         "intended_outcome": "Provide a deterministic greeting CLI",
@@ -413,15 +426,7 @@ def _changed_code_reasons(data):
         return []
     if product != GREET_PY.encode() or tests != TEST_GREET_PY or not proof.get("path"):
         return []
-    reasons = {
-        "import sys": "Standard-library import with no supported mutation site. The CLI success and invalid-argument tests execute its argv/stderr/exit uses; deleting this import makes those CLI assertions fail.",
-        'USAGE = "usage: greet.py NAME"': "The shared usage literal has no supported mutation site. test_no_arg and test_cli_empty_name assert a usage message on stderr and exit 2; an empty or unrelated literal fails those assertions.",
-        "def greet(name: str) -> str:": "This line declares the function and builtin type annotations only. Its behavior is the separately checked return line; test_greet and test_unicode assert both results. There is no additional CLI behavior in this declaration to exercise.",
-        "def main(argv=None) -> int:": "This function header declares an optional argv argument and builtin return annotation. CLI tests exercise the default argument, parsing, output and exit behavior on the separately checked body lines; the header adds no separate task behavior.",
-        "print(greet(argv[0]))": "The output call has no supported mutation site. test_cli_success requires exact Hello, Ada plus newline on stdout with empty stderr; deleting or suppressing this call fails that assertion.",
-        'if __name__ == "__main__":': "The mutation tool deliberately excludes entrypoint guards. The module imports without exiting in the function tests, and the CLI tests invoke the entrypoint and check exact output and both success/error exits; disabling the guard fails those checks.",
-        "raise SystemExit(main())": "The entrypoint exit adapter has no supported mutation site. CLI tests require exit 0 for Ada and exit 2 for missing, multiple and empty arguments; omitting the adapter or discarding main's result fails these exit assertions.",
-    }
+    reasons = LINE_REASONS
     source = product.decode().splitlines()
     digest = hashlib.sha256(product).hexdigest()
     result = []
