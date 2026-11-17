@@ -1136,7 +1136,7 @@ def boundary(runner, state: RunState, run_dir, workspace):
         and investigation.get("in_force")
         and decision.rationale == "attempt budget exhausted"
     ):
-        entry = next(
+        entry: dict = next(
             (
                 row
                 for row in reversed(state.get("stuck_investigations", []))
