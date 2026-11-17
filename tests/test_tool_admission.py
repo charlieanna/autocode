@@ -21,7 +21,7 @@ class RequirementsToolAdmissionTests(unittest.TestCase):
 
     def test_non_kernel_requirements_do_not_discover_or_launch_anything(self):
         cases = (
-            ("portable Kilo", self.kilo, {}, "darwin"),
+            ("macOS Kilo", self.kilo, {}, "darwin"),
             ("generic configured tool", SimpleNamespace(CONFIGURED=True), {}, "linux"),
             ("Codex", self.kilo, {"engine": "codex"}, "linux"),
             ("accepted uncontained", self.kilo, {"allow_uncontained_tools": True}, "linux"),

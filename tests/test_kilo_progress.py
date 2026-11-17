@@ -15,6 +15,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import autocode_process as processes
+import autocode_tool_containment as containment
 from autocode_activity import ActivityMonitor
 from providers import kilocode
 
@@ -110,6 +111,55 @@ class KiloProgressTests(unittest.TestCase):
                 self.launch(configuration=config)
 
 
+def kilo_fixture(test):
+    """An isolated home, workspace and provider for an opt-in test against the installed Kilo, no model account."""
+    artifacts = os.environ.get("BUILD_AUDIT_ARTIFACTS")
+    if artifacts:
+        test.root = Path(tempfile.mkdtemp(prefix=test._testMethodName + "-", dir=artifacts)).resolve()
+    else:
+        temporary = tempfile.TemporaryDirectory(prefix="kilo-progress-")
+        test.addCleanup(temporary.cleanup)
+        test.root = Path(temporary.name).resolve()
+    test.workspace = test.root / "workspace"
+    test.workspace.mkdir()
+    (test.workspace / "fixture.txt").write_text("LOCAL_TOOL_RESULT_SENTINEL\n")
+    # macOS installs Kilo through a package manager (Homebrew, npm), so its PATH is the caller's.
+    search = os.environ["PATH"] if sys.platform == "darwin" else "/usr/local/bin:/usr/bin:/bin"
+    test.env = {"PATH": search, "LANG": "C.UTF-8"}
+    for key, name in (
+        ("HOME", "home"),
+        ("XDG_CONFIG_HOME", "config"),
+        ("XDG_DATA_HOME", "data"),
+        ("XDG_CACHE_HOME", "cache"),
+        ("XDG_STATE_HOME", "state"),
+        ("TMPDIR", "tmp"),
+    ):
+        folder = test.root / name
+        folder.mkdir()
+        test.env[key] = str(folder)
+    test.env.update(
+        KILO_DISABLE_MODELS_FETCH="1",
+        KILO_DISABLE_PROJECT_CONFIG="1",
+        KILO_DISABLE_AUTOUPDATE="1",
+        KILO_DISABLE_TELEMETRY="1",
+        DO_NOT_TRACK="1",
+    )
+    test.kilo = shutil.which("kilo", path=test.env["PATH"])
+    test.assertIsNotNone(test.kilo, "The opt-in qualification requires the installed Kilo CLI")
+    version = subprocess.run(
+        [test.kilo, "--version"],
+        env=test.env,
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=True,
+    ).stdout.strip()
+    test.assertIn(version, containment.kilo_versions(), "Kilo release not qualified for this sandbox")
+    test.version = version
+    with patch.dict(os.environ, test.env, clear=True):
+        test.provider = kilocode.load("kilocode")
+
+
 # This opt-in qualification uses the original Kilo CLI and an in-namespace fake
 # HTTP server. Routine CI runs the deterministic tests above and the shared hook
 # tests; it does not download a third-party CLI or contact a model account.
@@ -129,49 +179,7 @@ class RealKiloProgressTests(unittest.TestCase):
             sorted(name for name, flags in links.items() if flags & 1),
             "Run the local SSE qualification with loopback-only networking (--network none)",
         )
-        artifacts = os.environ.get("BUILD_AUDIT_ARTIFACTS")
-        if artifacts:
-            self.root = Path(tempfile.mkdtemp(prefix=self._testMethodName + "-", dir=artifacts)).resolve()
-        else:
-            temporary = tempfile.TemporaryDirectory(prefix="kilo-progress-")
-            self.addCleanup(temporary.cleanup)
-            self.root = Path(temporary.name).resolve()
-        self.workspace = self.root / "workspace"
-        self.workspace.mkdir()
-        (self.workspace / "fixture.txt").write_text("LOCAL_TOOL_RESULT_SENTINEL\n")
-        self.env = {"PATH": "/usr/local/bin:/usr/bin:/bin", "LANG": "C.UTF-8"}
-        for key, name in (
-            ("HOME", "home"),
-            ("XDG_CONFIG_HOME", "config"),
-            ("XDG_DATA_HOME", "data"),
-            ("XDG_CACHE_HOME", "cache"),
-            ("XDG_STATE_HOME", "state"),
-            ("TMPDIR", "tmp"),
-        ):
-            folder = self.root / name
-            folder.mkdir()
-            self.env[key] = str(folder)
-        self.env.update(
-            KILO_DISABLE_MODELS_FETCH="1",
-            KILO_DISABLE_PROJECT_CONFIG="1",
-            KILO_DISABLE_AUTOUPDATE="1",
-            KILO_DISABLE_TELEMETRY="1",
-            DO_NOT_TRACK="1",
-        )
-        self.kilo = shutil.which("kilo", path=self.env["PATH"])
-        self.assertIsNotNone(self.kilo, "The opt-in qualification requires the installed Kilo CLI")
-        version = subprocess.run(
-            [self.kilo, "--version"],
-            env=self.env,
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=True,
-        ).stdout.strip()
-        self.assertEqual("7.8.3", version)
-        self.version = version
-        with patch.dict(os.environ, self.env, clear=True):
-            self.provider = kilocode.load("kilocode")
+        kilo_fixture(self)
 
     def stream(self, *, silent):
         release = threading.Event()

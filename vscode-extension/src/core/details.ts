@@ -679,7 +679,7 @@ function routesSection(view: Row): DetailSection | null {
   }
   if (!lines.length && mapping(view.tool_containment_backend).backend !== "seatbelt") return null;
   if (mapping(view.tool_containment_backend).backend === "seatbelt") {
-    lines.push("Sandbox: macOS Seatbelt (blocks stage 127.0.0.1 loopback socket binds; local runner checks and Kilo permit them)");
+    lines.push("Sandbox: macOS Seatbelt (blocks stage 127.0.0.1 loopback socket binds; local runner checks permit them)");
   }
   return { id: "routes", title: "Models", summary: counted(Object.keys(mapping(view.routes)).length, "saved route", "saved routes"), lines };
 }
