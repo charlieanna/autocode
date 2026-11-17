@@ -3273,6 +3273,27 @@ is saved) forgets the stage's choice. Both print the updated view, and a refused
 the reason on stderr and saves nothing. The view launches no model and reads no credential. A new
 task reads the choices when it starts; a running task keeps its own.
 
+Stage models also offers to measure a stage's models (#3630; [Ranking your own models by
+measurement](models.md#ranking-your-own-models-by-measurement)). In the list with no chat picks, each
+stage that has a probe (Requirements, the Planner, the Plan Reviewer and the Builder) has `probe`;
+every other stage, a chat's own list and a started run's list have `probe: null`. `probe` has `stage`,
+`candidates`, `estimate`, `run` and `stop`. Each candidate has `model`, `effort` (the level it is
+measured at: the stage's default level, moved to the nearest level the model offers, or null for its
+own), `family`, `billing`, `ticked` (the free shortlist suggests it), `reason` (why it is or is not
+suggested) and `measured` (`qualified`, `reason` and `date` from an earlier probe, or null). Only models
+the stage may run beside the others are candidates. `estimate.next_command` and `run.next_command` are
+argument arrays following `autocode`; a client replaces the word `MEASURE` with `--measure MODEL LEVEL`
+for each candidate the person ticked, in the listed order, with that candidate's `model` and `effort`
+(`default` for null), and refuses any other model. The estimate prints `{"estimate": {...}, "ran":
+false}` and runs nothing; its `max_usd` (null when a ticked model has no price on record) is what the
+client shows. `run.next_command` also has `CAP`, which the client replaces with that `max_usd` for the
+same ticked models, read again just before it runs; pressing the run button is the person's one
+approval of that spend, and nothing else starts a probe. The run pins the routes this list shows for
+the stages the probe needs (the Planner's probe its Plan Reviewer, the Plan Reviewer's its Planner, the
+Builder's its Planner and Tester, and Requirements for all three). `run` is null, with `stop` saying
+why, when one of those has no model. A run prints the probe's outcome and can take a long time; the
+list read afterwards shows each candidate's new `measured`.
+
 A chat that has not started can show the stages it will run and change them for itself alone
 ([Changing a new chat's models](models.md#changing-a-new-chats-models)). On `list`, `autocode` also
 reads explicit project stage routes (`.autocode/config.toml` and `pyproject.toml [tool.autocode]`) and

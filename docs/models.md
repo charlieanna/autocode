@@ -327,8 +327,14 @@ The first prints what it can cost and runs nothing. The second runs it: each req
 spec-first task on a fresh copy of the bundled project that stops as soon as Requirements has
 answered, so nothing is planned or built, and each run's own money cap is what the probe has left.
 A model runs the three quick requests first and the other six only when it passes them. A report
-the runner had to send back for repair counts against the model. Choosing the models in Stage
-models before setup is the next part.
+the runner had to send back for repair counts against the model.
+
+You can also pick and approve the models in Stage models in VS Code: each stage that has a probe
+shows "Measure models for this stage", with the free shortlist ticked and every other model it may
+run listed below, searchable, each with its family, billing and what an earlier probe found. Tick
+or untick models and the estimate of requests and cost updates. "Measure N models (up to $X)"
+runs the probe on exactly those models with that estimate as its cap, pinning the other stages the
+probe needs to the models Stage models shows for them. Nothing is measured until you press it.
 
 The Planner has its own probe (`autocode_planner_probe`): seven requests on the same project, from
 a one-line bug fix to a feature across several outputs, a cache design and a request that forbids
