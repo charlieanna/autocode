@@ -767,7 +767,8 @@ class RealCheckpointFlow(unittest.TestCase):
             options=("--engine", "codex"),
             start_options=("--workflow", "build"),
             env=fixture.env,
-            timeout=60,
+            # One advance runs the build, repair, mutation checks and independent reviews.
+            timeout=300,
             cwd=fixture.root,
         )
         view = client.status()
