@@ -14,6 +14,9 @@ review it as written and with a flaw planted, and grades the two verdicts
 candidate as Builder, the Planner the person names (``--planner``) and a checker of another family
 (``--checker``) as Plan Reviewer, Tester and Completion Reviewer, approves the plan on the probe's own
 throwaway project, and grades the result by tests the run never saw (``autocode_builder_probe``).
+``--stage tester`` and ``--stage completion`` run each request to its end with every other stage
+scripted (``probe_script_provider``): a Builder that writes a sound change, or a flawed one first, and
+grade whether the candidate sent the flaw back and passed the sound change (``autocode_check_probe``).
 Invoking it with a cap is the person's approval of that spend;
 nothing else runs a probe.
 
@@ -38,6 +41,8 @@ _STAGE_NAMES = {
     "planner": "the Planner",
     "plan_reviewer": "the Plan Reviewer",
     "builder": "the Builder",
+    "tester": "the Tester",
+    "completion": "the Completion Reviewer",
 }
 _CHECKED = ("planner", "builder")  # stages whose candidates a --checker checks
 _PLANNED = ("plan_reviewer", "builder")  # stages whose plans a --planner writes
@@ -99,8 +104,8 @@ def cli(argv) -> int:
     if args.stage not in _CHECKED and checkers:
         print("autocode probe: --checker applies to --stage planner and builder only", file=sys.stderr)
         return 2
-    if args.stage == "requirements" and args.requirements:
-        print("autocode probe: --requirements does not apply to --stage requirements", file=sys.stderr)
+    if args.stage in ("requirements", *model_probe.CHECK_STAGES) and args.requirements:
+        print(f"autocode probe: --requirements does not apply to --stage {args.stage}", file=sys.stderr)
         return 2
     if (args.stage in _PLANNED) != bool(args.planner):
         print(
@@ -132,6 +137,13 @@ def cli(argv) -> int:
             + ", ".join(unchecked)
             + "; add one from another model family"
             + (" than the Planner" if args.stage == "builder" else ""),
+            file=sys.stderr,
+        )
+        return 2
+    if args.stage in model_probe.CHECK_STAGES and args.engine == "codex":
+        print(
+            f"autocode probe: --stage {args.stage} runs every other stage on a scripted tool, which a Codex "
+            "run cannot use; measure on OpenCode, Kilo or Claude Code",
             file=sys.stderr,
         )
         return 2

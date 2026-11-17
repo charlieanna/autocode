@@ -3275,7 +3275,8 @@ task reads the choices when it starts; a running task keeps its own.
 
 Stage models also offers to measure a stage's models (#3630; [Ranking your own models by
 measurement](models.md#ranking-your-own-models-by-measurement)). In the list with no chat picks, each
-stage that has a probe (Requirements, the Planner, the Plan Reviewer and the Builder) has `probe`;
+stage that has a probe (Requirements, the Planner, the Plan Reviewer, the Builder, the Tester and the
+Completion Reviewer) has `probe`;
 every other stage, a chat's own list and a started run's list have `probe: null`. `probe` has `stage`,
 `candidates`, `estimate`, `run` and `stop`. Each candidate has `model`, `effort` (the level it is
 measured at: the stage's default level, moved to the nearest level the model offers, or null for its
@@ -3290,8 +3291,10 @@ client shows. `run.next_command` also has `CAP`, which the client replaces with 
 same ticked models, read again just before it runs; pressing the run button is the person's one
 approval of that spend, and nothing else starts a probe. The run pins the routes this list shows for
 the stages the probe needs (the Planner's probe its Plan Reviewer, the Plan Reviewer's its Planner, the
-Builder's its Planner and Tester, and Requirements for all three). `run` is null, with `stop` saying
-why, when one of those has no model. A run prints the probe's outcome and can take a long time; the
+Builder's its Planner and Tester, and Requirements for all three); the Tester's and the Completion
+Reviewer's probes pin nothing, since every other stage there is a script that calls no model. `run` is
+null, with `stop` saying why, when one of those has no model, or for the Tester's and the Completion
+Reviewer's probes on Codex, which cannot run their scripted stages. A run prints the probe's outcome and can take a long time; the
 list read afterwards shows each candidate's new `measured`.
 
 A chat that has not started can show the stages it will run and change them for itself alone

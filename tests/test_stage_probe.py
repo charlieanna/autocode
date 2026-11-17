@@ -63,11 +63,27 @@ class StageProbeOfferTests(unittest.TestCase):
         self.assertEqual(set(stage_probe.PROBED), set(model_probe.STAGES))
         self.assertEqual(set(stage_probe.PINNED), set(model_probe.STAGES))
 
+    def test_a_checkers_probe_on_codex_offers_no_run_and_says_why(self):
+        option = {"model": GLM, "levels": ["high"], "levels_listed": True}
+        for checker in ("tester", "completion"):
+            offer = stage_probe.offer(checker, [option], {}, backend="codex", default_effort="high", document={})
+            self.assertIsNone(offer["run"])
+            self.assertIn("Codex", offer["stop"])
+            self.assertIsNotNone(stage_probe.offer(checker, [option], {}, backend="opencode", document={})["run"])
+        self.assertIsNotNone(
+            stage_probe.offer(
+                "builder", [option], {"planner": {"model": GLM}, "tester": {"model": GLM}}, backend="codex", document={}
+            )["run"]
+        )
+
     def test_each_probed_stage_offers_its_models_with_the_shortlist_ticked(self):
         current = choices.view("opencode", **self.kw)
         offered = {stage["id"] for stage in current["stages"] if stage["probe"]}
         self.assertEqual(set(stage_probe.PROBED), offered)
-        self.assertIsNone(self.stage(current, "tester")["probe"], "no Tester probe yet: nothing is offered")
+        for checker in ("tester", "completion"):
+            command = self.stage(current, checker)["probe"]["run"]["next_command"]
+            self.assertNotIn("--planner", command, "every other stage of a checker's probe is the script")
+            self.assertNotIn("--checker", command)
         probe = self.stage(current, "requirements")["probe"]
         rows = {row["model"]: row for row in probe["candidates"]}
         self.assertEqual({GLM, SOL, OPUS, "openai/gpt-6-mini"}, set(rows))
