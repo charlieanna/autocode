@@ -212,7 +212,7 @@ def check_scope(owned, has_contract: bool, stages, record, workspace, *, checkpo
     """Return the PAUSED_ASSIGNMENT_SCOPE message when ``record`` left out-of-scope edits, else None."""
     if not owned or not has_contract:
         return None
-    out = outside(owned, stages, record, workspace=workspace)
+    out = outside(owned, stages, record, workspace=workspace, archived=archived)
     if out is None:
         return "The assignment's starting snapshot is missing; edits retained for inspection"
     if not out:
@@ -253,14 +253,19 @@ def build_output(workspace, name, stages, record):
     return head.startswith(EXECUTABLE_HEADERS)
 
 
-def outside(owned, stages, record, workspace=None):
+def outside(owned, stages, record, workspace=None, *, archived=None):
     """Paths changed outside ``owned`` since the assignment began; None when unprovable.
-    With ``workspace``, new compiled executables a build left behind are not counted (``build_output``)."""
+    With ``workspace``, new compiled executables a build left behind are not counted (``build_output``).
+    With ``archived`` (spec-first ``acceptance_tests.protected``), files matching the verified independent
+    Tester archive are owned by ``write_acceptance_tests``, not out-of-scope Builder edits (#3350)."""
     changed = retained_changes(stages, record)
     if changed is None:
         return None
+    after = _snapshot(stages, record, "after_ref") if archived else None
     return [
         name
         for name in changed
-        if not any(contains(root, name) for root in owned) and not build_output(workspace, name, stages, record)
+        if not any(contains(root, name) for root in owned)
+        and not build_output(workspace, name, stages, record)
+        and not (after is not None and _archived_bytes(name, str(after.get(name) or ""), archived) is not None)
     ]

@@ -276,6 +276,13 @@ export interface StatusView {
   } | null;
   /** Ready to go on, but another run holds the folder its next step needs: display text, never authority. */
   checkout_wait?: { run_dir?: string; since?: string | null; text?: string } | null;
+  /** Spec-first protected acceptance-test receipts and host-limitation evidence (`view.acceptance_tests`). */
+  acceptance_tests?: {
+    files?: string[];
+    case_ids?: string[];
+    results?: Record<string, string>;
+    cannot_write?: { case_id: string; reason: string }[];
+  } | null;
   /** Structured current-turn Requirements handoff (#3650), or null before the turn has one. */
   requirements?: RequirementsView | null;
   chat?: {

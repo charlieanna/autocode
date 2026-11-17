@@ -489,10 +489,18 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("scenarios/harness/components_driver.py", ("tests.test_local_compose_scenario",)),
     ("tools/prompts/fragments/provider-launch/tool-free-report-repair.md", ("tests.test_provider_launch",)),
     ("scenarios/harness/profiles.py", ("tests.test_kilocode_effort",)),
-    ("tools/prompts/acceptance-tests.md", ("tests.test_acceptance_tests", "tests.test_acceptance_runner_handoff")),
+    (
+        "tools/prompts/acceptance-tests.md",
+        ("tests.test_acceptance_tests", "tests.test_acceptance_runner_handoff", "tests.test_acceptance_test_repair"),
+    ),
     (
         "tools/prompts/fragments/acceptance-tests/",
-        ("tests.test_acceptance_tests", "tests.test_acceptance_provenance", "tests.test_acceptance_runner_handoff"),
+        (
+            "tests.test_acceptance_tests",
+            "tests.test_acceptance_provenance",
+            "tests.test_acceptance_runner_handoff",
+            "tests.test_acceptance_test_repair",
+        ),
     ),
     ("tools/prompts/fragments/test-cases/diagnosis-builder-note.md", ("tests.test_acceptance_tests",)),
     (

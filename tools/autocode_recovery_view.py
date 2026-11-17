@@ -236,6 +236,24 @@ def _seatbelt_loopback_stop(state: RunState) -> str | None:
     return None
 
 
+def _acceptance_tests_stop(state: RunState) -> str | None:
+    """Distinguish a host-limited untestable case from a plan/code disagreement at PAUSED_ACCEPTANCE_TESTS."""
+    if state.get("status") != "PAUSED_ACCEPTANCE_TESTS":
+        return None
+    try:
+        from . import autocode_acceptance_tests as acceptance_tests
+    except ImportError:
+        import autocode_acceptance_tests as acceptance_tests
+    reason = str(state.get("stop_reason") or "")
+    saved = _dict(state.get("acceptance_tests"))
+    if reason.startswith(acceptance_tests.CANNOT_TEST_PREFIX) or (
+        isinstance(saved.get("cannot_write"), dict)
+        and saved["cannot_write"].get("contract_hash") == _dict(state.get("goal_contract")).get("hash")
+    ):
+        return "Before building, the Tester found an approved case cannot be tested directly in this host environment."
+    return None
+
+
 def _job_model_stop(state: RunState, role):
     """What happened to a workflow job its provider refused or ran out of quota on (#463), or None.
 
@@ -530,6 +548,7 @@ def project(state: RunState, need=None):
         else (
             _auth_stop(state)
             or _seatbelt_loopback_stop(state)
+            or _acceptance_tests_stop(state)
             or _job_model_stop(state, role)
             or _explanation(cause, role, bool(state.get("stop_reason")))
         ),

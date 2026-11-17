@@ -40,7 +40,7 @@ _GAP_ENUM_MACHINERY = re.compile(
     re.IGNORECASE,
 )
 _SCHEMA_MACHINERY = re.compile(
-    r"(?:^|[\s(])\$(?::|\.[A-Za-z_[])|\bReport edits?\b.*?(?:path|enum|schema|apply)\b",
+    r"(?:^|[\s(])\$(?::|\.[A-Za-z_[])|\bReport edits?\b.*?(?:path|enum|schema|apply)\b|\bacceptance_test_repairs\b",
     re.IGNORECASE,
 )
 

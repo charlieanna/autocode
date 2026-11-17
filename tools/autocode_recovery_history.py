@@ -96,6 +96,7 @@ def project(state: RunState) -> list[dict[str, Any]]:
         *_test_role_corrections(state),
         *_interrupted_reviews(state),
         *_sent_back(state),
+        *_acceptance_test_repairs(state),
         *_retained_candidates(state),
         *investigations,
         *_resolver(state),
@@ -356,6 +357,50 @@ def _sent_back(state: RunState):
             action=action,
             by=by,
             detail=investigation.get("guidance"),
+        )
+
+
+def _acceptance_test_repairs(state: RunState):
+    """An independent review sending a protected spec-first test back to the Tester for repair (#3350)."""
+    for row in (state.get("acceptance_tests") or {}).get("test_repairs") or []:
+        if not isinstance(row, dict):
+            continue
+        repairs = [item for item in (row.get("repairs") or []) if isinstance(item, dict)]
+        parts = [
+            f"{item.get('case_id')}: {item.get('reason')}"
+            for item in repairs
+            if item.get("case_id") and item.get("reason")
+        ]
+        problem = (
+            "; ".join(parts)
+            if parts
+            else "A protected acceptance test contradicted its approved case or failed on a test fixture bug."
+        )
+        number, limit = row.get("round"), row.get("round_limit")
+        rounds = (
+            f" (round {number} of {limit})"
+            if row.get("action") == "writer" and type(number) is int and type(limit) is int and 0 < number <= limit
+            else ""
+        )
+        exhausted = row.get("action") == "exhausted"
+        action = (
+            "Protected acceptance-test repairs reached their limit, so AutoCode paused for investigation."
+            if exhausted
+            else "AutoCode sent the protected acceptance tests to the independent Tester for repair before running the Builder."
+        )
+        yield _entry(
+            "acceptance_test_repair",
+            row.get("at"),
+            "write_acceptance_tests",
+            state,
+            headline=(
+                "Protected acceptance-test repair limit reached" if exhausted else "Independent acceptance-test repair"
+            )
+            + rounds,
+            problem=problem,
+            action=action,
+            by="AutoCode" if exhausted else "Tester",
+            handled=not exhausted,
         )
 
 

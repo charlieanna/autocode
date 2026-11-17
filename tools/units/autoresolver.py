@@ -22,6 +22,8 @@ if TYPE_CHECKING:
     from ..autocode_run_state import RunState
 
 try:
+    from .. import autocode_acceptance_test_repair as acceptance_test_repair
+    from .. import autocode_acceptance_tests as acceptance_tests
     from .. import autocode_counterexample as counterexample
     from .. import autocode_failures as failures
     from .. import autocode_goal_lifecycle as lifecycle
@@ -42,6 +44,8 @@ try:
     from .. import autocode_verification_plan as verification_plan
     from .. import autocode_verify as verify
 except ImportError:
+    import autocode_acceptance_test_repair as acceptance_test_repair
+    import autocode_acceptance_tests as acceptance_tests
     import autocode_counterexample as counterexample
     import autocode_failures as failures
     import autocode_goal_lifecycle as lifecycle
@@ -373,6 +377,11 @@ def validate(state: RunState, value, record, workspace):
         not value.get("evidence") or value.get("next_task", {}).get("kind") not in ("implement", "validate")
     ):
         raise ValueError("Resolver must supply an evidence-backed implementation or validation repair")
+    acceptance_test_repair.validate_report(
+        value,
+        stage="resolve",
+        covered_case_ids=acceptance_tests.covered(state),
+    )
     resolver_recovery.validate_decision(state, value, record)
 
 
