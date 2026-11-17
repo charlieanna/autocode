@@ -435,13 +435,31 @@ def family(model) -> str:
 
 def direct_default(roles: dict, stuck_model: str) -> str | None:
     """The first configured direct route outside the stuck stage's family, in CANDIDATE_ROLES order; None if none."""
-    seen = []
+    role = direct_default_role(roles, stuck_model)
+    return str(roles[role]["model"]) if role else None
+
+
+def direct_default_role(roles: dict, stuck_model: str) -> str | None:
+    """The role whose route direct_default reuses, so its tool comes with its model."""
     for role in CANDIDATE_ROLES:
         model = str((roles.get(role) or {}).get("model") or "")
-        if not model or model in seen or model.startswith(GATEWAY_PREFIX) or "astra" in model:
-            continue
-        seen.append(model)
-    return next((model for model in seen if family(model) != family(stuck_model)), None)
+        if (
+            model
+            and not model.startswith(GATEWAY_PREFIX)
+            and "astra" not in model
+            and family(model) != family(stuck_model)
+        ):
+            return role
+    return None
+
+
+def source_role(roles: dict, stuck_model: str, provider: str | None = None) -> str:
+    """The role whose whole route (model, engine and tool) the default Investigator copies.
+
+    A model belongs to the tool that runs it. A live run (2026-11-16) took the Planner's model, which ran on
+    Claude Code, onto the Plan Reviewer's Kilo, which does not offer it, and the Investigator never started."""
+    reviewer = "plan_reviewer" if "plan_reviewer" in roles else "task_planner"
+    return (direct_default_role(roles, str(stuck_model or "")) if provider == "kilocode" else None) or reviewer
 
 
 def route(roles: dict, stuck_model: str, provider: str | None = None) -> dict:
@@ -451,11 +469,11 @@ def route(roles: dict, stuck_model: str, provider: str | None = None) -> dict:
     Kilo Gateway's Claude, the old default, bills per token and now needs --investigator-model. OpenCode runs: GPT-6
     Sol, or GLM 5.3 when the stuck stage runs on any GPT model (one family). Native Codex runs (GPT only): GPT-6 Sol,
     or Luna when the stuck stage runs on Sol. A custom provider keeps its reviewer model. Always high effort, on the
-    Plan Reviewer's engine and provider; --investigator-model overrides all of this (pinned_route)."""
-    base = dict(roles.get("plan_reviewer") or roles.get("task_planner") or {})
+    engine and tool of the role it copies (source_role); --investigator-model overrides all of this (pinned_route)."""
+    base = dict(roles.get(source_role(roles, stuck_model, provider)) or {})
     model, stuck_model = str(base.get("model") or ""), str(stuck_model or "")
     if provider == "kilocode":
-        choice = direct_default(roles, stuck_model) or model
+        choice = model
     elif model.startswith(("openai/", "zai-coding-plan/", "kilo/")):
         # All GPT models are one family (2026-10-20): a stuck Luna or Sol stage gets GLM's view.
         choice = "zai-coding-plan/glm-5.3" if "gpt-" in stuck_model else "openai/gpt-6-sol"

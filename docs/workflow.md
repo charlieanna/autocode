@@ -240,7 +240,8 @@ exact repeat keeps its `PAUSED_REPEATED_FAILURE` rules.
 
 The Investigator runs at high effort on a model different from the stuck stage's: in `kilocode`
 runs the first of the run's own direct routes (Plan Reviewer, Planner, Requirements, Completion,
-Tester, Builder) outside the stuck stage's model family, never a `kilo/` gateway route; otherwise
+Tester, Builder) outside the stuck stage's model family, never a `kilo/` gateway route, on the same tool as that
+route (a Planner on Claude Code lends the Investigator its model and Claude Code); otherwise
 GPT-6 Sol, or GLM 5.3 when the stuck stage runs on Sol (GPT-6 Luna in native Codex runs, which have
 GPT models only). Never Astra by default. A gateway model needs `--investigator-model`. It runs on a fresh route and session. It reads the task, the saved state and the stuck stage's attempts and returns
 a diagnosis, then either guidance for one more attempt or the question only you can answer.

@@ -1070,6 +1070,42 @@ class RouteTests(unittest.TestCase):
         prompt.assert_not_called()
         self.assertNotIn(stuck.ROUTE, state["settings"]["roles"])
 
+    def test_default_investigator_runs_its_model_on_the_tool_that_offers_it(self):
+        # A live kilocode run (2026-11-16) chose the Planner's model, which ran on Claude Code, and launched it on
+        # the Plan Reviewer's Kilo, which does not list it: the Investigator never started and the run paused.
+        state = state_for(next_stage="requirements_gather")
+        state["settings"]["provider"] = "kilocode"
+        roles = state["settings"]["roles"]
+        roles.update(
+            requirements={"model": "zai-coding-plan/glm-5.3"},
+            plan_reviewer={"model": "zai-coding-plan/glm-5.3", "engine": "opencode", "reasoning_effort": "low"},
+            planner={"model": "claude-opus-5-5", "engine": "opencode", "provider": "claude", "reasoning_effort": "low"},
+        )
+        planner_tool = {"provider": "claude", "identity": {"executable": "/bin/claude", "identity_version": 2}}
+        state["settings"]["transport_identities"]["role:planner"] = planner_tool
+        state["stuck_investigation"] = {"stage": "requirements_gather"}
+        with (
+            patch.object(stuck, "prompt", return_value=("diagnose", {})),
+            patch.object(autoresolver.autoplanner, "workspace_inventory", return_value={}),
+        ):
+            autoresolver.prepare_stuck(state, Path(state["workspace"]) / "state.json")
+        self.assertEqual(
+            {"model": "claude-opus-5-5", "engine": "opencode", "provider": "claude", "reasoning_effort": "high"},
+            roles[stuck.ROUTE],
+        )
+        self.assertEqual(planner_tool, state["settings"]["transport_identities"]["role:" + stuck.ROUTE])
+        self.assertEqual("low", roles["planner"]["reasoning_effort"], "the Planner's own route is untouched")
+        self.assertEqual("planner", stuck.source_role(roles, "zai-coding-plan/glm-5.3", "kilocode"))
+        # A model the run's own tool runs keeps the run's tool, with no copied identity.
+        roles["planner"] = {"model": "openai/gpt-6-sol"}
+        with (
+            patch.object(stuck, "prompt", return_value=("diagnose", {})),
+            patch.object(autoresolver.autoplanner, "workspace_inventory", return_value={}),
+        ):
+            autoresolver.prepare_stuck(state, Path(state["workspace"]) / "state.json")
+        self.assertEqual({"model": "openai/gpt-6-sol", "reasoning_effort": "high"}, roles[stuck.ROUTE])
+        self.assertNotIn("role:" + stuck.ROUTE, state["settings"]["transport_identities"])
+
     def test_default_models_never_astra_and_never_the_stuck_stages_model(self):
         roles = state_for()["settings"]["roles"]
         pick = lambda roles, stuck_model, provider=None: tuple(

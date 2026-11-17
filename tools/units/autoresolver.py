@@ -194,9 +194,9 @@ def prepare_stuck(state: RunState, state_path):
         builder_failure.guard(state, state["stuck_investigation"], state["workspace"])
     roles = state["settings"]["roles"]
     stuck_route = autoplanner.route_for(state, state["stuck_investigation"]["stage"])
-    source = "plan_reviewer" if "plan_reviewer" in roles else "task_planner"
     selected = stuck_job.pinned_route(state["settings"])
     stuck_model = (roles.get(stuck_route) or {}).get("model", "")
+    source = stuck_job.source_role(roles, stuck_model, state["settings"].get("provider"))
     if selected is None and state["settings"].get("route_selection"):
         permitted = route_permission.investigator(state["settings"], stuck_model)
         if permitted is None:
