@@ -216,7 +216,7 @@ class ModelListingFailureTests(unittest.TestCase):
         self.assertIsNone(public["needs"])
         self.assertIsNone(public["next_command"])
         self.assertEqual(public["recovery"]["category"], "blocked")
-        self.assertEqual([row["kind"] for row in public["recovery"]["actions"]], ["inspect"])
+        self.assertEqual([row["kind"] for row in public["recovery"]["actions"]], ["inspect", "new_conversation"])
         result = action.resume(
             self.runner,
             SimpleNamespace(),

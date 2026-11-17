@@ -667,7 +667,12 @@ runpy.run_path(str(runtime), run_name='__main__')
         run = self.start_fixture("all")
         view = self.assert_bound_attempts(run)
         self.assertEqual("PAUSED_RESOLVER_OPERATIONAL", view["status"], view)
-        self.assertEqual(disposition.MESSAGE, view["stop_reason"])
+        # The person sees which step stopped and why, never the repair machinery's own account of it.
+        self.assertEqual(
+            "The Plan Reviewer step stopped: its report could not be accepted, even after repair, and "
+            "AutoCode's own retries for it ran out. " + disposition.MESSAGE,
+            view["stop_reason"],
+        )
         self.assertIsNone(view["needs"])
         self.assertIsNone(view["next_command"])
         self.assertIsNone(view["chat"]["input"])

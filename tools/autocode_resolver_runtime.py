@@ -678,9 +678,13 @@ def record_operational_exhaustion(runner, state: RunState, run_dir, error, *, re
     )
     if machinery:
         # The cause is written for the core's own recovery owners and can name an operator
-        # flag (--abandon-stage); it stays in the receipt above. The person sees only that
-        # AutoCode stopped and kept its work, since nothing here is theirs to act on.
-        run_status.pause(state, error.status, disposition.MESSAGE)
+        # flag (--abandon-stage); it stays in the receipt above. The person sees which job
+        # stopped and why, from the saved facts, and that AutoCode kept its work.
+        run_status.pause(
+            state,
+            error.status,
+            disposition.blocked_message(facts["stage"], error.status, str(error), state),
+        )
         return True
     request = request or {
         "kind": "blocker",
