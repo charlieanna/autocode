@@ -165,7 +165,9 @@ class StageLimitPolicyTests(unittest.TestCase):
             patch.object(action_edits.conversation_ingress, "ingest", return_value=False),
             patch.object(action_edits.dependency, "apply", return_value=None),
         ):
-            result = action_edits.apply(Mock(), args, Mock(), {}, Path("/run/state.json"), Path("/run"), Path("/workspace"), Mock())
+            result = action_edits.apply(
+                Mock(), args, Mock(), {}, Path("/run/state.json"), Path("/run"), Path("/workspace"), Mock()
+            )
 
         self.assertIsNone(result)
         require_goal.assert_not_called()
