@@ -129,6 +129,7 @@ class OperationalExhaustionPublicContractTests(unittest.TestCase):
         self.assertEqual("blocked", view["recovery"]["category"])
         self.assertFalse(view["done"])
         self.assertEqual(before, self.state)
+        return view
 
     def test_failed_requirements_attempt_is_reported_without_a_machinery_question_or_action(self):
         attempt = copy.deepcopy(self.state["active_stage"])
@@ -144,9 +145,21 @@ class OperationalExhaustionPublicContractTests(unittest.TestCase):
             human.evaluate(self.state)
         self.assertIsNone(human.current(self.state))
         self.assertEqual([], self.state.get("pending_questions", []))
-        self.assert_blocked_public()
-        # The cause stays in the receipt; the person is told no machinery detail to act on.
-        self.assertEqual(disposition.MESSAGE, self.state["stop_reason"])
+        view = self.assert_blocked_public()
+        # The person is told which job stopped and why, from the saved facts, never a machinery detail
+        # to act on; the runner's own cause, which can name an operator flag, stays in the receipt.
+        said = (
+            "The Requirements step stopped: its model provider ended the call without a confirmed result, "
+            "and AutoCode's own retries for it ran out. " + disposition.MESSAGE
+        )
+        self.assertEqual(said, self.state["stop_reason"])
+        self.assertEqual(said, view["recovery"]["what_happened"])
+        self.assertNotIn("--", said)
+        # Never a dead end: a new conversation is offered, and it takes no command from this run.
+        self.assertIn("start a new chat", view["recovery"]["what_it_means"])
+        fresh = [row for row in view["recovery"]["actions"] if row["kind"] == "new_conversation"]
+        self.assertEqual(1, len(fresh))
+        self.assertNotIn("args", fresh[0])
         self.assertEqual(attempt, self.state["active_stage"])
         self.assertEqual(1, self.state["settings"]["limits"]["planning_calls"])
         self.assertEqual(0, self.state["settings"]["limits"]["max_cost_usd"])

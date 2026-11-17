@@ -875,6 +875,9 @@ class TaskRun:
             )
         else:
             view = self.answer(f"route-{role}", model, resolver_token=resolver_token)
+        if ((view.get("route_assignments") or [{}])[-1] or {}).get("tool"):
+            # A TOOL:MODEL answer moved the job to another connected tool; its model flag names the model.
+            model = model.partition(":")[2]
         flag = "--investigator-model" if role == "stuck_investigator" else "--" + role.replace("_", "-") + "-model"
         flags = names.spellings(flag)  # --builder-model as well as --terra-model
         options = list(self.options)

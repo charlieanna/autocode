@@ -761,6 +761,22 @@ one invocation). `--tester-model` alone is refused while the stopped attempt is 
 uncertain. Setting the attempt aside never raises the role's reasoning effort: a quota
 stop is not a sign the model struggled.
 
+On a run whose jobs run on a connected tool (OpenCode, Kilo or a configured command
+tool), a quota stop may also move the stopped job to another connected tool: answer
+`TOOL:MODEL`, for example when Anthropic API credit ran out on Kilo and the same models
+are on your Claude subscription:
+
+```sh
+autocode --run-dir RUN --answer route-tester=claude:MODEL --resolver-token TOKEN
+```
+
+Only that job moves, and only at a quota stop; every other job keeps the tool it started
+on. The tool must be connected (`autocode connections`), list the model and bill it the
+way a launch with `--role-transport` would check, and the move is saved as that launch
+saves it: the job's tool, with the tool's identity, and the `route_assignment` records
+`tool: {from, to}`. Answering the job's own tool name, or no tool, keeps its tool. A
+parallel Builder and a Codex run keep their own tool.
+
 A model is refused, and the run stays paused with the question open, when a launch
 would refuse it:
 

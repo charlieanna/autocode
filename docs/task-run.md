@@ -1825,7 +1825,12 @@ applies to separate numeric offers, model retry offers and chat recovery replies
 An authenticated operational-exhaustion request whose runner receipt identifies
 an internal recovery failure is reported as blocked in the conversation. It keeps
 the saved attempts and the existing operator `needs` and `next_command`, but the
-chat offers no machinery question or recovery reply. This does not apply to a
+chat offers no machinery question or recovery reply. The card's `what_happened`
+names the step that stopped and why, from the receipt's saved stage and pause status
+("The Plan Reviewer step stopped: its model provider ended the call without a
+confirmed result, and AutoCode's own retries for it ran out."), and every blocked
+card offers `new_conversation` beside `inspect`, so a person is never left with
+nothing to do. This does not apply to a
 saved spending or time bound, a connection stop, or a model-route question.
 
 A stopped, source-bound job may separately offer `needs.job_time_controls`. Each

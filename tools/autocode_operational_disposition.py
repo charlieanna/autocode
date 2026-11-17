@@ -17,6 +17,7 @@ try:
     from . import autocode_pause_authority as pause_authority
     from . import autocode_provider_auth as provider_auth
     from . import autocode_quota_route as quota_route
+    from . import autocode_roles as roles
     from . import autocode_stop as stop
     from . import autocode_util as util
     from .autocode_goals import RESOLVER_PROPOSAL_KEY
@@ -27,6 +28,7 @@ except ImportError:
     import autocode_pause_authority as pause_authority
     import autocode_provider_auth as provider_auth
     import autocode_quota_route as quota_route
+    import autocode_roles as roles
     import autocode_stop as stop
     import autocode_util as util
     from autocode_goals import RESOLVER_PROPOSAL_KEY
@@ -34,6 +36,46 @@ except ImportError:
 SCOPE = "operational_exhaustion"
 MESSAGE = "AutoCode could not safely continue its internal recovery. Saved work, attempts and evidence are kept."
 MANAGED = frozenset({"runner_default", "resolver_delegated"})
+NEXT_STEP = (
+    "AutoCode cannot continue this chat from here. To try the task again, start a new chat with the same "
+    "request; this chat keeps its saved work and history."
+)
+# What stopped, in a person's words, read from the saved pause status (never a provider's message).
+CAUSES = (
+    (("PAUSED_PROVIDER_UNCERTAIN",), "its model provider ended the call without a confirmed result"),
+    (("PAUSED_UNCERTAIN_STAGE",), "it ended without a confirmed result"),
+    (("PAUSED_RATE_LIMIT",), "its model provider kept refusing requests (a rate limit)"),
+    (("PAUSED_PROVIDER_CAPACITY",), "its model provider had no capacity for the request"),
+    (("PAUSED_REPEATED_FAILURE",), "it failed the same way each time"),
+    (("TIMEOUT", "TIME_LIMIT"), "it ran past its time limit"),
+    (("NO_PROGRESS",), "it stopped making progress"),
+    (("INVALID_OUTPUT", "REPORT_REPAIR", "METADATA"), "its report could not be accepted, even after repair"),
+    (("VERIFICATION",), "its checks could not be prepared"),
+)
+
+
+def cause(stage, status, rationale=None, state: RunState | None = None) -> str:
+    """One sentence naming the job that stopped and why, for an exhausted internal recovery.
+
+    A refused account is named with the core's fixed diagnostic, since only the person can fix it.
+    Otherwise the job comes from the saved stage and the reason from the saved pause status.
+    """
+    account = provider_auth.account_cause(rationale)
+    if account:
+        return account
+    said = next((text for keys, text in CAUSES if any(key in str(status or "") for key in keys)), None)
+    running = str(((state or {}).get("active_stage") or {}).get("stage") or "")
+    if said is None and roles.base_stage(running) != running:
+        # A wrapper status (the Resolver's own stop) names no cause; the attempt it stopped on does.
+        said = "its report could not be accepted, even after repair"
+    said = said or "it could not finish"
+    job = roles.screen_name(stage, state) if isinstance(stage, str) and stage else ""
+    return f"{'The ' + job + ' step' if job else 'A step'} stopped: {said}, and AutoCode's own retries for it ran out."
+
+
+def blocked_message(stage, status, rationale=None, state: RunState | None = None) -> str:
+    """The run's stop reason when internal recovery is exhausted: what stopped, then that work is kept."""
+    return f"{cause(stage, status, rationale, state)} {MESSAGE}"
 
 
 def budget(state: RunState, status):
@@ -545,12 +587,16 @@ def presentation(state: RunState):
         # Only existing genuine decision readers may publish their named action.
         # An otherwise idle input receipt creates no Resume or new composer.
         return None
-    # The runner's own rationale names a refused account with the core's fixed diagnostic, never the
+    # The job and the reason come from the incident's saved facts, else the run's own stage and status.
+    # The runner's rationale names a refused account with the core's fixed diagnostic, never the
     # provider's message; the person sees that much, since only they can fix their account.
-    account = provider_auth.account_cause((current["record"].get("decision") or {}).get("rationale"))
+    record = current["record"]
+    facts = (record.get("receipt") or {}).get("evidence") or {}
+    stage = facts.get("stage") or (state.get("active_stage") or {}).get("stage") or state.get("next_stage")
+    status = facts.get("status") or state.get("status")
     return {
         "category": "blocked",
         "title": "AutoCode is blocked on internal recovery",
-        "what_happened": f"{account} {MESSAGE}" if account else MESSAGE,
-        "what_it_means": "The task is not complete. AutoCode retained the failed attempts and will not ask you to decide its machinery.",
+        "what_happened": blocked_message(stage, status, (record.get("decision") or {}).get("rationale"), state),
+        "what_it_means": "The task is not complete. " + NEXT_STEP,
     }

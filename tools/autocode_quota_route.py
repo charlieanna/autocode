@@ -412,6 +412,11 @@ def question(
         "cause": "quota",
         "stopped_model": stopped_on,
     }
+    if engine(settings, role) == "opencode":
+        asked["why"] += (
+            " A model on another connected tool is named TOOL:MODEL (for example kilo:openai/gpt-6-luna); "
+            f"only the {job} moves there."
+        )
     if attempt.get("pause_status") == AUTH_STATUS:
         asked.update(
             cause="authentication",
@@ -1037,8 +1042,12 @@ def assign(
     current: str | None = None,
     actor: str = "user_cli",
     effort: str | None = None,
+    tool: dict | None = None,
 ) -> dict:
     """Set the role's model, drop its session and append the route_assignment record; return the record.
+
+    ``tool`` (``{"provider", "identity"}``) moves the role to another connected tool as well, at a quota
+    stop only (``role_transport.rebind``); the record's ``tool`` says from which to which.
 
     The record's ``from`` is ``current`` (as for ``validate``) when given, else the role's saved route.
     ``effort`` is a level the person named with the model (``MODEL@LEVEL``, checked by ``check_effort``):
@@ -1067,6 +1076,14 @@ def assign(
     previous = route.get("model")
     _carry(state, role, previous, model)
     route["model"] = model
+    if tool is not None:
+        record["tool"] = {
+            "from": route.get("provider") or settings.get("provider") or "opencode",
+            "to": tool["provider"],
+        }
+        binding = _transport_binding(settings, role)
+        role_transport.rebind(settings, role, tool["provider"], tool["identity"])
+        record["transport"] = {"from": binding, "to": _transport_binding(settings, role)}
     # The role keeps its effort; the named model may not declare it (#2006). One fit rule (#2057):
     # a runner-chosen effort moves to the nearest declared variant and is recorded; a level named
     # with this answer that the model does not declare refuses with its flag. A saved level the
@@ -1351,6 +1368,7 @@ def unassigned(state: RunState, settings: dict) -> dict:
         route = (settings.get("roles") or {}).get(event.get("role"))
         if isinstance(route, dict) and event.get("from") and route.get("model") == event.get("to"):
             route["model"] = event["from"]
+            _undo_transport(settings, event["role"], event.get("transport"))
             # A --<role>-model flag also saved its effort and origins; they are the same assignment (#3159).
             _undo_flag_provenance(settings, route, event)
             runner_effort = event.get("runner_effort_before")
@@ -1389,6 +1407,37 @@ def unassigned(state: RunState, settings: dict) -> dict:
                 if event.get("investigator_settings_present") is False and not investigation:
                     settings.pop("stuck_investigation", None)
     return settings
+
+
+def _transport_binding(settings: dict, role: str) -> dict:
+    """The role's saved tool binding: its route's engine and provider and its tool identity."""
+    route = (settings.get("roles") or {}).get(role) or {}
+    identity = (settings.get("transport_identities") or {}).get(role_transport.PREFIX + role)
+    return {
+        "engine": route.get("engine"),
+        "provider": route.get("provider"),
+        "identity": copy.deepcopy(identity),
+    }
+
+
+def _undo_transport(settings: dict, role: str, change) -> None:
+    """Put back the tool binding an assignment moved, while the role is still where it moved it."""
+    if not isinstance(change, dict) or _transport_binding(settings, role) != change.get("to"):
+        return
+    before = change.get("from") or {}
+    route = settings["roles"][role]
+    for key in ("engine", "provider"):
+        if before.get(key) is None:
+            route.pop(key, None)
+        else:
+            route[key] = before[key]
+    identities = settings.setdefault("transport_identities", {})
+    if before.get("identity") is None:
+        identities.pop(role_transport.PREFIX + role, None)
+    else:
+        identities[role_transport.PREFIX + role] = copy.deepcopy(before["identity"])
+    if not identities:
+        settings.pop("transport_identities")
 
 
 def assignments(state: RunState) -> list[dict]:
