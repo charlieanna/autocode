@@ -11,6 +11,7 @@ import autocode_chat_view as chat
 import autocode_requirements_review as requirements_review
 import autocode_run_view as run_view
 import autocode_util as util
+import autocode_workflows as workflows
 import goal_fixtures
 
 
@@ -264,11 +265,7 @@ class ChatViewTests(unittest.TestCase):
         self.assertIn("details show the recorded reason", saved["chat"]["notice"])
 
     def test_a_run_that_cannot_continue_says_why_and_to_start_a_new_task(self):
-        retired = (
-            "This run was saved before AutoCode named its stages after their jobs: its routes terra (now builder) "
-            "use the old names, which this runtime no longer runs. Its status and saved reports stay readable; "
-            "start a new task to continue the work."
-        )
+        retired = workflows.retired_stage({"next_stage": "review_change"})
         need = {"kind": "resume", "reason": retired, "recovery_hint": retired, "new_run_required": True}
         text = chat.notice({"status": "PAUSED_STALE_HANDOFF", "needs": need, "recovery": {"saved_reason": "x"}})
         self.assertEqual("I can’t continue this run. " + retired, text)

@@ -148,7 +148,6 @@ PERSON_FLAGS = tuple(
             *(spec[1] for spec in BOUNDS.values()),
             "--planning-review-call-limit",
             "--grant-recovery",
-            "--max-stage-seconds",
         ]
     )
 )
@@ -162,7 +161,9 @@ def raise_action(row):
 def project(state: RunState, need, resume_flags):
     """Describe one explicit finite total, never infer a value from human prose."""
     if state.get("status") == "PAUSED_INTERVENTION" and not pause_authority.interrupted(state):
-        return _stage_time(state, need, resume_flags)
+        # A boundary pause asks for nothing: the per-step limit is a setting (`--max-stage-seconds`,
+        # `max-stage-seconds` in config.toml), not a number to type on resuming (owner request 2026-11-16).
+        return None
     if state.get("status") == "PAUSED_PLANNING_BUDGET":
         return _planning(state, need, resume_flags)
     if (
@@ -171,37 +172,6 @@ def project(state: RunState, need, resume_flags):
     ):
         return _grant(state, need, resume_flags)
     return _bound(state, need, resume_flags)
-
-
-def _stage_time(state: RunState, need, resume_flags):
-    """A boundary pause can resume with an explicitly increased per-stage limit."""
-    current = _limits(state).get("stage_timeout_seconds")
-    if (
-        not need
-        or need.get("kind") != "resume"
-        or (need.get("action") or resume_flags or "--resume-paused") != "--resume-paused"
-        or need.get("new_run_required")
-        or need.get("edit_required")
-        or any(state.get(key) for key in BUSY)
-        or type(current) is not int
-        or not 0 < current < 2147483647
-    ):
-        return None
-    return [
-        {
-            "id": "max_stage_seconds",
-            "kind": "integer",
-            "flag": "--max-stage-seconds",
-            "placeholder": "N",
-            "arg_index": 2,
-            "label": "Time per step (seconds)",
-            "current": current,
-            "used": current,
-            "minimum": current + 1,
-            "maximum": 2147483647,
-            "command": None,
-        }
-    ]
 
 
 def _bound(state: RunState, need, resume_flags):

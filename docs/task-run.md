@@ -1466,7 +1466,12 @@ is the next request in the same conversation: on a finished run it records a
 new turn (`turn` in the status view) and reopens the run at Requirements,
 which names the kind of job again from the new message, with the earlier turn
 as context (its job, a review's verdict and finding counts, a design turn's
-documents), and continues in the same run directory (#1860). After a review, a
+documents, and for every job the result the person was shown, the files it changed and its
+plan's criteria with how each was checked, each bounded), and continues in the same run
+directory (#1860). A question about the finished work ("what did you change?", "was it
+tested?") is a discussion: Requirements answers it from that record and by reading the
+changed files, in its read-only session, and the turn ends with the answer; nothing is
+planned or built. After a review, a
 follow-up that asks to act on the findings is a build planned from them: the
 review's blocking findings are the task list, so no requirements questions are
 asked, and the plan still goes to the user for approval. The rewritten task names what the previous turn wrote (its report or
@@ -1833,11 +1838,11 @@ does not authorize a retry. The job issues a new token, so a client must read a
 fresh view before offering or taking any subsequent action. The VS Code sidebar
 and Run Details accept an explicit number for each row and confirm the save.
 
-At an idle intervention boundary, `needs.command_inputs` can also name a
-separate, pause-token-bound increase to the per-step time limit. This action
-resumes the run as well as saving the limit for later steps; its confirmation
-states both effects. It is not offered while a stage, runner check, report
-repair or uncertain artifact is active.
+An intervention boundary (the person's own pause) offers no `needs.command_inputs`:
+resuming it asks for no number. The per-step time limit is a setting, not a field on
+the pause (owner request 2026-11-16): `--max-stage-seconds` or `max-stage-seconds` in
+`.autocode/config.toml` for new runs, `autocode.maxStageSeconds` in the VS Code client,
+and `--resume-paused --max-stage-seconds N` on the command line for a paused run.
 
 `needs.command_inputs` describes the one number a pause leaves to a person, so a
 client can ask for it instead of handing the command off (#2044). Every bound a

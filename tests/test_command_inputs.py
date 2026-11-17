@@ -13,8 +13,6 @@ import autocode_configure
 import autocode_recovery_view as recovery
 import autocode_run_view as run_view
 
-from scenarios.harness import conformance
-
 
 def checkpoint(**changes):
     return {
@@ -37,37 +35,36 @@ class CommandInputTests(unittest.TestCase):
             recovery_grants=[],
         )
 
-    def test_boundary_pause_offers_stage_time_and_resume_bound_to_current_pause(self):
+    def test_boundary_pause_asks_for_no_number_and_resumes_as_it_is(self):
+        """The per-step limit is a setting, not a field on the pause (owner request 2026-11-16)."""
         state = checkpoint(status="PAUSED_INTERVENTION", next_stage="tester")
         state["settings"]["limits"]["stage_timeout_seconds"] = 600
         view = run_view.view(state)
-        offer = view["needs"]["command_inputs"][0]
-        self.assertEqual(("max_stage_seconds", 600, 601), (offer["id"], offer["current"], offer["minimum"]))
-        self.assertIn("--resume-paused --max-stage-seconds N --expected-recovery-token -", offer["command"])
-        row, named = actions.bound_offer(view, Path("/tmp/project"), Path("/tmp/run"))
-        self.assertEqual("max_stage_seconds", row["id"])
-        self.assertEqual(["--resume-paused", "--max-stage-seconds", "N", "--expected-recovery-token", "-"], named.argv)
-        driver = object.__new__(conformance.ConformanceDriver)
-        driver.project, driver.run_dir = Path("/tmp/project"), Path("/tmp/run")
-        argv, env, _ = driver.bound_command(view, {"max_stage_seconds": "1200"})
-        self.assertEqual(["--resume-paused", "--max-stage-seconds", "1200", "--expected-recovery-token", "-"], argv)
-        self.assertEqual(named.env, env)
-        stale = copy.deepcopy(view)
-        stale["recovery"]["token"] = "old"
+        self.assertFalse(view["needs"].get("command_inputs"), "a boundary pause shows no time-per-step field")
+        self.assertTrue(view["next_command"].endswith(" --resume-paused"), view["next_command"])
+        self.assertNotIn("--max-stage-seconds", view["next_command"])
+        self.assertIsNone(inputs.project(state, {"kind": "resume", "action": "--resume-paused"}, None))
+        offered = copy.deepcopy(view)  # what the core offered before: a client now refuses it
+        offered["needs"]["command_inputs"] = [
+            {
+                "id": "max_stage_seconds",
+                "kind": "integer",
+                "flag": "--max-stage-seconds",
+                "placeholder": "N",
+                "arg_index": 2,
+                "label": "Time per step (seconds)",
+                "current": 600,
+                "used": 600,
+                "minimum": 601,
+                "maximum": 2147483647,
+                "command": (
+                    f"AUTOCODE_EXPECTED_RECOVERY_TOKEN={view['recovery']['token']} {view['next_command']}"
+                    " --max-stage-seconds N --expected-recovery-token -"
+                ),
+            }
+        ]
         with self.assertRaises(actions.ClientGap):
-            actions.bound_offer(stale, Path("/tmp/project"), Path("/tmp/run"))
-        changed = copy.deepcopy(view)
-        changed["needs"]["command_inputs"][0]["used"] = 599
-        with self.assertRaises(actions.ClientGap):
-            actions.bound_offer(changed, Path("/tmp/project"), Path("/tmp/run"))
-        for busy in ("active_stage", "active_runner_check", "pending_report_repair", "uncertain_artifacts"):
-            blocked = copy.deepcopy(state)
-            blocked[busy] = {"attempt": "one"}
-            self.assertIsNone(inputs.project(blocked, {"kind": "resume", "action": "--resume-paused"}, None))
-        for deadline in (None, 0, -1, True):
-            invalid = copy.deepcopy(state)
-            invalid["settings"]["limits"]["stage_timeout_seconds"] = deadline
-            self.assertIsNone(inputs.project(invalid, {"kind": "resume", "action": "--resume-paused"}, None))
+            actions.bound_offer(offered, Path("/tmp/project"), Path("/tmp/run"))
         held = copy.deepcopy(state)
         held["pause_intent"] = {"held_pause": {"status": "PAUSED_TIME_LIMIT"}}
         row = inputs.project(held, {"kind": "resume", "action": "--resume-paused"}, None)

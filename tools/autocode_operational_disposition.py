@@ -15,6 +15,7 @@ try:
     from . import autocode_operational_outcome as owner_outcome
     from . import autocode_operational_receipt_identity as receipt_identity
     from . import autocode_pause_authority as pause_authority
+    from . import autocode_provider_auth as provider_auth
     from . import autocode_quota_route as quota_route
     from . import autocode_stop as stop
     from . import autocode_util as util
@@ -24,6 +25,7 @@ except ImportError:
     import autocode_operational_outcome as owner_outcome
     import autocode_operational_receipt_identity as receipt_identity
     import autocode_pause_authority as pause_authority
+    import autocode_provider_auth as provider_auth
     import autocode_quota_route as quota_route
     import autocode_stop as stop
     import autocode_util as util
@@ -543,9 +545,12 @@ def presentation(state: RunState):
         # Only existing genuine decision readers may publish their named action.
         # An otherwise idle input receipt creates no Resume or new composer.
         return None
+    # The runner's own rationale names a refused account with the core's fixed diagnostic, never the
+    # provider's message; the person sees that much, since only they can fix their account.
+    account = provider_auth.account_cause((current["record"].get("decision") or {}).get("rationale"))
     return {
         "category": "blocked",
         "title": "AutoCode is blocked on internal recovery",
-        "what_happened": MESSAGE,
+        "what_happened": f"{account} {MESSAGE}" if account else MESSAGE,
         "what_it_means": "The task is not complete. AutoCode retained the failed attempts and will not ask you to decide its machinery.",
     }

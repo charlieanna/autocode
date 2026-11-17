@@ -222,6 +222,119 @@ class TruncatedReviewRecoveryTests(unittest.TestCase):
                 state, self.run, self.root, support.Paused("PAUSED_PROVIDER_TIMEOUT", "Stopped repair stage deadline")
             )
 
+    def timed_out_edits_repair(self):
+        """A rejected Requirements report whose bounded-edits repair stopped at its deadline.
+
+        The opus-high-P5 Planner test (2026-11-16): the report was refused ("Assumption A1 supports
+        an unknown requirement id"), its repair was offered the edits form and timed out under load.
+        """
+        import autocode_report_edits as report_edits
+
+        schema = self.run / "schemas/v3-requirements_gather.json"
+        schema.write_text(
+            json.dumps(
+                {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {"summary": {"type": "string"}},
+                    "required": ["summary"],
+                }
+            )
+        )
+        base = self.run / "iterations/001/requirements-gather-01"
+        base.parent.mkdir(parents=True, exist_ok=True)
+        files = {suffix: Path(str(base) + suffix) for suffix in (".json", ".jsonl", ".before.json", ".after.json")}
+        files[".json"].write_text(json.dumps({"summary": "A1 supports R9"}))
+        files[".jsonl"].write_text(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 3}}) + "\n")
+        files[".before.json"].write_text(json.dumps(self.snapshot))
+        files[".after.json"].write_text(json.dumps(self.snapshot))
+        original = {
+            "role": "requirements",
+            "stage": "requirements_gather",
+            "iteration": 1,
+            "exit_code": 0,
+            "events": str(files[".jsonl"]),
+            "output": str(files[".json"]),
+            "schema": str(schema),
+            "before_ref": str(files[".before.json"]),
+            "after_ref": str(files[".after.json"]),
+            "supports_sessions": True,
+            "source_revision": "source-revision",
+            "rejected": True,
+            "rejection_reason": "Assumption A1 supports an unknown requirement id",
+        }
+        source = {
+            "path": original["output"],
+            "sha256": support.file_hash(original["output"]),
+            "format": "json",
+            "content": {"summary": "A1 supports R9"},
+        }
+        offer = report_edits.prepare(schema, source, "requirements_gather")
+        self.assertNotEqual(schema, offer, "the repair is offered the edits form")
+        repair_base = self.run / "iterations/001/requirements-gather-report-repair-01"
+        repair_events = Path(str(repair_base) + ".jsonl")
+        repair_events.write_text(json.dumps({"type": "thread.started", "thread_id": "repair"}) + "\n")
+        repair_before = Path(str(repair_base) + ".before.json")
+        repair_before.write_text(json.dumps(self.snapshot))
+        repair = {
+            **{key: original[key] for key in ("role", "iteration", "supports_sessions", "source_revision")},
+            "stage": "requirements_gather_report_repair",
+            "original_stage": "requirements_gather",
+            "report_only": True,
+            "schema": str(offer),
+            "events": str(repair_events),
+            "output": str(repair_base) + ".json",
+            "before_ref": str(repair_before),
+            "started_at": "2026-11-16T00:00:00+00:00",
+            "finished_at": "2026-11-16T00:01:32+00:00",
+            "exit_code": -15,
+            "timed_out": True,
+            "timeout_kind": "idle",
+            "processes": [{"pid": 99999999, "birth_time": 1}],
+        }
+        state = self.state(repair)
+        state.pop("goal_contract")
+        state["stages"] = [original]
+        state["pending_report_repair"] = {
+            "original": original,
+            "attempts": 1,
+            "contract_hash": None,
+            "error": original["rejection_reason"],
+            "pins": {
+                path: support.file_hash(path)
+                for path in (original[key] for key in ("events", "before_ref", "after_ref", "schema", "output"))
+            },
+        }
+        return state
+
+    def test_a_timed_out_edits_repair_is_retried_not_held_for_a_person(self):
+        state = self.timed_out_edits_repair()
+        self.assertTrue(self.recover_timeout(state))
+        self.assertNotIn("active_stage", state)
+        self.assertEqual(
+            ("RUNNING", "REPORT_REPAIR", "requirements_gather"), (state["status"], state["phase"], state["next_stage"])
+        )
+        self.assertEqual(1, state["pending_report_repair"]["attempts"], "the timed-out repair stays charged")
+
+    def test_an_edits_schema_not_bound_to_the_rejected_report_is_still_held(self):
+        for case in ("tampered", "other_report"):
+            with self.subTest(case=case):
+                state = self.timed_out_edits_repair()
+                offer = Path(state["active_stage"]["schema"])
+                if case == "tampered":
+                    schema = json.loads(offer.read_text())
+                    schema["properties"]["repair_report"]["anyOf"][1]["properties"]["summary"] = {"type": "number"}
+                    offer.write_text(json.dumps(schema))
+                else:
+                    Path(state["pending_report_repair"]["original"]["output"]).write_text("{}")
+                    state["pending_report_repair"]["pins"].pop(state["pending_report_repair"]["original"]["output"])
+                retained = copy.deepcopy(state)
+                with self.assertRaises(support.Paused) as stopped:
+                    self.recover_timeout(state)
+                self.assertEqual("PAUSED_RESOLVER_OPERATIONAL", stopped.exception.status)
+                self.assertIn("stage bindings changed", str(stopped.exception))
+                self.assertEqual(retained, state)
+
     def test_truncated_original_survives_report_repair_timeout_without_replay_or_refund(self):
         state = self.timed_out_repair()
         retained = copy.deepcopy(

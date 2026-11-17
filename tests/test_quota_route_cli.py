@@ -17,11 +17,13 @@ from unittest import mock
 
 import autocode as runner
 import autocode_action_resolver as action_resolver
+import autocode_operational_disposition as disposition
 import autocode_quota_route as quota_route
 import autocode_resolver_human as human
 from autocode_taskrun import TaskRun, TaskRunError
 
 from . import test_subprocess
+from .operational_fixtures import assert_view_blocked
 
 ADVERTISED_FLAGS = re.compile(r"(--[a-z][a-z0-9-]*)")
 OTHER_MODEL = "gpt-6-luna"
@@ -255,20 +257,16 @@ class QuotaRouteCliTests(unittest.TestCase):
 
     def test_other_stops_ask_no_model_and_still_refuse_answers(self):
         # The same Tester stop with a capacity error instead of a used-up quota: no model is asked for.
+        # Once AutoCode's own capacity retries are spent it stops with nothing to answer (#3682).
         self.env["AUTOCODE_FIXTURE_QUOTA_MESSAGE"] = "Selected model is at capacity"
         self.quota_stop()
         view = self.view()
-        self.assertNotIn("route", view["needs"])
-        questions = [q["id"] for q in view["needs"]["questions"]]
-        self.assertNotIn("route-tester", questions)
+        assert_view_blocked(self, view, view["status"])
+        self.assertNotEqual("PAUSED_BUDGET", view["status"])
         result = self.launch([*self.args, "--answer", "route-tester=" + OTHER_MODEL], 2)
-        self.assertIn(
-            "Only a quota, content-filter, output-limit, context-window, failed-job authentication, stopped-job timeout or cross-model stop is answered with a model",
-            result.stderr,
-        )
-        result = self.launch([*self.args, "--answer", questions[0] + "=retry please"], 2)
-        self.assertIn("Use --resolver-response for this operational request", result.stderr)
+        self.assertIn("Input rejected: " + disposition.MESSAGE, result.stderr)
         self.assertEqual("gpt-5.6-sol", self.saved()[1]["settings"]["roles"]["tester"]["model"])
+        self.assertEqual([], self.view()["route_assignments"])
 
     def test_a_used_up_plan_sent_as_a_429_asks_for_a_model(self):
         # Z.AI's used-up plan as OpenCode reported it live (2026-10-05): an HTTP 429 that never says
@@ -295,6 +293,42 @@ class QuotaRouteCliTests(unittest.TestCase):
         [assignment] = self.view()["route_assignments"]
         self.assertEqual(
             ("completion", "gpt-5.6-sol", OTHER_MODEL, "PAUSED_BUDGET"),
+            tuple(assignment[key] for key in ("role", "from", "to", "pause_status")),
+        )
+
+    def test_a_spent_api_credit_sent_as_a_400_asks_for_a_model(self):
+        # Anthropic's used-up API credit as Kilo reported it live (2026-11-16): an HTTP 400 that is not
+        # retryable and never says "quota". Six runs paused as uncertain and asked a person to reconcile
+        # the attempt; the stopped job's model was never asked for.
+        message = (
+            "Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to "
+            "upgrade or purchase credits."
+        )
+        self.env["AUTOCODE_FIXTURE_QUOTA_ERROR"] = json.dumps(
+            {
+                "name": "APIError",
+                "data": {
+                    "message": message,
+                    "statusCode": 400,
+                    "isRetryable": False,
+                    "responseBody": json.dumps(
+                        {"type": "error", "error": {"type": "invalid_request_error", "message": message}}
+                    ),
+                },
+            }
+        )
+        paused = self.quota_stop()
+        self.assertIn("--answer route-tester=MODEL", paused["stop_reason"])
+        need = self.view()["needs"]
+        self.assertEqual(
+            ("route-tester", "Tester", "quota", "gpt-5.6-sol"),
+            tuple(need["route"][key] for key in ("question_id", "job", "cause", "stopped_model")),
+        )
+        self.assertEqual(["route-tester"], [question["id"] for question in need["questions"]])
+        self.launch([*self.args, "--answer", "route-tester=" + OTHER_MODEL], 0)
+        [assignment] = self.view()["route_assignments"]
+        self.assertEqual(
+            ("tester", "gpt-5.6-sol", OTHER_MODEL, "PAUSED_BUDGET"),
             tuple(assignment[key] for key in ("role", "from", "to", "pause_status")),
         )
 

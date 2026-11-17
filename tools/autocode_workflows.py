@@ -46,12 +46,12 @@ from pathlib import Path
 
 try:
     from . import autocode_adaptive_planning as adaptive
-    from . import autocode_names as names
     from . import autocode_roles as roles
+    from . import autocode_saved_names as saved_names
 except ImportError:
     import autocode_adaptive_planning as adaptive
-    import autocode_names as names
     import autocode_roles as roles
+    import autocode_saved_names as saved_names
 
 WORKFLOWS = ("build", "bugfix", "review", "design", "discuss")
 # The stages earlier runtimes ran and this one does not: the job recognizer and the four jobs that
@@ -69,32 +69,27 @@ STANDARD_IMPLEMENTATION = "standard"
 
 
 def retired_stage(state: RunState) -> str | None:
-    """Why a saved run cannot continue, when it is waiting at a stage this runtime no longer runs or was
-    saved under the old route names (autocode_names), else None."""
-    saved = ((state.get("settings") or {}).get("roles")) or {}
-    if old := sorted(role for role in saved if role in names.RETIRED_ROUTES):
-        renamed = ", ".join(f"{role} (now {names.route(role)})" for role in old)
+    """Why a saved run cannot continue here, in words for the person, else None.
+
+    A run saved under the old code names (autocode_names) is read with the job names
+    (autocode_saved_names, on every read of its state.json) and continues; only one that names a
+    route or its review count both ways, which no rename can settle, is still refused here. A run
+    waiting at a stage this runtime no longer runs (RETIRED_STAGES) cannot continue either.
+    """
+    if saved_names.needed(state):
         return (
-            f"This run was saved before AutoCode named its stages after their jobs: its routes {renamed} "
-            "use the old names, which this runtime no longer runs. Its status and saved reports stay "
-            "readable; start a new task to continue the work."
-        )
-    # The last renaming step renamed the planning record's review counter; a run saved between the
-    # steps has job-named routes and the old counter, which this runtime no longer keeps.
-    if names.OLD_PLANNING_COUNTER in (state.get("planning") or {}):
-        return (
-            "This run was saved before AutoCode finished naming its records after their jobs: its plan "
-            f"review count is kept as {names.OLD_PLANNING_COUNTER}, which this runtime no longer reads. Its "
-            "status and saved reports stay readable; start a new task to continue the work."
+            "An older AutoCode version saved this chat in a form this version can't read safely, so it "
+            "can't pick up where it stopped. Everything it saved stays readable here; start a new chat to "
+            "carry on with the task."
         )
     stage = str(state.get("next_stage") or "").removesuffix("_report_repair")
     if stage not in RETIRED_STAGES:
         return None
     job = roles.screen_name(stage)
     return (
-        f"This run was saved at the {job} stage ({stage}), which AutoCode no longer runs: every task now "
-        "takes the same path (Requirements, Planner, Plan Reviewer, Builder, Tester, Completion Reviewer). "
-        "Its status and saved reports stay readable; start a new task to continue the work."
+        f"This chat stopped at the {job} step, which AutoCode no longer has: every task now takes the same "
+        "path (Requirements, Planner, Plan Reviewer, Builder, Tester, Completion Reviewer). Everything it "
+        "saved stays readable here; start a new chat to carry on with the task."
     )
 
 
@@ -152,7 +147,41 @@ def follow_up(state: RunState) -> dict | None:
             if previous.get("design")
             else {}
         ),
+        # What the finished turn told the person, what it changed and what its plan checked, so a
+        # question about that work ("what did you change?", "was it tested?") is answered from the
+        # run's own record rather than from the request alone.
+        **outcome_context(previous),
     }
+
+
+RESULT_CHARS = 4000  # the finished turn's saved result, as the person saw it
+CHANGED_PATHS = 30  # files the finished turn changed, named for Requirements to read
+PLAN_CRITERIA = 20  # the finished turn's plan criteria and how each was checked
+
+
+def _clip(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
+def outcome_context(previous: dict) -> dict:
+    """The finished turn's own record, bounded: its saved result (``chat_response``), the files it
+    changed (``wrote``) and its plan's criteria (``plan``). Each is left out when the turn saved none."""
+    result = previous.get("chat_response")
+    changed = [path for path in previous.get("wrote") or [] if isinstance(path, str) and path]
+    plan = [row for row in previous.get("plan") or [] if isinstance(row, dict) and row.get("criterion")]
+    context: dict = {}
+    if isinstance(result, str) and result.strip():
+        context["previous_result"] = _clip(result.strip(), RESULT_CHARS)
+    if changed:
+        context["previous_changed"] = changed[:CHANGED_PATHS]
+        if len(changed) > CHANGED_PATHS:
+            context["previous_changed_more"] = len(changed) - CHANGED_PATHS
+    if plan:
+        context["previous_plan"] = [
+            {key: _clip(str(row[key]), 600) for key in ("criterion", "checked_by") if row.get(key)}
+            for row in plan[:PLAN_CRITERIA]
+        ]
+    return context
 
 
 def design_context(design: dict, workspace) -> dict:

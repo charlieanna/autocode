@@ -257,6 +257,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("tests.test_planning_scope_discipline",),
     ),
     ("tools/autocode_legacy_process.py", ("tests.test_json_status_observer_cli",)),
+    (
+        "tools/autocode_saved_names.py",
+        ("tests.test_saved_names", "tests.test_saved_names_cli", "tests.test_recovery_view"),
+    ),
     ("tools/autocode_chat_confirmation.py", ("tests.test_chat_confirmation", "tests.test_chat_client")),
     ("tools/prompts/acceptance-tests.md", ("tests.test_go_prerequisites_execution",)),
     ("tools/autocode_capability_startup.py", ("tests.test_capability_startup", "tests.test_demo")),
@@ -1198,6 +1202,19 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
         ("tools/units/autoplanner.py", "tools/autocode_replay_"),
         ("tests.test_saved_run_replay_cli",),
+    ),
+    (
+        (
+            "tools/autocode_run_view.py",
+            "tools/autocode_answer_options.py",
+            "tools/autocode_replay_view.py",
+            "tools/autocode_replay_recording.py",
+        ),
+        (
+            "tests.test_gate_chat_cli",
+            "tests.test_replay_recording",
+            "tests.test_saved_run_replay_cli",
+        ),
     ),
     (("tools/autocode_replay_recording.py",), ("tests.test_replay_native_capture_export_cli",)),
     (
