@@ -15,6 +15,7 @@ import autocode_args as arguments
 import autocode_job_args as job_args
 import autocode_job_failure as failure
 import autocode_job_time_view as job_time_view
+import autocode_operational_admission as operational_admission
 import autocode_run_view as run_view
 import autocode_util as util
 from autocode_taskrun import TaskRun, TaskRunError
@@ -133,6 +134,19 @@ class StageLimitPolicyTests(unittest.TestCase):
         self.assertIn("Plan approval is still pending; no provider launched", output.getvalue())
         self.assertEqual("AWAITING_GOAL_APPROVAL", state["status"])
         runtime.write_json.assert_called_once()
+
+    def test_plan_time_action_passes_admission_before_approval_only_token_guard(self):
+        state = self.approval_state()
+        args = SimpleNamespace(_approval_time_change=True, expected_goal_token=state["displayed_goal"])
+        runtime = Mock()
+        runtime.status_command.reject_input.return_value = 2
+
+        result = operational_admission.guard(
+            runtime, args, Mock(), state, Path("/run/state.json"), Path("/run"), Path("/workspace"), Mock()
+        )
+
+        self.assertIsNone(result)
+        runtime.status_command.reject_input.assert_not_called()
 
     def test_standalone_stage_limit_is_a_metadata_action(self):
         parser = arguments.build_parser(None, arguments.DEFAULT_ROLE_MODELS)
