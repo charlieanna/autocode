@@ -45,6 +45,7 @@ try:
     from . import autocode_receipts as receipts, autocode_receipt_repair_context as receipt_repair, autocode_usage as token_usage, autocode_provider_error_lines as provider_error_lines  # noqa: F401 - compatibility API
     from . import autocode_event_matching as event_matching, autocode_event_metrics as event_summary, autocode_provider_refusal as provider_refusal, autocode_output_cap as output_cap, autocode_provider_auth as provider_auth  # noqa: F401 - compatibility API
     from . import autocode_context_window as context_window  # noqa: F401 - compatibility API
+    from . import autocode_provider_funds as provider_funds
     from .autocode_event_matching import same_command  # noqa: F401 - compatibility API
 except ImportError:
     from autocode_baseline import BASELINE_POLICY  # noqa: F401 - compatibility API
@@ -65,6 +66,7 @@ except ImportError:
     import autocode_output_cap as output_cap
     import autocode_provider_auth as provider_auth
     import autocode_context_window as context_window
+    import autocode_provider_funds as provider_funds
     from autocode_event_matching import same_command  # noqa: F401 - compatibility API
 # fmt: on
 # isort: on
@@ -155,10 +157,8 @@ def failure_status(path, *, record=None):
     # Model capacity is transient, unlike account rate limits and quota; the runner may retry it under a small budget.
     if re.search(r"model is at capacity|model capacity exceeded|model_overloaded|resource_exhausted", text):
         return "PAUSED_PROVIDER_CAPACITY"
-    # A used-up plan can be a 429 that never says quota (Z.AI: "Weekly/Monthly Limit Exhausted"); a rate limit is not.
-    if any(
-        x in text for x in ("quota", "budget", "usage limit", "usage_limit", "insufficient_credit", "add credits")
-    ) or re.search(r"(?<!rate )limit (exhausted|will reset at \d{4}-)|\b(daily|weekly|monthly) limit\b", text):
+    # The account has nothing left to pay with (autocode_provider_funds): a quota stop, never an uncertain one.
+    if provider_funds.exhausted(said, text):
         return "PAUSED_BUDGET"
     # A whole 429, not one inside a number ("prompt is too long: 214290 tokens").
     if any(x in text for x in ("rate_limit", "rate limit")) or re.search(r"\b429\b", text):

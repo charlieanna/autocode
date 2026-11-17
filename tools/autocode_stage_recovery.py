@@ -34,6 +34,7 @@ try:
     from . import autocode_process as processes
     from . import autocode_quota_route as quota_route
     from . import autocode_recovery_limits as recovery_limits
+    from . import autocode_repair_provenance as repair_provenance
     from . import autocode_report_repair_queue as report_repair_queue
     from . import autocode_report_retry as report_retry
     from . import autocode_report_source as report_source
@@ -62,6 +63,7 @@ except ImportError:
     import autocode_process as processes
     import autocode_quota_route as quota_route
     import autocode_recovery_limits as recovery_limits
+    import autocode_repair_provenance as repair_provenance
     import autocode_report_repair_queue as report_repair_queue
     import autocode_report_retry as report_retry
     import autocode_report_source as report_source
@@ -337,7 +339,9 @@ def automatically_recover_report_repair_timeout(state: RunState, run_dir, worksp
             or record.get("iteration") != original.get("iteration")
             or record.get("role") != original.get("role")
             or not Path(record.get("schema", "")).is_file()
-            or support.file_hash(record["schema"]) != support.file_hash(original["schema"])
+            or not repair_provenance.same_schema(
+                original, record, reports=[(pending.get("latest_rejected") or {}).get("output")]
+            )
             or record.get("contract_hash") != original.get("contract_hash")
             or record.get("task_id") != original.get("task_id")
             or (
@@ -1502,6 +1506,15 @@ def archive_stale_report_repair(state: RunState, run_dir, workspace):
     return message
 
 
+def _rejected_repair_reports(state: RunState, original):
+    """The reports of ``original``'s earlier rejected repairs: a later repair may have edited one of them."""
+    return [
+        row.get("output")
+        for row in state.get("stages", [])
+        if row.get("report_only") and row.get("rejected") and row.get("original_stage") == original.get("stage")
+    ]
+
+
 def report_retry_frontier(state: RunState, workspace, selected, pending):
     """The original source/schema/pin/bound checks over one retained repair input."""
     original = pending.get("original") or {}
@@ -1530,7 +1543,7 @@ def report_retry_frontier(state: RunState, workspace, selected, pending):
         or not original.get("schema")
         or not Path(repair["schema"]).is_file()
         or not Path(original["schema"]).is_file()
-        or support.file_hash(repair["schema"]) != support.file_hash(original["schema"])
+        or not repair_provenance.same_schema(original, repair, reports=_rejected_repair_reports(state, original))
         or not report_retry.bounded_failure_evidence(state, pending, records.repair_limit(state))
     ):
         raise ValueError("--retry-report must match the bounded rejected report-only attempt")
