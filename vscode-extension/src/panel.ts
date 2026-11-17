@@ -1125,6 +1125,7 @@ let renderedState = '';
 let allChangesCompare = null;
 let allChangesContext = null;
 let allChangesRequested = false;
+let allChangesVisible = false;
 let allChangesRequest = 0;
 let workingCompare = null;
 const ACTIVITY_MARKS = { command: '$', edit: '±', tool: '·', thinking: '∴', message: '»' };
@@ -1366,9 +1367,11 @@ function renderFinish(state) {
   const facts = el('div', 'facts');
   const fact = (label, value, cls) => { facts.appendChild(el('span', null, label)); facts.appendChild(el('span', cls || null, value)); };
   if (finish.requirements) fact('Requirements', finish.requirements.checked + ' of ' + finish.requirements.total + ' checked');
-  if (finish.files.length) {
-    const shown = finish.files.slice(0, 6).join(', ') + (finish.files.length > 6 ? ' and ' + (finish.files.length - 6) + ' more' : '');
-    fact('Changed', finish.files.length + (finish.files.length === 1 ? ' file: ' : ' files: ') + shown, 'files');
+  const files = allChangesCompare && allChangesCompare.comparison && Array.isArray(allChangesCompare.comparison.changed_files)
+    ? allChangesCompare.comparison.changed_files : [];
+  if (files.length) {
+    const shown = files.slice(0, 6).join(', ') + (files.length > 6 ? ' and ' + (files.length - 6) + ' more' : '');
+    fact('Changed', files.length + (files.length === 1 ? ' file: ' : ' files: ') + shown, 'files');
   }
   if (finish.seconds !== null) fact('Stage time', formatDuration(finish.seconds));
   if (state.meter && state.meter.total) fact('Cost', state.meter.total);
@@ -1394,8 +1397,9 @@ function renderFinish(state) {
   app.appendChild(card);
 }
 
-function requestAllChanges(state) {
+function requestAllChanges(state, show = true) {
   if (!state.allChanges || state.taking || state.unreadable) return;
+  if (show) allChangesVisible = true;
   allChangesRequested = true;
   allChangesCompare = { loading: true };
   renderedState = '';
@@ -1420,7 +1424,7 @@ function renderAllChanges(state) {
     box.appendChild(el('div', 'why', 'Loading changes…'));
   } else if (allChangesCompare && allChangesCompare.error) {
     box.appendChild(el('div', 'why', 'Could not show the changes: ' + allChangesCompare.error));
-  } else if (allChangesCompare) {
+  } else if (allChangesCompare && allChangesVisible) {
     const comparison = allChangesCompare.comparison || {};
     const files = (comparison.changed_files || []).length;
     box.appendChild(el('div', 'why', files + ' file(s) changed in this run' + (comparison.truncated ? ' · diff truncated' : '')));
@@ -2490,6 +2494,7 @@ function renderChat(data) {
     current = null; renderedState = ''; answers = Object.create(null);
     allChangesCompare = null; workingCompare = null;
     allChangesRequested = false;
+    allChangesVisible = false;
     liveLog.clear();
     openThoughts.clear();
   }
@@ -2582,7 +2587,7 @@ function renderChat(data) {
   updateComposer();
   // Keep an opened comparison current, using only the fresh view's named read.
   // A busy command or unreadable status defers this until the next usable view.
-  if (allChangesRequested && !allChangesCompare && data.state) requestAllChanges(data.state);
+  if (data.state && !allChangesCompare && (allChangesRequested || data.state.done)) requestAllChanges(data.state, false);
   chatBehavior.resize();
   if (!same) {
     // Each tab remembers where its reader was (#1558); a first open starts at

@@ -69,6 +69,26 @@ class ChatProgressTests(unittest.TestCase):
         lines = progress.project(self.state, self.public)
         self.assertFalse([line for line in lines if line.startswith("Why")], lines)
 
+    def test_internal_report_paths_do_not_leak_into_progress(self):
+        self.state["active_stage"] = {"stage": "requirements_gather_report_repair"}
+        for reason in (
+            "ambiguity_audit.compatibility_and_callers entry R6 is not a file in the workspace",
+            "source_trace.requirement_refs is missing an entry",
+        ):
+            with self.subTest(reason=reason):
+                self.state["stages"] = [
+                    {
+                        "stage": "requirements_gather",
+                        "finished_at": "2026-11-11T08:08:12Z",
+                        "exit_code": 0,
+                        "rejected": True,
+                        "rejection_reason": reason,
+                    }
+                ]
+                lines = progress.project(self.state, self.public)
+                self.assertIn("The answer did not meet AutoCode's report checks.", lines[-1])
+                self.assertNotIn(reason, " ".join(lines))
+
     def test_a_retried_step_reads_as_one_step_with_its_earlier_attempts(self):
         # The 2026-11-11 chat showed "Requirements attempt needs correction · Requirements attempt finished ·
         # Requirements attempt finished": one step's answer, two report repairs and a confirmation, cut to

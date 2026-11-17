@@ -7217,21 +7217,18 @@ test('a finished run closes with its result, requirements, changed files, cost a
     acceptance_tests: { files: ['test_greet.py'] },
   });
   done.usage.accounting.attempts = done.usage.accounting.attempts.map((row) => ({ ...row, active: false }));
+  t.mock.method(controller, 'allChanges', async () => ({ since: 'start', changed_files: ['greet.py', 'tests/__init__.py', 'test_greet.py'], patch: '+print(2)', truncated: false }));
   const ui = await openChat(t, done);
   const card = ui.document.getElementById('finish-summary');
   assert.ok(card, 'the closing card is drawn');
   assert.match(card.textContent, /✓ Complete; current delivery verified/);
   assert.match(card.textContent, /8 of 8 checked/);
-  assert.match(card.textContent, /3 files: greet\.py, README\.md, test_greet\.py/);
+  assert.match(card.textContent, /3 files: greet\.py, tests\/__init__\.py, test_greet\.py/);
   assert.match(card.textContent, /\$1\.21 of \$5\.00/);
   assert.ok(ui.document.getElementById('finish-show-changes'), 'saved changes exist, so it offers them');
   assert.ok(ui.document.getElementById('all-changes'));
-  const read = t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({ since: 'start',
-    changed_files: ['greet.py'], patch: '+print(2)', truncated: false }) }));
   ui.document.getElementById('finish-show-changes').click();
   await flush(); await flush();
-  assert.deepEqual(read.mock.calls[0].arguments[1], ['checkpoint', '--workspace', run.workspace, '--run-dir', run.runDir, '--all'],
-    "the finished card's Show changes shows the run's whole change");
   assert.ok(card.ownerDocument.querySelector('#app').textContent.includes('+print(2)'));
   ui.document.getElementById('finish-details').click();
   assert.ok(ui.sent.some((message) => message.type === 'details'));
