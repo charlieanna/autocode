@@ -450,6 +450,7 @@ test('connections delegates login using only the core offer and no shell text', 
   assert.equal(terminal.mock.callCount(), 0, 'unoffered login must not run');
   panel.webview.receive({ type: 'action', provider: 'kilocode', action: 'login', next_command: ['evil'] });
   await flush();
+  assert.ok(panel.webview.messages.some((message) => message.progress === 'Starting Sign in / Reconnect for Kilo…'));
   assert.equal(terminal.mock.callCount(), 1);
   const options = terminal.mock.calls[0].arguments[0];
   assert.equal(options.shellPath, '/python path/python');

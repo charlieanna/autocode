@@ -58,14 +58,16 @@ export class ConnectionsPanel implements vscode.Disposable {
   private async receive(message: { type?: string; provider?: string; action?: string }): Promise<void> {
     const panel = this.panel;
     if (this.busy || !panel) return;
-    const label = this.rows.find((row) => row.id === message.provider)?.label;
+    const row = this.rows.find((item) => item.id === message.provider);
+    const label = row?.label;
+    const actionLabel = row?.actions.find((action) => action.id === message.action)?.label;
     this.busy = true; this.error = "";
-    this.progress = message.action === "check" && label ? `Checking ${label}…` : message.type === "select" && label
-      ? `Selecting ${label}…` : "Refreshing connections…";
+    this.progress = message.type === "action" && message.action === "check" && label ? `Checking ${label}…`
+      : message.type === "action" && actionLabel && label ? `Starting ${actionLabel} for ${label}…`
+      : message.type === "select" && label ? `Selecting ${label}…` : "Refreshing connections…";
     this.post();
     try {
       if (message.type === "ready" || message.type === "refresh") { await this.refresh(panel); return; }
-      const row = this.rows.find((item) => item.id === message.provider);
       if (!row) return;
       if (message.type === "select") {
         if (["unavailable", "setup_required", "sdk_required"].includes(row.connection_status)) throw new Error("Finish this backend's setup before selecting it.");
