@@ -1115,6 +1115,13 @@ def assign(
         record["investigator_pin_before"] = copy.deepcopy(investigation.get("route"))
         investigation["route"] = copy.deepcopy(route)
         record["investigator_pin_after"] = copy.deepcopy(route)
+        # The pin keeps its tool's binding, which exists in transport_identities only while it runs.
+        record["investigator_transport_before"] = copy.deepcopy(investigation.get("transport"))
+        bound = (settings.get("transport_identities") or {}).get(role_transport.PREFIX + role)
+        if route.get("provider") and bound:
+            investigation["transport"] = copy.deepcopy(bound)
+        else:
+            investigation.pop("transport", None)
     settings_change = _flag_provenance(previous_settings, settings, role)
     if settings_change:
         record["settings_change"] = settings_change
@@ -1407,6 +1414,10 @@ def unassigned(state: RunState, settings: dict) -> dict:
                     investigation.pop("route", None)
                 else:
                     investigation["route"] = copy.deepcopy(event["investigator_pin_before"])
+                if event.get("investigator_transport_before") is None:
+                    investigation.pop("transport", None)
+                else:
+                    investigation["transport"] = copy.deepcopy(event["investigator_transport_before"])
                 if event.get("investigator_settings_present") is False and not investigation:
                     settings.pop("stuck_investigation", None)
     return settings

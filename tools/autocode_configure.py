@@ -51,6 +51,7 @@ try:
     from . import autocode_roles as role_names
     from . import autocode_route_fit as route_fit
     from . import autocode_route_ladder as route_ladder
+    from . import autocode_route_tool as route_tool
     from . import autocode_sensitive_paths as sensitive_paths
     from . import autocode_skip_requirements as skip_requirements
     from . import autocode_support as support
@@ -86,6 +87,7 @@ except ImportError:
     import autocode_roles as role_names
     import autocode_route_fit as route_fit
     import autocode_route_ladder as route_ladder
+    import autocode_route_tool as route_tool
     import autocode_sensitive_paths as sensitive_paths
     import autocode_skip_requirements as skip_requirements
     import autocode_support as support
@@ -767,10 +769,19 @@ def _configure_saved(
         settings["orchestration"]["max_parallel"] = args.max_parallel_builders
     if acceptance_tests.resume_refused(settings, getattr(args, "blind_tests", None)):
         raise ValueError("Start a new run to change blind tests setting")
-    settings = autopilot.stuck.configure(settings, args)
+    settings = autopilot.stuck.configure(settings, args, investigator_tool(state.get("workspace")))
     settings = verification_config.configure_resume(state, settings, args)
     settings = operator_patch.configure_resume(state, settings, args)
     return task_preflight.configure(state, output_policy.configure(state, settings, args), args)
+
+
+def investigator_tool(workspace):
+    """``--investigator-model TOOL:MODEL``'s check: the tool and model as a launch on that tool checks them."""
+
+    def bind(settings, route, tool):
+        return route_tool.bind(settings, "stuck_investigator", route, tool, route["model"], None, workspace)["binding"]
+
+    return bind
 
 
 def _history_routes(state: RunState):
@@ -1122,7 +1133,11 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
     _list_review_ceilings(settings, provider_mod, state["workspace"], discover_explicit=hasattr(args, "auto_select"))
     verification_config.validate(settings["regression"])
     return task_preflight.configure(
-        state, output_policy.configure(state, autopilot.stuck.configure(settings, args), args), args
+        state,
+        output_policy.configure(
+            state, autopilot.stuck.configure(settings, args, investigator_tool(state.get("workspace"))), args
+        ),
+        args,
     )
 
 

@@ -206,7 +206,14 @@ def prepare_stuck(state: RunState, state_path):
             )
         source, selected = permitted
     roles[stuck_job.ROUTE] = selected or stuck_job.route(roles, stuck_model, state["settings"].get("provider"))
-    role_transport.inherit(state.get("settings"), stuck_job.ROUTE, source)
+    pinned_tool = (
+        stuck_job.pinned_transport(state["settings"]) if selected == stuck_job.pinned_route(state["settings"]) else None
+    )
+    if selected and pinned_tool and selected.get("provider") == pinned_tool["provider"]:
+        # A pin on another tool (--investigator-model TOOL:MODEL) carries that tool's own binding.
+        state["settings"].setdefault("transport_identities", {})["role:" + stuck_job.ROUTE] = pinned_tool
+    else:
+        role_transport.inherit(state.get("settings"), stuck_job.ROUTE, source)
     state.setdefault("sessions", {}).pop(stuck_job.ROUTE, None)
     identities = state["settings"].setdefault("transport_identities", {})
     if roles[stuck_job.ROUTE].get("engine") == "opencode" and "opencode" not in identities:

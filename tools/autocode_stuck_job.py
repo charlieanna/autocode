@@ -86,6 +86,7 @@ try:
     from . import autocode_rejection_retry as rejection_retry
     from . import autocode_report_repair_route as report_repair_route
     from . import autocode_resolve_repair_job as resolve_repair_job
+    from . import autocode_role_transport as role_transport
     from . import autocode_roles as roles
     from . import autocode_run_status as run_status
     from . import autocode_stage_access as stage_access
@@ -109,6 +110,7 @@ except ImportError:
     import autocode_rejection_retry as rejection_retry
     import autocode_report_repair_route as report_repair_route
     import autocode_resolve_repair_job as resolve_repair_job
+    import autocode_role_transport as role_transport
     import autocode_roles as roles
     import autocode_run_status as run_status
     import autocode_stage_access as stage_access
@@ -505,30 +507,54 @@ def add_arguments(parser) -> None:
     )
 
 
-def configure(settings: dict, args) -> dict:
+def configure(settings: dict, args, bind=None) -> dict:
     """Save a pinned Investigator route from the CLI flags (new and resumed runs, any engine);
-    resumes keep it unless given again. Returns ``settings``."""
+    resumes keep it unless given again. Returns ``settings``.
+
+    ``--investigator-model TOOL:MODEL`` runs it on another connected tool, as ``--role-transport`` does for a
+    stage: ``bind(settings, route, tool)`` checks the tool and model the way a launch does and returns the tool's
+    binding, kept with the pin (``pinned_transport``) and installed only while the Investigator runs."""
     model = getattr(args, "investigator_model", None)
     effort = getattr(args, "investigator_reasoning_effort", None)
     if not model and not effort:
         return settings
-    saved = (settings.get("stuck_investigation") or {}).get("route") or {}
-    model = model or saved.get("model")
+    investigation = settings.get("stuck_investigation") or {}
+    saved = investigation.get("route") or {}
+    transport = investigation.get("transport") if not model else None
+    tool, model = role_transport.split_answer(model) if model else (None, saved.get("model"))
     if not model:
         raise ValueError("--investigator-reasoning-effort needs --investigator-model (or a saved pinned model)")
-    settings.setdefault("stuck_investigation", {})["route"] = {
+    route = {
         "model": model,
         "reasoning_effort": effort or saved.get("reasoning_effort") or "high",
         "provider": None,
         # provider/model ids are OpenCode routes (the repository's convention); bare names use the run's engine.
         "engine": "opencode" if "/" in model else settings.get("engine", "codex"),
     }
+    if transport:
+        route.update(provider=saved.get("provider"), engine="opencode")
+    elif tool and tool != (settings.get("provider") or "opencode"):
+        if bind is None:
+            raise ValueError("--investigator-model TOOL:MODEL needs a connected tool")
+        route.update(provider=tool, engine="opencode")
+        transport = bind(settings, route, tool)
+    settings.setdefault("stuck_investigation", {})["route"] = route
+    if transport:
+        settings["stuck_investigation"]["transport"] = copy.deepcopy(transport)
+    else:
+        settings["stuck_investigation"].pop("transport", None)
     return settings
 
 
 def pinned_route(settings: dict) -> dict | None:
     route = ((settings or {}).get("stuck_investigation") or {}).get("route")
     return dict(route) if route else None
+
+
+def pinned_transport(settings: dict) -> dict | None:
+    """The pinned Investigator's tool binding (``{"provider", "identity"}``), when it runs on another tool."""
+    transport = ((settings or {}).get("stuck_investigation") or {}).get("transport")
+    return copy.deepcopy(transport) if transport else None
 
 
 def packet(state: RunState, state_path, inventory: dict | None = None, engine: str | None = None) -> dict:
