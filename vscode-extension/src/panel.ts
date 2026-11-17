@@ -480,7 +480,8 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
     // Requirements' handoff and question are plain text from the public view. Parsing them as
     // Markdown changes literal names such as tests/__init__.py before the person confirms them.
     formattedMessages: Object.fromEntries((view.chat?.messages ?? []).filter((row) => row.role === "assistant"
-      && !row.id.startsWith("requirements-question-") && !row.id.startsWith("requirements-say-"))
+      && row.format !== "plain" && !row.id.startsWith("requirements-question-") && !row.id.startsWith("requirements-say-")
+      && !/^event-\d+-(?:question|reply)$/.test(row.id))
       .map((row) => [row.id, markdown(row.text)])),
     workspace: run.workspace,
     runDir: run.runDir,

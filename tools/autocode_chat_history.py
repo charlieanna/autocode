@@ -204,13 +204,15 @@ def messages(state: RunState, *, completed=False) -> list[dict]:
         ):
             spoken = requirements_chat.reply(state)
         if spoken:
-            rows.append({"id": f"{ident}-reply", "role": "assistant", "text": spoken})
+            rows.append({"id": f"{ident}-reply", "role": "assistant", "text": spoken, "format": "plain"})
         if (
             isinstance(question, dict)
             and question.get("question")
             and (not spoken or (is_confirmation and question["question"] not in spoken))
         ):
-            rows.append({"id": f"{ident}-question", "role": "assistant", "text": question["question"]})
+            rows.append(
+                {"id": f"{ident}-question", "role": "assistant", "text": question["question"], "format": "plain"}
+            )
         text = event["text"]
         if (
             event.get("kind") == "answer"
