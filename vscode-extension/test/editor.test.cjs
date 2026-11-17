@@ -917,6 +917,36 @@ test('model measurement keeps an empty selection and never enables an old estima
   } finally { dom.window.close(); }
 });
 
+test('model measurement explains when a selected candidate disappears', () => {
+  const sent = [];
+  const dom = new JSDOM(stagesHtml(), { runScripts: 'dangerously', beforeParse(window) {
+    window.acquireVsCodeApi = () => ({ postMessage: (message) => sent.push(message) });
+  } });
+  try {
+    const raw = stageView();
+    raw.stages[0].probe = {
+      candidates: [{ model: 'haiku', ticked: false }, { model: 'sonnet', ticked: false }],
+      estimate: { next_command: ['probe', 'MEASURE'] },
+      run: { next_command: ['probe', 'MEASURE', 'CAP'] },
+    };
+    const view = readStages(JSON.stringify(raw));
+    const send = (next) => dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data: { view: next, scope: 'new', generation: 1 } }));
+    send(view);
+    const doc = dom.window.document;
+    for (const check of doc.querySelectorAll('input[type="checkbox"]')) {
+      check.checked = true; check.dispatchEvent(new dom.window.Event('change'));
+    }
+    const changed = structuredClone(view);
+    changed.stages[0].probe.candidates = changed.stages[0].probe.candidates.filter((row) => row.model !== 'haiku');
+    send(changed);
+    assert.match(doc.querySelector('main').textContent, /selected.*no longer available/i);
+    assert.deepEqual(JSON.parse(JSON.stringify(sent.at(-1))), { type: 'estimate', stage: 'terra', models: ['sonnet'], generation: 1 });
+    send(changed);
+    assert.match(doc.querySelector('main').textContent, /selected.*no longer available/i);
+    assert.equal(doc.querySelector('input[type="checkbox"]').checked, true);
+  } finally { dom.window.close(); }
+});
+
 test('status polling uses the core-recognized read-only command grammar', async (t) => {
   const { EventEmitter } = require('node:events');
   const child = new EventEmitter();
