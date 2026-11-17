@@ -63,7 +63,10 @@ class PlanningRecoveryCLITests(unittest.TestCase):
         run = self.legacy_hold()
         result = self.launch(["--run-dir", str(run), "--resume-paused", "--retry-failed-stage", "--no-chat"], 2)
         self.assertNotEqual(0, result.returncode)
-        self.assertIn("Saved work, attempts and evidence are kept", result.stderr)
+        # The hold is one AutoCode continues itself (the status view names --resume-paused), so the refusal
+        # names why the retry does not apply and claims no blocked recovery (#3743 aligned the two).
+        self.assertIn("--retry-failed-stage requires a run paused for repeated failure", result.stderr)
+        self.assertNotIn("could not safely continue", result.stderr)
         self.assertFalse((self.project / "greet.py").exists())
         self.assertFalse(
             any(
