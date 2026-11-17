@@ -212,6 +212,13 @@ These options accept `-` to read their paired environment variable:
 | `--expected-recovery-token` | `AUTOCODE_EXPECTED_RECOVERY_TOKEN` |
 | `checkpoint --expected-token` | `AUTOCODE_CHECKPOINT_EXPECTED_TOKEN` |
 
+`--extend-plan-time-limit --max-seconds N --expected-goal-token -` is the
+save-only action offered when a displayed plan awaits approval and its finite
+total active-time cap can be increased. It requires the displayed plan token in
+`AUTOCODE_EXPECTED_GOAL_TOKEN`, changes only the total-time limit, and neither
+approves the plan nor starts a provider. Take the complete command from a fresh
+status view; it cannot be combined with other settings or actions.
+
 Prefer this on shared machines: Linux exposes `/proc/<pid>/cmdline` to every local user, while
 `/proc/<pid>/environ` is readable only by the owner, and a typed token also lands in shell
 history. The environment variable alone never authorizes anything — the flag must still be

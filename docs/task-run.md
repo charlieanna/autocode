@@ -1843,6 +1843,18 @@ does not authorize a retry. The job issues a new token, so a client must read a
 fresh view before offering or taking any subsequent action. The VS Code sidebar
 and Run Details accept an explicit number for each row and confirm the save.
 
+At `needs.kind=approve_plan`, the same field may offer one `max_seconds` row
+when the finite total active-time limit can be increased safely. Its `purpose`
+is `approval`, and its `binding` is the exact `needs.token` for the displayed
+plan. The command uses `--extend-plan-time-limit`, `--max-seconds N` and
+`--expected-goal-token -` with that token in `AUTOCODE_EXPECTED_GOAL_TOKEN`.
+`arg_index` counts the `N` after removing the executable and owned
+`--run-dir`/`--workspace` pairs. The minimum exceeds both the saved limit and
+active time already consumed. This metadata-only action changes only
+`max_seconds`, leaves the exact plan awaiting approval, and launches no
+provider; a separate fresh plan-approval action is still required. VS Code
+shows and confirms this control in chat and Run details.
+
 An intervention boundary (the person's own pause) offers no `needs.command_inputs`:
 resuming it asks for no number. The per-step time limit is a setting, not a field on
 the pause (owner request 2026-11-16): `--max-stage-seconds` or `max-stage-seconds` in
