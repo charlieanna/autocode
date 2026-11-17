@@ -18,6 +18,8 @@ import autocode_providers
 import autocode_run_view as run_view
 import autocode_workspaces
 
+from tests import operational_fixtures
+
 
 class ConfigToolFlow(unittest.TestCase):
     def setUp(self):
@@ -407,7 +409,7 @@ class ConfigToolFlow(unittest.TestCase):
         paused = self.launch("--chat", "Build a greeting tool")
         self.assertEqual(2, paused.returncode, paused.stdout + paused.stderr)
         run = next((self.project / ".autocode/runs").iterdir())
-        self.assertIn("tester exited 1", json.loads((run / "state.json").read_text())["stop_reason"])
+        self.assertIn("tester exited 1", operational_fixtures.kept_cause(run))
 
         del self.env["AUTOCODE_FIXTURE_PLAIN_ERROR"]
         resumed = self.launch("--run-dir", str(run), "--resume-paused", "--no-chat", answers="")
@@ -417,7 +419,8 @@ class ConfigToolFlow(unittest.TestCase):
         self.assertEqual("PAUSED_RATE_LIMIT", view["status"], view["stop_reason"])
         self.assertEqual("blocked", view["recovery"]["category"])
         self.assertIsNone(view["needs"])
-        self.assertIn("tester exited 1", view["stop_reason"])
+        self.assertIn("The Tester step stopped", view["stop_reason"])
+        self.assertIn("tester exited 1", operational_fixtures.kept_cause(run))
         self.assertEqual(1, (run / "invocations.txt").read_text().splitlines().count("tester"))  # never replayed
 
     def test_sessionless_incomplete_checkpoints_pause_without_relaunch(self):

@@ -22,6 +22,8 @@ import autocode_support as support
 import autocode_util as util
 from goal_fixtures import body, seed_greeting_workspace
 
+from tests import operational_fixtures
+
 SCHEMA = json.loads((Path(__file__).resolve().parents[1] / "docs/schemas/status-view.schema.json").read_text())
 
 
@@ -430,7 +432,8 @@ class JsonActionCliTests(unittest.TestCase):
                 if recovery is not None:
                     self.assertEqual(recovery, view["recovery"]["category"])
                     self.assertIsNone(view["next_command"])
-                    self.assertIn(f"fixture {pause}", view["stop_reason"])
+                    self.assertIn("The Planner step stopped", view["stop_reason"])
+                    self.assertIn(f"fixture {pause}", operational_fixtures.kept_cause(self.run_dir))
                 else:
                     self.assertEqual(
                         (view["status"], view["needs"]),

@@ -16,6 +16,7 @@ import autocode_role_transport as role_transport
 import autocode_stuck_job as stuck_job
 from autocode_taskrun import TaskRun
 
+from tests import operational_fixtures
 from tests import test_subprocess as subprocess_test_support
 
 # A configured tool that never answers: every attempt stops on the idle limit.
@@ -98,7 +99,8 @@ class ResolverRecoveryLifecycleCliTests(unittest.TestCase):
         self.assertEqual("blocked", reopened["recovery"]["category"])
         self.assertIsNone(reopened["needs"])
         self.assertIsNone(reopened["next_command"])
-        self.assertIn("Offline fixture: it cannot diagnose", reopened["stop_reason"])
+        self.assertIn("The Resolver step stopped", reopened["stop_reason"])
+        self.assertIn("Offline fixture: it cannot diagnose", operational_fixtures.kept_cause(run))
         for field in ("spent_usd", "running_usd", "reported_usd", "estimated_usd", "cap_usd"):
             self.assertEqual(view["cost"][field], reopened["cost"][field], field)
         self.assertEqual(view["routes"], reopened["routes"])

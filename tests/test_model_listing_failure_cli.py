@@ -176,7 +176,7 @@ class ModelListingFailureCLI(unittest.TestCase):
         self.assertIsNone(view["next_command"])
         self.assertEqual("blocked", view["recovery"]["category"])
         self.assertEqual("blocked", view["summary"]["state"])
-        self.assertEqual(["inspect"], [row["kind"] for row in view["recovery"]["actions"]])
+        self.assertEqual(["inspect", "new_conversation"], [row["kind"] for row in view["recovery"]["actions"]])
         self.assertEqual(
             "AutoCode could not confirm that its startup check has stopped. It kept the saved work and will not start another step.",
             view["recovery"]["what_happened"],

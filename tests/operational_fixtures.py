@@ -1,6 +1,7 @@
 """Authentic historical requests, never permission for today's machinery publisher."""
 
 import copy
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -36,6 +37,16 @@ def assert_view_blocked(test, view, pause):
     test.assertIsNone(view["needs"])
     test.assertIsNone(view["next_command"])
     test.assertNotIn("--", view["stop_reason"] or "")
+
+
+def kept_cause(run_dir):
+    """The whole cause of a blocked stop, kept in its runner-owned receipt (#3739).
+
+    The stop reason a person sees names only the job that stopped and why; the provider's exit, the
+    stage's own message and any operator advice stay with the incident's receipt.
+    """
+    row = disposition.held(json.loads((Path(run_dir) / "state.json").read_text()))
+    return row["decision"]["rationale"] if row else ""
 
 
 def legacy_queue(

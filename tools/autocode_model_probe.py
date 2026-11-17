@@ -24,15 +24,19 @@ This layer starts task runs and reads their status; it imports nothing from the 
 
 from __future__ import annotations
 
+import json
 import math
+import os
 import shutil
 import subprocess
 import tempfile
 import time
+import uuid
 from pathlib import Path
 
 try:
     from . import autocode_measured_routes as measured_routes
+    from . import autocode_plan_reviewer_probe as reviewer_probe
     from . import autocode_planner_probe as planner_probe
     from . import autocode_prices as prices
     from . import autocode_requirements_probe as requirements_probe
@@ -40,6 +44,7 @@ try:
     from . import autocode_verifier_independence as independence
 except ImportError:
     import autocode_measured_routes as measured_routes
+    import autocode_plan_reviewer_probe as reviewer_probe
     import autocode_planner_probe as planner_probe
     import autocode_prices as prices
     import autocode_requirements_probe as requirements_probe
@@ -59,10 +64,18 @@ RUNNER_OUTCOME_PREFIX = "outcome-"
 # before it runs: one Requirements reply on 2026-11-15, and one Planner draft with its revision on
 # 2026-11-16. The run's own cap still binds what it spends.
 ESTIMATE_TOKENS = {"input": 40_000, "output": 4_000}
-ESTIMATE_TOKENS_BY_STAGE = {"requirements": ESTIMATE_TOKENS, "planner": {"input": 120_000, "output": 12_000}}
+# A Plan Reviewer request is two reviews (the plan as written and with its planted flaw), each about
+# a third of a Planner request's tokens on 2026-11-16.
+ESTIMATE_TOKENS_BY_STAGE = {
+    "requirements": ESTIMATE_TOKENS,
+    "planner": {"input": 120_000, "output": 12_000},
+    "plan_reviewer": {"input": 80_000, "output": 8_000},
+}
 RUN_TIMEOUT_SECONDS = 1800
 # The stages a probe measures: the role its results are recorded under, its requests and quick pass.
-STAGES = {"requirements": requirements_probe, "planner": planner_probe}
+STAGES = {"requirements": requirements_probe, "planner": planner_probe, "plan_reviewer": reviewer_probe}
+# The route a Plan Reviewer candidate is set on in the run that wrote the plan (`--stage-model`).
+REVIEWER_ROUTE = "plan_reviewer"
 
 
 def estimate(models, stage="requirements") -> dict:
@@ -101,6 +114,7 @@ def estimate(models, stage="requirements") -> dict:
             f"each request priced at {tokens['input']:,} input and {tokens['output']:,} output tokens of the "
             "measured model at the dated price table"
             + ("; Requirements and the Plan Reviewer are extra" if stage == "planner" else "")
+            + ("; each request's plan, written once for every model, is extra" if stage == "plan_reviewer" else "")
             + "; the cap you set still limits what the probe spends"
         ),
     }
@@ -275,18 +289,7 @@ def run_planner_request(
     at plan approval, which the probe never gives.
     """
     request = planner_probe.BY_ID[request] if isinstance(request, str) else request
-    flags = ["--spec-first", "--joint-planning", "--planner-model", model]
-    if effort:
-        flags += ["--planner-reasoning-effort", effort]
-    flags += ["--plan-reviewer-model", checker[0]]
-    if checker[1]:
-        flags += ["--plan-reviewer-reasoning-effort", checker[1]]
-    if requirements:
-        flags += ["--requirements-model", requirements[0]]
-        if requirements[1]:
-            flags += ["--requirements-reasoning-effort", requirements[1]]
-    if cap_usd is not None:
-        flags += ["--max-cost-usd", f"{max(cap_usd, 0.01):.2f}"]
+    flags = _planner_flags((model, effort), checker, requirements, cap_usd)
     started = clock()
     with tempfile.TemporaryDirectory(prefix="autocode-probe-") as parent:
         workspace = prepare_workspace(parent, fixed_tax=not request.broken_tax)
@@ -311,6 +314,177 @@ def run_planner_request(
     graded["run_status"] = (view or {}).get("status")
     graded["error"] = error
     return graded
+
+
+def run_reviewer_request(
+    request,
+    candidates,
+    *,
+    planner,
+    requirements=None,
+    options=(),
+    env=None,
+    command=taskrun.AUTOCODE,
+    cap_usd=None,
+    clock=time.monotonic,
+    source=None,
+):
+    """One Plan Reviewer probe request: a plan to approval, then each candidate reviews it twice.
+
+    ``planner`` writes the plan, checked in that run by the first candidate. Then, in the same run
+    (a plan cites that run's own answers, so it cannot be moved to another), each candidate in turn is
+    set as the Plan Reviewer and reviews the plan as written and with its flaw planted
+    (``reviewer_probe.plant``). Each review is one advance under a planning call cap one above the
+    calls made so far, so the run stops right after the review, before any revision, whatever the
+    verdict. Returns ``{"request", "source", "grades": {(model, level): grade}, "spent_usd"}``;
+    ``grades`` is empty when the plan never reached approval. ``source`` stands in for starting the
+    run that writes the plan (``(workspace, request) -> (run, view)``) in tests.
+    """
+    request = reviewer_probe.BY_ID[request] if isinstance(request, str) else request
+    flaw = reviewer_probe.BY_REQUEST[request.id]
+    flags = _planner_flags(planner, candidates[0], requirements, cap_usd)
+    grades = {}
+    with tempfile.TemporaryDirectory(prefix="autocode-probe-") as parent:
+        workspace = prepare_workspace(parent, fixed_tax=not request.broken_tax)
+        error, run = None, None
+        try:
+            if source is not None:
+                run, view = source(workspace, request)
+            else:
+                run = taskrun.TaskRun.start(
+                    workspace,
+                    request.text,
+                    options=(*options, *flags),
+                    command=command,
+                    env=env,
+                    timeout=RUN_TIMEOUT_SECONDS,
+                )
+                view = _through_requirements(run, run.advance_until_input(), request.text)
+        except taskrun.TaskRunError as failure:
+            error = str(failure)
+            view = _status_after_failure(failure, workspace, options, flags, command, env) or {}
+        reached = ((view.get("needs") or {}).get("kind")) == "approve_plan"
+        source = {"reached_approval": reached, "run_status": view.get("status"), "error": error}
+        if run is None or not reached:
+            return {"request": request.id, "source": source, "grades": grades, "spent_usd": _spent(view)}
+        exported = Path(parent) / "source-plan.md"
+        run.export_plan(exported)
+        front = _front_matter(exported.read_text(encoding="utf-8"))
+        files = {
+            "sound": _plan_file(parent, front, reviewer_probe.sound(front["contract"]), command, env),
+            "flawed": _plan_file(parent, front, reviewer_probe.plant(front["contract"], flaw), command, env),
+        }
+        for model, level in candidates:
+            reviews, seconds, cost, failure_text = {}, [], 0.0, None
+            try:
+                _use_reviewer(run, model, level)
+                for variant in ("sound", "flawed"):
+                    before = _spent(run.status())
+                    run.load_plan_file(files[variant])
+                    used = (run.status().get("planning_calls") or {}).get("used")
+                    started = clock()
+                    after_view = run.advance_with_planning_cap((used if type(used) is int else 0) + 1)
+                    seconds.append(round(clock() - started, 1))
+                    reviews[variant] = after_view.get("plan_review")
+                    after = _spent(after_view)
+                    cost = cost + after - before if cost is not None and None not in (before, after) else None
+            except taskrun.TaskRunError as failure:
+                failure_text = str(failure)
+            graded = reviewer_probe.grade(
+                request,
+                reviews.get("sound"),
+                reviews.get("flawed"),
+                seconds=seconds,
+                cost_usd=round(cost, 4) if cost is not None else None,
+            )
+            graded["planner"] = list(planner)
+            graded["reviewed_by"] = sorted({row.get("model") for row in reviews.values() if isinstance(row, dict)})
+            graded["review_stages"] = [(reviews.get(variant) or {}).get("stage") for variant in ("sound", "flawed")]
+            graded["error"] = failure_text
+            grades[(model, level)] = graded
+        spent = _spent(run.status())
+    return {"request": request.id, "source": source, "grades": grades, "spent_usd": spent}
+
+
+def run_reviewer_probe(
+    models,
+    *,
+    cap_usd,
+    planner,
+    requirements=None,
+    options=(),
+    env=None,
+    command=taskrun.AUTOCODE,
+    record=True,
+    runner=None,
+):
+    """Measure each ``(model, level)`` as Plan Reviewer on ``planner``'s plans, within ``cap_usd``.
+
+    Requests run one at a time, the quick ones first, and each request's plan is written once and
+    reviewed by every candidate still in the probe; a candidate that fails a quick request reviews
+    no more. A candidate of the Planner's family is not measured (verifier independence). A request
+    whose plan never reached approval is listed in ``skipped``, and leaves every candidate short of
+    the full set, so none qualifies on that run. ``runner`` stands in for ``run_reviewer_request`` in
+    tests.
+    """
+    if not isinstance(cap_usd, (int, float)) or isinstance(cap_usd, bool) or cap_usd <= 0:
+        raise ValueError("the probe needs a positive cost cap in USD")
+    runner = runner or run_reviewer_request
+    eligible = [(model, level) for model, level in models if not independence.shares(planner[0], model)]
+    unmeasured = [
+        {"model": model, "effort": level, "reason": "the same family as the Planner whose plans it would review"}
+        for model, level in models
+        if (model, level) not in eligible
+    ]
+    grades: dict = {key: [] for key in eligible}
+    spent, unpriced, stopped, skipped = 0.0, 0, None, []
+    for request in _order(reviewer_probe):
+        active = [
+            key for key in eligible if request.id in reviewer_probe.QUICK or reviewer_probe.passes_quick(grades[key])
+        ]
+        if not active:
+            break
+        remaining = cap_usd - spent
+        if remaining <= 0:
+            stopped = f"the probe reached its ${cap_usd:.2f} cap"
+            break
+        outcome = runner(
+            request,
+            active,
+            planner=planner,
+            requirements=requirements,
+            options=options,
+            env=env,
+            command=command,
+            cap_usd=remaining,
+        )
+        if isinstance(outcome.get("spent_usd"), (int, float)):
+            spent += outcome["spent_usd"]
+        else:
+            unpriced += 1
+        if not outcome["source"].get("reached_approval"):
+            skipped.append({"request": request.id, **outcome["source"]})
+        for key, graded in outcome["grades"].items():
+            grades[key].append(graded)
+    results = []
+    for model, level in eligible:
+        graded = grades[(model, level)]
+        if stopped and len(graded) < len(reviewer_probe.REQUESTS) and reviewer_probe.passes_quick(graded):
+            unmeasured.append({"model": model, "effort": level})  # cut off in the middle of its full pass
+        elif graded:
+            results.append(measured_routes.result(model, level, graded))
+    if record and results:
+        measured_routes.record("plan_reviewer", results)
+    return {
+        "stage": "plan_reviewer",
+        "results": results,
+        "ranking": measured_routes.rank(results, "plan_reviewer"),
+        "spent_usd": round(spent, 4),
+        "unpriced_replies": unpriced,
+        "stopped": stopped,
+        "unmeasured": unmeasured,
+        "skipped": skipped,
+    }
 
 
 def run_probe(
@@ -392,6 +566,63 @@ def run_probe(
         "stopped": stopped,
         "unmeasured": unmeasured,
     }
+
+
+def _planner_flags(planner, checker, requirements, cap_usd):
+    """A spec-first run's flags with the Planner, its Plan Reviewer, Requirements and the cap pinned."""
+    flags = ["--spec-first", "--joint-planning", "--planner-model", planner[0]]
+    if planner[1]:
+        flags += ["--planner-reasoning-effort", planner[1]]
+    flags += ["--plan-reviewer-model", checker[0]]
+    if checker[1]:
+        flags += ["--plan-reviewer-reasoning-effort", checker[1]]
+    if requirements:
+        flags += ["--requirements-model", requirements[0]]
+        if requirements[1]:
+            flags += ["--requirements-reasoning-effort", requirements[1]]
+    if cap_usd is not None:
+        flags += ["--max-cost-usd", f"{max(cap_usd, 0.01):.2f}"]
+    return flags
+
+
+def _front_matter(text):
+    """A plan file's front matter (``autocode plan --export``): the JSON between its ``---`` lines."""
+    if not text.startswith("---\n"):
+        raise taskrun.TaskRunError("the exported plan file has no front matter")
+    front = json.loads(text[4:].partition("\n---\n")[0])
+    if not isinstance(front, dict) or not isinstance(front.get("contract"), dict):
+        raise taskrun.TaskRunError("the exported plan file holds no plan")
+    return front
+
+
+def _plan_file(parent, front, contract, command, env):
+    """Write ``contract`` as a plan file the run can load, with its text rendered by `autocode plan --render`.
+
+    The file has a neutral name: the run records the path it loaded, and the reviewer could read it.
+    """
+    folder = Path(parent) / "plans"
+    folder.mkdir(exist_ok=True)
+    path = folder / f"plan-{uuid.uuid4().hex}.md"
+    text = json.dumps({**front, "contract": contract}, indent=2, ensure_ascii=False)
+    path.write_text(f"---\n{text}\n---\n", encoding="utf-8")
+    rendered = subprocess.run(
+        [*command, "plan", "--render", str(path)],
+        env={**os.environ, **(env or {})},
+        capture_output=True,
+        text=True,
+        timeout=RUN_TIMEOUT_SECONDS,
+    )
+    if rendered.returncode != 0:
+        raise taskrun.TaskRunError(f"plan --render exited {rendered.returncode}: {rendered.stderr.strip()[-500:]}")
+    return path
+
+
+def _use_reviewer(run, model, level):
+    """Set the run's Plan Reviewer to ``model`` at ``level``, unless it already runs it."""
+    route = (run.status().get("routes") or {}).get(REVIEWER_ROUTE) or {}
+    if route.get("model") == model and (route.get("reasoning_effort") or None) == (level or None):
+        return
+    run.set_stage_model(REVIEWER_ROUTE, model, level or "default")
 
 
 def _order(probe=requirements_probe):

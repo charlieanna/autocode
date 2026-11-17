@@ -521,6 +521,41 @@ class TaskRun:
         """
         return self._invoke("export plan", "plan", "--export", str(Path(path).absolute())).stdout.strip()
 
+    def load_plan_file(self, path) -> dict:
+        """Load a plan file as the run's next draft revision (`--goal-file`); it launches nothing.
+
+        In joint planning the Plan Reviewer reviews it when the run next advances, as any edit.
+        """
+        return self._act("load plan file", "--goal-file", str(Path(path).absolute()), "--no-chat")
+
+    def set_stage_model(self, stage: str, model: str, effort: str) -> dict:
+        """Change the model and level ``stage`` runs in this run from its next launch (`--stage-model`).
+
+        The run saves the change; this run's own ``--<stage>-model`` and ``--<stage>-reasoning-effort``
+        options are then dropped, so advancing never passes the old choice back.
+        """
+        view = self._act("set stage model", "--stage-model", stage, model, effort or "default", "--no-chat")
+        options = tuple(self.options)
+        for suffix in ("-model", "-reasoning-effort"):
+            for flag in names.spellings("--" + stage.replace("_", "-") + suffix):
+                options = _split_flag(options, flag)[0]
+        self.options = options
+        return view
+
+    def advance_with_planning_cap(self, cap: int) -> dict:
+        """Advance with the planning call cap set to ``cap`` (`--max-planning-calls`).
+
+        The run stops before any planning model call past the cap, as a paused run
+        (``PAUSED_PLANNING_CALL_LIMIT``), so a caller can bound planning to the calls it means to
+        pay for. A paused run is resumed with the new cap.
+        """
+        resume = ("--resume-paused",) if ((self.status().get("needs") or {}).get("kind")) == "resume" else ()
+        options = [*_split_flag(self.options, "--max-planning-calls")[0]]
+        self._invoke(
+            "advance", *resume, "--no-chat", *options, "--max-planning-calls", str(cap), advancing=True, secret_env={}
+        )
+        return self.status()
+
     def advance(self) -> dict:
         """Relaunch the run; it works until it completes or stops for input."""
         return self._advance(self.status())
@@ -840,6 +875,9 @@ class TaskRun:
             )
         else:
             view = self.answer(f"route-{role}", model, resolver_token=resolver_token)
+        if ((view.get("route_assignments") or [{}])[-1] or {}).get("tool"):
+            # A TOOL:MODEL answer moved the job to another connected tool; its model flag names the model.
+            model = model.partition(":")[2]
         flag = "--investigator-model" if role == "stuck_investigator" else "--" + role.replace("_", "-") + "-model"
         flags = names.spellings(flag)  # --builder-model as well as --terra-model
         options = list(self.options)

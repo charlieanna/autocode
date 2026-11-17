@@ -230,7 +230,7 @@ class PreparationRecoveryTests(unittest.TestCase):
         self.assertIsNone(public["next_command"])
         self.assertFalse(public["done"])
         self.assertEqual(public["recovery"]["category"], "blocked")
-        self.assertEqual([row["kind"] for row in public["recovery"]["actions"]], ["inspect"])
+        self.assertEqual([row["kind"] for row in public["recovery"]["actions"]], ["inspect", "new_conversation"])
         result = action.resume(
             self.runtime,
             SimpleNamespace(abandon_stage=None, resume_paused=True),
@@ -303,7 +303,7 @@ class PreparationRecoveryTests(unittest.TestCase):
         self.assertIsNone(public["needs"])
         self.assertIsNone(public["next_command"])
         self.assertIsNone(public["recovery"]["outcome"])
-        self.assertEqual([row["kind"] for row in public["recovery"]["actions"]], ["inspect"])
+        self.assertEqual([row["kind"] for row in public["recovery"]["actions"]], ["inspect", "new_conversation"])
         projected = summary.project(public, stale=True)
         self.assertEqual((projected["state"], projected["label"]), ("blocked", "Blocked"))
         self.assertNotIn("nothing supervises", projected["sentence"])

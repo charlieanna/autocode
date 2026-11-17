@@ -7,8 +7,11 @@ each as a spec-first task on a fresh copy of the bundled project, and records th
 automatic selection and the quota fallback read them (``~/.config/autocode/measured-routes.json``).
 ``--stage requirements`` (the default) stops each run when Requirements answers. ``--stage planner``
 runs each request to plan approval, never given, with the Plan Reviewer the person names
-(``--checker``), and grades the plan (``autocode_planner_probe``). Invoking it with a cap is the person's approval of
-that spend; nothing else runs a probe.
+(``--checker``), and grades the plan (``autocode_planner_probe``). ``--stage plan_reviewer`` has the
+Planner the person names (``--planner``) write each request's plan once, then has every candidate
+review it as written and with a flaw planted, and grades the two verdicts
+(``autocode_plan_reviewer_probe``). Invoking it with a cap is the person's approval of that spend;
+nothing else runs a probe.
 
 Layer: interface over autocode_model_probe.
 """
@@ -26,7 +29,7 @@ except ImportError:
 
 STAGES = tuple(model_probe.STAGES)
 DEFAULT_LEVEL = "default"
-_STAGE_NAMES = {"requirements": "Requirements", "planner": "the Planner"}
+_STAGE_NAMES = {"requirements": "Requirements", "planner": "the Planner", "plan_reviewer": "the Plan Reviewer"}
 
 
 def parser():
@@ -55,10 +58,16 @@ def parser():
         "candidate that shares the first one's family",
     )
     result.add_argument(
+        "--planner",
+        nargs=2,
+        metavar=("MODEL", "LEVEL"),
+        help="plan_reviewer: the Planner that writes the plans every candidate reviews",
+    )
+    result.add_argument(
         "--requirements",
         nargs=2,
         metavar=("MODEL", "LEVEL"),
-        help="planner: the Requirements model and level every run uses (default: your saved choice)",
+        help="planner, plan_reviewer: the Requirements model and level every run uses (default: your saved choice)",
     )
     result.add_argument("--provider", help="the provider the probe's runs use, as for a task")
     result.add_argument("--engine", help="the engine the probe's runs use, as for a task")
@@ -73,8 +82,24 @@ def cli(argv) -> int:
     if args.stage == "planner" and not checkers:
         print("autocode probe: --stage planner needs --checker MODEL LEVEL for the Plan Reviewer", file=sys.stderr)
         return 2
-    if args.stage != "planner" and (checkers or args.requirements):
-        print("autocode probe: --checker and --requirements apply to --stage planner only", file=sys.stderr)
+    if args.stage != "planner" and checkers:
+        print("autocode probe: --checker applies to --stage planner only", file=sys.stderr)
+        return 2
+    if args.stage == "requirements" and args.requirements:
+        print("autocode probe: --requirements applies to --stage planner and plan_reviewer only", file=sys.stderr)
+        return 2
+    if (args.stage == "plan_reviewer") != bool(args.planner):
+        print(
+            "autocode probe: --stage plan_reviewer needs --planner MODEL LEVEL, and --planner applies to it only",
+            file=sys.stderr,
+        )
+        return 2
+    planner = _route(args.planner) if args.planner else None
+    if planner and all(model_probe.independence.shares(planner[0], model) for model, _level in models):
+        print(
+            "autocode probe: every --measure model shares the Planner's family, so none may review its plans",
+            file=sys.stderr,
+        )
         return 2
     unchecked = [
         model for model, _level in models if args.stage == "planner" and not model_probe.checker_for(model, checkers)
@@ -97,12 +122,16 @@ def cli(argv) -> int:
         options += ["--provider", args.provider]
     if args.engine:
         options += ["--engine", args.engine]
-    extra = {}
-    if args.stage == "planner":
-        extra = {"checkers": checkers, "requirements": _route(args.requirements) if args.requirements else None}
-    outcome = model_probe.run_probe(
-        models, cap_usd=args.max_cost_usd, stage=args.stage, options=tuple(options), **extra
-    )
+    requirements = _route(args.requirements) if args.requirements else None
+    if args.stage == "plan_reviewer":
+        outcome = model_probe.run_reviewer_probe(
+            models, cap_usd=args.max_cost_usd, planner=planner, requirements=requirements, options=tuple(options)
+        )
+    else:
+        extra = {"checkers": checkers, "requirements": requirements} if args.stage == "planner" else {}
+        outcome = model_probe.run_probe(
+            models, cap_usd=args.max_cost_usd, stage=args.stage, options=tuple(options), **extra
+        )
     _print({"estimate": estimate, "ran": True, **outcome}, args.json, _outcome_text(outcome))
     return 0
 
@@ -141,6 +170,8 @@ def _outcome_text(outcome):
     for row in outcome["unmeasured"]:
         reason = f" ({row['reason']})" if row.get("reason") else ""
         lines.append(f"  not measured: {row['model']} at {row['effort'] or 'its default level'}{reason}")
+    for row in outcome.get("skipped") or ():
+        lines.append(f"  request {row['request']} skipped: its plan never reached approval ({row.get('run_status')})")
     if outcome["results"]:
         lines.append("Saved for automatic selection and the quota fallback.")
     return "\n".join(lines)

@@ -37,7 +37,6 @@ try:
     from . import autocode_member_stop as member_stop
     from . import autocode_operational_disposition as disposition
     from . import autocode_pause_authority as pause_authority
-    from . import autocode_person_text as person_text
     from . import autocode_progressive_state as progressive
     from . import autocode_quota_route as quota_route
     from . import autocode_recovery_grants as recovery_grants
@@ -55,7 +54,6 @@ except ImportError:
     import autocode_member_stop as member_stop
     import autocode_operational_disposition as disposition
     import autocode_pause_authority as pause_authority
-    import autocode_person_text as person_text
     import autocode_progressive_state as progressive
     import autocode_quota_route as quota_route
     import autocode_recovery_grants as recovery_grants
@@ -679,13 +677,14 @@ def record_operational_exhaustion(runner, state: RunState, run_dir, error, *, re
         facts,
     )
     if machinery:
-        # Nothing here is the person's to act on, so the stop names no action. Its reason keeps what
-        # happened (a provider that exited, a rejected sign-in) and drops the operator advice the
-        # recovery owners wrote beside it (--abandon-stage, --grant-recovery), as a question's text
-        # does (#3145); the whole cause stays in the receipt above.
-        shown = person_text.plain(str(error))
-        cause = "" if shown == person_text.FALLBACK else shown
-        run_status.pause(state, error.status, _stop_reason(cause, disposition.MESSAGE))
+        # The cause is written for the core's own recovery owners and can name an operator
+        # flag (--abandon-stage); it stays in the receipt above. The person sees which job
+        # stopped and why, from the saved facts, and that AutoCode kept its work.
+        run_status.pause(
+            state,
+            error.status,
+            disposition.blocked_message(facts["stage"], error.status, str(error), state),
+        )
         return True
     request = request or {
         "kind": "blocker",

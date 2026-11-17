@@ -809,10 +809,25 @@ def main() -> int:
         }
     elif stage == "review_plan":
         draft = (data.get("goal_contract") or {}).get("body") or {}
+        # A plan holding LIVE_FIXTURE_REVIEW_BLOCKS's text (a test's planted flaw) gets one blocking concern.
+        marker = os.environ.get("LIVE_FIXTURE_REVIEW_BLOCKS") or ""
+        planted = bool(marker) and marker in json.dumps(draft)
         report = {
-            "summary": "Handwritten plan review; no concerns",
+            "summary": "Handwritten plan review; " + ("one blocking concern" if planted else "no concerns"),
             "obligation_decisions": [],
-            "concerns": [],
+            "concerns": [
+                {
+                    "id": "C1",
+                    "concern": f"The plan holds the planted flaw {marker}",
+                    "evidence_refs": ["task"],
+                    "requested_change": f"Remove {marker} from the plan",
+                    "acceptance_test": "The plan no longer holds the planted flaw",
+                    "blocking": True,
+                    "draft_failure_correction": None,
+                }
+            ]
+            if planted
+            else [],
             "source_trace": _source_trace(draft, data),
         }
     elif stage == "finalize_plan":

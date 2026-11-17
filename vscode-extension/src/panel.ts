@@ -449,7 +449,7 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
     title: view.recovery!.title ?? (view.recovery?.category === "blocked" ? "Blocked" : "Stopped"),
     explanation: view.recovery!.what_happened ?? "",
     retained: view.recovery!.retained ?? null,
-    newConversation: view.recovery?.category === "blocked" ? null : view.recovery!.actions?.find((row) => row.kind === "new_conversation")?.label ?? null,
+    newConversation: view.recovery!.actions?.find((row) => row.kind === "new_conversation")?.label ?? null,
   } : null;
   if (!view.done && !stopped) {
     try {
