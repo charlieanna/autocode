@@ -98,14 +98,14 @@ test("a retry is struggling and says why the last attempt failed", () => {
   assert.equal(struggling(shown, NOW), "Builder · attempt 2 · 4m30s · last answer rejected");
 });
 
-test("a report repair is counted apart from the repaired stage's runs, and its cost is added", () => {
+test("a report repair is counted apart from the repaired stage's runs, its cost is added, and it is not struggling", () => {
   const rejected = attempt("sol", "Tester", { rejected: true });
   const repairing = attempt("sol_report_repair", "Tester", {
     original_stage: "sol", active: true, duration_seconds: null, started_at: "2026-11-02T01:09:30Z",
   });
   const shown = view([rejected, attempt("resolver", "Resolver"), repairing]);
   assert.deepEqual(stages(shown, NOW).map((row) => row.job), ["Tester", "Resolver"]);
-  assert.equal(struggling(shown, NOW), "Tester · report repair 1 · 1m00s · last answer rejected");
+  assert.equal(struggling(shown, NOW), "");
   const repaired = { ...repairing, active: false, duration_seconds: 18 };
   const costs = [{ stage: "sol", spent_usd: 0.25 }, { stage: "sol_report_repair", spent_usd: 0.1 }];
   const tester = stages(view([rejected, attempt("resolver", "Resolver"), repaired], { byStage: costs }), NOW)[0]!;
@@ -213,13 +213,13 @@ test("a finished run's summary names its result, requirements, changed files and
   assert.equal(finishSummary(view([])), null, "a run still working has no closing card");
 });
 
-test("the status bar names the working stage, its cost and trouble", () => {
+test("the status bar names the working stage and its cost without flashing warnings on internal retries", () => {
   const working = view([attempt("terra", "Builder", { rejected: true }), attempt("terra", "Builder", { active: true, duration_seconds: 5 })], {
     spent: 1.21, cap: 5, extra: { needs: { kind: "continue" }, liveness: { kind: "supervised" }, progress: { headline: "Building" } },
   });
   const line = statusLine(working, NOW);
-  assert.equal(line.text, "$(warning) AutoCode: Building · $1.21 · 184k tokens");
-  assert.match(line.tooltip, /Struggling: Builder · attempt 2/);
+  assert.equal(line.text, "$(sync~spin) AutoCode: Builder · $1.21 · 184k tokens");
+  assert.doesNotMatch(line.tooltip, /Struggling:/);
   const calm = view([attempt("terra", "Builder", { active: true, duration_seconds: 5 })], {
     extra: { needs: { kind: "continue" }, liveness: { kind: "supervised" }, progress: { headline: "Building" } },
   });

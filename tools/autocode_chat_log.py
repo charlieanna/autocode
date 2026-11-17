@@ -27,12 +27,14 @@ if TYPE_CHECKING:
 try:
     from . import autocode_attempt_ledger as attempt_ledger
     from . import autocode_chat_activity as activity
+    from . import autocode_repair_effort as repair_effort
     from . import autocode_review_effort as review_effort
     from . import autocode_roles as roles
     from . import autocode_util as util
 except ImportError:
     import autocode_attempt_ledger as attempt_ledger
     import autocode_chat_activity as activity
+    import autocode_repair_effort as repair_effort
     import autocode_review_effort as review_effort
     import autocode_roles as roles
     import autocode_util as util
@@ -362,8 +364,19 @@ def _start_note(active: dict, agent: str, *, started: bool) -> list[dict]:
 
 def _effort_note(active: dict, agent: str) -> list[dict]:
     """One message when the running review works one level below the person's saved level, saying why
-    (autocode_review_effort); the attempt's own entries follow it."""
-    text, started = review_effort.note(active.get("effort_choice")), active.get("started_at")
+    (autocode_review_effort); the attempt's own entries follow it.
+
+    Format-only report repairs (autocode_repair_effort) are quiet internal machinery, never announced
+    in the live chat log; their level choice remains in Run details / Attempts.
+    """
+    choice = active.get("effort_choice")
+    if (
+        active.get("report_only")
+        or str(active.get("stage") or "").endswith("_report_repair")
+        or (isinstance(choice, dict) and choice.get("reason") == repair_effort.REASON)
+    ):
+        return []
+    text, started = review_effort.note(choice), active.get("started_at")
     if not text or not isinstance(started, str):
         return []
     return [{"id": f"effort:{started}", "agent": agent, "kind": "message", "text": text}]

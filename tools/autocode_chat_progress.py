@@ -9,11 +9,9 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_attempt_ledger as attempt_ledger
-    from . import autocode_recovery_history as recovery_history
     from . import autocode_roles as roles
 except ImportError:
     import autocode_attempt_ledger as attempt_ledger
-    import autocode_recovery_history as recovery_history
     import autocode_roles as roles
 
 
@@ -50,8 +48,7 @@ def project(state: RunState, public, *, finished=False, stopped=False) -> list[s
         lines.append(" · ".join(counts))
     turns = state.get("turns") or []
     since = turns[-1].get("at") if turns else None
-    attempts = []
-    newest: dict | None = None
+    finished_jobs: list[str] = []
     for record in state.get("stages") or []:
         if not isinstance(record, dict) or not record.get("finished_at"):
             continue
@@ -63,54 +60,14 @@ def project(state: RunState, public, *, finished=False, stopped=False) -> list[s
         # A runner-owned step (the Orchestrator's dispatch) launches no process, so it has no exit code;
         # reading that absence as a failed exit put "Orchestrator attempt stopped" on a clean run (#1643).
         exited = record.get("exit_code", 0 if record.get("runner_owned") else None)
-        result = (
-            "rejected"
-            if record.get("rejected")
-            else "stopped"
-            if exited != 0 or record.get("abandoned")
-            else "finished"
-        )
-        attempts.append((roles.screen_name(stage, state), result))
-        newest = record
-    if attempts:
-        lines.append("Recent steps: " + " · ".join(_steps(attempts)[-3:]))
-    # Say why the newest answer was not accepted while the stage tries again, in plain words.
-    if newest and newest.get("rejected"):
-        why = recovery_history.explain(newest.get("rejection_reason"))
-        if why:
-            job = roles.screen_name(newest.get("stage") or "", state)
-            lines.append(f"Why the last {job} answer was not accepted: {why}")
+        # While AutoCode is running on its own (needs.kind == "continue"), rejected reports, report repairs
+        # and retried attempts are AutoCode's own machinery (autocode_chat_recoveries.QUIET); they stay in
+        # Run details / Show details, never in the active conversation card.
+        if record.get("rejected") or record.get("abandoned") or exited != 0:
+            continue
+        job = roles.screen_name(stage, state)
+        if not finished_jobs or finished_jobs[-1] != job:
+            finished_jobs.append(job)
+    if finished_jobs:
+        lines.append("Recent steps: " + " · ".join(f"{job} finished" for job in finished_jobs[-3:]))
     return lines
-
-
-_OUTCOME = {"finished": "finished", "stopped": "stopped", "rejected": "answer not accepted"}
-
-
-def _steps(attempts: list[tuple[str, str]]) -> list[str]:
-    """One entry per run of attempts by the same job, so a retried step reads as one step with its
-    outcome and what came before it, not as the same name repeated ("Requirements attempt finished ·
-    Requirements attempt finished"). A Requirements answer and its report repairs are one job."""
-    groups: list[tuple[str, list[str]]] = []
-    for job, result in attempts:
-        if groups and groups[-1][0] == job:
-            groups[-1][1].append(result)
-        else:
-            groups.append((job, [result]))
-    steps = []
-    for job, results in groups:
-        text = f"{job} {_OUTCOME[results[-1]]}"
-        if len(results) > 1:
-            text += f" on attempt {len(results)}"
-            earlier = results[:-1]
-            notes = [
-                f"{count} earlier {noun}{'' if count == 1 else 's'} {verb}"
-                for noun, verb, count in (
-                    ("answer", "not accepted", earlier.count("rejected")),
-                    ("attempt", "stopped", earlier.count("stopped")),
-                )
-                if count
-            ]
-            if notes:
-                text += f" ({', '.join(notes)})"
-        steps.append(text)
-    return steps

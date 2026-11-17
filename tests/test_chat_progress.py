@@ -36,14 +36,17 @@ class ChatProgressTests(unittest.TestCase):
         self.assertEqual("Builder working · task M1", lines[0])
         self.assertEqual("0 of 2 tasks done · 1 of 3 requirements checked (1 from earlier checks), 1 failed", lines[1])
         self.assertEqual(
-            "Recent steps: Planner finished · Tester answer not accepted · Builder stopped",
+            "Recent steps: Planner finished",
             lines[2],
         )
         self.assertNotIn("passed", " ".join(lines))
+        self.assertNotIn("not accepted", " ".join(lines))
+        self.assertNotIn("stopped", " ".join(lines))
         self.assertEqual(before, (self.state, self.public))
 
-    def test_a_rejected_answer_says_why_in_plain_words_until_the_stage_succeeds(self):
-        # The 2026-11-11 chat showed only "Requirements attempt needs correction" for twelve minutes.
+    def test_rejected_and_stopped_attempts_stay_out_of_live_chat_progress(self):
+        # While AutoCode is running on its own (needs.kind == "continue"), rejected reports, report repairs
+        # and retried attempts are AutoCode's own machinery; they stay in Run details, never in the chat card.
         self.state["active_stage"] = {"stage": "requirements_gather_report_repair"}
         self.state["stages"] = [
             {
@@ -57,16 +60,13 @@ class ChatProgressTests(unittest.TestCase):
         ]
         self.public["progress"]["headline"] = "Requirements working"
         lines = progress.project(self.state, self.public)
-        self.assertEqual("Recent steps: Requirements answer not accepted", lines[-2])
-        self.assertEqual(
-            "Why the last Requirements answer was not accepted: it listed R3, R4 as things you asked for, "
-            "but you never wrote the words it quoted for them.",
-            lines[-1],
-        )
+        self.assertFalse([line for line in lines if "Recent steps:" in line], lines)
+        self.assertFalse([line for line in lines if line.startswith("Why")], lines)
         self.state["stages"].append(
             {"stage": "requirements_gather_report_repair", "finished_at": "2026-11-11T08:13:16Z", "exit_code": 0}
         )
         lines = progress.project(self.state, self.public)
+        self.assertEqual("Recent steps: Requirements finished", lines[-1])
         self.assertFalse([line for line in lines if line.startswith("Why")], lines)
 
     def test_internal_report_paths_do_not_leak_into_progress(self):
@@ -90,13 +90,10 @@ class ChatProgressTests(unittest.TestCase):
                     }
                 ]
                 lines = progress.project(self.state, self.public)
-                self.assertIn("The answer did not meet AutoCode's report checks.", lines[-1])
                 self.assertNotIn(reason, " ".join(lines))
+                self.assertNotIn("not accepted", " ".join(lines))
 
-    def test_a_retried_step_reads_as_one_step_with_its_earlier_attempts(self):
-        # The 2026-11-11 chat showed "Requirements attempt needs correction · Requirements attempt finished ·
-        # Requirements attempt finished": one step's answer, two report repairs and a confirmation, cut to
-        # the last three and each named the same, so nothing said what had happened or that it was done.
+    def test_a_retried_step_reads_as_one_clean_finished_step_without_machinery_chatter(self):
         self.state["active_stage"] = None
         self.public["progress"]["headline"] = "Next: Planner"
         record = {"exit_code": 0, "finished_at": "2026-11-11T08:08:12Z"}
@@ -108,7 +105,7 @@ class ChatProgressTests(unittest.TestCase):
             {**record, "stage": "model_preflight", "runner_owned": True},
         ]
         self.assertEqual(
-            "Recent steps: Requirements finished on attempt 4 (2 earlier answers not accepted)",
+            "Recent steps: Requirements finished",
             progress.project(self.state, self.public)[-1],
         )
         self.state["stages"][3:] = [
@@ -119,9 +116,7 @@ class ChatProgressTests(unittest.TestCase):
             {**record, "stage": "builder"},
         ]
         self.assertEqual(
-            "Recent steps: Requirements answer not accepted on attempt 5 "
-            "(2 earlier answers not accepted, 1 earlier attempt stopped) · Planner finished · "
-            "Builder finished on attempt 2 (1 earlier attempt stopped)",
+            "Recent steps: Requirements finished · Planner finished · Builder finished",
             progress.project(self.state, self.public)[-1],
         )
 
@@ -169,7 +164,7 @@ class ChatProgressTests(unittest.TestCase):
         dispatch = {"stage": "orchestrator", "finished_at": "2026-10-19T08:03:00Z", "runner_owned": True}
         self.state["stages"] = [dispatch, {"stage": "builder", "finished_at": "2026-10-19T08:04:00Z"}]
         self.assertEqual(
-            "Recent steps: Orchestrator finished · Builder stopped",
+            "Recent steps: Orchestrator finished",
             progress.project(self.state, self.public)[-1],
         )
 

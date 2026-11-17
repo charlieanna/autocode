@@ -4119,7 +4119,7 @@ for (const phase of ['requirements', null]) test(`chat renders core step progres
     liveness: { kind: 'supervised' }, next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}`,
     chat: { phase, context: 'live-step', input: null, messages: [], progress: [
       'Builder working · task M1', '1 of 3 requirements checked (1 from earlier checks)',
-      'Recent steps: Planner attempt finished · Tester attempt needs correction',
+      'Recent steps: Planner finished',
     ] } };
   const ui = await openChat(t, value);
   ui.type('Keep this draft');
@@ -7281,7 +7281,7 @@ test('the run header lists every stage the run launched in one aligned table, wi
   assert.equal(tester.className, 'working retrying');
   assert.equal(tester.querySelector('.mark').textContent, '↻');
   const badge = tester.querySelector('.runs');
-  assert.deepEqual([badge.textContent, badge.className, badge.title], ['×2', 'runs failed', '2 attempts, 1 failed']);
+  assert.deepEqual([badge.textContent, badge.className, badge.title], ['×2', 'runs', '2 attempts, 1 failed']);
   assert.deepEqual([...tester.querySelectorAll('td.num')].map((cell) => cell.textContent), ['42s', '2.4k', '$0.20+']);
   assert.match(tester.title, /last one answer rejected/);
   assert.equal(rows[0].querySelector('.runs'), null, 'a stage that launched once has no count');
@@ -7309,7 +7309,7 @@ test('a long stage name gives its run badge room in the sidebar', async (t) => {
   assert.equal(style('#pipeline .runs')?.getPropertyValue('flex'), 'none');
 });
 
-test('a report repair shows on its stage row apart from the stage\'s own runs', async (t) => {
+test('a report repair shows on its stage row apart from the stage\'s own runs without warning banners', async (t) => {
   // Live, 2026-11-12: the Tester's two runs and two report repairs read "Tester ×4" in the table.
   const base = meteredView();
   const attempts = base.usage.accounting.attempts.slice(0, 5).concat([
@@ -7319,19 +7319,27 @@ test('a report repair shows on its stage row apart from the stage\'s own runs', 
   const ui = await openChat(t, meteredView({ usage: { accounting: { ...base.usage.accounting, attempts } } }));
   const tester = [...ui.document.querySelectorAll('#pipeline tbody tr')].find((row) => row.dataset.job === 'Tester');
   const badge = tester.querySelector('.runs');
-  assert.deepEqual([badge.textContent, badge.title], ['×2 +1 repair', '2 attempts, 1 failed, 1 report repair']);
-  assert.equal(ui.document.getElementById('struggling').textContent, '⚠ Tester · report repair 1 · 42s · last answer rejected');
+  assert.deepEqual([badge.textContent, badge.className, badge.title], ['×2 +1 repair', 'runs', '2 attempts, 1 failed, 1 report repair']);
+  assert.equal(ui.document.getElementById('struggling'), null, 'report repairs never render a warning banner in the chat card');
 });
 
-test('a stage on a later attempt shows a struggling warning in the working card', async (t) => {
+test('internal stage retries and nonzero live-log commands stay calm without red or warning banners while AutoCode works', async (t) => {
   const ui = await openChat(t, meteredView());
-  const warn = ui.document.getElementById('struggling');
-  assert.ok(warn, 'the working card carries the warning');
-  assert.equal(warn.textContent, '⚠ Tester · attempt 2 · 42s · last answer rejected');
-  const calm = meteredView();
-  calm.usage.accounting.attempts = calm.usage.accounting.attempts.filter((row) => !row.rejected);
-  await ui.poll(calm);
-  assert.equal(ui.document.getElementById('struggling'), null, 'a first attempt is not struggling');
+  assert.equal(ui.document.getElementById('struggling'), null, 'internal retries do not flash a warning banner while AutoCode works');
+  assert.equal(ui.document.body.classList.contains('stopped'), false, 'working runs do not mark the body stopped');
+
+  const rules = [...ui.document.styleSheets].flatMap((sheet) => [...sheet.cssRules]);
+  const style = (selector) => rules.find((rule) => rule.selectorText === selector)?.style;
+  assert.doesNotMatch(style('.activity-row.failed')?.getPropertyValue('color') || '', /errorForeground/,
+    'nonzero shell/tool exits in the live log must not render in error-red');
+  assert.doesNotMatch(style('.live-log .fold-line.failed')?.getPropertyValue('color') || '', /errorForeground/,
+    'folded nonzero tool calls in the live log must not render in error-red');
+  assert.equal(style('.state.failed, .state.blocking'), undefined,
+    'failed/blocking badges do not paint error-red while AutoCode is actively working');
+  assert.match(style('body.stopped .state.failed, body.stopped .state.blocking')?.getPropertyValue('background') || '', /errorForeground/,
+    'error-red badges apply only when the run has actually stopped');
+  assert.doesNotMatch(style('#pipeline tbody tr.ran.stopped td.mark')?.getPropertyValue('color') || '', /errorForeground/,
+    'earlier failed stages stay calm while the run is working');
 });
 
 test('the toolbar shows the run cost against its cap, and a total once two chats hold runs', async (t) => {

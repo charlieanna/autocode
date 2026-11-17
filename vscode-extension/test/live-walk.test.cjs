@@ -2329,3 +2329,181 @@ stuck_job.apply(
   assert.equal(afterStatus.view.status, 'PAUSED_ACCEPTANCE_TESTS');
   assert.equal(afterStatus.view.chat.input.kind, 'feedback');
 });
+
+test('self-healing machinery and nonzero live-log commands stay calm in VS Code Chat while Show details retains full evidence', { skip }, async (t) => {
+  const { statusLine } = require('../out-test/src/statusBar.js');
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'walk-quiet-')));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const git = (...args) => execFileSync('git', ['-C', root, ...args], { stdio: 'pipe' });
+  git('init', '-q');
+  git('config', 'user.email', 'walk@test');
+  git('config', 'user.name', 'Walk');
+  fs.writeFileSync(path.join(root, '.gitignore'), '.autocode/\n');
+  fs.writeFileSync(path.join(root, 'greet.py'), "print('hi')\n");
+  git('add', '.gitignore', 'greet.py');
+  git('commit', '-qm', 'seed');
+
+  const { xdg, roles } = writeWalkProvider();
+  t.after(() => fs.rmSync(xdg, { recursive: true, force: true }));
+  const prevXdg = process.env.XDG_CONFIG_HOME;
+  process.env.XDG_CONFIG_HOME = xdg;
+  t.after(() => {
+    if (prevXdg === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = prevXdg;
+  });
+
+  const runDir = writeResumeRun(root, xdg, roles, true);
+  claimSupervision(runDir);
+  claimController(runDir);
+  t.after(() => {
+    try {
+      const sup = JSON.parse(fs.readFileSync(path.join(runDir, 'supervision.json'), 'utf8'));
+      for (const proc of sup.processes || []) {
+        if (proc?.pid) try { process.kill(proc.pid, 'SIGKILL'); } catch {}
+      }
+      const ctrl = JSON.parse(fs.readFileSync(path.join(runDir, 'controller-owner.json'), 'utf8'));
+      if (ctrl?.identity?.pid) try { process.kill(ctrl.identity.pid, 'SIGKILL'); } catch {}
+    } catch {}
+  });
+  const eventsPath = path.join(runDir, 'repair.events.jsonl');
+  fs.writeFileSync(
+    eventsPath,
+    [
+      { type: 'item.completed', item: { id: 'r1', type: 'reasoning', text: 'Checking greeting references across workspace' } },
+      { type: 'item.completed', item: { id: 'c1', type: 'command_execution', command: 'grep -rn missing_symbol greet.py', status: 'failed', exit_code: 1 } },
+      { type: 'item.completed', item: { id: 'c2', type: 'command_execution', command: 'python3 greet.py', status: 'completed', exit_code: 0 } },
+    ].map((row) => JSON.stringify(row)).join('\n') + '\n',
+  );
+  const statePath = path.join(runDir, 'state.json');
+  const seeded = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+  seeded.next_stage = 'builder_report_repair';
+  seeded.active_stage = {
+    ...seeded.active_stage,
+    stage: 'builder_report_repair',
+    original_stage: 'builder',
+    report_only: true,
+    started_at: '2026-11-17T20:01:00Z',
+    events: eventsPath,
+    model: 'fake/build',
+    reasoning_effort: 'low',
+    effort_choice: {
+      level: 'low',
+      ceiling: 'medium',
+      lowered: true,
+      reason: 'format_repair',
+      text: 'this attempt only corrects the last answer, it does not redo the work',
+    },
+  };
+  seeded.stages = [
+    {
+      stage: 'draft_plan',
+      status: 'completed',
+      iteration: 1,
+      started_at: '2026-11-17T20:00:00Z',
+      finished_at: '2026-11-17T20:00:10Z',
+      duration_seconds: 10,
+      exit_code: 0,
+      accounted: true,
+      model: 'fake/plan',
+      reasoning_effort: 'medium',
+    },
+    {
+      stage: 'builder',
+      status: 'completed',
+      iteration: 1,
+      started_at: '2026-11-17T20:00:12Z',
+      finished_at: '2026-11-17T20:00:40Z',
+      duration_seconds: 28,
+      exit_code: 0,
+      rejected: true,
+      rejection_reason: '$: missing changed_files',
+      accounted: true,
+      model: 'fake/build',
+      reasoning_effort: 'medium',
+    },
+    seeded.active_stage,
+  ];
+  seeded.failure_history = {
+    b1: {
+      identity: { stage: 'builder' },
+      count: 1,
+      last_seen: '2026-11-17T20:00:40Z',
+      last_error: '$: missing changed_files',
+    },
+  };
+  fs.writeFileSync(statePath, JSON.stringify(seeded, null, 2));
+
+  host.config.set('cliPath', CLI);
+  host.config.set('cliArgs', [SCRIPT]);
+  host.config.set('provider', 'fake');
+  host.config.set('confirmPersonOnly', false);
+  host.config.set('notify', false);
+  host.config.set('pollSeconds', 1);
+
+  const controller = new RunController(host.log);
+  let receive;
+  const webview = {
+    html: '',
+    options: {},
+    onDidReceiveMessage: (callback) => { receive = callback; },
+    postMessage: async (data) => { webview.deliver?.(data); return true; },
+  };
+  const shell = { visible: true, webview, onDidChangeVisibility: () => {}, onDidDispose() {} };
+  const chat = new ChatView(
+    controller,
+    { get: () => undefined, update: async () => {} },
+    { pickWorkspace: async () => root, confirmStart: async () => true, changed() {}, selected() {} },
+  );
+  t.after(() => chat.dispose());
+  t.after(() => RunPanel.disposeAll());
+  chat.resolveWebviewView(shell);
+  const dom = new JSDOM(webview.html, { runScripts: 'outside-only' });
+  t.after(() => dom.window.close());
+  let saved = {};
+  dom.window.acquireVsCodeApi = () => ({
+    postMessage: (message) => receive(message),
+    getState: () => saved,
+    setState: (value) => { saved = value; },
+  });
+  webview.deliver = (data) => dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data }));
+  dom.window.eval(dom.window.document.querySelector('script').textContent);
+  await flush();
+
+  const runRef = { workspace: root, runDir };
+  chat.show(runRef);
+  const diag = () => `error=${dom.window.document.querySelector('#chat-error').textContent} | app=${dom.window.document.querySelector('#app').textContent}`;
+  assert.ok(
+    await waitFor(() => {
+      const app = dom.window.document.querySelector('#app')?.textContent || '';
+      return app.includes('grep -rn missing_symbol greet.py') && app.includes('python3 greet.py');
+    }, 15000),
+    `live log rendered through real autocode --status: ${diag()}`,
+  );
+
+  const appText = dom.window.document.querySelector('#app').textContent;
+  assert.equal(dom.window.document.getElementById('struggling'), null, 'no amber struggling banner in live chat');
+  assert.ok(appText.includes('Recent steps: Planner finished'), `finished steps still show cleanly: ${appText}`);
+  assert.doesNotMatch(appText, /answer not accepted|needs correction|Why the last|corrects the last answer|last answer rejected/i,
+    `self-healing machinery stays out of the active chat card: ${appText}`);
+  const failedRow = dom.window.document.querySelector('#app .activity-row.failed');
+  assert.ok(failedRow, 'nonzero grep row is still truthfully shown');
+  const rules = [...dom.window.document.styleSheets].flatMap((sheet) => [...sheet.cssRules]);
+  const failedStyle = rules.find((rule) => rule.selectorText === '.activity-row.failed')?.style;
+  assert.doesNotMatch(failedStyle?.getPropertyValue('color') || '', /errorForeground/, 'nonzero grep row is not painted error-red');
+
+  // Status bar stays calm while AutoCode repairs its own report.
+  const rawView = await controller.status(runRef);
+  const bar = statusLine(rawView);
+  assert.doesNotMatch(bar.text, /\$\(warning\)/);
+  assert.match(bar.text, /^\$\((?:sync~spin|autorenew)\) AutoCode: Builder/);
+  assert.doesNotMatch(bar.tooltip, /Struggling:/);
+
+  // Expanding Show details still surfaces the recorded rejection for anyone inspecting the run!
+  const showDetailsBtn = [...dom.window.document.querySelectorAll('#run-header button')].find((b) =>
+    b.textContent.includes('Show details'),
+  );
+  assert.ok(showDetailsBtn);
+  showDetailsBtn.click();
+  const headerText = dom.window.document.querySelector('#run-header').textContent;
+  assert.match(headerText, /Builder answer rejected/);
+});
