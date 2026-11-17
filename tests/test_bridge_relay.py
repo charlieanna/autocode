@@ -51,6 +51,25 @@ def plan_view(token="r1:abc", *, complete=True):
 
 
 class RelayTests(unittest.TestCase):
+    def test_a_held_run_without_an_action_is_reported_without_asking_for_machinery(self):
+        view = {"status": "PAUSED_UNCERTAIN_STAGE", "needs": None, "done": False}
+        result = relay.relay(view, {"gate": {}})
+        self.assertEqual(1, len(result.messages))
+        self.assertIn("no action is currently available", result.messages[0])
+        self.assertNotIn("Reply", result.messages[0])
+        self.assertEqual([], relay.relay(view, {"gate": result.gate}).messages)
+        self.assertEqual([], relay.relay({"status": "RUNNING", "needs": None}, {"gate": {}}).messages)
+        changed = {**view, "stop_reason": "a different interrupted attempt"}
+        self.assertEqual(1, len(relay.relay(changed, {"gate": result.gate}).messages))
+
+    def test_automatic_continuations_are_not_presented_as_requests_for_direction(self):
+        for action in ("--no-chat", "--reconcile-only checkpoint-v1:abc", "--abandon-stage 001/review"):
+            with self.subTest(action=action):
+                view = {"status": "RUNNING", "needs": {"kind": "continue", "action": action, "reason": "Recovery"}}
+                result = relay.relay(view, {"gate": {}})
+                self.assertEqual([], result.messages)
+                self.assertFalse(result.publish_questions)
+
     def test_questions_relay_once_with_ids_and_options(self):
         record = {"gate": {}}
         first = relay.relay(answer_view(), record)

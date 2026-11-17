@@ -271,6 +271,10 @@ with ChatTUI() as ui:
             screen.type("/help")
             screen.keys("Enter")
             screen.wait_for("List these commands", what="responsive help during the coordinated action")
+            screen.wait_for(
+                lambda _: (root / "advances").exists() and (root / "advances").read_text() == "anchor\n",
+                what="the coordinator action to record its start",
+            )
             self.assertEqual("anchor\n", (root / "advances").read_text())
             # Help shares the conversation now; earlier progress remains reachable
             # by paging while the persistent status indicator continues updating.
@@ -299,6 +303,7 @@ with ChatTUI() as ui:
             )
             screen.keys("Enter")
             self.assertEqual(0, screen.exit_status())
+            self.assertEqual("anchor\n", (root / "advances").read_text())
             self.assertNotIn("Status unavailable (anchor):", (root / "transcript").read_text())
             self.assertNotIn("Status available again (anchor).", (root / "transcript").read_text())
 
@@ -316,7 +321,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 import autocode_chat_coordination as coordination
 from autocode_chat_tui import ChatTUI
-run = Path('/tmp/uncapped-screen/.autocode/runs/task')
+run = Path('/tmp/uncapped-screen/.autocode/runs/task').resolve()
 need = {'kind': 'coordination_resume', 'cap_usd': 0, 'known_spent_usd': 0.845216,
         'complete': True, 'minimum_cap_usd': 0.845217, 'current_cap_usd': 0,
         'allows_no_cap': True, 'token': 'screen-token', 'effect': 'Resume saved work.',

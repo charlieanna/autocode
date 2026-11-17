@@ -2,6 +2,7 @@
 
 import copy
 import json
+import os
 import subprocess
 import tempfile
 import unittest
@@ -18,6 +19,7 @@ import autocode_recovery_history as history
 import autocode_run_view as run_view
 import autocode_source_scope as source_scope
 import autocode_stale_handoff as handoff
+import autocode_supervision as supervision
 import autocode_util as util
 
 from tests.test_liveness import inspection, metadata
@@ -124,6 +126,102 @@ class InterruptedReviewTests(unittest.TestCase):
         self.assertFalse(recovery.settle(runner, self.state, self.run, self.workspace, self.fresh))
         self.assertEqual(1, self.state["automatic_recoveries_since_resume"])
 
+    def test_clean_enclosing_family_can_settle_an_armed_read_only_attempt(self):
+        self.record["supervision"]["family_backup"] = {"boot_id": "boot", "directory": "/secure/store"}
+        self.fresh["receipt"].update(phase="armed", cause=None)
+        self.fresh["receipt"]["family_backup"] = copy.deepcopy(self.record["supervision"]["family_backup"])
+        self.fresh["family_cleanup"] = True  # Supplied by the supervision observer.
+        self.assertIsNotNone(recovery.proof(self.state, self.workspace, self.fresh))
+        self.assertEqual(0, self.reconcile())
+        self.assertNotIn("active_stage", self.state)
+        self.assertEqual(1, self.state["automatic_recoveries_since_resume"])
+        self.assertEqual("capture_family", self.state["recovery_context"]["cleanup_evidence"]["kind"])
+        self.assertEqual(
+            self.record["supervision"]["nonce"], self.state["stages"][-1]["cleanup_evidence"]["attempt_nonce"]
+        )
+        self.assertNotIn("attempt_nonce", self.state["recovery_context"]["cleanup_evidence"])
+        notice = history.project(self.state)[-1]
+        self.assertIn("entire process family stopped", notice["detail"])
+        self.assertNotIn(self.record["supervision"]["nonce"], notice["detail"])
+
+    def test_family_evidence_does_not_override_other_recovery_boundaries(self):
+        self.record["supervision"]["family_backup"] = {"boot_id": "boot", "directory": "/secure/store"}
+        self.fresh["receipt"].update(phase="armed", cause=None)
+        self.fresh["receipt"]["family_backup"] = copy.deepcopy(self.record["supervision"]["family_backup"])
+        self.fresh["family_cleanup"] = True
+        for fault in ("unverified", "live", "nonce", "binding", "writer", "source", "limit"):
+            with self.subTest(fault=fault):
+                state, fresh = copy.deepcopy(self.state), copy.deepcopy(self.fresh)
+                if fault == "unverified":
+                    fresh["family_cleanup"] = False
+                elif fault == "live":
+                    fresh["provider"]["alive"] = True
+                elif fault == "nonce":
+                    fresh["receipt"]["nonce"] = "c" * 32
+                elif fault == "binding":
+                    fresh["receipt"]["family_backup"]["directory"] = "/other"
+                elif fault == "writer":
+                    state["active_stage"]["stage"] = "builder"
+                elif fault == "source":
+                    (self.workspace / "app.py").write_text("changed = True\n")
+                elif fault == "limit":
+                    state["automatic_recoveries_since_resume"] = 3
+                try:
+                    self.assertIsNone(recovery.proof(state, self.workspace, fresh))
+                finally:
+                    (self.workspace / "app.py").write_text("value = 1\n")
+
+    def test_family_proof_finishes_a_keeper_interrupted_during_cleanup(self):
+        self.record["supervision"]["family_backup"] = {"boot_id": "boot", "directory": "/secure/store"}
+        self.fresh["family_cleanup"] = True
+        self.fresh["receipt"].update(phase="stopping", cause="owner_lost", cleanup_error=None)
+        self.fresh["receipt"]["family_backup"] = copy.deepcopy(self.record["supervision"]["family_backup"])
+        self.assertIsNotNone(recovery.proof(self.state, self.workspace, self.fresh))
+        for changes in ({"cause": "stage_deadline"}, {"cleanup_error": "denied"}):
+            with self.subTest(changes=changes):
+                fresh = copy.deepcopy(self.fresh)
+                fresh["receipt"].update(changes)
+                self.assertIsNone(recovery.proof(self.state, self.workspace, fresh))
+
+    def test_family_proof_can_settle_a_confirmed_missing_but_not_invalid_receipt(self):
+        self.record["supervision"]["family_backup"] = {"boot_id": "boot", "directory": "/secure/store"}
+        self.fresh.update(receipt=None, family_cleanup=True)
+        self.assertIsNone(recovery.proof(self.state, self.workspace, self.fresh))
+        self.fresh["family_receipt_missing"] = True
+        self.assertIsNotNone(recovery.proof(self.state, self.workspace, self.fresh))
+        self.assertEqual(0, self.reconcile())
+
+    @unittest.skipIf(os.name == "nt", "kernel family certificates use POSIX descriptors")
+    def test_observer_validates_family_certificate_when_receipt_is_missing(self):
+        import autocode_stage_family as stage_family
+
+        boot = "36db2920-0a4c-4a27-85e4-278b5cc25007"
+        meta = self.record["supervision"]
+        meta.update(
+            receipt=str(self.run / "missing.supervision.json"),
+            family_backup={"boot_id": boot, "directory": str(self.run)},
+        )
+        ancestor = "b" * 32
+        packet = {
+            "schema": 1,
+            "family_clean": True,
+            "attempt_nonce": meta["nonce"],
+            "ancestor_nonce": ancestor,
+            "boot_id": boot,
+        }
+        path = self.run / f"family-result-{meta['nonce']}-{ancestor}.json"
+        path.write_text(json.dumps(packet))
+        path.chmod(0o600)
+        with (
+            patch.object(stage_family.sys, "platform", "linux"),
+            patch.object(stage_family, "_boot", return_value=boot),
+            patch.object(stage_family, "_root", return_value=self.run),
+            patch.object(supervision.processes, "live_processes", return_value=[]),
+        ):
+            observed = supervision.observe(meta)
+        self.assertTrue(observed["family_receipt_missing"])
+        self.assertIsNotNone(recovery.proof(self.state, self.workspace, observed))
+
     def test_current_validation_is_kept_for_completion(self):
         evidence = self.run / "independent-evidence.txt"
         evidence.write_text("independent check passed")
@@ -193,6 +291,9 @@ class InterruptedReviewTests(unittest.TestCase):
     def test_unknown_cleanup_writers_drift_and_exhaustion_never_authorize_a_retry(self):
         for fault in (
             "cleanup",
+            "armed",
+            "missing_receipt",
+            "unverified_family_claim",
             "live",
             "unknown",
             "nonce",
@@ -211,6 +312,13 @@ class InterruptedReviewTests(unittest.TestCase):
                 record = state["active_stage"]
                 if fault == "cleanup":
                     fresh["receipt"]["cleanup_error"] = "not proven"
+                elif fault == "armed":
+                    fresh["receipt"].update(phase="armed", cause=None)
+                elif fault == "missing_receipt":
+                    fresh["receipt"] = None
+                elif fault == "unverified_family_claim":
+                    fresh["receipt"].update(phase="armed", cause=None)
+                    fresh["family_clean"] = True  # A caller's assertion is not a kernel receipt.
                 elif fault == "live":
                     fresh["provider"]["alive"] = True
                 elif fault == "unknown":

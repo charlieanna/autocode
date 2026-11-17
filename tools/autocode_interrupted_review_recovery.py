@@ -64,6 +64,7 @@ def _settle(runner, state: RunState, run_dir, workspace, inspection):
         abandoned=True,
         automatic_recovery=True,
         interrupted=True,
+        cleanup_evidence=evidence["cleanup"],
     )
     records.account_stage(state, record)
     next_stage = stage
@@ -82,6 +83,7 @@ def _settle(runner, state: RunState, run_dir, workspace, inspection):
         "events": record["events"],
         "source_snapshot": record["after_ref"],
         "launch_binding": evidence["launch_binding"],
+        "cleanup_evidence": {"kind": evidence["cleanup"]["kind"]},
         "next_stage": next_stage,
         "instruction": reason
         + ". Inspect retained work; its unfinished response is not evidence of success. Keep the saved model and limits.",
@@ -96,6 +98,7 @@ def _settle(runner, state: RunState, run_dir, workspace, inspection):
             "stage": stage,
             "next_stage": next_stage,
             "reason": reason,
+            "cleanup_kind": evidence["cleanup"]["kind"],
         }
     )
     status.running(state, "PLANNING" if record.get("planning") else "EXECUTING", next_stage=next_stage)

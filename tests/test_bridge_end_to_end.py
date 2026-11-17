@@ -19,6 +19,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -250,6 +251,20 @@ class BridgeEndToEndTests(unittest.TestCase):
                     with contextlib.suppress(psutil.Error):
                         process.kill()
             hold.unlink(missing_ok=True)
+
+        # The capture reaper may outlive the bridge briefly while it reaps its
+        # whole family. Its receipt must be bound to this exact interrupted stage.
+        if sys.platform == "linux":
+            import autocode_stage_family as stage_family
+
+            state = json.loads((Path(starting["run_dir"]) / "state.json").read_text())
+            supervision = state["active_stage"]["supervision"]
+            evidence_dir = Path(supervision["family_backup"]["directory"])
+            self.assertFalse(evidence_dir.is_relative_to(Path(starting["worktree"]).resolve()))
+            deadline = time.monotonic() + 30
+            while not stage_family.clean(supervision) and time.monotonic() < deadline:
+                time.sleep(0.1)
+            self.assertTrue(stage_family.clean(supervision), "no authenticated cleanup proof for the interrupted stage")
 
         resumed = False
         for _ in range(12):

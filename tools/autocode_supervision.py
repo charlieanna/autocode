@@ -28,6 +28,7 @@ try:
     from . import autocode_elapsed_timing as elapsed_timing
     from . import autocode_process as processes
     from . import autocode_session_boundary as boundary
+    from . import autocode_stage_family as stage_family
     from . import autocode_supervision_handoff as handoff
     from . import autocode_util as util
 except ImportError:
@@ -35,6 +36,7 @@ except ImportError:
     import autocode_elapsed_timing as elapsed_timing
     import autocode_process as processes
     import autocode_session_boundary as boundary
+    import autocode_stage_family as stage_family
     import autocode_supervision_handoff as handoff
     import autocode_util as util
 
@@ -291,7 +293,12 @@ def receipt(metadata):
 
 def observe(metadata):
     """Fresh, read-only owner/keeper/provider liveness; denied access is unknown."""
-    result = {"receipt": receipt(metadata), "owner": None, "keeper": None, "provider": None}
+    current_receipt, diagnostic = _read_receipt(metadata)
+    result = {"receipt": current_receipt, "owner": None, "keeper": None, "provider": None}
+    if stage_family.clean(metadata):
+        result["family_cleanup"] = True
+        if diagnostic == ("open", "not_found"):
+            result["family_receipt_missing"] = True
     for key in ("owner", "keeper", "provider"):
         saved = metadata.get(key) if isinstance(metadata, dict) else None
         if not isinstance(saved, dict) or "birth_identity" not in saved:
@@ -627,6 +634,7 @@ def _launch(command, *, receipt_path, timeout, checkpoint, cleanup_policy, provi
         raise SupervisionError("Supervision timing origin is invalid")
     marks = []  # (step, monotonic): where a launch limit went if the keeper never arms (#989)
     completed = False
+    family_registration = None
     keeper_stderr = None
     # #815: the keeper's stderr carries its death cause (e.g. the -E stripped
     # PYTHONPATH making psutil unimportable); capture it beside the receipt so
@@ -649,6 +657,12 @@ def _launch(command, *, receipt_path, timeout, checkpoint, cleanup_policy, provi
                 _send(fd, value)
 
     try:
+        family_binding = None
+        if provider_boundary and checkpoint is not None:
+            try:
+                family_binding, family_registration = stage_family.enroll(path, launch_nonce, cwd=options.get("cwd"))
+            except (OSError, KeyError, ValueError, stage_family.family.FamilyError) as error:
+                raise LaunchRefused("Capture-family enrollment failed; no provider launched") from error
         # The parent's handle closes right after the spawn (Popen dups it for
         # the child); reads go through _keeper_stderr_tail by path.
         keeper_stderr = open(keeper_stderr_path, "wb")  # noqa: SIM115 - handed to Popen
@@ -711,6 +725,8 @@ def _launch(command, *, receipt_path, timeout, checkpoint, cleanup_policy, provi
                 "receipt": str(path),
                 "started_at": util.now(),
             }
+            if family_binding is not None:
+                metadata["family_backup"] = family_binding
             child.supervision = metadata
             child.supervision_errors = errors
             envelope = _LaunchEnvelope(child, keeper, command, bootstrap, options, metadata, release_r)
@@ -942,6 +958,8 @@ def _launch(command, *, receipt_path, timeout, checkpoint, cleanup_policy, provi
         if keeper_stderr is not None and not keeper_stderr.closed:
             keeper_stderr.close()
         if completed:
+            if family_registration is not None:
+                family_registration.release()
             with suppress(OSError):
                 keeper_stderr_path.unlink()
         if child is not None and child.poll() is None:
