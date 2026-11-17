@@ -286,6 +286,42 @@ def configure(settings, args, workspace):
         settings.setdefault("transport_identities", {})[PREFIX + role] = binding
 
 
+TOOL_ANSWER = re.compile(r"([a-z][a-z0-9_]{0,62}):(\S+)")
+
+
+def split_answer(model):
+    """(tool, model) from a model question's answer ``TOOL:MODEL``, or (None, model).
+
+    A tool name has no ``/`` and no ``:``, so OpenCode identifiers (``openrouter/x:free``) and Codex's
+    bare names are never read as one. Whether the tool is connected is checked when it is resolved.
+    """
+    found = TOOL_ANSWER.fullmatch(model) if isinstance(model, str) else None
+    return (found.group(1), found.group(2)) if found else (None, model)
+
+
+def rebind(settings, role, provider, identity):
+    """Move one saved role to ``provider`` at a quota stop the person answered (owner decision 2026-11-16).
+
+    The run's tools are otherwise immutable once it starts (``guard``). Here the person named a model on
+    another connected tool for a role whose quota ran out, so this writes the same binding ``configure``
+    writes at launch: the role's route on the facade engine and its tool identity, or neither when the
+    role returns to the run's own tool. No other role's binding changes.
+    """
+    route = settings["roles"][role]
+    key = PREFIX + str(role)
+    identities = settings.setdefault("transport_identities", {})
+    if provider == (settings.get("provider") or "opencode"):
+        if settings.get("provider"):
+            route["provider"] = settings["provider"]
+        else:
+            route.pop("provider", None)
+        identities.pop(key, None)
+    else:
+        route.update(engine="opencode", provider=provider)
+        identities[key] = {"provider": provider, "identity": copy.deepcopy(identity)}
+    validate(settings)
+
+
 def adapter(settings, role, fallback, workspace=None):
     selected = entry(settings, role)
     if selected is None:
