@@ -840,6 +840,32 @@ test('stage models keeps a draft across updates and labels each scope correctly'
   } finally { dom.window.close(); }
 });
 
+test('stage models explains when a drafted reasoning level is no longer offered', () => {
+  const dom = new JSDOM(stagesHtml(), { runScripts: 'dangerously', beforeParse(window) {
+    window.acquireVsCodeApi = () => ({ postMessage() {} });
+  } });
+  try {
+    const view = readStages(JSON.stringify(stageView({ model: 'sonnet', effort: 'high' })));
+    const send = (next) => dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data: { view: next, scope: 'new', generation: 1 } }));
+    send(view);
+    const doc = dom.window.document;
+    const [model, level] = doc.querySelectorAll('select');
+    model.value = 'haiku'; model.dispatchEvent(new dom.window.Event('change'));
+    level.value = 'medium'; level.dispatchEvent(new dom.window.Event('change'));
+    const changed = structuredClone(view);
+    changed.stages[0].options.find((option) => option.model === 'haiku').effortChoices = ['low'];
+    send(changed);
+    assert.match(doc.querySelector('main').textContent, /unsaved.*reasoning level.*no longer available/i);
+    assert.equal(doc.querySelector('select').value, 'sonnet');
+    send(changed);
+    assert.match(doc.querySelector('main').textContent, /unsaved.*reasoning level.*no longer available/i);
+    assert.equal([...doc.querySelectorAll('button')].find((button) => button.textContent === 'Save').disabled, true);
+    const nextModel = doc.querySelector('select');
+    nextModel.value = 'haiku'; nextModel.dispatchEvent(new dom.window.Event('change'));
+    assert.equal([...doc.querySelectorAll('button')].find((button) => button.textContent === 'Save').disabled, false);
+  } finally { dom.window.close(); }
+});
+
 test('model measurement keeps an empty selection and never enables an old estimate', () => {
   const dom = new JSDOM(stagesHtml(), { runScripts: 'dangerously', beforeParse(window) {
     window.acquireVsCodeApi = () => ({ postMessage() {} });
