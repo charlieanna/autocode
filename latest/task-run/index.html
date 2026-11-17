@@ -1812,7 +1812,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/d14f2aea783beba35763c825a64fee5394d8fed0/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/b8e06da74517a8398ccf624df7c011d653312971/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -3127,7 +3127,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/d14f2aea783beba35763c825a64fee5394d8fed0/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/b8e06da74517a8398ccf624df7c011d653312971/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3964,7 +3964,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/d14f2aea783beba35763c825a64fee5394d8fed0/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/b8e06da74517a8398ccf624df7c011d653312971/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
@@ -5338,7 +5338,8 @@ the reason on stderr and saves nothing. The view launches no model and reads no 
 task reads the choices when it starts; a running task keeps its own.</p>
 <p>Stage models also offers to measure a stage's models (#3630; <a href="../models/#ranking-your-own-models-by-measurement">Ranking your own models by
 measurement</a>). In the list with no chat picks, each
-stage that has a probe (Requirements, the Planner, the Plan Reviewer and the Builder) has <code>probe</code>;
+stage that has a probe (Requirements, the Planner, the Plan Reviewer, the Builder, the Tester and the
+Completion Reviewer) has <code>probe</code>;
 every other stage, a chat's own list and a started run's list have <code>probe: null</code>. <code>probe</code> has <code>stage</code>,
 <code>candidates</code>, <code>estimate</code>, <code>run</code> and <code>stop</code>. Each candidate has <code>model</code>, <code>effort</code> (the level it is
 measured at: the stage's default level, moved to the nearest level the model offers, or null for its
@@ -5353,8 +5354,10 @@ client shows. <code>run.next_command</code> also has <code>CAP</code>, which the
 same ticked models, read again just before it runs; pressing the run button is the person's one
 approval of that spend, and nothing else starts a probe. The run pins the routes this list shows for
 the stages the probe needs (the Planner's probe its Plan Reviewer, the Plan Reviewer's its Planner, the
-Builder's its Planner and Tester, and Requirements for all three). <code>run</code> is null, with <code>stop</code> saying
-why, when one of those has no model. A run prints the probe's outcome and can take a long time; the
+Builder's its Planner and Tester, and Requirements for all three); the Tester's and the Completion
+Reviewer's probes pin nothing, since every other stage there is a script that calls no model. <code>run</code> is
+null, with <code>stop</code> saying why, when one of those has no model, or for the Tester's and the Completion
+Reviewer's probes on Codex, which cannot run their scripted stages. A run prints the probe's outcome and can take a long time; the
 list read afterwards shows each candidate's new <code>measured</code>.</p>
 <p>A chat that has not started can show the stages it will run and change them for itself alone
 (<a href="../models/#changing-a-new-chats-models">Changing a new chat's models</a>). On <code>list</code>, <code>autocode</code> also
