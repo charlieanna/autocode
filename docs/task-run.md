@@ -726,7 +726,7 @@ returns its assessment and `affected_targets` (empty for a question). A routed
 change does not alter the source run: its owner must reconcile and route the
 original human text through ordinary planning and review. The assistant row in
 `chat.messages` may mark a message `format: "plain"` when its text is a literal
-Requirements reply or question. Clients render it as text, preserving punctuation,
+Requirements reply or question or an approved-plan summary. Clients render it as text, preserving punctuation,
 both while it is open and when it appears in history. Older views omit this field.
 
 `chat.messages` exposes optional `conversation` metadata: `request_id`, `intent`,

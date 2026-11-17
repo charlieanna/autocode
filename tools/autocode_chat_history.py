@@ -169,7 +169,7 @@ def messages(state: RunState, *, completed=False) -> list[dict]:
         if event.get("kind") == "goal_approval" and event.get("token") and event.get("actor") != "workflow_policy":
             plan = _approved_plan(state, event)
             if plan:
-                rows.append({"id": f"plan-{event['token']}", "role": "assistant", "text": plan})
+                rows.append({"id": f"plan-{event['token']}", "role": "assistant", "text": plan, "format": "plain"})
             rows.append({"id": f"approval-{index}", "role": "user", "text": APPROVED_PLAN})
             if notice is not None:
                 rows.append(notice)

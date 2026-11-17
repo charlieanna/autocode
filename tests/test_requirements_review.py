@@ -9,6 +9,8 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
+import shlex
+import subprocess
 import sys
 import tempfile
 import types
@@ -706,6 +708,24 @@ class RequirementsReviewCliTests(unittest.TestCase):
         stages = self.stages(run)
         self.assertEqual(1, stages.count("requirements_gather"), stages)
         self.assertIn("draft_plan", stages)
+
+    def test_confirmation_named_command_reads_its_current_token(self):
+        run, view = self.start(*JOINT, "--spec-first")
+        _, question = self.review_need(view)
+        words = shlex.split(view["next_command"])
+        self.assertEqual("autocode", words.pop(0))
+        position = words.index("--answer") + 1
+        words[position] = question + "=plan"
+        result = subprocess.run(
+            [*run.command, *words],
+            env={**os.environ, **run.env, "AUTOCODE_SOURCE_HOST": "1"},
+            cwd=self.root,
+            text=True,
+            capture_output=True,
+            timeout=90,
+        )
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual("continue", (run.status().get("needs") or {}).get("kind"))
 
     def test_a_correction_runs_requirements_again_and_asks_again(self):
         run, view = self.start(*JOINT, "--spec-first")

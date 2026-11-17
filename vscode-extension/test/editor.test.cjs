@@ -1912,6 +1912,7 @@ test('Requirements plain text preserves literal filenames before confirmation', 
     { id: 'requirements-question-1', role: 'assistant', text: 'Outcome: tests/__init__.py' },
     { id: 'event-0-question', role: 'assistant', text: 'Saved: tests/__init__.py', format: 'plain' },
     { id: 'event-1-reply', role: 'assistant', text: 'Old: tests/__init__.py' },
+    { id: 'plan-r1:abc', role: 'assistant', text: 'Approved: tests/__init__.py', format: 'plain' },
   ];
   const ui = await openChat(t, view);
   const messages = ui.document.querySelector('#messages');
@@ -1919,6 +1920,7 @@ test('Requirements plain text preserves literal filenames before confirmation', 
   assert.match(messages.textContent, /Outcome: tests\/__init__\.py/);
   assert.match(messages.textContent, /Saved: tests\/__init__\.py/);
   assert.match(messages.textContent, /Old: tests\/__init__\.py/);
+  assert.match(messages.textContent, /Approved: tests\/__init__\.py/);
   assert.equal(messages.querySelector('strong'), null);
 });
 
