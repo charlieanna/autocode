@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { backendArgs, chatRoute, chatSource, currentRoute, fillChatSet, fillSet, modelArgs, readStages } from "../src/core/stages";
+import { backendArgs, chatRoute, chatSource, currentRoute, fillChatSet, fillProbe, fillSet, modelArgs, probeOutcome, readEstimate, readStages, sameEstimate } from "../src/core/stages";
 import { listKey, MAX_AGE_MS, StageListCache, STORAGE_KEY } from "../src/core/stage-cache";
 
 const OPUS = "claude-opus-5-5";
@@ -221,4 +221,52 @@ test("chat.changeable and modelArgs carry single-model locks and new-run model o
       "--builder-strong-model=s",
     ],
   );
+});
+
+const probe = {
+  stage: "builder",
+  candidates: [
+    { model: "openai/gpt-6.1-sol", effort: "medium", family: "gpt", billing: "subscription", ticked: true, reason: "newest openai model on the list", measured: null },
+    { model: "zai-coding-plan/glm-5.3", effort: null, family: "glm", billing: "subscription", ticked: false, reason: "older", measured: { qualified: true, reason: "lowest level that qualifies: 5/5", date: "2026-11-16" } },
+    { model: 3 },
+  ],
+  estimate: { next_command: ["probe", "--stage", "builder", "--planner", "glm", "high", "--json", "MEASURE"] },
+  run: { next_command: ["probe", "--stage", "builder", "--planner", "glm", "high", "--json", "MEASURE", "--max-cost-usd", "CAP"] },
+  stop: null,
+};
+
+test("a stage's probe offer keeps its candidates and fills only MEASURE and CAP, with listed models", () => {
+  const [builder] = readStages(view({ probe })).stages;
+  const offer = builder!.probe!;
+  assert.deepEqual(offer.candidates.map((row) => [row.model, row.ticked, row.measured?.qualified ?? null]), [
+    ["openai/gpt-6.1-sol", true, null],
+    ["zai-coding-plan/glm-5.3", false, true],
+  ]);
+  assert.deepEqual(fillProbe(offer, offer.estimate, ["zai-coding-plan/glm-5.3", "openai/gpt-6.1-sol"]).slice(-6), [
+    "--measure", "openai/gpt-6.1-sol", "medium", "--measure", "zai-coding-plan/glm-5.3", "default",
+  ]);
+  assert.deepEqual(fillProbe(offer, offer.run!, ["openai/gpt-6.1-sol"], 4.5).slice(-2), ["--max-cost-usd", "4.50"]);
+  assert.throws(() => fillProbe(offer, offer.run!, ["openai/gpt-6.1-sol"]), /needs the estimate's cost/);
+  assert.throws(() => fillProbe(offer, offer.estimate, ["evil --flag"]), /Not offered to measure: evil --flag/);
+  assert.throws(() => fillProbe(offer, offer.estimate, []), /Tick at least one/);
+  assert.equal(readStages(view()).stages[0]!.probe, null, "an older AutoCode offers no probe");
+  const odd = readStages(view({ probe: { ...probe, estimate: { next_command: ["stages", "set", "MEASURE"] } } })).stages[0]!;
+  assert.equal(odd.probe, null, "an estimate that is not `autocode probe` is never run");
+  const noRun = readStages(view({ probe: { ...probe, run: null, stop: "the Tester has no model to pin" } })).stages[0]!;
+  assert.equal(noRun.probe!.run, null);
+  assert.equal(noRun.probe!.stop, "the Tester has no model to pin");
+});
+
+test("the estimate is read from the probe's own JSON, and a run binds to the cost the person was shown", () => {
+  const estimate = readEstimate(JSON.stringify({ ran: false, estimate: { calls: 10, quick_calls: 4, max_usd: 3.141, basis: "priced" } }));
+  assert.deepEqual(estimate, { calls: 10, quickCalls: 4, maxUsd: 3.15, basis: "priced" });
+  assert.equal(readEstimate(JSON.stringify({ ran: false, estimate: { calls: 2, max_usd: null } })).maxUsd, null);
+  assert.throws(() => readEstimate(JSON.stringify({ ran: true, estimate: { calls: 2 } })), /Update AutoCode/);
+  const shown = { models: ["a/x"], estimate };
+  assert.equal(sameEstimate(shown, ["a/x"], estimate, 3.15), true);
+  assert.equal(sameEstimate(shown, ["a/x", "b/y"], estimate, 3.15), false, "other models than were priced");
+  assert.equal(sameEstimate(shown, ["a/x"], { ...estimate, maxUsd: 4 }, 3.15), false, "the price moved");
+  assert.equal(sameEstimate(undefined, ["a/x"], estimate, 3.15), false, "nothing was shown");
+  assert.match(probeOutcome("Builder", JSON.stringify({ spent_usd: 2, ranking: [{ model: "a/x", effort: "high", qualified: true, reason: "lowest level that qualifies: 5/5" }] })),
+    /Measured the Builder's models for \$2\.00\. a\/x at high: qualified, lowest level/);
 });

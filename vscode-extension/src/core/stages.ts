@@ -20,6 +20,30 @@ export interface StageOption {
 
 export interface StageRoute { model: string | null; effort: string | null }
 
+/** A model Stage models offers to measure for a stage: ticked when the free shortlist suggests it. */
+export interface ProbeCandidate {
+  model: string;
+  effort: string | null;
+  family: string | null;
+  billing: string | null;
+  ticked: boolean;
+  reason: string | null;
+  /** What an earlier probe found, or null when it was never measured. */
+  measured: { qualified: boolean; reason: string; date: string | null } | null;
+}
+
+/** The stage's measure-and-approve offer (`probe`): `MEASURE` and `CAP` are the only words a client fills. */
+export interface StageProbe {
+  candidates: ProbeCandidate[];
+  estimate: string[];
+  /** Null when the probe cannot run yet; `stop` says why. */
+  run: string[] | null;
+  stop: string | null;
+}
+
+/** What measuring the ticked models can cost, as `autocode probe --json` prints it before anything runs. */
+export interface ProbeEstimate { calls: number; quickCalls: number; maxUsd: number | null; basis: string }
+
 export interface ConfiguredStageRoute extends StageRoute { source: string }
 
 export interface Stage {
@@ -40,6 +64,8 @@ export interface Stage {
   chatSet: string[] | null;
   /** The list without this stage's pick for the chat, or null with none. */
   chatReset: string[] | null;
+  /** Stage models' offer to measure this stage's models, or null for a stage without a probe. */
+  probe: StageProbe | null;
 }
 
 /** How a new chat starts with its picks: the stage flags to add to its start, and the list that names them. */
@@ -111,6 +137,7 @@ export function readStages(raw: string): StageView {
       chat: route(value.chat),
       chatSet: chatListCommand((value.chat_set as Record<string, unknown> | null | undefined)?.next_command),
       chatReset: chatListCommand((value.chat_reset as Record<string, unknown> | null | undefined)?.next_command),
+      probe: readProbe(value.probe),
     });
   }
   const chat = parsed.chat as Record<string, unknown> | null | undefined;
@@ -121,6 +148,84 @@ export function readStages(raw: string): StageView {
     changeable: parsed.changeable !== false, reason: textOrNull(parsed.reason),
     chat: list && startArgs ? { list, startArgs, changeable: chat?.changeable !== false, reason: textOrNull(chat?.reason) } : null,
   };
+}
+
+const MEASURE = "MEASURE";
+const CAP = "CAP";
+
+/** A probe offer whose commands are `autocode probe` with one `MEASURE`, and `CAP` once in the run; else null. */
+function readProbe(value: unknown): StageProbe | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const once = (argv: string[], word: string): boolean => argv.filter((w) => w === word).length === 1;
+  const estimate = words((row.estimate as Record<string, unknown> | null | undefined)?.next_command);
+  if (!estimate || estimate[0] !== "probe" || !once(estimate, MEASURE) || estimate.includes(CAP)) return null;
+  let run = words((row.run as Record<string, unknown> | null | undefined)?.next_command);
+  if (run && (run[0] !== "probe" || !once(run, MEASURE) || !once(run, CAP))) run = null;
+  const candidates: ProbeCandidate[] = [];
+  for (const item of Array.isArray(row.candidates) ? (row.candidates as Record<string, unknown>[]) : []) {
+    if (typeof item?.model !== "string" || !item.model) continue;
+    const found = item.measured as Record<string, unknown> | null | undefined;
+    candidates.push({
+      model: item.model, effort: textOrNull(item.effort), family: textOrNull(item.family), billing: textOrNull(item.billing),
+      ticked: item.ticked === true, reason: textOrNull(item.reason),
+      measured: found && typeof found === "object" ? { qualified: found.qualified === true, reason: text(found.reason), date: textOrNull(found.date) } : null,
+    });
+  }
+  return { candidates, estimate, run, stop: textOrNull(row.stop) };
+}
+
+/**
+ * A probe command with `MEASURE` replaced by `--measure MODEL LEVEL` for each picked candidate, in the
+ * offer's order, and `CAP` by the cap: only candidates the offer lists, never a typed model.
+ */
+export function fillProbe(probe: StageProbe, command: string[], models: string[], cap?: number): string[] {
+  const unknown = models.filter((model) => !probe.candidates.some((row) => row.model === model));
+  if (unknown.length) throw new Error(`Not offered to measure: ${unknown.join(", ")}.`);
+  const picked = probe.candidates.filter((row) => models.includes(row.model));
+  if (!picked.length) throw new Error("Tick at least one model to measure.");
+  const argv: string[] = [];
+  for (const word of command) {
+    if (word === MEASURE) for (const row of picked) argv.push("--measure", row.model, row.effort ?? "default");
+    else if (word === CAP) {
+      if (cap === undefined || !Number.isFinite(cap) || cap <= 0) throw new Error("The probe needs the estimate's cost to run.");
+      argv.push(cap.toFixed(2));
+    } else argv.push(word);
+  }
+  return argv;
+}
+
+/** The estimate `autocode probe --json` printed before anything ran, or an error when it is not one. */
+export function readEstimate(raw: string): ProbeEstimate {
+  const parsed = JSON.parse(raw) as Record<string, unknown>;
+  const estimate = parsed.estimate as Record<string, unknown> | undefined;
+  if (parsed.ran !== false || !estimate || typeof estimate.calls !== "number") throw new Error("Update AutoCode to measure models.");
+  const max = estimate.max_usd;
+  return {
+    calls: estimate.calls,
+    quickCalls: typeof estimate.quick_calls === "number" ? estimate.quick_calls : 0,
+    maxUsd: typeof max === "number" && Number.isFinite(max) && max > 0 ? Math.ceil(max * 100 - 1e-9) / 100 : null,
+    basis: text(estimate.basis),
+  };
+}
+
+/** True when a fresh estimate prices exactly the models and cost the person was shown. */
+export function sameEstimate(shown: { models: string[]; estimate: ProbeEstimate } | undefined, models: string[],
+  fresh: ProbeEstimate, shownCap: number): boolean {
+  return !!shown && shown.models.join("\n") === models.join("\n") && shown.estimate.maxUsd === shownCap
+    && fresh.maxUsd !== null && fresh.maxUsd === shownCap;
+}
+
+/** What a finished probe found, in a sentence per model, from `autocode probe --json`. */
+export function probeOutcome(label: string, raw: string): string {
+  try {
+    const parsed = JSON.parse(raw) as { spent_usd?: unknown; ranking?: unknown; stopped?: unknown };
+    const rows = Array.isArray(parsed.ranking) ? (parsed.ranking as Record<string, unknown>[]) : [];
+    const lines = rows.map((row) => `${String(row.model)} at ${typeof row.effort === "string" ? row.effort : "its default level"}: ${row.qualified === true ? "qualified" : "not qualified"}, ${String(row.reason ?? "")}`);
+    const spent = typeof parsed.spent_usd === "number" ? `$${parsed.spent_usd.toFixed(2)}` : "an unknown amount";
+    const stopped = typeof parsed.stopped === "string" && parsed.stopped ? ` Stopped: ${parsed.stopped}.` : "";
+    return `Measured the ${label}'s models for ${spent}.${stopped} ${lines.join("; ")}`.trim();
+  } catch { return `Measured the ${label}'s models.`; }
 }
 
 /** A new chat's read-only list: `stages list`, never a run's or a change. */
