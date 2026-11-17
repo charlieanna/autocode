@@ -2178,7 +2178,7 @@
 
 
 <h1 id="models-roles-and-escalation">Models, roles, and escalation<a class="headerlink" href="#models-roles-and-escalation" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/b8e06da74517a8398ccf624df7c011d653312971/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/f2713d4a180dde67905f9990862ed0871efb2f61/README.md">← Back to README</a></p>
 <h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
 <p>Every stage of a run has a <strong>role</strong>. Role names describe responsibilities, not
 mandatory models — each role can select any provider/model from <code>opencode models</code>
@@ -2273,7 +2273,7 @@ use it in other roles. The <code>--single-model</code> exception is described ab
 <tr>
 <td>Builder</td>
 <td><code>zai-coding-plan/glm-5.3</code></td>
-<td>medium</td>
+<td>high (GLM-5.3 offers low, high and max)</td>
 <td>None; a stuck Builder gets one GPT-6 Sol XHigh attempt (<a href="#builder-retry-policy">retry policy</a>)</td>
 </tr>
 <tr>
@@ -2350,7 +2350,7 @@ review allowance leaves room for it (a large plan, <code>plan_review_call_limit<
 final review and the Planner never climbs. If the stronger revision is still blocked, the
 final review returns the open concerns to you as blocking questions.</p>
 <p>Two scripted scenarios check these rows end to end, through <code>autocode --status --json</code>
-(<a href="https://github.com/charlieanna/autocode/blob/b8e06da74517a8398ccf624df7c011d653312971/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
+(<a href="https://github.com/charlieanna/autocode/blob/f2713d4a180dde67905f9990862ed0871efb2f61/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
 attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
 Sol XHigh, one attempt with its cost, <code>passed</code>, and the run completes; <code>escalation_outcomes</code>
 stamps that attempt and the ordinary retry before it <code>passed</code> too. In <code>escalation-ladder-end</code>
