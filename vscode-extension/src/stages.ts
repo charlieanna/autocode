@@ -2,7 +2,7 @@
 import * as vscode from "vscode";
 import { randomBytes } from "node:crypto";
 import { invoke, invokeRead, tail, STAGES_TIMEOUT_MS } from "./core/cli";
-import { backendArgs, currentRoute, fillProbe, fillSet, modelArgs, probeOutcome, readEstimate, readStages, runListCommand, runRoute, sameEstimate, type ProbeEstimate, type Stage, type StageRoute, type StageView } from "./core/stages";
+import { backendArgs, currentRoute, fillModels, fillProbe, fillSet, modelArgs, probeOutcome, readEstimate, readStages, runListCommand, runRoute, sameEstimate, type ProbeEstimate, type Stage, type StageRoute, type StageView } from "./core/stages";
 import { listKey, type StageListCache } from "./core/stage-cache";
 import { readSettings, routeKeyOf, type Settings } from "./settings";
 
@@ -193,6 +193,26 @@ export class StagesPanel implements vscode.Disposable {
     });
   }
 
+  /**
+   * Save which models AutoCode may use: the core's own `models.set` filled with the ticked models it
+   * listed, or its `models.clear`. The core moves any stage outside them and prints the new view.
+   */
+  private async allow(type: string, picked: unknown, generation: number): Promise<void> {
+    const models = this.view?.models;
+    if (!models || this.target) throw new Error("This AutoCode cannot limit the models it uses; update AutoCode.");
+    const list = Array.isArray(picked) ? picked.filter((m): m is string => typeof m === "string") : [];
+    const argv = type === "allowAll" ? models.clear : fillModels(models, list);
+    if (!argv) return;
+    const result = await invoke(inFolder(readSettings()), argv, {}, STAGES_TIMEOUT_MS);
+    if (result.code !== 0) throw new Error(tail(result));
+    if (generation !== this.generation) return;
+    this.view = readStages(result.stdout);
+    this.lists?.expire();
+    this.note = type === "allowAll"
+      ? "AutoCode may use every model your accounts serve."
+      : `AutoCode may use ${list.length} model${list.length === 1 ? "" : "s"}. Stages outside them moved to one of them.`;
+  }
+
   private async receive(message: { type?: string; stage?: string; model?: string; effort?: string; models?: unknown; cap?: unknown; generation?: number }): Promise<void> {
     if (this.busy) return;
     if (message.type !== "ready" && message.generation !== this.generation) return;
@@ -207,6 +227,7 @@ export class StagesPanel implements vscode.Disposable {
       // The webview supplies only a stage ID, a model and a level. Re-read the core's
       // view and fill only its own named command, so nothing it does not offer is sent.
       if (!(await this.refresh()) || generation !== this.generation) return;
+      if (message.type === "allow" || message.type === "allowAll") { await this.allow(message.type, message.models, generation); return; }
       const stage = this.view?.stages.find((row) => row.id === message.stage);
       if (!stage) return;
       const models = Array.isArray(message.models) ? message.models.filter((m): m is string => typeof m === "string") : [];
@@ -266,10 +287,11 @@ body{font:var(--vscode-font-size) var(--vscode-font-family);color:var(--vscode-f
 <h1 id="title">Stage models</h1><p id="intro">Choose the model and reasoning level each stage of a new chat runs. Every new chat uses these; chats already started keep their own.</p><button id="refresh">Refresh</button><p id="error" role="alert"></p><p id="note" aria-live="polite"></p><p id="stop" class="muted"></p><main id="stages" aria-live="polite"></main>
 <script nonce="${nonce}">const api=acquireVsCodeApi();let context=null;const vscode={postMessage:message=>api.postMessage({...message,generation:context})};const main=document.getElementById('stages');
 document.getElementById('refresh').onclick=()=>vscode.postMessage({type:'refresh'});
-let drafts=Object.create(null);let invalidDrafts=Object.create(null);let probes=Object.create(null);
+let drafts=Object.create(null);let invalidDrafts=Object.create(null);let probes=Object.create(null);let allowState={list:null,filter:'',open:null};
 function text(tag,value,cls){const node=document.createElement(tag);node.textContent=value;if(cls)node.className=cls;return node;}
-window.addEventListener('message',({data})=>{if(context!==data.generation){context=data.generation;drafts=Object.create(null);invalidDrafts=Object.create(null);probes=Object.create(null);}if(data.savedStage){delete drafts[data.savedStage];delete invalidDrafts[data.savedStage];}const focus=document.activeElement&&document.activeElement.getAttribute('aria-label');main.replaceChildren();document.getElementById('title').textContent=data.scope==='run'?"This chat's models":"Stage models";document.getElementById('intro').textContent=data.scope==='run'?"Choose the model and reasoning level each stage of this chat runs from its next launch. New chats keep using Stage models.":"Choose the model and reasoning level each stage of a new chat runs. Every new chat uses these; chats already started keep their own.";document.getElementById('error').textContent=data.error||'';document.getElementById('note').textContent=data.note||'';document.getElementById('refresh').disabled=data.busy;const view=data.view;if(!view)return;
+window.addEventListener('message',({data})=>{if(context!==data.generation){context=data.generation;drafts=Object.create(null);invalidDrafts=Object.create(null);probes=Object.create(null);allowState={list:null,filter:'',open:null};}if(data.savedStage){delete drafts[data.savedStage];delete invalidDrafts[data.savedStage];}const focus=document.activeElement&&document.activeElement.getAttribute('aria-label');main.replaceChildren();document.getElementById('title').textContent=data.scope==='run'?"This chat's models":"Stage models";document.getElementById('intro').textContent=data.scope==='run'?"Choose the model and reasoning level each stage of this chat runs from its next launch. New chats keep using Stage models.":"Choose the model and reasoning level each stage of a new chat runs. Every new chat uses these; chats already started keep their own.";document.getElementById('error').textContent=data.error||'';document.getElementById('note').textContent=data.note||'';document.getElementById('refresh').disabled=data.busy;const view=data.view;if(!view)return;
 const locked=view.changeable===false;document.getElementById('stop').textContent=view.optionsStop?'Models cannot be listed: '+view.optionsStop:locked?(view.reason||'These models cannot change now.'):'Backend: '+view.label;
+if(view.models&&data.scope!=='run'&&view.models.options.length)main.append(modelsSection(view.models,data));
 for(const stage of view.stages){const card=document.createElement('article');card.append(text('h2',stage.label),text('p',stage.does,'muted'),text('p','Advice: '+stage.advice,'muted'),text('p','Now: '+stage.now));
 const models=document.createElement('select');models.setAttribute('aria-label',stage.label+' model');const levels=document.createElement('select');levels.setAttribute('aria-label',stage.label+' reasoning level');
 const savedModel=(stage.chosen&&stage.chosen.model)||stage.default.model;const savedEffort=(stage.chosen&&stage.chosen.effort)||stage.default.effort;const draft=drafts[stage.id];const valid=draft&&stage.options.some(o=>o.model===draft.model&&!o.unavailable&&o.effortChoices.includes(draft.effort));const current=valid?draft.model:savedModel;const currentEffort=valid?draft.effort:savedEffort;if(draft&&!valid){delete drafts[stage.id];invalidDrafts[stage.id]=true;}const warning=invalidDrafts[stage.id]?text('p','Your unsaved model or reasoning level is no longer available; review this choice.','muted'):null;if(warning)card.append(warning);
@@ -278,6 +300,18 @@ const fill=()=>{levels.replaceChildren();const option=stage.options.find((row)=>
 const changed=()=>{delete invalidDrafts[stage.id];if(warning)warning.remove();drafts[stage.id]={model:models.value,effort:levels.value};save.disabled=data.busy||locked||!stage.options.length;};models.onchange=()=>{fill();changed();};levels.onchange=changed;fill();const save=document.createElement('button');save.textContent='Save';save.disabled=data.busy||locked||!stage.options.length||!!invalidDrafts[stage.id];save.onclick=()=>vscode.postMessage({type:'set',stage:stage.id,model:models.value,effort:levels.value});card.append(models,levels,save);
 if(stage.reset){const reset=document.createElement('button');reset.textContent='Use the default';reset.disabled=data.busy;reset.onclick=()=>vscode.postMessage({type:'reset',stage:stage.id});card.append(reset);}
 if(stage.probe&&data.scope!=='run')card.append(probeSection(stage,data));main.append(card);}if(focus){const target=[...main.querySelectorAll('[aria-label]')].find(n=>n.getAttribute('aria-label')===focus);if(target&&!target.disabled)target.focus();}});
+function modelsSection(models,data){const box=document.createElement('details');const state=allowState;if(state.open===null)state.open=models.allowed===null;box.open=state.open;box.ontoggle=()=>{state.open=box.open;};
+box.append(text('summary',models.allowed===null?'Models AutoCode may use: every model your accounts serve ('+models.options.length+')':'Models AutoCode may use: '+models.allowed.length+' of '+models.options.length));
+box.append(text('p','Every stage, measurement, automatic choice, fallback and escalation uses only the ticked models. The suggested ones are ticked first. A stage outside them moves to one of them when you save.','muted'));
+const filter=document.createElement('input');filter.type='search';filter.placeholder='Filter models';filter.setAttribute('aria-label','Models AutoCode may use');filter.value=state.filter;box.append(filter);
+const list=document.createElement('div');const picked=new Set(state.list!==null?state.list:models.options.filter(row=>row.ticked).map(row=>row.model));const checks=[];
+for(const row of models.options){const label=document.createElement('label');label.style.display='block';const check=document.createElement('input');check.type='checkbox';check.value=row.model;check.checked=picked.has(row.model);check.disabled=data.busy;checks.push(check);
+label.append(check,document.createTextNode(' '+row.model+' · '+[row.family,row.account,row.billing,row.suggested?'suggested':''].filter(Boolean).join(' · ')));label.title=row.reason||'';list.append(label);}
+filter.oninput=()=>{state.filter=filter.value;for(const label of list.children)label.style.display=label.textContent.toLowerCase().includes(filter.value.toLowerCase())?'block':'none';};filter.oninput();
+const ticked=()=>{const now=checks.filter(c=>c.checked).map(c=>c.value);const first=(models.allowed||[]).filter(m=>now.includes(m));return [...first,...now.filter(m=>!first.includes(m))];};
+const save=document.createElement('button');save.textContent='Save these models';save.disabled=data.busy;for(const check of checks)check.onchange=()=>{state.list=ticked();save.disabled=data.busy||!state.list.length;};
+save.onclick=()=>{const chosen=ticked();state.list=null;vscode.postMessage({type:'allow',models:chosen});};box.append(list,save);
+if(models.clear){const all=document.createElement('button');all.textContent='Use every model';all.disabled=data.busy;all.onclick=()=>{state.list=null;vscode.postMessage({type:'allowAll'});};box.append(all);}return box;}
 function probeSection(stage,data){const probe=stage.probe;const box=document.createElement('details');const shown=(data.estimates||{})[stage.id];const running=(data.measuring||[]).includes(stage.id);const state=probes[stage.id]||(probes[stage.id]={picked:null,filter:'',open:false});box.open=state.open||!!shown||running;box.append(text('summary','Measure models for this stage'));
 box.append(text('p','The ticked models are suggested, at no cost, from what your accounts list. Measuring runs short tasks on each and ranks them for automatic selection. Nothing runs until you press Measure.','muted'));
 if(state.picked!==null){const offered=new Set(probe.candidates.map(row=>row.model));const missing=state.picked.filter(model=>!offered.has(model));if(missing.length){state.unavailable=[...new Set([...(state.unavailable||[]),...missing])];state.picked=state.picked.filter(model=>offered.has(model));state.refreshEstimate=true;}}const unavailable=state.unavailable&&state.unavailable.length?text('p','Previously selected models are no longer available: '+state.unavailable.join(', ')+'. Review the selection.','muted'):null;if(unavailable){box.open=true;box.append(unavailable);}

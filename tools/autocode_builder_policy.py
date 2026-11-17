@@ -68,6 +68,11 @@ NOT_OFFERED = (
     "Implementation remains blocked after the ordinary retries; this run has no stronger Builder attempt "
     "because its provider does not offer {model}"
 )
+# The stronger attempt needs a model the person left out of the models AutoCode may use (autocode_allowed_models).
+NOT_ALLOWED = (
+    "Implementation remains blocked after the ordinary retries; this run has no stronger Builder attempt "
+    "because it needs {model}, which is not among the models you allow AutoCode to use"
+)
 # The stronger route AutoCode chose failed its access check before any Builder request (model preflight).
 UNREACHABLE = (
     "Implementation remains blocked after the ordinary retries; this run has no stronger Builder attempt "
@@ -506,6 +511,8 @@ def _escalate(state: RunState, current, config, route):
     if unreachable:
         return "pause", {}, UNREACHABLE.format(**unreachable)
     if not config.get("strong_model"):
+        if config.get("not_allowed"):
+            return "pause", {}, NOT_ALLOWED.format(model=config["not_allowed"])
         missing = config.get("not_offered")
         return "pause", {}, NOT_OFFERED.format(model=missing) if missing else NO_STRONG_MODEL
     engine = route.get("engine", state["settings"].get("engine"))

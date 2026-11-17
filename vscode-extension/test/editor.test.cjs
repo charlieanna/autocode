@@ -888,6 +888,68 @@ test('stage models explains when a drafted reasoning level is no longer offered'
   } finally { dom.window.close(); }
 });
 
+function allowedModels(allowed = null) {
+  return {
+    allowed,
+    options: [
+      { model: 'sonnet', family: 'claude', suggested: true, ticked: allowed ? allowed.includes('sonnet') : true },
+      { model: 'opus', family: 'claude', suggested: true, ticked: allowed ? allowed.includes('opus') : true },
+      { model: 'haiku', family: 'claude', suggested: false, ticked: allowed ? allowed.includes('haiku') : false },
+    ],
+    set: { next_command: ['stages', 'models', '--json', 'MODELS'] },
+    clear: allowed ? { next_command: ['stages', 'models', '--json', '--allow-all'] } : null,
+  };
+}
+
+test('stage models saves the ticked models AutoCode may use through the core\'s own command', async (t) => {
+  const calls = [];
+  let allowed = null;
+  t.mock.method(cli, 'invoke', async (_settings, argv) => {
+    calls.push(argv);
+    if (argv[1] === 'models') {
+      allowed = argv.includes('--allow-all') ? null : argv.filter((_word, i) => argv[i - 1] === '--allow');
+    }
+    return { ...ok, stdout: JSON.stringify({ ...stageView(), models: allowedModels(allowed) }) };
+  });
+  const stages = new StagesPanel();
+  t.after(() => stages.dispose());
+  await stages.show();
+  const panel = host.panels.at(-1);
+  const generation = panel.webview.messages.at(-1).generation;
+  panel.webview.receive({ type: 'allow', models: ['opus', 'sonnet'], generation }); await flush();
+  assert.deepEqual(calls.at(-1), ['stages', 'models', '--json', '--allow', 'opus', '--allow', 'sonnet']);
+  assert.deepEqual(panel.webview.messages.at(-1).view.models.allowed, ['opus', 'sonnet']);
+  panel.webview.receive({ type: 'allow', models: ['gpt --evil'], generation }); await flush();
+  assert.match(panel.webview.messages.at(-1).error, /do not serve gpt --evil/);
+  assert.equal(calls.filter((argv) => argv.includes('gpt --evil')).length, 0, 'an unlisted model is never sent');
+  panel.webview.receive({ type: 'allowAll', generation }); await flush();
+  assert.deepEqual(calls.at(-1), ['stages', 'models', '--json', '--allow-all']);
+  assert.equal(panel.webview.messages.at(-1).view.models.allowed, null);
+});
+
+test('the models AutoCode may use are a searchable tick list that keeps the saved order', () => {
+  const sent = [];
+  const dom = new JSDOM(stagesHtml(), { runScripts: 'dangerously', beforeParse(window) {
+    window.acquireVsCodeApi = () => ({ postMessage: (message) => sent.push(message) });
+  } });
+  try {
+    const view = readStages(JSON.stringify({ ...stageView(), models: allowedModels(['opus', 'sonnet']) }));
+    dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data: { view, scope: 'new', generation: 1 } }));
+    const doc = dom.window.document;
+    assert.match(doc.querySelector('summary').textContent, /Models AutoCode may use: 2 of 3/);
+    const checks = [...doc.querySelectorAll('input[type="checkbox"]')];
+    assert.deepEqual(checks.map((check) => [check.value, check.checked]), [['sonnet', true], ['opus', true], ['haiku', false]]);
+    checks[2].checked = true; checks[2].dispatchEvent(new dom.window.Event('change'));
+    [...doc.querySelectorAll('button')].find((b) => b.textContent === 'Save these models').click();
+    assert.deepEqual(JSON.parse(JSON.stringify(sent.at(-1))), { type: 'allow', models: ['opus', 'sonnet', 'haiku'], generation: 1 });
+    const filter = doc.querySelector('input[type="search"]');
+    filter.value = 'hai'; filter.dispatchEvent(new dom.window.Event('input'));
+    assert.deepEqual(checks.map((check) => check.parentElement.style.display), ['none', 'none', 'block']);
+    [...doc.querySelectorAll('button')].find((b) => b.textContent === 'Use every model').click();
+    assert.equal(sent.at(-1).type, 'allowAll');
+  } finally { dom.window.close(); }
+});
+
 test('model measurement keeps an empty selection and never enables an old estimate', () => {
   const dom = new JSDOM(stagesHtml(), { runScripts: 'dangerously', beforeParse(window) {
     window.acquireVsCodeApi = () => ({ postMessage() {} });

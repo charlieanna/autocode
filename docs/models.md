@@ -229,6 +229,44 @@ pick against the others as they will all stand and saves all of them, or none (#
 A saved level differs from a typed one in one way: for the three review stages it is a ceiling
 ([reasoning effort](#reasoning-effort)). Every other stage runs at the level you saved.
 
+### Which models AutoCode may use
+
+An account can serve hundreds of models: a gateway lists about 500. So before the stages, setup
+and `autocode stages choose` ask which models AutoCode may use on the backend at all (owner
+request 2026-11-17). They number only the suggested models: the free shortlist that measuring
+also starts from ([ranking your own models](#ranking-your-own-models-by-measurement)), plus every
+model a stage runs now, so taking the suggestion moves no stage. Enter keeps the marked ones,
+`list` prints every model with the reason it is or is not suggested, any model your accounts serve
+may be named, and `all` keeps every model. List them in the order you prefer: that order decides
+which allowed model a stage moves to. `autocode stages models` shows the list,
+`autocode stages models --allow MODEL --allow MODEL` sets it without asking, and `--allow-all`
+removes it. Stage models in VS Code has the same list with a search box.
+
+The list is kept per backend in `stages.toml`, as one `[allowed]` table:
+
+```toml
+[allowed]
+kilocode = ["anthropic/claude-sonnet-4-5", "openai/gpt-5.6-sol"]
+```
+
+With a list, everything that picks a model on that backend picks only from it:
+
+- every stage list offers only those models, and a stage choice outside them is refused;
+- measuring a stage ticks and offers only those models;
+- automatic selection chooses among them, and a fallback after a model stops
+  ([quota](#when-a-roles-quota-runs-out)) stays inside the list the run started with;
+- no escalation climbs to a model outside them. A reasoning-level climb stays on the same model. The
+  Builder's stronger attempt is not made when it needs a model you left out, and the retry-limit
+  pause says so ([Builder retry policy](#builder-retry-policy)).
+
+When you set a list, a stage whose choice or default falls outside it moves to the first model in
+your order that it may run beside the others, at the level nearest its default, and is saved as
+its choice. A default stage that checks it moves too when they would clash: allowing only Sonnet
+and Opus on Claude Code gives the Builder Sonnet and moves the Tester to Opus. A stage you chose
+inside the list never moves, and a list that leaves a stage no model it may run is refused with
+nothing saved. A model you type for one run (`--builder-model`, `--builder-strong-model`) still
+runs, as a typed flag always does; `--single-model` ignores the list.
+
 ### Changing a new chat's models
 
 A client can show a chat that has not started the model and level each stage will run, and let the

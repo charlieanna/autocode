@@ -315,9 +315,14 @@ def offer_stages(use, *, ask=input, choose=None, load=None, out=print) -> bool:
         out(f"Your stage choices cannot be read: {error}")
         return False
     if saved:
-        wanted = ask("Change the model and reasoning level of each stage? [y/N] ").strip().lower() in ("y", "yes")
+        wanted = ask("Change the models AutoCode may use, or each stage's model and level? [y/N] ").strip().lower() in (
+            "y",
+            "yes",
+        )
     else:
-        wanted = ask("Choose the model and reasoning level for each stage now? [Y/n] ").strip().lower() in (
+        wanted = ask(
+            "Choose the models AutoCode may use and each stage's model and level now? [Y/n] "
+        ).strip().lower() in (
             "",
             "y",
             "yes",

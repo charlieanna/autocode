@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_allowed_models as allowed_models
     from . import autocode_model_identity as model_identity
     from . import autocode_quota_route as quota_route
     from . import autocode_role_transport as role_transport
@@ -35,6 +36,7 @@ try:
     from . import autocode_verifier_independence as independence
     from . import autocode_worker_quota as worker_quota
 except ImportError:
+    import autocode_allowed_models as allowed_models
     import autocode_model_identity as model_identity
     import autocode_quota_route as quota_route
     import autocode_role_transport as role_transport
@@ -430,7 +432,8 @@ def _subscription_pool(
             saved_order.append(saved_cfg["model"])
 
     deduped: dict[str, dict] = {}
-    for row in raw_rows:
+    # A fallback stays inside the models the person allowed when the run started (autocode_allowed_models).
+    for row in allowed_models.keep(raw_rows, settings.get("allowed_models")):
         model = row.get("model")
         if isinstance(model, str) and model and model not in deduped:
             deduped[model] = row
