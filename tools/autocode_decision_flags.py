@@ -20,6 +20,7 @@ DECISION_FLAGS = (
     "--delegate-all",
     "--reject-assumption",
     "--approve-goal",
+    "--extend-plan-time-limit",
     "--changeset-token",
     "--assign-linked-scope",
     "--edit-goal",
