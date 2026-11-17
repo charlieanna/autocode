@@ -208,7 +208,9 @@ export function struggling(view: unknown, now = Date.now()): string {
   if (!row || row.state !== "retrying") return "";
   const newest = rows(mapping(mapping(mapping(view).usage).accounting).attempts)
     .filter((attempt) => attempt.active && (text(attempt.original_stage) || text(attempt.stage)) === row.stage).pop();
-  const parts = [row.job, newest && repair(newest) ? `report repair ${row.repairs}` : `attempt ${row.attempts}`];
+  // A report repair only rewrites a rejected report; it is quiet machinery, never a struggling stage.
+  if (newest && repair(newest)) return "";
+  const parts = [row.job, `attempt ${row.attempts}`];
   if (row.seconds !== null) parts.push(duration(row.seconds));
   // "last one answer rejected" read as a typo (2026-11-11).
   if (row.why) parts.push(row.why === "answer rejected" ? "last answer rejected" : `last one ${row.why}`);

@@ -584,6 +584,21 @@ class ProjectTests(unittest.TestCase):
         self.assertEqual(
             ["message", "thinking"], [entry["kind"] for entry in self.project()], "a kept level says nothing"
         )
+        # Format-only report repairs are quiet internal machinery: never announce "corrects the last answer" in chat.
+        self.state["active_stage"].update(
+            stage="review_plan_report_repair",
+            effort_choice={
+                "level": "low",
+                "ceiling": "high",
+                "lowered": True,
+                "reason": "format_repair",
+                "text": "this attempt only corrects the last answer, it does not redo the work",
+            },
+        )
+        self.assertFalse(
+            [entry for entry in self.project() if str(entry.get("id", "")).startswith("effort:")],
+            "a format repair stays quiet in the live chat log",
+        )
 
     def test_a_model_that_has_not_answered_yet_is_shown_starting_with_the_time_waited(self):
         # 2026-11-15: a "hi" showed only "Requirements working" for 27 s while Kilo started, then glm-5.3

@@ -13,7 +13,7 @@ import { approvalToken, hasPlanReview, isWorking, needsSummary, pauseLabel, plan
 import type { RunController, RunRef } from "./controller";
 import { markdown, type TextNode } from "./chat-markdown";
 import { chatStyles, installChatBehavior } from "./upstream/kilo-chat";
-import { finishSummary, runTotal, struggling, totalText, type FinishSummary } from "./core/meter";
+import { finishSummary, runTotal, totalText, type FinishSummary } from "./core/meter";
 import { runHeader, personReason, type RunHeader } from "./core/details";
 
 export interface Decision {
@@ -119,16 +119,14 @@ export interface PanelState {
   header?: RunHeader | null;
 }
 
-/** The struggling warning and the run's cost line the chat shows; each stage's row is the run header's. */
+/** The run's cost line the chat shows; each stage's row is the run header's. */
 export interface MeterState {
-  struggling: string;
   total: string;
 }
 
 /** The meter for one status view: display only, every figure the core's own. */
-export function meterOf(view: StatusView, now = Date.now()): MeterState {
+export function meterOf(view: StatusView): MeterState {
   return {
-    struggling: view.done ? "" : struggling(view, now),
     total: totalText(runTotal(view)),
   };
 }
@@ -867,8 +865,6 @@ const METER_STYLES = `
   .stages-title { font-weight: 600; text-transform: uppercase; letter-spacing: .05em; opacity: .75; font-size: .7rem; }
   button.link { background: none; border: none; padding: 0; color: var(--vscode-textLink-foreground); font-size: .72rem; }
   button.link[hidden] { display: none; }
-  .struggling { border-left: 3px solid var(--vscode-editorWarning-foreground, #cc8800); padding: 3px 8px; margin: 4px 0;
-                color: var(--vscode-editorWarning-foreground, #cc8800); font-size: .85rem; }
   .chat-tab .dot.needs { color: var(--vscode-editorWarning-foreground, #cc8800); }
   .chat-tab .dot.finished { color: var(--vscode-charts-green, #3a7d3a); }
   .welcome { padding: 4px 2px; font-size: .88rem; }
@@ -900,16 +896,14 @@ const METER_STYLES = `
   #pipeline .stage-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   #pipeline .runs { flex: none; margin-left: 5px; padding: 0 5px; border-radius: 8px; font-size: .64rem; font-weight: 400;
                     background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
-  #pipeline .runs.failed { background: transparent; color: var(--vscode-editorWarning-foreground, #cc8800);
-                           border: 1px solid var(--vscode-editorWarning-foreground, #cc8800); }
-  #pipeline tr.retrying .runs { background: var(--vscode-editorWarning-foreground, #cc8800); color: var(--vscode-editor-background, #fff); }
   #pipeline tbody tr.ran td.mark { color: var(--vscode-charts-green, #3a7d3a); }
   #pipeline tbody tr.working td { background: var(--vscode-list-inactiveSelectionBackground, rgba(128, 128, 128, .18)); }
   #pipeline tbody tr.working td:first-child { border-radius: 4px 0 0 4px; }
   #pipeline tbody tr.working td:last-child { border-radius: 0 4px 4px 0; }
-  #pipeline tbody tr.working td.mark { color: var(--vscode-charts-blue, #1a6fb0); }
-  #pipeline tbody tr.retrying td.mark { color: var(--vscode-editorWarning-foreground, #cc8800); }
-  #pipeline tbody tr.ran.stopped td.mark { color: var(--vscode-errorForeground, #c72e2e); }
+  #pipeline tbody tr.working td.mark, #pipeline tbody tr.retrying td.mark { color: var(--vscode-charts-blue, #1a6fb0); }
+  #pipeline tbody tr.ran.stopped td.mark { color: var(--vscode-descriptionForeground, inherit); }
+  #run-header.stopped #pipeline tbody tr.ran.stopped td.mark,
+  #run-header.blocked #pipeline tbody tr.ran.stopped td.mark { color: var(--vscode-errorForeground, #c72e2e); }
   #pipeline tbody tr.working td.name, #pipeline tbody tr.next td.name { font-weight: 600; }
   #pipeline tbody tr.pending, #pipeline tbody tr.not_run, #pipeline tbody tr.skipped { opacity: .55; }
   #pipeline tbody tr.skipped td.name { text-decoration: line-through; }
@@ -999,7 +993,7 @@ export function panelHtml(chat = false): string {
   .state { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; padding: 1px 6px; border-radius: 3px;
            background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
   .state.done, .state.checked, .state.reviewed { background: var(--vscode-charts-green, #3a7d3a); }
-  .state.failed, .state.blocking { background: var(--vscode-errorForeground, #a1260d); }
+  body.stopped .state.failed, body.stopped .state.blocking { background: var(--vscode-errorForeground, #a1260d); }
   .state.working { background: var(--vscode-charts-blue, #1a6fb0); }
   .counts { display: flex; gap: 14px; font-size: .82rem; margin: 6px 0; }
   button { font: inherit; padding: 4px 12px; border: 1px solid var(--vscode-button-border, transparent);
@@ -1014,7 +1008,7 @@ export function panelHtml(chat = false): string {
   .why { font-size: .76rem; opacity: .75; }
   .requirements-card { margin: 8px 0; }
   .assumption-row, .conflict-row { padding: 6px 8px; margin: 6px 0; border-left: 2px solid var(--vscode-panel-border); }
-  .conflict-row { border-left-color: var(--vscode-errorForeground, #a1260d); }
+  .conflict-row { border-left-color: var(--vscode-editorWarning-foreground, #cc8800); }
   .assumption-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 3px; font-size: .78rem; }
   .requirements-details { margin: 8px 0; font-size: .84rem; }
   .requirements-details summary { cursor: pointer; font-weight: 600; }
@@ -1022,7 +1016,8 @@ export function panelHtml(chat = false): string {
   .activity { margin: 6px 0; font-family: var(--vscode-editor-font-family, monospace); font-size: .82rem; }
   .activity-row { display: flex; gap: 6px; opacity: .85; }
   .activity-row.running { opacity: 1; }
-  .activity-row.failed { color: var(--vscode-errorForeground); }
+  /* Nonzero shell/tool exits (grep with 0 matches, fail-first test runs) are ordinary agent work, never red errors. */
+  .activity-row.failed { opacity: .7; color: var(--vscode-descriptionForeground, inherit); }
   .activity-row.thinking { opacity: .7; font-style: italic; }
   .activity-mark { width: 1ch; flex: none; }
   .live-log .log-agent { margin-top: 6px; font-family: var(--vscode-font-family); font-size: .76rem; font-weight: 600; opacity: .8; }
@@ -1035,7 +1030,7 @@ export function panelHtml(chat = false): string {
   .live-log details[open] summary::after { content: ' ▾'; }
   .live-log details .count { opacity: .75; }
   .live-log .fold-line { margin: 2px 0 2px 2px; padding-left: 6px; border-left: 2px solid var(--vscode-panel-border); white-space: pre-wrap; overflow-wrap: anywhere; }
-  .live-log .fold-line.failed { color: var(--vscode-errorForeground); }
+  .live-log .fold-line.failed { opacity: .75; color: var(--vscode-descriptionForeground, inherit); }
   /* Prose and the words that name a group read in the UI font; commands and paths stay monospace. */
   .live-log .activity-row[data-kind="message"], .live-log .activity-row[data-kind="thinking"], .live-log details summary { font-family: var(--vscode-font-family); }
   .live-log .thought .fold-line { font-style: normal; }
@@ -1266,12 +1261,6 @@ function actionPrompt(state) {
 }
 
 function renderChatProgress(container, state) {
-  if (state.meter && state.meter.struggling) {
-    const warn = el('div', 'struggling', '⚠ ' + state.meter.struggling);
-    warn.id = 'struggling';
-    warn.setAttribute('role', 'status');
-    container.appendChild(warn);
-  }
   const lines = state.chat && Array.isArray(state.chat.progress)
     ? state.chat.progress.filter((line) => typeof line === 'string' && line) : [];
   // Live agent log (chat.log): what each running agent thinks, says and does. Kept by id
@@ -1494,10 +1483,10 @@ function renderHeader(data) {
     nameLine.appendChild(el('span', 'stage-name', step.label));
     if (step.attempts > 1 || step.repairs) {
       // A small count of the stage's own launches, and its report repairs apart (a repair only rewrote a
-      // rejected report); the words are its tooltip and Show details. Amber when an attempt failed.
+      // rejected report); the words are its tooltip and Show details. Calm badge while AutoCode works.
       const count = [step.attempts > 1 ? '×' + step.attempts : '', step.repairs ? '+' + step.repairs + (step.repairs > 1 ? ' repairs' : ' repair') : '']
         .filter(Boolean).join(' ');
-      const badge = el('span', 'runs' + (step.failed ? ' failed' : ''), count);
+      const badge = el('span', 'runs', count);
       badge.title = step.runs;
       badge.setAttribute('aria-label', step.runs);
       nameLine.appendChild(badge);
@@ -1710,11 +1699,12 @@ function render(state) {
     state.chat && [state.chat.phase, state.chat.notice, state.chat.progress, state.chat.activity, state.chat.log, state.chat.now, state.chat.review, state.chat.gate, state.chat.input && state.chat.input.kind],
     state.chat && (state.chat.messages || []).filter((row) => String(row.id || '').startsWith('requirements-question-')),
     state.workingDiff, state.boundRaise, state.jobTimeControls, state.done, state.finish,
-    state.meter && state.meter.struggling, state.allChanges,
+    state.allChanges,
   ] : state;
   const serialized = JSON.stringify(chatSlice);
   if (serialized === renderedState) return;
   renderedState = serialized;
+  document.body.classList.toggle('stopped', Boolean(state.stopped || state.pause));
   const sameRequest = current && current.decisionContext === state.decisionContext;
   const focused = document.activeElement;
   const focusedAttr = sameRequest && focused && (
