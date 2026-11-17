@@ -516,8 +516,10 @@ may still write them, and each is read through that table:
 
 - the old flag spellings (`--terra-model`), `--pin-model-role`, `--role-transport`, a provider
   config's `[roles]`, `.autocode/config.toml` and `stages.toml`;
-- a run saved before the rename, which is refused at resume and stays readable, as a run at a
-  retired stage is (`names.RETIRED_ROUTES`);
+- a run saved before the rename, which is read with the job names and continues
+  (`autocode_saved_names`, owner request 2026-11-17: refusing it ended many chats with "This chat
+  can't continue"); sealed plans and digest-filed evidence keep their old words and are read through
+  `saved_names.rename`;
 - schema file stems (`names.file_stem`) and legacy v1 artifacts;
 - a fake provider copied out of `tools/` to run, which names the stages itself
   (`fake_codex.TASK_PLANNER_STAGES`, kept equal by `tests.test_names`).

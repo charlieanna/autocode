@@ -46,12 +46,12 @@ from pathlib import Path
 
 try:
     from . import autocode_adaptive_planning as adaptive
-    from . import autocode_names as names
     from . import autocode_roles as roles
+    from . import autocode_saved_names as saved_names
 except ImportError:
     import autocode_adaptive_planning as adaptive
-    import autocode_names as names
     import autocode_roles as roles
+    import autocode_saved_names as saved_names
 
 WORKFLOWS = ("build", "bugfix", "review", "design", "discuss")
 # The stages earlier runtimes ran and this one does not: the job recognizer and the four jobs that
@@ -69,32 +69,27 @@ STANDARD_IMPLEMENTATION = "standard"
 
 
 def retired_stage(state: RunState) -> str | None:
-    """Why a saved run cannot continue, when it is waiting at a stage this runtime no longer runs or was
-    saved under the old route names (autocode_names), else None."""
-    saved = ((state.get("settings") or {}).get("roles")) or {}
-    if old := sorted(role for role in saved if role in names.RETIRED_ROUTES):
-        renamed = ", ".join(f"{role} (now {names.route(role)})" for role in old)
+    """Why a saved run cannot continue here, in words for the person, else None.
+
+    A run saved under the old code names (autocode_names) is read with the job names
+    (autocode_saved_names, on every read of its state.json) and continues; only one that names a
+    route or its review count both ways, which no rename can settle, is still refused here. A run
+    waiting at a stage this runtime no longer runs (RETIRED_STAGES) cannot continue either.
+    """
+    if saved_names.needed(state):
         return (
-            f"This run was saved before AutoCode named its stages after their jobs: its routes {renamed} "
-            "use the old names, which this runtime no longer runs. Its status and saved reports stay "
-            "readable; start a new task to continue the work."
-        )
-    # The last renaming step renamed the planning record's review counter; a run saved between the
-    # steps has job-named routes and the old counter, which this runtime no longer keeps.
-    if names.OLD_PLANNING_COUNTER in (state.get("planning") or {}):
-        return (
-            "This run was saved before AutoCode finished naming its records after their jobs: its plan "
-            f"review count is kept as {names.OLD_PLANNING_COUNTER}, which this runtime no longer reads. Its "
-            "status and saved reports stay readable; start a new task to continue the work."
+            "An older AutoCode version saved this chat in a form this version can't read safely, so it "
+            "can't pick up where it stopped. Everything it saved stays readable here; start a new chat to "
+            "carry on with the task."
         )
     stage = str(state.get("next_stage") or "").removesuffix("_report_repair")
     if stage not in RETIRED_STAGES:
         return None
     job = roles.screen_name(stage)
     return (
-        f"This run was saved at the {job} stage ({stage}), which AutoCode no longer runs: every task now "
-        "takes the same path (Requirements, Planner, Plan Reviewer, Builder, Tester, Completion Reviewer). "
-        "Its status and saved reports stay readable; start a new task to continue the work."
+        f"This chat stopped at the {job} step, which AutoCode no longer has: every task now takes the same "
+        "path (Requirements, Planner, Plan Reviewer, Builder, Tester, Completion Reviewer). Everything it "
+        "saved stays readable here; start a new chat to carry on with the task."
     )
 
 

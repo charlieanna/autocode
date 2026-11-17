@@ -52,6 +52,7 @@ try:
     from . import autocode_control_replies as control_replies
     from . import autocode_prompts as prompts
     from . import autocode_requirement_cues as cues
+    from . import autocode_saved_names as saved_names
     from . import autocode_source_metadata as source_metadata
     from . import autocode_util as util
     from .autocode_requirement_coverage import requirement_coverage_text
@@ -61,6 +62,7 @@ except ImportError:
     import autocode_control_replies as control_replies
     import autocode_prompts as prompts
     import autocode_requirement_cues as cues
+    import autocode_saved_names as saved_names
     import autocode_source_metadata as source_metadata
     import autocode_util as util
     from autocode_requirement_coverage import requirement_coverage_text
@@ -678,7 +680,8 @@ def _verify_review(wrapper):
         raise ValueError("Invalid source-trace review provenance")
     path, output = Path(review["events"]), Path(review["output"])
     if (
-        review["stage"] not in REVIEW_STAGES
+        # A plan sealed before the code-name rename names its reviewing stage the old way (autocode_saved_names).
+        saved_names.rename(review["stage"]) not in REVIEW_STAGES
         or path.is_symlink()
         or not path.is_file()
         or util.file_hash(path) != review["events_sha256"]
