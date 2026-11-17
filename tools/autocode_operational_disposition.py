@@ -15,6 +15,7 @@ try:
     from . import autocode_operational_outcome as owner_outcome
     from . import autocode_operational_receipt_identity as receipt_identity
     from . import autocode_pause_authority as pause_authority
+    from . import autocode_permission_recovery as permission_recovery
     from . import autocode_provider_auth as provider_auth
     from . import autocode_quota_route as quota_route
     from . import autocode_roles as roles
@@ -26,6 +27,7 @@ except ImportError:
     import autocode_operational_outcome as owner_outcome
     import autocode_operational_receipt_identity as receipt_identity
     import autocode_pause_authority as pause_authority
+    import autocode_permission_recovery as permission_recovery
     import autocode_provider_auth as provider_auth
     import autocode_quota_route as quota_route
     import autocode_roles as roles
@@ -63,7 +65,13 @@ def cause(stage, status, rationale=None, state: RunState | None = None) -> str:
     account = provider_auth.account_cause(rationale)
     if account:
         return account
-    said = next((text for keys, text in CAUSES if any(key in str(status or "") for key in keys)), None)
+    said: str | None = None
+    if status == "PAUSED_PROVIDER_UNCERTAIN" and provider_auth.helper_timed_out(rationale):
+        said = "signing in to its model provider timed out"
+    elif status == "PAUSED_REPEATED_FAILURE":
+        said = permission_recovery.exhausted_cause(rationale)
+    if said is None:
+        said = next((text for keys, text in CAUSES if any(key in str(status or "") for key in keys)), None)
     running = str(((state or {}).get("active_stage") or {}).get("stage") or "")
     if said is None and roles.base_stage(running) != running:
         # A wrapper status (the Resolver's own stop) names no cause; the attempt it stopped on does.

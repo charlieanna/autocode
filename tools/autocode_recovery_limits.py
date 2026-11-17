@@ -12,14 +12,14 @@ try:
     from . import autocode_recovery_context as recovery_context
     from . import autocode_report_repair_queue as report_repair_queue
     from . import autocode_stage_stalls as stage_stalls
-    from .autocode_permission_recovery import hold_message
+    from .autocode_permission_recovery import exhaustion as permission_exhaustion
     from .autocode_source_scope import snapshot
 except ImportError:
     import autocode_recovery_accounting as accounting
     import autocode_recovery_context as recovery_context
     import autocode_report_repair_queue as report_repair_queue
     import autocode_stage_stalls as stage_stalls
-    from autocode_permission_recovery import hold_message
+    from autocode_permission_recovery import exhaustion as permission_exhaustion
     from autocode_source_scope import snapshot
 
 GRANT_ADVICE = (
@@ -283,6 +283,13 @@ def _no_progress_count_and_limit(state: RunState):
     return state.get("no_progress_batches", 0), limit
 
 
+def managed_no_progress_origin(state: RunState) -> str | None:
+    """Return the saved origin only for limits that belong to AutoCode."""
+    origins = (state.get("settings") or {}).get("budget_origins") or {}
+    origin = origins.get("no_progress_batches")
+    return origin if origin in ("runner_default", "resolver_delegated") else None
+
+
 def no_progress_bound_holds(state: RunState, cause=None) -> bool:
     """True when the unchanged-batch limit, not another hold, paused this run as PAUSED_NO_PROGRESS.
 
@@ -339,12 +346,9 @@ def advice(*, allow_grant, pause_status=None, attempt=None, state: RunState | No
 
 def stop_reason(state: RunState, count, maximum, *, allow_grant=True):
     context = state.get("recovery_context") or {}
-    if (
-        context.get("denied_operation")
-        and context.get("repeat_count", 0) >= 2
-        and snapshot(state["workspace"], state)["revision"] == context.get("source_revision")
-    ):
-        return "PAUSED_REPEATED_FAILURE", hold_message(context)
+    denial = permission_exhaustion(context)
+    if denial and snapshot(state["workspace"], state)["revision"] == context.get("source_revision"):
+        return "PAUSED_REPEATED_FAILURE", denial
     limit = state.get("settings", {}).get("limits", {}).get("no_progress_batches", 3)
     # A zero no-progress threshold does not disable the lifetime allowance.
     if count >= maximum or (limit and accounting.consecutive_timeouts(state) >= limit):

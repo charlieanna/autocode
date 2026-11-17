@@ -569,7 +569,9 @@ class Driver:
             ):
                 return view
             if need["kind"] == "continue":
-                self.call("resume")
+                action = need.get("action")
+                flags = [action] if action == "--resume-paused" else []
+                self.call("resume", *flags)
                 after = self.view()
                 keys = ("status", "next_stage", "iteration", "phase")
                 if (

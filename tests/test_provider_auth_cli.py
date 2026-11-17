@@ -9,6 +9,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests import operational_fixtures
+
 
 class ProviderAuthCLI(unittest.TestCase):
     def setUp(self):
@@ -24,7 +26,7 @@ class ProviderAuthCLI(unittest.TestCase):
         for name in ("config", "codex-home"):
             (self.root / name).mkdir()
 
-    def assert_auth_failure_is_named_and_not_replayed(self, fault, *details):
+    def assert_auth_failure_is_named_and_not_replayed(self, fault, summary, *details):
         from harness.driver import FAKE_PROVIDER, DriveError, Driver, default_autocode, fake_setup
         from harness.project import materialize
 
@@ -67,22 +69,31 @@ class ProviderAuthCLI(unittest.TestCase):
         driver.run_dir = candidates[-1].parent
         view = driver.until_stopped()
         self.assertEqual("draft_plan", view.get("next_stage"), view.get("stop_reason"))
-        self.assertFalse(view.get("done"))
+        operational_fixtures.assert_view_blocked(self, view, "PAUSED_PROVIDER_UNCERTAIN")
+        self.assertIn(summary, view["stop_reason"])
+        self.assertIn(summary, view["recovery"]["what_happened"])
+        self.assertNotIn("timeout_ms", view["stop_reason"])
+        cause = operational_fixtures.kept_cause(driver.run_dir)
         for detail in details:
-            self.assertIn(detail, view.get("stop_reason") or "")
-        self.assertIn("no automatic replay", view.get("stop_reason") or "")
+            self.assertIn(detail, cause)
+        self.assertIn("no automatic replay", cause)
         attempts = [row for row in view["usage"]["accounting"]["attempts"] if row["stage"] == "draft_plan"]
         self.assertEqual(1, len(attempts), attempts)
         driver.assert_needs_command_accepted(view)
 
     def test_auth_timeout_is_named_and_not_replayed(self):
         self.assert_auth_failure_is_named_and_not_replayed(
-            "SCENARIO_FAKE_LOGIN_TIMEOUT", "provider auth helper", "timeout_ms"
+            "SCENARIO_FAKE_LOGIN_TIMEOUT",
+            "signing in to its model provider timed out",
+            "provider auth helper",
+            "timeout_ms",
         )
 
     def test_structured_auth_rejection_is_named_and_not_replayed(self):
         self.assert_auth_failure_is_named_and_not_replayed(
-            "SCENARIO_FAKE_LOGIN_REJECTED", "authentication failed (HTTP 401)"
+            "SCENARIO_FAKE_LOGIN_REJECTED",
+            "rejected the saved credentials (HTTP 401)",
+            "authentication failed (HTTP 401)",
         )
 
 

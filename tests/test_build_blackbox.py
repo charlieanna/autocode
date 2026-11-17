@@ -747,19 +747,27 @@ class BuildBlackbox(unittest.TestCase):
             )
         )
 
-    def test_18_infeasible_plan_pauses(self):
+    def assert_parallel_request_is_deferred(self, kind):
         self.seed()
-        self.env["BUILD_AUDIT_FAULT"] = "infeasible"
-        self.build(2)
+        self.env["BUILD_AUDIT_FAULT"] = kind
+        self.build()
+        candidate = self.candidate()
+        saved = self.state()
+        [batch] = saved["orchestration_history"]
+        self.assertEqual(["M1"], batch["deferred"])
+        stalled = next(worker for worker in batch["workers"] if worker["milestone_id"] == "M1")
+        self.assertEqual("SERIAL_USER_REQUEST", stalled["status"])
+        retained = json.loads((Path(stalled["run_dir"]) / "state.json").read_text())
+        self.assertEqual(kind, retained["implementation"]["user_request"]["kind"])
         self.assertFalse((self.project / "server/health.py").exists())
-        self.assertNotIn("autocode", self.state()["unit_handoffs"])
+        self.assertCountEqual(["M2", "M3"], saved["current_task"]["milestone_ids"])
+        self.assertEqual(2, len(candidate["implementation"]["builder_reports"]))
+
+    def test_18_infeasible_plan_pauses(self):
+        self.assert_parallel_request_is_deferred("infeasible")
 
     def test_19_permission_not_self_granted(self):
-        self.seed()
-        self.env["BUILD_AUDIT_FAULT"] = "permission"
-        self.build(2)
-        self.assertFalse((self.project / "server/health.py").exists())
-        self.assertNotIn("autocode", self.state()["unit_handoffs"])
+        self.assert_parallel_request_is_deferred("permission")
 
     def test_28_report_repair_does_not_reimplement(self):
         self.seed()

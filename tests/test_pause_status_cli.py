@@ -108,8 +108,9 @@ class PauseStatusCLITests(unittest.TestCase):
         self.assertTrue(attempt)
         view = run.abandon_stage(attempt)
         self.assertEqual("PAUSED_STAGE_ABANDONED", view["status"])
-        self.assertIsNone(view["needs"])
-        self.assertIsNone(view["next_command"])
+        self.assertEqual("resume", view["needs"]["kind"])
+        flags = [word for word in shlex.split(view["next_command"]) if word.startswith("--")]
+        self.assertCountEqual(["--resume-paused", "--run-dir", "--workspace"], flags)
         self.assertIsNone(view["chat"]["input"])
         self.assert_refusal_retains_current_command(run, "--resume-paused", "--accept-transport-change")
 

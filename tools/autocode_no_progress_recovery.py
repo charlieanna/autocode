@@ -57,7 +57,6 @@ except ImportError:
 RECOVERY_SCOPE = "repaired_acceptance_no_progress"
 EXHAUSTED_SCOPE = "no_progress_exhaustion"
 NOTICE = "AutoCode will settle the retained no-progress hold against current verification evidence."
-_DEFAULT_ORIGINS = frozenset({"runner_default", "resolver_delegated"})
 _BUILD_STAGES = frozenset({"builder", "orchestrator"})
 _DECISION_FIELDS = frozenset(field.name for field in fields(policy.Decision))
 _RECEIPT_FIELDS = frozenset(field.name for field in fields(policy.Receipt)) - {"version"}
@@ -153,8 +152,8 @@ def default_builder_hold(state: RunState) -> dict[str, Any] | None:
     count = state.get("no_progress_batches", 0)
     if type(limit) is not int or limit < 1 or type(count) is not int or count < limit:
         return None
-    origin = (settings.get("budget_origins") or {}).get("no_progress_batches")
-    if origin not in _DEFAULT_ORIGINS or not _contract_approved(state):
+    origin = recovery_limits.managed_no_progress_origin(state)
+    if origin is None or not _contract_approved(state):
         return None
     contract = state.get("goal_contract") or {}
     contract_hash = contract.get("hash")

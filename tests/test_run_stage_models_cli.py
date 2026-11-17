@@ -28,16 +28,17 @@ class RunStageModelsCLITests(unittest.TestCase):
     def status(self, run):
         return json.loads(self.launch(["--run-dir", str(run), "--status"], 0).stdout)["view"]
 
-    def at_plan_approval(self):
+    def at_plan_approval(self, *settings):
         self.env["AUTOCODE_FIXTURE_MODE"] = "human-pending"
-        self.launch(["Build a greeting tool"], 2)
+        self.launch([*settings, "Build a greeting tool"], 2)
         run, _ = self.saved()
         self.launch(["--run-dir", str(run), "--answer", "Q1=CLI"], 0)
         self.launch(["--run-dir", str(run)], 2)
         return run
 
     def test_a_started_run_changes_one_stage_between_stages_and_its_next_launch_runs_it(self):
-        run = self.at_plan_approval()
+        # Make the starting choice part of the fixture, independent of shipped defaults.
+        run = self.at_plan_approval("--builder-model", "gpt-5.6-terra", "--builder-reasoning-effort", "medium")
         view = self.status(run)
         self.assertEqual("AWAITING_GOAL_APPROVAL", view["status"])
         offer = view["stage_models"]

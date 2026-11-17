@@ -4,9 +4,13 @@ import json
 from pathlib import Path
 
 from scenarios.harness.adversarial import AdversarialCase
+from tests import operational_fixtures
 
 
 class PermissionRecoveryCLI(AdversarialCase):
+    # The ceiling case exercises four denied calls plus the attempts to resume the hold.
+    timeout_seconds = 300
+
     def test_corrected_diagnostic_retains_work_and_reaches_independent_verification(self):
         self.set_fault("recovery", "builder_permission_corrected")
         view = self.driver.drive(self.scenario.brief)
@@ -23,9 +27,10 @@ class PermissionRecoveryCLI(AdversarialCase):
         self.set_fault("recovery", "builder_permission_repeated")
         view = self.driver.drive(self.scenario.brief)
         self.assertEqual(2, len(self.trace("builder_permission_denied")), self.root)
-        self.assertFalse(view["done"])
-        self.assertIn("external_directory", json.dumps(view))
-        self.assertIn("repeated", json.dumps(view).lower())
+        operational_fixtures.assert_view_blocked(self, view, "PAUSED_REPEATED_FAILURE")
+        self.assertIn("repeatedly tried to access a folder outside the workspace", view["stop_reason"])
+        self.assertIn("Repeated external_directory denial", operational_fixtures.kept_cause(self.driver.run_dir))
+        self.assertFalse(self.trace("stage_enter", "investigate_stuck"))
         self.assertEqual("# retained partial implementation\n", (self.project / "greet.py").read_text())
         state_before = self.driver.state()  # evidence only, never used to drive the CLI
         recovery_before = state_before.get("automatic_recoveries_since_resume", 0)
@@ -43,7 +48,7 @@ class PermissionRecoveryCLI(AdversarialCase):
     def test_distinct_denials_never_exhaust_the_timeout_budget_and_hold_at_their_own_ceiling(self):
         self.set_fault("recovery", "builder_permission_distinct")
         view = self.driver.drive(self.scenario.brief)
-        self.assertFalse(view["done"], self.root)
+        operational_fixtures.assert_view_blocked(self, view, "PAUSED_REPEATED_FAILURE")
         surfaced = json.dumps(view)
         self.assertNotIn(
             "PAUSED_TIMEOUT_RECOVERY", surfaced, "permission denials must not surface as exhausted timeout recovery"
@@ -54,23 +59,15 @@ class PermissionRecoveryCLI(AdversarialCase):
             state.get("automatic_recoveries_since_resume", 0),
             "a denial retry must not consume the shared timeout-recovery budget",
         )
+        self.assertEqual(0, state.get("no_progress_batches", 0), "a denied call did not complete a Builder batch")
         denials = self.trace("builder_permission_denied")
-        self.assertGreaterEqual(len(denials), 2, self.root)
-        self.assertLessEqual(len(denials), 4, "the permission ceiling must bound distinct-denial retries")
-        surfaced_lower = surfaced.lower()
-        self.assertTrue(
-            "external_directory" in surfaced_lower
-            and (
-                "ceiling" in surfaced_lower
-                or "repeated" in surfaced_lower
-                or "no progress" in surfaced_lower
-                or "no_progress" in surfaced_lower
-            ),
-            "the hold must name its actual cause",
-        )
+        self.assertEqual([1, 2, 3, 4], [row["invocation"] for row in denials], self.root)
+        self.assertIn("retry limit after trying to access folders outside the workspace", view["stop_reason"])
+        self.assertIn("permission-recovery ceiling", operational_fixtures.kept_cause(self.driver.run_dir))
+        self.assertFalse(self.trace("stage_enter", "investigate_stuck"))
         before = self.driver.state().get("automatic_recoveries_since_resume", 0)
-        for _ in range(2):
-            self.invoke("--resume-paused")
+        for flags in (("--resume-paused",), ("--resume-paused", "--retry-failed-stage")):
+            self.invoke(*flags)
             self.assertFalse(self.status()["done"])
         self.assertEqual(
             before,
@@ -82,6 +79,15 @@ class PermissionRecoveryCLI(AdversarialCase):
             len(self.trace("builder_permission_denied")),
             "restarts must not launch further denial retries",
         )
+
+    def test_denial_still_counts_toward_an_explicit_no_progress_limit(self):
+        self.driver.flags += ["--no-progress-limit", "1"]
+        self.set_fault("recovery", "builder_permission_distinct")
+        view = self.driver.drive(self.scenario.brief)
+        self.assertEqual("PAUSED_NO_PROGRESS", view["status"])
+        self.assertEqual(1, view["needs"]["no_progress_batches"])
+        self.assertEqual("--resume-paused --no-progress-limit N", view["needs"]["action"])
+        self.assertEqual(1, len(self.trace("builder_permission_denied")))
 
     def test_successful_diagnostic_cannot_complete_a_broken_product(self):
         config = json.loads(self.config_path.read_text())

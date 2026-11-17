@@ -1049,11 +1049,12 @@ def automatically_recover_external_directory_denial(state: RunState, run_dir, wo
         records.assert_stage_stopped(record)
     except support.Paused:
         return False
+    semantic_stage = record.get("original_stage") or record["stage"]
     denied = permission_recovery.operation(raw)
     try:
         diagnostics = permission_recovery.prepare(
             workspace,
-            record.get("original_stage") or record["stage"],
+            semantic_stage,
             denied,
             state.get("automatic_permission_recoveries", []),
             state.get("stages", []),
@@ -1126,19 +1127,16 @@ def automatically_recover_external_directory_denial(state: RunState, run_dir, wo
         }
     )
     state["recovery_context"] = recovery
-    if (record.get("original_stage") or record["stage"]) == "builder":
+    # Known denials have their own stopping rule. The default batch limit
+    # measures implementation progress, and a denied tool call did not finish
+    # a batch. Keep counting against explicit and older unclassified limits.
+    if semantic_stage == "builder" and recovery_limits.managed_no_progress_origin(state) is None:
         state["no_progress_batches"] = state.get("no_progress_batches", 0) + 1
     resolver_runtime.observe_operational_recovery(records, state, run_dir, workspace, recovery)
     run_status.running(
         state, "PLANNING" if planning.is_planning(state, next_stage) else "EXECUTING", next_stage=next_stage
     )
-    message = (
-        permission_recovery.hold_message(recovery)
-        if recovery["repeat_count"] >= 2
-        else permission_recovery.ceiling_message(recovery)
-        if recovery["denied_since_accepted"] >= permission_recovery.MAX_PERMISSION_RECOVERIES
-        else None
-    )
+    message = permission_recovery.exhaustion(recovery)
     if message:
         run_status.pause(state, "PAUSED_REPEATED_FAILURE", message)
     records.write_json(run_dir / "state.json", state)
