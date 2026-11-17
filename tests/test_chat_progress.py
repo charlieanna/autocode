@@ -74,6 +74,8 @@ class ChatProgressTests(unittest.TestCase):
         for reason in (
             "ambiguity_audit.compatibility_and_callers entry R6 is not a file in the workspace",
             "source_trace.requirement_refs is missing an entry",
+            "Refreshed handoff dropped R1 without a user-backed omission in ignored_requirements; "
+            'previous source_quote: "The request"; candidate user_feedback:feedback-123',
         ):
             with self.subTest(reason=reason):
                 self.state["stages"] = [

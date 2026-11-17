@@ -40,6 +40,7 @@ _SCHEMA_SUMMARY = "The answer was not in the format AutoCode requires"
 # Validator paths name internal report fields, not terms a person can act on.
 # Keep the raw rejection in the attempt evidence; summarize it in person-facing views.
 _INTERNAL_FIELD_PATH = re.compile(r"\b[a-z][a-z0-9_]*_[a-z0-9_]+\.[a-z][a-z0-9_]*_[a-z0-9_]+\b")
+_INTERNAL_FIELD_WORD = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b")
 # "Completed terra output was rejected (WHY); attempt archived. ..." keeps only WHY.
 _REJECTED = re.compile(r"^Completed \w+ output was rejected \((?P<why>.+)\)(?:;|\.|$)", re.S)
 # autocode_requirement_quotes.unsupported: requirements whose quote is not the person's own words.
@@ -189,12 +190,12 @@ def _plain(text, limit=TEXT):
         return _HANDOFF_ERROR_TEXT
     if _GAP_ENUM_ERROR.search(text):
         return _GAP_ENUM_ERROR_TEXT
-    if _INTERNAL_FIELD_PATH.search(text):
-        return "The answer did not meet AutoCode's report checks."
     if _is_schema_rejection(text):
         summary = _summarize_schema(text)
         if summary:
             return summary
+    if _INTERNAL_FIELD_PATH.search(text) or len(set(_INTERNAL_FIELD_WORD.findall(text))) >= 2:
+        return "The answer did not meet AutoCode's report checks."
     kept = [sentence for sentence in _SENTENCE.split(text) if not _COMMAND.search(sentence)]
     text = util.redact(" ".join(kept).strip())
     if not text:
