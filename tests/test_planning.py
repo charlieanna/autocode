@@ -1031,7 +1031,7 @@ class PlanningTests(unittest.TestCase):
             {key: settings["roles"]["tester"][key] for key in ("engine", "provider", "model")},
         )
         self.assertEqual(
-            {"task_planner": "high", "builder": "medium", "tester": "high", "completion": "medium"},
+            {"task_planner": "high", "builder": "high", "tester": "high", "completion": "medium"},
             {
                 role: settings["roles"][role]["reasoning_effort"]
                 for role in ("task_planner", "builder", "tester", "completion")
@@ -1295,7 +1295,7 @@ class PlanningTests(unittest.TestCase):
                 )
 
     def test_new_openai_terra_keeps_opencode_and_existing_discovery_routes(self):
-        for effort in (None, "high"):
+        for effort, expected in ((None, "high"), ("xhigh", "xhigh")):
             with (
                 patch.object(support, "local_settings", return_value={"auth_mode": "ChatGPT"}),
                 patch.object(runner.opencode, "local_settings", return_value={"engine": "opencode"}),
@@ -1314,7 +1314,7 @@ class PlanningTests(unittest.TestCase):
                     "engine": "opencode",
                     "provider": None,
                     "model": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
-                    "reasoning_effort": effort or "medium",
+                    "reasoning_effort": expected,
                 },
                 settings["roles"]["builder"],
             )
