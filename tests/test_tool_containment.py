@@ -1611,7 +1611,11 @@ class LinkTargetKernelTests(unittest.TestCase):
             target = shared / "discount.py"
             target.write_text("RATE = 1\n")
             (root / "discount.py").symlink_to(target)
-            boundary = containment.prepare(root, allow_write=True, read_roots=workspace_links.read_targets(root))
+            # Its own checkout: the fixture sits in this repository's ignored .autocode, where git lists nothing.
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            granted = workspace_links.read_targets(root)
+            self.assertEqual([target.resolve()], granted)
+            boundary = containment.prepare(root, allow_write=True, read_roots=granted)
 
             def run(command):
                 return subprocess.run(
