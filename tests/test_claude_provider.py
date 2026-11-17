@@ -499,6 +499,8 @@ class ModelTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "reasoning effort must be one of low, medium, high, xhigh, max"):
             claude.check_models({"tester": {"model": "claude-sonnet-5-5", "reasoning_effort": "extreme"}})
         claude.check_models({"tester": {"model": "claude-next"}}, inventory={"claude-next"})
+        # Every model a subscription login serves is offered, so a stage can run on it.
+        claude.check_models({"planner": {"model": "claude-fable-5-2", "reasoning_effort": "high"}})
         self.assertEqual(sorted(claude.LISTED_MODELS), claude.list_models())
         self.assertEqual(set(claude.LISTED_MODELS), claude.available_models())
 
