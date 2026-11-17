@@ -725,6 +725,10 @@ older writers refuse this context instead of silently ignoring it. Requirements
 returns its assessment and `affected_targets` (empty for a question). A routed
 change does not alter the source run: its owner must reconcile and route the
 original human text through ordinary planning and review. The assistant row in
+`chat.messages` may mark a message `format: "plain"` when its text is a literal
+Requirements reply or question or an approved-plan summary. Clients render it as text, preserving punctuation,
+both while it is open and when it appears in history. Older views omit this field.
+
 `chat.messages` exposes optional `conversation` metadata: `request_id`, `intent`,
 `affected_targets` and `context_sha256`. A question restores the source checkpoint
 and never becomes a new requirement. The coordinated owner schedules this assessment through its existing advance action. New coordinations

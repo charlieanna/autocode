@@ -1,5 +1,6 @@
 """The complete pending plan reaches a public approval client, without private-state reads (#3448)."""
 
+import re
 import subprocess
 import sys
 import unittest
@@ -44,6 +45,9 @@ class PlanReviewCLITests(unittest.TestCase):
         displayed = shown["displayed_plan"]
         self.assertEqual(shown["needs"]["token"], displayed["token"])
         review = displayed.get("review_markdown", "")
+        # Material fields are plain text embedded in Markdown; escapes preserve their
+        # characters when a client renders the review rather than changing the plan.
+        literal_review = re.sub(r"\\([\\`*{}\[\]()#+.!_>~|<>-])", r"\1", review)
         for field in (
             "intended_outcome",
             "intended_user",
@@ -56,12 +60,12 @@ class PlanReviewCLITests(unittest.TestCase):
             self.assertTrue(values, field)
             for value in values:
                 with self.subTest(field=field, value=value):
-                    self.assertIn(value, review, f"Public approval omitted {field}")
+                    self.assertIn(value, literal_review, f"Public approval omitted {field}")
         for criterion in body["acceptance_criteria"]:
-            self.assertIn(criterion["criterion"], review)
+            self.assertIn(criterion["criterion"], literal_review)
             self.assertIn(criterion["verification_method"], review)
         for decision in body["accepted_assumptions"] + body["delegated_decisions"]:
-            self.assertIn(decision["text"], review)
+            self.assertIn(decision["text"], literal_review)
         self.assertNotIn(displayed["token"], review)
         self.assertNotIn("front matter", review)
         with self.assertRaisesRegex(taskrun.TaskRunError, "approve plan exited"):

@@ -111,7 +111,7 @@ def prepare_schema_and_report_check(
     save,
 ):
     """Bind per-stage schemas and stage a public report-check spec in planning/ for live launches."""
-    if not report_only and original_stage in ("tester", "review_completion", "review_checkpoint"):
+    if not report_only and original_stage in ("tester", "review_completion", "review_checkpoint", "resolve"):
         bound_schema = support.review_generation_schema(support.read(schema), state, original_stage)
         schema = base.with_suffix(".schema.json")
         save(schema, bound_schema)

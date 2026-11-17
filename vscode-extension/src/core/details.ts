@@ -100,7 +100,7 @@ const counted = (count: number, one: string, many: string): string => `${count} 
 const FLAG = /(?:^|[\s(])--[a-z][a-z0-9]*(?:-[a-z0-9]+)*|\bAUTOCODE_[A-Z0-9_]+\b|(?:^|[^\w/.-])autocode\s+(?:resume\b|--)/;
 const HANDOFF_MACHINERY = /provider handoff must contain\b|\bCURRENT HANDOFF DATA\b|\bREPAIR_HANDOFF_BYTES\b|\brepair-edits\.schema\.json\b|\bhandoff exceeds\b|\bunlaunchable repair\b/i;
 const GAP_ENUM_MACHINERY = /\bin the gap_id enum\b|\bleaves other offered changed lines undecided\b|\bchanged_code_exceptions\b|\bquotes\s+".*?"\s+but binds\b/i;
-const SCHEMA_MACHINERY = /(?:^|[\s(])\$(?::|\.[A-Za-z_[])|\bReport edits?\b.*?\b(?:path|enum|schema|apply)\b/i;
+const SCHEMA_MACHINERY = /(?:^|[\s(])\$(?::|\.[A-Za-z_[])|\bReport edits?\b.*?\b(?:path|enum|schema|apply)\b|\bacceptance_test_repairs\b/i;
 const capitalize = (value: string): string => value.charAt(0).toUpperCase() + value.slice(1);
 
 function tokens(value: unknown): string {
@@ -330,6 +330,16 @@ function where(view: Row): { state: string; label: string; sentence: string; sec
     // name CLI flags, token env vars or `autocode resume` are stripped so a client never shows a command to type.
     const notice = text(mapping(view.chat).notice);
     if (notice && !lines.includes(notice)) lines.push(notice);
+    if (view.status === "PAUSED_ACCEPTANCE_TESTS") {
+      for (const item of rows(mapping(view.acceptance_tests).cannot_write)) {
+        const cid = text(item.case_id);
+        const why = text(item.reason);
+        if (cid && why) {
+          const entry = `  Host limitation (${cid}): ${why}`;
+          if (!lines.includes(entry)) lines.push(entry);
+        }
+      }
+    }
     const saved = withoutCommands(text(mapping(view.recovery).saved_reason));
     if (saved && !lines.some((line) => line.includes(saved))) lines.push(`Recorded reason: ${saved}`);
   }
@@ -669,7 +679,7 @@ function routesSection(view: Row): DetailSection | null {
   }
   if (!lines.length && mapping(view.tool_containment_backend).backend !== "seatbelt") return null;
   if (mapping(view.tool_containment_backend).backend === "seatbelt") {
-    lines.push("Sandbox: macOS Seatbelt (blocks stage 127.0.0.1 loopback socket binds; local runner checks and Kilo permit them)");
+    lines.push("Sandbox: macOS Seatbelt (blocks stage 127.0.0.1 loopback socket binds; local runner checks permit them)");
   }
   return { id: "routes", title: "Models", summary: counted(Object.keys(mapping(view.routes)).length, "saved route", "saved routes"), lines };
 }

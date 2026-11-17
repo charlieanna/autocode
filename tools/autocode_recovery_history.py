@@ -37,6 +37,11 @@ LIMIT = 20  # the newest entries a view carries
 TEXT = 400  # characters per sentence field
 DETAIL = 900  # characters of an Investigator's diagnosis
 _SCHEMA_SUMMARY = "The answer was not in the format AutoCode requires"
+# Validator paths name internal report fields, not terms a person can act on.
+# Keep the raw rejection in the attempt evidence; summarize it in person-facing views.
+_INTERNAL_FIELD_PATH = re.compile(r"\b[a-z][a-z0-9_]*_[a-z0-9_]+\.[a-z][a-z0-9_]*_[a-z0-9_]+\b")
+_INTERNAL_FIELD_WORD = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b")
+_DIAGNOSTIC_CODE = re.compile(r"\[[a-z][a-z0-9_]*:[a-z][a-z0-9_]*\]$")
 # "Completed terra output was rejected (WHY); attempt archived. ..." keeps only WHY.
 _REJECTED = re.compile(r"^Completed \w+ output was rejected \((?P<why>.+)\)(?:;|\.|$)", re.S)
 # autocode_requirement_quotes.unsupported: requirements whose quote is not the person's own words.
@@ -96,6 +101,7 @@ def project(state: RunState) -> list[dict[str, Any]]:
         *_test_role_corrections(state),
         *_interrupted_reviews(state),
         *_sent_back(state),
+        *_acceptance_test_repairs(state),
         *_retained_candidates(state),
         *investigations,
         *_resolver(state),
@@ -167,7 +173,7 @@ def _is_schema_rejection(text: str) -> bool:
     return rejection_classes.is_schema_rejection(text)
 
 
-def _plain(text, limit=TEXT):
+def _plain(text, limit=TEXT, *, chat=False):
     """Redacted, bounded prose without a sentence that names an internal command."""
     if not isinstance(text, str) or not text.strip():
         return None
@@ -190,6 +196,9 @@ def _plain(text, limit=TEXT):
         summary = _summarize_schema(text)
         if summary:
             return summary
+    fields = text if chat else _DIAGNOSTIC_CODE.sub("", text)
+    if _INTERNAL_FIELD_PATH.search(fields) or len(set(_INTERNAL_FIELD_WORD.findall(fields))) >= 2:
+        return "The answer did not meet AutoCode's report checks."
     kept = [sentence for sentence in _SENTENCE.split(text) if not _COMMAND.search(sentence)]
     text = util.redact(" ".join(kept).strip())
     if not text:
@@ -205,7 +214,7 @@ def explain(text) -> str | None:
     "answer rejected" and "needs correction" (2026-11-11), so a person waiting twelve minutes on
     Requirements could not tell what went wrong.
     """
-    return _plain(text)
+    return _plain(text, chat=True)
 
 
 def _times(count):
@@ -356,6 +365,50 @@ def _sent_back(state: RunState):
             action=action,
             by=by,
             detail=investigation.get("guidance"),
+        )
+
+
+def _acceptance_test_repairs(state: RunState):
+    """An independent review sending a protected spec-first test back to the Tester for repair (#3350)."""
+    for row in (state.get("acceptance_tests") or {}).get("test_repairs") or []:
+        if not isinstance(row, dict):
+            continue
+        repairs = [item for item in (row.get("repairs") or []) if isinstance(item, dict)]
+        parts = [
+            f"{item.get('case_id')}: {item.get('reason')}"
+            for item in repairs
+            if item.get("case_id") and item.get("reason")
+        ]
+        problem = (
+            "; ".join(parts)
+            if parts
+            else "A protected acceptance test contradicted its approved case or failed on a test fixture bug."
+        )
+        number, limit = row.get("round"), row.get("round_limit")
+        rounds = (
+            f" (round {number} of {limit})"
+            if row.get("action") == "writer" and type(number) is int and type(limit) is int and 0 < number <= limit
+            else ""
+        )
+        exhausted = row.get("action") == "exhausted"
+        action = (
+            "Protected acceptance-test repairs reached their limit, so AutoCode paused for investigation."
+            if exhausted
+            else "AutoCode sent the protected acceptance tests to the independent Tester for repair before running the Builder."
+        )
+        yield _entry(
+            "acceptance_test_repair",
+            row.get("at"),
+            "write_acceptance_tests",
+            state,
+            headline=(
+                "Protected acceptance-test repair limit reached" if exhausted else "Independent acceptance-test repair"
+            )
+            + rounds,
+            problem=problem,
+            action=action,
+            by="AutoCode" if exhausted else "Tester",
+            handled=not exhausted,
         )
 
 

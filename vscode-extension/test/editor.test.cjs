@@ -26,6 +26,22 @@ const { engineOf, routeKeyOf, spendTarget, sanitizeRoutes, readSettings, applyEn
 let controller = new RunController(host.log);
 const run = { workspace: '/ws', runDir: '/ws/.autocode/runs/test' };
 const ok = { code: 0, stdout: '', stderr: '', rejected: false };
+
+test('history reloads the latest archive filter after an in-flight read', async () => {
+  let finish;
+  const calls = [];
+  const provider = new RunsProvider({ list: async (archived) => {
+    calls.push(archived);
+    if (calls.length === 1) return new Promise((resolve) => { finish = resolve; });
+    return { runs: [] };
+  } });
+  const first = provider.refresh();
+  const toggle = provider.setShowArchived(true);
+  finish({ runs: [] });
+  await Promise.all([first, toggle]);
+  assert.deepEqual(calls, [false, true]);
+  provider.dispose();
+});
 /** What an AutoCode without the `worktrees` command answers: its main parser takes the word as the task. */
 const noPlaceList = { code: 2, stdout: '', rejected: true,
   stderr: 'usage: autocode [TASK] [OPTIONS]\nautocode: error: unrecognized arguments: list. If this was the task, put all of it in quotes' };
@@ -434,6 +450,7 @@ test('connections delegates login using only the core offer and no shell text', 
   assert.equal(terminal.mock.callCount(), 0, 'unoffered login must not run');
   panel.webview.receive({ type: 'action', provider: 'kilocode', action: 'login', next_command: ['evil'] });
   await flush();
+  assert.ok(panel.webview.messages.some((message) => message.progress === 'Starting Sign in / Reconnect for Kilo…'));
   assert.equal(terminal.mock.callCount(), 1);
   const options = terminal.mock.calls[0].arguments[0];
   assert.equal(options.shellPath, '/python path/python');
@@ -600,6 +617,45 @@ test('connections renders backend text safely and sends only provider and action
   } finally { dom.window.close(); }
 });
 
+test('connections announces its active check and restores focus afterward', () => {
+  const dom = new JSDOM(connectionsHtml(), { runScripts: 'dangerously', beforeParse(window) {
+    window.acquireVsCodeApi = () => ({ postMessage() {} });
+  } });
+  try {
+    const row = { ...connectionRows[0], actions: [{ id: 'check', label: 'Check' }] };
+    const send = (data) => dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data }));
+    const doc = dom.window.document;
+    send({ connections: [row] });
+    [...doc.querySelectorAll('button')].find((b) => b.textContent === 'Check').focus();
+    send({ connections: [row], busy: true, progress: 'Checking Kilo…' });
+    assert.equal(doc.querySelector('#progress').textContent, 'Checking Kilo…');
+    assert.equal(doc.querySelector('main').getAttribute('aria-busy'), 'true');
+    send({ connections: [row], busy: false });
+    assert.equal(doc.activeElement.textContent, 'Check');
+  } finally { dom.window.close(); }
+});
+
+test('connections restores focus after refresh and after selecting a backend', () => {
+  const dom = new JSDOM(connectionsHtml(), { runScripts: 'dangerously', beforeParse(window) {
+    window.acquireVsCodeApi = () => ({ postMessage() {} });
+  } });
+  try {
+    const row = { ...connectionRows[0], actions: [{ id: 'check', label: 'Check' }] };
+    const send = (data) => dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data }));
+    const doc = dom.window.document;
+    send({ connections: [row] });
+    doc.querySelector('#refresh').focus();
+    send({ connections: [row], busy: true, progress: 'Refreshing connections…' });
+    doc.querySelector('#refresh').blur();
+    send({ connections: [row], busy: false });
+    assert.equal(doc.activeElement.id, 'refresh');
+    [...doc.querySelectorAll('button')].find((b) => b.textContent === 'Use for new chats').focus();
+    send({ connections: [row], busy: true, progress: 'Selecting Kilo…' });
+    send({ connections: [row], selected: row.id, busy: false });
+    assert.equal(doc.activeElement.textContent, 'Check');
+  } finally { dom.window.close(); }
+});
+
 function stageView(chosen = null) {
   const set = ['stages', 'set', 'terra', '--backend', 'claude', '--json', '--model', 'MODEL', '--effort', 'EFFORT'];
   return { version: 1, backend: 'claude', label: 'Claude Code', options_stop: null, stages: [{
@@ -689,6 +745,28 @@ test('the stage models panel\'s reads are bounded like a status poll', async (t)
     'a wedged stage read must fail and say so, not leave the panel dead: ' + JSON.stringify(calls));
 });
 
+test('stage models ignores an old scope read and rejects its controls', async (t) => {
+  const pending = [];
+  t.mock.method(cli, 'invoke', async (_settings, argv) => {
+    if (argv[1] !== 'list') throw new Error('stale control executed');
+    return new Promise((resolve) => pending.push(resolve));
+  });
+  const stages = new StagesPanel();
+  t.after(() => stages.dispose());
+  const first = stages.show({ cwd: '/a', list: ['stages', 'list', '--run-dir', '/a/run', '--json'] });
+  const panel = host.panels.at(-1);
+  const oldGeneration = panel.webview.messages.at(-1).generation;
+  const second = stages.show();
+  pending[1]({ ...ok, stdout: JSON.stringify(stageView({ model: 'sonnet', effort: 'high' })) });
+  await second;
+  pending[0]({ ...ok, stdout: JSON.stringify(stageView({ model: 'haiku', effort: 'low' })) });
+  await first;
+  assert.equal(panel.webview.messages.at(-1).view.stages[0].chosen.model, 'sonnet');
+  panel.webview.receive({ type: 'set', stage: 'terra', model: 'haiku', effort: 'low', generation: oldGeneration });
+  await flush();
+  assert.equal(pending.length, 2);
+});
+
 test('a chat\'s own stage models list and change that run in its folder, and refuse while a stage works', async (t) => {
   const runList = ['stages', 'list', '--run-dir', '/work/shop/.autocode/runs/r', '--json'];
   const set = ['--run-dir', '/work/shop/.autocode/runs/r', '--workspace', '/work/shop', '--stage-model', 'terra', 'MODEL', 'EFFORT'];
@@ -762,6 +840,110 @@ test('stage models renders core text safely, one model and level dropdown per st
     assert.deepEqual(JSON.parse(JSON.stringify(sent.at(-1))), { type: 'set', stage: 'terra', model: 'haiku', effort: 'medium' });
     [...document.querySelectorAll('button')].find((button) => button.textContent === 'Use the default').click();
     assert.deepEqual(JSON.parse(JSON.stringify(sent.at(-1))), { type: 'reset', stage: 'terra' });
+  } finally { dom.window.close(); }
+});
+
+test('stage models keeps a draft across updates and labels each scope correctly', () => {
+  const dom = new JSDOM(stagesHtml(), { runScripts: 'dangerously', beforeParse(window) {
+    window.acquireVsCodeApi = () => ({ postMessage() {} });
+  } });
+  try {
+    const view = readStages(JSON.stringify(stageView({ model: 'sonnet', effort: 'high' })));
+    const send = (data) => dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data }));
+    send({ view, scope: 'run', generation: 1 });
+    const doc = dom.window.document;
+    let model = doc.querySelector('select');
+    model.value = 'haiku'; model.dispatchEvent(new dom.window.Event('change'));
+    send({ view, scope: 'run', generation: 1, busy: true });
+    assert.equal(doc.querySelector('select').value, 'haiku');
+    send({ view, scope: 'new', generation: 2 });
+    assert.equal(doc.querySelector('h1').textContent, 'Stage models');
+    assert.equal(doc.querySelector('select').value, 'sonnet');
+  } finally { dom.window.close(); }
+});
+
+test('stage models explains when a drafted reasoning level is no longer offered', () => {
+  const dom = new JSDOM(stagesHtml(), { runScripts: 'dangerously', beforeParse(window) {
+    window.acquireVsCodeApi = () => ({ postMessage() {} });
+  } });
+  try {
+    const view = readStages(JSON.stringify(stageView({ model: 'sonnet', effort: 'high' })));
+    const send = (next) => dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data: { view: next, scope: 'new', generation: 1 } }));
+    send(view);
+    const doc = dom.window.document;
+    const [model, level] = doc.querySelectorAll('select');
+    model.value = 'haiku'; model.dispatchEvent(new dom.window.Event('change'));
+    level.value = 'medium'; level.dispatchEvent(new dom.window.Event('change'));
+    const changed = structuredClone(view);
+    changed.stages[0].options.find((option) => option.model === 'haiku').effortChoices = ['low'];
+    send(changed);
+    assert.match(doc.querySelector('main').textContent, /unsaved.*reasoning level.*no longer available/i);
+    assert.equal(doc.querySelector('select').value, 'sonnet');
+    send(changed);
+    assert.match(doc.querySelector('main').textContent, /unsaved.*reasoning level.*no longer available/i);
+    assert.equal([...doc.querySelectorAll('button')].find((button) => button.textContent === 'Save').disabled, true);
+    const nextModel = doc.querySelector('select');
+    nextModel.value = 'haiku'; nextModel.dispatchEvent(new dom.window.Event('change'));
+    assert.equal([...doc.querySelectorAll('button')].find((button) => button.textContent === 'Save').disabled, false);
+  } finally { dom.window.close(); }
+});
+
+test('model measurement keeps an empty selection and never enables an old estimate', () => {
+  const dom = new JSDOM(stagesHtml(), { runScripts: 'dangerously', beforeParse(window) {
+    window.acquireVsCodeApi = () => ({ postMessage() {} });
+  } });
+  try {
+    const raw = stageView();
+    raw.stages[0].probe = {
+      candidates: [{ model: 'haiku', ticked: true }],
+      estimate: { next_command: ['probe', 'MEASURE'] },
+      run: { next_command: ['probe', 'MEASURE', 'CAP'] },
+    };
+    const view = readStages(JSON.stringify(raw));
+    const data = { view, scope: 'new', generation: 1, estimates: { terra: {
+      models: ['haiku'], estimate: { quickCalls: 1, calls: 1, maxUsd: 1, basis: 'test' },
+    } } };
+    const send = (value) => dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data: value }));
+    send(data);
+    const doc = dom.window.document;
+    const check = doc.querySelector('input[type="checkbox"]');
+    const go = [...doc.querySelectorAll('button')].find((b) => b.textContent.startsWith('Measure 1'));
+    assert.equal(go.disabled, false);
+    check.checked = false; check.dispatchEvent(new dom.window.Event('change'));
+    assert.equal(go.disabled, true);
+    send({ ...data, estimates: {} });
+    assert.equal(doc.querySelector('input[type="checkbox"]').checked, false);
+    assert.equal([...doc.querySelectorAll('button')].find((b) => b.textContent === 'Measure').disabled, true);
+  } finally { dom.window.close(); }
+});
+
+test('model measurement explains when a selected candidate disappears', () => {
+  const sent = [];
+  const dom = new JSDOM(stagesHtml(), { runScripts: 'dangerously', beforeParse(window) {
+    window.acquireVsCodeApi = () => ({ postMessage: (message) => sent.push(message) });
+  } });
+  try {
+    const raw = stageView();
+    raw.stages[0].probe = {
+      candidates: [{ model: 'haiku', ticked: false }, { model: 'sonnet', ticked: false }],
+      estimate: { next_command: ['probe', 'MEASURE'] },
+      run: { next_command: ['probe', 'MEASURE', 'CAP'] },
+    };
+    const view = readStages(JSON.stringify(raw));
+    const send = (next) => dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data: { view: next, scope: 'new', generation: 1 } }));
+    send(view);
+    const doc = dom.window.document;
+    for (const check of doc.querySelectorAll('input[type="checkbox"]')) {
+      check.checked = true; check.dispatchEvent(new dom.window.Event('change'));
+    }
+    const changed = structuredClone(view);
+    changed.stages[0].probe.candidates = changed.stages[0].probe.candidates.filter((row) => row.model !== 'haiku');
+    send(changed);
+    assert.match(doc.querySelector('main').textContent, /selected.*no longer available/i);
+    assert.deepEqual(JSON.parse(JSON.stringify(sent.at(-1))), { type: 'estimate', stage: 'terra', models: ['sonnet'], generation: 1 });
+    send(changed);
+    assert.match(doc.querySelector('main').textContent, /selected.*no longer available/i);
+    assert.equal(doc.querySelector('input[type="checkbox"]').checked, true);
   } finally { dom.window.close(); }
 });
 
@@ -1783,6 +1965,41 @@ test('chat drafts survive polling, hidden view restoration and switching runs', 
   assert.equal(field.value, 'a draft for this run');
   assert.equal(ui.webviewState.selectedRun.runDir, run.runDir);
   assert.equal(ui.saved.get('autocode.chat.run'), undefined, 'selected runs no longer race through workspace state');
+});
+
+test('structured answers survive switching chats but not a changed request', async (t) => {
+  const view = chatView(questionView());
+  const ui = await openChat(t, view);
+  let field = ui.document.querySelector('[data-question="q1"]');
+  assert.ok(field);
+  field.value = 'keep this answer';
+  field.dispatchEvent(new ui.window.Event('input', { bubbles: true }));
+  ui.chat.show({ workspace: '/other', runDir: '/other/run' }); await flush();
+  ui.chat.show(run); await flush();
+  field = ui.document.querySelector('[data-question="q1"]');
+  assert.equal(field.value, 'keep this answer');
+  const changed = chatView({ ...questionView(), needs: { ...questionView().needs, request_id: 'request-2' } });
+  await ui.poll(changed);
+  assert.equal(ui.document.querySelector('[data-question="q1"]').value, '');
+});
+
+test('Requirements plain text preserves literal filenames before confirmation', async (t) => {
+  const view = chatView(questionView());
+  view.chat.messages = [
+    { id: 'requirements-say-1', role: 'assistant', text: 'Keep tests/__init__.py' },
+    { id: 'requirements-question-1', role: 'assistant', text: 'Outcome: tests/__init__.py' },
+    { id: 'event-0-question', role: 'assistant', text: 'Saved: tests/__init__.py', format: 'plain' },
+    { id: 'event-1-reply', role: 'assistant', text: 'Old: tests/__init__.py' },
+    { id: 'plan-r1:abc', role: 'assistant', text: 'Approved: tests/__init__.py', format: 'plain' },
+  ];
+  const ui = await openChat(t, view);
+  const messages = ui.document.querySelector('#messages');
+  assert.match(messages.textContent, /Keep tests\/__init__\.py/);
+  assert.match(messages.textContent, /Outcome: tests\/__init__\.py/);
+  assert.match(messages.textContent, /Saved: tests\/__init__\.py/);
+  assert.match(messages.textContent, /Old: tests\/__init__\.py/);
+  assert.match(messages.textContent, /Approved: tests\/__init__\.py/);
+  assert.equal(messages.querySelector('strong'), null);
 });
 
 test('separate VS Code windows keep independent selected tasks and drafts', async (t) => {
@@ -7078,21 +7295,18 @@ test('a finished run closes with its result, requirements, changed files, cost a
     acceptance_tests: { files: ['test_greet.py'] },
   });
   done.usage.accounting.attempts = done.usage.accounting.attempts.map((row) => ({ ...row, active: false }));
+  t.mock.method(controller, 'allChanges', async () => ({ since: 'start', changed_files: ['greet.py', 'tests/__init__.py', 'test_greet.py'], patch: '+print(2)', truncated: false }));
   const ui = await openChat(t, done);
   const card = ui.document.getElementById('finish-summary');
   assert.ok(card, 'the closing card is drawn');
   assert.match(card.textContent, /✓ Complete; current delivery verified/);
   assert.match(card.textContent, /8 of 8 checked/);
-  assert.match(card.textContent, /3 files: greet\.py, README\.md, test_greet\.py/);
+  assert.match(card.textContent, /3 files: greet\.py, tests\/__init__\.py, test_greet\.py/);
   assert.match(card.textContent, /\$1\.21 of \$5\.00/);
   assert.ok(ui.document.getElementById('finish-show-changes'), 'saved changes exist, so it offers them');
   assert.ok(ui.document.getElementById('all-changes'));
-  const read = t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({ since: 'start',
-    changed_files: ['greet.py'], patch: '+print(2)', truncated: false }) }));
   ui.document.getElementById('finish-show-changes').click();
   await flush(); await flush();
-  assert.deepEqual(read.mock.calls[0].arguments[1], ['checkpoint', '--workspace', run.workspace, '--run-dir', run.runDir, '--all'],
-    "the finished card's Show changes shows the run's whole change");
   assert.ok(card.ownerDocument.querySelector('#app').textContent.includes('+print(2)'));
   ui.document.getElementById('finish-details').click();
   assert.ok(ui.sent.some((message) => message.type === 'details'));

@@ -5,6 +5,8 @@ export interface TextNode {
   tag?: string;
   text?: string;
   href?: string;
+  start?: number;
+  checked?: boolean;
   children?: TextNode[];
 }
 
@@ -23,7 +25,8 @@ export function markdown(text: string): TextNode[] {
       case "blockquote": return [{ tag: "blockquote", children: children() }];
       case "br": return [{ tag: "br" }];
       case "hr": return [{ tag: "hr" }];
-      case "list": return [{ tag: token.ordered ? "ol" : "ul", children: token.items.map((item: Tokens.ListItem) => ({ tag: "li", children: convert(item.tokens) })) }];
+      case "list": return [{ tag: token.ordered ? "ol" : "ul", start: token.ordered && typeof token.start === "number" ? token.start : undefined,
+        children: token.items.map((item: Tokens.ListItem) => ({ tag: "li", checked: item.task ? Boolean(item.checked) : undefined, children: convert(item.tokens) })) }];
       case "table": return [{ tag: "table", children: [
         { tag: "thead", children: [{ tag: "tr", children: token.header.map((cell: Tokens.TableCell) => ({ tag: "th", children: convert(cell.tokens) })) }] },
         { tag: "tbody", children: token.rows.map((row: Tokens.TableCell[]) => ({ tag: "tr", children: row.map((cell: Tokens.TableCell) => ({ tag: "td", children: convert(cell.tokens) })) })) },

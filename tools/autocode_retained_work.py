@@ -11,11 +11,13 @@ import json
 from pathlib import Path
 
 try:
+    from . import autocode_acceptance_tests as acceptance_tests
     from . import autocode_assignment as assignment
     from . import autocode_contract_identity as contracts
     from . import autocode_preservation_candidate as preservation
     from . import autocode_util as util
 except ImportError:
+    import autocode_acceptance_tests as acceptance_tests
     import autocode_assignment as assignment
     import autocode_contract_identity as contracts
     import autocode_preservation_candidate as preservation
@@ -123,7 +125,8 @@ def fresh_candidate(state: RunState, record, current_revision):
         for path in assignment.retained_changes(stages, origin) or []
         if not assignment.build_output(workspace, path, stages, origin)
     ]
-    if not paths or assignment.outside(owned, stages, origin, workspace=workspace) != []:
+    archived = acceptance_tests.repaired_protected(state)
+    if not paths or assignment.outside(owned, stages, origin, workspace=workspace, archived=archived) != []:
         return (
             (
                 unchanged_recheck(state, record, current_revision)
@@ -159,7 +162,14 @@ def validated_candidate(state: RunState, value, record, workspace, current_revis
         or not value.get("commands_run")
         or not value.get("evidence_refs")
         or any(not (Path(workspace) / path).is_file() for path in declared)
-        or assignment.outside(list(affected), state.get("stages", []), record, workspace=workspace) != []
+        or assignment.outside(
+            list(affected),
+            state.get("stages", []),
+            record,
+            workspace=workspace,
+            archived=acceptance_tests.repaired_protected(state),
+        )
+        != []
     ):
         return None
     revision = current_revision

@@ -177,7 +177,11 @@ def grade(request, plan, *, reached_approval, review_rounds=None, report_repairs
 
 def changed_files(plan) -> set:
     """The file names the plan changes: its deliverables and its milestones' ``affected_paths``."""
-    names = set(_PY_FILE.findall(_section(plan.get("review_markdown"), "Deliverables")))
+    # The review is Markdown: literal punctuation in canonical terms is escaped
+    # for display, and must be decoded before looking for filenames.
+    section = _section(plan.get("review_markdown"), "Deliverables")
+    section = re.sub(r"\\([\\`*{}\[\]()#+.!_>~|<>-])", r"\1", section)
+    names = set(_PY_FILE.findall(section))
     for milestone in plan.get("milestones") or ():
         if isinstance(milestone, dict):
             names.update(path for path in milestone.get("affected_paths") or () if isinstance(path, str))

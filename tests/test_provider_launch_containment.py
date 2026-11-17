@@ -139,32 +139,23 @@ class LaunchContainment(unittest.TestCase):
         kilo = object.__new__(KiloProvider)
         kilo.launch = mock.Mock(return_value=(["kilo", "run"], {}, {}))
         options = {**self.options, "adapter": kilo, "planning": True, "role": "planner", "route_role": "planner"}
-        with mock.patch.object(launch.sys, "platform", "linux"):
-            _, _, _, worker = launch.prepare(**options)
-        request = kilo.launch.call_args.kwargs["containment"]
-        self.assertEqual(str(self.options["run_dir"].resolve()), request["private_run"])
-        self.assertNotIn("portable_shell", kilo.launch.call_args.kwargs)
-        self.assertTrue(worker["kilo_readonly_tools"])
-        with mock.patch.object(launch.sys, "platform", "darwin"):
-            _, _, _, worker = launch.prepare(**options)
-        self.assertNotIn("containment", kilo.launch.call_args.kwargs)
-        self.assertIs(True, kilo.launch.call_args.kwargs["portable_shell"])
-        self.assertTrue(worker["kilo_portable_shell"])
-        self.assertEqual(
-            "Kilo read tools and shell with edits denied; no kernel sandbox on macOS",
-            launch.stage_record(worker)["isolation"],
-        )
+        # macOS runs Kilo's checkers in Seatbelt too, with a Kilo release qualified there (#1766 superseded).
+        for platform in ("linux", "darwin"):
+            with self.subTest(platform=platform), mock.patch.object(launch.sys, "platform", platform):
+                _, _, _, worker = launch.prepare(**options)
+                request = kilo.launch.call_args.kwargs["containment"]
+                self.assertEqual(str(self.options["run_dir"].resolve()), request["private_run"])
+                self.assertTrue(worker["kilo_readonly_tools"])
         # Report recovery keeps every tool off, on either platform.
         for platform in ("linux", "darwin"):
             with self.subTest(platform=platform), mock.patch.object(launch.sys, "platform", platform):
                 _, _, _, worker = launch.prepare(**{**options, "planning_report_recovery": True})
                 self.assertNotIn("containment", kilo.launch.call_args.kwargs)
-                self.assertNotIn("portable_shell", kilo.launch.call_args.kwargs)
                 self.assertIn("all tools disabled", launch.stage_record(worker)["isolation"])
 
-    def test_a_kilo_builder_runs_in_the_kernel_shell_where_kilo_has_one(self):
-        # #3770: a Kilo Builder's shell wrote outside the workspace. Where Kilo's checkers already run in the kernel
-        # shell (Linux, qualified Kilo), the Builder runs there too; macOS keeps Kilo's own permissions (#1766).
+    def test_a_kilo_builder_runs_in_the_kernel_shell_on_each_platform(self):
+        # #3770: a Kilo Builder's shell wrote outside the workspace on macOS. A Builder runs in the kernel shell
+        # wherever Kilo's checkers do, Seatbelt or bubblewrap.
         from providers.kilocode import KiloProvider
 
         kilo = object.__new__(KiloProvider)
@@ -177,16 +168,12 @@ class LaunchContainment(unittest.TestCase):
             "route_role": "builder",
             "sandbox": "workspace-write",
         }
-        with mock.patch.object(launch.sys, "platform", "linux"):
-            launch.prepare(**options)
-        request = kilo.launch.call_args.kwargs["containment"]
-        self.assertIn(str(self.options["run_dir"]), request["protected_paths"])
-        self.assertNotIn("private_run", request, "a writer's shell is not the planning shell")
-        self.assertNotIn("portable_shell", kilo.launch.call_args.kwargs)
-        with mock.patch.object(launch.sys, "platform", "darwin"):
-            launch.prepare(**options)
-        self.assertNotIn("containment", kilo.launch.call_args.kwargs)
-        self.assertNotIn("portable_shell", kilo.launch.call_args.kwargs)
+        for platform in ("linux", "darwin"):
+            with self.subTest(platform=platform), mock.patch.object(launch.sys, "platform", platform):
+                launch.prepare(**options)
+                request = kilo.launch.call_args.kwargs["containment"]
+                self.assertIn(str(self.options["run_dir"]), request["protected_paths"])
+                self.assertNotIn("private_run", request, "a writer's shell is not the planning shell")
 
     def test_a_planning_handoff_stays_compact_under_containment(self):
         packet = {"stage": "draft_plan", "joint_planning": True, "task": "x"}
