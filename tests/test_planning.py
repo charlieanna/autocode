@@ -254,12 +254,15 @@ class PlanningTests(unittest.TestCase):
                 self.assertNotIn("obligation_decisions", rule)
 
     def setUp(self):
-        # Hermetic default-provider resolution: a contributor's own
-        # ~/.config/autocode/config.toml or AUTOCODE_PROVIDER must never
-        # change what these in-process configure() calls resolve to.
+        # Pure planning isolates both provider settings and source discovery.
+        # A contributor's registered repositories would otherwise invoke Git
+        # while building Requirements context, violating the no-CLI guard below.
         config_home = tempfile.TemporaryDirectory()
         self.addCleanup(config_home.cleanup)
-        self._env_patch = patch.dict(os.environ, {"XDG_CONFIG_HOME": config_home.name})
+        self._env_patch = patch.dict(
+            os.environ,
+            {"XDG_CONFIG_HOME": config_home.name, "AUTOCODE_SOURCE_CATALOG_HOME": config_home.name},
+        )
         self._env_patch.start()
         self.addCleanup(self._env_patch.stop)
         previous_provider = os.environ.pop("AUTOCODE_PROVIDER", None)
