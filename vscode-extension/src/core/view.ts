@@ -215,6 +215,18 @@ export interface Recovery {
   [key: string]: unknown;
 }
 
+/** Local runner-owned check progress (`view.runner_check`), display only. */
+export interface RunnerCheck {
+  stage?: string | null;
+  summary?: string | null;
+  phase?: string | null;
+  current?: number | null;
+  total?: number | null;
+  elapsed_seconds?: number | null;
+  command?: string | null;
+  liveness?: { kind?: string } | null;
+}
+
 export interface StatusView {
   schema?: number;
   /** The run's effective workspace: may differ from a client handle named before bootstrap relocation. */
@@ -245,6 +257,9 @@ export interface StatusView {
   evidence?: { outcome?: string; acceptance?: { id: string; criterion: string; status: string }[] } | null;
   recovery?: Recovery | null;
   liveness?: { kind?: string } | null;
+  runner_check?: RunnerCheck | null;
+  tool_containment?: string | null;
+  tool_containment_backend?: { backend?: string | null; backend_version?: string | null } | null;
   /** Fresh birth-bound invocation inspection, independent of workflow-stage liveness. */
   controller?: { kind?: string; checked?: boolean; alive?: boolean | null } | null;
   current_task?: { id?: string; objective?: string } | null;
@@ -506,6 +521,7 @@ export function progressLine(view: StatusView): string {
  * for another chat to leave its folder (`checkout_wait`): the client goes on with it, the person is not asked. */
 export function isWorking(view: StatusView): boolean {
   return ["supervised", "unsupervised"].includes(view.liveness?.kind ?? "")
+    || ["supervised", "unsupervised"].includes(view.runner_check?.liveness?.kind ?? "")
     || waitsForFolder(view)
     || (!view.done && view.needs?.kind === "continue" && view.controller?.kind === "running"
       && view.controller.checked === true && view.controller.alive === true);

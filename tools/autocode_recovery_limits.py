@@ -160,7 +160,12 @@ RETRY_UNRECONCILED_REFUSAL = "Reconcile the active attempt or pending report rep
 
 def repeated_failure_retry_refusal(state: RunState) -> str | None:
     """Why ``--retry-failed-stage`` is refused for this saved state right now, else None."""
-    return RETRY_UNRECONCILED_REFUSAL if any(state.get(key) for key in RETRY_UNRECONCILED) else None
+    for key in RETRY_UNRECONCILED:
+        if key == "pending_report_repair" and stage_stalls.exhausted_unlaunchable_pending(state):
+            continue
+        if state.get(key):
+            return RETRY_UNRECONCILED_REFUSAL
+    return None
 
 
 HOLD_STATUSES = ("PAUSED_NO_PROGRESS", "WAITING_FOR_USER", "RESOLVER_PENDING")

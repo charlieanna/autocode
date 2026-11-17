@@ -92,23 +92,27 @@ class ChangedCodeReportDiagnosticsTests(unittest.TestCase):
                             self.state, value, {**record, "report_repaired": repaired}, passing_claim=False
                         )
                     message = str(raised.exception)
+                    # A repaired FAIL is no longer asked for the rest of the matrix (#68); its citation
+                    # defects are still all reported together.
                     for expected in (
                         "return value_2",
                         "wrong-proof-one",
                         "wrong-proof-two",
-                        "L2",
-                        "L3",
+                        *(() if repaired else ("L2", "L3")),
                         "proof:current",
                     ):
                         self.assertIn(expected, message)
                     self.assertEqual(before, (self.state, value, record))
 
-    def test_repaired_missing_test_failure_still_requires_every_offered_decision(self):
+    def test_repaired_missing_test_failure_keeps_the_builder_fallback(self):
+        """Board #68: the repair's own caps cannot carry every decision, so a repaired FAIL is routed, not refused."""
+        value = self.report()
+        value[review.FIELD].pop()
+        with self.assertRaisesRegex(ValueError, "L3"):
+            application.require_tester_decisions(self.state, value, self.record)
         for change in ({"report_repaired": True}, {"stage": "tester_report_repair", "original_stage": "tester"}):
-            value = self.report()
-            value[review.FIELD].pop()
-            with self.subTest(change=change), self.assertRaisesRegex(ValueError, "L3"):
-                application.require_tester_decisions(self.state, value, {**self.record, **change})
+            with self.subTest(change=change):
+                self.assertIsNone(application.require_tester_decisions(self.state, value, {**self.record, **change}))
 
     def test_current_proof_alias_resolves_only_to_the_pinned_current_file(self):
         for ref in ("proof:current", str(self.proof), str(self.proof.relative_to(self.root))):

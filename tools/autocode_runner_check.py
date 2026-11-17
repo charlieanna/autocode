@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 import os
+import time
 from contextlib import contextmanager
 from copy import deepcopy
 from pathlib import Path
@@ -195,7 +196,8 @@ def auto_recover(state: RunState, run_dir, persist, *, source_revision, source_c
 @contextmanager
 def track(state: RunState, run_dir, stage, summary, persist, *, deferred=False):
     clear(state, run_dir, persist)
-    record = {"stage": stage, "summary": summary, "started_at": util.now()}
+    started_monotonic = time.monotonic()
+    record: dict = {"stage": stage, "summary": summary, "started_at": util.now()}
     published = False
     if not deferred:
         pid = os.getpid()
@@ -204,10 +206,35 @@ def track(state: RunState, run_dir, stage, summary, persist, *, deferred=False):
         state["active_runner_check"] = record
         published = True
 
-    def update(summary, *, command=None, output=None):
+    def update(
+        summary,
+        *,
+        command=None,
+        output=None,
+        phase=None,
+        current=None,
+        total=None,
+        elapsed_seconds=None,
+    ):
         _reconcile(record)
         record.pop("supervision", None)
-        record.update(summary=summary, updated_at=util.now(), command=command, output=str(output) if output else None)
+        elapsed = (
+            round(max(0.0, float(elapsed_seconds)), 1)
+            if elapsed_seconds is not None
+            else round(max(0.0, time.monotonic() - started_monotonic), 1)
+        )
+        record.update(
+            summary=summary,
+            updated_at=util.now(),
+            command=command,
+            output=str(output) if output else None,
+            elapsed_seconds=elapsed,
+        )
+        for key, value in (("phase", phase), ("current", current), ("total", total)):
+            if value is None:
+                record.pop(key, None)
+            else:
+                record[key] = value
         if published:
             persist(Path(run_dir) / "state.json", state)
 
@@ -218,7 +245,13 @@ def track(state: RunState, run_dir, stage, summary, persist, *, deferred=False):
             record["processes"] = [deepcopy(metadata["owner"])]
             state["active_runner_check"] = record
             published = True
-        record.update(command=command, output=str(output), updated_at=util.now(), supervision=deepcopy(metadata))
+        record.update(
+            command=command,
+            output=str(output),
+            updated_at=util.now(),
+            elapsed_seconds=round(max(0.0, time.monotonic() - started_monotonic), 1),
+            supervision=deepcopy(metadata),
+        )
         persist(Path(run_dir) / "state.json", state)
 
     token = command_supervision.CHECKPOINT.set(checkpoint)

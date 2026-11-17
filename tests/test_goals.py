@@ -1377,6 +1377,65 @@ class GoalTests(unittest.TestCase):
         packet = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
         self.assertEqual(owned, packet["current_task"]["affected_paths"])
 
+    def test_serial_rework_in_a_multi_milestone_plan_keeps_repair_paths_after_a_finished_wave(self):
+        """Board #66: plan size and past waves do not decide whether the current task runs serially."""
+        draft = body()
+        draft["acceptance_criteria"].append(
+            {"id": "C2", "criterion": "Server", "verification_method": "Execute handler checks", "human_review": False}
+        )
+        draft["milestones"].append(
+            {
+                "id": "M2",
+                "objective": "server",
+                "acceptance_criteria": ["C2"],
+                "depends_on": [],
+                "affected_paths": ["server/"],
+            }
+        )
+        lifecycle.install_draft(self.state, draft, origin="test")
+        lifecycle.human.evaluate(self.state)
+        lifecycle.present(self.state)
+        lifecycle.approve(self.state, self.state["displayed_goal"])
+        lifecycle.assign_task(self.state, self.decision(), s.snapshot(self.root))  # M1, serially
+        owned = list(self.state["current_task"]["affected_paths"])
+        repair = self.decision("REWORK")
+        repair["affected_paths"] = [*owned, "formatting.py"]
+        repair["next_task"]["requirements"] = ["Correct formatting.py to meet the approved greeting criterion"]
+        finished_wave = {"orchestration_history": [{"id": "wave-1", "tasks": [{"milestone_id": "M1"}]}]}
+        live = {
+            "orchestration_batch": {"id": "wave-2"},
+            "parent_run": "orchestrator",
+            "parent_batch": "batch-1",
+        }
+        for extra, expected in (
+            ({}, [*owned, "formatting.py"]),
+            (finished_wave, [*owned, "formatting.py"]),
+            *(({key: value}, owned) for key, value in live.items()),
+        ):
+            with self.subTest(state=sorted(extra)):
+                state = copy.deepcopy(self.state)
+                state.update(copy.deepcopy(extra))
+                lifecycle.assign_task(state, repair, s.snapshot(self.root))
+                self.assertEqual(expected, state["current_task"]["affected_paths"])
+                prompt, _ = stage_context.context_packet(state, "builder", self.run / "state.json")
+                packet = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+                self.assertEqual(expected, packet["affected_paths"])
+
+    def test_runs_serially_reads_the_live_task_and_batch_only(self):
+        cases = (
+            ({}, True),
+            ({"current_task": {"milestone_id": "M4"}}, True),
+            ({"current_task": {"milestone_id": "M4", "milestone_ids": ["M4"]}}, True),
+            ({"current_task": {"milestone_id": "M4"}, "orchestration_history": [{"id": "wave-1"}]}, True),
+            ({"current_task": {"milestone_id": "M2", "milestone_ids": ["M2", "M3"]}}, False),
+            ({"current_task": {"milestone_id": "M4"}, "orchestration_batch": {"id": "wave-2"}}, False),
+            ({"current_task": {"milestone_id": "M4"}, "parent_run": "orchestrator"}, False),
+            ({"current_task": {"milestone_id": "M4"}, "parent_batch": "batch-1"}, False),
+        )
+        for state, expected in cases:
+            with self.subTest(state=state):
+                self.assertIs(expected, lifecycle.runs_serially(state))
+
     def test_task_paths_fall_back_to_report_without_milestone_ownership(self):
         for ownership in (None, []):
             with self.subTest(ownership=ownership):

@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   approvalToken,
+  isWorking,
   needsSummary,
   pauseLabel,
   planForApproval,
@@ -333,4 +334,27 @@ test("readStatusPayload preserves additive requirements, allow_custom, and chat.
   assert.equal(view.requirements?.handoff_ref, "abc123def456");
   assert.equal(view.requirements?.proposed_assumptions?.[0]?.id, "A1");
   assert.equal(view.chat?.gate?.kind, "answer");
+});
+
+test("isWorking recognizes a supervised local runner_check and preserves its progress metadata (#3733)", () => {
+  const view = readStatusPayload(envelope({
+    status: "RUNNING",
+    done: false,
+    needs: { kind: "continue" },
+    liveness: { kind: "unknown" },
+    runner_check: {
+      stage: "regression_proof",
+      summary: "Checking changed-line mutations (12/80, 45s elapsed): app.py:19",
+      phase: "mutation",
+      current: 12,
+      total: 80,
+      elapsed_seconds: 45.2,
+      command: "pytest -x -q",
+      liveness: { kind: "supervised" },
+    },
+  }));
+  assert.equal(isWorking(view), true);
+  assert.equal(view.runner_check?.phase, "mutation");
+  assert.equal(view.runner_check?.current, 12);
+  assert.equal(view.runner_check?.total, 80);
 });

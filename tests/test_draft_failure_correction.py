@@ -124,9 +124,7 @@ class DraftFailureCorrectionTests(unittest.TestCase):
             }
         ]
         receipt = review["concerns"][0][correction.FIELD]
-        with self.assertRaisesRegex(ValueError, "fresh first-review inference receipt"):
-            correction.receipts(current, review)
-        receipt["snapshot"] = correction.snapshot(current)
+        self.assertEqual(receipt["snapshot"], correction.snapshot(current))
         self.admit(current, review)
         lifecycle.install_draft(current, changed, origin="revise_plan", changes=changes)
         self.assertEqual(AFTER, current["goal_contract"]["body"]["required_behaviors"][-1])

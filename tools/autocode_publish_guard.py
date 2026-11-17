@@ -16,8 +16,10 @@ from __future__ import annotations
 
 try:
     from . import autocode_prompts as prompts
+    from . import autocode_tool_handoff as tool_handoff
 except ImportError:
     import autocode_prompts as prompts
+    import autocode_tool_handoff as tool_handoff
 
 # Command prefixes that change something outside the workspace. Reads (gh issue view/list, gh pr view/diff,
 # git fetch) stay allowed. ``gh api`` reads as often as it writes, so the prompt rule covers its writes.
@@ -105,5 +107,4 @@ def with_rule(prompt: str) -> str:
     """The stage prompt with the rule before its handoff data, or after the text when it has none."""
     if RULE in prompt:
         return prompt
-    before, marker, after = prompt.partition(MARKER)
-    return before + RULE + marker + after if marker else prompt + RULE
+    return tool_handoff.before_handoff(prompt, RULE)

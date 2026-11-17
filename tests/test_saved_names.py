@@ -16,6 +16,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import autocode_contract_identity as contract_identity
 import autocode_goals as goals
@@ -100,7 +101,13 @@ class SavedRunTests(unittest.TestCase):
         public = state[resolver_human.PUBLIC]
         entry = state["resolver"]["human_escalations"][public["request_id"]]
         self.assertEqual("astra_discovery", entry["identity"]["proposal"]["next_stage"])
-        self.assertTrue(resolver_human.restage_pending(state))
+        pins = entry["identity"]["proposal"]["evidence"]["hashes"]
+        with mock.patch.object(
+            resolver_human,
+            "_evidence_valid",
+            side_effect=lambda candidate: (candidate.get("evidence") or {}).get("hashes") == pins,
+        ):
+            self.assertTrue(resolver_human.restage_pending(state))
         self.assertEqual("draft_plan", state["next_stage"])
         proposal = state[resolver_human.PRIVATE]
         self.assertEqual("draft_plan", proposal["next_stage"])

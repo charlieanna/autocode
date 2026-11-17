@@ -92,7 +92,7 @@ def record(state: RunState, *, timestamp=None):
                 request,
                 questions,
                 public.get("request_id") if public else None,
-                check.get("summary"),
+                check.get("phase") or check.get("summary"),
             ],
             sort_keys=True,
         ).encode()
@@ -105,6 +105,19 @@ def record(state: RunState, *, timestamp=None):
         and timestamp - previous.get("at", 0) >= 60
     )
     if not changed and not heartbeat:
+        if (
+            status == "RUNNING"
+            and check
+            and not state.get("active_stage")
+            and check.get("summary")
+            and (messages := state.get("progress_messages"))
+            and isinstance(messages[-1], dict)
+            and messages[-1].get("speaker") == "Runner"
+        ):
+            messages[-1]["text"] = (
+                f"{check['summary']}. This check runs locally before the Validator; no model is active."
+            )
+            messages[-1]["created_at"] = dt.datetime.fromtimestamp(timestamp, dt.UTC).isoformat()
         return None
     if status in ("TASK_COMPLETE", "COMPLETE"):
         text = "Task complete. Acceptance checks and required reviews are recorded."

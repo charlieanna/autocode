@@ -155,14 +155,24 @@ def require_exact_lines(state: RunState, value, record):
 LISTED_GAPS = 40
 
 
+def _runner_gap(row) -> bool:
+    """A line whose every mutant went unrun: no mutation result exists for a Tester to judge."""
+    outcomes = row.get("mutation_outcomes")
+    return bool(outcomes) and isinstance(outcomes, list) and all(outcome == "not_run" for outcome in outcomes)
+
+
 def require_tester_decisions(state: RunState, value, record):
     """Request omitted decisions before another expensive replay or repair.
 
     A Builder round cannot settle a gap with no mutation outcome (autocode_changed_code_review
-    .tester_only_gaps), so the bounded report repair asks the Tester instead. A repaired PASS
-    keeps the existing Builder/Investigator fallback for unresolved evidence. An explicit
-    missing-test FAIL, including a repaired one, must decide the whole offered matrix so its
-    independent writer receives one complete review instead of successive partial reviews.
+    .tester_only_gaps), so the bounded report repair asks the Tester instead. An explicit
+    missing-test FAIL is asked once to decide the rest of the offered matrix, so its independent
+    writer receives one complete review instead of successive partial reviews; a line whose
+    mutants never ran (``not_run``: the runner's budget ended, no result exists) is the runner's
+    gap, not one the Tester must explain. A repaired report, PASS or FAIL, keeps the existing
+    Builder/Investigator fallback (``route``) for what it leaves undecided: the repair channel's
+    own caps (``edits.maxItems``, ``value_json.maxLength``) cannot carry hundreds of decisions, so
+    demanding them again paused the run with no way forward (#3736).
     """
     stage = str(record.get("stage", ""))
     # A repaired report is applied with its original stage's record, marked report_repaired.
@@ -176,11 +186,7 @@ def require_tester_decisions(state: RunState, value, record):
             for row in decisions
         )
     )
-    if (
-        (value.get("verdict") != "PASS" and not missing_tests)
-        or (repaired and not missing_tests)
-        or not record.get("schema")
-    ):
+    if (value.get("verdict") != "PASS" and not missing_tests) or repaired or not record.get("schema"):
         return
     assessment = (state.get("regression_proof") or {}).get("changed_code_evidence") or {}
     if assessment.get("source_revision") != record.get("source_revision"):
@@ -191,6 +197,8 @@ def require_tester_decisions(state: RunState, value, record):
         util.read(record["schema"]),
         str(record.get("original_stage") or stage).removesuffix("_report_repair"),
     )
+    if missing_tests:
+        gaps = [row for row in gaps if not _runner_gap(row)]
     if not gaps:
         return
     # Each line's text is listed too: the repair handoff carries this error, not the proof's rows (#2977).

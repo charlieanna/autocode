@@ -229,8 +229,11 @@ def engine_checks(which=shutil.which, runner=run, opencode_version=None) -> list
         )
     if which("codex"):
         login = runner(["codex", "login", "status"])
+        codex_detail = "Codex, logged in"
+        if login.returncode == 0 and tool_containment.seatbelt_available():
+            codex_detail += f" ({tool_containment.SEATBELT_CODEX_LOOPBACK_NOTE})"
         checks.append(
-            Check("engine:codex", OK, "Codex, logged in")
+            Check("engine:codex", OK, codex_detail)
             if login.returncode == 0
             else Check("engine:codex", MISSING, "Codex found but not logged in", "run `codex login`")
         )
@@ -399,9 +402,10 @@ def containment_check(status: dict) -> Check:
     name, problem = status["backend"], status["problem"]
     sandbox = f"{SANDBOXES[name]}, {status['backend_version'] or 'version unknown'}" if name else None
     if not problem:
-        return Check(
-            "containment", OK, f"{sandbox}: built-in OpenCode stages other than planning run their shell inside it"
-        )
+        detail = f"{sandbox}: built-in OpenCode stages other than planning run their shell inside it"
+        if name == tool_containment.SEATBELT:
+            detail += f"; {tool_containment.SEATBELT_LOOPBACK_NOTE}"
+        return Check("containment", OK, detail)
     if problem == tool_containment.NO_OPENCODE:
         # engine:opencode already says how to install it; no run starts without it, flag or not.
         return Check(

@@ -38,13 +38,34 @@ def _sentence(text) -> str:
     return text if not text or text.endswith((".", "?", "!")) else text + "."
 
 
+def _upper_first(text: str) -> str:
+    return text[:1].upper() + text[1:] if text else ""
+
+
 def _plain(text) -> str:
     if not text:
         return ""
+    if person_text.internal_machinery(text):
+        return person_text.human_summary(text) or ""
     if not person_text.machinery(text):
         return str(text)
     cleaned = person_text.plain(text)
     return "" if cleaned == person_text.FALLBACK else str(cleaned)
+
+
+def _plain_asked(asked: object, raw_reason: object, recovery: dict) -> str:
+    """``progress.needs_you`` without CLI flags or leaked internal prompt/schema machinery (#3733)."""
+    if person_text.internal_machinery(raw_reason) and (
+        not asked or asked == NOTHING_NEEDED or str(asked).startswith("inspect the pause")
+    ):
+        return person_text.human_summary(raw_reason) or str(recovery.get("what_happened") or "")
+    if not isinstance(asked, str) or not asked or asked == NOTHING_NEEDED:
+        return ""
+    if asked.startswith("inspect the pause, then use ") and person_text.machinery(asked):
+        return "inspect the pause, then resume"
+    if person_text.machinery(asked):
+        return person_text.plain_option(asked) or ""
+    return asked
 
 
 def project(view: dict, *, stale: bool = False, completion_current=None, next_action=None) -> dict:
@@ -79,12 +100,10 @@ def project(view: dict, *, stale: bool = False, completion_current=None, next_ac
             )
     elif kind not in NOT_A_PERSON or status == "AWAITING_GOAL_APPROVAL":
         state = NEEDS_YOU
-        reason = (
-            asked
-            if asked and asked != NOTHING_NEEDED
-            else _plain(need.get("reason")) or view.get("pause_category_label")
-        )
-        sentence = _sentence(str(reason or status.replace("_", " ").lower()).capitalize())
+        raw_reason = need.get("reason") or view.get("stop_reason")
+        cleaned_asked = _plain_asked(asked, raw_reason, view.get("recovery") or {})
+        reason = cleaned_asked if cleaned_asked else _plain(raw_reason) or view.get("pause_category_label")
+        sentence = _sentence(_upper_first(str(reason or status.replace("_", " ").lower())))
     elif status == "RUNNING" and (view.get("controller") or {}).get("kind") == "ready" and command:
         # The controller exited on purpose after a saved answer, approval or follow-up: the run moves
         # only when someone runs the command, so "Working" would have the person wait for nothing (#2332).

@@ -51,6 +51,7 @@ CHECKERS = independence.verifiers("builder")
 # it stops with this result. The parent integrates the other Builders and makes the stronger
 # attempt itself, serially, where swap_checkers applies (user 2026-09-29).
 SERIAL = "SERIAL_ESCALATION"
+SERIAL_USER_REQUEST = "SERIAL_USER_REQUEST"
 # Efforts a replacement checker keeps; a climbed xhigh/max rung belongs to the GPT ladder.
 CHECKER_EFFORTS = ("low", "medium", "high")
 EXHAUSTED = "Implementation remains blocked after the configured retries and the stronger Builder attempt"
@@ -161,12 +162,58 @@ def classification_limit(state: RunState):
     """Builder failures one milestone may have classified (#686): as many as its lane takes, the
     one it pauses on included. That is the ordinary retries, the stronger attempt (or one more
     ordinary retry in its place), then the pause, plus each failure that did not count toward them
-    (progress, #611), so classifying never stops a milestone sooner."""
+    (progress, #611; or non-execution plan/operational routing), so classifying never stops a
+    milestone sooner."""
     count = ((state.get("settings") or {}).get("builder_retry") or {}).get("ordinary_retries")
     count = count if type(count) is int and 0 <= count <= 3 else cast(int, DEFAULTS["ordinary_retries"])
-    current = (state.get("builder_retries") or {}).get(key(state)) or {}
+    ident = key(state)
+    current = (state.get("builder_retries") or {}).get(ident) or {}
     uncounted = sum(1 for row in current.get("ledger") or () if row.get("novelty") == "progress")
-    return count + 2 + uncounted
+    non_execution = sum(
+        1
+        for row in state.get("stuck_investigations") or ()
+        if isinstance(row, dict)
+        and row.get("trigger") == "builder_failure"
+        and row.get("milestone_key") == ident
+        and row.get("outcome") == "classified"
+        and row.get("failure_class") in ("plan", "operational")
+    )
+    return count + 2 + uncounted + min(non_execution, 4)
+
+
+def same_unretried_builder_round(state: RunState, current: dict | None, evidence) -> bool:
+    """True when ``evidence`` re-reviews the same Builder output as ``current['failures'][-1]`` without a new Builder attempt."""
+    if not isinstance(current, dict) or not current.get("failures") or not isinstance(evidence, str) or not evidence:
+        return False
+    last_failure = current["failures"][-1]
+    if not isinstance(last_failure, str) or not last_failure or last_failure == evidence:
+        return False
+    stages = state.get("stages") or []
+    last_idx = next(
+        (
+            idx
+            for idx in range(len(stages) - 1, -1, -1)
+            if isinstance(stages[idx], dict) and stages[idx].get("output") == last_failure
+        ),
+        None,
+    )
+    curr_idx = next(
+        (
+            idx
+            for idx in range(len(stages) - 1, -1, -1)
+            if isinstance(stages[idx], dict) and stages[idx].get("output") == evidence
+        ),
+        None,
+    )
+    if last_idx is None or curr_idx is None or last_idx > curr_idx:
+        return False
+    src = stages[last_idx].get("source_revision")
+    if not isinstance(src, str) or not src or src != stages[curr_idx].get("source_revision"):
+        return False
+    return not any(
+        isinstance(row, dict) and (row.get("original_stage") or row.get("stage")) in ("builder", "orchestrator")
+        for row in stages[last_idx + 1 : curr_idx + 1]
+    )
 
 
 def lane(state: RunState):
@@ -598,11 +645,10 @@ def failure(state: RunState, evidence, reason, *, classification="execution"):
     if type(count) is not int or not 0 <= count <= 3:
         raise ValueError("builder_retry.ordinary_retries must be between 0 and 3")
     current = lane(state)
-    recorded = {row.get("evidence"): row for row in current.get("ledger") or ()}
-    rows = [recorded.get(earlier, {"evidence": earlier}) for earlier in current["failures"]]
-    seen = evidence_ledger.observe(state.get("validation"), state.get("findings_ledger"), state.get("changed_files"))
+    rows = reconciled_ledger_rows(state, current)
+    seen = observe_state(state)
     novelty = evidence_ledger.assess(rows, evidence, seen)
-    if novelty == "replay":
+    if novelty == "replay" or (current.get("action") and same_unretried_builder_round(state, current, evidence)):
         return current["action"]
     # A lane saved before the ledger counted every failure it holds.
     position = current.get("position", len(current["failures"]))
@@ -638,3 +684,156 @@ def failure(state: RunState, evidence, reason, *, classification="execution"):
         reason = f"{reason}; {NOVELTY_NOTES[novelty]}"
     _decide(state, current, action, evidence, reason, checkers, stop_reason, novelty)
     return action
+
+
+def _changed_code_for_state(state: RunState, override=None) -> dict | None:
+    if isinstance(override, dict):
+        return override
+    proof = state.get("regression_proof")
+    if not isinstance(proof, dict) or proof.get("verdict") != "PASS":
+        return None
+    validation = state.get("validation")
+    if (
+        isinstance(validation, dict)
+        and validation.get("source_revision")
+        and proof.get("source_revision")
+        and validation["source_revision"] != proof["source_revision"]
+    ):
+        return None
+    changed_code = proof.get("changed_code_evidence")
+    return changed_code if isinstance(changed_code, dict) else None
+
+
+def observe_state(state: RunState, changed_code_evidence=None) -> dict:
+    """Observe the current milestone failure evidence including passing-proof changed-line obligations."""
+    return evidence_ledger.observe(
+        state.get("validation"),
+        state.get("findings_ledger"),
+        state.get("changed_files"),
+        _changed_code_for_state(state, changed_code_evidence),
+    )
+
+
+def reconciled_ledger_rows(state: RunState, current: dict, *, upto: int | None = None) -> list[dict]:
+    """Read earlier ledger rows, restoring changed-line obligations omitted by pre-fix saves."""
+    reworks = {
+        row.get("review_output"): row.get("assessment")
+        for row in state.get("regression_proofs") or ()
+        if isinstance(row, dict)
+        and row.get("kind") == "changed_code_rework"
+        and isinstance(row.get("assessment"), dict)
+    }
+    recorded = {row.get("evidence"): row for row in current.get("ledger") or () if isinstance(row, dict)}
+    failures = list(current.get("failures") or ())
+    if upto is not None:
+        failures = failures[:upto]
+    rows = []
+    for earlier in failures:
+        saved = recorded.get(earlier, {"evidence": earlier})
+        assessment = reworks.get(earlier)
+        if isinstance(assessment, dict) and "signature" in saved:
+            cc_seen = evidence_ledger.observe(None, None, saved.get("changed"), assessment)
+            merged_failing = sorted(set(saved.get("failing") or ()) | set(cc_seen["failing"]))
+            if merged_failing != list(saved.get("failing") or ()):
+                saved = {
+                    **saved,
+                    "failing": merged_failing,
+                    "signature": evidence_ledger.signature(
+                        {"failing": merged_failing, "changed": list(saved.get("changed") or ())}
+                    ),
+                }
+        rows.append(saved)
+    return rows
+
+
+def execution_exhausted(state: RunState, evidence, *, changed_code_evidence=None) -> bool:
+    """True when an execution charge for ``evidence`` would immediately pause at the ladder's end."""
+    if not enabled(state):
+        return True
+    config = state["settings"]["builder_retry"]
+    count = config["ordinary_retries"]
+    if type(count) is not int or not 0 <= count <= 3:
+        return False
+    current = (state.get("builder_retries") or {}).get(key(state))
+    if not isinstance(current, dict) or not current.get("failures"):
+        return False
+    rows = reconciled_ledger_rows(state, current)
+    seen = observe_state(state, changed_code_evidence)
+    novelty = evidence_ledger.assess(rows, evidence, seen)
+    if novelty in ("replay", "progress"):
+        return False
+    limit = count + (0 if config["strong_model"] else 1)
+    position = current.get("position", len(current["failures"]))
+    next_pos = max(position + 1, limit + 1) if novelty == "repeat" else position + 1
+    return next_pos > limit + 1
+
+
+def reconcile_false_progress_stop(state: RunState, failure_output: str) -> bool:
+    """Retire a pre-fix runner could_not_finish stop recorded with failing_checks=[] on genuine progress."""
+    stops = [row for row in state.get("applied_interventions") or () if stop.is_stop_receipt(row)]
+    if len(stops) != 1:
+        return False
+    receipt = stops[0]
+    outcome = receipt.get("outcome") if receipt.get("actor") == stop.RUNNER_ACTOR else None
+    ev_meta = outcome.get("evidence") if isinstance(outcome, dict) else None
+    milestone_key = key(state)
+    current = (state.get("builder_retries") or {}).get(milestone_key)
+    if (
+        not isinstance(outcome, dict)
+        or outcome.get("result") != "could_not_finish"
+        or not isinstance(ev_meta, dict)
+        or ev_meta.get("stage") != "builder"
+        or ev_meta.get("failure") != failure_output
+        or ev_meta.get("milestone_key") != milestone_key
+        or ev_meta.get("failing_checks") != []
+        or ev_meta.get("novelty") != "new"
+        or not isinstance(current, dict)
+        or current.get("action") != "pause"
+        or (current.get("failures") or [])[-1:] != [failure_output]
+    ):
+        return False
+    prior_rows = reconciled_ledger_rows(state, current, upto=len(current["failures"]) - 1)
+    seen = observe_state(state)
+    if evidence_ledger.assess(prior_rows, failure_output, seen) != "progress":
+        return False
+    state["applied_interventions"] = [row for row in state.get("applied_interventions") or () if row is not receipt]
+    if (state.get("stop_intent") or {}).get("request_ids") == [receipt.get("id")]:
+        state.pop("stop_intent", None)
+    updated_ledger = [copy.deepcopy(row) for row in prior_rows]
+    updated_ledger.append(
+        {
+            "evidence": failure_output,
+            "signature": evidence_ledger.signature(seen),
+            "failing": seen["failing"],
+            "changed": seen["changed"],
+            "novelty": "progress",
+        }
+    )
+    current["ledger"] = updated_ledger
+    current["position"] = max(0, current.get("position", len(current["failures"])) - 1)
+    current["action"] = "retry"
+    decisions = state.get("builder_retry_decisions") or []
+    for row in decisions:
+        if isinstance(row, dict) and row.get("milestone_key") == milestone_key and row.get("outcome") == "paused":
+            row.pop("outcome", None)
+    if (
+        decisions
+        and isinstance(decisions[-1], dict)
+        and decisions[-1].get("action") == "pause"
+        and decisions[-1].get("failure") == failure_output
+        and decisions[-1].get("milestone_key") == milestone_key
+    ):
+        decisions[-1]["action"] = "retry"
+        decisions[-1]["novelty"] = "progress"
+        note = NOVELTY_NOTES["progress"]
+        if note not in str(decisions[-1].get("reason") or ""):
+            decisions[-1]["reason"] = f"{decisions[-1].get('reason', '')}; {note}"
+    assigned_at = str((state.get("current_task") or {}).get("assigned_at") or "")
+    for event in state.get("reasoning_escalations") or ():
+        if (
+            isinstance(event, dict)
+            and event.get("outcome") == "paused"
+            and (not assigned_at or str(event.get("at") or "") >= assigned_at)
+        ):
+            event.pop("outcome", None)
+    return True

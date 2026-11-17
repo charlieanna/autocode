@@ -472,6 +472,13 @@ def suite_on_candidate(run, trees, run_suite):
     checks, commands = run.checks, run.commands
     if "suite_on_candidate" not in checks:
         reuse = checks.get("regression_on_candidate") if commands["suite"] == commands["regression"] else None
+        if reuse is None and getattr(run, "progress", None) is not None:
+            run.progress(
+                "Checking the full candidate suite",
+                command=commands["suite"],
+                output=run.run_dir,
+                phase="candidate_suite",
+            )
         checks["suite_on_candidate"] = reuse or run_suite(
             run.framework, commands["suite"], trees["candidate"], run.run_dir, "suite-on-candidate", timeout=run.timeout
         )

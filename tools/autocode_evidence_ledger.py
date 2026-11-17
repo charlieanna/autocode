@@ -42,7 +42,7 @@ def _finding_item(finding) -> str | None:
     return ident if isinstance(ident, str) else None
 
 
-def observe(validation, findings, changed_files) -> dict:
+def observe(validation, findings, changed_files, changed_code_evidence=None) -> dict:
     """The failing and resolved items and the changed files, each sorted and unique."""
     failing: set[str] = set()
     resolved: set[str] = set()
@@ -63,6 +63,11 @@ def observe(validation, findings, changed_files) -> dict:
             resolved.add("finding:" + ident)
         elif finding.get("blocking", True):
             failing.add("finding:" + ident)
+    if isinstance(changed_code_evidence, dict):
+        for obligation in _rows(changed_code_evidence.get("obligations")):
+            path, line, status = obligation.get("path"), obligation.get("line"), obligation.get("status")
+            if isinstance(path, str) and path and type(line) is int and isinstance(status, str):
+                (resolved if status in ("tested", "excepted") else failing).add(f"changed_code:{path}:{line}")
     changed = {path for path in changed_files or () if isinstance(path, str)}
     return {"failing": sorted(failing), "resolved": sorted(resolved - failing), "changed": sorted(changed)}
 
@@ -90,6 +95,10 @@ def assess(rows, evidence, seen: dict) -> str:
     earlier = [set(row.get("failing") or ()) for row in rows]
     if earlier and all(earlier) and all(row.get("signature") for row in rows):
         before = set().union(*earlier)
-        if before <= set(seen["resolved"]) and before.isdisjoint(failing):
+        resolved = set(seen["resolved"])
+        changed_code_measured = any(item.startswith("changed_code:") for item in (*seen["failing"], *seen["resolved"]))
+        if before.isdisjoint(failing) and all(
+            item in resolved or (changed_code_measured and item.startswith("changed_code:")) for item in before
+        ):
             return "progress"
     return "new"

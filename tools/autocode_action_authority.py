@@ -308,7 +308,7 @@ def settle(runner, args, parser, state: RunState, state_path, run_dir, workspace
         state.pop("stop_reason", None)
         runner.write_json(state_path, state)
         specific_recovery = True
-    issued = resolver_human.current(state)
+    issued = resolver_human.current(state) or resolver_human.recovery_request(state)
     if args.resume_paused and issued and issued["scope"] == "operational_exhaustion":
         cause = state["resolver"]["human_escalations"][issued["request_id"]]["identity"]["proposal"]["origin"].get(
             "pause_status"

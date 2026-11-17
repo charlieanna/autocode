@@ -39,6 +39,7 @@ try:
     from . import autocode_stop as stop
     from . import autocode_stray_writes as stray_writes
     from . import autocode_support as support
+    from . import autocode_tool_handoff as tool_handoff
     from . import autocode_util as util
     from . import autocode_verifier_independence as verifier_independence
 except ImportError:
@@ -61,6 +62,7 @@ except ImportError:
     import autocode_stop as stop
     import autocode_stray_writes as stray_writes
     import autocode_support as support
+    import autocode_tool_handoff as tool_handoff
     import autocode_util as util
     import autocode_verifier_independence as verifier_independence
 
@@ -129,23 +131,10 @@ _FORBIDDEN_QUESTION_TOKENS = (
 )
 
 
-def _executed_checks(events_path: Any) -> list[dict[str, Any]]:
+def _executed_checks(events_path: Any, *, stage: Any = None) -> list[dict[str, Any]]:
     if not isinstance(events_path, str) or not events_path or not Path(events_path).is_file():
         return []
-    return [
-        {
-            "command": e["item"]["command"],
-            "exit_code": e["item"]["exit_code"],
-            "evidence_ref": "event:" + e["item"]["id"],
-        }
-        for e in support.events(events_path)
-        if e.get("type") == "item.completed"
-        and isinstance(e.get("item"), dict)
-        and e["item"].get("type") == "command_execution"
-        and isinstance(e["item"].get("command"), str)
-        and isinstance(e["item"].get("id"), str)
-        and type(e["item"].get("exit_code")) is int
-    ]
+    return report_source.original_executed_checks(events_path, stage=stage)
 
 
 def select_route(state: RunState, target_stage: str) -> dict[str, Any]:
@@ -498,7 +487,10 @@ def handoff(state: RunState, workspace: Path | None = None, *, engine: str | Non
     if isinstance(schema_path, str) and schema_path and Path(schema_path).is_file():
         with contextlib.suppress(Exception):
             report_schema = report_edits.validation_schema(util.read(Path(schema_path)))
-    checks = _executed_checks((original or request.get("rejected_record") or {}).get("events"))
+    checks = _executed_checks(
+        (original or request.get("rejected_record") or {}).get("events"),
+        stage=(original or request.get("rejected_record") or {}).get("stage") or request.get("stage"),
+    )
     contract = state.get("goal_contract") or {}
     recent = [
         {
@@ -1135,7 +1127,7 @@ def with_guidance(state: RunState, stage: str, request: Any) -> Any:
         banner += f"Updated objective: {current['next_objective']}\n"
     if current.get("affected_paths"):
         banner += f"Target paths: {', '.join(current['affected_paths'])}\n"
-    return replace(request, prompt=request.prompt + banner)
+    return replace(request, prompt=tool_handoff.before_handoff(request.prompt, banner))
 
 
 def settle(state: RunState, stage: str) -> None:

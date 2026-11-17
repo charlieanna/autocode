@@ -173,7 +173,7 @@ try:
         normalize_human_boundary, normalize_plan_challenge_blocking, now, read_json, recovery_count,
         repair_limit, stage_completed, stage_supports_sessions, timeout_recovery_route, write_json as ordinary_write_json)  # noqa: F401 - compatibility API
     from .autocode_report_source import (
-        load_stage_report as read_stage_report, REPAIR_INPUT_ROUTE, REPAIR_REPORT_BYTES, completed_provider_report, original_report_for_repair, recovered_timeout_attempt,  # noqa: F401 - compatibility API
+        load_stage_report as read_stage_report, REPAIR_INPUT_ROUTE, REPAIR_REPORT_BYTES, completed_provider_report, original_executed_checks, original_report_for_repair, recovered_timeout_attempt,  # noqa: F401 - compatibility API
         repair_report_instruction, repair_report_source, valid_truncated_report_attempt)  # noqa: F401 - compatibility API
     from .autocode_report_findings import REPAIR_INSTRUCTION as DISPOSITION_REPAIR_RULE, retained as retained_dispositions  # noqa: F401 - compatibility API
     from .autocode_stage_recovery import (MAX_AUTOMATIC_CAPACITY_RECOVERIES, abandon_stage,  # noqa: F401 - compatibility API
@@ -225,7 +225,7 @@ except ImportError:
         normalize_human_boundary, normalize_plan_challenge_blocking, now, read_json, recovery_count,
         repair_limit, stage_completed, stage_supports_sessions, timeout_recovery_route, write_json as ordinary_write_json)  # noqa: F401 - compatibility API
     from autocode_report_source import (
-        load_stage_report as read_stage_report, REPAIR_INPUT_ROUTE, REPAIR_REPORT_BYTES, completed_provider_report, original_report_for_repair, recovered_timeout_attempt,  # noqa: F401 - compatibility API
+        load_stage_report as read_stage_report, REPAIR_INPUT_ROUTE, REPAIR_REPORT_BYTES, completed_provider_report, original_executed_checks, original_report_for_repair, recovered_timeout_attempt,  # noqa: F401 - compatibility API
         repair_report_instruction, repair_report_source, valid_truncated_report_attempt)  # noqa: F401 - compatibility API
     from autocode_report_findings import REPAIR_INSTRUCTION as DISPOSITION_REPAIR_RULE, retained as retained_dispositions  # noqa: F401 - compatibility API
     from autocode_stage_recovery import (MAX_AUTOMATIC_CAPACITY_RECOVERIES, abandon_stage,  # noqa: F401 - compatibility API
@@ -1097,7 +1097,9 @@ def _execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
                     **pending.get("latest_rejected", {}).get("archived_paths", {}),
                 },
                 "open_findings": findings_ledger.handoff(state),
-                "acceptance_criteria": support.criteria_definition(state.get("acceptance_criteria", [])),
+                "acceptance_criteria": None
+                if isinstance((context_handoff["protected_contract"] or {}).get("acceptance_criteria"), list)
+                else support.criteria_definition(state.get("acceptance_criteria", [])),
                 "source_texts": goals.source_texts(state) if original["stage"] == "requirements_gather" else None,
                 "requirement_coverage_checklist": goals.coverage_checklist(state)
                 if original["stage"] == "requirements_gather"
@@ -1115,19 +1117,7 @@ def _execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
                     "contract_revision": (state.get("goal_contract") or {}).get("revision"),
                     "task_id": (state.get("current_task") or {}).get("id", ""),
                 },
-                "original_executed_checks": [
-                    {
-                        "command": e["item"]["command"],
-                        "exit_code": e["item"]["exit_code"],
-                        "evidence_ref": "event:" + e["item"]["id"],
-                    }
-                    for e in support.events(original["events"])
-                    if e.get("type") == "item.completed"
-                    and e.get("item", {}).get("type") == "command_execution"
-                    and isinstance(e["item"].get("command"), str)
-                    and isinstance(e["item"].get("id"), str)
-                    and type(e["item"].get("exit_code")) is int
-                ],
+                "original_executed_checks": original_executed_checks(original["events"], stage=original["stage"]),
                 "finding_identity_policy": prompts.get("fragments/autocode/execute-report-repair-06.md"),
                 "state_file": str(run_dir / "state.json"),
                 **jobs.repair_context(original["stage"], state),

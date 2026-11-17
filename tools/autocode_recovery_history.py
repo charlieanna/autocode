@@ -45,6 +45,18 @@ _UNSOURCED_TEXT = "it listed {ids} as things you asked for, but you never wrote 
 # autocode_report_edits: a repair's edit to the rejected report that could not be applied.
 _REPORT_EDIT = re.compile(r"^Report edits?\b")
 _REPORT_EDIT_TEXT = "its correction to the earlier answer was not in a form AutoCode can apply."
+_HANDOFF_ERROR = re.compile(
+    r"provider handoff must contain\b|\bCURRENT HANDOFF DATA\b|\bREPAIR_HANDOFF_BYTES\b"
+    r"|\brepair-edits\.schema\.json\b|\bhandoff exceeds\b",
+    re.IGNORECASE,
+)
+_HANDOFF_ERROR_TEXT = "AutoCode hit an internal stage handoff format error before the stage could finish."
+_GAP_ENUM_ERROR = re.compile(
+    r"\bin the gap_id enum\b|\bleaves other offered changed lines undecided\b"
+    r"|\bchanged_code_exceptions\b|\bquotes\s+\".*?\"\s+but binds\b",
+    re.IGNORECASE,
+)
+_GAP_ENUM_ERROR_TEXT = "its review left changed-line check items undecided."
 # A sentence that tells someone to run something is machinery, not an explanation.
 _COMMAND = re.compile(r"\bautocode\s+[a-z-]+|(?:^|\s)--[a-z]")
 _PARENTHESIS = re.compile(r"\([^()]*\)")
@@ -170,6 +182,10 @@ def _plain(text, limit=TEXT):
         return _UNSOURCED_TEXT.format(ids=unsourced["ids"].strip())
     if _REPORT_EDIT.match(text):
         return _REPORT_EDIT_TEXT
+    if _HANDOFF_ERROR.search(text):
+        return _HANDOFF_ERROR_TEXT
+    if _GAP_ENUM_ERROR.search(text):
+        return _GAP_ENUM_ERROR_TEXT
     if _is_schema_rejection(text):
         summary = _summarize_schema(text)
         if summary:

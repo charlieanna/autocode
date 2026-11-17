@@ -1437,6 +1437,19 @@ def wait_for_user(state: RunState, request, *, origin=None, evidence=None, next_
     human.queue(state, scope, origin, request=request, questions=[question], evidence=evidence, next_stage=next_stage)
 
 
+def runs_serially(state: RunState) -> bool:
+    """Whether the current task runs on its own now: not a batch worker, no live batch, no integrated wave.
+
+    Read from the live task and batch, never from the plan's size or past waves: a six-milestone plan
+    whose earlier parallel wave finished runs its later milestones serially, and a serial repair there
+    keeps the reviewer's repair paths as one in a single-milestone plan does.
+    """
+    task = state.get("current_task") or {}
+    return len(task.get("milestone_ids") or ()) <= 1 and not any(
+        state.get(key) for key in ("parent_run", "parent_batch", "orchestration_batch")
+    )
+
+
 def assign_task(state: RunState, decision, current, *, draft_slice=None, visual_proof=None):
     """Persist one bounded handoff tied to the approved brief, not a second brief."""
     spec = decision.get("next_task")
@@ -1496,11 +1509,8 @@ def assign_task(state: RunState, decision, current, *, draft_slice=None, visual_
         # Advancing milestones and parallel ownership retain the approved paths.
         serial_repair = (
             decision["status"] == "REWORK"
-            and len(milestones) == 1
             and spec["milestone_id"] == (state.get("current_task") or {}).get("milestone_id")
-            and not any(
-                state.get(key) for key in ("parent_run", "parent_batch", "orchestration_batch", "orchestration_history")
-            )
+            and runs_serially(state)
         )
         if owned:
             # Retain the milestone's existing source scope: replacing it with

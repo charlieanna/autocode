@@ -203,25 +203,98 @@ def _listed_levels(provider_mod, workspace, models, *, engine=None) -> dict:
     return discovery.listed_levels(provider_mod, workspace, models, engine=engine)
 
 
-def _list_review_ceilings(settings, provider_mod, workspace) -> None:
-    """Save the levels each stage-choice review model offers (owner decision 2026-11-05).
+def _list_review_ceilings(settings, provider_mod, workspace, *, discover_explicit=True) -> None:
+    """Save the levels each stage-choice or explicitly overridden model offers, and fit untouched defaults.
 
     A review stage's saved stage choice is a ceiling: on a small, clear task it runs one level below,
     and only at a level its model offers (autocode_review_effort). That needs the tool's own listing,
     read once here and kept as ``declared_variants`` beside any single-model listing. A hard plan's
     Planner and Plan Reviewer run one level above their saved or default level, also only at a level
-    the model offers (autocode_plan_difficulty, owner decision 2026-11-09). Their stage-choice models are
-    read here too; an automatically selected route's levels come from the listing selection already read,
-    and a fixed default route reads nothing, so a run that opted out of selection makes no listing call.
+    the model offers (autocode_plan_difficulty, owner decision 2026-11-09). An explicitly named
+    ``--ROLE-model`` route records its model's declared variants too: an untouched default effort
+    (``runner_default``) fits to the nearest declared variant instead of failing late at stage launch,
+    while an explicitly named unsupported ``--ROLE-reasoning-effort`` pauses ``PAUSED_EFFORT_UNSUPPORTED``
+    at the launch boundary. A fixed default route reads nothing, so a run that opted out of selection
+    without overriding a model makes no listing call.
     """
     origins = settings.get("effort_origins") or {}
+    route_origins = settings.get("route_origins") or {}
+    explicit_routes = {role for role, origin in route_origins.items() if origin == role_route.USER_EXPLICIT}
     roles = {role for role, origin in origins.items() if origin == role_route.STAGE_CHOICE}
+    if discover_explicit or settings.get("engine") == "codex" or hasattr(provider_mod, "EFFORTS"):
+        roles |= explicit_routes
     selected = {role for role, origin in origins.items() if origin == role_route.AUTO_SELECTED}
-    if selected_levels := _selection_levels(settings, _models(settings, selected)):
+    if selected_levels := _selection_levels(settings, _models(settings, selected | explicit_routes)):
         settings.setdefault(route_fit.DECLARED, {}).update(selected_levels)
     models = _models(settings, roles) - set(settings.get(route_fit.DECLARED) or {})
-    if models and (listed := _listed_levels(provider_mod, workspace, models, engine=settings.get("engine"))):
+    if models:
+        listed = _listed_for_settings(settings, provider_mod, workspace, models)
+        if listed:
+            settings.setdefault(route_fit.DECLARED, {}).update(listed)
+    _fit_explicit_route_efforts(settings, explicit_routes)
+
+
+def _listed_for_settings(settings, provider_mod, workspace, models) -> dict:
+    """Read ``_listed_levels`` for ``models``, respecting per-role ``--role-transport`` bindings when active."""
+    if not role_transport.enabled(settings):
+        return _listed_levels(provider_mod, workspace, models, engine=settings.get("engine"))
+    found: dict = {}
+    root = Path(workspace) if workspace is not None else None
+    for facade, routes, _identity in role_transport.groups(settings, provider_mod, root):
+        group_models = {(route or {}).get("model") for route in routes.values() if isinstance(route, dict)} & models
+        if group_models:
+            found.update(_listed_levels(facade, workspace, group_models, engine=settings.get("engine")))
+    remaining = models - set(found)
+    if remaining:
+        found.update(_listed_levels(provider_mod, workspace, remaining, engine=settings.get("engine")))
+    return found
+
+
+def _fit_explicit_route_efforts(settings, explicit_routes) -> None:
+    """Fit untouched runner-default efforts on explicitly named ``--ROLE-model`` routes to declared variants."""
+    origins = settings.get("effort_origins") or {}
+    routes = settings.get("roles") or {}
+    for role in sorted(explicit_routes):
+        if origins.get(role) != role_route.RUNNER_DEFAULT or not isinstance(routes.get(role), dict):
+            continue
+        fitted = route_fit.fit(settings, role)
+        if fitted.reason == "fitted":
+            routes[role]["reasoning_effort"] = fitted.effort
+            route_fit.record(settings, role, fitted)
+        elif route_fit.declared_for(settings, fitted.model) == []:
+            routes[role]["reasoning_effort"] = None
+
+
+def _fit_saved_model_overrides(args, state: RunState, settings, opencode) -> None:
+    """Populate declared variants for resumed ``--ROLE-model`` overrides and fit untouched inherited efforts."""
+    if not hasattr(args, "auto_select"):
+        return
+    previous = (state.get("settings") or {}).get("roles") or {}
+    routes = settings.get("roles") or {}
+    changed = {
+        role
+        for role, route in routes.items()
+        if isinstance(route, dict)
+        and (getattr(args, f"{role}_model", None) or (role == "resolver" and getattr(args, "resolver_model", None)))
+        and route.get("model") != (previous.get(role) or {}).get("model")
+    }
+    if not changed:
+        return
+    provider_name = settings.get("provider")
+    provider_mod = autocode_providers.resolve(provider_name) if provider_name else opencode
+    models = _models(settings, changed) - set(settings.get(route_fit.DECLARED) or {})
+    if models and (listed := _listed_for_settings(settings, provider_mod, state.get("workspace"), models)):
         settings.setdefault(route_fit.DECLARED, {}).update(listed)
+    global_effort = getattr(args, "reasoning_effort", None)
+    for role in sorted(changed):
+        if getattr(args, f"{role}_reasoning_effort", None) is not None or global_effort is not None:
+            continue
+        fitted = route_fit.fit(settings, role, rerouted=True)
+        if fitted.reason == "fitted":
+            routes[role]["reasoning_effort"] = fitted.effort
+            route_fit.record(settings, role, fitted, cause=route_fit.ROUTE_ANSWER)
+        elif route_fit.declared_for(settings, fitted.model) == []:
+            routes[role]["reasoning_effort"] = None
 
 
 def _models(settings, roles) -> set:
@@ -631,6 +704,7 @@ def _configure_saved(
     # A saved run re-records only the routes a flag just moved, as `budget_origins` does below.
     role_route.moved(args, settings)
     role_route.record_efforts(args, settings, fresh=False)
+    _fit_saved_model_overrides(args, state, settings, opencode)
     if getattr(args, "planning_v2", False):
         settings["planning_flow"] = "v2"
     if getattr(args, "unlimited_iterations", False):
@@ -1045,7 +1119,7 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
             if route.get("origin") == role_route.AUTO_SELECTED:
                 settings["route_origins"][role] = role_route.AUTO_SELECTED
     role_route.record_efforts(args, settings, fresh=True)
-    _list_review_ceilings(settings, provider_mod, state["workspace"])
+    _list_review_ceilings(settings, provider_mod, state["workspace"], discover_explicit=hasattr(args, "auto_select"))
     verification_config.validate(settings["regression"])
     return task_preflight.configure(
         state, output_policy.configure(state, autopilot.stuck.configure(settings, args), args), args

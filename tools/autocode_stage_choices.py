@@ -696,13 +696,21 @@ def apply(args, backend, *, file=None, say=None) -> list[str]:
     taken, levels = [], []
     for role in ORDER:
         choice = saved.get(role)
-        if not choice or getattr(args, f"{role}_model", None) or getattr(args, f"{role}_provider", None):
+        if not choice or getattr(args, f"{role}_provider", None):
             continue
-        setattr(args, f"{role}_model", choice["model"])
+        typed_model = getattr(args, f"{role}_model", None)
+        if typed_model and typed_model != choice["model"]:
+            continue
+        used = False
+        if not typed_model:
+            setattr(args, f"{role}_model", choice["model"])
+            used = True
         if choice["effort"] and not shared_effort and getattr(args, f"{role}_reasoning_effort", None) is None:
             setattr(args, f"{role}_reasoning_effort", choice["effort"])
             levels.append(role)
-        taken.append(role)
+            used = True
+        if used:
+            taken.append(role)
     # The levels this applied, so the run records them as the person's stage choice: a ceiling for the
     # review stages (autocode_role_route.STAGE_CHOICE, autocode_review_effort), never a typed flag's level.
     args.stage_choice_efforts = tuple(levels)
