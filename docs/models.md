@@ -349,6 +349,31 @@ the first runs on a copy whose unrelated failing test is fixed, so a Planner is 
 failure the request never mentioned. Whether a plan's approach is right still needs reading; the
 Plan Reviewer's approval stands in for it.
 
+The Plan Reviewer's probe (`autocode_plan_reviewer_probe`) measures reviewers on plans with a known
+answer. A Planner you name writes each of the seven requests' plans once, in a run brought to plan
+approval. Every candidate then reviews that plan in the same run, as written and with one flaw
+planted: the forbidden test file added to every milestone, the fix moved into the test it should
+make pass, a criterion verified by reading the code instead of a test, or a sentence of approach
+that goes against the request (a None where the request asks for 0.0, a shorter cache lifetime
+instead of noticing the change, the currency symbol on one line of three, a crash kept). The flaws
+are planted in the plan's structure, never by rewording the Planner's text, so they fit whatever
+plan it writes. Each review is one advance under a planning call cap one above the calls made so
+far, so the run stops right after it, before any revision. A reviewer passes a request when it
+approves the plan as written, blocks the flawed one, and gives each verdict within ten minutes with
+no report repair; the verdicts come from the status view's `plan_review`. Whether a block names the
+planted flaw is recorded but does not decide the pass. Candidates of the Planner's family are not
+measured, since that would be the family judging its own work:
+
+```sh
+autocode probe --stage plan_reviewer --measure zai-coding-plan/glm-5.3 low \
+  --measure anthropic/claude-opus-5-5 medium --planner openai/gpt-6.1-sol high \
+  --requirements zai-coding-plan/glm-5.3 low --max-cost-usd 15
+```
+
+A request whose plan never reaches approval is listed as skipped, and no reviewer qualifies from
+that probe, since none has reviewed every plan. Every candidate shares the run's tool (`--engine`,
+`--provider`): a model reached through another tool is measured in a probe of its own.
+
 OpenCode and Kilo reasoning variants come from their local verbose model listings.
 An unsupported qualified level is omitted so the model uses its default. When older
 tools cannot report variants, the recorded qualification level is used. Preflight

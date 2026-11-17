@@ -269,6 +269,90 @@ class ProbeCliTests(unittest.TestCase):
             requirements=("zai-coding-plan/glm-5.3", "low"),
         )
 
+    def test_the_plan_reviewer_stage_needs_a_planner_of_another_family(self):
+        with patch.object(model_probe, "run_reviewer_probe") as run, patch("sys.stderr"):
+            self.assertEqual(2, probe_cli.cli(["--stage", "plan_reviewer", "--measure", "glm-5.3", "low"]))
+            self.assertEqual(
+                2,
+                probe_cli.cli(
+                    [
+                        "--stage",
+                        "plan_reviewer",
+                        "--measure",
+                        "gpt-5.6-terra",
+                        "high",
+                        "--planner",
+                        "gpt-6.1-sol",
+                        "high",
+                    ]
+                ),
+                "no GPT model may review a GPT Planner's plans",
+            )
+            self.assertEqual(
+                2, probe_cli.cli(["--measure", "x/m", "low", "--planner", "gpt-6.1-sol", "high"]), "plan_reviewer only"
+            )
+            self.assertEqual(
+                2,
+                probe_cli.cli(
+                    ["--stage", "plan_reviewer", "--measure", "glm-5.3", "low", "--planner", "gpt-6.1-sol", "high"]
+                    + ["--checker", "claude-opus-5-5", "high"]
+                ),
+                "--checker is the Planner probe's",
+            )
+        run.assert_not_called()
+
+    def test_the_plan_reviewer_stage_runs_on_the_named_planners_plans(self):
+        outcome = {
+            "results": [],
+            "ranking": [],
+            "spent_usd": 0,
+            "unpriced_replies": 0,
+            "stopped": None,
+            "unmeasured": [],
+            "skipped": [{"request": "P3", "run_status": "WAITING_FOR_USER"}],
+        }
+        with patch.object(model_probe, "run_reviewer_probe", return_value=outcome) as run, patch("sys.stdout") as out:
+            code = probe_cli.cli(
+                [
+                    "--stage",
+                    "plan_reviewer",
+                    "--measure",
+                    "zai-coding-plan/glm-5.3",
+                    "low",
+                    "--measure",
+                    "anthropic/claude-opus-5-5",
+                    "medium",
+                    "--planner",
+                    "openai/gpt-6.1-sol",
+                    "high",
+                    "--requirements",
+                    "zai-coding-plan/glm-5.3",
+                    "low",
+                    "--max-cost-usd",
+                    "15",
+                ]
+            )
+        self.assertEqual(0, code)
+        run.assert_called_once_with(
+            [("zai-coding-plan/glm-5.3", "low"), ("anthropic/claude-opus-5-5", "medium")],
+            cap_usd=15.0,
+            planner=("openai/gpt-6.1-sol", "high"),
+            requirements=("zai-coding-plan/glm-5.3", "low"),
+            options=(),
+        )
+        printed = "".join(call.args[0] for call in out.write.call_args_list)
+        self.assertIn("request P3 skipped: its plan never reached approval", printed)
+
+    def test_the_plan_reviewer_estimate_names_the_plans_as_extra(self):
+        with patch("sys.stdout") as out:
+            probe_cli.cli(
+                ["--stage", "plan_reviewer", "--measure", "glm-5.3", "low", "--planner", "gpt-6.1-sol", "high"]
+            )
+        printed = "".join(call.args[0] for call in out.write.call_args_list)
+        self.assertIn("Measuring these models for the Plan Reviewer", printed)
+        self.assertIn("2 to 7 requests", printed)
+        self.assertIn("each request's plan, written once for every model, is extra", printed)
+
     def test_the_planner_estimate_counts_seven_requests(self):
         with patch("sys.stdout") as out:
             probe_cli.cli(
