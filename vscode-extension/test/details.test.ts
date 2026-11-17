@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { pipelineSteps, runHeader, spendSummary } from "../src/core/details";
+import { personReason, pipelineSteps, runHeader, spendSummary } from "../src/core/details";
 
 // The same readings as the terminal chat's /details, /why and /spend (tests/test_chat_recoveries.py,
 // tests/test_chat_spend.py, tests/test_chat_stage_policy.py): both clients word one view alike.
@@ -747,3 +747,33 @@ for (const context of ["working", "paused", "stopped", "blocked", "done"] as con
     });
   }
 }
+
+test("internal prompt and gap_id-enum machinery never leaks into person-facing headlines or Waiting for (#3733)", () => {
+  for (const raw of [
+    "Provider handoff must contain a JSON object",
+    "Completed tester output was rejected (The missing-test FAIL leaves other offered changed lines undecided: L93 app.py:93 (deadbeef), and 12 more in the gap_id enum); attempt archived.",
+    "$: missing 'summary'; $.findings[0]: unexpected fields: foo",
+  ]) {
+    assert.equal(personReason(raw), "");
+    const header = runHeader(view({
+      status: "PAUSED_INVALID_OUTPUT",
+      summary: { state: "needs_you", label: "Needs you", sentence: raw },
+      needs: { kind: "resume", reason: raw },
+      explanation: {
+        what_happened: "The run stopped at PAUSED_INVALID_OUTPUT.",
+        what_it_means: "A stage returned output the runner could not accept as a report.",
+        what_the_command_does: "--resume-paused retries the stage.",
+      },
+    }))!;
+    assert.doesNotMatch(header.sentence, /Provider handoff|gap_id enum|\$: missing/);
+    const whereLines = section(header, "where")!.lines.join("\n");
+    assert.doesNotMatch(whereLines, /Waiting for:.*(?:Provider handoff|gap_id enum|\$: missing)/);
+  }
+  const seatbelt = runHeader(view({
+    routes: { builder: { job: "Builder", model: "openai/gpt-5.4", reasoning_effort: "high" } },
+    tool_containment: "contained",
+    tool_containment_backend: { backend: "seatbelt", backend_version: "macOS 15.4" },
+  }))!;
+  const routesLines = section(seatbelt, "routes")!.lines.join("\n");
+  assert.match(routesLines, /macOS Seatbelt.*127\.0\.0\.1/);
+});

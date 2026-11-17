@@ -248,9 +248,23 @@ def events_file(state: RunState, public, run_dir, *, finished=False, stopped=Fal
 def project(state: RunState, public, run_dir, *, finished=False, stopped=False) -> list[dict]:
     """The running attempt's recent events, or none unless it is supervised and working right now."""
     path = events_file(state, public, run_dir, finished=finished, stopped=stopped)
-    if path is None:
-        return []
-    return read(path, state.get("workspace") or public.get("workspace"))
+    if path is not None:
+        return read(path, state.get("workspace") or public.get("workspace"))
+    if (
+        public.get("status") == "RUNNING"
+        and (public.get("needs") or {}).get("kind") == "continue"
+        and not stopped
+        and attempt_ledger.running_stage(state) is None
+    ):
+        check = public.get("runner_check") or {}
+        if (
+            isinstance(check, dict)
+            and (check.get("liveness") or {}).get("kind") == "supervised"
+            and isinstance(check.get("command"), str)
+            and check["command"].strip()
+        ):
+            return [{"kind": "command", "text": _line(check["command"]), "status": "running"}]
+    return []
 
 
 def last_output(state: RunState, public, run_dir, *, finished=False, stopped=False) -> str | None:

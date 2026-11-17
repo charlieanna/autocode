@@ -49,6 +49,16 @@ def assemble(run, *, verdict, source_revision, test_files, source_files, stats, 
     }
 
 
+def builder_command_warnings(commands: dict) -> list[str]:
+    """Unverified notes when a proof command came from the Builder's own report rather than trusted setup."""
+    return [
+        f"The {kind} command came from the Builder's own report; pass "
+        f"--{'regression' if kind == 'regression' else 'test'}-command to verify with a command you trust"
+        for kind in ("regression", "suite")
+        if commands.get(f"{kind}_source") == "builder"
+    ]
+
+
 def feedback(result, *, limit=3000) -> str:
     """A compact, model-readable account of a failed or unverified verification."""
     lines = [f"Verdict: {result['verdict']}"]

@@ -14,7 +14,7 @@ import type { RunController, RunRef } from "./controller";
 import { markdown, type TextNode } from "./chat-markdown";
 import { chatStyles, installChatBehavior } from "./upstream/kilo-chat";
 import { finishSummary, runTotal, struggling, totalText, type FinishSummary } from "./core/meter";
-import { runHeader, type RunHeader } from "./core/details";
+import { runHeader, personReason, type RunHeader } from "./core/details";
 
 export interface Decision {
   questionId: string;
@@ -496,7 +496,7 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
     pause: pauseLabel(view),
     needKind: need?.kind ?? null,
     needSummary: view.done ? null : needsSummary(view, working),
-    needReason: need?.reason ?? null,
+    needReason: need?.reason ? (personReason(need.reason) || null) : null,
     tasks: (progress?.tasks?.items ?? []).map((task) => ({
       id: task.id,
       label: task.label ?? task.id,

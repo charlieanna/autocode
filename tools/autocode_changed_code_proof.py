@@ -55,6 +55,7 @@ def collect(
     previous=None,
     evidence_dir=None,
     deadline=None,
+    progress=None,
 ):
     """Measure one exact candidate; keep gaps when a tool or attribution is absent."""
     source_revision = proof["source_revision"]
@@ -124,6 +125,7 @@ def collect(
             enforcement=True,
             previous=previous.get("mutation_check") if previous is not None else None,
             deadline=deadline,
+            progress=progress,
         )
         if proof.get("verdict") == verify.PASS
         else mutation.record("The regression proof has not passed")

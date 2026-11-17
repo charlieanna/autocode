@@ -738,6 +738,7 @@ def _baseline(
                 "Testing the original code before comparing the change",
                 command=suite,
                 output=directory / "baseline" / "suite-on-base.log",
+                phase="baseline",
             )
         result = verify.baseline(
             workspace,
@@ -820,10 +821,11 @@ def _without_unloadable(
     if not choice:
         return None
     kept = _kept_baseline(state, whole["command"])
-    progress(
-        "Checking that the test files the original code cannot load do not load with the change either",
-        command=choice["probe"],
-    )
+    if progress:
+        progress(
+            "Checking that the test files the original code cannot load do not load with the change either",
+            command=choice["probe"],
+        )
     if not unloadable_tests.still(
         _on_the_change(state, workspace, run_dir, framework, choice["probe"], "left-out"), choice
     ):
@@ -1566,7 +1568,13 @@ def _proving(
         # traversal, and a run directory reached through one (/tmp or /var on macOS) would fail
         # its own authenticity check (autocode_changed_code_measurement.pinned).
         out = Path(run_dir).resolve() / "regression" / f"proof-{number:02d}-{uuid.uuid4().hex}"
-        progress("Comparing regression tests and checking the full candidate suite", command=suite, output=out)
+        if progress:
+            progress(
+                "Comparing regression tests and checking the full candidate suite",
+                command=suite,
+                output=out,
+                phase="candidate",
+            )
         coverage = preserve_only(state, all_due=all_due)
         if coverage and goals.task_kind(state) == "bugfix":
             # Member preservation coverage authorizes tests alone. A product
@@ -1645,6 +1653,7 @@ def _proving(
             replaced=superseded_tests.replaced(state),
             test_side=test_side,
             support_from={"base_suite": base_suite, "planned": support_planned},
+            progress=progress,
             **rooted(options),
         )
         # Files of the change that a command of the plan showed to be tests, where no rule names them.
@@ -1653,7 +1662,8 @@ def _proving(
         if looking := listed_tests.wanted(result):
             # The proof failed in a way a file that lists the change's tests explains: see whether another
             # file of the change lists them, and prove again with it taken with the tests.
-            progress("Seeing which file of the change lists its new tests", command=looking[0], output=out)
+            if progress:
+                progress("Seeing which file of the change lists its new tests", command=looking[0], output=out)
             listed = _listed_tests(
                 looking,
                 result.get("changes") or {},
@@ -1869,6 +1879,7 @@ def _proving(
             kept[-1],
             execution_context,
             source_paths=source_scope.paths(state),
+            progress=progress,
         )
         if path and kept and kept[-1].is_dir()
         else mutation_check.final(None, proof["verdict"], proof.get("case_tests"))

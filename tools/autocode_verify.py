@@ -1812,6 +1812,7 @@ class _Run:
     roles: Any
     replaced: Any
     test_side: Any = ()
+    progress: Any = None
 
 
 def _prove_regression(run: _Run, trees, *, no_go_project, no_junit_project):
@@ -1835,6 +1836,13 @@ def _prove_regression(run: _Run, trees, *, no_go_project, no_junit_project):
     checks["regression_on_candidate"] = on_candidate
     on_base = None
     if "base_with_tests" in trees:
+        if run.progress:
+            run.progress(
+                "Comparing regression tests against the original code",
+                command=commands["regression"],
+                output=run_dir,
+                phase="baseline",
+            )
         # A test that never finishes on the original code is stopped there, not waited for (autocode_base_bound).
         allowed = base_bound.limit(on_candidate, took, timeout)
         on_base = run_suite(
@@ -1845,6 +1853,10 @@ def _prove_regression(run: _Run, trees, *, no_go_project, no_junit_project):
             unverified.append(said)
 
     def repeat(command, side, label):
+        if run.progress:
+            run.progress(
+                f"Checking regression test stability ({label})", command=command, output=run_dir, phase="stability"
+            )
         tree = trees["candidate" if side == "candidate" else "base_with_tests"]
         checks[label] = run_suite(framework, command, tree, run_dir, label, timeout=timeout)
         return checks[label]
@@ -1862,6 +1874,13 @@ def _prove_regression(run: _Run, trees, *, no_go_project, no_junit_project):
     if unstable:
         fail.append(proof_stability.failure_text(unstable))
     proof["proof_stability"], proof["unstable"] = stability, unstable or None
+    if run.progress:
+        run.progress(
+            "Measuring changed-line diff coverage",
+            command=commands["regression"],
+            output=Path(run_dir) / "diff-coverage",
+            phase="diff_coverage",
+        )
     proof["diff_coverage"] = diff_coverage.collect(
         framework,
         commands["regression"],
@@ -2177,6 +2196,7 @@ def verify(
     replaced=None,
     test_side=(),
     support_from=None,
+    progress=None,
 ) -> dict:
     """Verify the candidate in ``workspace`` against ``base``; see module docstring.
 
@@ -2311,13 +2331,7 @@ def verify(
         )
     if package is not None and (uncovered := package_scope.uncovered(package, changes, package_exempt)):
         unverified.append(uncovered)
-    for kind in ("regression", "suite"):
-        if commands[f"{kind}_source"] == "builder":
-            unverified.append(
-                f"The {kind} command came from the Builder's own report; pass "
-                f"--{'regression' if kind == 'regression' else 'test'}-command to verify with "
-                "a command you trust"
-            )
+    unverified += verify_result.builder_command_warnings(commands)
 
     run = _Run(
         workspace=workspace,
@@ -2355,6 +2369,7 @@ def verify(
         roles=roles,
         replaced=replaced,
         test_side=test_side,
+        progress=progress,
     )
     trees, hidden = {}, []
     baseline_timed_out = bool(base_suite and (base_suite.get("receipt") or {}).get("timed_out") is True)
