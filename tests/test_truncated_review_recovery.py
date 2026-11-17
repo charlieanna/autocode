@@ -669,8 +669,8 @@ runpy.run_path(str(runtime), run_name='__main__')
         self.assertEqual("PAUSED_RESOLVER_OPERATIONAL", view["status"], view)
         # The person sees which step stopped and why, never the repair machinery's own account of it.
         self.assertEqual(
-            "The Plan Reviewer step stopped: its report could not be accepted, even after repair, and "
-            "AutoCode's own retries for it ran out. " + disposition.MESSAGE,
+            "The Plan Reviewer step stopped: its report could not be accepted, even after repair. "
+            + disposition.MESSAGE,
             view["stop_reason"],
         )
         self.assertIsNone(view["needs"])

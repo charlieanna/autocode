@@ -70,7 +70,7 @@ def cause(stage, status, rationale=None, state: RunState | None = None) -> str:
         said = "its report could not be accepted, even after repair"
     said = said or "it could not finish"
     job = roles.screen_name(stage, state) if isinstance(stage, str) and stage else ""
-    return f"{'The ' + job + ' step' if job else 'A step'} stopped: {said}, and AutoCode's own retries for it ran out."
+    return f"{'The ' + job + ' step' if job else 'A step'} stopped: {said}."
 
 
 def blocked_message(stage, status, rationale=None, state: RunState | None = None) -> str:

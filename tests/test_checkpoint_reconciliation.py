@@ -180,6 +180,7 @@ class CheckpointCliTests(unittest.TestCase):
         self.assertIsNone(payload["view"]["needs"])
         self.assertIsNone(payload["view"]["next_command"])
         self.assertEqual("blocked", payload["view"]["recovery"]["category"])
+        self.assertNotIn("retries", payload["view"]["recovery"]["what_happened"])
         current = json.loads(self.path.read_text())
         self.assertEqual("PAUSED_UNCERTAIN_STAGE", current["status"], result.stdout + result.stderr)
         for key in (
