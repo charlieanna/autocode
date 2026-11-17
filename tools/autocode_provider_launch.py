@@ -284,7 +284,9 @@ def prepare(
             # any other stage names the check and resumes to run it again.
             if not containment:
                 raise util.Paused("PAUSED_TRANSPORT_UNVERIFIED", str(error)) from error
-            raise tool_admission.failure(error, kilo_readonly=kilo_readonly, isolation=native_role_isolation) from error
+            raise tool_admission.failure(
+                error, kilo_readonly=kilo_readonly or shell.kilo_writer, isolation=native_role_isolation
+            ) from error
         except processes.ProcessError:
             raise
         except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
@@ -294,7 +296,9 @@ def prepare(
                         "PAUSED_TOOL_CONTAINMENT", "Kilo readonly tool policy was not established: " + str(error)
                     ) from error
                 raise
-            raise tool_admission.failure(error, kilo_readonly=kilo_readonly, isolation=native_role_isolation) from error
+            raise tool_admission.failure(
+                error, kilo_readonly=kilo_readonly or shell.kilo_writer, isolation=native_role_isolation
+            ) from error
         if child:
             environment = agent_env.scrubbed(child)
             if not containment or allow_write:

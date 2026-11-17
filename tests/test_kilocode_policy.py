@@ -98,7 +98,65 @@ class KiloPolicyTests(unittest.TestCase):
         self.assertEqual("allow", agent["permission"]["webfetch"])
         self.assertEqual("deny", agent["permission"]["websearch"], "unsupported patterned action stays denied")
         with self.assertRaisesRegex(ValueError, "read-only"):
-            policy.restrict(argv, child, Path.cwd(), role="tester", write_stage=True, request={})
+            policy.restrict(argv, child, Path.cwd(), role="tester", write_stage=True, report_recovery=True)
+
+    def test_a_writing_stage_cannot_edit_or_read_through_a_link_that_leads_outside_the_workspace(self):
+        # Live run 2026-11-17: a Kilo Builder's edit changed a sibling directory's file through a tracked link,
+        # while Kilo's read of the same path was refused as an external directory.
+        with tempfile.TemporaryDirectory() as parent:
+            parent = Path(parent).resolve()
+            shared, workspace = parent / "shared", parent / "project"
+            (shared / "lib").mkdir(parents=True)
+            (shared / "discount.py").write_text("RATE = 1\n")
+            (workspace / "src").mkdir(parents=True)
+            (workspace / "src" / "app.py").write_text("print(1)\n")
+            (workspace / "src" / "discount.py").symlink_to(shared / "discount.py")
+            (workspace / "vendor").symlink_to(shared / "lib", target_is_directory=True)
+            (workspace / "gone.py").symlink_to(parent / "missing.py")
+            (workspace / "alias.py").symlink_to(workspace / "src" / "app.py")
+            (workspace / ".gitignore").write_text("ignored/\n")
+            (workspace / "ignored").mkdir()
+            (workspace / "ignored" / "escape.py").symlink_to(shared / "discount.py")
+            subprocess.run(["git", "init", "-q", str(workspace)], check=True)
+            subprocess.run(["git", "-C", str(workspace), "add", "src", "vendor", ".gitignore"], check=True)
+            rules = [
+                {"permission": "*", "pattern": "*", "action": "allow"},
+                {"permission": "edit", "pattern": "src/discount.py", "action": "allow"},
+            ]
+            child = {"PATH": os.environ["PATH"], "KILO_CONFIG_CONTENT": "{}"}
+            argv = [sys.executable, "run", "--agent", "code", "--model", "fixture/model"]
+            answer = subprocess.CompletedProcess([], 0, json.dumps({"permission": rules}), "")
+            with patch.object(policy.captured, "run_metadata", return_value=answer):
+                ran, env = policy.restrict(argv, child, workspace, role="builder", write_stage=True)
+        permission = json.loads(env["KILO_CONFIG_CONTENT"])["agent"][ran[-1]]["permission"]
+        for tool in ("edit", "read"):
+            rules = permission[tool]
+            self.assertEqual("allow", rules["*"])
+            # The deny is the last pattern for the path, so it holds over the operator's own allow of it.
+            self.assertEqual("deny", rules["src/discount.py"])
+            relative = {pattern for pattern in rules if not pattern.startswith(parent.as_posix().lstrip("/"))}
+            relative -= {pattern for pattern in rules if pattern.startswith("/")}
+            self.assertEqual({"*", "src/discount.py", "vendor", "vendor/*", "gone.py"}, relative)
+            self.assertEqual("deny", rules[(workspace / "src/discount.py").as_posix()])
+            self.assertEqual("deny", rules[(workspace / "vendor").as_posix().lstrip("/") + "/*"])
+            self.assertEqual("deny", rules["gone.py"], "an untracked dangling link writes where it leads")
+            self.assertNotIn("alias.py", rules, "a link inside the workspace stays the operator's")
+            self.assertNotIn("ignored/escape.py", rules, "git's ignored entries are not listed")
+        self.assertEqual("allow", permission["bash"]["*"], "the shell stays under the operator's rules")
+
+    def test_outside_links_are_found_by_walking_a_workspace_that_is_not_a_git_checkout(self):
+        import autocode_workspace_links as workspace_links
+
+        with tempfile.TemporaryDirectory() as parent:
+            parent = Path(parent).resolve()
+            (parent / "shared").mkdir()
+            workspace = parent / "project"
+            (workspace / "pkg").mkdir(parents=True)
+            (workspace / "pkg" / "out").symlink_to(parent / "shared", target_is_directory=True)
+            (workspace / "pkg" / "in.py").symlink_to(workspace / "pkg")
+            (workspace / "loop").symlink_to(workspace / "loop")
+            with patch.object(workspace_links, "_listed", return_value=None):
+                self.assertEqual([("pkg/out", True)], workspace_links.outside(workspace))
 
     def test_native_permission_wildcards_do_not_treat_brackets_as_character_classes(self):
         rules = [
@@ -615,11 +673,20 @@ class KiloContainmentPolicyTests(unittest.TestCase):
         }
         self.probes = ["/usr/bin/git status --short", "/usr/bin/python3 -I -S -B -c 'import json'"]
 
-    def launch(self, *, actual=lambda value: value, probe=lambda params, value: value, handoff=None, private=False):
-        self.calls = []
+    def launch(
+        self,
+        *,
+        actual=lambda value: value,
+        probe=lambda params, value: value,
+        handoff=None,
+        private=False,
+        write_stage=False,
+    ):
+        self.calls, self.configured, self.prepared = [], [], []
         original_configure = containment.configure
 
         def configure(*args, **kwargs):
+            self.configured.append(kwargs)
             if handoff is not None:
                 handoff(args, kwargs)
             return original_configure(*args, **kwargs)
@@ -664,7 +731,7 @@ class KiloContainmentPolicyTests(unittest.TestCase):
             patch.object(containment, "backend", return_value=containment.SEATBELT),
             patch.object(containment.shutil, "which", return_value="/owned/kilo"),
             patch.object(captured_process, "run_metadata", side_effect=native),
-            patch.object(containment, "prepare", return_value=boundary),
+            patch.object(containment, "prepare", side_effect=lambda *a, **k: self.prepared.append(k) or boundary),
             patch.object(containment, "configure", side_effect=configure),
             patch.object(containment, "verify"),
             patch.object(toolchain, "discover", return_value={"read_roots": [], "probes": self.probes}),
@@ -673,8 +740,9 @@ class KiloContainmentPolicyTests(unittest.TestCase):
                 ["kilo", "run", "--model", "openai/gpt-6.1-sol", "--variant", "medium", "--session", "old"],
                 {"PATH": "/bin", "KILO_CONFIG_CONTENT": "{}"},
                 self.workspace,
-                role="tester",
+                role="builder" if write_stage else "tester",
                 request={"private_run": str(self.run)} if private else {},
+                write_stage=write_stage,
             )
 
     def resolutions(self):
@@ -739,10 +807,24 @@ class KiloContainmentPolicyTests(unittest.TestCase):
                 self.launch(handoff=lambda args, kwargs: change_policy(args, kwargs, value))
             self.assertFalse(any("--params" in args for args, _ in self.calls))
 
-    def test_resolved_policy_is_limited_to_ordinary_readonly_kilo(self):
+    def test_a_writing_stage_under_a_kernel_request_changes_files_only_through_the_contained_shell(self):
+        # #3770: a Kilo Builder's own shell wrote outside the workspace (a python script through a tracked link), and
+        # its edit tool wrote through the same link. Under the kernel request it keeps only the contained shell, whose
+        # writes the kernel confines to the workspace, as an OpenCode writer.
+        argv, child = self.launch(write_stage=True)
+        definition = json.loads(child["KILO_CONFIG_CONTENT"])["agent"][argv[-1]]
+        self.assertEqual(["*", "bash", "external_directory"], list(definition["permission"]))
+        self.assertEqual("deny", definition["permission"]["*"])
+        self.assertEqual([True], [kwargs["allow_write"] for kwargs in self.configured])
+        self.assertEqual([True], [kwargs["allow_write"] for kwargs in self.prepared])
+        self.assertFalse(self.prepared[0]["verification_copy"], "a writer changes the workspace itself")
+        self.launch()
+        self.assertEqual([False], [kwargs["allow_write"] for kwargs in self.prepared], "a checker stays read-only")
+
+    def test_resolved_policy_is_limited_to_ordinary_kilo(self):
         for options in (
             {"transport": "opencode", "allow_write": False},
-            {"transport": "kilocode", "allow_write": True},
+            {"transport": "kilocode", "allow_write": True, "retain_launch_identity": True},
             {"transport": "kilocode", "allow_write": False, "retain_launch_identity": True},
         ):
             with self.subTest(options=options), patch.object(containment.captured, "run_metadata") as run:
@@ -1133,3 +1215,59 @@ class NativeKiloPolicyTests(unittest.TestCase):
         self.assertNotEqual(0, attempted.returncode)
         self.assertFalse((self.workspace / "forbidden.txt").exists())
         self.assertIn("Kernel-constrained Kilo shell", launch.stage_record(worker)["isolation"])
+
+    def test_a_builder_writes_the_workspace_through_its_shell_but_nothing_outside_it(self):
+        # #3770: a Kilo Builder's shell and edit tool wrote through a tracked link into a sibling directory.
+        outside = self.root / "shared"
+        outside.mkdir()
+        (outside / "discount.py").write_text("RATE = 1\n")
+        (self.workspace / "discount.py").symlink_to(outside / "discount.py")
+        subprocess.run(["git", "init", "-q", str(self.workspace)], check=True)
+        subprocess.run(["git", "-C", str(self.workspace), "add", "fixture.txt", "discount.py"], check=True)
+        run = self.workspace / ".autocode/runs/build"
+        run.mkdir(parents=True)
+        with patch.dict(os.environ, self.configured(), clear=True):
+            argv, child, _, worker = launch.prepare(
+                engine="opencode",
+                adapter=self.provider,
+                role="builder",
+                route_role="builder",
+                workspace=self.workspace,
+                run_dir=run,
+                session=None,
+                model="localfixture/check",
+                effort="medium",
+                allow_write=True,
+                planning=False,
+                report=None,
+                schema=None,
+                prompt_file=None,
+                sandbox="workspace-write",
+                transport_args=[],
+                chatgpt=False,
+                provider=None,
+                source_paths=["fixture.txt"],
+            )
+        launch.verify_containment(worker)
+        import shlex
+
+        written = self.debug(
+            argv,
+            child,
+            "bash",
+            {"command": "printf changed > " + shlex.quote(str(self.workspace / "fixture.txt")), "description": "w"},
+        )
+        self.assertEqual(0, json.loads(written.stdout)["result"]["metadata"]["exit"], written.stdout)
+        self.assertEqual("changed", (self.workspace / "fixture.txt").read_text())
+        for command in (
+            "printf bad > " + shlex.quote(str(self.workspace / "discount.py")),
+            "printf bad > " + shlex.quote(str(outside / "new.py")),
+        ):
+            escaped = self.debug(argv, child, "bash", {"command": command, "description": "escape"})
+            self.assertNotEqual(0, json.loads(escaped.stdout)["result"]["metadata"]["exit"], escaped.stdout)
+        attempted = self.debug(
+            argv, child, "edit", {"filePath": str(self.workspace / "discount.py"), "oldString": "1", "newString": "2"}
+        )
+        self.assertNotEqual(0, attempted.returncode)
+        self.assertEqual("RATE = 1\n", (outside / "discount.py").read_text())
+        self.assertFalse((outside / "new.py").exists())

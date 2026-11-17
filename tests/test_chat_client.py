@@ -852,6 +852,25 @@ class ConversationTests(unittest.TestCase):
         self.assertNotIn("Run it yourself:", client.text())
         self.assertEqual([], client.taken)
 
+    def test_a_stop_shows_its_reason_without_the_command_an_operator_would_type(self):
+        # Live run 2026-11-17: a Requirements pause the Investigator settled on began its reason with
+        # "Resume explicitly with autocode resume ...", a command a person here never types.
+        reason = "Completed requirements_gather output was rejected (cites src/pricing/discount.py:5, which is outside the workspace); attempt archived. Resume explicitly with autocode resume to retry with a fresh request.\nInvestigator (paused): src/pricing/discount.py is a link out of the project. Needs you: Replace the link with the file itself."
+        for next_command in (None, "autocode --run-dir r --resume-paused"):
+            view = {
+                "status": "PAUSED_INVALID_OUTPUT",
+                "needs": {"kind": "resume", "reason": reason},
+                "next_command": next_command,
+                "stop_reason": reason,
+            }
+            with self.subTest(next_command=next_command):
+                client = ScriptedChat(view)
+                client.converse()
+                text = client.text()
+                self.assertNotIn("autocode resume", text)
+                self.assertIn("output was rejected", text)
+                self.assertIn("Needs you: Replace the link with the file itself.", text)
+
     def test_a_stop_with_no_command_explains_itself_and_takes_nothing(self):
         view = {"status": "PAUSED_STOPPED", "needs": {"kind": "resume"}, "next_command": None, "stop_reason": "Stopped"}
         client = ScriptedChat(view)

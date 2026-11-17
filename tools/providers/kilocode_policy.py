@@ -20,11 +20,13 @@ try:
     from .. import autocode_publish_guard as publish_guard
     from .. import autocode_tool_containment as containment
     from .. import autocode_tool_handoff as tool_handoff
+    from .. import autocode_workspace_links as workspace_links
 except ImportError:
     import autocode_captured_process as captured
     import autocode_publish_guard as publish_guard
     import autocode_tool_containment as containment
     import autocode_tool_handoff as tool_handoff
+    import autocode_workspace_links as workspace_links
 
 READ_TOOLS = ("read", "glob", "grep", "list")
 # Writable stage work stays in the one session whose commands/reports the core
@@ -156,12 +158,30 @@ def require_capture(policy, *, role, capture_command):
         )
 
 
+def _deny_outside_links(policy, workspace):
+    """Deny the file tools every workspace link that leads outside the workspace.
+
+    Kilo's ``external_directory`` judges the path as written, so its ``edit`` wrote through a tracked
+    link into a sibling directory while its ``read`` of the same path was refused (live run 2026-11-17).
+    A deny is the last matching pattern, so it holds over an operator's allow; it never grants anything.
+    The shell stays under the operator's bash rules, which a path pattern cannot narrow.
+    """
+    for name, directory in workspace_links.outside(workspace):
+        for tool in ("read", "edit"):
+            rules = policy.get(tool)
+            if not isinstance(rules, dict):
+                continue
+            for pattern in workspace_links.patterns(workspace, name, directory):
+                rules.pop(pattern, None)
+                rules[pattern] = "deny"
+
+
 def restrict(
     argv, child, workspace, *, role, request=None, report_recovery=False, portable_shell=False, write_stage=False
 ):
     """``portable_shell``: a read-only checker on a host without the kernel shell (macOS, #1766) keeps the read
     tools and Kilo's own shell, intersected with the operator's policy; edits stay denied."""
-    if write_stage and (request is not None or report_recovery or portable_shell):
+    if write_stage and (report_recovery or portable_shell):
         raise ValueError("A writable Kilo stage cannot use a read-only tool boundary")
     if portable_shell and (request is not None or report_recovery):
         raise ValueError("A portable Kilo shell replaces the kernel boundary; it cannot accompany one")
@@ -174,13 +194,15 @@ def restrict(
         raise ValueError("Kilo effective agent steps must be a positive integer")
     if report_recovery and request is not None:
         raise ValueError("Report recovery cannot grant a verification shell")
+    # A kernel request narrows any stage to its contained shell (#3770): a writer then edits through that shell,
+    # whose writes the kernel confines to the workspace, as an OpenCode writer does.
     permitted = (
-        WRITE_TOOLS
+        ("bash",)
+        if request is not None
+        else WRITE_TOOLS
         if write_stage
         else ()
         if report_recovery
-        else ("bash",)
-        if request is not None
         else (*READ_TOOLS, "bash")
         if portable_shell
         else READ_TOOLS
@@ -192,13 +214,14 @@ def restrict(
         require_capture(
             policy, role=role, capture_command=tool_handoff.capture_command(child.get("AUTOCODE_OUTPUT_MODE"))
         )
-    if write_stage:
+    if write_stage and request is None:
         # Kilo's action-only permissions reject pattern objects (and can discard
         # the entire inline config). Collapse only an unconditional rule; a
         # patterned rule cannot be represented here, so it remains denied.
         for tool in ("todowrite", "todoread", "webfetch", "websearch"):
             rules = policy[tool]
             policy[tool] = rules["*"] if set(rules) == {"*"} else "deny"
+        _deny_outside_links(policy, workspace)
     config = json.loads(child["KILO_CONFIG_CONTENT"])
     agents = config.get("agent", {})
     if not isinstance(agents, dict):
@@ -231,7 +254,7 @@ def restrict(
             argv,
             child,
             workspace,
-            allow_write=False,
+            allow_write=write_stage,
             request=request,
             transport="kilocode",
             resolved_shell_policy=policy,
