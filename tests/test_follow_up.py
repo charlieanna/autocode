@@ -77,6 +77,8 @@ def finished_review(workspace: Path) -> dict:
             "verdict": "request_changes",
             "change_under_review": "pr-184.patch",
             "change_patch": "pr-184.patch",
+            "blocking": 2,
+            "advisory": 1,
         },
     }
 
@@ -224,12 +226,99 @@ class FollowUpTests(unittest.TestCase):
                 "previous_workflow": "review",
                 "previous_request": "Review pr-184.patch before I merge it.",
                 "previous_review": {"verdict": "request_changes", "blocking": 2, "advisory": 1},
+                "previous_result": "Review complete: 2 blocking findings, 1 advisory findings.\n"
+                "Report: review/findings.json",
+                "previous_changed": ["review/findings.json"],
             },
             workflows.follow_up(self.state),
         )
         workflows.from_requirements(self.state, {"job": "build", "intended_outcome": "Act on the findings"})
         self.assertEqual(workflows.planner_stage(self.state), self.state["next_stage"])
         self.assertIsNone(workflows.follow_up(self.state))
+
+    def finished_build(self):
+        """A build that finished: its plan, the result the person saw, and a file it changed."""
+        self.requirements_flow()
+        self.state["stages"] = [began(self.workspace)]
+        write(self.workspace, "app/greet.py")
+        self.state.update(
+            task="Reject empty names in greet.",
+            workflow={"kind": "build", "reason": "a change", "signals": [], "source": "model", "then": "draft_plan"},
+            final_decision={"report": {"summary": "greet now rejects empty names; tests/test_greet.py covers it."}},
+            goal_contract={
+                "revision": 1,
+                "hash": "h",
+                "body": {
+                    "acceptance_criteria": [
+                        {
+                            "id": "C1",
+                            "criterion": "Empty names are rejected",
+                            "verification_method": "tests/test_greet.py",
+                        }
+                    ]
+                },
+            },
+        )
+        self.state.pop("review")
+
+    def test_a_question_after_a_build_reaches_requirements_with_what_the_build_did(self):
+        """2026-11-16: a person asking about finished work ("what did you change?") was answered from the
+        request text alone; Requirements now gets the finished turn's result, changed files and plan."""
+        self.finished_build()
+        follow_up.accept(self.state, "What did you change, and was it tested?", self.workspace, "t1")
+        context = workflows.follow_up(self.state)
+        self.assertEqual("What did you change, and was it tested?", context["message"])
+        self.assertEqual("greet now rejects empty names; tests/test_greet.py covers it.", context["previous_result"])
+        self.assertEqual(["app/greet.py"], context["previous_changed"])
+        self.assertEqual(
+            [{"criterion": "Empty names are rejected", "checked_by": "tests/test_greet.py"}], context["previous_plan"]
+        )
+        # The prompt Requirements is launched with carries it, with the rule for answering from it.
+        self.state.update(
+            version=3,
+            task_id="t",
+            iteration=1,
+            answers={},
+            user_events=[],
+            history=[],
+            sessions={},
+            settings={
+                "joint_planning": True,
+                "roles": {
+                    role: {"model": role[0]}
+                    for role in ("requirements", "planner", "plan_reviewer", "builder", "tester")
+                }
+                | {"task_planner": {"model": "a", "engine": "codex"}},
+            },
+        )
+        prompt, _ = autoplanner.context(self.state, "requirements_gather", self.workspace / "state.json")
+        self.assertIn('"previous_result":"greet now rejects empty names', prompt)
+        self.assertIn('"previous_changed":["app/greet.py"]', prompt)
+        self.assertIn("follow_up.previous_result is what the finished job told the user", " ".join(prompt.split()))
+
+    def test_a_second_question_sees_the_answer_to_the_first(self):
+        self.finished_build()
+        follow_up.accept(self.state, "Why this way?", self.workspace, "t1")
+        workflows.from_requirements(self.state, {"job": "discuss"})
+        self.state.update(status="TASK_COMPLETE", answer={"answer": "A guard keeps callers simple."})
+        follow_up.accept(self.state, "Could it raise instead?", self.workspace, "t2")
+        self.assertEqual("A guard keeps callers simple.", workflows.follow_up(self.state)["previous_result"])
+
+    def test_the_finished_turn_reaches_requirements_bounded(self):
+        previous = {
+            "chat_response": "x" * (workflows.RESULT_CHARS + 50),
+            "wrote": [f"f{i}.py" for i in range(workflows.CHANGED_PATHS + 5)],
+            "plan": [{"criterion": f"C{i}", "checked_by": ""} for i in range(workflows.PLAN_CRITERIA + 3)],
+        }
+        context = workflows.outcome_context(previous)
+        self.assertEqual(workflows.RESULT_CHARS, len(context["previous_result"]))
+        self.assertTrue(context["previous_result"].endswith("…"))
+        self.assertEqual(workflows.CHANGED_PATHS, len(context["previous_changed"]))
+        self.assertEqual(5, context["previous_changed_more"])
+        self.assertEqual(workflows.PLAN_CRITERIA, len(context["previous_plan"]))
+        self.assertEqual({"criterion": "C0"}, context["previous_plan"][0])
+        # A turn that saved nothing adds nothing.
+        self.assertEqual({}, workflows.outcome_context({"chat_response": " ", "wrote": [], "plan": []}))
 
     def test_the_planner_gets_the_findings_only_when_the_next_job_builds_or_fixes(self):
         self.assertIsNone(follow_up.review_findings(self.state))

@@ -467,10 +467,10 @@ def project(state: RunState, need=None):
     status = state.get("status") or ""
     need = _dict(need)
     terminal = stop.applied_stop(state) is not None
-    # A run this runtime cannot continue (autocode_workflows.retired_stage: saved at a retired stage or
-    # under the old route names). Its next_command, if any, only explains the stop, which is not an
-    # action a client can take for the person, so the card says the chat has ended here and offers a
-    # new one. That holds while an earlier runtime's worker still runs it: this one cannot drive it.
+    # A run this runtime cannot continue (autocode_workflows.retired_stage: saved at a retired stage, or
+    # under old names no rename can settle). Its next_command, if any, only explains the stop, which is
+    # not an action a client can take for the person, so the card says the chat has ended here and
+    # offers a new one. That holds while an earlier runtime's worker still runs it: this one cannot drive it.
     fresh_run = bool(
         need.get("new_run_required") and need.get("action") == "fresh_run" and status != "PAUSED_COMPONENT_PLAN"
     )
@@ -554,7 +554,9 @@ def project(state: RunState, need=None):
     if fresh_run:
         why = need.get("reason") or need.get("recovery_hint") or result["what_happened"]
         if status in ACTIVE:
-            why += " It is still running on the AutoCode version that started it, which this one cannot drive."
+            # The saved status says a step was under way; whether that older worker still lives is not
+            # this card's to claim, only that this version cannot take the step over.
+            why += " The older AutoCode version that started its last step is the only one that can finish that step."
         result.update(title="This chat can't continue", category="stopped", what_happened=why)
         actions.append(
             _action(

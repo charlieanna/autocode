@@ -31,6 +31,7 @@ try:
     from . import autocode_resolver_recommendation as recommendation
     from . import autocode_rewording_question as rewording
     from . import autocode_run_status as run_status
+    from . import autocode_saved_names as saved_names
     from . import autocode_support as support
     from . import autocode_util as util
     from .autocode_goals import RESOLVER_PROPOSAL_KEY, RESOLVER_REQUEST_KEY
@@ -44,6 +45,7 @@ except ImportError:
     import autocode_resolver_recommendation as recommendation
     import autocode_rewording_question as rewording
     import autocode_run_status as run_status
+    import autocode_saved_names as saved_names
     import autocode_support as support
     import autocode_util as util
     from autocode_goals import RESOLVER_PROPOSAL_KEY, RESOLVER_REQUEST_KEY
@@ -837,16 +839,18 @@ def restage_pending(state: RunState):
         or not _evidence_valid(proposal)
     ):
         raise ValueError("Pending Resolver request has invalid proposal or evidence")
+    # A request saved before the code-name rename names its stage the old way; it is queued again
+    # under the job name the run now has (autocode_saved_names), with its questions and evidence as saved.
     queue(
         state,
         proposal["scope"],
-        proposal["origin"],
+        saved_names.renamed(proposal["origin"]),
         request=proposal["request"],
         questions=proposal["questions"],
         evidence=proposal["evidence"],
         status=proposal["status"],
         phase=proposal["phase"],
-        next_stage=proposal["next_stage"],
+        next_stage=saved_names.rename(proposal["next_stage"]),
     )
     return True
 

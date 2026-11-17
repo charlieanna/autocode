@@ -3,8 +3,8 @@
 Owner decision 2026-11-10: the code names ``astra``, ``glm``, ``terra`` and ``sol`` are replaced
 by job names everywhere, in four steps. This module is the first: it names every old spelling and its replacement once, so the
 flags, the stage choices and later the run's routes and stages read one list. The old flags keep
-working as aliases of the new ones. A run saved before the rename is refused at resume, as a run
-saved at a retired stage is (#3010), and its status and reports stay readable.
+working as aliases of the new ones. A run saved before the rename is read with the job names and
+continues (autocode_saved_names).
 
 The words are role and stage names only. The same letters are also parts of real model names
 (``gpt-6-sol``, ``gpt-5.6-terra``, ``gpt-6-astra``, ``glm-5.3``), which never change.
@@ -22,8 +22,8 @@ ROUTES = {
     "sol": "tester",
 }
 
-# The old route names this runtime no longer runs: a run saved with one is refused at resume
-# (autocode_workflows.retired_stage). Steps 2 and 3 renamed them, and the stages with them.
+# The old route names this runtime no longer runs: a run saved with one is read with the job names
+# (autocode_saved_names). Steps 2 and 3 renamed them, and the stages with them.
 RETIRED_ROUTES = ("glm", "astra", "terra", "sol")
 
 # Stage code name -> its job name. The v2 planning flow already runs ``plan``, ``plan_review``,

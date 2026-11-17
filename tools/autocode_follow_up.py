@@ -18,6 +18,8 @@ State keys written here:
     turns: [{"at", "say", "stage_index", "event_id",
              "previous": {"task", "workflow", "status", "completed_at", "first_stage", "wrote": [path],
                           "requirements_output": the requirements handoff's output path or None,
+                          "chat_response": the finished turn's saved result as the person saw it,
+                          "plan": [{"criterion", "checked_by"}] of the finished plan, or [],
                           "review": {"report_path", "change_under_review", "change_patch", "verdict",
                                      "blocking": [...], "advisory": [...]} or absent,
                           "design": {"mode": "propose", "documents": [path]}
@@ -159,6 +161,9 @@ def accept(state: RunState, text: str, workspace, now: str) -> None:
         # The handoff this job was gathered with: a follow-up naming another job need not keep its
         # requirements (goals.earlier_job_handoff, #1860).
         "requirements_output": (state.get("requirements_handoff") or {}).get("output"),
+        # The finished plan's criteria and how each was checked: a question about the work is
+        # answered from them (workflows.outcome_context) after the next turn replaces the plan.
+        "plan": plan_criteria(state),
     }
     review = carried_review(state, workspace)
     if review:
@@ -212,6 +217,21 @@ def accept(state: RunState, text: str, workspace, now: str) -> None:
     completed_keys: tuple[Literal["completed_at", "stop_reason"], ...] = ("completed_at", "stop_reason")
     for key in completed_keys:
         state.pop(key, None)
+
+
+def plan_criteria(state: RunState) -> list[dict]:
+    """The finished turn's plan, as criteria and how each was checked; empty without a plan."""
+    body = (state.get("goal_contract") or {}).get("body") or {}
+    rows = []
+    for criterion in body.get("acceptance_criteria") or []:
+        if isinstance(criterion, dict) and criterion.get("criterion"):
+            rows.append(
+                {
+                    "criterion": str(criterion["criterion"]),
+                    "checked_by": str(criterion.get("verification_method") or ""),
+                }
+            )
+    return rows
 
 
 def refuse_on_finished(args) -> None:
