@@ -19,6 +19,7 @@ from unittest.mock import patch
 import autocode_process as processes
 import autocode_supervision_cli as bridge
 
+from tests.operational_fixtures import assert_view_blocked
 from tests.test_subprocess import compiled_tools
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
@@ -547,15 +548,8 @@ raise SystemExit(0)
             self.assertEqual(2, resumed.returncode, resumed.stderr)
             self.assertIn("lacks a verified uninterrupted result", resumed.stderr)
             self.assertIn("--abandon-stage", resumed.stderr)
-            held = json.loads(self.inspect("--status").stdout)
-            # The interrupted attempt is AutoCode's own recovery to settle: it stops blocked and asks
-            # the person nothing.
-            self.assertEqual("PAUSED_UNCERTAIN_STAGE", held["status"])
-            self.assertEqual("blocked", held["view"]["recovery"]["category"])
-            self.assertIsNone(held["view"]["needs"])
-            self.assertIsNone(held["view"]["next_command"])
-            self.assertIn("No provider call or recovered report is automatically accepted", held["view"]["stop_reason"])
-            self.assertNotIn("--abandon-stage", held["view"]["stop_reason"])
+            held = self.inspect("--status")
+            assert_view_blocked(self, json.loads(held.stdout)["view"], "PAUSED_UNCERTAIN_STAGE")
             self.assertEqual(launches, self.launches.read_bytes(), "Resume must not replay an interrupted provider")
             self.assertEqual([provider_pid], [int(p) for p in launches.splitlines()])
         finally:

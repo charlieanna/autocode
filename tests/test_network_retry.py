@@ -18,6 +18,7 @@ import autocode_util as util
 from autocode_taskrun import TaskRun
 
 from . import test_subprocess
+from .operational_fixtures import assert_view_blocked
 
 
 def failure(**data):
@@ -918,14 +919,6 @@ class NetworkRetryCliTests(unittest.TestCase):
     def calls(self):
         return [json.loads(line) for line in (self.root / "calls.jsonl").read_text().splitlines()]
 
-    def assert_blocked(self, view):
-        """Exhausted network recovery stops blocked: the provider's uncertain attempt is kept, and the
-        person is asked nothing about AutoCode's own recovery."""
-        self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", view["status"], view.get("stop_reason"))
-        self.assertEqual("blocked", view["recovery"]["category"])
-        self.assertIsNone(view["needs"])
-        self.assertIsNone(view["next_command"])
-
     def test_one_retry_reaches_real_question_frontier_and_keeps_both_attempts(self):
         run = self.start()
         view = run.status()
@@ -948,7 +941,7 @@ class NetworkRetryCliTests(unittest.TestCase):
         self.env["NETWORK_FIXTURE_MODE"] = "abandon"
         run = self.start()
         view = run.status()
-        self.assert_blocked(view)
+        assert_view_blocked(self, view, "PAUSED_PROVIDER_UNCERTAIN")
         self.assertEqual(2, len(self.calls()))
         attempts = [row for row in view["usage"]["accounting"]["attempts"] if not row["runner_owned"]]
         self.assertEqual([3, 3], [row["exit_code"] for row in attempts])
@@ -957,9 +950,8 @@ class NetworkRetryCliTests(unittest.TestCase):
             self.project, command=self.command, options=self.options, env=self.env, cwd=self.root, timeout=60
         )
         view = attached.resume_paused()
-        self.assert_blocked(view)
+        assert_view_blocked(self, view, "PAUSED_PROVIDER_UNCERTAIN")
         self.assertEqual(2, len(self.calls()))
-        self.assertFalse(view["done"])
         self.assertEqual(
             before,
             [
@@ -968,8 +960,8 @@ class NetworkRetryCliTests(unittest.TestCase):
                 if not row["runner_owned"]
             ],
         )
-        # Abandonment, an operator command, cannot renew the chain's
-        # automatic allowance; a plain resume still launches no new provider.
+        # Abandonment cannot renew the chain's automatic allowance; a plain
+        # resume still launches no new provider.
         attached.abandon_stage(attempts[-1]["attempt_id"])
         view = attached.resume_paused()
         self.assertEqual("PAUSED_STAGE_ABANDONED", view["status"])
@@ -983,9 +975,8 @@ class NetworkRetryCliTests(unittest.TestCase):
         self.env["NETWORK_FIXTURE_MODE"] = "effect"
         run = self.start()
         view = run.status()
-        self.assert_blocked(view)
+        assert_view_blocked(self, view, "PAUSED_PROVIDER_UNCERTAIN")
         self.assertEqual(1, len(self.calls()))
-        self.assertFalse(view["done"])
         self.assertEqual("retained partial source", (self.project / "effect.txt").read_text())
         run.resume_paused()
         self.assertEqual(1, len(self.calls()))

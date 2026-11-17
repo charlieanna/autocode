@@ -11,6 +11,7 @@ import autocode_process as processes
 from autocode_taskrun import TaskRun
 
 from tests import test_subprocess as subprocess_test_support
+from tests.operational_fixtures import assert_view_blocked
 
 
 @unittest.skipUnless(sys.platform == "linux", "Requires the supported Linux provider boundary and ELF fixture")
@@ -109,24 +110,9 @@ class KiloWrapperIdleCliTests(unittest.TestCase):
         )
         envelope = json.loads(status.stdout)
         view = envelope["view"]
-        # The idle stop is an operational stop: AutoCode's bounded recoveries run, then it stops blocked
-        # under the timeout's own status and asks the person nothing about its machinery.
-        self.assertEqual("PAUSED_TIMEOUT_RECOVERY", view["status"], view.get("stop_reason"))
-        self.assertEqual("blocked", view["recovery"]["category"])
-        self.assertIsNone(view["needs"])
-        self.assertIsNone(view["next_command"])
-        stop_diagnostic = view["stop_reason"] + "\nNative name probes: " + json.dumps(native_names)
-        if "No new provider activity" not in stop_diagnostic:
-            observed = [row for row in view["usage"]["accounting"]["attempts"] if not row["runner_owned"]]
-            if observed:
-                event_path = Path(observed[-1]["events"])
-                receipt_path = event_path.parent.parent / event_path.with_suffix(".supervision.json").name
-                if receipt_path.is_file():
-                    stop_diagnostic += "\nNative process observations: " + json.dumps(
-                        json.loads(receipt_path.read_text()).get("processes")
-                    )
-        self.assertIn("No new provider activity", view["stop_reason"], stop_diagnostic)
-        self.assertFalse(view["done"])
+        # The idle stop is an operational stop: AutoCode's bounded recoveries run, then it stops
+        # with nothing for a person to answer (#3682).
+        assert_view_blocked(self, view, "PAUSED_TIMEOUT_RECOVERY")
         self.assertIsNone(view.get("approved_contract"))
         limits = envelope["settings"]["limits"]
         self.assertEqual(
@@ -142,6 +128,14 @@ class KiloWrapperIdleCliTests(unittest.TestCase):
         self.assertTrue(all(row["timed_out"] for row in attempts), attempts)
         self.assertTrue(attempt["timed_out"])
         self.assertFalse(attempt["active"])
+        # The idle limit stopped it: after its three tools, while the model was silent, well before
+        # the 8 s tool limit and the 20 s step limit.
+        self.assertEqual(
+            ("during_reasoning_or_output", 3),
+            (attempt["stall_phase"], attempt["completed_tool_calls"]),
+            {"attempt": attempt, "native_names": native_names},
+        )
+        self.assertLess(attempt["duration_seconds"], 8, attempt)
         events = Path(attempt["events"])
         rows = [json.loads(line) for line in events.read_text().splitlines()]
         self.assertEqual(3, sum(row["type"] == "tool_use" for row in rows))
