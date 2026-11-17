@@ -52,7 +52,7 @@ use it in other roles. The `--single-model` exception is described above.
 | Requirements | `zai-coding-plan/glm-5.3` | low | None; when GLM-5.3 is missing or out of quota, Claude Opus 5.5 medium, then GPT-6.1 Sol medium ([automatic model selection](#choosing-models-automatically)) |
 | Planner | `zai-coding-plan/glm-5.3` | high | None |
 | Plan Reviewer | `openai/gpt-6-sol` | high | None |
-| Builder | `zai-coding-plan/glm-5.3` | medium | None; a stuck Builder gets one GPT-6 Sol XHigh attempt ([retry policy](#builder-retry-policy)) |
+| Builder | `zai-coding-plan/glm-5.3` | high (GLM-5.3 offers low, high and max) | None; a stuck Builder gets one GPT-6 Sol XHigh attempt ([retry policy](#builder-retry-policy)) |
 | Tester | `openai/gpt-6-sol` | high | Sol High → XHigh → Max |
 | Completion Reviewer | `openai/gpt-6-sol` | medium | Sol Medium → High → Max |
 | Resolver (`--resolver-model`) | `openai/gpt-6-astra` | high | Astra High → XHigh → Max |

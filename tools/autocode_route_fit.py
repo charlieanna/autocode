@@ -66,6 +66,21 @@ class EffortUnsupported(util.Paused, ValueError):
         )
 
 
+# What a model's tools have declared, by the model's own name (the last part of a route, so
+# zai-coding-plan/glm-5.3, zhipuai-coding-plan/glm-5.3 and kilo/z-ai/glm-5.3 are one entry), as their
+# listings printed it. Not read at launch, where the live listing decides: it is the one place a level
+# AutoCode writes into a shipped default, a profile or a recorded measurement is checked against, so a
+# default never names a level the model does not have (#3630: the Builder asked GLM-5.3 for medium).
+KNOWN_DECLARED = {
+    "glm-5.3": ("low", "high", "max"),
+}
+
+
+def known_declared(model: str) -> tuple | None:
+    """The levels ``model``'s tools are known to declare (``KNOWN_DECLARED``), or None when not recorded."""
+    return KNOWN_DECLARED.get(str(model).rsplit("/", 1)[-1]) if model else None
+
+
 def nearest(effort: str, declared) -> str | None:
     """The variant among ``declared`` nearest to ``effort``: itself, else the next stronger one, else the
     strongest weaker one. None when nothing is declared (unknown: the launch check decides)."""

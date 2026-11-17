@@ -11,7 +11,7 @@
   "roles": {
     "requirements": {
       "model": "zai-coding-plan/glm-5.3",
-      "effort": "medium"
+      "effort": "low"
     },
     "planner": {
       "model": "zai-coding-plan/glm-5.3",
@@ -23,7 +23,7 @@
     },
     "builder": {
       "model": "zai-coding-plan/glm-5.3",
-      "effort": "medium"
+      "effort": "high"
     },
     "validator": {
       "model": "openai/gpt-6-sol",
