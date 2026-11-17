@@ -737,6 +737,48 @@ class PolicyTests(unittest.TestCase):
             self.assertEqual((None, None), (named["backend"], named["backend_version"]))
 
 
+class LinkedReadRootTests(unittest.TestCase):
+    """A read root reached through a link is granted at its target, never refused (macOS /tmp, linked venvs)."""
+
+    def test_a_read_root_through_a_linked_directory_is_granted_at_its_target(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            root, real = base / "project", base / "real" / "tools"
+            (root / ".autocode" / "scratch").mkdir(parents=True)
+            real.mkdir(parents=True)
+            (base / "alias").symlink_to(base / "real", target_is_directory=True)
+            linked = base / "alias" / "tools"
+            _, _, reads, _ = containment._authority(root, root / ".autocode" / "scratch", [linked], [])
+            self.assertEqual({real}, reads)
+            self.assertEqual([str(real)], containment._policy_inputs([linked], [])["read_roots"])
+
+    def test_a_link_to_the_whole_disk_is_still_an_unscoped_read_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            (base / "project" / ".autocode" / "scratch").mkdir(parents=True)
+            (base / "everything").symlink_to("/", target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, "unscoped read root"):
+                containment._authority(
+                    base / "project", base / "project" / ".autocode" / "scratch", [base / "everything"], []
+                )
+
+    def test_a_virtualenv_in_a_linked_directory_is_a_containable_toolchain(self):
+        # The reported case: PATH named /tmp/acv/p1venv/bin on macOS, where /tmp links to /private/tmp, and
+        # the run paused before any model call because the venv root kept its linked spelling.
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            root = base / "project"
+            (root / ".autocode" / "scratch").mkdir(parents=True)
+            subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(base / "real" / "venv")], check=True)
+            (base / "alias").symlink_to(base / "real", target_is_directory=True)
+            env = {"PATH": f"{base / 'alias' / 'venv' / 'bin'}:/usr/bin:/bin"}
+            selected = toolchain.discover(root, ["python3 -c 'print(1)'"], env)
+            self.assertIn(str(base / "alias" / "venv"), selected["read_roots"])
+            _, _, reads, _ = containment._authority(root, root / ".autocode" / "scratch", selected["read_roots"], [])
+            self.assertIn(base / "real" / "venv", reads)
+            self.assertTrue(all(path == path.resolve() for path in reads))
+
+
 class BubblewrapArgumentTests(unittest.TestCase):
     """The Linux backend's mount plan (#709), checked on any host without running bwrap."""
 
