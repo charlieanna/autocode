@@ -1159,7 +1159,10 @@ before any launch, including the readonly planning shell's denial of private
 run-state reads where that boundary is supplied. Writer stages (the Builder) run in the
 same kernel boundary, with only that contained shell: its writes are confined to the
 workspace, outside `.git` and `.autocode`, judged on the resolved path, so a link that
-leads out of the workspace cannot carry a write out of it (#3770). Only a run that
+leads out of the workspace cannot carry a write out of it (#3770). What such a link leads to is
+readable, never writable, so a project whose code is a link out of it still loads its own tests
+(owner decision 2026-11-17; `autocode_workspace_links.read_targets`): only links git lists, and
+never the home directory, `/` or a secret by name such as `.env`. Only a run that
 accepted uncontained tools gives a writer Kilo's file tools instead; they are denied any
 workspace link that leads outside it (#3767), and `external_directory: "deny"` is a native
 tool policy, not a filesystem sandbox for bash. Use explicit Kilo permission restrictions

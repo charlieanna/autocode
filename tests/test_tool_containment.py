@@ -18,6 +18,7 @@ from unittest.mock import patch
 
 import autocode_tool_containment as containment
 import autocode_toolchain as toolchain
+import autocode_workspace_links as workspace_links
 from providers import opencode
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1594,6 +1595,41 @@ class UnicodeKernelTests(unittest.TestCase):
                     seatbelt = NATIVE == containment.SEATBELT
                     self.assertRegex(denied.stderr, "Operation not permitted" if seatbelt else DENIED)
                     self.assertEqual("protected sentinel\n", protected.read_text())
+
+
+@unittest.skipUnless(NATIVE, f"requires a real kernel sandbox: {NATIVE_PROBLEM}")
+class LinkTargetKernelTests(unittest.TestCase):
+    def test_a_writer_reads_through_a_link_out_of_the_workspace_but_cannot_write_through_it(self):
+        # Owner decision 2026-11-17: a project whose code is a link out of it loads its own tests in the sandbox,
+        # and the link still carries no write out (#3770).
+        parent = ROOT / ".autocode"
+        parent.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="link-target-", dir=parent) as temporary:
+            root, shared = Path(temporary) / "project", Path(temporary) / "shared"
+            root.mkdir()
+            shared.mkdir()
+            target = shared / "discount.py"
+            target.write_text("RATE = 1\n")
+            (root / "discount.py").symlink_to(target)
+            # Its own checkout: the fixture sits in this repository's ignored .autocode, where git lists nothing.
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            granted = workspace_links.read_targets(root)
+            self.assertEqual([target.resolve()], granted)
+            boundary = containment.prepare(root, allow_write=True, read_roots=granted)
+
+            def run(command):
+                return subprocess.run(
+                    [boundary["shell"], "-c", command], cwd=root, capture_output=True, text=True, timeout=10
+                )
+
+            read = run("/bin/cat discount.py")
+            self.assertEqual(0, read.returncode, read.stderr)
+            self.assertEqual("RATE = 1\n", read.stdout)
+            for command in ("printf bad > discount.py", "printf bad > " + shlex.quote(str(shared / "new.py"))):
+                with self.subTest(command=command):
+                    self.assertNotEqual(0, run(command).returncode)
+            self.assertEqual("RATE = 1\n", target.read_text())
+            self.assertFalse((shared / "new.py").exists())
 
 
 @unittest.skipUnless(sys.platform == "linux" and NATIVE, "requires supported Linux metadata custody")

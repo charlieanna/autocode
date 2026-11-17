@@ -1248,6 +1248,10 @@ class NativeKiloPolicyTests(unittest.TestCase):
         )
         self.assertEqual(0, json.loads(written.stdout)["result"]["metadata"]["exit"], written.stdout)
         self.assertEqual("changed", (self.workspace / "fixture.txt").read_text())
+        # The link's target is readable, so the project's own code loads (owner decision 2026-11-17).
+        shown = self.debug(argv, child, "bash", {"command": "cat discount.py", "description": "read through link"})
+        self.assertEqual(0, json.loads(shown.stdout)["result"]["metadata"]["exit"], shown.stdout)
+        self.assertIn("RATE = 1", shown.stdout)
         for command in (
             "printf bad > " + shlex.quote(str(self.workspace / "discount.py")),
             "printf bad > " + shlex.quote(str(outside / "new.py")),

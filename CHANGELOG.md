@@ -11,6 +11,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **A project whose code is a link out of it can run its tests in the sandbox**: in a live run on macOS a Builder's tests could not import a tracked file that is a link to a sibling directory, because the sandbox refused every read outside the project, so it tested a copy instead. Sandboxed stages may now read, never write, what the project's own links lead to; the home directory, `/` and secret files such as `.env` stay unreadable.
 - **A Kilo Builder's stage record says it ran in the sandbox** (#3770): since writing Kilo stages run in the kernel sandbox, their stage record still said "Config-tool sandbox flag and workspace snapshot checks" and left out the sandbox it ran in. It now records the contained shell and its boundary, as the checkers' records do.
 - **Interrupted read-only stages can recover after their supervisor is lost**: on Linux, an enclosing capture's kernel-confirmed process-family cleanup can settle the exact stopped attempt when its keeper's receipt remains unfinished or is missing. The run retains the attempt and usage and rechecks its source, launch settings and recovery limits before continuing.
 - **Bridge recovery status is clearer**: the GitHub bridge leaves core-named automatic continuation actions to the run instead of asking for issue feedback, and reports a stopped run when no action is available.
