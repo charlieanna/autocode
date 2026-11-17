@@ -131,9 +131,20 @@ def continue_proof(state: RunState, workspace, run_dir, proof, framework, inputs
                 or current_identity() != context["identity"]
             ):
                 raise util.Paused("PAUSED_VERIFICATION_UNCERTAIN", "Retained mutation inputs or receipts changed")
-            progress(f"Continuing changed-line checks: {before} unattempted sites remain")
+            if progress:
+                progress(f"Continuing changed-line checks: {before} unattempted sites remain", phase="mutation")
             proof = _window(
-                state, workspace, run_dir, proof, original, framework, inputs, context, deadline, current_identity
+                state,
+                workspace,
+                run_dir,
+                proof,
+                original,
+                framework,
+                inputs,
+                context,
+                deadline,
+                current_identity,
+                progress=progress,
             )
             if proof.get("verdict") != verify.PASS or pending(proof) >= before:
                 break
@@ -141,7 +152,18 @@ def continue_proof(state: RunState, workspace, run_dir, proof, framework, inputs
 
 
 def _window(
-    state: RunState, workspace, run_dir, previous, original, framework, inputs, context, deadline, current_identity
+    state: RunState,
+    workspace,
+    run_dir,
+    previous,
+    original,
+    framework,
+    inputs,
+    context,
+    deadline,
+    current_identity,
+    *,
+    progress=None,
 ):
     started, started_at = time.monotonic(), util.now()
     root = Path(previous["path"]).parent
@@ -174,6 +196,7 @@ def _window(
             previous=previous,
             evidence_dir=out / "mutation-check",
             deadline=deadline,
+            progress=progress,
         )
         refresh_failure = None
         if problem := mutation_checkpoint.replacement_error(previous["mutation_check"], measured):

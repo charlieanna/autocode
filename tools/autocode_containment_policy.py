@@ -67,6 +67,22 @@ def mode(settings) -> str | None:
     return UNCONTAINED if accepted(settings) else CONTAINED
 
 
+def macos_loopback_note(settings) -> str | None:
+    """Explain macOS Seatbelt loopback asymmetry when a run uses Codex or contained built-in OpenCode on macOS."""
+    if not tool_containment.seatbelt_available():
+        return None
+    settings = settings or {}
+    if settings.get("engine") == "codex":
+        return tool_containment.SEATBELT_CODEX_LOOPBACK_NOTE
+    if mode(settings) == CONTAINED:
+        return tool_containment.SEATBELT_LOOPBACK_NOTE
+    return None
+
+
+loopback_bind_blocked = tool_containment.loopback_bind_blocked
+seatbelt_loopback_diagnostic = tool_containment.seatbelt_loopback_diagnostic
+
+
 def refusal(problem: str) -> str:
     return (
         f"Refused before any stage launched: {problem}. Built-in OpenCode stages other than planning "

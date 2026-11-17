@@ -220,6 +220,18 @@ def _auth_stop(state: RunState) -> str | None:
     return None
 
 
+def _seatbelt_loopback_stop(state: RunState) -> str | None:
+    """Explain a macOS Seatbelt 127.0.0.1 loopback bind stop in plain words (no CLI flags)."""
+    try:
+        from . import autocode_person_text as person_text
+    except ImportError:
+        import autocode_person_text as person_text
+    reason = str(state.get("stop_reason") or "")
+    if person_text.loopback_bind_blocked(reason):
+        return person_text.seatbelt_loopback_diagnostic(for_person=True)
+    return None
+
+
 def _job_model_stop(state: RunState, role):
     """What happened to a workflow job its provider refused or ran out of quota on (#463), or None.
 
@@ -513,6 +525,7 @@ def project(state: RunState, need=None):
         if terminal
         else (
             _auth_stop(state)
+            or _seatbelt_loopback_stop(state)
             or _job_model_stop(state, role)
             or _explanation(cause, role, bool(state.get("stop_reason")))
         ),

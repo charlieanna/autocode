@@ -365,6 +365,11 @@ def view(
                 key: deepcopy(check.get(key))
                 for key in ("stage", "summary", "started_at", "updated_at", "command", "output", "supervision")
             },
+            **{
+                key: deepcopy(check[key])
+                for key in ("phase", "current", "total", "elapsed_seconds")
+                if check.get(key) is not None
+            },
             "liveness": liveness_policy.classify(check_supervision, runner_check_liveness),
         }
         if check

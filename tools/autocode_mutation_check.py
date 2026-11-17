@@ -130,6 +130,7 @@ def collect(
     *,
     clock=time.monotonic,
     enforcement=False,
+    progress=None,
 ):
     """Mutate the changed product lines in ``tree`` and run the proving tests against each mutant.
 
@@ -161,6 +162,7 @@ def collect(
             clock,
             strict=enforcement,
             enforcement=enforcement,
+            progress=progress,
         )
     except command_receipt.OwnershipUncertain as error:
         if enforcement:
@@ -184,6 +186,7 @@ def collect_selected_tests(
     deadline=None,
     enforcement=False,
     previous=None,
+    progress=None,
 ):
     """Report mutations against independently observed passing tests, without inventing named cases.
 
@@ -215,6 +218,7 @@ def collect_selected_tests(
             strict=True,
             enforcement=enforcement,
             previous=previous,
+            progress=progress,
         )
     except command_receipt.OwnershipUncertain:
         raise
@@ -237,6 +241,7 @@ def _collect(
     strict=False,
     enforcement=False,
     previous=None,
+    progress=None,
 ) -> dict:
     if not tests:
         return record("no judged test is named after a due case, so the mutation check ran no test")
@@ -308,6 +313,20 @@ def _collect(
                 }
             return failed
     cache = Path(tempfile.mkdtemp(prefix="pycache-", dir=evidence))
+    started_wall = time.monotonic()
+    total_mutants = len(planned)
+    if progress is not None:
+        elapsed = round(max(0.0, time.monotonic() - started_wall), 1)
+        noun = "mutant" if total_mutants == 1 else "mutants"
+        progress(
+            f"Checking changed-line mutations: verifying unmutated tests ({total_mutants} {noun} planned, {int(elapsed)}s elapsed)",
+            command=narrowed,
+            output=evidence,
+            phase="mutation_reference",
+            current=0,
+            total=total_mutants,
+            elapsed_seconds=elapsed,
+        )
     reference = run(isolated(narrowed, cache), "unmutated", reference_limit)
     outcome, passed = (proved_outcome if enforcement else judge)(reference, tests)
     if outcome != "survived" or (strict and set(passed) != set(tests)):
@@ -376,6 +395,17 @@ def _collect(
         active_command = mutant_command
         if enforcement and site_selection is not None and site_selection.get("command"):
             active_command = mutation_results.stop_command(site_selection["command"])
+        if progress is not None:
+            elapsed = round(max(0.0, time.monotonic() - started_wall), 1)
+            progress(
+                f"Checking changed-line mutations ({number}/{total_mutants}, {int(elapsed)}s elapsed): {row['path']}:{mutant.line}",
+                command=active_command,
+                output=evidence,
+                phase="mutation",
+                current=number,
+                total=total_mutants,
+                elapsed_seconds=elapsed,
+            )
         ownership_uncertain = False
         try:
             target.write_bytes(mutants.apply(source, mutant))
