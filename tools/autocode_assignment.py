@@ -208,11 +208,13 @@ def undo_created(paths, stages, record, workspace, *, checkpoints=(), archived=N
     return message
 
 
-def check_scope(owned, has_contract: bool, stages, record, workspace, *, checkpoints=(), archived=None) -> str | None:
+def check_scope(
+    owned, has_contract: bool, stages, record, workspace, *, checkpoints=(), archived=None, repaired=None
+) -> str | None:
     """Return the PAUSED_ASSIGNMENT_SCOPE message when ``record`` left out-of-scope edits, else None."""
     if not owned or not has_contract:
         return None
-    out = outside(owned, stages, record, workspace=workspace, archived=archived)
+    out = outside(owned, stages, record, workspace=workspace, archived=repaired)
     if out is None:
         return "The assignment's starting snapshot is missing; edits retained for inspection"
     if not out:

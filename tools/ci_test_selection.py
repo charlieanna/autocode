@@ -100,6 +100,8 @@ SUITE_CONSUMERS = (
 SCENARIO_RUNTIME_CONSUMERS = {
     "tools/autocode_run_view.py": ("scenarios.test_escalation",),
     "tools/autocode_recovery_view.py": ("scenarios.test_escalation",),
+    "tools/autocode_light_builder.py": ("scenarios.test_escalation",),
+    "tools/autocode_builder_policy.py": ("scenarios.test_escalation",),
     **{
         f"scenarios/catalog/{scenario}/oracle.py": ("scenarios.test_reliability_oracle_outcomes",)
         for scenario in (

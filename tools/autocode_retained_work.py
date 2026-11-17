@@ -125,7 +125,7 @@ def fresh_candidate(state: RunState, record, current_revision):
         for path in assignment.retained_changes(stages, origin) or []
         if not assignment.build_output(workspace, path, stages, origin)
     ]
-    archived = acceptance_tests.protected(state)
+    archived = acceptance_tests.repaired_protected(state)
     if not paths or assignment.outside(owned, stages, origin, workspace=workspace, archived=archived) != []:
         return (
             (
@@ -167,7 +167,7 @@ def validated_candidate(state: RunState, value, record, workspace, current_revis
             state.get("stages", []),
             record,
             workspace=workspace,
-            archived=acceptance_tests.protected(state),
+            archived=acceptance_tests.repaired_protected(state),
         )
         != []
     ):

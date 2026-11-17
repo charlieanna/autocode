@@ -110,7 +110,7 @@ def _writer_progress(state: RunState, record, before, receipts, cases, owned):
             for name in origin["files"].keys() | end["files"].keys()
             if origin["files"].get(name) != end["files"].get(name)
         )
-        allowed = [*owned, *acceptance.protected(state)]
+        allowed = [*owned, *acceptance.repaired_protected(state)]
         if not changed or any(
             not any(name == root.rstrip("/") or name.startswith(root.rstrip("/") + "/") for root in allowed)
             for name in changed
@@ -167,7 +167,7 @@ def candidate(state: RunState, record, revision):
         }:
             return None
         files = {path: entry for row in receipts for path, entry in row.get("files", {}).items()}
-        allowed = [*owned, *acceptance.protected(state)]
+        allowed = [*owned, *acceptance.repaired_protected(state)]
         if not files or any(
             not any(path == root.rstrip("/") or path.startswith(root.rstrip("/") + "/") for root in allowed)
             for path in files

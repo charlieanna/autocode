@@ -1278,6 +1278,46 @@ class ReportCheckAcceptanceTestRepairTests(unittest.TestCase):
             }
             self.assertEqual([], report_check.check_report(json.dumps(good_fail), spec=spec))
 
+    def test_repaired_protected_scopes_exclusively_to_current_test_repair_receipts(self) -> None:
+        self.assertEqual({}, acceptance.repaired_protected({}))
+        state = {
+            "goal_contract": {"hash": "h-cur"},
+            "settings": {"spec_first": True},
+            "acceptance_tests": {
+                "receipts": {
+                    "initial": {
+                        "contract_hash": "h-cur",
+                        "files": {"tests/test_initial.py": {"sha256": "aaa", "archive": "/tmp/a"}},
+                    },
+                    "stale": {
+                        "contract_hash": "h-old",
+                        "test_repair": {"stage": "tester"},
+                        "files": {"tests/test_stale.py": {"sha256": "bbb", "archive": "/tmp/b"}},
+                    },
+                    "repaired": {
+                        "contract_hash": "h-cur",
+                        "test_repair": {"stage": "tester"},
+                        "files": {
+                            "tests/test_repaired.py": {"sha256": "ccc", "archive": "/tmp/c"},
+                            "pkg/go.sum": {"sha256": "ddd", "archive": "/tmp/d"},
+                        },
+                    },
+                }
+            },
+        }
+        self.assertEqual(
+            {
+                "tests/test_repaired.py": {"sha256": "ccc", "archive": "/tmp/c"},
+                "pkg/go.sum": {"sha256": "ddd", "archive": "/tmp/d"},
+            },
+            acceptance.repaired_protected(state),
+        )
+        blind_state = {**state, "settings": {"spec_first": True, "blind_tests": True}}
+        self.assertEqual(
+            {"pkg/go.sum": {"sha256": "ddd", "archive": "/tmp/d"}},
+            acceptance.repaired_protected(blind_state),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

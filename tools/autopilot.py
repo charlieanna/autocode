@@ -629,6 +629,7 @@ def assert_within_assignment(state: RunState, record):
         state.get("workspace"),
         checkpoints=state.get("code_checkpoints") or (),
         archived=acceptance_tests.protected(state),
+        repaired=acceptance_tests.repaired_protected(state),
     )
     if reason is not None:
         raise support.Paused("PAUSED_ASSIGNMENT_SCOPE", reason)

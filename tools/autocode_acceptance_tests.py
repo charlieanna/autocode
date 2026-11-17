@@ -440,6 +440,21 @@ def protected(state: RunState) -> dict[str, dict]:
     return all_files(state)
 
 
+def repaired_protected(state: RunState) -> dict[str, dict]:
+    """Protected Tester files written by an independent post-build ``test_repair`` under the current contract (#3350)."""
+    current = (state.get("goal_contract") or {}).get("hash")
+    if not current:
+        return {}
+    files: dict[str, dict] = {}
+    for receipt in receipts(state).values():
+        if receipt.get("contract_hash") != current or not isinstance(receipt.get(test_repair.RECEIPT_FIELD), dict):
+            continue
+        files.update(receipt.get("files") or {})
+    if is_blind(state):
+        return {path: entry for path, entry in files.items() if Path(path).name in project_kinds.ALL_TEST_PREREQUISITES}
+    return files
+
+
 def blind_files(state: RunState) -> dict[str, dict]:
     """Archived blind test files under the current contract; {} when not blind."""
     if not is_blind(state):
