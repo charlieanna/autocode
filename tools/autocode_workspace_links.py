@@ -8,8 +8,11 @@ Code's edit hook (``providers/claude_edit_scope``) resolve a path before judging
 whose file tools run in its own process and judge the written path needs the links named.
 
 ``outside`` observes them from the workspace each time it is asked: the entries git lists (tracked,
-and untracked but not ignored), or every entry when the workspace is not a git checkout. Imports
-nothing from AutoCode.
+and untracked but not ignored), or every entry when the workspace is not a git checkout.
+``read_targets`` gives what such links lead to, so a kernel-contained stage may read, never write,
+the files the project itself depends on (owner decision 2026-11-17: under the macOS sandbox a
+project whose code is a link out of it could not load its own tests). Imports only the secret-name
+rule from AutoCode.
 """
 
 from __future__ import annotations
@@ -17,6 +20,11 @@ from __future__ import annotations
 import os
 import subprocess
 from pathlib import Path
+
+try:
+    from .autocode_source_privacy import secret_path
+except ImportError:
+    from autocode_source_privacy import secret_path
 
 GIT_SECONDS = 30
 
@@ -64,6 +72,25 @@ def outside(workspace) -> list[tuple[str, bool]]:
         if not target.is_relative_to(root):
             found.append((name, target.is_dir()))
     return found
+
+
+def read_targets(workspace) -> list[Path]:
+    """The existing files and directories the workspace's outside links lead to, for read-only access.
+
+    A target that is ``/``, the home directory or above it, or a secret by name (``.env``, ``id_rsa``) is
+    left out: it is not a dependency a link grants, and reading it stays refused.
+    """
+    root, home = Path(workspace).resolve(), Path.home().resolve()
+    found = []
+    for name, _directory in outside(root):
+        try:
+            target = (root / name).resolve()
+        except (OSError, RuntimeError):
+            continue
+        if not target.exists() or home.is_relative_to(target) or secret_path(target.as_posix()):
+            continue
+        found.append(target)
+    return sorted(set(found))
 
 
 def patterns(workspace, name: str, directory: bool) -> list[str]:
