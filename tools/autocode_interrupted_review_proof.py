@@ -52,11 +52,29 @@ def proof(state: RunState, workspace, inspection):
         return None
     fresh = liveness.classify(record.get("supervision"), inspection)
     receipt = fresh.get("receipt") or {}
-    if (
-        receipt.get("phase") != "stopped"
-        or receipt.get("cause") != "owner_lost"
-        or receipt.get("cleanup_error") is not None
-        or not all(fresh[role]["checked"] and fresh[role]["alive"] is False for role in liveness.ROLES)
+    keeper_clean = (
+        receipt.get("phase") == "stopped"
+        and receipt.get("cause") == "owner_lost"
+        and receipt.get("cleanup_error") is None
+    )
+    backup = (record.get("supervision") or {}).get("family_backup")
+    family_clean = (
+        isinstance(inspection, dict)
+        and (
+            (receipt.get("phase") == "armed" and receipt.get("family_backup") == backup)
+            or (
+                receipt.get("phase") == "stopping"
+                and receipt.get("cause") == "owner_lost"
+                and receipt.get("cleanup_error") is None
+                and receipt.get("family_backup") == backup
+            )
+            or (not receipt and inspection.get("family_receipt_missing") is True)
+        )
+        and inspection.get("family_cleanup") is True
+        and isinstance(backup, dict)
+    )
+    if not (keeper_clean or family_clean) or not all(
+        fresh[role]["checked"] and fresh[role]["alive"] is False for role in liveness.ROLES
     ):
         return None
     try:
@@ -65,6 +83,17 @@ def proof(state: RunState, workspace, inspection):
         binding = handoff.preserved_launch_binding(record)
         if not binding or before["revision"] != current["revision"] or handoff._drift(binding, state, current):
             return None
-        return {"source": current, "launch_binding": binding, "receipt": receipt}
+        supervision = record["supervision"]
+        cleanup = (
+            {
+                "kind": "capture_family",
+                "attempt_nonce": supervision["nonce"],
+                "boot_id": supervision["family_backup"]["boot_id"],
+                "directory": supervision["family_backup"]["directory"],
+            }
+            if family_clean
+            else {"kind": "supervisor", "receipt": supervision["receipt"]}
+        )
+        return {"source": current, "launch_binding": binding, "receipt": receipt, "cleanup": cleanup}
     except (KeyError, OSError, ValueError, TypeError, util.Paused):
         return None

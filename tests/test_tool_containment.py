@@ -2471,6 +2471,20 @@ class BubblewrapKernelTests(unittest.TestCase):
     run_shell = KernelTests.run_shell
     assert_denied = KernelTests.assert_denied
 
+    def test_workspace_writer_cannot_modify_the_private_stage_family_store(self):
+        import autocode_stage_family as stage_family
+
+        private_home = self.home / "private-home"
+        private_home.mkdir()
+        with patch("pwd.getpwuid", return_value=SimpleNamespace(pw_dir=str(private_home))):
+            directory = stage_family._root(create=True)
+        certificate = directory / "family-result-sentinel.json"
+        certificate.write_text("retained evidence\n")
+        certificate.chmod(0o600)
+        writer = containment.prepare(self.workspace, allow_write=True, read_roots=self.roots, environment=self.env)
+        self.assert_denied(": > " + shlex.quote(str(certificate)), writer)
+        self.assertEqual("retained evidence\n", certificate.read_text())
+
     def test_manifest_names_the_backend_and_its_version(self):
         self.assertEqual(containment.BUBBLEWRAP, self.boundary["backend"])
         self.assertRegex(self.boundary["backend_version"], r"^bubblewrap \d")

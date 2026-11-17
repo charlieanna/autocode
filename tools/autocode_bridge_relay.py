@@ -15,6 +15,7 @@ question is open.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass, field
 
@@ -73,6 +74,10 @@ def gate_key(view: dict, changeset: dict | None = None) -> str:
         return "done"
     need = view.get("needs") or {}
     kind = need.get("kind") or "working"
+    if kind == "working" and str(view.get("status") or "").startswith(("PAUSED_", "BLOCKED_")):
+        reason = str(view.get("stop_reason") or "")
+        identity = hashlib.sha256(reason.encode("utf-8", errors="replace")).hexdigest()[:16]
+        return f"held:{view['status']}:{view.get('iteration')}:{view.get('next_stage')}:{identity}"
     if kind == "answer":
         if need.get("route"):
             route = need["route"]
@@ -231,6 +236,13 @@ def relay(view: dict, record: dict, changeset: dict | None = None) -> RelayResul
         return result
     need = view.get("needs") or {}
     kind = need.get("kind")
+    if not kind and str(view.get("status") or "").startswith(("PAUSED_", "BLOCKED_")):
+        result.messages = [
+            "**AutoCode stopped.** The run and its evidence are retained; no action is currently available."
+        ]
+        return result
+    if kind == "continue":
+        return result  # The core's automatic action is not a request for issue feedback.
     if kind == "answer" and need.get("route"):
         result.messages = [route_markdown(need)]
     elif kind == "answer" and need.get("resolver_scope") in PERSON_ONLY_SCOPES:
