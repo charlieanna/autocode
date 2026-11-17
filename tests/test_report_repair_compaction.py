@@ -446,10 +446,14 @@ class SharedCauseHKiloDecoratedRepairAndStageLessonsTests(unittest.TestCase):
         state.update(status="PAUSED_REPEATED_FAILURE", phase="PAUSED_OR_BLOCKED", next_stage="tester")
         run_records.write_json(self.run / "state.json", state)
 
+        from providers import kilocode_policy
+
         kilo_adapter = runner.autocode_providers.resolve("kilocode")
         with (
             patch.object(runner, "opencode", kilo_adapter),
             patch.object(kilo_adapter, "check_models", return_value=None),
+            patch.object(kilo_adapter, "validate_effort", return_value=None),
+            patch.object(kilocode_policy, "restrict", side_effect=lambda argv, child, *_a, **_kw: (argv, child)),
         ):
             args_r, parser = runner.cli_args.parse(
                 None,

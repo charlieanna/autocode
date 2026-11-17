@@ -100,6 +100,7 @@ class SharedCauseIChangedCodeEvidenceLedgerProgressTests(unittest.TestCase):
             "workspace": str(self.root),
             "settings": {
                 "engine": "opencode",
+                "tool_containment": False,
                 "builder_retry": dict(builder_policy.DEFAULTS),
                 "roles": {
                     "builder": {"engine": "opencode", "model": "zai-coding-plan/glm-5.3", "reasoning_effort": "high"},
@@ -235,6 +236,7 @@ class SharedCauseIChangedCodeEvidenceLedgerProgressTests(unittest.TestCase):
             "iteration": 7,
             "settings": {
                 "engine": "opencode",
+                "tool_containment": False,
                 "builder_retry": dict(builder_policy.DEFAULTS),
                 "roles": {
                     role: {"engine": "opencode", "model": "openai/gpt-6-sol", "reasoning_effort": "high"}
@@ -373,7 +375,15 @@ class SharedCauseIChangedCodeEvidenceLedgerProgressTests(unittest.TestCase):
         run_records.write_json(self.run / "state.json", state)
         args_r, parser = runner.cli_args.parse(
             None,
-            ["--workspace", str(self.root), "--run-dir", str(self.run), "--resume-paused", "--no-chat"],
+            [
+                "--workspace",
+                str(self.root),
+                "--run-dir",
+                str(self.run),
+                "--resume-paused",
+                "--allow-uncontained-tools",
+                "--no-chat",
+            ],
             runner.opencode.DEFAULT_MODELS,
         )
         captured_entry: list[dict] = []
