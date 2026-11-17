@@ -54,6 +54,8 @@ export interface IntegerCommandInput {
   used?: number;
   elapsed?: number;
   command?: string;
+  binding?: string;
+  purpose?: "approval";
 }
 
 export interface Question {

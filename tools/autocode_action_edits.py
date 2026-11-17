@@ -70,22 +70,23 @@ def apply(runner, args, parser, state: RunState, state_path, run_dir, workspace,
         runner.write_json(state_path, state)
         print(state["stop_reason"])
         return 0
-    try:
-        conversation_ingress.require_expected_goal(
-            state, getattr(args, "expected_goal_token", None), token_for=goals.token, is_approved=goals.approved
-        )
-        if conversation_ingress.ingest(
-            state,
-            run_dir,
-            workspace,
-            getattr(args, "conversation_handoff", None),
-            existing_run=bool(args.run_dir),
-            core_session=getattr(args, "conversation_session", False),
-        ):
-            runner.write_json(state_path, state)
-    except ValueError as error:
-        print(f"Input rejected: {error}", file=sys.stderr)
-        return 2
+    if not getattr(args, "_approval_time_change", False):
+        try:
+            conversation_ingress.require_expected_goal(
+                state, getattr(args, "expected_goal_token", None), token_for=goals.token, is_approved=goals.approved
+            )
+            if conversation_ingress.ingest(
+                state,
+                run_dir,
+                workspace,
+                getattr(args, "conversation_handoff", None),
+                existing_run=bool(args.run_dir),
+                core_session=getattr(args, "conversation_session", False),
+            ):
+                runner.write_json(state_path, state)
+        except ValueError as error:
+            print(f"Input rejected: {error}", file=sys.stderr)
+            return 2
     dependency_result = dependency.apply(
         args,
         state,

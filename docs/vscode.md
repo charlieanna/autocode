@@ -336,6 +336,11 @@ total. It must exceed the saved cap and active time already consumed; chat text
 does not supply or authorize it. Other limits, models and plan approval still
 apply.
 
+While a plan awaits approval, VS Code can also offer a total active-time field
+when the saved finite limit can be increased. Enter a larger total and confirm
+**Save limit**. This saves only that limit: the plan remains unapproved and no
+model starts. Review and approve the same displayed plan separately.
+
 At a planning-review allowance pause, a core-named finite input shows the saved
 allowance and calls already used. Enter an explicit total above both and confirm
 the exact number of calls. **Set review allowance** takes only the named command

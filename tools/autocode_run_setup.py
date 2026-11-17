@@ -622,17 +622,21 @@ def load_locked(runner, args, parser, state: RunState, state_path, run_dir, work
     args._recovery_grant_settings = copy.deepcopy(state.get("settings"))
     # The stop an explicit resume finds holding the run, for the build loop to record who resumed it (#722).
     args._resumed_pause = resumed_pause(state) if args.resume_paused else None
+    changing_plan_time = getattr(args, "_approval_time_change", False)
     changing_job_caps = getattr(args, "_job_cap_change", False)
     if not args.run_dir:
         # configure() and the model catalogue ask the connected tools what they serve, which is the
         # slowest part of a start and the last thing a client can see before the first checkpoint.
         launch_record.write(run_dir, "resolving_models", workspace=workspace)
     try:
-        settings = runner.configure(args, copy.deepcopy(state) if changing_job_caps else state)
+        settings = runner.configure(args, copy.deepcopy(state) if changing_job_caps or changing_plan_time else state)
     except ValueError as error:
         raise SettingRefused(
             runner.status_command.rejection_message(runner, state, workspace, run_dir, error)
         ) from None
+    if changing_plan_time:
+        args._approval_time_settings = settings
+        return state
     if changing_job_caps:
         # The recovery action validates the exact stop before committing these settings.
         args._job_cap_settings = settings

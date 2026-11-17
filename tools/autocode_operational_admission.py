@@ -142,14 +142,19 @@ def original_cause(state: RunState, decided):
 
 def guard(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
     """Select only a registered owner; ordinary advancement has no authority."""
-    try:
-        conversation_ingress.require_expected_goal(
-            state, getattr(args, "expected_goal_token", None), token_for=goals.token, is_approved=goals.approved
-        )
-    except ValueError as error:
-        # A supplied plan boundary is an admission prerequisite, including for
-        # metadata owners. Refuse it before normalization can save a new hold.
-        return runner.status_command.reject_input(runner, state, workspace, run_dir, error)
+    # Extending the limit is a save-only action at the *unapproved* plan boundary.
+    # Its exact displayed token is checked by autocode_plan_time.change; treating
+    # every supplied token as a build prerequisite rejects the action before its
+    # dedicated recovery handler can run.
+    if not getattr(args, "_approval_time_change", False):
+        try:
+            conversation_ingress.require_expected_goal(
+                state, getattr(args, "expected_goal_token", None), token_for=goals.token, is_approved=goals.approved
+            )
+        except ValueError as error:
+            # A supplied plan boundary is an admission prerequisite, including for
+            # metadata owners. Refuse it before normalization can save a new hold.
+            return runner.status_command.reject_input(runner, state, workspace, run_dir, error)
     current = disposition.decision(state)
     if current is None:
         return None

@@ -1,8 +1,9 @@
 """Failed and interrupted work on a saved run (steps of autocode_run_actions.handle).
 
-gate_failures runs first: a classification retry token authorizes its one saved classification
-and goes straight to the build, an inspected Investigator report is offered, and a failed job
-either stays stopped, takes another model (autocode_job_route) or is retried with its exact token.
+gate_failures runs first: an approval-boundary time change saves only the larger limit, a
+classification retry token authorizes its one saved classification and goes straight to the
+build, an inspected Investigator report is offered, and a failed job either stays stopped,
+takes another model (autocode_job_route) or is retried with its exact token.
 resume runs once the pause's authority is settled: --abandon-stage sets a stage aside, and an
 explicit --resume-paused applies its recovery flags (--accept-source-edit, --grant-recovery,
 --retry-report, --retry-failed-stage, --diagnose-failed-stage) and reconciles an interrupted
@@ -36,6 +37,7 @@ try:
     from . import autocode_operational_admission as operational_admission
     from . import autocode_operational_outcome as owner_outcome
     from . import autocode_owned_operations as owned_operations
+    from . import autocode_plan_time as plan_time
     from . import autocode_recovery_accounting as recovery_accounting
     from . import autocode_recovery_dispatch as recovery_dispatch
     from . import autocode_recovery_grants as recovery_grants
@@ -62,6 +64,7 @@ except ImportError:
     import autocode_operational_admission as operational_admission
     import autocode_operational_outcome as owner_outcome
     import autocode_owned_operations as owned_operations
+    import autocode_plan_time as plan_time
     import autocode_recovery_accounting as recovery_accounting
     import autocode_recovery_dispatch as recovery_dispatch
     import autocode_recovery_grants as recovery_grants
@@ -105,6 +108,14 @@ def reconcile_checkpoint(runner, args, parser, state: RunState, state_path, run_
 
 def gate_failures(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
     """Settle a classification or job failure before any pause authority is weighed."""
+    if getattr(args, "_approval_time_change", False):
+        try:
+            plan_time.change(runner, state, state_path, args)
+        except ValueError as error:
+            print(f"Input rejected: {error}", file=sys.stderr)
+            return 2
+        print("Total active-time limit saved. Plan approval is still pending; no provider launched.")
+        return 0
     if getattr(args, "_job_cap_change", False):
         try:
             job_failure.change_total_caps(runner, state, run_dir, workspace, args)

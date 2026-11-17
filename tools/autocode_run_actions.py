@@ -339,7 +339,7 @@ STEPS = (
     action_decisions.preflight,  # invalid approval cannot reconcile or migrate a stopped attempt
     operational_admission.guard,  # Exhausted machinery grants no ordinary advancement.
     action_edits.apply,  # a standalone edit: design revision, dependency, report recovery, repair handoff
-    action_recovery.gate_failures,  # a classification or job failure, and its exact retry
+    action_recovery.gate_failures,  # approval-boundary setting, classification or job recovery
     action_authority.settle,  # the held pause's own authority, before queued input applies
     action_resolver.answer,  # a model answer or --resolver-response to an operational request
     action_authority.reconsider,  # AutoResolver reconsiders its operational request
