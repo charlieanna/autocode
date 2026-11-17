@@ -2178,7 +2178,7 @@
 
 
 <h1 id="models-roles-and-escalation">Models, roles, and escalation<a class="headerlink" href="#models-roles-and-escalation" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/1a2a337687420cb2ebfaa013143bb47a00f133db/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/e6813a9373b34a1b4819db58109ffa91f5731399/README.md">← Back to README</a></p>
 <h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
 <p>Every stage of a run has a <strong>role</strong>. Role names describe responsibilities, not
 mandatory models — each role can select any provider/model from <code>opencode models</code>
@@ -2350,7 +2350,7 @@ review allowance leaves room for it (a large plan, <code>plan_review_call_limit<
 final review and the Planner never climbs. If the stronger revision is still blocked, the
 final review returns the open concerns to you as blocking questions.</p>
 <p>Two scripted scenarios check these rows end to end, through <code>autocode --status --json</code>
-(<a href="https://github.com/charlieanna/autocode/blob/1a2a337687420cb2ebfaa013143bb47a00f133db/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
+(<a href="https://github.com/charlieanna/autocode/blob/e6813a9373b34a1b4819db58109ffa91f5731399/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
 attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
 Sol XHigh, one attempt with its cost, <code>passed</code>, and the run completes; <code>escalation_outcomes</code>
 stamps that attempt and the ordinary retry before it <code>passed</code> too. In <code>escalation-ladder-end</code>
@@ -2632,6 +2632,24 @@ measured, since that would be the family judging its own work:</p>
 <p>A request whose plan never reaches approval is listed as skipped, and no reviewer qualifies from
 that probe, since none has reviewed every plan. Every candidate shares the run's tool (<code>--engine</code>,
 <code>--provider</code>): a model reached through another tool is measured in a probe of its own.</p>
+<p>The Builder's probe (<code>autocode_builder_probe</code>) measures Builders by whether their work passes tests
+written in advance that the run never sees. Five small tasks on the same project: an exact bug fix,
+"fix the failing test" (without editing the test file), a <code>--json</code> option with exact keys, comments,
+blank lines and a numbered error for malformed lines, and noticing a changed orders file instead of
+serving the cache. Each runs as an ordinary task to its end with only the Builder set to the
+candidate. The Planner you name plans it, and one checker you name, of another family than both the
+candidate and the Planner, reviews the plan and tests and completes the work; all three routes are
+pinned, so nothing escalates to a stronger model mid-run. The probe confirms Requirements'
+understanding and approves the plan on its exact token itself: the throwaway copy of the bundled
+project is the only thing it approves, and running the probe with a cap is your approval of that.
+When the run stops, the held-back tests and the project's own tests run on what it left. A Builder
+passes a task when the run completed, both sets of tests pass, no forbidden file changed and its own
+attempts took at most 30 minutes; the number of attempts the checker sent back is recorded and shown,
+not graded. A Builder qualifies when it has run all five and passed at least four:</p>
+<pre><code class="language-sh">autocode probe --stage builder --measure zai-coding-plan/glm-5.3 high --measure openai/gpt-6.1-sol medium \
+  --planner openai/gpt-6.1-sol high --checker anthropic/claude-opus-5-5 medium \
+  --requirements zai-coding-plan/glm-5.3 low --max-cost-usd 40
+</code></pre>
 <p>OpenCode and Kilo reasoning variants come from their local verbose model listings.
 An unsupported qualified level is omitted so the model uses its default. When older
 tools cannot report variants, the recorded qualification level is used. Preflight
