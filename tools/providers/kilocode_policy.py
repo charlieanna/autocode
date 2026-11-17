@@ -181,7 +181,7 @@ def restrict(
 ):
     """``portable_shell``: a read-only checker on a host without the kernel shell (macOS, #1766) keeps the read
     tools and Kilo's own shell, intersected with the operator's policy; edits stay denied."""
-    if write_stage and (request is not None or report_recovery or portable_shell):
+    if write_stage and (report_recovery or portable_shell):
         raise ValueError("A writable Kilo stage cannot use a read-only tool boundary")
     if portable_shell and (request is not None or report_recovery):
         raise ValueError("A portable Kilo shell replaces the kernel boundary; it cannot accompany one")
@@ -194,13 +194,15 @@ def restrict(
         raise ValueError("Kilo effective agent steps must be a positive integer")
     if report_recovery and request is not None:
         raise ValueError("Report recovery cannot grant a verification shell")
+    # A kernel request narrows any stage to its contained shell (#3770): a writer then edits through that shell,
+    # whose writes the kernel confines to the workspace, as an OpenCode writer does.
     permitted = (
-        WRITE_TOOLS
+        ("bash",)
+        if request is not None
+        else WRITE_TOOLS
         if write_stage
         else ()
         if report_recovery
-        else ("bash",)
-        if request is not None
         else (*READ_TOOLS, "bash")
         if portable_shell
         else READ_TOOLS
@@ -212,7 +214,7 @@ def restrict(
         require_capture(
             policy, role=role, capture_command=tool_handoff.capture_command(child.get("AUTOCODE_OUTPUT_MODE"))
         )
-    if write_stage:
+    if write_stage and request is None:
         # Kilo's action-only permissions reject pattern objects (and can discard
         # the entire inline config). Collapse only an unconditional rule; a
         # patterned rule cannot be represented here, so it remains denied.
@@ -252,7 +254,7 @@ def restrict(
             argv,
             child,
             workspace,
-            allow_write=False,
+            allow_write=write_stage,
             request=request,
             transport="kilocode",
             resolved_shell_policy=policy,
