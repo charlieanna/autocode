@@ -480,6 +480,12 @@ def stage_record(worker):
                 else "Kilo read-tools-only permissions; no shell or OS sandbox",
                 "tool_containment": worker.get("tool_containment"),
             }
+        if worker.get("tool_containment"):  # a writing Kilo stage's contained shell (#3770)
+            return {
+                **record,
+                "isolation": "Kernel-constrained Kilo shell; other tools disabled",
+                "tool_containment": worker.get("tool_containment"),
+            }
         return {**record, "isolation": "Config-tool sandbox flag and workspace snapshot checks"}
     record.update(
         {
