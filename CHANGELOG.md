@@ -12,6 +12,7 @@ PR template asks for an entry here; a change without one is incomplete.
 ### Fixed
 
 - **A clearer Connections page**: backend choices now use responsive cards, a visible selected state and clearer action hierarchy while following the active VS Code theme.
+- **An interrupted checkpoint no longer asks you to handle an uncertain attempt**: when AutoCode cannot prove the stopped attempt is safe to recover, it records an internal block and retains its work and evidence instead of offering an abandonment and resume sequence.
 - **Connections keeps the latest check**: a slow earlier backend list could replace a newer connection check and show stale account status. Older reads can no longer overwrite newer results.
 - **Extend total active time before approving a plan** (#3749): VS Code's plan approval view now lets you raise the run's total active-time limit. Saving keeps that exact plan pending and starts no work; approval remains a separate action.
 - **Claude Code offers Fable 5.2**: the Claude Code backend refused Fable 5.2 before launch as a model it does not offer, although a Claude subscription login serves it. It is now listed, so any stage can run on it there.

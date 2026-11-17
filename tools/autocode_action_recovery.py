@@ -101,6 +101,9 @@ def reconcile_checkpoint(runner, args, parser, state: RunState, state_path, run_
         print("Stopped read-only attempt archived; the run can continue under its saved limits and model choices.")
         return 0
     state.update(changed)
+    resolver_runtime.record_operational_exhaustion(
+        runner, state, run_dir, support.Paused(state["status"], state["stop_reason"])
+    )
     runner.write_json(state_path, state)
     print(state["stop_reason"])
     return 0  # The metadata action was saved; the run remains paused, not completed.
