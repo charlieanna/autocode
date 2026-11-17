@@ -149,8 +149,8 @@ class OperationalExhaustionPublicContractTests(unittest.TestCase):
         # The person is told which job stopped and why, from the saved facts, never a machinery detail
         # to act on; the runner's own cause, which can name an operator flag, stays in the receipt.
         said = (
-            "The Requirements step stopped: its model provider ended the call without a confirmed result, "
-            "and AutoCode's own retries for it ran out. " + disposition.MESSAGE
+            "The Requirements step stopped: its model provider ended the call without a confirmed result. "
+            + disposition.MESSAGE
         )
         self.assertEqual(said, self.state["stop_reason"])
         self.assertEqual(said, view["recovery"]["what_happened"])

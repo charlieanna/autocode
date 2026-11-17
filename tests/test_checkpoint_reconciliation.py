@@ -176,16 +176,16 @@ class CheckpointCliTests(unittest.TestCase):
         payload = json.loads(result.stdout)
         self.assertTrue(payload["result"]["saved"])
         self.assertFalse(payload["view"]["done"])
-        # The now-uncertain attempt is archived next as the core's own named step, never a retry or launch.
-        need = payload["view"]["needs"]
-        self.assertEqual("continue", need["kind"])
-        self.assertEqual("--abandon-stage 001/review-change-01 then --resume-paused", need["action"])
+        # Unconfirmed cleanup is an internal block, not a request to discard or retry the attempt.
+        self.assertIsNone(payload["view"]["needs"])
+        self.assertIsNone(payload["view"]["next_command"])
+        self.assertEqual("blocked", payload["view"]["recovery"]["category"])
+        self.assertNotIn("retries", payload["view"]["recovery"]["what_happened"])
         current = json.loads(self.path.read_text())
         self.assertEqual("PAUSED_UNCERTAIN_STAGE", current["status"], result.stdout + result.stderr)
         for key in (
             "settings",
             "active_stage",
-            "stages",
             "active_seconds",
             "automatic_recoveries_since_resume",
             "automatic_timeout_recoveries",
