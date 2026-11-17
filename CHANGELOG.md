@@ -11,6 +11,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **The Resolver runs when the task planner has its own tool** (#3630): a run started with `--role-transport task_planner=TOOL` paused `PAUSED_STALE_HANDOFF` ("Recovery packet: current source, task, settings, contract or scope changed before admission") the first time the Completion Reviewer sent work back, because the Resolver's tool binding, derived from the task planner's at its first launch, was missing from the settings the recovery had been bound to. The binding now counts it as derived, as it already counted the Resolver's route; a binding that changes after it was derived still stales the recovery.
 - **A clearer Connections page**: backend choices now use responsive cards, a visible selected state and clearer action hierarchy while following the active VS Code theme.
 - **Connections keeps the latest check**: a slow earlier backend list could replace a newer connection check and show stale account status. Older reads can no longer overwrite newer results.
 - **Extend total active time before approving a plan** (#3749): VS Code's plan approval view now lets you raise the run's total active-time limit. Saving keeps that exact plan pending and starts no work; approval remains a separate action.
