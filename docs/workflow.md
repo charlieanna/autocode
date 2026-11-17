@@ -247,7 +247,8 @@ GPT models only). Never Astra by default. A gateway model needs `--investigator-
 a diagnosis, then either guidance for one more attempt or the question only you can answer.
 `--investigator-model MODEL` (and `--investigator-reasoning-effort`) pins the Investigator's model for
 a run instead; a `provider/model` id such as `openai/gpt-6-sol` runs it through OpenCode even in a
-Codex run. Guidance goes into the retried stage's prompt: for planning, every planning stage until the
+Codex run, and `TOOL:MODEL` runs it on another connected tool of a run on a connected tool, the way
+`--role-transport` moves a stage. Guidance goes into the retried stage's prompt: for planning, every planning stage until the
 plan is presented; otherwise that stage until it completes.
 
 The Investigator may also name up to three facts about the repository that the next task would

@@ -68,7 +68,7 @@ class RouteToolCliTests(unittest.TestCase):
             + "\n"
         )
 
-    def start(self):
+    def start(self, *extra):
         (self.root / "provider.py").write_text(PROVIDER)
         self.log = self.root / "calls.jsonl"
         self.config_root = self.root / "provider-config"
@@ -88,6 +88,7 @@ class RouteToolCliTests(unittest.TestCase):
                 "--joint-planning",
                 "--evidence-provenance",
                 "fake",
+                *extra,
             ),
             env={**self.env, "XDG_CONFIG_HOME": str(self.config_root)},
             timeout=180,
@@ -149,6 +150,25 @@ class RouteToolCliTests(unittest.TestCase):
                     run.answer("route-plan_reviewer", answer, resolver_token=token)
                 self.assertEqual(token, run.status()["needs"]["resolver_token"], "the request stays open")
         self.assertNotIn("role:plan_reviewer", self.saved(run)["settings"].get("transport_identities") or {})
+
+    def test_the_investigator_is_pinned_to_another_connected_tool(self):
+        # The Investigator had no way onto another tool: --role-transport has no Investigator role, and a
+        # pinned model ran on the run's own tool, which may not offer it (hard-bug test, 2026-11-16).
+        for answer, refusal in (
+            ("missing_tool:other/planner", "missing_tool is not a connected tool"),
+            ("tool_b:other/not_offered", "tool_b.*other/not_offered"),
+        ):
+            with self.subTest(answer=answer), self.assertRaisesRegex(Exception, refusal):
+                self.start("--investigator-model", answer)
+        run = self.start("--investigator-model", "tool_b:other/planner")
+        investigation = self.saved(run)["settings"]["stuck_investigation"]
+        self.assertEqual(
+            {"model": "other/planner", "provider": "tool_b", "engine": "opencode", "reasoning_effort": "high"},
+            investigation["route"],
+        )
+        self.assertEqual("tool_b", investigation["transport"]["provider"])
+        self.assertEqual("tool_b", investigation["transport"]["identity"]["engine"])
+        self.assertNotIn("role:stuck_investigator", self.saved(run)["settings"].get("transport_identities") or {})
 
 
 if __name__ == "__main__":

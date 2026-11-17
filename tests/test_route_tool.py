@@ -3,6 +3,7 @@
 import copy
 import unittest
 
+import autocode_quota_route as quota_route
 import autocode_role_transport as role_transport
 import autocode_route_tool as route_tool
 
@@ -62,3 +63,33 @@ class RouteToolTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class InvestigatorToolTests(unittest.TestCase):
+    def test_a_quota_answer_moving_the_investigator_keeps_the_tool_with_its_pin(self):
+        # The Investigator's route and binding exist only while it runs; its pin is what the next one reads.
+        saved = settings()
+        saved["roles"]["stuck_investigator"] = {"engine": "opencode", "model": "anthropic/claude-x", "provider": None}
+        state = {"settings": saved, "user_events": []}
+        quota_route.assign(
+            state,
+            "stuck_investigator",
+            "claude-y",
+            at="t",
+            via="answer",
+            tool={"provider": "claude_code", "identity": IDENTITY},
+        )
+        pin = saved["stuck_investigation"]
+        self.assertEqual("claude_code", pin["route"]["provider"])
+        self.assertEqual({"provider": "claude_code", "identity": IDENTITY}, pin["transport"])
+        undone = quota_route.unassigned(state, saved)
+        self.assertNotIn("stuck_investigation", undone)
+        # A later answer back on the run's own tool drops the binding, and undoing it puts the binding back.
+        state["user_events"] = []
+        quota_route.assign(
+            state, "stuck_investigator", "x/y", at="t2", via="answer", tool={"provider": "kilo", "identity": None}
+        )
+        self.assertNotIn("transport", saved["stuck_investigation"])
+        restored = quota_route.unassigned(state, saved)["stuck_investigation"]
+        self.assertEqual({"provider": "claude_code", "identity": IDENTITY}, restored["transport"])
+        self.assertEqual("claude-y", restored["route"]["model"])

@@ -35,11 +35,22 @@ def prepare(settings: dict, role: str, tool: str, model: str, origin: dict, fall
         return None
     if (origin or {}).get("pause_status") != quota_route.QUOTA_STATUS:
         raise ValueError("Only a quota stop moves a job to another tool; name a model for its own tool")
-    if settings.get("engine") != "opencode" or quota_route.engine(settings, role) != "opencode":
+    if quota_route.engine(settings, role) != "opencode":
+        raise ValueError("Only a run on a connected tool can move a job to another one; Codex keeps its own")
+    return bind(settings, role, settings["roles"][role], tool, model, fallback, workspace)
+
+
+def bind(settings: dict, role: str, route: dict, tool: str, model: str, fallback, workspace) -> dict:
+    """``{"binding", "configured"}`` for running ``role``'s ``route`` on ``tool`` with ``model``, checked as a launch is.
+
+    The one check behind every move of a job to another tool: a quota answer (``prepare``) and a pinned
+    Investigator (``--investigator-model TOOL:MODEL``). Raises ValueError for a run off the facade engine,
+    a tool that is not connected, or a model that tool does not list or cannot bill."""
+    if settings.get("engine") != "opencode":
         raise ValueError("Only a run on a connected tool can move a job to another one; Codex keeps its own")
     own = settings.get("provider") or "opencode"
     try:
-        facade = fallback if tool == own else providers.resolve(tool)
+        facade = fallback if tool == own and fallback is not None else providers.resolve(tool)
     except (ValueError, RuntimeError, OSError) as error:
         raise ValueError(f"{tool} is not a connected tool: {error}") from None
     configured = bool(getattr(facade, "CONFIGURED", False))
@@ -47,7 +58,7 @@ def prepare(settings: dict, role: str, tool: str, model: str, origin: dict, fall
         raise ValueError(
             f"{tool} is not a connected tool with its own sign-in; name a tool from `autocode connections`"
         )
-    route = {**settings["roles"][role], "engine": "opencode", "provider": tool, "model": model}
+    route = {**route, "engine": "opencode", "provider": tool, "model": model}
     try:
         facade.check_models({role: route}, workspace)
         facade.check_subscription_routes({role: route}, workspace)

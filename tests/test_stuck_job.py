@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import autocode_builder_failure as builder_failure
@@ -20,6 +21,7 @@ import autocode_recovery_accounting as recovery_accounting
 import autocode_recovery_history as recovery_history
 import autocode_recovery_limits as runner_limits
 import autocode_resolve_repair_job as resolve_repair
+import autocode_role_transport as role_transport
 import autocode_run_status as run_status
 import autocode_stuck_job as stuck
 import autocode_util as util
@@ -1105,6 +1107,59 @@ class RouteTests(unittest.TestCase):
             autoresolver.prepare_stuck(state, Path(state["workspace"]) / "state.json")
         self.assertEqual({"model": "openai/gpt-6-sol", "reasoning_effort": "high"}, roles[stuck.ROUTE])
         self.assertNotIn("role:" + stuck.ROUTE, state["settings"]["transport_identities"])
+
+    def test_a_pinned_investigator_on_another_tool_runs_with_that_tools_binding(self):
+        state = state_for(next_stage="requirements_gather")
+        state["settings"].update(provider="kilocode", engine="opencode")
+        state["settings"]["roles"]["requirements"] = {"model": "zai-coding-plan/glm-5.3"}
+        binding = {
+            "provider": "claude",
+            "identity": {
+                "engine": "claude",
+                "identity_version": 2,
+                "executable": "/bin/claude",
+                "launch_policy_sha256": "a" * 64,
+            },
+        }
+        checked = []
+
+        def bind(settings, route, tool):
+            checked.append((tool, route["model"]))
+            return binding
+
+        args = SimpleNamespace(investigator_model="claude:claude-opus-5-5", investigator_reasoning_effort=None)
+        stuck.configure(state["settings"], args, bind)
+        self.assertEqual([("claude", "claude-opus-5-5")], checked)
+        self.assertEqual(binding, stuck.pinned_transport(state["settings"]))
+        # Changing only the level keeps the tool; a model named without a tool runs on the run's own.
+        stuck.configure(
+            state["settings"], SimpleNamespace(investigator_model=None, investigator_reasoning_effort="max")
+        )
+        self.assertEqual(
+            {"model": "claude-opus-5-5", "reasoning_effort": "max", "provider": "claude", "engine": "opencode"},
+            stuck.pinned_route(state["settings"]),
+        )
+        state["stuck_investigation"] = {"stage": "requirements_gather"}
+        with (
+            patch.object(stuck, "prompt", return_value=("diagnose", {})),
+            patch.object(autoresolver.autoplanner, "workspace_inventory", return_value={}),
+        ):
+            autoresolver.prepare_stuck(state, Path(state["workspace"]) / "state.json")
+        self.assertEqual(binding, role_transport.entry(state["settings"], stuck.ROUTE))
+        stuck.release_route(state)
+        self.assertNotIn("role:" + stuck.ROUTE, state["settings"]["transport_identities"])
+        self.assertEqual(binding, stuck.pinned_transport(state["settings"]), "the pin keeps its binding")
+        for model in ("kilocode:openai/gpt-6-sol", "openai/gpt-6-sol"):
+            stuck.configure(
+                state["settings"], SimpleNamespace(investigator_model=model, investigator_reasoning_effort=None)
+            )
+            self.assertIsNone(stuck.pinned_transport(state["settings"]))
+            self.assertEqual("openai/gpt-6-sol", stuck.pinned_route(state["settings"])["model"])
+            self.assertIsNone(stuck.pinned_route(state["settings"])["provider"])
+        with self.assertRaisesRegex(ValueError, "needs a connected tool"):
+            stuck.configure(
+                state["settings"], SimpleNamespace(investigator_model="claude:x", investigator_reasoning_effort=None)
+            )
 
     def test_default_models_never_astra_and_never_the_stuck_stages_model(self):
         roles = state_for()["settings"]["roles"]
