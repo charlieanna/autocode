@@ -93,6 +93,7 @@ try:
     from . import autocode_stop as stop
     from . import autocode_stray_writes as stray_writes
     from . import autocode_tool_handoff as tool_handoff
+    from . import autocode_util as util
     from .autocode_investigation_policy import MAX_CALLS as MAX_CALLS
     from .autocode_investigation_policy import enabled, max_calls
     from .autocode_test_cases import COUNTEREXAMPLE, run_probes
@@ -117,6 +118,7 @@ except ImportError:
     import autocode_stop as stop
     import autocode_stray_writes as stray_writes
     import autocode_tool_handoff as tool_handoff
+    import autocode_util as util
     from autocode_investigation_policy import MAX_CALLS as MAX_CALLS
     from autocode_investigation_policy import enabled, max_calls
     from autocode_test_cases import COUNTEREXAMPLE, run_probes
@@ -881,6 +883,7 @@ def apply(
         # attempt redoing everything the earlier repairs already fixed and failing anew (#2066 rerun).
         state["pending_report_repair"] = {**pending, "attempts": pending["attempts"] - 1}
         entry["retry_as"] = "report_repair"
+        entry["repair_grant"] = util.digest(state["pending_report_repair"])
     elif pending:
         state.setdefault("report_repair_archive", []).append(
             {

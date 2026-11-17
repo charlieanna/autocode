@@ -37,6 +37,7 @@ try:
     from . import autocode_member_stop as member_stop
     from . import autocode_operational_disposition as disposition
     from . import autocode_pause_authority as pause_authority
+    from . import autocode_planning_advice as recovery_binding
     from . import autocode_progressive_state as progressive
     from . import autocode_quota_route as quota_route
     from . import autocode_recovery_grants as recovery_grants
@@ -54,6 +55,7 @@ except ImportError:
     import autocode_member_stop as member_stop
     import autocode_operational_disposition as disposition
     import autocode_pause_authority as pause_authority
+    import autocode_planning_advice as recovery_binding
     import autocode_progressive_state as progressive
     import autocode_quota_route as quota_route
     import autocode_recovery_grants as recovery_grants
@@ -1125,6 +1127,34 @@ def boundary(runner, state: RunState, run_dir, workspace):
         policy.Boundaries(frozenset({"continue", "retry", "escalate"}), frozenset()),
         proposal,
     )
+    investigation = state.get("stuck_investigation") or {}
+    if (
+        pending
+        and not request
+        and not repeated
+        and not exhausted
+        and investigation.get("in_force")
+        and decision.rationale == "attempt budget exhausted"
+    ):
+        entry = next(
+            (
+                row
+                for row in reversed(state.get("stuck_investigations", []))
+                if row.get("identity") == investigation.get("identity")
+            ),
+            {},
+        )
+        if (
+            entry.get("outcome") == "retried"
+            and entry.get("retry_as") == "report_repair"
+            and entry.get("stage") == pending["original"].get("stage") == state.get("next_stage")
+            and entry.get("repair_grant") == util.digest(pending)
+            and recovery_binding.applies(state, investigation, entry["stage"])
+        ):
+            # The Investigator recorded and bounded this retry; the repair's attempt
+            # increment consumes the grant before dispatch, including on restart.
+            runner.write_json(Path(run_dir) / "state.json", state)
+            return True
     if decision.action == "escalate" or not accepted:
         if request:
             # Preserve the actual pending question and exact approval boundary.
