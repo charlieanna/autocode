@@ -72,7 +72,7 @@ class CodeCitationTests(Workspace):
                 opencode_tool("o2", "glob", output=str(self.workspace / "README.md"), pattern="*.md"),
                 opencode_tool("o3", "read", status="error", filePath=str(self.workspace / "notes.txt")),
                 codex_command("x1", "/bin/zsh -lc 'ls -la'", "README.md\nnotes.txt\n"),
-                codex_command("x2", "cat notes.txt", "notes\n", code=1),
+                codex_command("x2", "cat notes.txt", "cat: notes.txt: Permission denied\n", code=1),
                 {"type": "turn.completed"},
             ]
         )
@@ -97,6 +97,22 @@ class CodeCitationTests(Workspace):
             ]
         )
         self.assertEqual(frozenset({"README.md", "notes.txt"}), citations.read_paths(self.state, "requirements_gather"))
+
+    def test_a_failed_shell_read_counts_the_files_whose_text_it_printed(self):
+        # 2026-11-17: `cat linked.py __init__.py test.py` exited 1 because a sandbox refused the linked file, and the
+        # two files printed beside it were refused as unread; Requirements paused twice.
+        shown = "one\ntwo\nthree\ncat: README.md: Operation not permitted\ndef helper():\n    return 1\n"
+        command = "cat app.py README.md pkg/util.py notes.txt"
+        self.record(
+            [
+                opencode_tool("o1", "bash", output=shown, metadata={"exit": 1}, command=command),
+                codex_command("x1", "python -m pytest notes.txt", "notes.txt:1: SyntaxError\n", code=1),
+            ]
+        )
+        self.assertEqual(frozenset({"app.py", "pkg/util.py"}), citations.read_paths(self.state, "requirements_gather"))
+        self.state["stages"].clear()
+        self.record([codex_command("x2", command, shown, code=1)])
+        self.assertEqual(frozenset({"app.py", "pkg/util.py"}), citations.read_paths(self.state, "requirements_gather"))
 
     def test_reads_come_from_the_stage_its_repairs_and_the_current_turn_only(self):
         self.record([codex_command("x", "cat notes.txt", "notes\n")])  # an earlier turn

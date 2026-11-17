@@ -11,14 +11,19 @@ its contents reaching the model:
 - a native file-read tool named it: Claude Code ``Read`` (its ``file_path``, as the stream adapter
   records it in ``display_input``) and OpenCode/Kilo ``read`` (its ``filePath``);
 - a successful shell command (Codex, Claude Code ``Bash``, OpenCode/Kilo ``bash``, the direct
-  runtime) named it as an argument, or printed a ``path:LINE:`` hit for it (grep/rg output).
+  runtime) named it as an argument, or printed a ``path:LINE:`` hit for it (grep/rg output);
+- a shell command that failed but still printed it: a file it names whose whole text is in its
+  output (not a ``path:LINE:`` line, which a failed build or test prints as an error). ``cat a b c`` exits 1 when one of the three is missing or denied,
+  and the other two still reached the model (2026-11-17: a sandbox refused one linked file and the
+  two printed beside it were refused as unread, so Requirements paused).
 
 A name seen only in a listing (Glob, ``ls``, ``rg -l``, the workspace inventory) is not a read.
 Reads are taken from the current turn's records of the stage, including rejected, timed-out and
 budget-stopped attempts and their report-only repairs, whose tools are disabled: such a repair
 may cite what the attempt it repairs read, and nothing else. An empty workspace (greenfield, no
 inventory files) has nothing to read, so every citation check there passes, as ``require`` already
-did. Only the events log the runner wrote is read; no claimed path is opened beyond a file check.
+did. The events log the runner wrote is read, and a workspace file a failed command names is opened
+only to compare its text with that command's output.
 """
 
 from __future__ import annotations
@@ -60,6 +65,8 @@ READ_ARGUMENTS = ("file_path", "filePath", "notebook_path", "path")
 SHELL_TOOLS = frozenset({"bash", "shell"})
 MAX_EVENTS_BYTES = 64 * 1024 * 1024
 MAX_SHELL_DEPTH = 3
+# A file a failed command names is compared with its output only up to this size.
+MAX_SHOWN_BYTES = 1024 * 1024
 SHOWN_READS = 24
 _OUTPUT_HIT = re.compile(r"^(?:\./)?([^\s:]+):\d+[:-]", re.MULTILINE)
 _GREP_BLOCK = re.compile(r"^(?:\./)?([^\s:]+):\r?\n\s+Line \d+:", re.MULTILINE)
@@ -256,8 +263,10 @@ def read_targets(raw, workspace) -> list[str]:
         item, part = row.get("item"), row.get("part")
         if row.get("type") == "item.completed" and isinstance(item, dict):
             kind = item.get("type")
-            if kind == "command_execution" and type(item.get("exit_code")) is int and item["exit_code"] == 0:
-                _shell(item.get("command"), item.get("aggregated_output"), add)
+            if kind == "command_execution" and type(item.get("exit_code")) is int:
+                _shell(
+                    item.get("command"), item.get("aggregated_output"), add, None if item["exit_code"] == 0 else root
+                )
             elif kind == "tool_call" and item.get("name") in NATIVE_READ_TOOLS and item.get("status") == "completed":
                 shown = item.get("display_input")
                 for key in READ_ARGUMENTS:
@@ -276,18 +285,37 @@ def read_targets(raw, workspace) -> list[str]:
                     for pattern in (_OUTPUT_HIT, _GREP_BLOCK):
                         for hit in pattern.findall(part_state["output"]):
                             add(hit)
-            elif part.get("tool") in SHELL_TOOLS and status == "completed" and _shell_exit(part_state) == 0:
-                _shell(arguments.get("command"), part_state.get("output"), add)
+            elif part.get("tool") in SHELL_TOOLS and status == "completed" and _shell_exit(part_state) is not None:
+                failed = root if _shell_exit(part_state) != 0 else None
+                _shell(arguments.get("command"), part_state.get("output"), add, failed)
     return list(found)
 
 
-def _shell(command, output, add):
+def _shell(command, output, add, failed=None):
+    """Credit a command's reads; ``failed`` (the workspace root) credits a named file only if its text was shown."""
     if isinstance(command, str):
         for token in _tokens(command, 0):
-            add(token)
-    if isinstance(output, str):
+            if failed is None or isinstance(output, str) and _shown(failed, token, output):
+                add(token)
+    if isinstance(output, str) and failed is None:  # a failed build or test also prints path:LINE: errors
         for hit in _OUTPUT_HIT.findall(output):
             add(hit)
+
+
+def _shown(root: Path, name, output: str) -> bool:
+    """Whether the whole, non-blank text of the workspace file ``name`` appears in ``output`` as whole lines."""
+    relative = _workspace_file(root, name)
+    if relative is None:
+        return False
+    try:
+        path = root / relative
+        if path.stat().st_size > MAX_SHOWN_BYTES:
+            return False
+        text = path.read_text(errors="strict").strip()
+    except (OSError, UnicodeDecodeError):
+        return False
+    lines = "\n" + output.replace("\r\n", "\n") + "\n"
+    return bool(text) and "\n" + text + "\n" in lines  # whole lines, so a name in an error line is not its text
 
 
 def _tokens(command: str, depth: int):
