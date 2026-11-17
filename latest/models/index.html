@@ -2178,7 +2178,7 @@
 
 
 <h1 id="models-roles-and-escalation">Models, roles, and escalation<a class="headerlink" href="#models-roles-and-escalation" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/3c9d4474125802ba5c6c785cfb5b8964eef07ce6/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/aa8565d479e02b12b502f7fa6dd8304129ba2b62/README.md">← Back to README</a></p>
 <h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
 <p>Every stage of a run has a <strong>role</strong>. Role names describe responsibilities, not
 mandatory models — each role can select any provider/model from <code>opencode models</code>
@@ -2350,7 +2350,7 @@ review allowance leaves room for it (a large plan, <code>plan_review_call_limit<
 final review and the Planner never climbs. If the stronger revision is still blocked, the
 final review returns the open concerns to you as blocking questions.</p>
 <p>Two scripted scenarios check these rows end to end, through <code>autocode --status --json</code>
-(<a href="https://github.com/charlieanna/autocode/blob/3c9d4474125802ba5c6c785cfb5b8964eef07ce6/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
+(<a href="https://github.com/charlieanna/autocode/blob/aa8565d479e02b12b502f7fa6dd8304129ba2b62/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
 attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
 Sol XHigh, one attempt with its cost, <code>passed</code>, and the run completes; <code>escalation_outcomes</code>
 stamps that attempt and the ordinary retry before it <code>passed</code> too. In <code>escalation-ladder-end</code>
@@ -2611,6 +2611,27 @@ instrument, so you name it, and a candidate of its family gets the next one you 
 the first runs on a copy whose unrelated failing test is fixed, so a Planner is not asked about a
 failure the request never mentioned. Whether a plan's approach is right still needs reading; the
 Plan Reviewer's approval stands in for it.</p>
+<p>The Plan Reviewer's probe (<code>autocode_plan_reviewer_probe</code>) measures reviewers on plans with a known
+answer. A Planner you name writes each of the seven requests' plans once, in a run brought to plan
+approval. Every candidate then reviews that plan in the same run, as written and with one flaw
+planted: the forbidden test file added to every milestone, the fix moved into the test it should
+make pass, a criterion verified by reading the code instead of a test, or a sentence of approach
+that goes against the request (a None where the request asks for 0.0, a shorter cache lifetime
+instead of noticing the change, the currency symbol on one line of three, a crash kept). The flaws
+are planted in the plan's structure, never by rewording the Planner's text, so they fit whatever
+plan it writes. Each review is one advance under a planning call cap one above the calls made so
+far, so the run stops right after it, before any revision. A reviewer passes a request when it
+approves the plan as written, blocks the flawed one, and gives each verdict within ten minutes with
+no report repair; the verdicts come from the status view's <code>plan_review</code>. Whether a block names the
+planted flaw is recorded but does not decide the pass. Candidates of the Planner's family are not
+measured, since that would be the family judging its own work:</p>
+<pre><code class="language-sh">autocode probe --stage plan_reviewer --measure zai-coding-plan/glm-5.3 low \
+  --measure anthropic/claude-opus-5-5 medium --planner openai/gpt-6.1-sol high \
+  --requirements zai-coding-plan/glm-5.3 low --max-cost-usd 15
+</code></pre>
+<p>A request whose plan never reaches approval is listed as skipped, and no reviewer qualifies from
+that probe, since none has reviewed every plan. Every candidate shares the run's tool (<code>--engine</code>,
+<code>--provider</code>): a model reached through another tool is measured in a probe of its own.</p>
 <p>OpenCode and Kilo reasoning variants come from their local verbose model listings.
 An unsupported qualified level is omitted so the model uses its default. When older
 tools cannot report variants, the recorded qualification level is used. Preflight
