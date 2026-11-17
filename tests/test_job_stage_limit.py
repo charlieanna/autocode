@@ -10,6 +10,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import autocode_action_edits as action_edits
 import autocode_action_recovery as action_recovery
 import autocode_args as arguments
 import autocode_job_args as job_args
@@ -147,6 +148,27 @@ class StageLimitPolicyTests(unittest.TestCase):
 
         self.assertIsNone(result)
         runtime.status_command.reject_input.assert_not_called()
+
+    def test_plan_time_action_skips_edit_step_approval_gate_before_save_handler(self):
+        args = SimpleNamespace(
+            _approval_time_change=True,
+            expected_goal_token="r0:shown",
+            revise_figma_manifest=None,
+            conversation_handoff=None,
+            conversation_session=False,
+            run_dir="/run",
+            export_repair=False,
+            submit_repair=None,
+        )
+        with (
+            patch.object(action_edits.conversation_ingress, "require_expected_goal") as require_goal,
+            patch.object(action_edits.conversation_ingress, "ingest", return_value=False),
+            patch.object(action_edits.dependency, "apply", return_value=None),
+        ):
+            result = action_edits.apply(Mock(), args, Mock(), {}, Path("/run/state.json"), Path("/run"), Path("/workspace"), Mock())
+
+        self.assertIsNone(result)
+        require_goal.assert_not_called()
 
     def test_standalone_stage_limit_is_a_metadata_action(self):
         parser = arguments.build_parser(None, arguments.DEFAULT_ROLE_MODELS)
