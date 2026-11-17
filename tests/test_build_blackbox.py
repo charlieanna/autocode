@@ -990,7 +990,7 @@ class BuildBlackboxTimeoutDiagnosticsTests(unittest.TestCase):
             error = subprocess.TimeoutExpired(["fake-child"], 90, output=b"\xffpartial\n", stderr=b"private stderr\n")
             with patch.object(subprocess, "run", side_effect=error) as launched:
                 with self.assertRaises(AssertionError) as caught:
-                    fixture.invoke("autocode_build", [])
+                    fixture.invoke("autocode_build", [], timeout=90)
             self.assertIs(error, caught.exception.__cause__)
             launched.assert_called_once()
             self.assertEqual(90, launched.call_args.kwargs["timeout"])
@@ -1020,7 +1020,7 @@ class BuildBlackboxTimeoutDiagnosticsTests(unittest.TestCase):
                 patch.object(Path, "write_text", side_effect=OSError("diagnostic write unavailable")),
             ):
                 with self.assertRaises(AssertionError) as caught:
-                    fixture.invoke("autocode_build", [])
+                    fixture.invoke("autocode_build", [], timeout=90)
             self.assertIs(error, caught.exception.__cause__)
             launched.assert_called_once()
             self.assertEqual(90, launched.call_args.kwargs["timeout"])
@@ -1115,10 +1115,11 @@ class InvokeTimeoutEvidenceTests(unittest.TestCase):
             )
             returned = subprocess.CompletedProcess(["autocode"], 0, "Run: r1\n", "")
             with (
-                patch.object(subprocess, "run", return_value=returned),
+                patch.object(subprocess, "run", return_value=returned) as launched,
                 patch.object(time, "monotonic", side_effect=[10.0, 16.94]),
             ):
                 BuildBlackbox.invoke(harness, "autocode", ["--run-dir", "r1"])
+            self.assertEqual(300, launched.call_args.kwargs["timeout"])
             receipt = json.loads((root / "cli-1.json").read_text())
         self.assertEqual((0, 6.9), (receipt["returncode"], receipt["seconds"]))
 
