@@ -58,15 +58,18 @@ class PermissionRecovery(unittest.TestCase):
     def test_unchanged_resume_does_not_erase_permission_hold_or_allowance(self):
         denied = recovery.operation("permission requested: external_directory (/tmp/probe/*)")
         context = self.prepare("builder", denied, [], [])
-        context.update(repeat_count=2, source_revision="retained")
+        context["source_revision"] = "retained"
         state = {"workspace": str(self.workspace), "recovery_context": context}
-        with patch.object(limits, "snapshot", return_value={"revision": "retained"}):
-            reason = limits.stop_reason(state, 2, 3)
-            self.assertEqual("PAUSED_REPEATED_FAILURE", reason[0])
-            self.assertIn("/tmp/probe/*", reason[1])
-        with patch.object(limits, "snapshot", return_value={"revision": "changed"}):
-            self.assertIsNone(limits.stop_reason(state, 2, 3))
-            self.assertEqual("PAUSED_TIMEOUT_RECOVERY", limits.stop_reason(state, 3, 3)[0])
+        for repeats, denials, message in ((2, 0, "/tmp/probe/*"), (1, 3, "permission-recovery ceiling")):
+            with self.subTest(repeats=repeats, denials=denials):
+                context.update(repeat_count=repeats, denied_since_accepted=denials)
+                with patch.object(limits, "snapshot", return_value={"revision": "retained"}):
+                    reason = limits.stop_reason(state, 2, 3)
+                    self.assertEqual("PAUSED_REPEATED_FAILURE", reason[0])
+                    self.assertIn(message, reason[1])
+                with patch.object(limits, "snapshot", return_value={"revision": "changed"}):
+                    self.assertIsNone(limits.stop_reason(state, 2, 3))
+                    self.assertEqual("PAUSED_TIMEOUT_RECOVERY", limits.stop_reason(state, 3, 3)[0])
 
     def test_two_runs_do_not_share_scratch_even_for_the_same_denial(self):
         denied = recovery.operation("permission requested: external_directory (/tmp/probe/*)")

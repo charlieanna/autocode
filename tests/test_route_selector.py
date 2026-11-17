@@ -175,7 +175,7 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual("medium", routes["builder"]["reasoning_effort"])
         # All GPT models are one family (owner, 2026-10-20): GLM checks Luna's build, never GPT-6 Sol.
         self.assertEqual(GLM, routes["tester"]["model"])
-        self.assertEqual("medium", routes["tester"]["reasoning_effort"])  # the GLM Tester at medium (2026-10-21)
+        self.assertEqual("high", routes["tester"]["reasoning_effort"])  # GLM-5.3 has no medium level (#3630)
         self.assertEqual(GLM, routes["completion"]["model"])
 
     def test_mimo_flash_builds_when_only_a_gpt_model_could_check_an_openai_build(self):

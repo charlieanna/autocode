@@ -35,6 +35,11 @@ AUTH_FAILED = (
     "provider authentication failed (HTTP 401); check or refresh the selected provider's credentials before retrying"
 )
 AUTH_ACCESS_DENIED = "provider account access denied (HTTP 403); check the selected account's access"
+_HELPER_PREFIX = "provider auth helper "
+_HELPER_ADVICE = "raise its timeout_ms (or check the helper) and retry"
+_HELPER_DIAGNOSTIC = re.compile(
+    rf"(?:^|\. ){re.escape(_HELPER_PREFIX)}[^\r\n]+ timed out after \d+ ms; {re.escape(_HELPER_ADVICE)}"
+)
 # What a person can do about each, in plain words. A refused account is theirs to fix, so it is named
 # even when AutoCode's own recovery of the attempt is exhausted and nothing else is asked (#3682).
 ACCOUNT_CAUSES = {
@@ -52,6 +57,11 @@ ACCOUNT_CAUSES = {
 def account_cause(text) -> str | None:
     """The plain sentence for the core's own authentication diagnostic in ``text``, or None."""
     return next((cause for diagnostic, cause in ACCOUNT_CAUSES.items() if diagnostic in str(text or "")), None)
+
+
+def helper_timed_out(text) -> bool:
+    """Recognize the runner's saved helper diagnostic without exposing the helper or operator advice."""
+    return _HELPER_DIAGNOSTIC.search(str(text or "")) is not None
 
 
 def authentication_reason(rows) -> str | None:
@@ -97,10 +107,7 @@ def reason(path) -> str | None:
     if not match:
         return None
     helper, millis = match.group(1), match.group(2)
-    return (
-        f"provider auth helper {helper} timed out after {millis} ms; "
-        "raise its timeout_ms (or check the helper) and retry"
-    )
+    return f"{_HELPER_PREFIX}{helper} timed out after {millis} ms; {_HELPER_ADVICE}"
 
 
 def exit_message(role, exit_code, events, *, refused="", hint="") -> str:

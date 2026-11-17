@@ -3,7 +3,8 @@
 `tools/fake_claude.py` stands in for Claude Code: it runs the scripted Codex fixture for each stage and
 answers in Claude Code's stream-json shapes. PATH is the fixture directory plus the system default, so a
 `claude` installed on the host can never be reached. Assertions read the status view, the CLI's exit and
-output, the files the view names, and the fixture's own log; never state.json.
+output, the files the view names, and the fixture's own log. The runner's incident receipt retains details
+the status view omits from person-facing text.
 """
 
 import json
@@ -17,7 +18,7 @@ from pathlib import Path
 import autocode_taskrun as taskrun
 from providers import claude
 
-from tests import test_subprocess
+from tests import operational_fixtures, test_subprocess
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
 BRIEF = "Build a greeting tool"
@@ -111,10 +112,13 @@ class ClaudeProviderCliTests(unittest.TestCase):
     def test_startup_failure_pauses_once_without_retry(self):
         """Acceptance (provider startup failure): one launch, one terminal row, one pause."""
         self.env["AUTOCODE_FIXTURE_CLAUDE_START_ERROR"] = "requirements_gather"
-        view = self.start().status()
-        self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", self.paused(view), view)
-        self.assertIn("exited 1", view["stop_reason"])
-        self.assertIn("no automatic replay", view["stop_reason"])
+        run = self.start()
+        view = run.status()
+        operational_fixtures.assert_view_blocked(self, view, "PAUSED_PROVIDER_UNCERTAIN")
+        self.assertIn("The Requirements step stopped", view["stop_reason"])
+        cause = operational_fixtures.kept_cause(run.run_dir)
+        self.assertIn("exited 1", cause)
+        self.assertIn("no automatic replay", cause)
         self.assertEqual(1, len(self.prints()))
         (attempt,) = self.attempts(view, "requirements_gather")
         lines = Path(attempt["events"]).read_text().splitlines()
@@ -124,10 +128,9 @@ class ClaudeProviderCliTests(unittest.TestCase):
         self.assertNotIn("Traceback", "\n".join(lines))
 
     def test_a_truncated_builder_stops_at_the_output_cap(self):
-        """Acceptance (output truncation): a Builder cut at Claude's output limit on every model stops for a person.
+        """An output cap tries the stronger route first, then the remaining independent route once.
 
-        The runner moves a cut Builder to its stronger model once on its own (#3522); this test still expected
-        the single launch from before that. Cut there too, the run stops and never launches a third.
+        The configured completion model must remain available for an independent check.
         """
         self.env["AUTOCODE_FIXTURE_TRUNCATE_STAGE"] = "builder"
         run = self.start()
@@ -137,10 +140,11 @@ class ClaudeProviderCliTests(unittest.TestCase):
         self.assertIn("CLAUDE_CODE_MAX_OUTPUT_TOKENS", view["stop_reason"])
         builder = [call for call in self.prints() if call["prompt_head"].startswith("You are the Builder")]
         models = [call["argv"][call["argv"].index("--model") + 1] for call in builder]
-        self.assertEqual([claude.HAIKU, claude.BUILDER_RETRY["strong_model"]], models)
+        self.assertEqual([claude.HAIKU, claude.BUILDER_RETRY["strong_model"], claude.FABLE], models)
+        self.assertEqual(models, [row["model"] for row in self.attempts(view, "builder")])
         switched = [row for row in view["route_assignments"] if row["role"] == "builder"]
         self.assertEqual(
-            [("runner", claude.HAIKU, claude.BUILDER_RETRY["strong_model"], "PAUSED_OUTPUT_CAP")],
+            [("runner", old, new, "PAUSED_OUTPUT_CAP") for old, new in zip(models[:-1], models[1:], strict=True)],
             [tuple(row[key] for key in ("actor", "from", "to", "pause_status")) for row in switched],
         )
 

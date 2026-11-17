@@ -78,6 +78,7 @@ try:
     from . import autocode_failures as failures
     from . import autocode_model_identity as model_identity
     from . import autocode_pause_codes as pause_codes
+    from . import autocode_permission_recovery as permission_recovery
     from . import autocode_planning_advice as recovery_binding
     from . import autocode_planning_calls as planning_calls
     from . import autocode_progressive_state as progressive
@@ -103,6 +104,7 @@ except ImportError:
     import autocode_failures as failures
     import autocode_model_identity as model_identity
     import autocode_pause_codes as pause_codes
+    import autocode_permission_recovery as permission_recovery
     import autocode_planning_advice as recovery_binding
     import autocode_planning_calls as planning_calls
     import autocode_progressive_state as progressive
@@ -1275,6 +1277,12 @@ def drive(
                 raise reraised from error
             retire(state, status)
             if not fresh():
+                raise
+            if status == "PAUSED_REPEATED_FAILURE" and reason == permission_recovery.exhaustion(
+                state.get("recovery_context") or {}
+            ):
+                # The permission owner already diagnosed and exhausted this incident.
+                # Publish that stop directly without a generic investigation or retry.
                 raise
             # A raised pause the Resolver takes is owed back as raised: when it holds, the restored pause
             # is published as the runner always has, not returned as a quiet paused state.

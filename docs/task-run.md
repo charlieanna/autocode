@@ -1837,6 +1837,12 @@ card offers `new_conversation` beside `inspect`, so a person is never left with
 nothing to do. This does not apply to a
 saved spending or time bound, a connection stop, or a model-route question.
 
+AutoCode uses a dedicated retry limit for confirmed external-directory denials.
+With the default unchanged-batch limit, a denied tool call does not count as a
+finished Builder batch. An explicit unchanged-batch limit still counts denied
+Builder attempts. If permission recovery stops, the status view names the denial
+and the saved attempt keeps the attempted path.
+
 A stopped, source-bound job may separately offer `needs.job_time_controls`. Each
 row describes one finite integer and a complete save-only `command`, bound to
 `needs.job_retry_token` through `AUTOCODE_JOB_RETRY_TOKEN`. A total-time row is

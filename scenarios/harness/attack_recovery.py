@@ -142,10 +142,10 @@ def install(fake, configuration: dict, trace) -> None:
             )
             if counts[stage] == 1 or attack in ("builder_permission_repeated", "builder_permission_distinct"):
                 mark("builder_permission_denied", invocation=counts[stage])
-                # A distinct denied path per invocation makes each denial a new
-                # incident, so only the permission ceiling can bound this loop.
+                # AutoCode groups all temporary paths into one incident.
+                # Distinct non-temporary paths exercise the separate retry ceiling.
                 path = (
-                    f"/tmp/diagnostic-{counts[stage]}/*"
+                    f"/fixture-external/diagnostic-{counts[stage]}/*"
                     if attack == "builder_permission_distinct"
                     else "/tmp/diagnostic/*"
                 )

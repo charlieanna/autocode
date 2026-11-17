@@ -21,6 +21,8 @@ except ImportError:
 
 MAX_PERMISSION_RECOVERIES = 3
 DENIAL_MARKER = "OpenCode denied external_directory"
+_REPEAT_PREFIX = "Repeated external_directory denial for "
+_CEILING_PREFIX = "External-directory denials were recovered "
 
 
 def operation(raw):
@@ -94,10 +96,31 @@ def prepare(workspace, stage, denied, recoveries, stages, *, run_dir):
     }
 
 
+def exhaustion(recovery) -> str | None:
+    """The stop reason when this diagnosed permission recovery has no allowance left."""
+    if not recovery.get("denied_operation"):
+        return None
+    if recovery.get("repeat_count", 0) >= 2:
+        return hold_message(recovery)
+    if recovery.get("denied_since_accepted", 0) >= MAX_PERMISSION_RECOVERIES:
+        return ceiling_message(recovery)
+    return None
+
+
+def exhausted_cause(text) -> str | None:
+    """Describe a saved permission hold without disclosing the attempted path or asking for recovery."""
+    reason = str(text or "")
+    if _REPEAT_PREFIX in reason:
+        return "it repeatedly tried to access a folder outside the workspace"
+    if _CEILING_PREFIX in reason:
+        return "it reached its retry limit after trying to access folders outside the workspace"
+    return None
+
+
 def hold_message(recovery):
     denied = recovery["denied_operation"]
     return (
-        f"Repeated {denied['capability']} denial for {denied['path']} after a workspace-only recovery. "
+        f"{_REPEAT_PREFIX}{denied['path']} after a workspace-only recovery. "
         f"Retained scratch directory: {recovery['diagnostic_directory']}. "
         "No further automatic retry will launch. Inspect the saved denied operation and change its "
         "cause before resuming; existing permissions and recovery accounting remain in force."
@@ -106,7 +129,7 @@ def hold_message(recovery):
 
 def ceiling_message(recovery):
     return (
-        f"External-directory denials were recovered {recovery['denied_since_accepted']} times "
+        f"{_CEILING_PREFIX}{recovery['denied_since_accepted']} times "
         f"without an accepted stage; the permission-recovery ceiling of {MAX_PERMISSION_RECOVERIES} "
         "is reached. Retained scratch directory: "
         f"{recovery['diagnostic_directory']}. No further automatic retry will launch. "

@@ -1317,6 +1317,13 @@ class DriverStatusObservationTests(unittest.TestCase):
         self.assertEqual(after, self.exercise([("status", before), ("resume", None), ("status", after)]))
         self.assertEqual(["resume"], [step["kind"] for step in self.driver.steps])
 
+    def test_named_resume_settles_a_retained_pause(self):
+        before = self.snapshot("PAUSED_NO_PROGRESS", {"kind": "continue", "action": "--resume-paused"})
+        after = {**self.snapshot("PAUSED_INTERVENTION", None), "done": False}
+        result = self.exercise([("status", before), ("resume-paused", None), ("status", after)])
+        self.assertEqual(after, result)
+        self.assertEqual(["--resume-paused"], self.driver.steps[-1]["args"])
+
     def test_multiple_progressing_continues_each_use_one_new_public_observation(self):
         before = self.snapshot("RUNNING", {"kind": "continue"})
         next_step = self.snapshot("RUNNING", {"kind": "continue"}, iteration=2)
