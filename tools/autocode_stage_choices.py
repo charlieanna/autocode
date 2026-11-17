@@ -46,6 +46,7 @@ try:
     from . import autocode_roles as roles
     from . import autocode_route_discovery as route_discovery
     from . import autocode_route_fit as route_fit
+    from . import autocode_stage_probe as stage_probe
     from . import autocode_verifier_independence as independence
 except ImportError:
     import autocode_captured_process as captured
@@ -55,6 +56,7 @@ except ImportError:
     import autocode_roles as roles
     import autocode_route_discovery as route_discovery
     import autocode_route_fit as route_fit
+    import autocode_stage_probe as stage_probe
     import autocode_verifier_independence as independence
 
 # Non-Codex engines apply --reasoning-effort to the execution roles that copy task_planner's defaults.
@@ -276,6 +278,9 @@ def _option(model, levels, *, account=None, billing=None, facts=None) -> dict:
         "context": facts.get("context"),
         "account": account,
         "billing": billing,
+        # What the free shortlist reads (autocode_model_shortlist): None where the listing says nothing.
+        "reasoning": facts.get("reasoning"),
+        "release_date": facts.get("release_date"),
     }
 
 
@@ -347,14 +352,19 @@ def view(backend, workspace=None, *, file=None, resolve=None, discover=None) -> 
     option's ``effort_choices``, refusing anything else, and ``reset.next_command`` while a choice is
     saved. ``options_stop`` says why no options could be listed.
     """
-    return _build(backend, *_read(backend, workspace, file, resolve, discover))
+    return _build(backend, *_read(backend, workspace, file, resolve, discover), probe=True)
 
 
-def _build(backend, file, saved, fallback, options, stop, effective=None) -> dict:
-    """``view`` from what ``_read`` found; ``effective`` (each role's model) defaults to the saved choices'."""
+def _build(backend, file, saved, fallback, options, stop, effective=None, *, probe=False) -> dict:
+    """``view`` from what ``_read`` found; ``effective`` (each role's model) defaults to the saved choices'.
+
+    With ``probe``, each stage that has a probe also gets its measure-and-approve offer
+    (``autocode_stage_probe``), pinning the routes this list shows for the other stages.
+    """
     if effective is None:
         effective = _effective(saved, fallback, options)
     stages = []
+    defaults = {}
     for role, _job, does, advice in STAGES:
         rows = _rows(role, options, effective, backend)
         default = dict(fallback[role])
@@ -362,6 +372,7 @@ def _build(backend, file, saved, fallback, options, stop, effective=None) -> dic
         if offered is not None and default["effort"] and offered["levels_listed"]:
             # A default level the model does not declare runs at the nearest one it does (autocode_route_fit).
             default["effort"] = route_fit.nearest(default["effort"], offered["levels"]) or default["effort"]
+        defaults[role] = {**default, "offered": offered is not None}
         stages.append(
             {
                 "id": role,
@@ -377,6 +388,18 @@ def _build(backend, file, saved, fallback, options, stop, effective=None) -> dic
                 "reset": {"next_command": _command("reset", role, backend)} if role in saved else None,
             }
         )
+    for stage in stages:
+        stage["probe"] = None
+    if probe:
+        routes = {role: saved.get(role) or (defaults[role] if defaults[role]["offered"] else {}) for role in defaults}
+        for stage in stages:
+            stage["probe"] = stage_probe.offer(
+                stage["id"],
+                stage["options"],
+                routes,
+                backend=backend,
+                default_effort=fallback[stage["id"]].get("effort"),
+            )
     return {
         "version": 1,
         "backend": backend,
@@ -421,6 +444,7 @@ def run_view(backend, routes, set_command, workspace=None, *, resolve=None, disc
                 "options": rows,
                 "set": {"next_command": list(set_command(role))},
                 "reset": None,
+                "probe": None,  # a started run's models are changed, not measured (Stage models measures)
             }
         )
     return {
@@ -498,7 +522,7 @@ def choose(backend, picks, workspace=None, *, file=None, resolve=None, discover=
         every.setdefault(backend, {})[role] = {"model": model, "effort": None if effort == OWN_DEFAULT else effort}
     save(every, file)
     # Returning a successful save must not depend on a second backend discovery.
-    return _build(backend, file, every.get(backend, {}), fallback, options, stop)
+    return _build(backend, file, every.get(backend, {}), fallback, options, stop, probe=True)
 
 
 def _check(backend, picks, saved, fallback, options, stop) -> dict:
@@ -636,7 +660,8 @@ def chat_view(
         return current
     baseline = {**saved, **{role: {"model": row["model"], "effort": row["effort"]} for role, row in resolved.items()}}
     effective = _check(backend, picks, baseline, fallback, options, stop)
-    current = _build(backend, file, saved, fallback, options, stop, effective)
+    # Stage models (the list with no chat picks) offers to measure each probed stage's models.
+    current = _build(backend, file, saved, fallback, options, stop, effective, probe=not picks)
     order = [role for role in ORDER if role in picks]
 
     def picked(*, without=None):
