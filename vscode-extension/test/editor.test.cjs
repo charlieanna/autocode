@@ -634,6 +634,27 @@ test('connections announces its active check and restores focus afterward', () =
   } finally { dom.window.close(); }
 });
 
+test('connections restores focus after refresh and after selecting a backend', () => {
+  const dom = new JSDOM(connectionsHtml(), { runScripts: 'dangerously', beforeParse(window) {
+    window.acquireVsCodeApi = () => ({ postMessage() {} });
+  } });
+  try {
+    const row = { ...connectionRows[0], actions: [{ id: 'check', label: 'Check' }] };
+    const send = (data) => dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data }));
+    const doc = dom.window.document;
+    send({ connections: [row] });
+    doc.querySelector('#refresh').focus();
+    send({ connections: [row], busy: true, progress: 'Refreshing connections…' });
+    doc.querySelector('#refresh').blur();
+    send({ connections: [row], busy: false });
+    assert.equal(doc.activeElement.id, 'refresh');
+    [...doc.querySelectorAll('button')].find((b) => b.textContent === 'Use for new chats').focus();
+    send({ connections: [row], busy: true, progress: 'Selecting Kilo…' });
+    send({ connections: [row], selected: row.id, busy: false });
+    assert.equal(doc.activeElement.textContent, 'Check');
+  } finally { dom.window.close(); }
+});
+
 function stageView(chosen = null) {
   const set = ['stages', 'set', 'terra', '--backend', 'claude', '--json', '--model', 'MODEL', '--effort', 'EFFORT'];
   return { version: 1, backend: 'claude', label: 'Claude Code', options_stop: null, stages: [{
