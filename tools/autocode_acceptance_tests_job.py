@@ -39,9 +39,11 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_acceptance_evidence_repair as evidence_repair
+    from . import autocode_acceptance_test_repair as test_repair
     from . import autocode_prompts as prompts
 except ImportError:
     import autocode_acceptance_evidence_repair as evidence_repair
+    import autocode_acceptance_test_repair as test_repair
     import autocode_prompts as prompts
 
 import copy
@@ -173,6 +175,7 @@ def packet(state: RunState, inventory: dict | None = None, engine: str | None = 
         # Why the runner rejected this plan's earlier attempts at these cases, oldest first.
         "runner_feedback": [row["feedback"] for row in _rewrites(state)],
         "evidence_repair": evidence_repair.packet(state),
+        "test_repair": test_repair.packet(state, receipts_map=acceptance.receipts(state)),
     }
 
 
@@ -256,6 +259,7 @@ def _check_rows(value: dict, cases: list[dict], *, shared_names=()) -> None:
 
 
 DISAGREE = "The Tester found the approved plan and the code disagree, before any building: "
+CANNOT_TEST = acceptance.CANNOT_TEST_PREFIX
 DISAGREE_END = ". --feedback revises the plan."
 
 
@@ -263,15 +267,39 @@ def _pause(state: RunState, rows: list[str]) -> None:
     run_status.pause(state, PAUSE, DISAGREE + "; ".join(rows) + DISAGREE_END, next_stage=STAGE)
 
 
-def finding(reason) -> str:
-    """What the Tester found at its plan-and-code disagreement stop, from the reason _pause saved; "" otherwise.
+def _pause_cannot_write(state: RunState, rows: list[str]) -> None:
+    run_status.pause(state, PAUSE, CANNOT_TEST + "; ".join(rows) + DISAGREE_END, next_stage=STAGE)
 
-    The chat states it, so the person answering the stop knows which case disagrees and why (live run,
-    2026-11-11: the chat said only that the Tester stopped and to inspect a reason it never showed)."""
-    reason = str(reason or "")
-    if reason.startswith(DISAGREE) and reason.endswith(DISAGREE_END):
-        return reason[len(DISAGREE) : -len(DISAGREE_END)]
+
+def finding_kind(reason) -> str:
+    """Whether ``reason`` is a plan-vs-code disagreement (``disagree``) or host limitation (``cannot_write``)."""
+    head = str(reason or "").split("\nInvestigator ", 1)[0]
+    if head.startswith(CANNOT_TEST) and head.endswith(DISAGREE_END):
+        return "cannot_write"
+    if head.startswith(DISAGREE) and head.endswith(DISAGREE_END):
+        return "disagree"
     return ""
+
+
+def finding(reason) -> str:
+    """What the Tester found at its pre-build stop, from the reason _pause/_pause_cannot_write saved; "" otherwise.
+
+    The chat states it, so the person answering the stop knows which case stopped and why (live run,
+    2026-11-11: the chat said only that the Tester stopped and to inspect a reason it never showed).
+    Strips any trailing Investigator annotation before extracting the finding (#3350)."""
+    head = str(reason or "").split("\nInvestigator ", 1)[0]
+    for prefix in (CANNOT_TEST, DISAGREE):
+        if head.startswith(prefix) and head.endswith(DISAGREE_END):
+            return head[len(prefix) : -len(DISAGREE_END)]
+    return ""
+
+
+def investigator_note(reason) -> str:
+    """Any Investigator diagnosis appended to ``reason`` when ``cannot_write`` held after investigation."""
+    parts = str(reason or "").split("\nInvestigator ", 1)
+    if len(parts) < 2 or ":" not in parts[1]:
+        return ""
+    return parts[1].split(":", 1)[1].strip()
 
 
 def reproduction_ids(state: RunState) -> set[str]:
@@ -450,8 +478,9 @@ def _skip_after_change(case: dict, file: str, source: str, run: dict) -> str:
         f"{case['id']}: {case['test_name']} in {file} fails today, but below the line that failed it can skip "
         f"({skip}). Once the change is made that skip is reached, and a test that skips on this host cannot show "
         "the change works, so the regression proof could not pass. Write a test for this case that runs here "
-        "both before and after the change (no skip condition), or report the case in cannot_write with the "
-        "reason it cannot run on this host"
+        "both before and after the change only if it proves the exact approved behavior. Do not assert different, "
+        "fallback or additional behavior to avoid a host limitation; report the case in cannot_write with the "
+        "concrete host limitation instead"
     )
 
 
@@ -475,13 +504,16 @@ def _skipped(case: dict, file: str, run: dict) -> str:
     """Why a test the command collected and then skipped proves nothing, so the Tester can replace it (#3261).
 
     A test that skips on this host (a platform or dependency condition) neither fails nor passes here, and no
-    rewrite of the same skipped test changes that: the retry needs a test that runs under the runner's command."""
+    rewrite of the same skipped test changes that: the retry needs a test that runs under the runner's command
+    without inventing behavior outside the approved case (#3350)."""
     command = run.get("command") or "the project's test command"
     return (
         f"{case['id']}: {case['test_name']} in {file} was collected and then skipped by the runner's command "
         f"`{command}` on this host, so it proved nothing. A skipped test neither fails nor passes: write a test "
-        "for this case that runs here (test the behavior through code this host can run, without the skip "
-        "condition), or report the case in cannot_write with the reason it cannot run on this host"
+        "for this case that runs here only if it proves the exact approved behavior (for example, through an "
+        "input or fixture the approved contract specifies). Do not assert different, fallback or additional "
+        "behavior to avoid a host limitation; report the case in cannot_write with the concrete host limitation "
+        "instead"
     )
 
 
@@ -541,8 +573,12 @@ def apply(
     cases = acceptance.job_cases(state)
     _check_rows(value, cases, shared_names=set(acceptance.shared_test_names(state).values()))
     repair = evidence_repair.packet(state)
+    t_repair = test_repair.packet(state, receipts_map=acceptance.receipts(state))
     if value["cannot_write"] and not repair:
-        _pause(state, [f"{row['case_id']} cannot be tested: {row['reason']}" for row in value["cannot_write"]])
+        acceptance.record_cannot_write(state, cases, value["cannot_write"], record)
+        _pause_cannot_write(
+            state, [f"{row['case_id']} cannot be tested: {row['reason']}" for row in value["cannot_write"]]
+        )
         return
     files = sorted({row["file"] for row in value["tests"]})
     bad = [path for path in files if not is_test_path(path) or not (Path(workspace) / path).is_file()]
@@ -555,6 +591,12 @@ def apply(
                 "The independent evidence review requires stronger selected named tests. "
                 "Change their assertions to detect the rejected gaps; unchanged files and inline-only "
                 "diagnostics do not repair missing-test evidence. Preserve all existing assertions."
+            )
+        if t_repair and not record.get("changed_files"):
+            raise TestsNeedRewriting(
+                "The independent review found defects in the protected acceptance tests. "
+                "Modify the defective tests so they prove the exact approved criteria (or report "
+                "host-bound untestable cases in cannot_write); unchanged files do not repair them."
             )
         run = (run_tests or (lambda tests: {"error": "no test runner was given"}))(files)
         inherited = provenance.inherited_cases(state, reports=value["tests"], workspace=workspace)

@@ -15,6 +15,12 @@ if TYPE_CHECKING:
 
 try:
     from . import (
+        autocode_acceptance_test_repair as acceptance_test_repair,
+    )
+    from . import (
+        autocode_acceptance_tests as acceptance_tests,
+    )
+    from . import (
         autocode_brief_obligations as brief_obligations,
     )
     from . import (
@@ -44,6 +50,8 @@ try:
         autocode_util as util,
     )
 except ImportError:
+    import autocode_acceptance_test_repair as acceptance_test_repair
+    import autocode_acceptance_tests as acceptance_tests
     import autocode_brief_obligations as brief_obligations
     import autocode_check_refs as check_refs
     import autocode_plan_retention as retention
@@ -85,6 +93,8 @@ def build_spec(
     }
     if state is None:
         return spec
+    if stage in acceptance_test_repair.ALL_STAGES:
+        spec["covered_acceptance_cases"] = sorted(acceptance_tests.covered(state))
     if stage == "requirements_gather":
         spec["source_texts"] = requirement_cues.source_texts(state)
         spec["coverage_checklist"] = requirement_cues.coverage_checklist(state)
@@ -329,6 +339,7 @@ def check_report(raw_text: str, *, spec: dict[str, Any]) -> list[str]:
         data = requirements_report.backfill_assumption_text(data)
     schema = spec.get("schema")
     if isinstance(schema, dict) and schema:
+        data = acceptance_test_repair.normalize_absent(data, schema, {"stage": stage})
         try:
             util.validate_schema(data, schema, where="$")
         except ValueError as exc:
@@ -338,6 +349,17 @@ def check_report(raw_text: str, *, spec: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     workspace_raw = str(spec.get("workspace") or "")
     workspace = Path(workspace_raw) if workspace_raw else Path()
+    if stage in acceptance_test_repair.ALL_STAGES:
+        target = data.get("validation") if stage == "review_checkpoint" else data
+        if isinstance(target, dict):
+            try:
+                acceptance_test_repair.validate_report(
+                    target,
+                    stage=stage,
+                    covered_case_ids=spec.get("covered_acceptance_cases"),
+                )
+            except ValueError as exc:
+                errors.append(str(exc))
     if stage == "requirements_gather":
         _check_requirements_gather(data, spec, errors)
     elif stage in _PLANNING_STAGES:

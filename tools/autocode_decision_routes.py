@@ -19,6 +19,8 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_acceptance_test_repair as acceptance_test_repair
+    from . import autocode_acceptance_tests as acceptance_tests
     from . import autocode_builder_failure as builder_failure
     from . import autocode_builder_policy as builder_policy
     from . import autocode_findings as findings_ledger
@@ -29,6 +31,8 @@ try:
     from . import autocode_rework_policy as rework_policy
     from . import autocode_source_scope as source_scope
 except ImportError:
+    import autocode_acceptance_test_repair as acceptance_test_repair
+    import autocode_acceptance_tests as acceptance_tests
     import autocode_builder_failure as builder_failure
     import autocode_builder_policy as builder_policy
     import autocode_findings as findings_ledger
@@ -110,6 +114,31 @@ def user_request(
     return False
 
 
+def validate_decision(state: RunState, stage: str, value: dict) -> None:
+    """Validate optional protected acceptance-test repairs on modern ``review_completion`` / ``resolve`` decisions."""
+    if stage in acceptance_test_repair.DECISION_STAGES:
+        acceptance_test_repair.validate_report(value, stage=stage, covered_case_ids=acceptance_tests.covered(state))
+
+
+def prepare_continuation(runtime, state: RunState, stage: str, value: dict, record: dict, workspace) -> None:
+    """Preflight a ``resolve`` proposal and bind any ``acceptance_test_repairs`` before assignment."""
+    if stage == "resolve":
+        # Reject invalid proposals before charging for failure diagnosis.
+        # Milestone progress gates retain their exhaustion ordering.
+        proposed = source_scope.snapshot(workspace, state, base_snapshot=runtime.support.snapshot)
+        candidate = copy.deepcopy(state)
+        spec = value.get("next_task")
+        if isinstance(spec, dict):
+            findings_ledger.assign(candidate, {"id": "proposal-preflight"}, spec, value)
+        try:
+            lifecycle.assign_task(candidate, value, proposed)
+        except runtime.support.Paused as error:
+            if not error.status.startswith("PAUSED_MILESTONE_"):
+                raise
+    if stage in acceptance_test_repair.DECISION_STAGES:
+        acceptance_test_repair.record_decision(state, value, record, covered_case_ids=acceptance_tests.covered(state))
+
+
 def review_rework(runtime, state: RunState, value, record, run_dir, *, queue_resolution):
     """Route the Validator's REWORK; the review stays authoritative whether its correction is assigned or diagnosed."""
     diagnosed = resolver_recovery.diagnosis_current(
@@ -117,6 +146,7 @@ def review_rework(runtime, state: RunState, value, record, run_dir, *, queue_res
     )
     if not diagnosed:
         rework_policy.guard_pending_human(state)
+    acceptance_test_repair.record_decision(state, value, record, covered_case_ids=acceptance_tests.covered(state))
     findings_ledger.record_decision(state, value, record)
     if diagnosed or (runtime.milestones.progress(state) or {}).get("builder_reassessment"):
         queue_resolution(state, value, record)

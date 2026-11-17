@@ -22,6 +22,8 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_acceptance_test_repair as acceptance_test_repair
+    from . import autocode_acceptance_tests as acceptance_tests
     from . import autocode_changed_code_rework as changed_code_rework
     from . import autocode_completion as completion_gate
     from . import autocode_design_coverage as design_coverage
@@ -31,6 +33,8 @@ try:
     from . import autocode_run_status as run_status
     from . import autocode_support as support
 except ImportError:
+    import autocode_acceptance_test_repair as acceptance_test_repair
+    import autocode_acceptance_tests as acceptance_tests
     import autocode_changed_code_rework as changed_code_rework
     import autocode_completion as completion_gate
     import autocode_design_coverage as design_coverage
@@ -369,7 +373,12 @@ def apply_checkpoint(runner, state: RunState, value, record, workspace, run_dir)
     if not enabled(state) or record.get("role") != "task_planner":
         raise ValueError("Independent checkpoint must run under the approved Plan Reviewer role")
     support.validate_schema(
-        value, design_coverage.extend_schema(checkpoint_schema(runner.SCHEMA_DIR), state, "review_checkpoint")
+        value,
+        acceptance_test_repair.extend_schema(
+            design_coverage.extend_schema(checkpoint_schema(runner.SCHEMA_DIR), state, "review_checkpoint"),
+            acceptance_tests.covered(state),
+            "review_checkpoint",
+        ),
     )
     current = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
     if record.get("source_revision") != current["revision"] or record.get("changed_files"):
@@ -400,7 +409,7 @@ def apply_checkpoint(runner, state: RunState, value, record, workspace, run_dir)
     runner._apply_result(state, "tester", validation, record, workspace, run_dir)
     cast(dict, state["validation"])["reviewer_role"] = "task_planner"
     cast(dict, state["validation"])["final_audit"] = final_only(state)
-    if changed_code_rework.queued(state, record):
+    if changed_code_rework.queued(state, record) or acceptance_test_repair.queued(state, record):
         state["stages"] = state.get("stages", [])[:stages]
         state["history"] = state.get("history", [])[:history]
         runner.save_record(state, record)

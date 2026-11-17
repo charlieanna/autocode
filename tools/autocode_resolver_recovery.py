@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_acceptance_test_repair as acceptance_test_repair
     from . import autocode_access_identity as access_identity
     from . import autocode_builder_failure as builder_failure
     from . import autocode_builder_policy as builder_policy
@@ -55,6 +56,7 @@ try:
     from . import autocode_tool_containment as containment
     from . import autocode_util as util
 except ImportError:
+    import autocode_acceptance_test_repair as acceptance_test_repair
     import autocode_access_identity as access_identity
     import autocode_builder_failure as builder_failure
     import autocode_builder_policy as builder_policy
@@ -1815,8 +1817,10 @@ def _dispatch_frontier(state: RunState, record, workspace, run_dir):
         return  # Legacy requests retain their existing conservative limits.
     if stage == "builder":
         revision = source_scope.snapshot(workspace, state)["revision"]
-        if changed_code_rework.owns_builder_round(state, revision) or planned_check_rework.owns_builder_round(
-            state, revision
+        if (
+            changed_code_rework.owns_builder_round(state, revision)
+            or planned_check_rework.owns_builder_round(state, revision)
+            or acceptance_test_repair.owns_builder_round(state, revision)
         ):
             # The runner's own bounded Builder round for a new reason at this source is not a retry of the
             # packet's incident (#2815).
