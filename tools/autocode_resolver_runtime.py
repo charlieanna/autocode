@@ -42,6 +42,7 @@ try:
     from . import autocode_quota_route as quota_route
     from . import autocode_recovery_grants as recovery_grants
     from . import autocode_recovery_limits as recovery_limits
+    from . import autocode_replay_bindings as replay_bindings
     from . import autocode_resolver as policy
     from . import autocode_resolver_human as human
     from . import autocode_resolver_recovery as recovery
@@ -60,6 +61,7 @@ except ImportError:
     import autocode_quota_route as quota_route
     import autocode_recovery_grants as recovery_grants
     import autocode_recovery_limits as recovery_limits
+    import autocode_replay_bindings as replay_bindings
     import autocode_resolver as policy
     import autocode_resolver_human as human
     import autocode_resolver_recovery as recovery
@@ -1148,7 +1150,7 @@ def boundary(runner, state: RunState, run_dir, workspace):
             entry.get("outcome") == "retried"
             and entry.get("retry_as") == "report_repair"
             and entry.get("stage") == pending["original"].get("stage") == state.get("next_stage")
-            and entry.get("repair_grant") == util.digest(pending)
+            and entry.get("repair_grant") == replay_bindings.report_repair_grant(pending)
             and recovery_binding.applies(state, investigation, entry["stage"])
         ):
             # The Investigator recorded and bounded this retry; the repair's attempt
