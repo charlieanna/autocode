@@ -32,6 +32,7 @@ try:
     from .. import autocode_role_transport as role_transport
     from .. import autocode_run_status as run_status
     from .. import autocode_task_authority as task_authority
+    from .. import autocode_tool_handoff as tool_handoff
     from .. import autocode_toolchain_requirements as toolchain_requirements
     from .. import autocode_verification_commands as command_policy
     from .. import autocode_verification_plan as verification_plan
@@ -49,6 +50,7 @@ except ImportError:
     import autocode_role_transport as role_transport
     import autocode_run_status as run_status
     import autocode_task_authority as task_authority
+    import autocode_tool_handoff as tool_handoff
     import autocode_toolchain_requirements as toolchain_requirements
     import autocode_verification_commands as command_policy
     import autocode_verification_plan as verification_plan
@@ -121,7 +123,7 @@ def prepare(state: RunState, stage, state_path, schema_dir):
     request = execution_request(state, stage, state_path, schema_dir)
     authority = task_authority.instruction(state.get("investigation"))
     if authority:
-        prompt = request.prompt.replace("\nCURRENT HANDOFF DATA\n", "\n" + authority + "\nCURRENT HANDOFF DATA\n", 1)
+        prompt = tool_handoff.before_handoff(request.prompt, "\n" + authority)
         request = replace(
             request,
             prompt=prompt,
@@ -166,7 +168,7 @@ def prepare(state: RunState, stage, state_path, schema_dir):
             }
             request = replace(request, schema=schema)
             note += prompts.get("fragments/autoreview/source-verdict.md") + "\n"
-        prompt = request.prompt.replace("\nCURRENT HANDOFF DATA\n", note + "\nCURRENT HANDOFF DATA\n", 1)
+        prompt = tool_handoff.before_handoff(request.prompt, note)
         request = replace(
             request,
             prompt=prompt,
@@ -174,14 +176,9 @@ def prepare(state: RunState, stage, state_path, schema_dir):
         )
     if stage == "review_checkpoint":
         # Under reviewer routing this decision is applied as the Completion Reviewer's, next_task included.
-        prompt = request.prompt.replace(
-            "\nCURRENT HANDOFF DATA\n",
-            "\n"
-            + verification_plan.GIT_STATUS_RULE
-            + "\n"
-            + verification_plan.SHELL_SYNTAX_RULE
-            + "\n\nCURRENT HANDOFF DATA\n",
-            1,
+        prompt = tool_handoff.before_handoff(
+            request.prompt,
+            "\n" + verification_plan.GIT_STATUS_RULE + "\n" + verification_plan.SHELL_SYNTAX_RULE + "\n",
         )
         request = replace(
             request,

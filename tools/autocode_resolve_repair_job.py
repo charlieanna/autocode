@@ -39,6 +39,7 @@ try:
     from . import autocode_stop as stop
     from . import autocode_stray_writes as stray_writes
     from . import autocode_support as support
+    from . import autocode_tool_handoff as tool_handoff
     from . import autocode_util as util
     from . import autocode_verifier_independence as verifier_independence
 except ImportError:
@@ -61,6 +62,7 @@ except ImportError:
     import autocode_stop as stop
     import autocode_stray_writes as stray_writes
     import autocode_support as support
+    import autocode_tool_handoff as tool_handoff
     import autocode_util as util
     import autocode_verifier_independence as verifier_independence
 
@@ -1135,7 +1137,7 @@ def with_guidance(state: RunState, stage: str, request: Any) -> Any:
         banner += f"Updated objective: {current['next_objective']}\n"
     if current.get("affected_paths"):
         banner += f"Target paths: {', '.join(current['affected_paths'])}\n"
-    return replace(request, prompt=request.prompt + banner)
+    return replace(request, prompt=tool_handoff.before_handoff(request.prompt, banner))
 
 
 def settle(state: RunState, stage: str) -> None:
