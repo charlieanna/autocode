@@ -72,7 +72,9 @@ export class RunsProvider implements vscode.TreeDataProvider<RunNode> {
 
   private nodes: RunNode[] = [];
   private readonly duplicateAllocations = new Map<string, Map<string, number>>();
-  private loading = false;
+  private loading?: Promise<void>;
+  private pending = false;
+  private disposed = false;
   private showArchivedState = false;
 
   /** Whether the History list is including chats the person archived. */
@@ -86,16 +88,26 @@ export class RunsProvider implements vscode.TreeDataProvider<RunNode> {
   }
 
   async refresh(): Promise<void> {
-    if (this.loading) return;
-    this.loading = true;
+    if (this.disposed) return;
+    if (this.loading) { this.pending = true; return this.loading; }
+    this.loading = this.load();
+    return this.loading;
+  }
+
+  private async load(): Promise<void> {
     try {
-      const list = await this.controller.list(this.showArchivedState);
-      this.nodes = groupByWorkspace(list.runs, Date.now(), this.duplicateAllocations);
-    } catch (error) {
-      this.nodes = [placeholder(error)];
+      do {
+        this.pending = false;
+        try {
+          const list = await this.controller.list(this.showArchivedState);
+          if (!this.pending && !this.disposed) this.nodes = groupByWorkspace(list.runs, Date.now(), this.duplicateAllocations);
+        } catch (error) {
+          if (!this.pending && !this.disposed) this.nodes = [placeholder(error)];
+        }
+      } while (this.pending && !this.disposed);
     } finally {
-      this.loading = false;
-      this.changed.fire(undefined);
+      this.loading = undefined;
+      if (!this.disposed) this.changed.fire(undefined);
     }
   }
 
@@ -109,6 +121,7 @@ export class RunsProvider implements vscode.TreeDataProvider<RunNode> {
   }
 
   dispose(): void {
+    this.disposed = true;
     this.changed.dispose();
   }
 }

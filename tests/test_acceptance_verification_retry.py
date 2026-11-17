@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import autocode_acceptance_tests as acceptance
 import autocode_acceptance_tests_job as job
@@ -196,6 +196,50 @@ class AcceptanceVerificationRetryTests(unittest.TestCase):
         self.assertEqual(1, self.state[acceptance.KEY][retry.KEY]["attempts"])
         self.assertEqual(2, len(self.state[acceptance.KEY][retry.KEY]["failures"]))
         self.assertFalse(acceptance.receipts(self.state))
+        self.runtime.run_role.assert_not_called()
+
+    def test_newly_authenticated_inherited_tests_allow_one_local_recheck(self):
+        self.value["already_passing"] = [{"case_id": "AC1", "evidence": "Already passes"}]
+        util.atomic_json(self.record["output"], self.value)
+        self.reference.side_effect = None
+        self.reference.return_value = {"error": "original-reference execution missing"}
+        self.start_retry()
+        with self.assertRaises(util.Paused):
+            self.dispatch()
+        pending = self.state[acceptance.KEY][retry.KEY]
+        self.assertEqual(1, pending["attempts"])
+        with patch.object(retry.provenance, "inherited_cases", return_value={"AC1"}):
+            self.dispatch()
+        archived = self.state[acceptance.KEY]["verification_retries"][-1]
+        self.assertEqual(2, archived["attempts"])
+        self.assertTrue(archived["provenance_retry"])
+        self.assertEqual("builder", self.state["next_stage"])
+        self.assertEqual(2, self.reference.call_count)
+        self.runtime.run_role.assert_not_called()
+
+    def test_authenticated_recheck_is_spent_even_if_verification_fails(self):
+        self.value["already_passing"] = [{"case_id": "AC1", "evidence": "Already passes"}]
+        util.atomic_json(self.record["output"], self.value)
+        self.reference.side_effect = None
+        self.reference.return_value = {"error": "original-reference execution missing"}
+        self.start_retry()
+        with self.assertRaises(util.Paused):
+            self.dispatch()
+        pending = self.state[acceptance.KEY][retry.KEY]
+        with patch.object(retry.provenance, "inherited_cases", return_value={"AC1"}):
+            with self.assertRaises(util.Paused):
+                retry.dispatch(
+                    self.runtime,
+                    self.state,
+                    acceptance.STAGE,
+                    self.workspace,
+                    self.run,
+                    apply=Mock(side_effect=ValueError("still broken")),
+                )
+            self.assertEqual(2, pending["attempts"])
+            self.assertTrue(pending["provenance_retry"])
+            with self.assertRaises(util.Paused):
+                self.dispatch()
         self.runtime.run_role.assert_not_called()
 
     def test_resumed_local_failure_reaches_investigator_without_another_model_record(self):

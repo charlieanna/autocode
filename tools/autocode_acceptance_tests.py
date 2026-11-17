@@ -33,12 +33,14 @@ from pathlib import Path
 
 try:
     from . import autocode_acceptance_evidence_repair as evidence_repair
+    from . import autocode_acceptance_test_repair as test_repair
     from . import autocode_project_kinds as project_kinds
     from . import autocode_test_cases as test_cases
     from . import autocode_util as util
     from .autocode_stray_writes import StrayWrites
 except ImportError:
     import autocode_acceptance_evidence_repair as evidence_repair
+    import autocode_acceptance_test_repair as test_repair
     import autocode_project_kinds as project_kinds
     import autocode_test_cases as test_cases
     import autocode_util as util
@@ -47,6 +49,9 @@ except ImportError:
 STAGE = "write_acceptance_tests"
 KEY: Final = "acceptance_tests"
 CANDIDATE_FAIL_FIRST: Final = "passes candidate; fails original reference"
+CANNOT_TEST_PREFIX: Final = (
+    "Before any building, the Tester reported that the approved plan cannot be tested on this host: "
+)
 SETTING_BLIND: Final = "blind_tests"
 BUILD_STAGES = ("builder", "orchestrator")
 
@@ -238,8 +243,11 @@ def due(state: RunState, wave=None) -> list[dict]:
         cases += [case for case in _cases(state, all_due=True) if case["id"] in members and case["id"] not in known]
     done = covered(state)
     repair = evidence_repair.pending(state, cases)
-    strengthening = set(repair["binding"]["case_ids"]) if repair else set()
-    return [case for case in cases if case["id"] not in done or case["id"] in strengthening]
+    t_repair = test_repair.pending(state, cases, receipts_map=receipts(state))
+    repaired_ids = set(repair["binding"]["case_ids"]) if repair else set()
+    if t_repair:
+        repaired_ids |= set(t_repair["binding"]["case_ids"])
+    return [case for case in cases if case["id"] not in done or case["id"] in repaired_ids]
 
 
 def shared_test_names(state: RunState) -> dict[str, str]:
@@ -297,6 +305,7 @@ def route(state: RunState, wave=None) -> None:
         },
     )
     repair = evidence_repair.pending(state, cases)
+    t_repair = test_repair.pending(state, cases, receipts_map=receipts(state))
     if repair:
         record["pending_evidence_repair"] = repair
         state["next_action"] = "The independent Tester is strengthening selected tests for the reviewed evidence gaps."
@@ -306,6 +315,11 @@ def route(state: RunState, wave=None) -> None:
                 break
     else:
         record.pop("pending_evidence_repair", None)
+    if t_repair:
+        record[test_repair.PENDING_KEY] = t_repair
+        state["next_action"] = "The independent Tester is repairing protected acceptance tests identified by review."
+    else:
+        record.pop(test_repair.PENDING_KEY, None)
     state["next_stage"] = STAGE
 
 
@@ -320,16 +334,69 @@ def record_receipt(state: RunState, cases: list[dict], receipt: dict) -> None:
     key = batch_key(state, cases)
     previous = kept.get(key)
     repair = evidence_repair.packet(state)
+    t_repair = test_repair.packet(state, receipts_map=kept)
     if previous and previous.get("output") and previous.get("output") == receipt.get("output"):
-        if {k: v for k, v in previous.items() if k != evidence_repair.FIELD} != receipt:
+        ignored = {evidence_repair.FIELD, test_repair.RECEIPT_FIELD}
+        if {k: v for k, v in previous.items() if k not in ignored} != receipt:
             raise ValueError("A qualified test receipt cannot change on reconciliation")
         return
-    if previous and repair:
+    if previous and (repair or t_repair):
         record.setdefault("receipt_history", []).append(previous)
     if repair:
         receipt = {**receipt, evidence_repair.FIELD: repair["binding"]}
+    if t_repair:
+        receipt = {**receipt, test_repair.RECEIPT_FIELD: t_repair["binding"]}
     kept[key] = receipt
     record.pop("pending_evidence_repair", None)
+    record.pop(test_repair.PENDING_KEY, None)
+    cw = record.get("cannot_write")
+    if isinstance(cw, dict) and set(cw.get("case_ids") or []) <= {case["id"] for case in cases}:
+        record.pop("cannot_write", None)
+
+
+def record_cannot_write(state: RunState, cases: list[dict], rows: list[dict], stage_record: dict) -> None:
+    """Record host/testability limitations reported by ``write_acceptance_tests`` (#3350)."""
+    record = state.setdefault(KEY, {"receipts": {}})
+    kept = record.setdefault("receipts", {})
+    t_repair = test_repair.packet(state, receipts_map=kept)
+    key = batch_key(state, cases)
+    if t_repair and key in kept:
+        previous = kept.pop(key)
+        record.setdefault("receipt_history", []).append({**previous, "superseded_by": "cannot_write"})
+    contract_hash = (state.get("goal_contract") or {}).get("hash")
+    entry = {
+        "contract_hash": contract_hash,
+        "case_ids": [case["id"] for case in cases],
+        "cases": [{"case_id": str(row["case_id"]), "reason": str(row["reason"])} for row in rows],
+        "output": stage_record.get("output"),
+        "source_revision": stage_record.get("source_revision"),
+        **({test_repair.RECEIPT_FIELD: t_repair["binding"]} if t_repair else {}),
+    }
+    record["cannot_write"] = entry
+    record.pop(test_repair.PENDING_KEY, None)
+
+
+def cannot_write_pending(state: RunState) -> bool:
+    """True when ``PAUSED_ACCEPTANCE_TESTS`` stands on the latest writer's ``cannot_write`` report."""
+    if state.get("status") != "PAUSED_ACCEPTANCE_TESTS" or state.get("next_stage") != STAGE:
+        return False
+    reason = str(state.get("stop_reason") or "")
+    if not reason.startswith(CANNOT_TEST_PREFIX):
+        return False
+    cw = ((state.get(KEY) or {}).get("cannot_write")) or {}
+    contract_hash = (state.get("goal_contract") or {}).get("hash")
+    if not isinstance(cw, dict) or not cw.get("cases") or cw.get("contract_hash") != contract_hash:
+        return False
+    latest = next(
+        (
+            row
+            for row in reversed(state.get("stages") or [])
+            if isinstance(row, dict)
+            and (row.get("original_stage") or str(row.get("stage") or "").removesuffix("_report_repair")) == STAGE
+        ),
+        None,
+    )
+    return bool(latest is None or (cw.get("output") and latest.get("output") == cw.get("output")))
 
 
 def sent_back(state: RunState) -> set[str]:
@@ -371,6 +438,21 @@ def protected(state: RunState) -> dict[str, dict]:
             if Path(path).name in project_kinds.ALL_TEST_PREREQUISITES
         }
     return all_files(state)
+
+
+def repaired_protected(state: RunState) -> dict[str, dict]:
+    """Protected Tester files written by an independent post-build ``test_repair`` under the current contract (#3350)."""
+    current = (state.get("goal_contract") or {}).get("hash")
+    if not current:
+        return {}
+    files: dict[str, dict] = {}
+    for receipt in receipts(state).values():
+        if receipt.get("contract_hash") != current or not isinstance(receipt.get(test_repair.RECEIPT_FIELD), dict):
+            continue
+        files.update(receipt.get("files") or {})
+    if is_blind(state):
+        return {path: entry for path, entry in files.items() if Path(path).name in project_kinds.ALL_TEST_PREREQUISITES}
+    return files
 
 
 def blind_files(state: RunState) -> dict[str, dict]:
@@ -490,7 +572,10 @@ def builder_note(state: RunState) -> str:
             + ", ".join(files)
             + ". Do not write them again. They fail on the code as it was and must pass when you finish. You may add "
             "tests to these files, but never change, move or delete a line the Tester wrote; the runner puts such a "
-            "file back.\n"
+            "file back. Implement only the approved goal_contract: never add unapproved fallback or error behavior "
+            "to satisfy a test that contradicts an approved criterion, and if a fixed test has a fixture bug or "
+            "contradicts the approved case, keep the approved product behavior and report the test defect for "
+            "independent review.\n"
         )
         + (
             "Go prerequisite files are fixed byte-for-byte, including against additions; keep the reviewed metadata unchanged.\n"
@@ -501,17 +586,34 @@ def builder_note(state: RunState) -> str:
 
 
 def view(state: RunState) -> dict | None:
-    """Current-contract tests, inherited ones included, and the most recently recorded generation result, or None."""
+    """Current-contract tests, inherited ones included, and recorded host limitations, or None."""
     rows = _current_and_inherited(state)
-    if not rows:
+    current_hash = (state.get("goal_contract") or {}).get("hash")
+    cw = ((state.get(KEY) or {}).get("cannot_write")) or {}
+    active_cw = (
+        list(cw.get("cases") or [])
+        if isinstance(cw, dict) and cw.get("cases") and cw.get("contract_hash") == current_hash
+        else []
+    )
+    if not rows and not active_cw:
         return None
-    last = rows[-1]
-    payload = {
-        "files": sorted(all_files(state)),
-        "case_ids": list(last.get("case_ids") or []),
-        "results": dict(last.get("results") or {}),
-        "output": last.get("output"),
-    }
+    if rows:
+        last = rows[-1]
+        payload = {
+            "files": sorted(all_files(state)),
+            "case_ids": list(last.get("case_ids") or []),
+            "results": dict(last.get("results") or {}),
+            "output": last.get("output"),
+        }
+    else:
+        payload = {
+            "files": [],
+            "case_ids": list(cw.get("case_ids") or []),
+            "results": {},
+            "output": cw.get("output"),
+        }
+    if active_cw:
+        payload["cannot_write"] = active_cw
     if is_blind(state):
         payload["blind"] = True
     return payload

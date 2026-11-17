@@ -10,10 +10,14 @@ if TYPE_CHECKING:
 import copy
 
 try:
+    from . import autocode_acceptance_test_repair as acceptance_test_repair
+    from . import autocode_acceptance_tests as acceptance_tests
     from . import autocode_changed_code_review as changed_code_review
     from . import autocode_design_coverage as design_coverage
     from . import autocode_planning_report_policy as planning_policy
 except ImportError:
+    import autocode_acceptance_test_repair as acceptance_test_repair
+    import autocode_acceptance_tests as acceptance_tests
     import autocode_changed_code_review as changed_code_review
     import autocode_design_coverage as design_coverage
     import autocode_planning_report_policy as planning_policy
@@ -27,6 +31,7 @@ def normalize_absent_authority(value, schema, record):
     Older schemas and unrelated stages must not gain optional fields.
     """
     result = changed_code_review.normalize_absent(value, schema, record)
+    result = acceptance_test_repair.normalize_absent(result, schema, record)
     result = copy.deepcopy(result)
     properties = schema.get("properties", {})
     for target, fields in (
@@ -80,6 +85,7 @@ def review_generation_schema(schema, state: RunState, stage):
     result = changed_code_review.generation_schema(
         result, (state.get("regression_proof") or {}).get("changed_code_evidence"), stage
     )
+    result = acceptance_test_repair.extend_schema(result, acceptance_tests.covered(state), stage)
     if stage not in ("tester", "review_completion", "review_checkpoint"):
         return result
     props = result.get("properties", {})
@@ -118,6 +124,8 @@ def review_validation_schema(schema, state: RunState | None, record, value):
     """
     schema = planning_policy.concern_validation_schema(schema, record)
     stage = str(record.get("original_stage") or record.get("stage") or "").removesuffix("_report_repair")
+    if state and stage in acceptance_test_repair.ALL_STAGES:
+        schema = acceptance_test_repair.extend_schema(schema, acceptance_tests.covered(state), stage)
     if state and stage in ("tester", "review_checkpoint"):
         # The saved generation enum is a launch-time snapshot; widen it to the obligations
         # current here, so a decision the proof document asked for is not refused for the

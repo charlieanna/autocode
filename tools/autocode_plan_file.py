@@ -321,29 +321,34 @@ def review_markdown(body: dict) -> str:
     body = masked(body)
     out = []
     if body.get("intended_outcome"):
-        out += [_text(body["intended_outcome"]), ""]
+        out += [_review_text(body["intended_outcome"]), ""]
     if body.get("intended_user"):
-        out += [f"For: {_text(body['intended_user'])}", ""]
+        out += [f"For: {_review_text(body['intended_user'])}", ""]
     if body.get("task_kind"):
-        out += [f"Job type: {_text(body['task_kind'])}", ""]
-    out += _sections(body)
+        out += [f"Job type: {_review_text(body['task_kind'])}", ""]
+    out += _sections(body, review=True)
     out += _criteria(body.get("acceptance_criteria") or [], review=True)
-    out += _milestones(body.get("milestones") or [])
-    out += _first_task(body.get("initial_task"))
+    out += _milestones(body.get("milestones") or [], review=True)
+    out += _first_task(body.get("initial_task"), review=True)
     out += _decisions(body.get("accepted_assumptions") or [], body.get("delegated_decisions") or [], review=True)
-    out += _questions(body.get("open_blocking_questions") or [])
+    out += _questions(body.get("open_blocking_questions") or [], review=True)
     out += _examples(body.get("brief_acceptance"), review=True)
     delivery = body.get("git_delivery")
     if isinstance(delivery, dict) and delivery.get("kind") == "atomic_commit":
-        out += ["## Local commit", "", "Create one local atomic commit: " + _text(delivery.get("message", "")), ""]
+        out += [
+            "## Local commit",
+            "",
+            "Create one local atomic commit: " + _review_text(delivery.get("message", "")),
+            "",
+        ]
     return util.redact("\n".join(out)).strip()
 
 
-def _sections(body) -> list[str]:
+def _sections(body, *, review=False) -> list[str]:
     out = []
     for key, heading in SECTIONS:
         if body.get(key):
-            out += [f"## {heading}", "", *(_item(row) for row in body[key]), ""]
+            out += [f"## {heading}", "", *(_item(_review_text(row) if review else row) for row in body[key]), ""]
     return out
 
 
@@ -352,7 +357,7 @@ def _criteria(rows, *, review=False) -> list[str]:
         return []
     out = ["## Acceptance criteria", ""]
     for row in rows:
-        out += [f"### {row.get('id', '')}", "", _text(row.get("criterion", "")), ""]
+        out += [f"### {row.get('id', '')}", "", (_review_text if review else _text)(row.get("criterion", "")), ""]
         method = str(row.get("verification_method", ""))
         if "\n" in method:
             out += ["Verified by:", "", *_block(method), ""]
@@ -363,7 +368,7 @@ def _criteria(rows, *, review=False) -> list[str]:
         elif review:
             out += ["No separate person review is required.", ""]
         if review and row.get("current_behavior"):
-            out += ["Current behavior:", "", _text(row["current_behavior"]), ""]
+            out += ["Current behavior:", "", _review_text(row["current_behavior"]), ""]
         supersedes = [value for value in _list(row.get("supersedes")) if isinstance(value, dict)]
         if review and supersedes:
             out += ["Tests this criterion replaces:", ""]
@@ -374,7 +379,9 @@ def _criteria(rows, *, review=False) -> list[str]:
             out += ["Quoted from the request:", ""]
             out += [
                 _item(
-                    source.get("quote", "") if review else f"{source.get('source_id', '')}: {source.get('quote', '')}"
+                    _review_text(source.get("quote", ""))
+                    if review
+                    else f"{source.get('source_id', '')}: {source.get('quote', '')}"
                 )
                 for source in sources
             ]
@@ -382,12 +389,12 @@ def _criteria(rows, *, review=False) -> list[str]:
     return out
 
 
-def _milestones(rows) -> list[str]:
+def _milestones(rows, *, review=False) -> list[str]:
     if not rows:
         return []
     out = ["## Milestones", ""]
     for row in rows:
-        out += [f"### {row.get('id', '')}", "", _text(row.get("objective", "")), ""]
+        out += [f"### {row.get('id', '')}", "", (_review_text if review else _text)(row.get("objective", "")), ""]
         out += [_item("Criteria: " + _names(row.get("acceptance_criteria")))]
         if "depends_on" in row:
             out += [_item("After: " + _names(row.get("depends_on")))]
@@ -397,15 +404,15 @@ def _milestones(rows) -> list[str]:
     return out
 
 
-def _first_task(task) -> list[str]:
+def _first_task(task, *, review=False) -> list[str]:
     if not isinstance(task, dict):
         return []
-    out = ["## First task", "", _text(task.get("objective", "")), ""]
+    out = ["## First task", "", (_review_text if review else _text)(task.get("objective", "")), ""]
     out += [_item(f"Kind: {task.get('kind', '')}"), _item(f"Milestone: {task.get('milestone_id') or 'none'}")]
     out += [_item("Criteria: " + _names(task.get("acceptance_criteria")))]
     out += [_item("May change: " + _names(task.get("affected_paths"), code=True))]
     for requirement in _list(task.get("requirements")):
-        out += [_item("Requirement: " + str(requirement))]
+        out += [_item("Requirement: " + (_review_text(requirement) if review else str(requirement)))]
     for step in _list(task.get("validation_plan")):
         out += [_item("Check: " + _code(str(step)))]
     return out + [""]
@@ -423,22 +430,23 @@ def _decisions(assumed, delegated, *, review=False) -> list[str]:
                 "delegated": "under your delegation",
                 "agent_proposed": "proposed in this plan",
             }.get(row.get("basis"), str(row.get("basis", "")).replace("_", " "))
-            out += [_item(f"{label}" + (f" ({basis})" if basis else "") + f": {row.get('text', '')}")]
+            out += [_item(f"{label}" + (f" ({basis})" if basis else "") + ": " + _review_text(row.get("text", "")))]
             continue
         cited = f", answer {row['answer_id']}" if row.get("answer_id") else ""
         out += [_item(f"{label} ({row.get('basis', '')}{cited}): {row.get('text', '')}")]
     return out + [""]
 
 
-def _questions(rows) -> list[str]:
+def _questions(rows, *, review=False) -> list[str]:
     if not rows:
         return []
     out = ["## Open questions", "", "The plan cannot be approved while these are open.", ""]
     for row in rows:
-        out += [f"### {row.get('id', '')}", "", _text(row.get("question", "")), "", f"Why: {_text(row.get('why', ''))}"]
-        out += [""] + [_item(str(option)) for option in _list(row.get("options"))]
+        plain = _review_text if review else _text
+        out += [f"### {row.get('id', '')}", "", plain(row.get("question", "")), "", f"Why: {plain(row.get('why', ''))}"]
+        out += [""] + [_item(plain(option)) for option in _list(row.get("options"))]
         if row.get("proposed_default"):
-            out += [_item("Proposed default: " + str(row["proposed_default"]))]
+            out += [_item("Proposed default: " + plain(row["proposed_default"]))]
         out += [""]
     return out
 
@@ -486,6 +494,11 @@ def _list(value) -> list:
 
 def _text(value) -> str:
     return str(value).strip()
+
+
+def _review_text(value) -> str:
+    """Render canonical plain text literally without changing the versioned plan file."""
+    return re.sub(r"([\\`*{}\[\]()#+.!_>~|<>-])", r"\\\1", _text(value))
 
 
 def _item(value) -> str:

@@ -38,6 +38,7 @@ const { RunController } = host.load('controller.js');
 const { ChatView } = host.load('chat.js');
 const { StageListCache } = host.load('core/stage-cache.js');
 const { RunItem } = host.load('runsView.js');
+const { RunPanel } = host.load('panel.js');
 const { activate } = host.load('extension.js');
 
 // The sealed goal contract the Builder leg works under: contract_identity.sealed() of this body.
@@ -2008,4 +2009,323 @@ print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 100, "outp
     }),
   );
   assert.equal(statusJson.view.requirements.intended_outcome, 'Emit Plain text greetings stored in Custom DuckDB file');
+});
+
+test('host-bound acceptance-test pause and independent test-repair history render in Chat and Run details and accept plan feedback (#3350)', { skip }, async (t) => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'walk-3350-')));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const git = (...args) => execFileSync('git', ['-C', root, ...args], { stdio: 'pipe' });
+  git('init', '-q');
+  git('config', 'user.email', 'walk@test');
+  git('config', 'user.name', 'Walk');
+  fs.writeFileSync(path.join(root, '.gitignore'), '.autocode/\n');
+  fs.writeFileSync(path.join(root, 'greet.py'), "print('hi')\n");
+  fs.writeFileSync(path.join(root, 'procinfo.py'), 'def read_stat(pid: int) -> str:\n    return ""\n');
+  git('add', '.gitignore', 'greet.py', 'procinfo.py');
+  git('commit', '-qm', 'seed');
+
+  const { xdg, roles } = writeWalkProvider();
+  t.after(() => fs.rmSync(xdg, { recursive: true, force: true }));
+  const walkPy = path.join(xdg, 'walk_provider.py');
+  fs.writeFileSync(
+    walkPy,
+    fs.readFileSync(walkPy, 'utf8')
+      .replace(
+        'proc = subprocess.run([sys.executable, FAKE, *args], capture_output=True, text=True)',
+        'prompt_in = sys.stdin.read()\n'
+        + 'schema_doc = json.loads(Path(args[args.index("--output-schema") + 1]).read_text())\n'
+        + 'schema_props = schema_doc.get("properties") or {}\n'
+        + 'if "message_id" in schema_props:\n'
+        + '    hd = json.JSONDecoder().raw_decode(prompt_in.rsplit("CURRENT HANDOFF DATA\\n", 1)[1].lstrip())[0]\n'
+        + '    m = hd["message"]\n'
+        + '    tok_k = "gate_token" if "gate_token" in schema_props else "contract_token"\n'
+        + '    report_path.write_text(json.dumps({"message_id": m["id"], tok_k: m[tok_k], "intent": "question", "assistant_reply": "Because macOS lacks /proc/<pid>/stat; add an injectable proc_root defaulting to /proc."}))\n'
+        + '    raise SystemExit(0)\n'
+        + 'proc = subprocess.run([sys.executable, FAKE, *args], input=prompt_in, capture_output=True, text=True)',
+      )
+      .replace(
+        'report = rewrite(report)',
+        'if isinstance(report.get("requirements"), list) and "CURRENT HANDOFF DATA\\n" in prompt_in:\n'
+        + '    hd = json.JSONDecoder().raw_decode(prompt_in.rsplit("CURRENT HANDOFF DATA\\n", 1)[1].lstrip())[0]\n'
+        + '    for i, ev in enumerate(hd.get("brief_feedback") or [], 1):\n'
+        + '        if isinstance(ev, dict) and ev.get("text"):\n'
+        + '            report["requirements"].append({"id": f"RF{i}", "text": ev["text"], "source_quote": ev["text"]})\n'
+        + '            ((report.get("ambiguity_audit") or {}).get("outcome_scope") or {}).setdefault("refs", []).append(f"RF{i}")\n'
+        + 'report = rewrite(report)',
+      ),
+  );
+  const prevXdg = process.env.XDG_CONFIG_HOME;
+  process.env.XDG_CONFIG_HOME = xdg;
+  t.after(() => {
+    if (prevXdg === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = prevXdg;
+  });
+
+  const runDir = path.join(root, '.autocode', 'runs', 'host-bound');
+  fs.mkdirSync(runDir, { recursive: true });
+  const tools = path.dirname(SCRIPT);
+  execFileSync(
+    CLI,
+    [
+      '-c',
+      `
+import json, os, pathlib, sys
+sys.path.insert(0, ${JSON.stringify(tools)})
+import autocode_acceptance_test_repair as test_repair
+import autocode_acceptance_tests as acceptance
+import autocode_acceptance_tests_job as acceptance_job
+import autocode_stuck_job as stuck_job
+from autocode_providers import resolve
+from autocode_util import criteria_definition, digest
+import goal_fixtures
+
+root = pathlib.Path(os.path.realpath(${JSON.stringify(root)}))
+run = pathlib.Path(${JSON.stringify(runDir)})
+body = goal_fixtures.body()
+contract = {"task_id": "t1", "revision": 1, "body": body, "origin": "draft_plan"}
+contract["hash"] = digest({k: contract[k] for k in ("task_id", "revision", "body")})
+token = f"r1:{contract['hash']}"
+approval = {"kind": "goal_approval", "token": token, "actor": "user_cli"}
+contract.update(approval_status="approved", approval_event=approval)
+criteria = [{"id": row["id"], "criterion": row["criterion"], "status": "unverified", "evidence": ""}
+            for row in body["acceptance_criteria"]]
+roles = {**${JSON.stringify(roles)}, "requirements": "fake/plan"}
+provider = resolve("fake")
+ident = provider.local_settings(root)
+writer_out = run / "writer-cannot-write.json"
+writer_out.write_text(json.dumps({
+    "summary": "C1 cannot run directly on macOS without a proc_root seam.",
+    "tests": [],
+    "disagree": [],
+    "cannot_write": [{
+        "case_id": "C1",
+        "reason": "macOS has no /proc/<pid>/stat filesystem and the approved case forbids mocking /proc.",
+    }],
+}))
+tester_out = run / "tester-repair.json"
+tester_out.write_text(json.dumps({
+    "verdict": "FAIL",
+    "criterion_results": [{"id": "C1", "status": "FAIL"}],
+    "acceptance_test_repairs": [{
+        "case_id": "C1",
+        "kind": "broken_fixture",
+        "reason": "tests/test_procinfo.py indexed state['stages'][-1]['events'] before reaching read_stat.",
+    }],
+}))
+tester_record = {
+    "stage": "tester",
+    "status": "completed",
+    "iteration": 1,
+    "output": str(tester_out),
+    "source_revision": "seed",
+    "contract_hash": contract["hash"],
+    "exit_code": 0,
+    "accounted": True,
+    "changed_files": [],
+}
+writer_record = {
+    "stage": "write_acceptance_tests",
+    "status": "completed",
+    "iteration": 2,
+    "output": str(writer_out),
+    "source_revision": "seed",
+    "contract_hash": contract["hash"],
+    "exit_code": 0,
+    "accounted": True,
+    "changed_files": [],
+}
+state = {
+    "version": 3,
+    "task": "Read Linux /proc/<pid>/stat",
+    "workspace": str(root),
+    "status": "PAUSED_ACCEPTANCE_TESTS",
+    "iteration": 2,
+    "sessions": {},
+    "stages": [tester_record, writer_record],
+    "history": [],
+    "user_events": [approval],
+    "turns": [],
+    "next_stage": "write_acceptance_tests",
+    "created_at": "2026-11-17T08:00:00Z",
+    "current_task": {"id": "t1", "milestone_id": "M1", "kind": "build", "acceptance_criteria": ["C1"]},
+    "acceptance_criteria": criteria,
+    "criteria_revision": digest(criteria_definition(criteria)),
+    "settings": {
+        "spec_first": True,
+        "joint_planning": True,
+        "provider": "fake",
+        "engine": "opencode",
+        "roles": {r: {"model": m, "reasoning_effort": "medium"} for r, m in roles.items()},
+        "limits": {"iteration_ceiling": 20, "max_seconds": 3600, "max_cost_usd": 2.0,
+                   "idle_timeout_seconds": 300, "tool_timeout_seconds": 1800, "no_progress_batches": 3},
+        "transport_identity": ident,
+        "transport_identities": {"fake": ident},
+    },
+    "goal_contract": contract,
+    "code_checkpoints": [],
+    "contract_history": [],
+    "planning_history": [],
+}
+test_repair.route_from_review(
+    state,
+    json.loads(tester_out.read_text()),
+    tester_record,
+    covered_case_ids=["C1"],
+)
+acceptance.record_cannot_write(
+    state,
+    [{"id": "C1"}],
+    [{
+        "case_id": "C1",
+        "reason": "macOS has no /proc/<pid>/stat filesystem and the approved case forbids mocking /proc.",
+    }],
+    writer_record,
+)
+acceptance_job._pause_cannot_write(
+    state,
+    ["C1 cannot be tested: macOS has no /proc/<pid>/stat filesystem and the approved case forbids mocking /proc"],
+)
+assert stuck_job.intercept(state, state["status"], state["stop_reason"])
+inv_out = run / "inv-pause.json"
+inv_report = {
+    "cause": "environment",
+    "diagnosis": "Criterion C1 requires reading Linux /proc/<pid>/stat directly with no seam, which is absent on macOS.",
+    "recommendation": "pause",
+    "guidance": "",
+    "user_question": "",
+    "example": "",
+    "probe": "",
+    "untestable": "",
+    "evidence_refs": ["procinfo.py"],
+    "counterexample": {"file": "", "find": "", "replace": ""},
+}
+inv_out.write_text(json.dumps(inv_report))
+stuck_job.apply(
+    state,
+    inv_report,
+    {"output": str(inv_out), "changed_files": []},
+    root,
+    run_probe=lambda c, f: {"exit_code": 0},
+    run_counterexample=lambda c, e, f: {"exit_code": 1},
+)
+(run / "state.json").write_text(json.dumps(state, indent=2))
+`,
+    ],
+    { stdio: 'pipe', env: { ...process.env, XDG_CONFIG_HOME: xdg } },
+  );
+
+  host.config.set('cliPath', CLI);
+  host.config.set('cliArgs', [SCRIPT]);
+  host.config.set('provider', 'fake');
+  host.config.set('confirmPersonOnly', false);
+  host.config.set('notify', false);
+  host.config.set('pollSeconds', 1);
+
+  const controller = new RunController(host.log);
+  let receive;
+  const webview = {
+    html: '',
+    options: {},
+    onDidReceiveMessage: (callback) => { receive = callback; },
+    postMessage: async (data) => { webview.deliver?.(data); return true; },
+  };
+  const shell = { visible: true, webview, onDidChangeVisibility: () => {}, onDidDispose() {} };
+  const chat = new ChatView(
+    controller,
+    { get: () => undefined, update: async () => {} },
+    { pickWorkspace: async () => root, confirmStart: async () => true, changed() {}, selected() {} },
+  );
+  t.after(() => chat.dispose());
+  t.after(() => RunPanel.disposeAll());
+  chat.resolveWebviewView(shell);
+  const dom = new JSDOM(webview.html, { runScripts: 'outside-only' });
+  t.after(() => dom.window.close());
+  let saved = {};
+  dom.window.acquireVsCodeApi = () => ({
+    postMessage: (message) => receive(message),
+    getState: () => saved,
+    setState: (value) => { saved = value; },
+  });
+  webview.deliver = (data) => dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data }));
+  dom.window.eval(dom.window.document.querySelector('script').textContent);
+  await flush();
+
+  const runRef = { workspace: root, runDir };
+  chat.show(runRef);
+  const diag = () => `error=${dom.window.document.querySelector('#chat-error').textContent} | app=${dom.window.document.querySelector('#app').textContent}`;
+  assert.ok(
+    await waitFor(() => {
+      const app = dom.window.document.querySelector('#app')?.textContent || '';
+      const msg = dom.window.document.querySelector('#message');
+      return app.includes('cannot be tested on this host') && msg && !msg.disabled;
+    }, 15000),
+    `host-bound acceptance-test notice and feedback composer rendered: ${diag()}`,
+  );
+
+  const chatText = dom.window.document.querySelector('#app').textContent;
+  assert.ok(chatText.includes('Before building, the Tester found that the approved plan cannot be tested on this host:'), chatText);
+  assert.ok(chatText.includes('Investigator: Criterion C1 requires reading Linux /proc/<pid>/stat directly with no seam'), chatText);
+  assert.doesNotMatch(chatText, /PAUSED_ACCEPTANCE_TESTS|--feedback|--run-dir/);
+
+  const showDetailsBtn = [...dom.window.document.querySelectorAll('#run-header button')].find((b) =>
+    b.textContent.includes('Show details'),
+  );
+  assert.ok(showDetailsBtn, 'Show details button present in Chat run header');
+  showDetailsBtn.click();
+  const chatHeaderText = dom.window.document.querySelector('#run-header').textContent;
+  assert.ok(
+    chatHeaderText.includes('Host limitation (C1): macOS has no /proc/<pid>/stat filesystem and the approved case forbids mocking /proc.'),
+    chatHeaderText,
+  );
+  assert.ok(chatHeaderText.includes('Independent acceptance-test repair (round 1 of 2)'), chatHeaderText);
+  assert.doesNotMatch(chatHeaderText, /PAUSED_ACCEPTANCE_TESTS|--feedback|--run-dir/);
+
+  // Open the Run details panel against the same real CLI status read and inspect Where the run is + What went wrong.
+  const panel = RunPanel.show(1, runRef, controller);
+  const panelWebview = host.panels.at(-1).webview;
+  const panelDom = new JSDOM(panelWebview.html, { runScripts: 'outside-only' });
+  t.after(() => panelDom.window.close());
+  panelDom.window.acquireVsCodeApi = () => ({ postMessage: (m) => panelWebview.receive(m) });
+  panelWebview.deliver = (data) => panelDom.window.dispatchEvent(new panelDom.window.MessageEvent('message', { data }));
+  panelDom.window.eval(panelDom.window.document.querySelector('script').textContent);
+  await panel.refresh();
+  assert.ok(
+    await waitFor(() => panelDom.window.document.body.textContent.includes('Host limitation (C1):'), 10000),
+    `Run details rendered host limitation: ${panelDom.window.document.body.textContent}`,
+  );
+  const detailsText = panelDom.window.document.querySelector('#app').textContent;
+  assert.ok(
+    detailsText.includes('Host limitation (C1): macOS has no /proc/<pid>/stat filesystem and the approved case forbids mocking /proc.'),
+    detailsText,
+  );
+  assert.ok(detailsText.includes('Independent acceptance-test repair (round 1 of 2)'), detailsText);
+  assert.ok(
+    detailsText.includes('AutoCode sent the protected acceptance tests to the independent Tester for repair before running the Builder.'),
+    detailsText,
+  );
+
+  // Submit a plan discussion message directly from the VS Code Chat composer through the real autocode CLI!
+  const msg = dom.window.document.querySelector('#message');
+  msg.value = 'Why cannot C1 run directly on macOS?';
+  msg.dispatchEvent(new dom.window.Event('input'));
+  dom.window.document.querySelector('#composer').dispatchEvent(new dom.window.Event('submit', { cancelable: true }));
+
+  assert.ok(
+    await waitFor(() => {
+      const thread = dom.window.document.querySelector('#thread')?.textContent || '';
+      return (
+        thread.includes('Why cannot C1 run directly on macOS?')
+        && thread.includes('Because macOS lacks /proc/<pid>/stat; add an injectable proc_root defaulting to /proc.')
+      );
+    }, 20000),
+    `feedback message submitted from VS Code Chat rendered assistant reply: ${diag()}`,
+  );
+  const afterStatus = JSON.parse(
+    execFileSync(CLI, [SCRIPT, '--run-dir', runDir, '--status', '--json'], {
+      env: { ...process.env, XDG_CONFIG_HOME: xdg },
+      encoding: 'utf8',
+    }),
+  );
+  assert.equal(afterStatus.view.status, 'PAUSED_ACCEPTANCE_TESTS');
+  assert.equal(afterStatus.view.chat.input.kind, 'feedback');
 });

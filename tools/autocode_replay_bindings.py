@@ -9,8 +9,22 @@ from __future__ import annotations
 from copy import deepcopy
 from pathlib import Path
 
+try:
+    from . import autocode_util as util
+except ImportError:
+    import autocode_util as util
+
 PATH_REFERENCE_FIELDS = frozenset(("evidence_refs", "evidence_ref", "source_refs", "output", "full_output", "receipt"))
 EVENT_PATH_FIELDS = frozenset(("file_path", "filePath", "notebook_path", "path"))
+
+
+def report_repair_grant(pending):
+    """Bind the runner's retry to the current saved repair, including its fresh replay paths.
+
+    No recorded model answer names this internal grant. Replay re-derives it when the
+    Investigator's checked retry is applied to the replay's own pending repair.
+    """
+    return util.digest(pending)
 
 
 def semantic_task(task):

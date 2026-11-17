@@ -173,12 +173,25 @@ def tester_disagreement(public) -> str:
     """The Tester's stop before building is a question about the plan: say what it found and what to send.
 
     It was shown as a failed step that pointed at a saved reason the chat never showed, so the person was
-    offered plan feedback with nothing to say it about (live run, 2026-11-11)."""
+    offered plan feedback with nothing to say it about (live run, 2026-11-11). Distinguishes a host-bound
+    untestable case (cannot_write, #3350) from a plan-vs-code disagreement, and preserves any Investigator note."""
     recovery = public.get("recovery") or {}
-    found = said(acceptance_tests_job.finding(recovery.get("saved_reason")))
+    saved_reason = recovery.get("saved_reason")
+    found = said(acceptance_tests_job.finding(saved_reason))
+    kind = acceptance_tests_job.finding_kind(saved_reason)
+    note = said(acceptance_tests_job.investigator_note(saved_reason))
+    note_suffix = f" Investigator: {note}" if note else ""
+    if kind == "cannot_write":
+        head = "Before building, the Tester found that the approved plan cannot be tested on this host"
+        text = f"{head}: {found}" if found else f"{head}; the run’s details show where."
+        return (
+            text
+            + note_suffix
+            + " Tell me how the plan should change, or run this task on a host that supports it; the Tester then runs again."
+        )
     head = "Before building, the Tester found that the approved plan and today’s code disagree"
     text = f"{head}: {found}" if found else f"{head}; the run’s details show where."
-    return text + " Tell me how the plan should change; the Tester then runs again on the revised plan."
+    return text + note_suffix + " Tell me how the plan should change; the Tester then runs again on the revised plan."
 
 
 def notice(public, *, state: RunState | None = None):
@@ -316,6 +329,7 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
             messages.append(
                 {
                     "id": f"{REQUIREMENTS_SAY}-{hashlib.sha256(spoken.encode()).hexdigest()[:12]}",
+                    "format": "plain",
                     "role": "assistant",
                     "text": spoken,
                 }
@@ -325,7 +339,9 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
             # Each question is its own message: a client shows a message id once, so a shared id
             # hid every Requirements question after the first (#1792).
             key = hashlib.sha256(json.dumps([asked, text]).encode()).hexdigest()[:12]
-            messages.append({"id": f"{REQUIREMENTS_QUESTION}-{key}", "role": "assistant", "text": text})
+            messages.append(
+                {"id": f"{REQUIREMENTS_QUESTION}-{key}", "role": "assistant", "text": text, "format": "plain"}
+            )
     action = None
     blocker_hold = False  # an answered semantic blocker waiting for its contract decision (#2434)
     # A completed stage record may remain as active_stage: use the public

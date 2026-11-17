@@ -84,6 +84,7 @@ try:
     from . import autocode_project_notes_lifecycle as project_notes
     from . import autocode_recovery_accounting as recovery_accounting
     from . import autocode_rejection_retry as rejection_retry
+    from . import autocode_replay_bindings as replay_bindings
     from . import autocode_report_repair_route as report_repair_route
     from . import autocode_resolve_repair_job as resolve_repair_job
     from . import autocode_role_transport as role_transport
@@ -108,6 +109,7 @@ except ImportError:
     import autocode_project_notes_lifecycle as project_notes
     import autocode_recovery_accounting as recovery_accounting
     import autocode_rejection_retry as rejection_retry
+    import autocode_replay_bindings as replay_bindings
     import autocode_report_repair_route as report_repair_route
     import autocode_resolve_repair_job as resolve_repair_job
     import autocode_role_transport as role_transport
@@ -131,6 +133,10 @@ RETRYABLE = frozenset(
         "PAUSED_PLANNING_BUDGET",
         "PAUSED_NO_PROGRESS",
         "PAUSED_COMPLETION_REVIEW",
+        # When spec-first write_acceptance_tests reports cannot_write (a host/capability limitation),
+        # the Investigator checks whether the exact approved case can run faithfully here before a
+        # person is asked (#3350); already_passing and suite-binding stops are excluded in intercept.
+        "PAUSED_ACCEPTANCE_TESTS",
         # The automatic timeout recoveries ran out. Without this the run asked a person to grant more
         # (--grant-recovery), a question about AutoCode's own retries (2026-11-06 live run).
         "PAUSED_TIMEOUT_RECOVERY",
@@ -289,6 +295,8 @@ def intercept(state: RunState, status: str, reason: str, *, routed: bool = False
     """
     stuck = state.get("next_stage")
     if status in RUNNER_ROUTED and not routed:
+        return False
+    if status == "PAUSED_ACCEPTANCE_TESTS" and not acceptance_tests.cannot_write_pending(state):
         return False
     if progressive.retained_review_budget_pause(state, status) or persons_review_total(state, status):
         return False
@@ -592,6 +600,12 @@ def packet(state: RunState, state_path, inventory: dict | None = None, engine: s
         "saved_answers": state.get("answers", {}),
         **({"recovery_context": recovery} if isinstance(recovery, dict) and recovery.get("stage") == STAGE else {}),
         **({"builder_failure": request["failure_evidence"]} if request.get("mode") == "builder_failure" else {}),
+        **(
+            {"cannot_write": cw}
+            if request.get("stage") == acceptance_tests.STAGE
+            and isinstance(cw := (state.get("acceptance_tests") or {}).get("cannot_write"), dict)
+            else {}
+        ),
         # What earlier runs learned about this repository; advisory, never authority (#2943).
         **({"project_notes": notes} if (notes := project_notes.context(state)) else {}),
     }
@@ -881,6 +895,7 @@ def apply(
         # attempt redoing everything the earlier repairs already fixed and failing anew (#2066 rerun).
         state["pending_report_repair"] = {**pending, "attempts": pending["attempts"] - 1}
         entry["retry_as"] = "report_repair"
+        entry["repair_grant"] = replay_bindings.report_repair_grant(state["pending_report_repair"])
     elif pending:
         state.setdefault("report_repair_archive", []).append(
             {

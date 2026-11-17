@@ -9,6 +9,7 @@ if TYPE_CHECKING:
 import copy
 
 try:
+    from .. import autocode_acceptance_test_repair as acceptance_test_repair
     from .. import autocode_acceptance_tests as acceptance_tests
     from .. import autocode_assignment as assignment
     from .. import autocode_check_replay as check_replay
@@ -24,6 +25,7 @@ try:
     from .. import autocode_util as util
     from .. import autocode_workflow as workflow
 except ImportError:
+    import autocode_acceptance_test_repair as acceptance_test_repair
     import autocode_acceptance_tests as acceptance_tests
     import autocode_assignment as assignment
     import autocode_check_replay as check_replay
@@ -89,7 +91,10 @@ def execution_request(state: "RunState", stage, state_path, schema_dir, *, repor
             schema = workflow.implementation_schema(schema_dir)
     # Match the runner's deterministic wire projection without changing the saved report schema.
     # Resolver jobs borrow review context but have a different final report shape/stage.
-    response_schema = support.review_generation_schema(schema, state, report_stage or stage)
+    target_stage = report_stage or stage
+    covered_cases = acceptance_tests.covered(state)
+    schema = acceptance_test_repair.extend_schema(schema, covered_cases, target_stage)
+    response_schema = support.review_generation_schema(schema, state, target_stage)
     prompt, metrics = stage_context.context_packet(state, stage, state_path, response_schema=response_schema)
     if stage == "builder":
         prompt = test_examples.builder_prompt(
@@ -101,5 +106,8 @@ def execution_request(state: "RunState", stage, state_path, schema_dir, *, repor
         metrics = prompt_layout.refresh_metrics(prompt, metrics)
     if stage == "tester":
         prompt = tool_handoff.before_handoff(prompt, check_replay.VALIDATOR_NOTE)
+        metrics = prompt_layout.refresh_metrics(prompt, metrics)
+    if target_stage in acceptance_test_repair.ALL_STAGES and covered_cases:
+        prompt = tool_handoff.before_handoff(prompt, acceptance_test_repair.AUDIT_NOTE)
         metrics = prompt_layout.refresh_metrics(prompt, metrics)
     return ModelRequest(role, autoplanner.route_for(state, stage, role), prompt, metrics, schema, role == "builder")
