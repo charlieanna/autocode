@@ -50,11 +50,9 @@ class ShellPolicy:
     planner_shell: bool
     kilo_owner: bool
     kilo_readonly: bool
-    kilo_portable: bool
     uncontained: bool
     kernel_shell: bool
-    # A writing Kilo stage on a host with the kernel shell runs in it, shell only (#3770); macOS keeps Kilo's own
-    # permissions there, as for its checkers (#1766).
+    # A writing Kilo stage runs in the kernel shell, shell only (#3770), as its checkers do (#1739).
     kilo_writer: bool = False
 
 
@@ -65,11 +63,7 @@ def shell_policy(*, engine, adapter, planning, allow_write, settings, enforce=Tr
     kilo_readonly = (
         type(adapter) is KiloProvider and not allow_write and (not planning or planner_shell) and not kilo_owner
     )
-    kilo_portable = kilo_readonly and sys.platform == "darwin"
-    kilo_readonly = kilo_readonly and not kilo_portable
-    kilo_writer = (
-        type(adapter) is KiloProvider and allow_write and not planning and not kilo_owner and sys.platform != "darwin"
-    )
+    kilo_writer = type(adapter) is KiloProvider and allow_write and not planning and not kilo_owner
     uncontained = containment_policy.accepted(settings)
     kernel_shell = (
         engine == "opencode"
@@ -79,7 +73,7 @@ def shell_policy(*, engine, adapter, planning, allow_write, settings, enforce=Tr
         and (not getattr(adapter, "CONFIGURED", False) or kilo_owner or kilo_readonly or kilo_writer)
     )
     return ShellPolicy(
-        planner_shell, kilo_owner, kilo_readonly, kilo_portable, uncontained, kernel_shell, kilo_writer and kernel_shell
+        planner_shell, kilo_owner, kilo_readonly, uncontained, kernel_shell, kilo_writer and kernel_shell
     )
 
 
@@ -100,7 +94,7 @@ def failure(error, *, kilo_readonly=False, isolation=None):
         if isinstance(error, KiloProbeTimeout)
         else ". Restore the qualified native setup; native role isolation requires its kernel tool boundary"
         if isolation is not None
-        else ". Restore qualified Kilo 7.8.3 and its kernel shell setup; a Kilo stage cannot waive this boundary"
+        else ". Restore a qualified Kilo and its kernel shell setup; a Kilo stage cannot waive this boundary"
         if kilo_readonly
         else ". Restore the qualified setup, or resume with --allow-uncontained-tools to run "
         "this run's stages with OpenCode's own permission checks only"

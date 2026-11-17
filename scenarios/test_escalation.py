@@ -25,9 +25,9 @@ from harness.processes import run_cli  # noqa: E402
 from harness.project import materialize  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
-# How the Builder climbed in both scenarios: the driver's default Builder route to the retry policy's default
-# stronger attempt, as `--status` names them.
-CLIMB = "Builder: gpt-5.6-terra at medium → gpt-6-sol at xhigh after execution failure; 1 attempt, $"
+# How the Builder climbed in both scenarios: the driver's default Builder route after its ordinary retry
+# effort step (#3669) to the retry policy's default stronger attempt, as `--status` names them.
+CLIMB = "Builder: gpt-5.6-terra at high → gpt-6-sol at xhigh after execution failure; 1 attempt, $"
 
 
 class EscalationScenarioTests(unittest.TestCase):

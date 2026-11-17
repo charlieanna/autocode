@@ -56,10 +56,22 @@ What to do:
    runner checks the observed test on its original reference: an original failure keeps the test: meaning,
    and an original pass sends a guard: correction to plan review. Identified inherited cases retain their
    existing approved meaning and fresh final-proof requirement. If no automated
-   test can show a case, report it in cannot_write with the reason; that stops the run for the user.
+   test can show a case on the runner's host, report it in cannot_write with the concrete host or
+   capability reason; the Investigator checks it before any person is asked. Never substitute, invent
+   or add unapproved behavior (such as asserting an unspecified error when /proc or another host
+   resource is absent) merely to make a test run on this host.
 
 If runner_feedback is not empty, the runner already ran your earlier tests for these cases on today's code
 and rejected them for the reasons it lists, oldest first: correct the tests it names, in place.
+
+If test_repair is present, an independent review found that earlier protected tests for the listed cases
+either contradicted/substituted for the approved criterion (kind="contradicts_case") or failed due to a
+fixture/assertion defect in the test itself rather than a product bug (kind="broken_fixture"). Replace or
+fix the defective test lines so every listed case proves its exact approved criterion (retaining valid
+tests for unaffected cases in the batch; in Python, import the existing module and call module.symbol(...)
+rather than from module import new_symbol so original-reference execution observes a behavioral/attribute
+failure rather than an import setup error), or report genuinely host-bound untestable cases in cannot_write.
+Keep product code and the approved plan unchanged.
 
 If evidence_repair is present, these approved cases already have qualified tests, but the independent
 review found missing assertions. Strengthen the existing selected named tests while retaining their

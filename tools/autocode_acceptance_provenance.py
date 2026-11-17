@@ -120,6 +120,21 @@ def _archives(state: RunState, contract, row, *, name=None):
                 yield path, archived, verdict
 
 
+def _same_delivered_case(previous, current) -> bool:
+    """A later description may clarify the baseline without changing the proven behavior."""
+    if not isinstance(previous, dict) or not isinstance(current, dict):
+        return False
+    old_sources, new_sources = previous.get("sources", []), current.get("sources", [])
+    if not isinstance(old_sources, list) or not isinstance(new_sources, list):
+        return False
+    if any(new_sources.count(source) < old_sources.count(source) for source in old_sources):
+        return False
+    metadata = {"sources", "current_behavior"}
+    return {k: v for k, v in previous.items() if k not in metadata} == {
+        k: v for k, v in current.items() if k not in metadata
+    }
+
+
 def _has_fail_first_origin(state: RunState, row, path, archived) -> bool:
     """An already-passing receipt traces to an earlier completed turn's red test."""
     turns = state["turns"]
@@ -130,7 +145,7 @@ def _has_fail_first_origin(state: RunState, row, path, archived) -> bool:
         if contract is None or turns[end - 1]["stage_index"] >= turns[-1]["stage_index"]:
             continue
         rows = [old for old in contract["body"]["acceptance_criteria"] if old.get("id") == row["id"]]
-        if rows != [row]:
+        if len(rows) != 1 or not _same_delivered_case(rows[0], row):
             continue
         if any(
             verdict == "fails" and old_path == path and acceptance.kept(original, archived)
@@ -231,7 +246,11 @@ def inherited_cases(state: RunState, *, reports: list[dict] | None = None, works
         result = set(reapproved)
         for row in current:
             cid, method = row["id"], row.get("verification_method")
-            if cid in reproduction or old.get(cid) != row or test_cases.mark(method) != test_cases.MARK:
+            if (
+                cid in reproduction
+                or not _same_delivered_case(old.get(cid), row)
+                or test_cases.mark(method) != test_cases.MARK
+            ):
                 continue
             name = test_cases.declared_test_name(str(method).strip()[len(test_cases.MARK) :].strip())
             if not name:

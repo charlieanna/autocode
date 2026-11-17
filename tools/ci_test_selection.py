@@ -100,6 +100,8 @@ SUITE_CONSUMERS = (
 SCENARIO_RUNTIME_CONSUMERS = {
     "tools/autocode_run_view.py": ("scenarios.test_escalation",),
     "tools/autocode_recovery_view.py": ("scenarios.test_escalation",),
+    "tools/autocode_light_builder.py": ("scenarios.test_escalation",),
+    "tools/autocode_builder_policy.py": ("scenarios.test_escalation",),
     **{
         f"scenarios/catalog/{scenario}/oracle.py": ("scenarios.test_reliability_oracle_outcomes",)
         for scenario in (
@@ -489,10 +491,18 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("scenarios/harness/components_driver.py", ("tests.test_local_compose_scenario",)),
     ("tools/prompts/fragments/provider-launch/tool-free-report-repair.md", ("tests.test_provider_launch",)),
     ("scenarios/harness/profiles.py", ("tests.test_kilocode_effort",)),
-    ("tools/prompts/acceptance-tests.md", ("tests.test_acceptance_tests", "tests.test_acceptance_runner_handoff")),
+    (
+        "tools/prompts/acceptance-tests.md",
+        ("tests.test_acceptance_tests", "tests.test_acceptance_runner_handoff", "tests.test_acceptance_test_repair"),
+    ),
     (
         "tools/prompts/fragments/acceptance-tests/",
-        ("tests.test_acceptance_tests", "tests.test_acceptance_provenance", "tests.test_acceptance_runner_handoff"),
+        (
+            "tests.test_acceptance_tests",
+            "tests.test_acceptance_provenance",
+            "tests.test_acceptance_runner_handoff",
+            "tests.test_acceptance_test_repair",
+        ),
     ),
     ("tools/prompts/fragments/test-cases/diagnosis-builder-note.md", ("tests.test_acceptance_tests",)),
     (

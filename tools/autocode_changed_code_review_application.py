@@ -15,12 +15,16 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_acceptance_test_repair as acceptance_test_repair
+    from . import autocode_acceptance_tests as acceptance_tests
     from . import autocode_changed_code_proof as proof_policy
     from . import autocode_changed_code_review as review
     from . import autocode_changed_code_rework as rework
     from . import autocode_report_repair_queue as report_repair_queue
     from . import autocode_util as util
 except ImportError:
+    import autocode_acceptance_test_repair as acceptance_test_repair
+    import autocode_acceptance_tests as acceptance_tests
     import autocode_changed_code_proof as proof_policy
     import autocode_changed_code_review as review
     import autocode_changed_code_rework as rework
@@ -53,6 +57,15 @@ def preflight(state: RunState, validation, record, *, passing_claim):
     and the post-replay evidence binding in ``accept``.
     """
     report_repair_queue.require_executed_passes(validation, passing_claim=passing_claim)
+    if record.get("role") != "builder":
+        actual = str(
+            record.get("original_stage") or str(record.get("stage") or "tester").removesuffix("_report_repair")
+        )
+        acceptance_test_repair.validate_report(
+            validation,
+            stage=actual if actual in acceptance_test_repair.REVIEW_STAGES else "tester",
+            covered_case_ids=acceptance_tests.covered(state),
+        )
     problems = []
     for check in (require_exact_lines, require_tester_decisions):
         try:
@@ -223,6 +236,10 @@ def require_tester_decisions(state: RunState, value, record):
 
 def route(state: RunState, validation, record, *, investigation_enabled):
     """Keep unresolved obligations inside Builder/Investigator repair."""
+    if acceptance_test_repair.route_from_review(
+        state, validation, record, covered_case_ids=acceptance_tests.covered(state)
+    ):
+        return True
     proof = state.get("regression_proof") or {}
     if not proof.get("changed_code_evidence"):
         return False

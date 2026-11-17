@@ -35,6 +35,7 @@ try:
     from . import autocode_providers as providers
     from . import autocode_stage_choices as stage_choices
     from . import autocode_stages_cli as stages_cli
+    from . import autocode_tool_containment as containment
 except ImportError:
     import autocode_captured_process as captured
     import autocode_connected_engine as connected_engine
@@ -42,17 +43,20 @@ except ImportError:
     import autocode_providers as providers
     import autocode_stage_choices as stage_choices
     import autocode_stages_cli as stages_cli
+    import autocode_tool_containment as containment
 
+# The Kilo release setup installs: the first one qualified for this host's sandbox (Linux's where none is).
+KILO = (containment.kilo_versions() or containment.KILO_VERSIONS[containment.BUBBLEWRAP])[0]
 # The four backends, in the order setup shows them, with the install command for a missing one.
 BACKENDS = (
     ("claude", "npm install -g @anthropic-ai/claude-code"),
     ("codex", "npm install -g @openai/codex"),
     ("opencode", "npm install -g opencode-ai@1.18.33"),
-    ("kilocode", "npm install -g @kilocode/cli@7.8.3"),
+    ("kilocode", f"npm install -g @kilocode/cli@{KILO}"),
 )
 INSTALL = dict(BACKENDS)
 # The hubs a person connects every other account and API key in; setup installs one when neither is present.
-HUBS = {"opencode": "OpenCode 1.18.33", "kilocode": "Kilo 7.8.3"}
+HUBS = {"opencode": "OpenCode 1.18.33", "kilocode": f"Kilo {KILO}"}
 # The command a hub installs; npm puts it in its own global bin, which may not be on PATH.
 EXECUTABLES = {"opencode": "opencode", "kilocode": "kilo"}
 NODE = "https://nodejs.org"

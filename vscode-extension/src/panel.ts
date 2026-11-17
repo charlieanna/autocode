@@ -477,7 +477,13 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
   return {
     chat: view.chat,
     requirementsView: view.requirements ?? null,
-    formattedMessages: Object.fromEntries((view.chat?.messages ?? []).filter((row) => row.role === "assistant").map((row) => [row.id, markdown(row.text)])),
+    // Requirements' handoff and question are plain text from the public view. Parsing them as
+    // Markdown changes literal names such as tests/__init__.py before the person confirms them.
+    formattedMessages: Object.fromEntries((view.chat?.messages ?? []).filter((row) => row.role === "assistant"
+      && row.format !== "plain" && !row.id.startsWith("requirements-question-") && !row.id.startsWith("requirements-say-")
+      && !row.id.startsWith("plan-")
+      && !/^event-\d+-(?:question|reply)$/.test(row.id))
+      .map((row) => [row.id, markdown(row.text)])),
     workspace: run.workspace,
     runDir: run.runDir,
     status: view.status,
@@ -1107,10 +1113,19 @@ let current = null;
 let answers = Object.create(null);
 let customSelected = Object.create(null);
 let reviewOverrides = Object.create(null);
+function saveDecisionDraft() {
+  if (!chatMode || !chatEnvelope || !current) return;
+  const saved = vscode.getState() || {};
+  const decisionDrafts = saved.decisionDrafts || {};
+  decisionDrafts[chatEnvelope.runKey] = { context: current.decisionContext,
+    answers: { ...answers }, customSelected: { ...customSelected }, reviewOverrides: { ...reviewOverrides } };
+  vscode.setState({ ...saved, decisionDrafts });
+}
 let renderedState = '';
 let allChangesCompare = null;
 let allChangesContext = null;
 let allChangesRequested = false;
+let allChangesVisible = false;
 let allChangesRequest = 0;
 let workingCompare = null;
 const ACTIVITY_MARKS = { command: '$', edit: '±', tool: '·', thinking: '∴', message: '»' };
@@ -1352,9 +1367,11 @@ function renderFinish(state) {
   const facts = el('div', 'facts');
   const fact = (label, value, cls) => { facts.appendChild(el('span', null, label)); facts.appendChild(el('span', cls || null, value)); };
   if (finish.requirements) fact('Requirements', finish.requirements.checked + ' of ' + finish.requirements.total + ' checked');
-  if (finish.files.length) {
-    const shown = finish.files.slice(0, 6).join(', ') + (finish.files.length > 6 ? ' and ' + (finish.files.length - 6) + ' more' : '');
-    fact('Changed', finish.files.length + (finish.files.length === 1 ? ' file: ' : ' files: ') + shown, 'files');
+  const files = allChangesCompare && allChangesCompare.comparison && Array.isArray(allChangesCompare.comparison.changed_files)
+    ? allChangesCompare.comparison.changed_files : [];
+  if (files.length) {
+    const shown = files.slice(0, 6).join(', ') + (files.length > 6 ? ' and ' + (files.length - 6) + ' more' : '');
+    fact('Changed', files.length + (files.length === 1 ? ' file: ' : ' files: ') + shown, 'files');
   }
   if (finish.seconds !== null) fact('Stage time', formatDuration(finish.seconds));
   if (state.meter && state.meter.total) fact('Cost', state.meter.total);
@@ -1380,8 +1397,9 @@ function renderFinish(state) {
   app.appendChild(card);
 }
 
-function requestAllChanges(state) {
+function requestAllChanges(state, show = true) {
   if (!state.allChanges || state.taking || state.unreadable) return;
+  if (show) allChangesVisible = true;
   allChangesRequested = true;
   allChangesCompare = { loading: true };
   renderedState = '';
@@ -1406,7 +1424,7 @@ function renderAllChanges(state) {
     box.appendChild(el('div', 'why', 'Loading changes…'));
   } else if (allChangesCompare && allChangesCompare.error) {
     box.appendChild(el('div', 'why', 'Could not show the changes: ' + allChangesCompare.error));
-  } else if (allChangesCompare) {
+  } else if (allChangesCompare && allChangesVisible) {
     const comparison = allChangesCompare.comparison || {};
     const files = (comparison.changed_files || []).length;
     box.appendChild(el('div', 'why', files + ' file(s) changed in this run' + (comparison.truncated ? ' · diff truncated' : '')));
@@ -1708,11 +1726,14 @@ function render(state) {
   const selection = focusedAttr && focused.tagName === 'INPUT'
     ? [focused.selectionStart, focused.selectionEnd, focused.selectionDirection] : null;
   if (!sameRequest) {
-    answers = Object.create(null);
-    customSelected = Object.create(null);
-    reviewOverrides = Object.create(null);
+    const saved = chatMode && chatEnvelope ? (vscode.getState() || {}).decisionDrafts?.[chatEnvelope.runKey] : null;
+    const draft = saved && saved.context === state.decisionContext ? saved : null;
+    answers = Object.assign(Object.create(null), draft?.answers || {});
+    customSelected = Object.assign(Object.create(null), draft?.customSelected || {});
+    reviewOverrides = Object.assign(Object.create(null), draft?.reviewOverrides || {});
   }
   current = state;
+  if (!sameRequest) saveDecisionDraft();
   app.textContent = '';
   app.classList.remove('muted');
   if (chatMode && state.unreadable) {
@@ -2452,6 +2473,7 @@ function renderChat(data) {
   const same = chatEnvelope && chatEnvelope.runKey === data.runKey;
   if (!same) {
     if (chatEnvelope) tabScroll[chatEnvelope.runKey] = thread.scrollTop;
+    saveDecisionDraft();
     saveDraft();
     const saved = vscode.getState() || {};
     const incoming = (saved.drafts || {})[data.runKey] || '';
@@ -2472,6 +2494,7 @@ function renderChat(data) {
     current = null; renderedState = ''; answers = Object.create(null);
     allChangesCompare = null; workingCompare = null;
     allChangesRequested = false;
+    allChangesVisible = false;
     liveLog.clear();
     openThoughts.clear();
   }
@@ -2564,7 +2587,7 @@ function renderChat(data) {
   updateComposer();
   // Keep an opened comparison current, using only the fresh view's named read.
   // A busy command or unreadable status defers this until the next usable view.
-  if (allChangesRequested && !allChangesCompare && data.state) requestAllChanges(data.state);
+  if (data.state && !allChangesCompare && (allChangesRequested || data.state.done)) requestAllChanges(data.state, false);
   chatBehavior.resize();
   if (!same) {
     // Each tab remembers where its reader was (#1558); a first open starts at
@@ -2734,6 +2757,13 @@ function appendFormatted(parent, nodes) {
     const child = node.tag && allowed.has(node.tag) ? document.createElement(node.tag) : document.createTextNode(node.text || '');
     if (node.tag) {
       child.textContent = node.text || '';
+      if (node.tag === 'ol' && Number.isInteger(node.start)) child.setAttribute('start', String(node.start));
+      if (node.tag === 'li' && typeof node.checked === 'boolean') {
+        const mark = document.createElement('span');
+        mark.textContent = node.checked ? '☑ ' : '☐ ';
+        mark.setAttribute('aria-label', node.checked ? 'Completed: ' : 'Not completed: ');
+        child.appendChild(mark);
+      }
       if (node.tag === 'a' && /^https?:\\/\\//i.test(node.href || '')) {
         child.setAttribute('href', node.href); child.setAttribute('rel', 'noreferrer noopener'); child.setAttribute('target', '_blank');
       }
@@ -2744,6 +2774,8 @@ function appendFormatted(parent, nodes) {
 }
 
 if (chatMode) {
+  app.addEventListener('input', saveDecisionDraft);
+  app.addEventListener('change', saveDecisionDraft);
   // Only the core's own offer: the extension asks for the list the status view names.
   document.getElementById('change-stage-models').addEventListener('click', () => vscode.postMessage({ type: 'stage_models' }));
   document.getElementById('history').addEventListener('click', () => vscode.postMessage({ type: 'history' }));

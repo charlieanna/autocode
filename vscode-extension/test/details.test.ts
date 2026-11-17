@@ -777,3 +777,61 @@ test("internal prompt and gap_id-enum machinery never leaks into person-facing h
   const routesLines = section(seatbelt, "routes")!.lines.join("\n");
   assert.match(routesLines, /macOS Seatbelt.*127\.0\.0\.1/);
 });
+
+test("acceptance-test host limitations and independent repair history render in plain language without internal schema paths (#3350)", () => {
+  const notice =
+    "Before building, the Tester found that the approved plan cannot be tested on this host: " +
+    "AC1 cannot be tested: macOS has no /proc/<pid>/stat filesystem. " +
+    "Investigator: Criterion AC1 requires reading Linux /proc/<pid>/stat directly with no seam. " +
+    "Tell me how the plan should change, or run this task on a host that supports it; the Tester then runs again.";
+  const header = runHeader(view({
+    status: "PAUSED_ACCEPTANCE_TESTS",
+    summary: { state: "needs_you", label: "Needs you", sentence: "The approved plan cannot be tested directly on this host." },
+    needs: { kind: "feedback", reason: "AC1 cannot be tested: macOS has no /proc/<pid>/stat filesystem." },
+    chat: { notice, input: { kind: "feedback", placeholder: "How should the plan change?", next_command: ["autocode", "--run-dir", "/tmp/run", "--feedback", "<text>"] } },
+    recovery: {
+      what_happened: "Before building, the Tester found an approved case cannot be tested directly in this host environment.",
+      saved_reason: "AC1 cannot be tested: macOS has no /proc/<pid>/stat filesystem.\nInvestigator: Criterion AC1 requires reading Linux /proc/<pid>/stat directly with no seam.",
+    },
+    acceptance_tests: {
+      status: "pending",
+      cases: ["AC1"],
+      tests: [],
+      cannot_write: [
+        { case_id: "AC1", reason: "macOS has no /proc/<pid>/stat filesystem and the approved case forbids mocking /proc." },
+      ],
+    },
+    recoveries: [
+      {
+        id: "r1",
+        kind: "acceptance_test_repair",
+        at: "2026-11-17T08:15:00+00:00",
+        headline: "Independent acceptance-test repair (round 1 of 2)",
+        problem: "AC1 (broken_fixture): tests/test_ac1.py indexes state['stages'][-1]['events'] before asserting AC1.",
+        action: "Tester routed protected acceptance test(s) back to the Acceptance Test Writer before returning to Builder.",
+        by: "Tester",
+        detail: "tests/test_ac1.py",
+      },
+    ],
+  }))!;
+  const whereLines = section(header, "where")!.lines;
+  assert.ok(whereLines.includes(notice));
+  assert.ok(
+    whereLines.includes("  Host limitation (AC1): macOS has no /proc/<pid>/stat filesystem and the approved case forbids mocking /proc."),
+    whereLines.join("\n"),
+  );
+  assert.doesNotMatch(JSON.stringify(header), /PAUSED_ACCEPTANCE_TESTS|--feedback|--run-dir/);
+
+  const wrongLines = section(header, "wrong")!.lines;
+  assert.deepEqual(wrongLines, [
+    "08:15:00 Independent acceptance-test repair (round 1 of 2)",
+    "  What went wrong: AC1 (broken_fixture): tests/test_ac1.py indexes state['stages'][-1]['events'] before asserting AC1.",
+    "  Then: Tester routed protected acceptance test(s) back to the Acceptance Test Writer before returning to Builder.",
+    "  What it found: tests/test_ac1.py",
+  ]);
+
+  assert.equal(
+    personReason("Completed tester output was rejected ($.acceptance_test_repairs[0].kind: expected 'contradicts_case' or 'broken_fixture'); attempt archived."),
+    "",
+  );
+});

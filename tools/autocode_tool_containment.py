@@ -48,6 +48,9 @@ SANDBOX_EXEC = "/usr/bin/sandbox-exec"
 BWRAP = "/usr/bin/bwrap"
 SEATBELT, BUBBLEWRAP = "seatbelt", "bubblewrap"
 POLICY_FILES = {SEATBELT: "policy.sb", BUBBLEWRAP: "policy.bwrap"}
+# The Kilo releases qualified on each backend: the contained-shell checks (tests.test_kilocode_policy's native
+# Kilo tests) passed with that release and that sandbox. A release is added here only after they pass on it.
+KILO_VERSIONS = {BUBBLEWRAP: ("7.8.3",), SEATBELT: ("7.8.27",)}
 SYSTEM_READ_ROOTS = (
     "/bin",
     "/sbin",
@@ -140,6 +143,12 @@ def backend():
     return {"darwin": SEATBELT, "linux": BUBBLEWRAP}.get(sys.platform)
 
 
+def kilo_versions(platform=None):
+    """The Kilo releases qualified for this host's containment backend (or ``platform``'s); empty where none is."""
+    host = {"darwin": SEATBELT, "linux": BUBBLEWRAP}.get(platform) if platform else backend()
+    return KILO_VERSIONS.get(host, ())
+
+
 def _bubblewrap_problem():
     """Why bwrap cannot create the namespaces a contained shell needs, or None.
 
@@ -194,11 +203,11 @@ def _bubblewrap_problem():
 
 
 SEATBELT_LOOPBACK_NOTE = (
-    "Seatbelt blocks stage loopback socket binds (127.0.0.1), while local runner proofs, "
-    "portable kilocode and --allow-uncontained-tools permit them"
+    "Seatbelt blocks stage loopback socket binds (127.0.0.1), while local runner proofs "
+    "and --allow-uncontained-tools permit them"
 )
 SEATBELT_CODEX_LOOPBACK_NOTE = (
-    "macOS Seatbelt blocks stage 127.0.0.1 loopback socket binds; local runner proofs and portable kilocode permit them"
+    "macOS Seatbelt blocks stage 127.0.0.1 loopback socket binds; local runner proofs permit them"
 )
 
 
@@ -1619,7 +1628,7 @@ def configure(
         raise ValueError("Ordinary Kilo containment does not observe a native launch identity")
     if resolved_shell_policy is not None and transport != "kilocode":
         raise ValueError("Resolved shell policy is only supported for ordinary Kilo")
-    supported_version = "7.8.3" if transport == "kilocode" else SUPPORTED_VERSION
+    supported = kilo_versions() if transport == "kilocode" else (SUPPORTED_VERSION,)
     config_variable = "KILO_CONFIG_CONTENT" if transport == "kilocode" else "OPENCODE_CONFIG_CONTENT"
     if type(retain_launch_identity) is not bool:
         raise ValueError("Native launch observation option must be an explicit boolean")
@@ -1658,8 +1667,14 @@ def configure(
     version = captured.run_metadata(
         [executable, "--version"], env=environment, cwd=workspace, capture_output=True, text=True, timeout=15
     )
-    if version.returncode or version.stdout.strip() != supported_version:
-        raise RuntimeError("Strict native tool containment requires qualified " + transport + " " + supported_version)
+    if version.returncode or version.stdout.strip() not in supported:
+        raise RuntimeError(
+            "Strict native tool containment requires qualified "
+            + transport
+            + " "
+            + (" or ".join(supported) if supported else "(none is qualified for this host's sandbox yet)")
+        )
+    supported_version = version.stdout.strip()
     agent = command[command.index("--agent") + 1]
     child = dict(environment)
     config = json.loads(child[config_variable])
@@ -1899,12 +1914,12 @@ def verify(boundary):
     # A manifest written before #709 names no backend; only Seatbelt existed then.
     host = backend()
     transport = boundary.get("transport", "opencode")
-    expected_version = "7.8.3" if transport == "kilocode" else SUPPORTED_VERSION
+    expected_versions = kilo_versions() if transport == "kilocode" else (SUPPORTED_VERSION,)
     if (
         transport not in ("opencode", "kilocode")
         or host is None
         or boundary.get("backend", SEATBELT) != host
-        or boundary.get("native_version") != expected_version
+        or boundary.get("native_version") not in expected_versions
     ):
         raise RuntimeError("Native tool containment platform or transport is unsupported")
     try:
@@ -1937,7 +1952,7 @@ def verify(boundary):
         raise RuntimeError("Native tool containment authority changed; no provider launched") from error
     if transport == "kilocode":
         proof = json.loads(Path(boundary["conformance"]).read_text())
-        if proof.get("transport") != transport or proof.get("native_version") != expected_version:
+        if proof.get("transport") != transport or proof.get("native_version") != boundary["native_version"]:
             raise RuntimeError("Kilo kernel conformance does not match the recorded transport")
     if "write_paths" in boundary:
         try:

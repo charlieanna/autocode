@@ -629,6 +629,7 @@ def assert_within_assignment(state: RunState, record):
         state.get("workspace"),
         checkpoints=state.get("code_checkpoints") or (),
         archived=acceptance_tests.protected(state),
+        repaired=acceptance_tests.repaired_protected(state),
     )
     if reason is not None:
         raise support.Paused("PAUSED_ASSIGNMENT_SCOPE", reason)
@@ -1156,6 +1157,7 @@ def _apply_result(runtime, state: RunState, stage, value, record, workspace, run
         for entry in value.get("deferred_backlog", []):
             if entry not in state.setdefault("deferred_backlog", []):
                 state["deferred_backlog"].append(entry)
+        decision_routes.validate_decision(state, stage, value)
         if value["user_request"]["kind"] != "none" and decision_routes.user_request(
             runtime,
             state,
@@ -1272,19 +1274,8 @@ def _apply_result(runtime, state: RunState, stage, value, record, workspace, run
                     goals.record_decision(state, value)
                     save_record(state, record)
                     return
-            if modern and stage == "resolve":
-                # Reject invalid proposals before charging for failure diagnosis.
-                # Milestone progress gates retain their exhaustion ordering.
-                proposed = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
-                candidate = copy.deepcopy(state)
-                spec = value.get("next_task")
-                if isinstance(spec, dict):
-                    findings_ledger.assign(candidate, {"id": "proposal-preflight"}, spec, value)
-                try:
-                    lifecycle.assign_task(candidate, value, proposed)
-                except support.Paused as error:
-                    if not error.status.startswith("PAUSED_MILESTONE_"):
-                        raise
+            if modern:
+                decision_routes.prepare_continuation(runtime, state, stage, value, record, workspace)
             if stage in ("review_completion", "resolve") and not continuation:
                 state["iteration"] += 1
             if (

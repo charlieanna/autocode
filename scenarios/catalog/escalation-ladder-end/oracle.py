@@ -13,9 +13,9 @@ import hashlib
 from harness import catalog
 from harness.oracle import Check, escalation_checks
 
-# The driver's default Builder route (harness/driver.py FAKE_FLAGS), then the Builder retry policy's default
-# stronger attempt, GPT-6 Sol at xhigh, as the Codex engine spells it.
-CLIMBED = (("gpt-5.6-terra", "medium"), ("gpt-6-sol", "xhigh"))
+# The driver's default Builder route after its ordinary retry effort step (#3669), then the Builder retry
+# policy's default stronger attempt, GPT-6 Sol at xhigh, as the Codex engine spells it.
+CLIMBED = (("gpt-5.6-terra", "high"), ("gpt-6-sol", "xhigh"))
 # The Builder's attempts: the first, its one ordinary retry, then the stronger attempt; then the ladder ends.
 BUILDS = 3
 # The runner's own stamps (the view's escalation_outcomes): the ordinary retry and the stronger attempt, both
