@@ -150,6 +150,29 @@ class SelectedToolchainTests(unittest.TestCase):
                 self.assertEqual(0, result.returncode, (command, result.stderr))
             self.assertEqual(str(base / "toolchains" / "current" / "git"), result.stdout.strip())
 
+    def test_a_virtualenv_in_a_linked_directory_runs_contained(self):
+        # macOS's /tmp is a link to /private/tmp: a venv named through it must run, not pause the run.
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            root = base / "project"
+            root.mkdir()
+            subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(base / "real" / "venv")], check=True)
+            (base / "alias").symlink_to(base / "real", target_is_directory=True)
+            env = {"PATH": f"{base / 'alias' / 'venv' / 'bin'}:/usr/bin:/bin"}
+            selected = toolchain.discover(root, ["python3 -c 'print(1)'"], env)
+            boundary = containment.prepare(
+                root, read_roots=selected["read_roots"], links=selected["links"], environment=env
+            )
+            result = subprocess.run(
+                [boundary["shell"], "-c", "python3 -c 'import sys; print(sys.prefix)'"],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertIn(Path(result.stdout.strip()).resolve(), {base / "real" / "venv"})
+
     def test_linked_worktree_reads_git_metadata_without_main_checkout_source(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory).resolve()

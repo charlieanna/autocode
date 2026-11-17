@@ -303,6 +303,17 @@ def _path(value):
     return path
 
 
+def _read_root(value):
+    """A read root as the kernel checks it: the canonical path its links lead to.
+
+    Read authority on the resolved directory names exactly what the written path reads, so a link on
+    the way (macOS's /tmp -> /private/tmp, a version manager's `current`, a virtualenv in a linked
+    directory) is followed rather than refused, and a later change to the link cannot widen the grant.
+    Write authority (workspace, scratch, run directory) still refuses links through _path.
+    """
+    return Path(value).absolute().resolve()
+
+
 def _protected_path(value):
     # A copied symlink itself must be protected from unlink/replace. Resolve
     # its parent only: resolving the final link would protect a different file.
@@ -318,7 +329,7 @@ def _authority(workspace, scratch, read_roots, protected_paths):
     private = root / ".autocode"
     if not scratch.is_relative_to(private) or scratch == private:
         raise ValueError("Tool scratch must be a fresh owned child of workspace/.autocode")
-    reads = {_path(p) for p in read_roots}
+    reads = {_read_root(p) for p in read_roots}
     if any(p == Path("/") or p == Path.home() for p in (root, *reads)):
         raise ValueError("Tool containment refuses an unscoped read root")
     protected = {
@@ -409,7 +420,7 @@ def _bound_path_kinds(footprint, kinds):
 def _policy_inputs(read_roots, protected_paths):
     """Pin the full caller policy inputs without resolving final protected links."""
     return {
-        "read_roots": [str(_path(value)) for value in read_roots],
+        "read_roots": [str(_read_root(value)) for value in read_roots],
         "protected_paths": [str(_protected_path(value)) for value in protected_paths],
     }
 
@@ -695,27 +706,6 @@ def _enforces_private_reads(host, profile, reads):
             if i > hidden[0] and denied.is_relative_to(target):
                 return False  # It covers the tmpfs again.
     return True
-
-
-def _authority(workspace, scratch, read_roots, protected_paths):
-    """The validated paths every backend enforces: (root, scratch, extra reads, protected)."""
-    root, scratch = _path(workspace), _path(scratch)
-    private = root / ".autocode"
-    if not scratch.is_relative_to(private) or scratch == private:
-        raise ValueError("Tool scratch must be a fresh owned child of workspace/.autocode")
-    reads = {_path(p) for p in read_roots}
-    if any(p == Path("/") or p == Path.home() for p in (root, *reads)):
-        raise ValueError("Tool containment refuses an unscoped read root")
-    protected = {
-        private,
-        root / ".git",
-        root / ".opencode",
-        root / "opencode.json",
-        root / "opencode.jsonc",
-        *(_protected_path(p) for p in protected_paths),
-        *(p for p in reads if p.is_relative_to(root)),
-    }
-    return root, scratch, reads, protected
 
 
 def policy(workspace, scratch, *, allow_write=False, read_roots=(), protected_paths=(), write_paths=None):
