@@ -10,17 +10,130 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import autocode_action_recovery as action_recovery
 import autocode_args as arguments
 import autocode_job_args as job_args
 import autocode_job_failure as failure
 import autocode_job_time_view as job_time_view
 import autocode_run_view as run_view
+import autocode_util as util
 from autocode_taskrun import TaskRun, TaskRunError
 
 from . import test_acceptance_writer_route as writer_fixture
 
 
 class StageLimitPolicyTests(unittest.TestCase):
+    def approval_state(self):
+        contract = {"task_id": "task-1", "revision": 1, "body": {"requirements": []}}
+        contract["hash"] = util.digest({key: contract[key] for key in ("task_id", "revision", "body")})
+        from autocode_contract_identity import token
+
+        shown = token(contract)
+        return {
+            "status": "AWAITING_GOAL_APPROVAL",
+            "goal_contract": contract,
+            "displayed_goal": shown,
+            "active_seconds": 900,
+            "settings": {"limits": {"max_seconds": 5000}, "budget_origins": {"max_seconds": "user_explicit"}},
+            "user_events": [],
+            "configuration_changes": [],
+        }
+
+    def test_plan_approval_offers_exact_plan_bound_save_only_time_control(self):
+        state = self.approval_state()
+        view = run_view.view(state)
+        row = view["needs"]["job_time_controls"][0]
+        self.assertEqual(
+            ("max_seconds", 5000, 5001, "approval"), (row["id"], row["current"], row["minimum"], row["purpose"])
+        )
+        self.assertEqual(state["displayed_goal"], row["binding"])
+        self.assertIn("--extend-plan-time-limit --max-seconds N", row["command"])
+        self.assertIn("AUTOCODE_EXPECTED_GOAL_TOKEN=", row["command"])
+        self.assertIn("--expected-goal-token -", row["command"])
+
+    def test_plan_time_save_keeps_exact_approval_pending_and_refuses_stale_or_busy_state(self):
+        import autocode_plan_time as plan_time
+
+        state = self.approval_state()
+        before_contract = copy.deepcopy(state["goal_contract"])
+        args = SimpleNamespace(
+            expected_goal_token=state["displayed_goal"],
+            _approval_time_settings={
+                "limits": {"max_seconds": 6000},
+                "budget_origins": {"max_seconds": "user_explicit"},
+            },
+        )
+        runtime = Mock()
+        plan_time.change(runtime, state, Path("/run/state.json"), args)
+        self.assertEqual("AWAITING_GOAL_APPROVAL", state["status"])
+        self.assertEqual(before_contract, state["goal_contract"])
+        self.assertEqual(args.expected_goal_token, state["displayed_goal"])
+        self.assertEqual(6000, state["settings"]["limits"]["max_seconds"])
+        self.assertEqual("plan_time_limit_extended", state["user_events"][-1]["kind"])
+        runtime.write_json.assert_called_once()
+        for key, change in (
+            ("stale_token", {"expected_goal_token": "r0:stale"}),
+            ("status", {"status": "RUNNING"}),
+            ("active_stage", {"active_stage": {"stage": "builder"}}),
+        ):
+            with self.subTest(key=key):
+                candidate = self.approval_state()
+                candidate.update({k: v for k, v in change.items() if k != "expected_goal_token"})
+                stale_args = copy.deepcopy(args)
+                if "expected_goal_token" in change:
+                    stale_args.expected_goal_token = change["expected_goal_token"]
+                with self.assertRaises(ValueError):
+                    plan_time.change(runtime, candidate, Path("/run/state.json"), stale_args)
+
+    def test_plan_time_cli_selector_requires_the_exact_boundary_and_larger_limit(self):
+        argv = [
+            "--run-dir",
+            "/run",
+            "--extend-plan-time-limit",
+            "--max-seconds",
+            "6000",
+            "--expected-goal-token",
+            "-",
+        ]
+        with patch.dict("os.environ", {"AUTOCODE_EXPECTED_GOAL_TOKEN": "r0:shown"}):
+            args, _ = arguments.parse(None, argv, arguments.DEFAULT_ROLE_MODELS)
+        self.assertEqual("r0:shown", args.expected_goal_token)
+        self.assertTrue(args._approval_time_change)
+        self.assertEqual(6000, args.max_seconds)
+        for extra in (("--resume-paused",), ("--approve-goal", "r0:shown"), ("--max-cost-usd", "0")):
+            with self.subTest(extra=extra), contextlib.redirect_stderr(io.StringIO()):
+                with patch.dict("os.environ", {"AUTOCODE_EXPECTED_GOAL_TOKEN": "r0:shown"}):
+                    with self.assertRaises(SystemExit):
+                        arguments.parse(None, [*argv, *extra], arguments.DEFAULT_ROLE_MODELS)
+
+    def test_approval_time_recovery_dispatch_saves_without_approving_or_launching(self):
+        state = self.approval_state()
+        runtime = Mock()
+        runtime.now.return_value = "2026-11-16T12:00:00Z"
+        args = SimpleNamespace(
+            _approval_time_change=True,
+            _approval_time_settings={
+                "limits": {"max_seconds": 6000},
+                "budget_origins": {"max_seconds": "user_explicit"},
+            },
+            expected_goal_token=state["displayed_goal"],
+        )
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            result = action_recovery.gate_failures(
+                runtime,
+                args,
+                Mock(),
+                state,
+                Path("/run/state.json"),
+                Path("/run"),
+                Path("/workspace"),
+                False,
+            )
+        self.assertEqual(0, result)
+        self.assertIn("Plan approval is still pending; no provider launched", output.getvalue())
+        self.assertEqual("AWAITING_GOAL_APPROVAL", state["status"])
+        runtime.write_json.assert_called_once()
+
     def test_standalone_stage_limit_is_a_metadata_action(self):
         parser = arguments.build_parser(None, arguments.DEFAULT_ROLE_MODELS)
         args = parser.parse_args(

@@ -725,9 +725,11 @@ export async function confirmJobTime(state: PanelState, id: string, value: strin
   const seconds = integerValue(value, input);
   const title = `Set ${input.label.toLowerCase()} to ${seconds}?`;
   onDialog?.(title);
-  const detail = input.id === "max_stage_seconds"
-    ? "This saves the per-step limit for later steps too. Retrying the stopped step is a separate action."
-    : "This saves the total active-time limit only. Retrying the stopped step is a separate action.";
+  const detail = input.purpose === "approval"
+    ? "This saves a larger total active-time limit for the plan awaiting approval. It does not approve or start the plan."
+    : input.id === "max_stage_seconds"
+      ? "This saves the per-step limit for later steps too. Retrying the stopped step is a separate action."
+      : "This saves the total active-time limit only. Retrying the stopped step is a separate action.";
   return (await vscode.window.showWarningMessage(title, { modal: true, detail }, "Save limit")) === "Save limit";
 }
 
@@ -2127,7 +2129,10 @@ function renderJobTimeControls(container, state) {
     const name = 'job-time:' + input.id;
     const box = el('div', 'decision');
     box.appendChild(el('div', 'q', input.label));
-    box.appendChild(el('div', 'why', 'Saved: ' + input.current + ' seconds. Enter at least ' + input.minimum + ' seconds. Saving does not retry.'));
+    box.appendChild(el('div', 'why', input.purpose === 'approval'
+      ? 'Saved: ' + input.current + ' seconds. Enter at least ' + input.minimum
+        + ' seconds. Saving extends this plan’s limit; it does not approve or start the plan.'
+      : 'Saved: ' + input.current + ' seconds. Enter at least ' + input.minimum + ' seconds. Saving does not retry.'));
     const field = document.createElement('input');
     field.type = 'text'; field.inputMode = 'numeric'; field.pattern = '[0-9]*';
     field.setAttribute('aria-label', input.label);

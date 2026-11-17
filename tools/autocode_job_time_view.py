@@ -17,6 +17,50 @@ except ImportError:
 
 
 def offers(state: RunState, need, *, run_dir, workspace):
+    approval = bool(
+        need
+        and need.get("kind") == "approve_plan"
+        and isinstance(need.get("token"), str)
+        and need["token"]
+        and state.get("status") == "AWAITING_GOAL_APPROVAL"
+        and state.get("displayed_goal") == need["token"]
+    )
+    if approval and not any(
+        state.get(key)
+        for key in ("active_stage", "active_runner_check", "pending_report_repair", "uncertain_artifacts")
+    ):
+        limits = (state.get("settings") or {}).get("limits") or {}
+        current = limits.get("max_seconds")
+        if type(current) is int and current > 0:
+            used = budget_state.active_seconds(state)
+            if type(used) in (int, float) and math.isfinite(used) and 0 <= used < 9007199254740991:
+                minimum = math.floor(max(current, used)) + 1
+                return [
+                    {
+                        "id": "max_seconds",
+                        "kind": "integer",
+                        "flag": "--max-seconds",
+                        "placeholder": "N",
+                        "arg_index": 2,
+                        "label": "Total active time (seconds)",
+                        "current": current,
+                        "used": used,
+                        "minimum": minimum,
+                        "maximum": 9007199254740991,
+                        "command": pause_command.command(
+                            {
+                                "kind": "continue",
+                                "token": need["token"],
+                                "action": f"--extend-plan-time-limit --max-seconds N --expected-goal-token {need['token']}",
+                            },
+                            run_dir=run_dir,
+                            workspace=workspace,
+                            for_client=True,
+                        ),
+                        "binding": need["token"],
+                        "purpose": "approval",
+                    }
+                ]
     if (
         not need
         or need.get("kind") != "retry_job"

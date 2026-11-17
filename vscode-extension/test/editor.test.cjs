@@ -68,6 +68,43 @@ function failedJobTimeView(token = 'jr:current') {
     next_command: `AUTOCODE_JOB_RETRY_TOKEN=${token} autocode --run-dir ${run.runDir} --workspace ${run.workspace} --resume-paused --retry-failed-stage --job-retry-token -` };
 }
 
+function approvalTimeView(token = 'r4:plan-token') {
+  const command = `AUTOCODE_EXPECTED_GOAL_TOKEN=${token} autocode --extend-plan-time-limit --max-seconds N --expected-goal-token - --workspace ${run.workspace} --run-dir ${run.runDir}`;
+  return { status: 'AWAITING_GOAL_APPROVAL', done: false,
+    needs: { kind: 'approve_plan', token, job_time_controls: [
+      { id: 'max_seconds', kind: 'integer', flag: '--max-seconds', placeholder: 'N', arg_index: 2,
+        label: 'Total active time (seconds)', current: 4200, used: 1800, minimum: 4201,
+        maximum: Number.MAX_SAFE_INTEGER, binding: token, purpose: 'approval', command },
+    ] },
+    next_command: `autocode --run-dir ${run.runDir} --workspace ${run.workspace} --approve-goal ${token}` };
+}
+
+for (const surface of ['chat', 'Run details']) {
+  test(`plan approval time control in ${surface} saves without approving or starting`, async (t) => {
+    const ownController = new RunController(host.log);
+    const view = approvalTimeView();
+    const ui = surface === 'chat' ? await openChat(t, view, run, { controller: ownController }) : await openPanel(t, view, undefined, ownController);
+    const field = ui.document.querySelector('[data-question="job-time:max_seconds"]');
+    const button = ui.document.querySelector('#job-time-max_seconds');
+    assert.ok(ui.document.body.textContent.includes('does not approve or start the plan'));
+    assert.equal(field.value, '');
+    assert.equal(button.disabled, true);
+    field.value = '4800'; field.dispatchEvent(new ui.window.Event('input'));
+    assert.equal(button.disabled, false);
+    const launch = t.mock.method(cli, 'stream', async () => ok);
+    const confirm = t.mock.method(host.vscode.window, 'showWarningMessage', async () => 'Save limit');
+    button.click(); await flush();
+    assert.equal(launch.mock.callCount(), 1);
+    const [title, options, label] = confirm.mock.calls[0].arguments;
+    assert.ok(title.includes('4800'));
+    assert.equal(label, 'Save limit');
+    assert.ok(options.detail.includes('does not approve or start the plan'));
+    const [, args, env] = launch.mock.calls[0].arguments;
+    assert.deepEqual(args, ['--extend-plan-time-limit', '--max-seconds', '4800', '--expected-goal-token', '-', '--workspace', run.workspace, '--run-dir', run.runDir]);
+    assert.deepEqual(env, { AUTOCODE_EXPECTED_GOAL_TOKEN: 'r4:plan-token' });
+  });
+}
+
 for (const surface of ['chat', 'Run details']) {
   test(`failed-job limits in ${surface} save only the selected fresh named action`, async (t) => {
     const ownController = new RunController(host.log);

@@ -225,9 +225,27 @@ export function jobTimeOffers(
 ): { input: IntegerCommandInput; named: NamedCommand }[] {
   const rows = view.needs?.job_time_controls;
   if (rows === undefined) return [];
-  const gap = () => new ClientGap("Unsupported or stale failed-job time control from AutoCode");
+  const gap = () => new ClientGap("Unsupported or stale time control from AutoCode");
+  if (view.needs?.kind === "approve_plan") {
+    const token = view.needs.token;
+    if (!Array.isArray(rows) || rows.length !== 1 || !token) throw gap();
+    const input = rows[0];
+    if (input?.id !== "max_seconds" || input.purpose !== "approval" || input.binding !== token
+      || input.kind !== "integer" || input.flag !== "--max-seconds" || input.placeholder !== "N"
+      || input.arg_index !== 2 || input.label !== "Total active time (seconds)" || input.maximum !== Number.MAX_SAFE_INTEGER
+      || !count(input.current, false) || input.current === 0 || !count(input.used, true)
+      || !Number.isSafeInteger(input.minimum) || input.minimum !== Math.floor(Math.max(input.current, input.used!)) + 1
+      || input.minimum > input.maximum || typeof input.command !== "string") throw gap();
+    const named = parseNamedCommand(input.command, own);
+    if (Object.keys(named.env).length !== 1 || named.env.AUTOCODE_EXPECTED_GOAL_TOKEN !== token
+      || JSON.stringify(named.argv) !== JSON.stringify([
+        "--extend-plan-time-limit", "--max-seconds", "N", "--expected-goal-token", "-",
+      ])) throw gap();
+    return [{ input, named }];
+  }
+  const gapJob = () => new ClientGap("Unsupported or stale failed-job time control from AutoCode");
   const token = view.needs?.job_retry_token;
-  if (!Array.isArray(rows) || rows.length > 2 || view.needs?.kind !== "retry_job" || !token) throw gap();
+  if (!Array.isArray(rows) || rows.length > 2 || view.needs?.kind !== "retry_job" || !token) throw gapJob();
   const seen = new Set<string>();
   return rows.map((input) => {
     const stage = input?.id === "max_stage_seconds";

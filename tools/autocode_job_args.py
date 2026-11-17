@@ -2,6 +2,19 @@
 
 
 def validate(args, parser, explicit):
+    args._approval_time_change = bool(getattr(args, "extend_plan_time_limit", False))
+    if args._approval_time_change:
+        allowed = {"run_dir", "workspace", "unit", "max_seconds", "expected_goal_token", "extend_plan_time_limit"}
+        if (
+            not args.run_dir
+            or not args.expected_goal_token
+            or args.max_seconds is None
+            or args.task
+            or explicit - allowed
+        ):
+            parser.error(
+                "--extend-plan-time-limit requires --run-dir, --max-seconds and the displayed --expected-goal-token alone"
+            )
     # The token also binds a stopped job's model answer to the stop a person inspected (#463).
     names_job_model = (
         bool(args.answer)

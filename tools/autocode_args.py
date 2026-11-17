@@ -199,7 +199,12 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--expected-goal-token",
-        help="Require this exact already-approved plan before continuing a dashboard Build request",
+        help="Bind an approval-boundary action to the exact plan shown in the status view",
+    )
+    parser.add_argument(
+        "--extend-plan-time-limit",
+        action="store_true",
+        help="Save a larger total active-time limit at the exact pending plan approval without approving it",
     )
     parser.add_argument(
         "--in-place",

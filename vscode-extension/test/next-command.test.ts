@@ -42,6 +42,27 @@ test("failed-job time offers bind only the current token and never retry", () =>
   }
 });
 
+test("approval time offer is bound to the displayed plan and only saves its limit", () => {
+  const token = "r4:plan-token";
+  const row = { id: "max_seconds", kind: "integer" as const, flag: "--max-seconds", placeholder: "N" as const,
+    arg_index: 2 as const, label: "Total active time (seconds)", current: 4200, used: 1800, minimum: 4201,
+    maximum: Number.MAX_SAFE_INTEGER, binding: token, purpose: "approval" as const,
+    command: `AUTOCODE_EXPECTED_GOAL_TOKEN=${token} autocode --extend-plan-time-limit --max-seconds N --expected-goal-token - --workspace ${WS} --run-dir ${RUN}` };
+  const view: StatusView = { status: "AWAITING_GOAL_APPROVAL", done: false,
+    needs: { kind: "approve_plan", token, job_time_controls: [row] } };
+  assert.deepEqual(jobTimeOffers(view, own)[0]?.named.argv,
+    ["--extend-plan-time-limit", "--max-seconds", "N", "--expected-goal-token", "-"]);
+  for (const change of [
+    { binding: "r3:stale" }, { purpose: "retry_job" },
+    { command: row.command.replace("r4:plan-token", "r3:stale") },
+    { command: row.command.replace("--extend-plan-time-limit ", "") },
+  ]) {
+    const bad = structuredClone(view);
+    Object.assign(bad.needs!.job_time_controls![0]!, change);
+    assert.throws(() => jobTimeOffers(bad, own), ClientGap);
+  }
+});
+
 function timeOffer(): StatusView {
   return {
     status: "PAUSED_TIME_LIMIT", done: false, recovery: { token: "current" },
