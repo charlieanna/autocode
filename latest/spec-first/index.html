@@ -1909,9 +1909,15 @@ it is:</p>
 <p>A report that breaks this is rejected, and the Tester's retry gets the runner's result. When the fault is in
 the tests themselves (a guard that does not pass, a test the runner's command did not run, or one it collected
 and then skipped on this host, or a Python test that fails today above a skip call it never reached, so it would
-skip once the change is made, #3333), the runner sends them back to the Tester itself, at most twice. When those
-rewrites are spent, or the same cases come back skipped after the Tester was told they skip, the attempt is
-rejected and the Investigator looks at it before you are asked anything (#3261).</p>
+skip once the change is made, #3333), the runner sends them back to the Tester itself, at most twice, without
+asking the Tester to invent fallback behavior the approved case does not specify (#3350). When those rewrites are
+spent, or the same cases come back skipped after the Tester was told they skip, the attempt is rejected and the
+Investigator looks at it before you are asked anything (#3261).</p>
+<p>When an approved case genuinely cannot be exercised directly on the current host (for example, Linux <code>/proc</code>
+without an approved injectable path seam on macOS), the Tester reports <code>cannot_write</code> rather than inventing an
+unapproved host-fallback assertion. AutoCode records <code>cannot_write</code> in <code>acceptance_tests.cannot_write</code> and routes
+the pause to the Investigator once first; if the Investigator confirms the case is host-bound, the run pauses at
+<code>PAUSED_ACCEPTANCE_TESTS</code> with the host-limitation diagnosis so <code>--feedback</code> can revise the plan (#3350).</p>
 <p>When the code already does what a <code>test:</code> case says, the Tester keeps the test and reports the case as
 already working; once the runner sees that test pass, it sends the plan back: it relabels that case
 <code>guard:</code> (must keep working), the Plan Reviewer reviews the corrected plan, and you approve it as any
@@ -1936,9 +1942,13 @@ naming the file (twice per plan; after that the attempt is rejected). A parallel
 or changes a Tester line is not integrated (<code>PAUSED_ACCEPTANCE_TESTS</code>; <code>--retry-builder</code> rebuilds that
 member). A test weakened by an added line (a skip, an early return) still fails the final regression
 proof, which needs each case's test to fail without the change.
-The status view's <code>acceptance_tests</code> field shows the files, the cases and how each test behaved on the
-code before building. The final regression proof (fails without the change, passes with it) is
-unchanged.</p>
+The status view's <code>acceptance_tests</code> field shows the files, the cases, any recorded <code>cannot_write</code> host
+limitations, and how each test behaved on the code before building. When a post-build independent stage (<code>tester</code>,
+<code>review_checkpoint</code>, <code>review_completion</code>, or <code>resolve</code>) finds that a protected acceptance test contradicts or
+substitutes unapproved behavior (<code>contradicts_case</code>) or fails on its own broken fixture/assertion below the line
+that failed on base (<code>broken_fixture</code>), AutoCode routes the batch back to <code>write_acceptance_tests</code> before returning
+to the Builder (up to two repair rounds per approved case, verifying repaired passing tests still fail on base via
+<code>original-reference</code>, #3350). The final regression proof (fails without the change, passes with it) is unchanged.</p>
 <h2 id="blind-tests-blind-tests">Blind tests (<code>--blind-tests</code>)<a class="headerlink" href="#blind-tests-blind-tests" title="Permanent link">&para;</a></h2>
 <p><code>--blind-tests</code> (off by default; implies <code>--spec-first</code>) runs the Tester before the Builder starts,
 but isolates the test code from the Builder entirely (#702):</p>
