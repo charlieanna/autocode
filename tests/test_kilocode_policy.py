@@ -100,6 +100,64 @@ class KiloPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "read-only"):
             policy.restrict(argv, child, Path.cwd(), role="tester", write_stage=True, request={})
 
+    def test_a_writing_stage_cannot_edit_or_read_through_a_link_that_leads_outside_the_workspace(self):
+        # Live run 2026-11-17: a Kilo Builder's edit changed a sibling directory's file through a tracked link,
+        # while Kilo's read of the same path was refused as an external directory.
+        with tempfile.TemporaryDirectory() as parent:
+            parent = Path(parent).resolve()
+            shared, workspace = parent / "shared", parent / "project"
+            (shared / "lib").mkdir(parents=True)
+            (shared / "discount.py").write_text("RATE = 1\n")
+            (workspace / "src").mkdir(parents=True)
+            (workspace / "src" / "app.py").write_text("print(1)\n")
+            (workspace / "src" / "discount.py").symlink_to(shared / "discount.py")
+            (workspace / "vendor").symlink_to(shared / "lib", target_is_directory=True)
+            (workspace / "gone.py").symlink_to(parent / "missing.py")
+            (workspace / "alias.py").symlink_to(workspace / "src" / "app.py")
+            (workspace / ".gitignore").write_text("ignored/\n")
+            (workspace / "ignored").mkdir()
+            (workspace / "ignored" / "escape.py").symlink_to(shared / "discount.py")
+            subprocess.run(["git", "init", "-q", str(workspace)], check=True)
+            subprocess.run(["git", "-C", str(workspace), "add", "src", "vendor", ".gitignore"], check=True)
+            rules = [
+                {"permission": "*", "pattern": "*", "action": "allow"},
+                {"permission": "edit", "pattern": "src/discount.py", "action": "allow"},
+            ]
+            child = {"PATH": os.environ["PATH"], "KILO_CONFIG_CONTENT": "{}"}
+            argv = [sys.executable, "run", "--agent", "code", "--model", "fixture/model"]
+            answer = subprocess.CompletedProcess([], 0, json.dumps({"permission": rules}), "")
+            with patch.object(policy.captured, "run_metadata", return_value=answer):
+                ran, env = policy.restrict(argv, child, workspace, role="builder", write_stage=True)
+        permission = json.loads(env["KILO_CONFIG_CONTENT"])["agent"][ran[-1]]["permission"]
+        for tool in ("edit", "read"):
+            rules = permission[tool]
+            self.assertEqual("allow", rules["*"])
+            # The deny is the last pattern for the path, so it holds over the operator's own allow of it.
+            self.assertEqual("deny", rules["src/discount.py"])
+            relative = {pattern for pattern in rules if not pattern.startswith(parent.as_posix().lstrip("/"))}
+            relative -= {pattern for pattern in rules if pattern.startswith("/")}
+            self.assertEqual({"*", "src/discount.py", "vendor", "vendor/*", "gone.py"}, relative)
+            self.assertEqual("deny", rules[(workspace / "src/discount.py").as_posix()])
+            self.assertEqual("deny", rules[(workspace / "vendor").as_posix().lstrip("/") + "/*"])
+            self.assertEqual("deny", rules["gone.py"], "an untracked dangling link writes where it leads")
+            self.assertNotIn("alias.py", rules, "a link inside the workspace stays the operator's")
+            self.assertNotIn("ignored/escape.py", rules, "git's ignored entries are not listed")
+        self.assertEqual("allow", permission["bash"]["*"], "the shell stays under the operator's rules")
+
+    def test_outside_links_are_found_by_walking_a_workspace_that_is_not_a_git_checkout(self):
+        import autocode_workspace_links as workspace_links
+
+        with tempfile.TemporaryDirectory() as parent:
+            parent = Path(parent).resolve()
+            (parent / "shared").mkdir()
+            workspace = parent / "project"
+            (workspace / "pkg").mkdir(parents=True)
+            (workspace / "pkg" / "out").symlink_to(parent / "shared", target_is_directory=True)
+            (workspace / "pkg" / "in.py").symlink_to(workspace / "pkg")
+            (workspace / "loop").symlink_to(workspace / "loop")
+            with patch.object(workspace_links, "_listed", return_value=None):
+                self.assertEqual([("pkg/out", True)], workspace_links.outside(workspace))
+
     def test_native_permission_wildcards_do_not_treat_brackets_as_character_classes(self):
         rules = [
             {"permission": "*", "pattern": "*", "action": "deny"},
