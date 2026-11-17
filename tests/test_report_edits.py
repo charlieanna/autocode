@@ -497,6 +497,38 @@ class ReportEditsTests(unittest.TestCase):
             with self.subTest(index=index), self.assertRaises(ValueError):
                 edits.apply(original, [{"op": "add", "path": ["requirements", index], "value_json": "null"}])
 
+    def test_a_refused_edit_names_its_path_and_what_the_report_holds_there(self):
+        # A live repair (2026-11-16) removed ["ambiguity_audit", "inputs_and_edge_cases", 3], an index into an
+        # object, and was told only that insertion before existing array items is forbidden.
+        original = {
+            "ambiguity_audit": {"inputs_and_edge_cases": {"status": "specified_in_source", "refs": ["a", "b"]}},
+            "items": [1, 2],
+            "note": "text",
+        }
+        cases = {
+            ("remove", ("ambiguity_audit", "inputs_and_edge_cases", 3)): (
+                'Report edit path ["ambiguity_audit", "inputs_and_edge_cases", 3]: ["ambiguity_audit", '
+                '"inputs_and_edge_cases"] is an object, not an array, so it has no index 3; its fields are: status, refs'
+            ),
+            ("remove", ("ambiguity_audit", "inputs_and_edge_cases", "refs", 2)): (
+                'Report edit path ["ambiguity_audit", "inputs_and_edge_cases", "refs", 2]: remove needs an existing '
+                "item, and the array has 2 items, so index 2 is out of range"
+            ),
+            ("replace", ("items", 7)): "replace needs an existing item, and the array has 2 items, so index 7",
+            ("add", ("items", 0)): "add at index 0 of an array of 2 items would insert before existing array items",
+            ("replace", ("missing",)): "replace needs an existing field, and 'missing' is absent; the fields there",
+            ("add", ("note",)): "add needs an absent field; use replace for 'note'",
+            ("remove", ("missing", "deeper")): '["missing", "deeper"]: the report has no field \'missing\'',
+            ("remove", ("items", "first")): '["items"] is an array of 2 items; address an item by its index',
+            ("remove", ("note", "inner")): '["note"] is a string, which has no fields or items',
+            ("move", ("note",)): "unknown operation 'move'",
+        }
+        for (op, path), expected in cases.items():
+            value = None if op == "remove" else '"x"'
+            with self.subTest(path=path), self.assertRaises(ValueError) as caught:
+                edits.apply(original, [{"op": op, "path": list(path), "value_json": value}])
+            self.assertIn(expected, str(caught.exception))
+
     def test_appended_report_entry_still_passes_the_full_schema(self):
         patch = copy.deepcopy(self.patch)
         patch["repair_report"]["edits"].append(

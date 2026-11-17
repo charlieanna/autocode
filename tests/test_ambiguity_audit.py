@@ -101,6 +101,18 @@ class AmbiguityAuditTests(unittest.TestCase):
             with self.subTest(expected=expected):
                 self.assertIn(expected, self.problems(report) or "")
 
+    def test_a_status_that_disagrees_with_its_refs_names_the_status_to_use(self):
+        # A live Requirements report (2026-11-16) cited files under specified_in_source; told only that the
+        # refs were wrong, both repairs deleted entries instead of relabeling them.
+        code = self.problems(self.changed("inputs_and_edge_cases", entry("specified_in_source", "cli.py:4", "R9")))
+        self.assertIn("cli.py:4 is code this stage read, which a repo_convention dimension cites", code)
+        self.assertNotIn("R9 is code", code)
+        unread = self.problems(self.changed("inputs_and_edge_cases", entry("specified_in_source", "README.md")))
+        self.assertNotIn("repo_convention", unread, "code the stage never read is not offered as a convention")
+        sourced = self.problems(self.changed("error_and_failure_behavior", entry("repo_convention", "R1", "Q0")))
+        self.assertIn("R1, Q0 are source ids, which a specified_in_source dimension cites", sourced)
+        self.assertIsNone(self.problems(self.changed("ux_and_output_contract", entry("repo_convention", "cli.py:4"))))
+
     def test_every_decision_question_is_named_by_an_open_dimension(self):
         report = self.changed("inputs_and_edge_cases", entry("not_applicable"))
         self.assertIn("open_questions Q1 ask the person to decide", self.problems(report))
