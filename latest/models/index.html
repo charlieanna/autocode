@@ -490,6 +490,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#which-models-autocode-may-use" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which models AutoCode may use
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#changing-a-new-chats-models" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1998,6 +2009,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#which-models-autocode-may-use" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which models AutoCode may use
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#changing-a-new-chats-models" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2178,7 +2200,7 @@
 
 
 <h1 id="models-roles-and-escalation">Models, roles, and escalation<a class="headerlink" href="#models-roles-and-escalation" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/c4b65472f3e767fea48ccbcd573289e71d7bde82/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/802aaa95f938b5300b9a726f83ea8921ec209327/README.md">← Back to README</a></p>
 <h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
 <p>Every stage of a run has a <strong>role</strong>. Role names describe responsibilities, not
 mandatory models — each role can select any provider/model from <code>opencode models</code>
@@ -2350,7 +2372,7 @@ review allowance leaves room for it (a large plan, <code>plan_review_call_limit<
 final review and the Planner never climbs. If the stronger revision is still blocked, the
 final review returns the open concerns to you as blocking questions.</p>
 <p>Two scripted scenarios check these rows end to end, through <code>autocode --status --json</code>
-(<a href="https://github.com/charlieanna/autocode/blob/c4b65472f3e767fea48ccbcd573289e71d7bde82/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
+(<a href="https://github.com/charlieanna/autocode/blob/802aaa95f938b5300b9a726f83ea8921ec209327/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
 attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
 Sol XHigh, one attempt with its cost, <code>passed</code>, and the run completes; <code>escalation_outcomes</code>
 stamps that attempt and the ordinary retry before it <code>passed</code> too. In <code>escalation-ladder-end</code>
@@ -2514,6 +2536,38 @@ command: <code>autocode stages set --stage builder MODEL LEVEL --stage tester MO
 pick against the others as they will all stand and saves all of them, or none (#3312).</p>
 <p>A saved level differs from a typed one in one way: for the three review stages it is a ceiling
 (<a href="#reasoning-effort">reasoning effort</a>). Every other stage runs at the level you saved.</p>
+<h3 id="which-models-autocode-may-use">Which models AutoCode may use<a class="headerlink" href="#which-models-autocode-may-use" title="Permanent link">&para;</a></h3>
+<p>An account can serve hundreds of models: a gateway lists about 500. So before the stages, setup
+and <code>autocode stages choose</code> ask which models AutoCode may use on the backend at all (owner
+request 2026-11-17). They number only the suggested models: the free shortlist that measuring
+also starts from (<a href="#ranking-your-own-models-by-measurement">ranking your own models</a>), plus every
+model a stage runs now, so taking the suggestion moves no stage. Enter keeps the marked ones,
+<code>list</code> prints every model with the reason it is or is not suggested, any model your accounts serve
+may be named, and <code>all</code> keeps every model. List them in the order you prefer: that order decides
+which allowed model a stage moves to. <code>autocode stages models</code> shows the list,
+<code>autocode stages models --allow MODEL --allow MODEL</code> sets it without asking, and <code>--allow-all</code>
+removes it. Stage models in VS Code has the same list with a search box.</p>
+<p>The list is kept per backend in <code>stages.toml</code>, as one <code>[allowed]</code> table:</p>
+<pre><code class="language-toml">[allowed]
+kilocode = [&quot;anthropic/claude-sonnet-4-5&quot;, &quot;openai/gpt-5.6-sol&quot;]
+</code></pre>
+<p>With a list, everything that picks a model on that backend picks only from it:</p>
+<ul>
+<li>every stage list offers only those models, and a stage choice outside them is refused;</li>
+<li>measuring a stage ticks and offers only those models;</li>
+<li>automatic selection chooses among them, and a fallback after a model stops
+  (<a href="#when-a-roles-quota-runs-out">quota</a>) stays inside the list the run started with;</li>
+<li>no escalation climbs to a model outside them. A reasoning-level climb stays on the same model. The
+  Builder's stronger attempt is not made when it needs a model you left out, and the retry-limit
+  pause says so (<a href="#builder-retry-policy">Builder retry policy</a>).</li>
+</ul>
+<p>When you set a list, a stage whose choice or default falls outside it moves to the first model in
+your order that it may run beside the others, at the level nearest its default, and is saved as
+its choice. A default stage that checks it moves too when they would clash: allowing only Sonnet
+and Opus on Claude Code gives the Builder Sonnet and moves the Tester to Opus. A stage you chose
+inside the list never moves, and a list that leaves a stage no model it may run is refused with
+nothing saved. A model you type for one run (<code>--builder-model</code>, <code>--builder-strong-model</code>) still
+runs, as a typed flag always does; <code>--single-model</code> ignores the list.</p>
 <h3 id="changing-a-new-chats-models">Changing a new chat's models<a class="headerlink" href="#changing-a-new-chats-models" title="Permanent link">&para;</a></h3>
 <p>A client can show a chat that has not started the model and level each stage will run, and let the
 person change them for that chat alone (owner request 2026-11-11):</p>
