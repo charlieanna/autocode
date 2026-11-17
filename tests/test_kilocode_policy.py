@@ -30,25 +30,27 @@ def publish_denials():
 
 
 class KiloPolicyTests(unittest.TestCase):
-    def test_the_qualified_kilo_release_is_the_only_one_a_linux_launch_accepts(self):
+    def test_a_launch_accepts_only_a_kilo_release_qualified_for_its_hosts_sandbox(self):
         for version in ("7.8.3", "7.8.3-issue1063-source"):
             with self.subTest(version=version):
                 kilocode.check_version(version, platform="linux")
-        for version in ("7.8.12", "7.8.2", "kilo 7.8.3", "", None):
-            with (
-                self.subTest(version=version),
-                self.assertRaisesRegex(RuntimeError, "no provider request was launched"),
-            ):
-                kilocode.check_version(version, platform="linux")
-
-    def test_macos_keeps_any_kilo_because_its_checkers_use_kilos_own_shell(self):
-        kilocode.check_version("7.8.12", platform="darwin")
+        for platform, versions in (("linux", ("7.8.12", "7.8.2", "kilo 7.8.3", "", None)), ("darwin", ("7.8.2", ""))):
+            for version in versions:
+                with (
+                    self.subTest(platform=platform, version=version),
+                    self.assertRaisesRegex(RuntimeError, "no provider request was launched"),
+                ):
+                    kilocode.check_version(version, platform=platform)
+        # A release is qualified for one sandbox at a time: macOS no longer takes any Kilo (#1766 is superseded).
+        for version in policy.containment.kilo_versions("darwin"):
+            with self.subTest(darwin=version):
+                kilocode.check_version(version, platform="darwin")
 
     def test_a_launch_settings_read_refuses_an_unqualified_kilo_on_linux(self):
         provider = kilocode.load("kilocode")
         with (
             patch.object(kilocode.command.CommandProvider, "local_settings", return_value={"version": "7.8.12"}),
-            patch.object(kilocode.sys, "platform", "linux"),
+            patch.object(kilocode.containment, "backend", return_value=kilocode.containment.BUBBLEWRAP),
             self.assertRaisesRegex(RuntimeError, "requires Kilo 7.8.3 \\(found 7.8.12\\)"),
         ):
             provider.local_settings()
@@ -170,27 +172,6 @@ class KiloPolicyTests(unittest.TestCase):
             with self.subTest(flag=flag), self.assertRaisesRegex(ValueError, "fresh local"):
                 policy.restrict(["kilo", "run", flag], {}, Path("/unused"), role="planner")
 
-    def test_a_macos_checker_keeps_read_tools_and_kilos_shell_but_never_edits(self):
-        # #1766 (owner decision 2026-10-21): no kernel shell on macOS, so Kilo's own policy, edits denied.
-        rules = [{"permission": "*", "pattern": "*", "action": "allow"}]
-
-        def debug(argv, **_kwargs):
-            answer = {"default_agent": "code"} if argv[2:] == ["config"] else {"permission": rules}
-            return subprocess.CompletedProcess(argv, 0, json.dumps(answer), "")
-
-        child = {"PATH": os.environ["PATH"], "KILO_CONFIG_CONTENT": "{}"}
-        argv = [sys.executable, "run", "--model", "zai-coding-plan/glm-5.3"]
-        with patch.object(policy.captured, "run_metadata", side_effect=debug):
-            ran, env = policy.restrict(argv, child, Path.cwd(), role="tester", portable_shell=True)
-        (agent,) = json.loads(env["KILO_CONFIG_CONTENT"])["agent"].values()
-        allowed = {tool for tool, rule in agent["permission"].items() if rule == {"*": "allow"}}
-        self.assertEqual(set(policy.READ_TOOLS), allowed)
-        self.assertEqual([("*", "allow"), *publish_denials()], list(agent["permission"]["bash"].items()))
-        self.assertEqual("deny", agent["permission"]["*"])
-        self.assertNotIn("edit", allowed)
-        with self.assertRaisesRegex(ValueError, "cannot accompany"):
-            policy.restrict(argv, child, Path.cwd(), role="tester", request={}, portable_shell=True)
-
     def test_the_config_and_the_usual_agent_are_read_together(self):
         # Each debug command is a Kilo start; read one after another they cost every stage seconds
         # (2026-11-07). Both reads wait for each other here, so reading them in turn fails.
@@ -296,7 +277,7 @@ class KiloPolicyTests(unittest.TestCase):
             "model": "operator/default",
             "tools": {"task": True},
         }
-        for options in ({"portable_shell": True}, {"write_stage": True}, {"report_recovery": True}):
+        for options in ({"write_stage": True}, {"report_recovery": True}):
             with (
                 self.subTest(options=options),
                 patch.object(
@@ -455,7 +436,7 @@ class KiloToolReadinessTests(unittest.TestCase):
         with patch.object(policy.captured, "run_metadata", side_effect=self.debug):
             self.check_tools()
             self.rules.append({"permission": "bash", "pattern": self.capture + " *", "action": "deny"})
-            for options in ({"portable_shell": True}, {"request": {}}, {"write_stage": True}):
+            for options in ({"request": {}}, {"write_stage": True}):
                 child = dict(self.environment)
                 with (
                     self.subTest(options=options),
@@ -470,7 +451,7 @@ class KiloToolReadinessTests(unittest.TestCase):
         argv = [sys.executable, "run", "--agent=tester", "--model", "fixture/check"]
         for action in ("ask", "deny"):
             self.rules = [{"permission": "bash", "pattern": "*", "action": action}]
-            for options in ({"portable_shell": True}, {"request": {}}, {"write_stage": True}):
+            for options in ({"request": {}}, {"write_stage": True}):
                 child = dict(self.environment)
                 with (
                     self.subTest(action=action, options=options),
@@ -628,7 +609,6 @@ class KiloAccessProbeLaunchTests(unittest.TestCase):
             {"isolation": object()},
             {"image_preparation": object()},
             {"report_recovery": True},
-            {"portable_shell": True},
         ):
             with self.subTest(kwargs=kwargs), self.assertRaisesRegex(ValueError, "fresh read-only unisolated launch"):
                 opts = {"allow_write": False, "planning": True, "env": {"KILO_CONFIG_CONTENT": "{}"}, **kwargs}
@@ -729,6 +709,7 @@ class KiloContainmentPolicyTests(unittest.TestCase):
             boundary["private_reads"] = containment.private_run_reads(self.workspace, self.run)
         with (
             patch.object(containment, "backend", return_value=containment.SEATBELT),
+            patch.dict(containment.KILO_VERSIONS, {containment.SEATBELT: ("7.8.3",)}),
             patch.object(containment.shutil, "which", return_value="/owned/kilo"),
             patch.object(captured_process, "run_metadata", side_effect=native),
             patch.object(containment, "prepare", side_effect=lambda *a, **k: self.prepared.append(k) or boundary),
@@ -861,12 +842,17 @@ class KiloContainmentPolicyTests(unittest.TestCase):
             self.assertFalse((self.control / "conformance.json").exists())
 
 
+# The qualification a Kilo release passes before it joins autocode_tool_containment.KILO_VERSIONS for a sandbox.
 @unittest.skipUnless(
-    sys.platform == "linux" and os.environ.get("AUTOCODE_KILO_LOCAL_SSE_TEST") == "1",
-    "Opt-in original Kilo 7.8.3, loopback-only network, bubblewrap; no paid models",
+    sys.platform in ("linux", "darwin") and os.environ.get("AUTOCODE_KILO_LOCAL_SSE_TEST") == "1",
+    "Opt-in original Kilo in bubblewrap (loopback-only network) or Seatbelt; no paid models",
 )
 class NativeKiloPolicyTests(unittest.TestCase):
-    setUp = progress_tests.RealKiloProgressTests.setUp
+    def setUp(self):
+        if sys.platform == "linux":
+            progress_tests.RealKiloProgressTests.setUp(self)
+        else:
+            progress_tests.kilo_fixture(self)
 
     def configured(self, permissions=None):
         config = {

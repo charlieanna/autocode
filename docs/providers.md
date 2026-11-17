@@ -82,12 +82,13 @@ The owner chose this macOS fallback in
 with strict refusal on 2026-10-14; the owner restored the fallback on
 2026-10-15, so local live qualification can run on macOS.
 
-The same holds for Kilo's read-only checkers (Tester, Completion Reviewer). On Linux they
-run a qualified Kilo 7.8.3 kernel shell (#1739). On macOS, which has no such shell, they
-keep Kilo's read tools and its own shell with edits denied, intersected with your Kilo
-permissions. Any source change a checker still makes is put back after the stage, and the
-run prints a one-line notice. Owner decision of 2026-10-21, in
-[#1766](https://github.com/charlieanna/autocode/issues/1766).
+Kilo's stages are the exception: its checkers (Tester, Completion Reviewer), Planner and
+Builder run their shell in the kernel sandbox on both platforms, bubblewrap on Linux (#1739)
+and Seatbelt on macOS, with a Kilo release qualified for that sandbox
+(`autocode_tool_containment.KILO_VERSIONS`). This replaces the macOS fallback to Kilo's own
+permissions of [#1766](https://github.com/charlieanna/autocode/issues/1766): a Kilo Builder's
+shell wrote outside the workspace there (#3770), and the owner chose on 2026-11-17 to qualify
+the installed Kilo release for Seatbelt instead.
 
 Normal detached shell tools remain allowed: the independent keeper records a
 prospective session before permitting `setsid()`. Its receipt preserves that
@@ -284,11 +285,10 @@ native default and the chosen operator override. This proves request constructio
 not that every remote provider honors it. Other configured providers and the
 separate native-isolation path retain their existing cap behavior.
 
-Ordinary Kilo planning and read-only verification both use Kilo 7.8.3's qualified
-kernel-constrained shell on Linux, with a writable verification copy and source writes
-denied; a planning shell also cannot read the run's private state. On macOS, which has no
-kernel shell for Kilo, both keep Kilo's read tools and its own shell with edits denied, and a
-source write is put back after the stage. Planning report recovery has no tools. Every other native tool is disabled there. Effective operator
+Ordinary Kilo planning and read-only verification both use a qualified Kilo's
+kernel-constrained shell (bubblewrap on Linux, Seatbelt on macOS), with a writable
+verification copy and source writes denied; a planning shell also cannot read the run's
+private state. Planning report recovery has no tools. Every other native tool is disabled there. Effective operator
 denies are retained; headless asks are denied rather than auto-approved. Restricted
 stages start fresh sessions so previous session grants cannot override their policy.
 Builder permissions and the separate native-isolation route keep their existing contract.
@@ -973,10 +973,14 @@ and with whatever HTTP status ([Models](models.md#when-a-roles-quota-runs-out)).
 ### KiloCode
 
 `tools/providers/configs/kilocode.toml` is bundled. It runs `kilo run --auto`,
-and on Linux a launch refuses any release but the qualified **7.8.3** (`npm install -g
-@kilocode/cli@7.8.3`): restricted read-only and planning stages need its kernel
-shell, so a newer Kilo stops before any spend instead of running uncontained. macOS
-has no such shell and no pin; its checkers run as described above (#1766).
+and a launch refuses any release not qualified for the host's sandbox: on Linux
+**7.8.3** (`npm install -g @kilocode/cli@7.8.3`), on macOS the releases listed for Seatbelt
+in `autocode_tool_containment.KILO_VERSIONS`. Every Kilo stage that has tools needs its
+kernel shell, so another release stops before any spend instead of running uncontained. A
+release joins that list once the opt-in native Kilo tests in `tests/test_kilocode_policy.py`
+(`AUTOCODE_KILO_LOCAL_SSE_TEST=1`) pass with it in that sandbox. Seatbelt blocks loopback
+socket binds inside the stage, so on macOS a Kilo stage, like a contained OpenCode stage,
+cannot run tests that listen on 127.0.0.1; AutoCode's own runner checks still can.
 Isolated live Linux fixtures also need the backend's cached helpers to execute;
 follow the [Kilo cache execution preflight](testing.md#executable-helpers-in-live-kilo-fixtures)
 before admitting a task or model call.
@@ -1148,23 +1152,18 @@ is still refused. The native-isolation launches keep disabling Kilo's compaction
 agent as before. The rules are in `tools/autocode_context_window.py`.
 
 Where each stage's boundary comes from: on Linux, read-only planning and review
-stages are kernel-contained — AutoCode prepares a per-launch bubblewrap boundary
+stages are kernel-contained (Seatbelt on macOS): AutoCode prepares a per-launch bubblewrap boundary
 (fresh user, PID, IPC and network namespaces, a fresh `/proc`, every capability
 dropped, the workspace mounted read-only) and proves it with model-free probes
 before any launch, including the readonly planning shell's denial of private
-run-state reads where that boundary is supplied. On hosts where no kernel
-sandbox is qualified, such as macOS, read-only checks instead run with Kilo's
-own permission-restricted shell and edits denied, and any source change is put
-back by the workspace snapshot check. Writer stages (the Builder) run in the same
-kernel boundary on Linux, with only that contained shell: its writes are confined to
-the workspace, outside `.git` and `.autocode`, judged on the resolved path, so a link
-that leads out of the workspace cannot carry a write out of it (#3770). On macOS a
-writer still has no kernel sandbox until a Kilo release is qualified there: the
-workspace snapshot checks inspect changes afterwards and are not an OS boundary,
-`external_directory: "deny"` is a native tool policy, not a filesystem sandbox for
-bash, and the file tools are denied any workspace link that leads outside it
-(#3767). Use explicit Kilo permission restrictions for operations that must be
-blocked before execution there. See Kilo's
+run-state reads where that boundary is supplied. Writer stages (the Builder) run in the
+same kernel boundary, with only that contained shell: its writes are confined to the
+workspace, outside `.git` and `.autocode`, judged on the resolved path, so a link that
+leads out of the workspace cannot carry a write out of it (#3770). Only a run that
+accepted uncontained tools gives a writer Kilo's file tools instead; they are denied any
+workspace link that leads outside it (#3767), and `external_directory: "deny"` is a native
+tool policy, not a filesystem sandbox for bash. Use explicit Kilo permission restrictions
+for operations that must be blocked before execution there. See Kilo's
 [permission reference](https://kilo.ai/docs/code-with-ai/platforms/cli#permissions).
 
 The `alibaba-token-plan/` route serves that login's own plan rather than the
