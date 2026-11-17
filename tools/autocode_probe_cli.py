@@ -110,8 +110,10 @@ def cli(argv) -> int:
         )
         return 2
     planner = _route(args.planner) if args.planner else None
-    if args.stage == "plan_reviewer" and all(
-        model_probe.independence.shares(planner[0], model) for model, _level in models
+    if (
+        args.stage == "plan_reviewer"
+        and planner is not None
+        and all(model_probe.independence.shares(planner[0], model) for model, _level in models)
     ):
         print(
             "autocode probe: every --measure model shares the Planner's family, so none may review its plans",
