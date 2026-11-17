@@ -374,6 +374,27 @@ A request whose plan never reaches approval is listed as skipped, and no reviewe
 that probe, since none has reviewed every plan. Every candidate shares the run's tool (`--engine`,
 `--provider`): a model reached through another tool is measured in a probe of its own.
 
+The Builder's probe (`autocode_builder_probe`) measures Builders by whether their work passes tests
+written in advance that the run never sees. Five small tasks on the same project: an exact bug fix,
+"fix the failing test" (without editing the test file), a `--json` option with exact keys, comments,
+blank lines and a numbered error for malformed lines, and noticing a changed orders file instead of
+serving the cache. Each runs as an ordinary task to its end with only the Builder set to the
+candidate. The Planner you name plans it, and one checker you name, of another family than both the
+candidate and the Planner, reviews the plan and tests and completes the work; all three routes are
+pinned, so nothing escalates to a stronger model mid-run. The probe confirms Requirements'
+understanding and approves the plan on its exact token itself: the throwaway copy of the bundled
+project is the only thing it approves, and running the probe with a cap is your approval of that.
+When the run stops, the held-back tests and the project's own tests run on what it left. A Builder
+passes a task when the run completed, both sets of tests pass, no forbidden file changed and its own
+attempts took at most 30 minutes; the number of attempts the checker sent back is recorded and shown,
+not graded. A Builder qualifies when it has run all five and passed at least four:
+
+```sh
+autocode probe --stage builder --measure zai-coding-plan/glm-5.3 high --measure openai/gpt-6.1-sol medium \
+  --planner openai/gpt-6.1-sol high --checker anthropic/claude-opus-5-5 medium \
+  --requirements zai-coding-plan/glm-5.3 low --max-cost-usd 40
+```
+
 OpenCode and Kilo reasoning variants come from their local verbose model listings.
 An unsupported qualified level is omitted so the model uses its default. When older
 tools cannot report variants, the recorded qualification level is used. Preflight

@@ -10,7 +10,11 @@ runs each request to plan approval, never given, with the Plan Reviewer the pers
 (``--checker``), and grades the plan (``autocode_planner_probe``). ``--stage plan_reviewer`` has the
 Planner the person names (``--planner``) write each request's plan once, then has every candidate
 review it as written and with a flaw planted, and grades the two verdicts
-(``autocode_plan_reviewer_probe``). Invoking it with a cap is the person's approval of that spend;
+(``autocode_plan_reviewer_probe``). ``--stage builder`` runs each small task to its end with the
+candidate as Builder, the Planner the person names (``--planner``) and a checker of another family
+(``--checker``) as Plan Reviewer, Tester and Completion Reviewer, approves the plan on the probe's own
+throwaway project, and grades the result by tests the run never saw (``autocode_builder_probe``).
+Invoking it with a cap is the person's approval of that spend;
 nothing else runs a probe.
 
 Layer: interface over autocode_model_probe.
@@ -29,7 +33,14 @@ except ImportError:
 
 STAGES = tuple(model_probe.STAGES)
 DEFAULT_LEVEL = "default"
-_STAGE_NAMES = {"requirements": "Requirements", "planner": "the Planner", "plan_reviewer": "the Plan Reviewer"}
+_STAGE_NAMES = {
+    "requirements": "Requirements",
+    "planner": "the Planner",
+    "plan_reviewer": "the Plan Reviewer",
+    "builder": "the Builder",
+}
+_CHECKED = ("planner", "builder")  # stages whose candidates a --checker checks
+_PLANNED = ("plan_reviewer", "builder")  # stages whose plans a --planner writes
 
 
 def parser():
@@ -54,20 +65,23 @@ def parser():
         action="append",
         default=[],
         metavar=("MODEL", "LEVEL"),
-        help="planner: the Plan Reviewer that checks every plan; repeat to give one of another family for a "
-        "candidate that shares the first one's family",
+        help="planner: the Plan Reviewer that checks every plan; builder: the Plan Reviewer, Tester and "
+        "Completion Reviewer of every task; repeat to give one of another family for a candidate that shares "
+        "the first one's family",
     )
     result.add_argument(
         "--planner",
         nargs=2,
         metavar=("MODEL", "LEVEL"),
-        help="plan_reviewer: the Planner that writes the plans every candidate reviews",
+        help="plan_reviewer: the Planner that writes the plans every candidate reviews; builder: the Planner "
+        "of every task",
     )
     result.add_argument(
         "--requirements",
         nargs=2,
         metavar=("MODEL", "LEVEL"),
-        help="planner, plan_reviewer: the Requirements model and level every run uses (default: your saved choice)",
+        help="planner, plan_reviewer, builder: the Requirements model and level every run uses "
+        "(default: your saved choice)",
     )
     result.add_argument("--provider", help="the provider the probe's runs use, as for a task")
     result.add_argument("--engine", help="the engine the probe's runs use, as for a task")
@@ -79,34 +93,45 @@ def cli(argv) -> int:
     args = parser().parse_args(argv)
     models = [_route(pair) for pair in args.measure]
     checkers = [_route(pair) for pair in args.checker]
-    if args.stage == "planner" and not checkers:
-        print("autocode probe: --stage planner needs --checker MODEL LEVEL for the Plan Reviewer", file=sys.stderr)
+    if args.stage in _CHECKED and not checkers:
+        print(f"autocode probe: --stage {args.stage} needs --checker MODEL LEVEL", file=sys.stderr)
         return 2
-    if args.stage != "planner" and checkers:
-        print("autocode probe: --checker applies to --stage planner only", file=sys.stderr)
+    if args.stage not in _CHECKED and checkers:
+        print("autocode probe: --checker applies to --stage planner and builder only", file=sys.stderr)
         return 2
     if args.stage == "requirements" and args.requirements:
-        print("autocode probe: --requirements applies to --stage planner and plan_reviewer only", file=sys.stderr)
+        print("autocode probe: --requirements does not apply to --stage requirements", file=sys.stderr)
         return 2
-    if (args.stage == "plan_reviewer") != bool(args.planner):
+    if (args.stage in _PLANNED) != bool(args.planner):
         print(
-            "autocode probe: --stage plan_reviewer needs --planner MODEL LEVEL, and --planner applies to it only",
+            "autocode probe: --stage plan_reviewer and --stage builder need --planner MODEL LEVEL, "
+            "and --planner applies to them only",
             file=sys.stderr,
         )
         return 2
     planner = _route(args.planner) if args.planner else None
-    if planner and all(model_probe.independence.shares(planner[0], model) for model, _level in models):
+    if (
+        args.stage == "plan_reviewer"
+        and planner is not None
+        and all(model_probe.independence.shares(planner[0], model) for model, _level in models)
+    ):
         print(
             "autocode probe: every --measure model shares the Planner's family, so none may review its plans",
             file=sys.stderr,
         )
         return 2
     unchecked = [
-        model for model, _level in models if args.stage == "planner" and not model_probe.checker_for(model, checkers)
+        model
+        for model, _level in models
+        if (args.stage == "planner" and not model_probe.checker_for(model, checkers))
+        or (args.stage == "builder" and not model_probe.builder_checker_for(model, checkers, planner))
     ]
     if unchecked:
         print(
-            "autocode probe: no --checker may review " + ", ".join(unchecked) + "; add one from another model family",
+            "autocode probe: no --checker may check "
+            + ", ".join(unchecked)
+            + "; add one from another model family"
+            + (" than the Planner" if args.stage == "builder" else ""),
             file=sys.stderr,
         )
         return 2
@@ -128,7 +153,11 @@ def cli(argv) -> int:
             models, cap_usd=args.max_cost_usd, planner=planner, requirements=requirements, options=tuple(options)
         )
     else:
-        extra = {"checkers": checkers, "requirements": requirements} if args.stage == "planner" else {}
+        extra = {}
+        if args.stage in _CHECKED:
+            extra = {"checkers": checkers, "requirements": requirements}
+        if args.stage == "builder":
+            extra["planner"] = planner
         outcome = model_probe.run_probe(
             models, cap_usd=args.max_cost_usd, stage=args.stage, options=tuple(options), **extra
         )

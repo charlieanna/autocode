@@ -2,7 +2,7 @@
 
 The probe measures the models the person ticked (``autocode_model_shortlist``) and grades each
 answer mechanically (``autocode_requirements_probe``, ``autocode_planner_probe``,
-``autocode_plan_reviewer_probe``). This module keeps the result, in one file
+``autocode_plan_reviewer_probe``, ``autocode_builder_probe``). This module keeps the result, in one file
 beside ``stages.toml`` (``~/.config/autocode/measured-routes.json``), and turns it into the
 qualification entries the selector reads. The selector (``autocode_route_selector.qualified``) is
 the one reader: automatic selection, the quota fallback in ``autocode_route_pool`` and the model
@@ -33,12 +33,14 @@ from fractions import Fraction
 from pathlib import Path
 
 try:
+    from . import autocode_builder_probe as builder_probe
     from . import autocode_model_identity as model_identity
     from . import autocode_plan_reviewer_probe as reviewer_probe
     from . import autocode_planner_probe as planner_probe
     from . import autocode_requirements_probe as requirements_probe
     from . import autocode_util as util
 except ImportError:
+    import autocode_builder_probe as builder_probe
     import autocode_model_identity as model_identity
     import autocode_plan_reviewer_probe as reviewer_probe
     import autocode_planner_probe as planner_probe
@@ -55,11 +57,13 @@ PROBES = {
     "requirements": ("requirements-v1", len(requirements_probe.REQUESTS)),
     "planner": ("planner-v1", len(planner_probe.REQUESTS)),
     "plan_reviewer": ("plan-reviewer-v1", len(reviewer_probe.REQUESTS)),
+    "builder": ("builder-v1", len(builder_probe.REQUESTS)),
 }
 LATENCY_LIMITS = {
     "requirements": requirements_probe.LATENCY_LIMIT_SECONDS,
     "planner": planner_probe.TIME_LIMIT_SECONDS,
     "plan_reviewer": reviewer_probe.TIME_LIMIT_SECONDS,
+    "builder": builder_probe.TIME_LIMIT_SECONDS,
 }
 _LEVELS = {level: index for index, level in enumerate(util.EFFORTS)}
 

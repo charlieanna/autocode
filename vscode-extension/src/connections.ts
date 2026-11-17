@@ -17,15 +17,16 @@ export class ConnectionsPanel implements vscode.Disposable {
   private rows: Connection[] = [];
   private busy = false;
   private error = "";
+  private readSequence = 0;
   constructor(private readonly storage: vscode.Memento) {}
 
   async show(): Promise<void> {
-    if (this.panel) this.panel.reveal();
+    if (this.panel) { this.panel.reveal(); if (this.busy) return; }
     else {
       const panel = vscode.window.createWebviewPanel("autocode.connections", "AutoCode Connections", vscode.ViewColumn.One, { enableScripts: true, localResourceRoots: [] });
       this.panel = panel;
       panel.webview.html = connectionsHtml();
-      panel.onDidDispose(() => { if (this.panel === panel) { this.panel = undefined; this.busy = false; this.error = ""; } });
+      panel.onDidDispose(() => { if (this.panel === panel) { this.panel = undefined; this.busy = false; this.error = ""; this.readSequence++; } });
       panel.webview.onDidReceiveMessage((message) => void this.receive(message));
     }
     await this.refresh();
@@ -41,8 +42,11 @@ export class ConnectionsPanel implements vscode.Disposable {
   private async refresh(panel = this.panel): Promise<void> {
     // Bounded like a status poll: a wedged read must fail and say so. Without a limit the
     // busy flag this panel holds would never clear and every button would stay disabled.
-    const result = await invokeRead(readSettings(), ["connections", "list", "--json"], {}, STATUS_TIMEOUT_MS);
-    if (this.panel !== panel) return;
+    const sequence = ++this.readSequence;
+    let result;
+    try { result = await invokeRead(readSettings(), ["connections", "list", "--json"], {}, STATUS_TIMEOUT_MS); }
+    catch (error) { if (this.panel !== panel || sequence !== this.readSequence) return; throw error; }
+    if (this.panel !== panel || sequence !== this.readSequence) return;
     if (result.code !== 0) throw new Error(tail(result));
     const data = JSON.parse(result.stdout);
     if (data.version !== 1 || !Array.isArray(data.connections)) throw new Error("Update AutoCode to use Connections.");
