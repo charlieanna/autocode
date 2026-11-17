@@ -477,7 +477,11 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
   return {
     chat: view.chat,
     requirementsView: view.requirements ?? null,
-    formattedMessages: Object.fromEntries((view.chat?.messages ?? []).filter((row) => row.role === "assistant").map((row) => [row.id, markdown(row.text)])),
+    // Requirements' handoff and question are plain text from the public view. Parsing them as
+    // Markdown changes literal names such as tests/__init__.py before the person confirms them.
+    formattedMessages: Object.fromEntries((view.chat?.messages ?? []).filter((row) => row.role === "assistant"
+      && !row.id.startsWith("requirements-question-") && !row.id.startsWith("requirements-say-"))
+      .map((row) => [row.id, markdown(row.text)])),
     workspace: run.workspace,
     runDir: run.runDir,
     status: view.status,
@@ -1107,6 +1111,14 @@ let current = null;
 let answers = Object.create(null);
 let customSelected = Object.create(null);
 let reviewOverrides = Object.create(null);
+function saveDecisionDraft() {
+  if (!chatMode || !chatEnvelope || !current) return;
+  const saved = vscode.getState() || {};
+  const decisionDrafts = saved.decisionDrafts || {};
+  decisionDrafts[chatEnvelope.runKey] = { context: current.decisionContext,
+    answers: { ...answers }, customSelected: { ...customSelected }, reviewOverrides: { ...reviewOverrides } };
+  vscode.setState({ ...saved, decisionDrafts });
+}
 let renderedState = '';
 let allChangesCompare = null;
 let allChangesContext = null;
@@ -1708,11 +1720,14 @@ function render(state) {
   const selection = focusedAttr && focused.tagName === 'INPUT'
     ? [focused.selectionStart, focused.selectionEnd, focused.selectionDirection] : null;
   if (!sameRequest) {
-    answers = Object.create(null);
-    customSelected = Object.create(null);
-    reviewOverrides = Object.create(null);
+    const saved = chatMode && chatEnvelope ? (vscode.getState() || {}).decisionDrafts?.[chatEnvelope.runKey] : null;
+    const draft = saved && saved.context === state.decisionContext ? saved : null;
+    answers = Object.assign(Object.create(null), draft?.answers || {});
+    customSelected = Object.assign(Object.create(null), draft?.customSelected || {});
+    reviewOverrides = Object.assign(Object.create(null), draft?.reviewOverrides || {});
   }
   current = state;
+  if (!sameRequest) saveDecisionDraft();
   app.textContent = '';
   app.classList.remove('muted');
   if (chatMode && state.unreadable) {
@@ -2452,6 +2467,7 @@ function renderChat(data) {
   const same = chatEnvelope && chatEnvelope.runKey === data.runKey;
   if (!same) {
     if (chatEnvelope) tabScroll[chatEnvelope.runKey] = thread.scrollTop;
+    saveDecisionDraft();
     saveDraft();
     const saved = vscode.getState() || {};
     const incoming = (saved.drafts || {})[data.runKey] || '';
@@ -2734,6 +2750,13 @@ function appendFormatted(parent, nodes) {
     const child = node.tag && allowed.has(node.tag) ? document.createElement(node.tag) : document.createTextNode(node.text || '');
     if (node.tag) {
       child.textContent = node.text || '';
+      if (node.tag === 'ol' && Number.isInteger(node.start)) child.setAttribute('start', String(node.start));
+      if (node.tag === 'li' && typeof node.checked === 'boolean') {
+        const mark = document.createElement('span');
+        mark.textContent = node.checked ? '☑ ' : '☐ ';
+        mark.setAttribute('aria-label', node.checked ? 'Completed: ' : 'Not completed: ');
+        child.appendChild(mark);
+      }
       if (node.tag === 'a' && /^https?:\\/\\//i.test(node.href || '')) {
         child.setAttribute('href', node.href); child.setAttribute('rel', 'noreferrer noopener'); child.setAttribute('target', '_blank');
       }
@@ -2744,6 +2767,8 @@ function appendFormatted(parent, nodes) {
 }
 
 if (chatMode) {
+  app.addEventListener('input', saveDecisionDraft);
+  app.addEventListener('change', saveDecisionDraft);
   // Only the core's own offer: the extension asks for the list the status view names.
   document.getElementById('change-stage-models').addEventListener('click', () => vscode.postMessage({ type: 'stage_models' }));
   document.getElementById('history').addEventListener('click', () => vscode.postMessage({ type: 'history' }));

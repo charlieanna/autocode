@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import re
 import unittest
 
 import autocode_plan_file as plan_file
@@ -131,6 +132,7 @@ class PlanFileTests(unittest.TestCase):
         original["git_delivery"] = {"kind": "atomic_commit", "message": "Correct the refund window"}
         untouched = copy.deepcopy(original)
         text = plan_file.review_markdown(original)
+        literal_text = re.sub(r"\\([\\`*{}\[\]()#+.!_>~|<>-])", r"\1", text)
         for value in (
             "Add refunds to the shop package.",
             "Shop staff",
@@ -148,9 +150,9 @@ class PlanFileTests(unittest.TestCase):
             "ID AMOUNT [open|done]",
         ):
             with self.subTest(value=value):
-                self.assertIn(value, text)
+                self.assertIn(value, literal_text)
         self.assertEqual(untouched, original)
-        self.assertIn("Assumed (from your answer): Store time is UTC+2", text)
+        self.assertIn("Assumed (from your answer): Store time is UTC+2", literal_text)
         self.assertIn("Delegated (under your delegation): Round half up", text)
         self.assertIn("No separate person review is required.", text)
         for hidden in (
@@ -173,6 +175,15 @@ class PlanFileTests(unittest.TestCase):
         self.assertNotIn(token, text)
         self.assertNotIn("Milestones", text)
         self.assertNotIn("End-to-end flow", text)
+
+    def test_review_escapes_markdown_in_canonical_plain_terms(self):
+        text = plan_file.review_markdown(
+            {
+                "deliverables": ["tests/__init__.py"],
+                "acceptance_criteria": [{"id": "C1", "criterion": "Keep tests/__init__.py"}],
+            }
+        )
+        self.assertEqual(2, text.count(r"tests/\_\_init\_\_\.py"))
 
     def test_file_format_one_export_bytes_stay_unchanged_by_ui_review_rendering(self):
         exported = plan_file.export(body(), revision=3, approved=True)
