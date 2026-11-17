@@ -298,6 +298,42 @@ class QuotaRouteCliTests(unittest.TestCase):
             tuple(assignment[key] for key in ("role", "from", "to", "pause_status")),
         )
 
+    def test_a_spent_api_credit_sent_as_a_400_asks_for_a_model(self):
+        # Anthropic's used-up API credit as Kilo reported it live (2026-11-16): an HTTP 400 that is not
+        # retryable and never says "quota". Six runs paused as uncertain and asked a person to reconcile
+        # the attempt; the stopped job's model was never asked for.
+        message = (
+            "Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to "
+            "upgrade or purchase credits."
+        )
+        self.env["AUTOCODE_FIXTURE_QUOTA_ERROR"] = json.dumps(
+            {
+                "name": "APIError",
+                "data": {
+                    "message": message,
+                    "statusCode": 400,
+                    "isRetryable": False,
+                    "responseBody": json.dumps(
+                        {"type": "error", "error": {"type": "invalid_request_error", "message": message}}
+                    ),
+                },
+            }
+        )
+        paused = self.quota_stop()
+        self.assertIn("--answer route-tester=MODEL", paused["stop_reason"])
+        need = self.view()["needs"]
+        self.assertEqual(
+            ("route-tester", "Tester", "quota", "gpt-5.6-sol"),
+            tuple(need["route"][key] for key in ("question_id", "job", "cause", "stopped_model")),
+        )
+        self.assertEqual(["route-tester"], [question["id"] for question in need["questions"]])
+        self.launch([*self.args, "--answer", "route-tester=" + OTHER_MODEL], 0)
+        [assignment] = self.view()["route_assignments"]
+        self.assertEqual(
+            ("tester", "gpt-5.6-sol", OTHER_MODEL, "PAUSED_BUDGET"),
+            tuple(assignment[key] for key in ("role", "from", "to", "pause_status")),
+        )
+
     def test_a_content_filter_refusal_names_the_model_and_continues_on_another(self):
         # The same Tester stop, refused by the provider's content filter on gpt-5.6-sol only.
         self.env["AUTOCODE_FIXTURE_QUOTA_MESSAGE"] = "The response was blocked by the provider's content filter"
