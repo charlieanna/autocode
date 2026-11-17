@@ -1812,7 +1812,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/2fe485d1c9a22ad1f6f7f9d9b81f884e052ba806/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/10616b20757544cc89b7f9d984a61f788bd6bf7c/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -2474,7 +2474,10 @@ older writers refuse this context instead of silently ignoring it. Requirements
 returns its assessment and <code>affected_targets</code> (empty for a question). A routed
 change does not alter the source run: its owner must reconcile and route the
 original human text through ordinary planning and review. The assistant row in
-<code>chat.messages</code> exposes optional <code>conversation</code> metadata: <code>request_id</code>, <code>intent</code>,
+<code>chat.messages</code> may mark a message <code>format: "plain"</code> when its text is a literal
+Requirements reply or question or an approved-plan summary. Clients render it as text, preserving punctuation,
+both while it is open and when it appears in history. Older views omit this field.</p>
+<p><code>chat.messages</code> exposes optional <code>conversation</code> metadata: <code>request_id</code>, <code>intent</code>,
 <code>affected_targets</code> and <code>context_sha256</code>. A question restores the source checkpoint
 and never becomes a new requirement. The coordinated owner schedules this assessment through its existing advance action. New coordinations
 also bind the source run's ledger in their budget: later Requirements replies
@@ -3127,7 +3130,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/2fe485d1c9a22ad1f6f7f9d9b81f884e052ba806/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/10616b20757544cc89b7f9d984a61f788bd6bf7c/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3964,7 +3967,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/2fe485d1c9a22ad1f6f7f9d9b81f884e052ba806/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/10616b20757544cc89b7f9d984a61f788bd6bf7c/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
