@@ -54,7 +54,7 @@ CAUSES = (
 )
 
 
-def cause(stage, status, rationale=None, state=None) -> str:
+def cause(stage, status, rationale=None, state: RunState | None = None) -> str:
     """One sentence naming the job that stopped and why, for an exhausted internal recovery.
 
     A refused account is named with the core's fixed diagnostic, since only the person can fix it.
@@ -63,15 +63,17 @@ def cause(stage, status, rationale=None, state=None) -> str:
     account = provider_auth.account_cause(rationale)
     if account:
         return account
-    said = next(
-        (text for keys, text in CAUSES if any(key in str(status or "") for key in keys)),
-        "it could not finish",
-    )
+    said = next((text for keys, text in CAUSES if any(key in str(status or "") for key in keys)), None)
+    running = str(((state or {}).get("active_stage") or {}).get("stage") or "")
+    if said is None and roles.base_stage(running) != running:
+        # A wrapper status (the Resolver's own stop) names no cause; the attempt it stopped on does.
+        said = "its report could not be accepted, even after repair"
+    said = said or "it could not finish"
     job = roles.screen_name(stage, state) if isinstance(stage, str) and stage else ""
     return f"{'The ' + job + ' step' if job else 'A step'} stopped: {said}, and AutoCode's own retries for it ran out."
 
 
-def blocked_message(stage, status, rationale=None, state=None) -> str:
+def blocked_message(stage, status, rationale=None, state: RunState | None = None) -> str:
     """The run's stop reason when internal recovery is exhausted: what stopped, then that work is kept."""
     return f"{cause(stage, status, rationale, state)} {MESSAGE}"
 
