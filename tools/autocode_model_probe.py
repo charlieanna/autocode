@@ -27,14 +27,17 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import uuid
 from pathlib import Path
 
 try:
+    from . import autocode_builder_probe as builder_probe
     from . import autocode_measured_routes as measured_routes
     from . import autocode_plan_reviewer_probe as reviewer_probe
     from . import autocode_planner_probe as planner_probe
@@ -43,6 +46,7 @@ try:
     from . import autocode_taskrun as taskrun
     from . import autocode_verifier_independence as independence
 except ImportError:
+    import autocode_builder_probe as builder_probe
     import autocode_measured_routes as measured_routes
     import autocode_plan_reviewer_probe as reviewer_probe
     import autocode_planner_probe as planner_probe
@@ -70,10 +74,23 @@ ESTIMATE_TOKENS_BY_STAGE = {
     "requirements": ESTIMATE_TOKENS,
     "planner": {"input": 120_000, "output": 12_000},
     "plan_reviewer": {"input": 80_000, "output": 8_000},
+    # A Builder works with tools: it reads, edits and runs the tests, so its input is several times a
+    # Planner draft's. An estimate before any Builder probe ran; the cap binds what it spends.
+    "builder": {"input": 300_000, "output": 15_000},
 }
 RUN_TIMEOUT_SECONDS = 1800
+_RAN = re.compile(r"^Ran (\d+) tests?", re.MULTILINE)
 # The stages a probe measures: the role its results are recorded under, its requests and quick pass.
-STAGES = {"requirements": requirements_probe, "planner": planner_probe, "plan_reviewer": reviewer_probe}
+STAGES = {
+    "requirements": requirements_probe,
+    "planner": planner_probe,
+    "plan_reviewer": reviewer_probe,
+    "builder": builder_probe,
+}
+# The routes a Builder probe pins, so neither the measured Builder nor its checkers move to a stronger
+# model mid-run (`--pin-model-role`; autocode_builder_policy escalates only an unpinned Builder).
+BUILDER_PINNED_ROLES = ("builder", "tester", "completion")
+TEST_TIMEOUT_SECONDS = 300
 # The route a Plan Reviewer candidate is set on in the run that wrote the plan (`--stage-model`).
 REVIEWER_ROUTE = "plan_reviewer"
 
@@ -114,6 +131,11 @@ def estimate(models, stage="requirements") -> dict:
             f"each request priced at {tokens['input']:,} input and {tokens['output']:,} output tokens of the "
             "measured model at the dated price table"
             + ("; Requirements and the Plan Reviewer are extra" if stage == "planner" else "")
+            + (
+                "; Requirements, the Planner, the Plan Reviewer, the Tester and the Completion Reviewer are extra"
+                if stage == "builder"
+                else ""
+            )
             + ("; each request's plan, written once for every model, is extra" if stage == "plan_reviewer" else "")
             + "; the cap you set still limits what the probe spends"
         ),
@@ -243,6 +265,18 @@ def checker_for(model, checkers):
     return None
 
 
+def builder_checker_for(model, checkers, planner):
+    """The first of ``checkers`` that may check both ``planner``'s plans and ``model``'s work, or None.
+
+    One checker reviews the plan and tests and completes the candidate's work, so it must share a
+    family with neither (verifier independence); it stays the same for every candidate it may check.
+    """
+    for checker in checkers:
+        if not independence.shares(model, checker[0]) and not independence.shares(planner[0], checker[0]):
+            return checker
+    return None
+
+
 def plan_from_view(view) -> tuple[dict | None, dict]:
     """The plan a stopped Planner run shows at approval, and what the probe measured about the run.
 
@@ -314,6 +348,139 @@ def run_planner_request(
     graded["run_status"] = (view or {}).get("status")
     graded["error"] = error
     return graded
+
+
+def run_builder_request(
+    model,
+    effort,
+    request,
+    *,
+    planner,
+    checker,
+    requirements=None,
+    options=(),
+    env=None,
+    command=taskrun.AUTOCODE,
+    cap_usd=None,
+    clock=time.monotonic,
+):
+    """Run one Builder probe request to its end with ``model`` at ``effort`` building, and grade what it left.
+
+    The run is a spec-first task on a fresh copy of the bundled project: Requirements' confirmation is
+    answered "plan" and its questions with its proposed default, as in the Planner probe; the plan
+    ``planner`` writes and ``checker`` reviews is approved by the probe on its exact token, since the
+    person's approval of the probe and its cap covers this throwaway project and nothing else; the
+    Builder, then ``checker`` as Tester and Completion Reviewer, run as in any task. When the run
+    stops, the held-back tests and the project's own tests run on the files it left.
+    """
+    request = builder_probe.BY_ID[request] if isinstance(request, str) else request
+    flags = _builder_flags((model, effort), planner, checker, requirements, cap_usd)
+    with tempfile.TemporaryDirectory(prefix="autocode-probe-") as parent:
+        workspace = prepare_workspace(parent, fixed_tax=not request.broken_tax)
+        base = _git(workspace, "rev-parse", "HEAD").strip()
+        error, view, built = None, None, workspace
+        try:
+            run = taskrun.TaskRun.start(
+                workspace,
+                request.text,
+                options=(*options, *flags),
+                command=command,
+                env=env,
+                timeout=RUN_TIMEOUT_SECONDS,
+            )
+            view = _through_requirements(run, run.advance_until_input(), request.text)
+            needs = view.get("needs") or {}
+            if needs.get("kind") == "approve_plan" and isinstance(needs.get("token"), str):
+                run.approve_plan(needs["token"])
+                view = run.advance_until_input()
+            built = Path(getattr(run, "workspace", workspace))
+        except taskrun.TaskRunError as failure:
+            error = str(failure)
+            view = _status_after_failure(failure, workspace, options, flags, command, env)
+        view = view or {}
+        held_back = run_tests(built, {"test_probe_held_back.py": request.tests}, parent)
+        project = run_tests(built, None, parent)
+        changed = changed_files(built, base)
+        attempts = [
+            row
+            for row in (((view.get("usage") or {}).get("accounting") or {}).get("attempts") or [])
+            if isinstance(row, dict) and str(row.get("stage") or "").removesuffix(REPAIR_SUFFIX) == "builder"
+        ]
+    graded = builder_probe.grade(
+        request,
+        run_status=view.get("status"),
+        held_back=held_back,
+        project_tests=project,
+        changed_files=changed,
+        builder_attempts=sum(1 for row in attempts if row.get("stage") == "builder") if attempts else 0,
+        seconds=_total(row.get("duration_seconds") for row in attempts),
+        cost_usd=_job_cost(view, "Builder"),
+    )
+    graded["run_cost_usd"] = _spent(view)
+    graded["planner"] = list(planner)
+    graded["checker"] = list(checker)
+    graded["run_status"] = view.get("status")
+    graded["error"] = error
+    return graded
+
+
+def run_tests(workspace, held_back, scratch):
+    """Run the project's tests (``held_back`` None) or the held-back test files on ``workspace``.
+
+    Returns ``{"ok", "ran", "output"}``: ``ok`` is unittest's own verdict, ``ran`` the number of tests it
+    reports. Held-back files are written outside the project, so the run never saw them and they leave
+    nothing behind; the project folder is the working directory and on the import path.
+    """
+    if held_back is None:
+        argv = ["-m", "unittest", "discover", "-s", str(workspace), "-t", str(workspace), "-p", "test*.py"]
+    else:
+        folder = Path(tempfile.mkdtemp(prefix="held-back-", dir=scratch))
+        for name, text in held_back.items():
+            (folder / name).write_text(text, encoding="utf-8")
+        argv = ["-m", "unittest", "discover", "-s", str(folder), "-t", str(folder), "-p", "test*.py"]
+    environment = {**os.environ, "PYTHONPATH": str(workspace), "PYTHONDONTWRITEBYTECODE": "1"}
+    try:
+        result = subprocess.run(
+            [sys.executable, *argv],
+            cwd=workspace,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=TEST_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.TimeoutExpired) as failure:
+        return {"ok": False, "ran": 0, "output": f"the tests did not finish: {failure}"}
+    ran = _RAN.search(result.stderr)
+    return {
+        "ok": result.returncode == 0,
+        "ran": int(ran.group(1)) if ran else 0,
+        "output": (result.stdout + result.stderr)[-4000:],
+    }
+
+
+def changed_files(workspace, base):
+    """The project's files that differ from ``base`` or are new, leaving AutoCode's own folder out."""
+    tracked = _git(workspace, "diff", "--name-only", base).splitlines()
+    untracked = _git(workspace, "ls-files", "--others", "--exclude-standard").splitlines()
+    return sorted({name for name in (*tracked, *untracked) if name and not name.startswith(".autocode/")})
+
+
+def _git(workspace, *args):
+    result = subprocess.run(["git", "-C", str(workspace), *args], capture_output=True, text=True, timeout=60)
+    return result.stdout if result.returncode == 0 else ""
+
+
+def _builder_flags(builder, planner, checker, requirements, cap_usd):
+    """A spec-first run's flags: the measured Builder, the Planner, and one checker for the Plan Reviewer,
+    the Tester and the Completion Reviewer, all pinned; Requirements and the cap as for the Planner probe."""
+    flags = _planner_flags(planner, checker, requirements, cap_usd)
+    for flag, (model, level) in (("--builder", builder), ("--tester", checker), ("--completion", checker)):
+        flags += [f"{flag}-model", model]
+        if level:
+            flags += [f"{flag}-reasoning-effort", level]
+    for role in BUILDER_PINNED_ROLES:
+        flags += ["--pin-model-role", role]
+    return flags
 
 
 def run_reviewer_request(
@@ -494,6 +661,7 @@ def run_probe(
     stage="requirements",
     checkers=(),
     requirements=None,
+    planner=None,
     options=(),
     env=None,
     command=taskrun.AUTOCODE,
@@ -502,17 +670,21 @@ def run_probe(
 ):
     """Measure each ``(model, level)`` for ``stage`` in turn, within ``cap_usd``; record and return the results.
 
-    ``runner`` stands in for ``run_request`` or ``run_planner_request`` in tests. A model that fails
-    the quick pass is recorded with its quick grades only, so it does not qualify. When the money runs
-    out the probe stops and names the models it did not measure; their earlier records, if any, are
-    kept. A Planner candidate no checker may review is not measured, and the result says why.
+    ``runner`` stands in for ``run_request``, ``run_planner_request`` or ``run_builder_request`` in
+    tests. A model that fails the quick pass is recorded with its quick grades only, so it does not
+    qualify. When the money runs out the probe stops and names the models it did not measure; their
+    earlier records, if any, are kept. A Planner or Builder candidate no checker may check is not
+    measured, and the result says why. A Builder probe needs ``planner``, the Planner that plans every
+    task, and ``checkers``, which review its plans and check the candidate's work.
     """
     if not isinstance(cap_usd, (int, float)) or isinstance(cap_usd, bool) or cap_usd <= 0:
         raise ValueError("the probe needs a positive cost cap in USD")
     probe = STAGES[stage]
     if stage == "planner" and not checkers:
         raise ValueError("the Planner probe needs at least one Plan Reviewer to check its plans")
-    runner = runner or (run_planner_request if stage == "planner" else run_request)
+    if stage == "builder" and (not checkers or not planner):
+        raise ValueError("the Builder probe needs a Planner and at least one checker of another family")
+    runner = runner or {"planner": run_planner_request, "builder": run_builder_request}.get(stage, run_request)
     spent = 0.0
     unpriced = 0
     results = []
@@ -529,6 +701,14 @@ def run_probe(
                 unmeasured.append({"model": model, "effort": level, "reason": "no Plan Reviewer of another family"})
                 continue
             extra = {"checker": checker, "requirements": requirements}
+        if stage == "builder":
+            checker = builder_checker_for(model, checkers, planner)
+            if checker is None:
+                unmeasured.append(
+                    {"model": model, "effort": level, "reason": "no checker of another family than it and the Planner"}
+                )
+                continue
+            extra = {"checker": checker, "planner": planner, "requirements": requirements}
         grades = []
         for request in _order(probe):
             if request.id not in probe.QUICK and not probe.passes_quick(grades):

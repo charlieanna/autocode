@@ -148,3 +148,39 @@ test('a disposed action preflight cannot publish its old offer or dispatch a con
   await flush();
   assert.ok(current.document.body.textContent.includes('Current checked offer'));
 });
+
+test('a late initial list cannot overwrite a newer connection check', async (t) => {
+  const rows = processes(t, () => true);
+  const owner = new ConnectionsPanel(host.workspaceState);
+  const opening = owner.show();
+  const panel = host.panels.at(-1);
+  t.after(() => panel.dispose());
+  panel.webview.receive({ type: 'ready' });
+  await flush();
+  assert.equal(rows.length, 2);
+  complete(rows[1], list);
+  await flush();
+  panel.webview.receive({ type: 'action', provider: 'kilocode', action: 'check' });
+  await flush();
+  complete(rows[2], list);
+  await flush();
+  complete(checks(rows)[0], checked('Fresh check'));
+  await flush();
+  complete(rows[0], list);
+  await opening;
+  await flush();
+  assert.equal(panel.webview.messages.at(-1).connections[0].detail, 'Fresh check');
+});
+
+test('revealing Connections during a check does not launch a competing list', async (t) => {
+  const rows = processes(t);
+  const ui = await open(t);
+  button(ui).click(); await flush();
+  const child = checks(rows)[0];
+  const count = rows.length;
+  await ui.owner.show();
+  assert.equal(rows.length, count);
+  complete(child, checked('Checked while revealed'));
+  await flush();
+  assert.ok(ui.document.body.textContent.includes('Checked while revealed'));
+});
