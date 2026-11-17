@@ -95,16 +95,17 @@ class ProfilesTest(unittest.TestCase):
     def test_glm53_openai_ladder_efforts_match_docs(self):
         profile = profiles.resolve("glm53-openai")
         effort = profile["effort"]
-        self.assertEqual("medium", effort["requirements"])
+        # GLM-5.3 declares low, high and max (#3630): Requirements runs at low and the Completion Reviewer at high.
+        self.assertEqual("low", effort["requirements"])
         self.assertEqual("high", effort["planner"])
         self.assertEqual("high", effort["reviewer"])
         self.assertEqual("medium", effort["builder"])
         self.assertEqual("high", effort["validator"])
-        self.assertEqual("medium", effort["completion"])
+        self.assertEqual("high", effort["completion"])
         self.assertEqual("high", effort["resolver"])
         flags = profiles.cli_overrides(profile)
         i = flags.index("--requirements-reasoning-effort")
-        self.assertEqual("medium", flags[i + 1])
+        self.assertEqual("low", flags[i + 1])
         i = flags.index("--reasoning-effort")
         self.assertEqual("medium", flags[i + 1])
         i = flags.index("--tester-reasoning-effort")

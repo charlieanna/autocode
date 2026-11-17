@@ -56,7 +56,7 @@ class SuggestTest(unittest.TestCase):
         roles = mc.suggest(mc.usable(CATALOGUE))
         self.assertEqual("zai-coding-plan/glm-5.3", roles["builder"]["model"])
         self.assertEqual("openai/gpt-6-sol", roles["reviewer"]["model"])
-        self.assertEqual("medium", roles["builder"]["effort"])
+        self.assertEqual("high", roles["builder"]["effort"])  # GLM-5.3 has no medium (#3630)
         self.assertEqual("openai/gpt-6-sol", roles["validator"]["model"])
         self.assertEqual("openai/gpt-6-sol", roles["completion"]["model"])
         self.assertEqual("zai-coding-plan/glm-5.3", roles["requirements"]["model"])

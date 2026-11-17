@@ -44,7 +44,7 @@ PREFERRED = {
     "requirements": ("zai-coding-plan/glm-5.3", "low"),
     "planner": ("zai-coding-plan/glm-5.3", "high"),
     "reviewer": ("openai/gpt-6-sol", "high"),
-    "builder": ("zai-coding-plan/glm-5.3", "medium"),
+    "builder": ("zai-coding-plan/glm-5.3", "high"),
     "validator": ("openai/gpt-6-sol", "high"),
     "completion": ("openai/gpt-6-sol", "medium"),
     "resolver": ("openai/gpt-6-astra", "high"),

@@ -131,7 +131,9 @@ DEFAULT_REASONING_EFFORTS = {
     "requirements": "low",
     "planner": "high",
     "plan_reviewer": "high",
-    "builder": "medium",
+    # GLM-5.3 declares no medium: the Builder runs at high, the level a medium default was fitted to
+    # at launch anyway (autocode_route_fit.KNOWN_DECLARED, #3630).
+    "builder": "high",
     "tester": "high",
     "completion": "medium",
     "task_planner": "high",

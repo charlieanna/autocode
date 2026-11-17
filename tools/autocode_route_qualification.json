@@ -81,10 +81,10 @@
       {
         "model": "zai-coding-plan/glm-5.3",
         "routes": ["zai-coding-plan/glm-5.3", "zhipuai-coding-plan/glm-5.3", "kilo/z-ai/glm-5.3"],
-        "effort": "medium",
+        "effort": "high",
         "preference": 4,
         "provenance": "qualified",
-        "evidence": "Today's default Builder route, 'the cheap model does the volume' (DEFAULT_MODELS, user 2026-09-29)."
+        "evidence": "Today's default Builder route, 'the cheap model does the volume' (DEFAULT_MODELS, user 2026-09-29). GLM-5.3 declares low, high and max, so the medium recorded before ran at high, the nearest level it has (autocode_route_fit); the entry names high (#3630)."
       },
       {
         "model": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
@@ -133,9 +133,9 @@
       {
         "model": "zai-coding-plan/glm-5.3",
         "routes": ["zai-coding-plan/glm-5.3", "zhipuai-coding-plan/glm-5.3", "kilo/z-ai/glm-5.3"],
-        "effort": "medium",
+        "effort": "high",
         "provenance": "qualified",
-        "evidence": "Validated MiMo building work in the live glm53-mimo and glm-mimo-kilo profiles (scenarios/harness/profiles.py). Medium since 2026-10-21 (owner decision): on ladder-07 on Kilo the GLM Tester at medium took 242 s with 14.9k reasoning tokens against 269-468 s and 23.1k at high, and the run passed 8/8 with no send-back. Live 2026-10-25 (bugfix-trivial on glm-mimo-kilo, run 20261025-192705-pager-page-count-11-5-returns-2-but-eleven-items-74a4bb2b) reached TASK_COMPLETE on this route."
+        "evidence": "Validated MiMo building work in the live glm53-mimo and glm-mimo-kilo profiles (scenarios/harness/profiles.py). Medium since 2026-10-21 (owner decision): on ladder-07 on Kilo the GLM Tester at medium took 242 s with 14.9k reasoning tokens against 269-468 s and 23.1k at high, and the run passed 8/8 with no send-back. Live 2026-10-25 (bugfix-trivial on glm-mimo-kilo, run 20261025-192705-pager-page-count-11-5-returns-2-but-eleven-items-74a4bb2b) reached TASK_COMPLETE on this route. GLM-5.3 declares low, high and max, so the medium recorded before ran at high, the nearest level it has (autocode_route_fit); the entry names high (#3630)."
       }
     ],
     "completion": [
@@ -150,10 +150,10 @@
       {
         "model": "zai-coding-plan/glm-5.3",
         "routes": ["zai-coding-plan/glm-5.3", "zhipuai-coding-plan/glm-5.3", "kilo/z-ai/glm-5.3"],
-        "effort": "medium",
+        "effort": "high",
         "preference": 1,
         "provenance": "qualified",
-        "evidence": "Completed MiMo building work in the live glm53-mimo and glm-mimo-kilo profiles (scenarios/harness/profiles.py). Live 2026-10-25 (bugfix-trivial on glm-mimo-kilo, run 20261025-192705-pager-page-count-11-5-returns-2-but-eleven-items-74a4bb2b) reached TASK_COMPLETE on this route."
+        "evidence": "Completed MiMo building work in the live glm53-mimo and glm-mimo-kilo profiles (scenarios/harness/profiles.py). Live 2026-10-25 (bugfix-trivial on glm-mimo-kilo, run 20261025-192705-pager-page-count-11-5-returns-2-but-eleven-items-74a4bb2b) reached TASK_COMPLETE on this route. GLM-5.3 declares low, high and max, so the medium recorded before ran at high, the nearest level it has (autocode_route_fit); the entry names high (#3630)."
       }
     ],
     "task_planner": [

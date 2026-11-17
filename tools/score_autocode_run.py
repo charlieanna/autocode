@@ -58,10 +58,10 @@ except ImportError:
 # verifier never equals producer. OpenAI GPT checks GLM work and GLM checks GPT work.
 # Start at the ladder's medium rung; shift to higher reasoning in-stage when needed.
 LADDER = {
-    "requirements": {"model": "zai-coding-plan/glm-5.3", "effort": "medium"},
+    "requirements": {"model": "zai-coding-plan/glm-5.3", "effort": "low"},
     "planner": {"model": "zai-coding-plan/glm-5.3", "effort": "high"},
     "plan_reviewer": {"model": "openai/gpt-6-sol", "effort": "high"},
-    "builder": {"model": "zai-coding-plan/glm-5.3", "effort": "medium"},
+    "builder": {"model": "zai-coding-plan/glm-5.3", "effort": "high"},
     "tester": {"model": "openai/gpt-6-sol", "effort": "high"},
     "completion": {"model": "openai/gpt-6-sol", "effort": "medium"},
     "task_planner": {"model": "openai/gpt-6-astra", "effort": "high"},
