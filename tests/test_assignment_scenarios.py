@@ -412,25 +412,44 @@ class AssignmentScenarios(unittest.TestCase):
             )
         )
 
-    def test_permission_request_pauses_for_a_user_decision(self):
+    def assert_user_request_deferred(self, kind):
+        self.build()
+        self.parent_untouched()
+        self.assertEqual("independent note\n", (self.root / "docs/other.txt").read_text())
+        self.assertEqual(["docs/other.txt"], self.state["changed_files"])
+        self.assertEqual(["M2"], self.state["current_task"]["milestone_ids"])
+        self.assertEqual("tester", self.state["next_stage"])
+        self.assertNotIn("orchestration_batch", self.state)
+        batch = self.state["orchestration_history"][-1]
+        self.assertEqual("INTEGRATED", batch["status"])
+        self.assertEqual(["M1"], batch["deferred"])
+        for row in batch["workers"]:
+            with self.subTest(milestone=row["milestone_id"]):
+                expected = "SERIAL_USER_REQUEST" if row["milestone_id"] == "M1" else "BUILT"
+                self.assertEqual(expected, row["status"])
+                self.assertTrue(row["worktree_removed"])
+                self.assertFalse((Path(row["workspace"]) / ".git").exists())
+                child = s.read(Path(row["run_dir"]) / "state.json")
+                result = s.read(Path(row["run_dir"]) / "result.json")
+                self.assertEqual(expected, result["status"])
+                self.assertEqual(
+                    kind if row["milestone_id"] == "M1" else "none",
+                    child["implementation"]["user_request"]["kind"],
+                )
+                self.assertEqual(row["task"], child["current_task"])
+                self.assertEqual(batch["contract_hash"], child["goal_contract"]["hash"])
+
+    def test_permission_request_defers_untouched_assignment_to_serial_builder(self):
         self.seed()
         self.greeting_contract(self.partner())
         self.install_builder("permission")
-        with self.assertRaisesRegex(s.Paused, "Choose whether to replan or stop"):
-            self.build()
-        self.parent_untouched()
-        child = s.read(Path(self.state["orchestration_batch"]["workers"][0]["run_dir"]) / "state.json")
-        self.assertEqual("permission", child["implementation"]["user_request"]["kind"])
+        self.assert_user_request_deferred("permission")
 
     def test_architecture_change_is_not_improvised(self):
         self.seed()
         self.greeting_contract(self.partner())
         self.install_builder("architecture")
-        with self.assertRaisesRegex(s.Paused, "Choose whether to replan or stop"):
-            self.build()
-        self.parent_untouched()
-        child = s.read(Path(self.state["orchestration_batch"]["workers"][0]["run_dir"]) / "state.json")
-        self.assertEqual("infeasible", child["implementation"]["user_request"]["kind"])
+        self.assert_user_request_deferred("infeasible")
         self.assertFalse((self.root / "src/architecture.py").exists())
         self.assertFalse(any((tree / "src/architecture.py").exists() for tree in self.worker_trees()))
 
