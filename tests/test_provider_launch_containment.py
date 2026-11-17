@@ -175,6 +175,20 @@ class LaunchContainment(unittest.TestCase):
                 self.assertIn(str(self.options["run_dir"]), request["protected_paths"])
                 self.assertNotIn("private_run", request, "a writer's shell is not the planning shell")
 
+    def test_a_contained_shell_may_read_what_the_projects_links_lead_to(self):
+        # Owner decision 2026-11-17: a Builder in Seatbelt could not load the project's own tests, whose code is a
+        # tracked link out of the workspace. The link's target is a read root; writes stay inside the workspace.
+        with tempfile.TemporaryDirectory() as directory:
+            shared = Path(directory).resolve() / "discount.py"
+            shared.write_text("RATE = 1\n")
+            (self.root / "discount.py").symlink_to(shared)
+            for writing in (False, True):
+                with self.subTest(writing=writing):
+                    launch.prepare(**{**self.options, "allow_write": writing})
+                    request = self.adapter.launch.call_args.kwargs["containment"]
+                    self.assertIn(str(shared), request["read_roots"])
+                    self.assertNotIn("write_paths", request)
+
     def test_a_planning_handoff_stays_compact_under_containment(self):
         packet = {"stage": "draft_plan", "joint_planning": True, "task": "x"}
         for indent in (None, 2):

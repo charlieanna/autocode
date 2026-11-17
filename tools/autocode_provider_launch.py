@@ -31,6 +31,7 @@ try:
     from . import autocode_util as util
     from . import autocode_verification_copy as verification_copy
     from . import autocode_verification_failure as verification_failure
+    from . import autocode_workspace_links as workspace_links
 except ImportError:
     import autocode_access_evidence as access_evidence
     import autocode_agent_env as agent_env
@@ -49,6 +50,7 @@ except ImportError:
     import autocode_util as util
     import autocode_verification_copy as verification_copy
     import autocode_verification_failure as verification_failure
+    import autocode_workspace_links as workspace_links
 
 
 def prepare(
@@ -202,6 +204,9 @@ def prepare(
             developer_tools = Path("/Library/Developer/CommandLineTools")
             if developer_tools.is_dir():
                 roots.add(developer_tools.resolve())
+            # What the project's own links lead to outside it, read-only: its code and tests depend on them, and
+            # writes there stay refused (owner decision 2026-11-17, autocode_workspace_links).
+            roots.update(workspace_links.read_targets(workspace))
             if (
                 not allow_write
                 and not planning_report_recovery
