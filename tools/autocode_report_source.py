@@ -21,11 +21,13 @@ try:
     from . import autocode_cmd_only_report as cmd_only
     from . import autocode_first_reply_budget as first_reply_budget
     from . import autocode_leaked_markup_report as leaked_markup
+    from . import autocode_names as names
     from . import autocode_opencode as opencode
     from . import autocode_plan_revision_reference as revision_reference
     from . import autocode_report_syntax as report_syntax
     from . import autocode_requirements_report as requirements_report
     from . import autocode_requirements_triage as requirements_triage
+    from . import autocode_roles as roles
     from . import autocode_support as support
     from .autocode_report_bounds import MAX_REPORT_BYTES
     from .autocode_util import read as read_json
@@ -34,11 +36,13 @@ except ImportError:
     import autocode_cmd_only_report as cmd_only
     import autocode_first_reply_budget as first_reply_budget
     import autocode_leaked_markup_report as leaked_markup
+    import autocode_names as names
     import autocode_opencode as opencode
     import autocode_plan_revision_reference as revision_reference
     import autocode_report_syntax as report_syntax
     import autocode_requirements_report as requirements_report
     import autocode_requirements_triage as requirements_triage
+    import autocode_roles as roles
     import autocode_support as support
     from autocode_report_bounds import MAX_REPORT_BYTES
     from autocode_util import read as read_json
@@ -302,6 +306,35 @@ def valid_truncated_report_attempt(record, stage_completed):
         and not any(event.get("type") == "turn.completed" for event in events)
         and not stage_completed
     )
+
+
+def is_report_check_command(command: str) -> bool:
+    """Whether ``command`` is AutoCode's pre-submit stdin JSON checker rather than a project check."""
+    return "report-check" in command and "--spec" in command and ("autocode" in command or "report-check/" in command)
+
+
+def original_executed_checks(events_path, *, stage=None) -> list[dict]:
+    """Completed tool commands from ``events_path`` that a repaired report may legitimately cite."""
+    if not isinstance(events_path, (str, Path)) or not str(events_path):
+        return []
+    canonical = names.stage(str(stage or "").removesuffix("_report_repair"))
+    if canonical in set(roles.ALL_PLANNING_STAGES) - {"requirements_gather", "requirements"}:
+        return []
+    return [
+        {
+            "command": event["item"]["command"],
+            "exit_code": event["item"]["exit_code"],
+            "evidence_ref": "event:" + event["item"]["id"],
+        }
+        for event in support.events(events_path)
+        if event.get("type") == "item.completed"
+        and isinstance(event.get("item"), dict)
+        and event["item"].get("type") == "command_execution"
+        and isinstance(event["item"].get("command"), str)
+        and not is_report_check_command(event["item"]["command"])
+        and isinstance(event["item"].get("id"), str)
+        and type(event["item"].get("exit_code")) is int
+    ]
 
 
 def recovered_timeout_attempt(record, stage_completed):

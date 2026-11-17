@@ -87,6 +87,13 @@ def classify(evidence):
             and refs
             and all(isinstance(ref, str) and ref in allowed for ref in refs)
         ):
+            if (
+                diagnosis["failure_class"] == "unknown"
+                and diagnosis.get("recommendation") == "retry"
+                and diagnosis.get("cause") != "needs_user"
+                and evidence.get("changed_code_evidence")
+            ):
+                return "operational" if diagnosis.get("cause") == "environment" else "execution"
             return diagnosis["failure_class"]
     if (
         evidence.get("checks_verified") is True

@@ -77,6 +77,7 @@ try:
     from . import autocode_classification_recovery as classification_recovery
     from . import autocode_failures as failures
     from . import autocode_model_identity as model_identity
+    from . import autocode_pause_codes as pause_codes
     from . import autocode_planning_advice as recovery_binding
     from . import autocode_planning_calls as planning_calls
     from . import autocode_progressive_state as progressive
@@ -90,6 +91,7 @@ try:
     from . import autocode_stage_access as stage_access
     from . import autocode_stop as stop
     from . import autocode_stray_writes as stray_writes
+    from . import autocode_tool_handoff as tool_handoff
     from .autocode_investigation_policy import MAX_CALLS as MAX_CALLS
     from .autocode_investigation_policy import enabled, max_calls
     from .autocode_test_cases import COUNTEREXAMPLE, run_probes
@@ -98,6 +100,7 @@ except ImportError:
     import autocode_classification_recovery as classification_recovery
     import autocode_failures as failures
     import autocode_model_identity as model_identity
+    import autocode_pause_codes as pause_codes
     import autocode_planning_advice as recovery_binding
     import autocode_planning_calls as planning_calls
     import autocode_progressive_state as progressive
@@ -111,6 +114,7 @@ except ImportError:
     import autocode_stage_access as stage_access
     import autocode_stop as stop
     import autocode_stray_writes as stray_writes
+    import autocode_tool_handoff as tool_handoff
     from autocode_investigation_policy import MAX_CALLS as MAX_CALLS
     from autocode_investigation_policy import enabled, max_calls
     from autocode_test_cases import COUNTEREXAMPLE, run_probes
@@ -329,14 +333,24 @@ def intercept(state: RunState, status: str, reason: str, *, routed: bool = False
         request["pending_report_repair"] = state.pop("pending_report_repair")
     state["stuck_investigation"] = request
     last: dict = next(
-        (row for row in reversed(state.get("stages", [])) if (row.get("original_stage") or row.get("stage")) == stuck),
+        (
+            row
+            for row in reversed(state.get("stages", []))
+            if (row.get("original_stage") or str(row.get("stage") or "").removesuffix("_report_repair")) == stuck
+        ),
         {},
     )
     # Written here once; planning_lessons uses the trigger even when repeated
-    # rejected reports become PAUSED_REPEATED_FAILURE instead of INVALID_OUTPUT.
+    # rejected reports or unlaunchable report repairs become PAUSED_REPEATED_FAILURE.
     trigger = (
         "rejected_output"
-        if (status == "PAUSED_INVALID_OUTPUT" or (status == "PAUSED_REPEATED_FAILURE" and last.get("rejected")))
+        if (
+            status in ("PAUSED_INVALID_OUTPUT", "PAUSED_REPORT_REPAIR_LIMIT", "PAUSED_REPORT_REPAIR_INPUT")
+            or (
+                status == "PAUSED_REPEATED_FAILURE"
+                and (last.get("rejected") or "report repair" in str(reason or "").lower())
+            )
+        )
         else "non_convergence"
     )
     history.append(
@@ -683,6 +697,17 @@ def apply(
         check({**value, "recommendation": "retry", "guidance": value["diagnosis"]}, record.get("changed_files"))
         if value["cause"] == "needs_user" and not value["user_question"].strip():
             raise ValueError("A classification that needs the user must state the decision")
+        changed_code_gap = bool((failure.get("diagnosis") or {}).get("changed_code_evidence"))
+        if (
+            value["recommendation"] == "retry"
+            and value["cause"] != "needs_user"
+            and value["failure_class"] == "unknown"
+            and not changed_code_gap
+        ):
+            raise ValueError(
+                "A Builder failure classification that recommends retry must name a concrete failure_class "
+                "(execution, plan or operational), or recommend pause when failure_class is unknown"
+            )
     check(value, record.get("changed_files"))
     run_dir = state.get("run_dir") or (Path(record["output"]).parent if record.get("output") else None)
     cited = cited_files(value, workspace, run_dir)
@@ -753,8 +778,19 @@ def apply(
     if noted:
         entry["project_notes"] = noted
     if request.get("mode") == "builder_failure":
-        entry.update(outcome="classified", failure_class=value["failure_class"], failure_id=value["failure_id"])
-        if value["recommendation"] == "pause" or value["cause"] == "needs_user":
+        changed_code_gap = bool(
+            ((request.get("failure_evidence") or {}).get("diagnosis") or {}).get("changed_code_evidence")
+        )
+        effective_class = (
+            ("operational" if value["cause"] == "environment" else "execution")
+            if value["failure_class"] == "unknown"
+            and value["recommendation"] == "retry"
+            and value["cause"] != "needs_user"
+            and changed_code_gap
+            else value["failure_class"]
+        )
+        entry.update(outcome="classified", failure_class=effective_class, failure_id=value["failure_id"])
+        if value["cause"] == "needs_user" or effective_class == "unknown":
             entry["outcome"] = "paused"
             question = "\nNeeds you: " + value["user_question"] if value["user_question"] else ""
             builder_failure.hold(
@@ -765,12 +801,10 @@ def apply(
             )
             return None
         state.update({"status": "RUNNING", "next_stage": "builder", "phase": request.get("phase") or "EXECUTING"})
-        return {
-            **request,
-            "diagnosis": {
+        diag_payload = {
+            **{
                 key: value[key]
                 for key in (
-                    "failure_class",
                     "failure_id",
                     "evidence_refs",
                     "diagnosis",
@@ -781,6 +815,17 @@ def apply(
                     "user_question",
                 )
             },
+            "guidance": value["guidance"] if value["guidance"].strip() else value["diagnosis"],
+            "failure_class": effective_class,
+        }
+        fe = copy.deepcopy(request["failure_evidence"])
+        if changed_code_gap:
+            fe["changed_code_evidence"] = copy.deepcopy((fe.get("diagnosis") or {}).get("changed_code_evidence"))
+        fe["diagnosis"] = diag_payload
+        return {
+            **request,
+            "failure_evidence": fe,
+            "diagnosis": diag_payload,
         }
     state["next_stage"] = request["stage"]
     if not retry:
@@ -940,8 +985,7 @@ def with_guidance(state: RunState, stage: str, request):
     block = guidance(state, stage)
     if not block:
         return request
-    head, marker, tail = request.prompt.partition("CURRENT HANDOFF DATA\n")
-    return replace(request, prompt=head + block + marker + tail if marker else request.prompt + block)
+    return replace(request, prompt=tool_handoff.before_handoff(request.prompt, block))
 
 
 def guidance(state: RunState, stage: str) -> str:
@@ -956,13 +1000,14 @@ def guidance(state: RunState, stage: str) -> str:
         and recovery_binding.applies(state, current, current.get("stage", ""))
         and (stage == current["stage"] or (current["stage"] in PLANNING and stage in PLANNING))
     )
-    lessons = planning_lessons(state) if stage in PLANNING else []
+    lessons = planning_lessons(state) if stage in PLANNING else stage_lessons(state, stage)
     if active:
         lessons = [row for row in lessons if row.get("identity") != current.get("identity")]
     block = ""
     if lessons:
+        heading = "EARLIER PLANNING CORRECTIONS" if stage in PLANNING else "EARLIER STAGE CORRECTIONS"
         block = (
-            "\nEARLIER PLANNING CORRECTIONS\n"
+            f"\n{heading}\n"
             "These are earlier report-format diagnoses, not verified successful retries. Keep only "
             "corrections applicable to the current task, contract and saved answers. "
             "They grant no retries, budget, permissions or approval and settle no user decision.\n"
@@ -977,6 +1022,51 @@ def guidance(state: RunState, stage: str) -> str:
     return block
 
 
+def _stage_completed_since(state: RunState, stage: str, finished_at) -> bool:
+    if not isinstance(finished_at, str) or not finished_at:
+        return False
+    return any(
+        isinstance(row, dict)
+        and (row.get("original_stage") or row.get("stage")) == stage
+        and not row.get("rejected")
+        and not row.get("abandoned")
+        and isinstance(row.get("finished_at"), str)
+        and row["finished_at"] >= finished_at
+        for row in state.get("stages") or []
+    )
+
+
+def stage_lessons(state: RunState, stage: str) -> list[dict]:
+    """Reuse report-format advice against the exact stage inputs it diagnosed until settled."""
+    in_planning = stage in PLANNING
+    lessons = [
+        row
+        for row in state.get("stuck_investigations") or []
+        if row.get("outcome") == "retried"
+        and row.get("cause") == "stage_output"
+        and (row.get("stage") in PLANNING if in_planning else row.get("stage") == stage)
+        and (
+            in_planning
+            or (not row.get("settled_at") and not _stage_completed_since(state, stage, row.get("finished_at")))
+        )
+        and row.get("diagnosis")
+        and row.get("guidance")
+        and recovery_binding.applies(state, row, row["stage"])
+        and (
+            row.get("trigger") == "rejected_output"
+            or ("trigger" not in row and row.get("status") == "PAUSED_INVALID_OUTPUT")
+            or row.get("status")
+            in ("PAUSED_INVALID_OUTPUT", "PAUSED_REPORT_REPAIR_LIMIT", "PAUSED_REPORT_REPAIR_INPUT")
+            or (
+                row.get("status") == "PAUSED_REPEATED_FAILURE"
+                and "report repair" in str(row.get("reason") or "").lower()
+            )
+        )
+    ]
+    limit = max_calls(state)
+    return lessons[-limit:] if limit else []
+
+
 def planning_lessons(state: RunState) -> list[dict]:
     """Reuse report-format advice only against the planning inputs it diagnosed.
 
@@ -984,22 +1074,7 @@ def planning_lessons(state: RunState) -> list[dict]:
     Never resurrect its retry grant or carry convergence/product advice as a lesson.
     Legacy unbound rows stay in history without being presented as current advice.
     """
-    lessons = [
-        row
-        for row in state.get("stuck_investigations") or []
-        if row.get("outcome") == "retried"
-        and row.get("cause") == "stage_output"
-        and row.get("stage") in PLANNING
-        and row.get("diagnosis")
-        and row.get("guidance")
-        and recovery_binding.applies(state, row, row["stage"])
-        and (
-            row.get("trigger") == "rejected_output"
-            or ("trigger" not in row and row.get("status") == "PAUSED_INVALID_OUTPUT")
-        )
-    ]
-    limit = max_calls(state)
-    return lessons[-limit:] if limit else []
+    return stage_lessons(state, next(iter(PLANNING)))
 
 
 def settle(state: RunState, stage: str) -> None:
@@ -1007,23 +1082,27 @@ def settle(state: RunState, stage: str) -> None:
     current = state.get("stuck_investigation") or {}
     if current.get("in_force") and stage == current["stage"] and stage not in PLANNING:
         state.pop("stuck_investigation")
+    if stage not in PLANNING:
+        for row in state.get("stuck_investigations") or []:
+            if (
+                isinstance(row, dict)
+                and row.get("stage") == stage
+                and row.get("outcome") == "retried"
+                and not row.get("settled_at")
+            ):
+                row["settled_at"] = now()
 
 
 def retire(state: RunState, status: str | None = None) -> None:
-    """A checkpoint or usage hold preserves applicable advice, never a new retry grant."""
+    """A checkpoint, usage or uncompleted-stage hold preserves applicable advice, never a new retry grant."""
     current = state.get("stuck_investigation") or {}
+    category = pause_codes.CODES.get(status or "")
     if (
-        status
-        in {
-            "PAUSED_INTERVENTION",
-            "PAUSED_REQUESTED",
-            "PAUSED_MILESTONE_BUDGET",
-            "PAUSED_PLANNING_BUDGET",
-            "PAUSED_TIME_LIMIT",
-            "PAUSED_COST_LIMIT",
-            "PAUSED_ITERATION_LIMIT",
-            planning_calls.STATUS,
-        }
+        (
+            category in ("budget", "environment")
+            or status in _INTERVENTION_PAUSES
+            or status in {"PAUSED_UNCERTAIN_STAGE", "PAUSED_STAGE_ABANDONED"}
+        )
         and current.get("in_force")
         and recovery_binding.applies(state, current, current.get("stage", ""))
     ):

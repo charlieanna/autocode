@@ -46,6 +46,7 @@ try:
     from . import autocode_run_status as run_status
     from . import autocode_runner_check as runner_check
     from . import autocode_stage_recovery as stage_recovery
+    from . import autocode_stage_stalls as stage_stalls
     from . import autocode_stop as stop
     from . import autocode_support as support
     from . import autocode_verification_failure as verification_failure
@@ -71,6 +72,7 @@ except ImportError:
     import autocode_run_status as run_status
     import autocode_runner_check as runner_check
     import autocode_stage_recovery as stage_recovery
+    import autocode_stage_stalls as stage_stalls
     import autocode_stop as stop
     import autocode_support as support
     import autocode_verification_failure as verification_failure
@@ -294,8 +296,11 @@ def retry_failure(runner, args, parser, state: RunState, state_path, run_dir, wo
     if decided.gate == "authorize":
         return None  # The exact job owner already authorized its own retry.
     try:
-        if getattr(decided, "operational_selection", None) == "failure_retry":
-            runner.prepare_planning_retry(state, run_dir)
+        if (
+            getattr(decided, "operational_selection", None) == "failure_retry"
+            or stage_stalls.exhausted_unlaunchable_pending(state)
+        ) and not runner.prepare_planning_retry(state, run_dir):
+            runner.prepare_exhausted_execution_report_retry(state, run_dir, workspace, allow_repeated=True)
         authorization = runner.resolver_recovery.authorize_retry(
             runner,
             state,
@@ -363,6 +368,7 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
     if args.abandon_stage is not None:
         return abandon(runner, args, parser, state, state_path, run_dir, workspace, decided)
     # Recovery interprets terminal artifacts only. It never replays a model call.
+    prior_next_action = state.get("next_action") if isinstance(state.get("next_action"), str) else None
     try:
         if args.resume_paused:
             if state.get("status") in ("PAUSED_VERIFICATION_UNCERTAIN", "PAUSED_STAGE_ABANDONED"):
@@ -386,6 +392,38 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
                 and (code := grant(runner, args, parser, state, state_path, run_dir, workspace, decided)) is not None
             ):
                 return code
+            revalidated_report = False
+            paused_before = state.get("status")
+            if (
+                not args.retry_report
+                and getattr(decided, "operational_incident", None) is None
+                and state.get("pending_report_repair")
+                and (revalidator := getattr(runner, "report_revalidation", None)) is not None
+                and revalidator.revalidate(runner, state, run_dir, workspace)
+            ):
+                revalidated_report = True
+                decided.evidence_reconciled = True
+                if state.get("status") == paused_before and paused_before in (
+                    "PAUSED_REPEATED_FAILURE",
+                    "PAUSED_INVALID_OUTPUT",
+                    "PAUSED_REPORT_REPAIR_LIMIT",
+                    "PAUSED_REPORT_REPAIR_INPUT",
+                ):
+                    stop.acknowledge_pause(state, runner.now())
+                    run_status.running(
+                        state,
+                        "PLANNING"
+                        if runner.planning.is_planning(state, state["next_stage"])
+                        else "DISCOVERING"
+                        if state["next_stage"] == "draft_plan"
+                        else "EXECUTING",
+                        next_stage=state.get("next_stage"),
+                    )
+                    runner.write_json(state_path, state)
+                print(
+                    "Pinned report revalidated under current checks; saved stage output accepted without launching a retry.",
+                    flush=True,
+                )
             # Renew the resolver evaluation epoch without resetting the
             # lifetime diagnostic allowance. Report repair is renewed
             # only after exhaustion-gated retry decisions below. A
@@ -402,7 +440,7 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
                     code := retry_report(runner, args, parser, state, state_path, run_dir, workspace, decided)
                 ) is not None:
                     return code
-            else:
+            elif not revalidated_report:
                 authorization = None
                 if args.retry_failed_stage:
                     if (
@@ -421,7 +459,7 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
                     except ValueError as error:
                         print(f"Input rejected: {error}", file=sys.stderr)
                         return 2
-                if not owned_operations.completed(decided, "observe"):
+                if not (hasattr(decided, "completed_operations") and owned_operations.completed(decided, "observe")):
                     runner.prepare_abandoned_completion_revalidation(state, run_dir, workspace)
                     runner.prepare_timeout_archived_completion(state, run_dir, workspace)
                 runner.prepare_planning_retry(state, run_dir)
@@ -434,9 +472,9 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
                 # the retry it tells the operator to authorize is then actually admissible.
                 runner.repeated_failure_resume_guard(state, workspace, authorization=authorization)
                 decided.failure_retry_consumed = bool(
-                    authorization is not None
-                    and authorization is decided.failure_retry_authorization
+                    isinstance(authorization, dict)
                     and authorization.get("consumed") is True
+                    and authorization is getattr(decided, "failure_retry_authorization", None)
                 )
             # Reset report repair attempts on explicit resume, for whatever
             # repair record is still pending. An exhaustion-gated retry
@@ -451,6 +489,40 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
                 runner.reset_report_repair_for_resume(state)
         if args.resume_paused and state.get("no_progress_reports"):
             runner.autopilot.recover_retained_candidate(state, workspace, bound_only=True)
+        if (
+            args.resume_paused
+            and state.get("builder_failure_hold")
+            and (
+                (
+                    hasattr(runner.autopilot.changed_code_rework, "reconcile_classified_hold")
+                    and runner.autopilot.changed_code_rework.reconcile_classified_hold(
+                        state,
+                        workspace,
+                        route=runner.autopilot.route_builder_failure,
+                        prior_next_action=prior_next_action,
+                    )
+                )
+                or (
+                    hasattr(runner.autopilot.builder_failure, "reconcile_routable_hold")
+                    and runner.autopilot.builder_failure.reconcile_routable_hold(
+                        state,
+                        workspace,
+                        route_failure=runner.autopilot.route_builder_failure,
+                        diagnose_rework=runner.autopilot.changed_code_rework.diagnosed,
+                        apply_resolver_continuation=lambda current, diag, rev: (
+                            hasattr(runner.autopilot, "apply_saved_resolver_continuation")
+                            and runner.autopilot.apply_saved_resolver_continuation(
+                                runner, current, diag, rev, workspace, run_dir
+                            )
+                        ),
+                        prior_next_action=prior_next_action,
+                        enabled=runner.autopilot.stuck.enabled(state),
+                    )
+                )
+            )
+        ):
+            stop.acknowledge_pause(state, runner.now())
+            runner.write_json(state_path, state)
         runner.reconcile_active(state, run_dir, workspace)
     except runner.ReportRepairQueued:
         pass  # Durable pending repair is dispatched below, not original work.

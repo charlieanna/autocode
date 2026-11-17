@@ -211,7 +211,12 @@ def corrections(state: RunState, before, after, changes, user_basis):
     new = {r["id"]: r for r in after.get("acceptance_criteria", [])}
     reports = (state.get("planning") or {}).get("reports") or {}
     review = (reports.get("review_plan") or reports.get("plan_review") or {}).get("report") or {}
-    sources = [state.get(key) for key in ("task", "answers", "brief_feedback", "user_events", "approved_design")]
+    human_events = [
+        event
+        for event in state.get("user_events") or []
+        if not isinstance(event, dict) or event.get("actor") not in ("runner", "core", "autocode")
+    ]
+    sources = [state.get(key) for key in ("task", "answers", "brief_feedback", "design_constraint")] + [human_events]
     handoff = (state.get("requirements_handoff") or {}).get("report") or {}
     sources += [r.get("source_quote", "") for r in handoff.get("requirements", [])]
     found = set()

@@ -10,6 +10,18 @@ from pathlib import Path
 MARKER = "\nCURRENT HANDOFF DATA\n"
 
 
+def before_handoff(prompt: str, text: str) -> str:
+    """``prompt`` with ``text`` added to its instructions, ahead of the handoff packet.
+
+    Every launch helper reads everything after ``MARKER`` as one JSON object, so text
+    added to a built stage prompt (guidance, rules, notes) goes before the marker: appended
+    after the packet it paused the stage before any provider launched (``PAUSED_INVALID_OUTPUT``,
+    "Provider handoff must contain a JSON object"). A prompt with no handoff takes it at its end.
+    """
+    instructions, marker, packet = prompt.partition(MARKER)
+    return instructions + text + marker + packet if marker else prompt + text
+
+
 def capture_command(mode=None) -> str:
     """The public capture prefix shared by handoffs and model-free tool admission."""
     words = [sys.executable, str(Path(__file__).with_name("autocode.py")), "capture"]

@@ -14,6 +14,8 @@ Pure: imports nothing from AutoCode, so any layer may read it.
 
 from __future__ import annotations
 
+import re
+
 # Configured route (``settings.roles`` key) -> its job name.
 ROUTES = {
     "glm": "planner",
@@ -146,3 +148,52 @@ def stage_route(stage) -> str:
     if base in TASK_PLANNER_STAGES:
         return "task_planner"
     return "planner" if base == "revise_plan" else base
+
+
+# One unique artifact file stem per stage code name (autocode_artifacts). The stems of retired
+# stages stay, so artifacts a saved run wrote at them remain readable.
+FILE_SLUGS = {
+    "recognize_workflow": "recognize-workflow",
+    "collect_design": "design-inventory",
+    "requirements_gather": "requirements-gather",
+    "draft_plan": "discovery",
+    "revise_plan": "requirements-revise",
+    "review_plan": "plan-challenge",
+    "finalize_plan": "plan-finalize",
+    "plan_task": "task-plan",
+    "plan_review": "plan-review",
+    "builder": "builder",
+    "tester": "validator",
+    "orchestrator": "orchestrator",
+    "review_change": "review-change",
+    "review_design": "design-review",
+    "check_design": "design-check",
+    "investigate_stuck": "stuck-investigation",
+    "investigate_bug": "bug-investigation",
+    "answer_question": "analyst",
+    "review_completion": "completion-review",
+    "review_checkpoint": "completion-checkpoint",
+    "resolve": "resolver",
+    "diagnose": "diagnosis",
+    "resolve_repair": "resolve-repair",
+    "write_acceptance_tests": "acceptance-tests",
+}
+_SLUG_STAGES = {slug: code for code, slug in FILE_SLUGS.items()}
+_ATTEMPT_NUMBER = re.compile(r"-\d+$")
+
+
+def stage_from_attempt_id(attempt_id) -> str | None:
+    """The canonical stage name encoded in an ``iteration/slug-NN`` attempt ID, or None."""
+    if not isinstance(attempt_id, str) or "/" not in attempt_id:
+        return None
+    _iteration, _, tail = attempt_id.rpartition("/")
+    stem = _ATTEMPT_NUMBER.sub("", tail)
+    if not stem or stem == tail:
+        return None
+    for suffix in ("-report-repair", "_report_repair"):
+        if stem.endswith(suffix):
+            stem = stem.removesuffix(suffix)
+            break
+    if stem in _SLUG_STAGES:
+        return stage(_SLUG_STAGES[stem])
+    return stage(stem) if stem in STAGES else stage(stem.replace("-", "_"))

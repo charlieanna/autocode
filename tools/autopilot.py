@@ -1045,6 +1045,32 @@ def apply_diagnosis_result(runtime, state: RunState, value, record, workspace, r
     )
 
 
+def apply_saved_resolver_continuation(
+    runtime, state: RunState, diag_payload: dict, source_revision, workspace, run_dir
+) -> bool:
+    saved = builder_failure.saved_resolver_continuation(state, source_revision)
+    if saved is None or not isinstance(state.get("resolution_request"), dict):
+        return False
+    candidate = copy.deepcopy(state)
+    cast(dict, candidate["resolution_request"])["failure_diagnosis"] = copy.deepcopy(diag_payload)
+    try:
+        _apply_result(
+            runtime,
+            candidate,
+            "resolve",
+            saved["value"],
+            saved["record"],
+            workspace,
+            run_dir,
+            continuation=True,
+        )
+    except (runtime.support.Paused, ValueError, KeyError, TypeError):
+        return False
+    cast(dict, state).clear()
+    state.update(candidate)
+    return True
+
+
 def apply_result(runtime, state: RunState, stage, value, record, workspace, run_dir):
     """Commit a unit result only after every transition and evidence gate succeeds."""
     candidate = result_application.prepare(

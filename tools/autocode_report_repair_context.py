@@ -315,6 +315,21 @@ def prompt_parts(
         else ""
     )
     review_instruction = prompts.get("fragments/report-repair-context/revision-review.md") if review else ""
+    finalize_clarification = {}
+    if stage == "finalize_plan":
+        compact_clarification = copy.deepcopy(clarification)
+        if isinstance(protected, dict):
+            for entry in (compact_clarification.get("planning_exchange") or {}).values():
+                report = entry.get("report") if isinstance(entry, dict) else None
+                if isinstance(report, dict):
+                    contract = report.get("contract")
+                    if isinstance(contract, dict):
+                        for field, saved in protected.items():
+                            if field in contract and contract[field] == saved:
+                                del contract[field]
+                        if not contract:
+                            del report["contract"]
+        finalize_clarification = {"clarification_context": compact_clarification}
     return (
         receipt_instruction
         + retention_instruction
@@ -399,7 +414,7 @@ def prompt_parts(
             },
             "original_report": historical_source,
             "protected_contract": protected,
-            "clarification": {"clarification_context": clarification} if stage == "finalize_plan" else {},
+            "clarification": finalize_clarification,
         },
     )
 
@@ -434,6 +449,14 @@ def instruction(stage: str) -> str:
     return prompts.get("fragments/report-repair-context/instruction.md")
 
 
+def _compact_open_line(row: dict) -> dict:
+    """Drop forbidden raw mutant-log paths and internal hashes while keeping every repair field."""
+    omitted = {"evidence", "sha256", "fallback", "reason"}
+    if row.get("handle"):
+        omitted.add("gap_id")
+    return copy.deepcopy({key: value for key, value in row.items() if key not in omitted})
+
+
 def changed_code_citation_context(state: RunState, pending: dict, stage: str) -> dict:
     """Offer the current enclosing proof as a citation, never new evidence authority."""
     if stage not in {"tester", "review_checkpoint"}:
@@ -444,7 +467,9 @@ def changed_code_citation_context(state: RunState, pending: dict, stage: str) ->
     if citation and assessment.get("source_revision") == citation["source_revision"]:
         # Report-only repair has no tools. The error lists only the first forty
         # gaps, so give it every current open row, with its measured observations.
-        citation["open_lines"] = copy.deepcopy(
-            [row for row in assessment.get("obligations") or [] if row.get("status") == "reason_required"]
-        )
+        citation["open_lines"] = [
+            _compact_open_line(row)
+            for row in assessment.get("obligations") or []
+            if row.get("status") == "reason_required"
+        ]
     return citation

@@ -152,11 +152,45 @@ class IndependentEvidenceRepairTests(unittest.TestCase):
             complete = copy.deepcopy(partial)
             complete[review.FIELD].append({"gap_id": "L2", "decision": "accept"})
             application.require_tester_decisions(state, complete, record)
-            with self.assertRaisesRegex(ValueError, "L2"):
-                application.require_tester_decisions(state, partial, {**record, "report_repaired": True})
+            # A repaired FAIL keeps the Builder/Investigator fallback: its repair cannot carry the whole matrix (#68).
+            self.assertIsNone(application.require_tester_decisions(state, partial, {**record, "report_repaired": True}))
             for change in ({"source_revision": "old"}, {"schema": None}):
                 application.require_tester_decisions(state, partial, {**record, **change})
             application.require_tester_decisions(state, {"verdict": "FAIL", review.FIELD: []}, record)
+
+    def test_a_missing_test_failure_is_not_asked_about_lines_whose_mutants_never_ran(self):
+        """Board #68: a ``not_run`` line has no mutation result; it is the runner's gap, not the Tester's."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state, record = self.fixture(root)
+            assessment = state["regression_proof"]["changed_code_evidence"]
+            first = assessment["obligations"][0]
+            for handle, line, outcomes in (("L2", 3, ["not_run"]), ("L3", 4, ["not_run", "not_run"])):
+                extra = copy.deepcopy(first)
+                extra.update(
+                    gap_id=f"gap-{handle}",
+                    handle=handle,
+                    line=line,
+                    source_line=f"x = {line}",
+                    mutation_outcomes=outcomes,
+                )
+                assessment["obligations"].append(extra)
+            schema = review.generation_schema(
+                {"properties": {review.FIELD: copy.deepcopy(review.SCHEMA)}}, assessment, "tester"
+            )
+            schema_file = root / "schema.json"
+            schema_file.write_text(json.dumps(schema))
+            record["schema"] = str(schema_file)
+            partial = {
+                "verdict": "FAIL",
+                review.FIELD: [{"gap_id": first["gap_id"], "decision": "reject", "reason_kind": "missing_test"}],
+            }
+            self.assertIsNone(application.require_tester_decisions(state, partial, record))
+            # A line with any real outcome is still the Tester's to decide.
+            assessment["obligations"][-1]["mutation_outcomes"] = ["not_run", "survived"]
+            with self.assertRaisesRegex(ValueError, "L3") as raised:
+                application.require_tester_decisions(state, partial, record)
+            self.assertNotIn("L2 ", str(raised.exception))
 
     def test_stale_or_unaccepted_evidence_cannot_send_qualified_cases_back(self):
         import autocode_acceptance_evidence_repair as repair

@@ -98,6 +98,9 @@ const money = (value: unknown): string => (isNumber(value) ? `$${value.toFixed(2
 const percent = (value: unknown): string => (isNumber(value) ? `${Math.round(value * 100)}%` : "?");
 const counted = (count: number, one: string, many: string): string => `${count} ${count === 1 ? one : many}`;
 const FLAG = /(?:^|[\s(])--[a-z][a-z0-9]*(?:-[a-z0-9]+)*|\bAUTOCODE_[A-Z0-9_]+\b|(?:^|[^\w/.-])autocode\s+(?:resume\b|--)/;
+const HANDOFF_MACHINERY = /provider handoff must contain\b|\bCURRENT HANDOFF DATA\b|\bREPAIR_HANDOFF_BYTES\b|\brepair-edits\.schema\.json\b|\bhandoff exceeds\b|\bunlaunchable repair\b/i;
+const GAP_ENUM_MACHINERY = /\bin the gap_id enum\b|\bleaves other offered changed lines undecided\b|\bchanged_code_exceptions\b|\bquotes\s+".*?"\s+but binds\b/i;
+const SCHEMA_MACHINERY = /(?:^|[\s(])\$(?::|\.[A-Za-z_[])|\bReport edits?\b.*?\b(?:path|enum|schema|apply)\b/i;
 const capitalize = (value: string): string => value.charAt(0).toUpperCase() + value.slice(1);
 
 function tokens(value: unknown): string {
@@ -290,18 +293,37 @@ export function withoutCommands(value: string): string {
   return unbracketed.split(/(?<=[.!?])\s+/).filter((sentence) => !FLAG.test(sentence)).join(" ").trim();
 }
 
+export function isInternalMachinery(value: string): boolean {
+  return Boolean(value) && (HANDOFF_MACHINERY.test(value) || GAP_ENUM_MACHINERY.test(value) || SCHEMA_MACHINERY.test(value));
+}
+
+function humanMachinerySummary(value: string): string {
+  if (HANDOFF_MACHINERY.test(value)) return "AutoCode hit an internal stage handoff format error; your saved work is intact.";
+  if (GAP_ENUM_MACHINERY.test(value)) return "AutoCode's review report left changed-line check items undecided; your saved work is intact.";
+  return "AutoCode could not validate a stage's structured report; your saved work is intact.";
+}
+
+/** Person-facing `needs.reason` with CLI flags and internal prompt/schema validator prose omitted (#3733). */
+export function personReason(value: string): string {
+  const cleaned = withoutCommands(text(value));
+  return isInternalMachinery(cleaned) ? "" : cleaned;
+}
+
 function where(view: Row): { state: string; label: string; sentence: string; section: DetailSection } {
   const summary = mapping(view.summary);
   const progress = mapping(view.progress);
   const state = text(summary.state) || (view.done === true ? "done" : "working");
   const label = text(summary.label) || capitalize(words(view.status, "Starting").toLowerCase());
-  const sentence = withoutCommands(text(summary.sentence)) || text(progress.headline) || text(progress.line);
+  const rawSentence = withoutCommands(text(summary.sentence));
+  const sentence = (isInternalMachinery(rawSentence) ? humanMachinerySummary(rawSentence) : rawSentence)
+    || text(progress.headline)
+    || text(progress.line);
   const lines = [sentence];
   // `what_it_means` is said for a person; `what_happened` names the internal status and
   // `what_the_command_does` names CLI flags, which a client never shows.
   const means = text(mapping(view.explanation).what_it_means);
   if (means && means !== sentence) lines.push(means);
-  const reason = withoutCommands(text(mapping(view.needs).reason));
+  const reason = personReason(text(mapping(view.needs).reason));
   if (reason && !lines.includes(reason) && state === "needs_you") lines.push(`Waiting for: ${reason}`);
   if (view.done !== true && String(view.status ?? "").startsWith("PAUSED")) {
     // A stopped step: the core's own reason and next action, then the cause it saved. Sentences that
@@ -645,7 +667,10 @@ function routesSection(view: Row): DetailSection | null {
       if (text(row.outcome)) lines.push(`  Outcome: ${words(row.outcome)}`);
     }
   }
-  if (!lines.length) return null;
+  if (!lines.length && mapping(view.tool_containment_backend).backend !== "seatbelt") return null;
+  if (mapping(view.tool_containment_backend).backend === "seatbelt") {
+    lines.push("Sandbox: macOS Seatbelt (blocks stage 127.0.0.1 loopback socket binds; local runner checks and Kilo permit them)");
+  }
   return { id: "routes", title: "Models", summary: counted(Object.keys(mapping(view.routes)).length, "saved route", "saved routes"), lines };
 }
 

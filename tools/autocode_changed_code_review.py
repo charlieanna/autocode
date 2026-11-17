@@ -39,20 +39,71 @@ def proof_reference(proof, source_revision):
     return {}
 
 
+def _compact_gap_field(field: dict) -> dict:
+    """Offer short handles alone in the prompt copy when every full id has a paired handle."""
+    items = field.get("items") if isinstance(field, dict) else None
+    props = items.get("properties") if isinstance(items, dict) else None
+    gap_prop = props.get("gap_id") if isinstance(props, dict) else None
+    if not (isinstance(items, dict) and isinstance(props, dict) and isinstance(gap_prop, dict)):
+        return field
+    offered = gap_prop.get("enum")
+    if not isinstance(offered, list):
+        return field
+    handles = [entry for entry in offered if isinstance(entry, str) and not entry.startswith("changed-code:")]
+    full_ids = [entry for entry in offered if isinstance(entry, str) and entry.startswith("changed-code:")]
+    if not (handles and full_ids and len(handles) + len(full_ids) == len(offered) and len(handles) == len(full_ids)):
+        return field
+    return {
+        **field,
+        "items": {
+            **items,
+            "properties": {**props, "gap_id": {**gap_prop, "enum": handles}},
+        },
+    }
+
+
+def _compact_object_schema(node: dict) -> dict:
+    if not isinstance(node, dict):
+        return node
+    cleaned = {key: value for key, value in node.items() if not (isinstance(key, str) and key.startswith("x-"))}
+    properties = cleaned.get("properties")
+    if not isinstance(properties, dict):
+        return cleaned
+    updated = dict(properties)
+    changed = cleaned is not node and len(cleaned) != len(node)
+    if isinstance(updated.get(FIELD), dict):
+        compacted = _compact_gap_field(updated[FIELD])
+        changed = changed or compacted is not updated[FIELD] or list(updated)[-1] != FIELD
+        updated = {key: value for key, value in updated.items() if key != FIELD}
+        updated[FIELD] = compacted
+    for nested_key in ("validation", "set"):
+        nested = updated.get(nested_key)
+        if isinstance(nested, dict):
+            compacted_nested = _compact_object_schema(nested)
+            if compacted_nested is not nested:
+                updated[nested_key] = compacted_nested
+                changed = True
+    repair_report = updated.get("repair_report")
+    if isinstance(repair_report, dict) and isinstance(repair_report.get("anyOf"), list):
+        branches = [_compact_object_schema(branch) for branch in repair_report["anyOf"]]
+        if any(new is not old for new, old in zip(branches, repair_report["anyOf"], strict=False)):
+            updated["repair_report"] = {**repair_report, "anyOf": branches}
+            changed = True
+    return {**cleaned, "properties": updated} if changed else cleaned
+
+
 def prompt_order(schema: dict) -> dict:
-    """The prompt copy with the attempt-specific property rendered last (A3, #2113).
+    """The prompt copy with runner-only metadata stripped, handles compacted, and attempt fields last.
 
     A schema read back from a state file is alphabetized by the JSON writer, so the
     attempt-specific property with its per-attempt enum sorts to the front of the
-    prefix and pushes every static property deeper. Providers call this on their own
-    copy; the saved schema and the bound schema are never reordered.
+    prefix and pushes every static property deeper (A3, #2113). Repair schemas also
+    carry ``x-autocode-report-edits`` and paired 64-hex ``changed-code:`` ids on disk
+    for runner validation; stripping ``x-*`` and keeping paired ``L<N>`` handles in
+    the prompt copy keeps inline provider prompts compact without changing the saved
+    or bound validation schema.
     """
-    properties = schema.get("properties") or {}
-    if FIELD not in properties:
-        return schema
-    ordered = {**schema, "properties": {key: value for key, value in properties.items() if key != FIELD}}
-    ordered["properties"][FIELD] = properties[FIELD]
-    return ordered
+    return _compact_object_schema(schema) if isinstance(schema, dict) else schema
 
 
 SCHEMA: dict = {

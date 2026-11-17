@@ -226,9 +226,12 @@ class RecoveryViewTests(unittest.TestCase):
                 for field in ("what_happened", "retained", "actions"):
                     self.assertTrue(result[field])
                 self.assertIn("inspect", [row["kind"] for row in result["actions"]])
-                self.assertTrue(
-                    {"feedback", "decision", "new_conversation"} & {row["kind"] for row in result["actions"]}
-                )
+                if recovery.pause_authority.feedback_refusal(state):
+                    self.assertNotIn("feedback", [row["kind"] for row in result["actions"]])
+                else:
+                    self.assertTrue(
+                        {"feedback", "decision", "new_conversation"} & {row["kind"] for row in result["actions"]}
+                    )
                 self.assertNotIn("builder", result["what_happened"])
                 self.assertEqual(before, state)
         for status in recovery.ACTIVE:
@@ -338,7 +341,7 @@ class RecoveryViewTests(unittest.TestCase):
         self.assertIn("Resume is a separate action", selected["effect"])
         self.assertNotIn("resume", [row["kind"] for row in actions])
         state["active_stage"] = {}
-        self.assertEqual(["inspect", "feedback"], [row["kind"] for row in self.card(state)["actions"]])
+        self.assertEqual(["inspect"], [row["kind"] for row in self.card(state)["actions"]])
 
     def test_quota_pause_offers_exact_inspected_abandonment_before_separate_resume(self):
         state = self.state(
@@ -369,9 +372,7 @@ class RecoveryViewTests(unittest.TestCase):
             {"kind": "resume", "abandon_stage": "003/builder-02"},
         ):
             with self.subTest(need=need):
-                self.assertEqual(
-                    ["inspect", "feedback"], [row["kind"] for row in recovery.project(state, need)["actions"]]
-                )
+                self.assertEqual(["inspect"], [row["kind"] for row in recovery.project(state, need)["actions"]])
         for active in ({}, {"iteration": 4}, {"output": "/run/builder-02.json"}):
             with self.subTest(active=active):
                 changed = {**state, "active_stage": active}
@@ -450,12 +451,12 @@ class RecoveryViewTests(unittest.TestCase):
         view = run_view.view(report)
         self.assertEqual("004/builder-02", view["needs"]["abandon_stage"])
         self.assertNotIn("retry_report_attempt", view["needs"])
-        self.assertEqual(["inspect", "abandon", "feedback"], [row["kind"] for row in view["recovery"]["actions"]])
+        self.assertEqual(["inspect", "abandon"], [row["kind"] for row in view["recovery"]["actions"]])
         report.pop("active_stage")
         report["settings"]["report_repair"] = {"max_attempts": 2}
         view = run_view.view(report)
         self.assertEqual("004/validator-01", view["needs"]["retry_report_attempt"])
-        self.assertEqual(["inspect", "retry_report", "feedback"], [row["kind"] for row in view["recovery"]["actions"]])
+        self.assertEqual(["inspect", "retry_report"], [row["kind"] for row in view["recovery"]["actions"]])
 
     def test_saved_internal_question_does_not_claim_human_authority_or_answer_it(self):
         state = self.state("WAITING_FOR_USER", pending_questions=[{"id": "q", "question": "Which format?"}])

@@ -27,6 +27,7 @@ try:
     from . import autocode_route_fit as route_fit
     from . import autocode_storage_errors as storage_errors
     from . import autocode_tool_admission as tool_admission
+    from . import autocode_tool_handoff as tool_handoff
     from . import autocode_util as util
     from . import autocode_verification_copy as verification_copy
     from . import autocode_verification_failure as verification_failure
@@ -44,6 +45,7 @@ except ImportError:
     import autocode_route_fit as route_fit
     import autocode_storage_errors as storage_errors
     import autocode_tool_admission as tool_admission
+    import autocode_tool_handoff as tool_handoff
     import autocode_util as util
     import autocode_verification_copy as verification_copy
     import autocode_verification_failure as verification_failure
@@ -527,9 +529,7 @@ def containment_prompt(
 ):
     """Advertise only the current stage's permitted scratch area, not broader write access."""
     if worker.get("kilo_readonly_tools") and worker.get("planning_report_recovery"):
-        before, marker, after = prompt.rpartition("\nCURRENT HANDOFF DATA\n")
-        instruction = prompts.get("fragments/provider-launch/tool-free-report-repair.md")
-        return before + instruction + marker + after if marker else prompt + instruction
+        return tool_handoff.before_handoff(prompt, prompts.get("fragments/provider-launch/tool-free-report-repair.md"))
     policy = worker.get("tool_containment")
     if not policy:
         return prompt

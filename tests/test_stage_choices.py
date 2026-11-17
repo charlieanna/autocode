@@ -369,6 +369,14 @@ class ApplyTests(unittest.TestCase):
         choices.apply(routed, "claude", file=self.file)
         self.assertIsNone(routed.tester_model, "a stage another tool serves keeps that tool's route")
 
+    def test_typing_the_same_saved_model_without_effort_inherits_its_saved_stage_choice_level(self):
+        args, said = self.args(builder_model=SONNET), []
+        self.assertEqual(
+            ["builder", "tester", "task_planner"], choices.apply(args, "claude", file=self.file, say=said.append)
+        )
+        self.assertEqual((SONNET, "high"), (args.builder_model, args.builder_reasoning_effort))
+        self.assertEqual(("builder", "tester"), args.stage_choice_efforts)
+
     def test_a_broken_file_stops_a_new_run_by_name(self):
         self.file.write_text("[claude\n")
         with self.assertRaisesRegex(ValueError, str(self.file)):

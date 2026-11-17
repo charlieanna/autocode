@@ -374,7 +374,7 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
         and need.get("resolver_scope") not in ("blocker", "operational_exhaustion")
         and not pause_authority.feedback_refusal(state)
     ) or (
-        status == "PAUSED_INVALID_OUTPUT"
+        status == state.get("status")
         and planning_feedback.invalid_report(state)
         and not pause_authority.feedback_refusal(state)
     ):

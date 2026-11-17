@@ -22,6 +22,7 @@ try:
     from . import autocode_direct_config as direct
     from . import autocode_project_config as project_config
     from . import autocode_providers as providers
+    from . import autocode_tool_containment as tool_containment
     from .providers import claude, command, env_prep
 except ImportError:
     import autocode_captured_process as captured
@@ -29,6 +30,7 @@ except ImportError:
     import autocode_direct_config as direct
     import autocode_project_config as project_config
     import autocode_providers as providers
+    import autocode_tool_containment as tool_containment
     from providers import claude, command, env_prep
 
 BUILTINS = {
@@ -82,6 +84,23 @@ def _definition(name):
     return name, version[0], connection.get("login_command"), connection.get("status_command"), provider
 
 
+def _seatbelt_connection_note(name: str) -> str:
+    """Plain-language macOS Seatbelt loopback note for Connections cards (no CLI flags)."""
+    if not tool_containment.seatbelt_available():
+        return ""
+    if name == "codex":
+        return (
+            " On macOS, Codex stages run inside Seatbelt, which blocks 127.0.0.1 loopback socket binds "
+            "while local runner checks and Kilo permit them."
+        )
+    if name == "opencode":
+        return (
+            " On macOS, contained OpenCode stages run inside Seatbelt, which blocks 127.0.0.1 loopback socket binds "
+            "while local runner checks and Kilo permit them."
+        )
+    return ""
+
+
 def connection_view(name, *, check=False):
     """One additive, JSON-safe connection view with core-owned action argv."""
     if name == "autocode":
@@ -103,9 +122,10 @@ def connection_view(name, *, check=False):
         if blocked:
             row.update(connection_status="check_failed", detail=blocked)
             return row
+        seatbelt_note = _seatbelt_connection_note(name)
         row.update(
             connection_status="not_checked",
-            detail="Installed. Login has not been checked; model access is verified when a run starts.",
+            detail="Installed. Login has not been checked; model access is verified when a run starts." + seatbelt_note,
         )
         row["actions"].append(
             {
@@ -171,7 +191,10 @@ def connection_view(name, *, check=False):
         elif ready:
             row.update(
                 connection_status="credentials_present",
-                detail="Saved credentials found; they are not tested here. An expired or revoked key, model access and billing show up when a run starts.",
+                detail=(
+                    "Saved credentials found; they are not tested here. An expired or revoked key, model access "
+                    "and billing show up when a run starts." + seatbelt_note
+                ),
             )
         elif refusal:
             row.update(

@@ -25,6 +25,7 @@ try:
     from . import autocode_role_transport as role_transport
     from . import autocode_run_records as records
     from . import autocode_run_status as run_status
+    from . import autocode_stage_recovery as stage_recovery
     from . import autocode_util as util
 except ImportError:
     import autocode_conversation_ingress as conversation_ingress
@@ -40,6 +41,7 @@ except ImportError:
     import autocode_role_transport as role_transport
     import autocode_run_records as records
     import autocode_run_status as run_status
+    import autocode_stage_recovery as stage_recovery
     import autocode_util as util
 
 
@@ -415,10 +417,13 @@ def work_guard(runner, args, parser, state: RunState, state_path, run_dir, works
             proof = disposition.planning_input(state, row)
             observed = {"selection": "planning_input", "proof": proof} if proof else None
         operation = operation_contract.resolve(observed.get("selection")) if observed else None
+        validation_state = disposition.recovery_validation_state(state, row, observed)
         if (
             operation is None
             or not callable(operation.validate)
-            or operation.validate(runner, args, state, run_dir, workspace, decided, row, observed, final=final)
+            or operation.validate(
+                runner, args, validation_state, run_dir, workspace, decided, row, observed, final=final
+            )
             != observed.get("result", observed.get("proof"))
         ):
             return refuse()
@@ -456,6 +461,8 @@ def finalize(runner, args, parser, state: RunState, state_path, run_dir, workspa
         runner.write_json(state_path, state)
         if not ready(state, decided):
             return refuse()
+    if getattr(args, "_failure_retry_authorization", None) is not None and state.get("status") == "RUNNING":
+        stage_recovery.restore_launchable_unlaunchable_repair(runner, state, run_dir, workspace)
     return None
 
 

@@ -31,6 +31,7 @@ try:
     from . import autocode_contract_identity as contract
     from . import autocode_design_manifest as design
     from . import autocode_image_delivery as delivery
+    from . import autocode_tool_handoff as tool_handoff
     from . import autocode_util as util
     from . import autocode_visual_acceptance as acceptance
     from . import autocode_visual_evidence as evidence
@@ -41,6 +42,7 @@ except ImportError:
     import autocode_contract_identity as contract
     import autocode_design_manifest as design
     import autocode_image_delivery as delivery
+    import autocode_tool_handoff as tool_handoff
     import autocode_util as util
     import autocode_visual_acceptance as acceptance
     import autocode_visual_evidence as evidence
@@ -726,10 +728,8 @@ def _prepare(
         if separator:
             handoff = json.loads(after)
             handoff["visual_review"] = packet
-            prompt = before + note + marker + json.dumps(handoff, indent=2)
-        else:
-            prompt += note
-        return context, argv, child, prompt
+            prompt = before + marker + json.dumps(handoff, indent=2)
+        return context, argv, child, tool_handoff.before_handoff(prompt, note)
     except (OSError, ValueError, KeyError, TypeError, AttributeError, RuntimeError) as error:
         return _unknown(error), command, env, prompt
 

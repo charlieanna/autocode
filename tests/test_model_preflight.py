@@ -883,6 +883,88 @@ class PreflightCheckTests(unittest.TestCase):
         self.assertEqual(["plan/glm", "plan/mimo"], self.calls)
         self.assertFalse(probed(self.run_dir)["plan/glm"]["blocking"])
 
+    def test_deterministic_model_not_found_or_account_unsupported_stops_at_preflight_naming_role(self):
+        spark_rejected = [
+            {
+                "type": "error",
+                "sessionID": "ses_spark",
+                "error": {
+                    "name": "APIError",
+                    "data": {
+                        "message": (
+                            "The 'gpt-5.3-codex-spark' model is not supported when using Codex with a ChatGPT account."
+                        ),
+                        "statusCode": 400,
+                        "isRetryable": False,
+                        "responseBody": json.dumps(
+                            {
+                                "error": {
+                                    "type": "invalid_request_error",
+                                    "code": "model_not_found",
+                                    "message": (
+                                        "The 'gpt-5.3-codex-spark' model is not supported when using Codex "
+                                        "with a ChatGPT account."
+                                    ),
+                                }
+                            }
+                        ),
+                    },
+                },
+            }
+        ]
+        self.state["settings"]["roles"] = {
+            "builder": {"model": "openai/gpt-5.3-codex-spark"},
+            "tester": {"model": "plan/glm"},
+        }
+        with self.assertRaises(support.Paused) as caught:
+            self.check({"openai/gpt-5.3-codex-spark": spark_rejected, "plan/glm": OK_EVENTS})
+        self.assertEqual("PAUSED_BILLING_ROUTE", caught.exception.status)
+        self.assertIn("openai/gpt-5.3-codex-spark", str(caught.exception))
+        self.assertIn("role: builder", str(caught.exception))
+        self.assertIn("not supported when using Codex with a ChatGPT account", str(caught.exception))
+        self.assertEqual(["openai/gpt-5.3-codex-spark"], self.calls)
+        self.assertTrue(probed(self.run_dir)["openai/gpt-5.3-codex-spark"]["blocking"])
+
+    def test_transient_5xx_429_and_retryable_errors_remain_uncertain_at_preflight(self):
+        for label, transient in (
+            (
+                "503_upstream",
+                [
+                    {
+                        "type": "error",
+                        "error": {"data": {"statusCode": 503, "message": "The model is not available now"}},
+                    }
+                ],
+            ),
+            (
+                "429_rate_limit",
+                [{"type": "error", "error": {"data": {"statusCode": 429, "message": "Rate limit reached for model"}}}],
+            ),
+            (
+                "retryable_400",
+                [
+                    {
+                        "type": "error",
+                        "error": {
+                            "data": {
+                                "statusCode": 400,
+                                "isRetryable": True,
+                                "code": "model_not_found",
+                                "message": "Temporary router refresh",
+                            }
+                        },
+                    }
+                ],
+            ),
+        ):
+            with self.subTest(case=label), contextlib.redirect_stdout(io.StringIO()):
+                (self.run_dir / "model-preflight.json").unlink(missing_ok=True)
+                self.state.pop("stages", None)
+                self.calls.clear()
+                self.assertTrue(self.check({"plan/glm": transient, "plan/mimo": OK_EVENTS}))
+                self.assertEqual(["plan/glm", "plan/mimo"], self.calls)
+                self.assertFalse(probed(self.run_dir)["plan/glm"]["blocking"])
+
     def test_probe_with_kilo_provider_passes_access_probe_and_skips_kilo_debug(self):
         from providers import kilocode, kilocode_policy
 

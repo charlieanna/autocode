@@ -46,6 +46,7 @@ try:
     from . import autocode_event_matching as event_matching, autocode_event_metrics as event_summary, autocode_provider_refusal as provider_refusal, autocode_output_cap as output_cap, autocode_provider_auth as provider_auth  # noqa: F401 - compatibility API
     from . import autocode_context_window as context_window  # noqa: F401 - compatibility API
     from . import autocode_provider_funds as provider_funds
+    from . import autocode_model_unavailable as model_unavailable
     from .autocode_event_matching import same_command  # noqa: F401 - compatibility API
 except ImportError:
     from autocode_baseline import BASELINE_POLICY  # noqa: F401 - compatibility API
@@ -67,6 +68,7 @@ except ImportError:
     import autocode_provider_auth as provider_auth
     import autocode_context_window as context_window
     import autocode_provider_funds as provider_funds
+    import autocode_model_unavailable as model_unavailable
     from autocode_event_matching import same_command  # noqa: F401 - compatibility API
 # fmt: on
 # isort: on
@@ -163,6 +165,8 @@ def failure_status(path, *, record=None):
     # A whole 429, not one inside a number ("prompt is too long: 214290 tokens").
     if any(x in text for x in ("rate_limit", "rate limit")) or re.search(r"\b429\b", text):
         return "PAUSED_RATE_LIMIT"
+    if record is None and model_unavailable.unavailable(failures):
+        return "PAUSED_BILLING_ROUTE"
     return "PAUSED_PROVIDER_UNCERTAIN"
 
 

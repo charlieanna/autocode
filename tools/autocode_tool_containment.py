@@ -29,12 +29,14 @@ from pathlib import Path
 try:
     from . import autocode_captured_process as captured
     from . import autocode_native_conformance as native_conformance
+    from . import autocode_person_text as person_text
     from . import autocode_util as util
     from .autocode_process import interruption_handler
     from .autocode_source_privacy import SECRET_NAME
 except ImportError:
     import autocode_captured_process as captured
     import autocode_native_conformance as native_conformance
+    import autocode_person_text as person_text
     import autocode_util as util
     from autocode_process import interruption_handler
     from autocode_source_privacy import SECRET_NAME
@@ -189,6 +191,24 @@ def _bubblewrap_problem():
             "--security-opt=systempaths=unconfined, or use an unmasked host"
         )
     return None
+
+
+SEATBELT_LOOPBACK_NOTE = (
+    "Seatbelt blocks stage loopback socket binds (127.0.0.1), while local runner proofs, "
+    "portable kilocode and --allow-uncontained-tools permit them"
+)
+SEATBELT_CODEX_LOOPBACK_NOTE = (
+    "macOS Seatbelt blocks stage 127.0.0.1 loopback socket binds; local runner proofs and portable kilocode permit them"
+)
+
+
+def seatbelt_available() -> bool:
+    """True when this host uses macOS Seatbelt and sandbox-exec is available; launches no subprocess."""
+    return backend() == SEATBELT and sandbox_problem() is None
+
+
+loopback_bind_blocked = person_text.loopback_bind_blocked
+seatbelt_loopback_diagnostic = person_text.seatbelt_loopback_diagnostic
 
 
 def sandbox_problem():

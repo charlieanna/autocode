@@ -18,36 +18,8 @@ except ImportError:
     import autocode_names as names
     import autocode_support as support
 
-# One unique stem per stage code name: two stages may share a human role
-# (review_completion and review_checkpoint are both the Completion Owner). The stems of the stages
-# this runtime no longer runs (autocode_workflows.RETIRED_STAGES) stay, so the artifacts a saved
-# run wrote at them are still found and read.
-FILE_SLUGS = {
-    "recognize_workflow": "recognize-workflow",
-    "collect_design": "design-inventory",
-    "requirements_gather": "requirements-gather",
-    "draft_plan": "discovery",
-    "revise_plan": "requirements-revise",
-    "review_plan": "plan-challenge",
-    "finalize_plan": "plan-finalize",
-    "plan_task": "task-plan",
-    "plan_review": "plan-review",
-    "builder": "builder",
-    "tester": "validator",
-    "orchestrator": "orchestrator",
-    "review_change": "review-change",
-    "review_design": "design-review",
-    "check_design": "design-check",
-    "investigate_stuck": "stuck-investigation",
-    "investigate_bug": "bug-investigation",
-    "answer_question": "analyst",
-    "review_completion": "completion-review",
-    "review_checkpoint": "completion-checkpoint",
-    "resolve": "resolver",
-    "diagnose": "diagnosis",
-    "resolve_repair": "resolve-repair",
-    "write_acceptance_tests": "acceptance-tests",
-}
+# One unique stem per stage code name (autocode_names.FILE_SLUGS).
+FILE_SLUGS = names.FILE_SLUGS
 
 REPAIR_SUFFIX = "_report_repair"
 RESERVED_SUFFIXES = (".json", ".jsonl", ".prompt.md")
