@@ -1466,7 +1466,12 @@ is the next request in the same conversation: on a finished run it records a
 new turn (`turn` in the status view) and reopens the run at Requirements,
 which names the kind of job again from the new message, with the earlier turn
 as context (its job, a review's verdict and finding counts, a design turn's
-documents), and continues in the same run directory (#1860). After a review, a
+documents, and for every job the result the person was shown, the files it changed and its
+plan's criteria with how each was checked, each bounded), and continues in the same run
+directory (#1860). A question about the finished work ("what did you change?", "was it
+tested?") is a discussion: Requirements answers it from that record and by reading the
+changed files, in its read-only session, and the turn ends with the answer; nothing is
+planned or built. After a review, a
 follow-up that asks to act on the findings is a build planned from them: the
 review's blocking findings are the task list, so no requirements questions are
 asked, and the plan still goes to the user for approval. The rewritten task names what the previous turn wrote (its report or
