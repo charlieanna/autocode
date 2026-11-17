@@ -17,11 +17,13 @@ from unittest import mock
 
 import autocode as runner
 import autocode_action_resolver as action_resolver
+import autocode_operational_disposition as disposition
 import autocode_quota_route as quota_route
 import autocode_resolver_human as human
 from autocode_taskrun import TaskRun, TaskRunError
 
 from . import test_subprocess
+from .operational_fixtures import assert_view_blocked
 
 ADVERTISED_FLAGS = re.compile(r"(--[a-z][a-z0-9-]*)")
 OTHER_MODEL = "gpt-6-luna"
@@ -255,20 +257,16 @@ class QuotaRouteCliTests(unittest.TestCase):
 
     def test_other_stops_ask_no_model_and_still_refuse_answers(self):
         # The same Tester stop with a capacity error instead of a used-up quota: no model is asked for.
+        # Once AutoCode's own capacity retries are spent it stops with nothing to answer (#3682).
         self.env["AUTOCODE_FIXTURE_QUOTA_MESSAGE"] = "Selected model is at capacity"
         self.quota_stop()
         view = self.view()
-        self.assertNotIn("route", view["needs"])
-        questions = [q["id"] for q in view["needs"]["questions"]]
-        self.assertNotIn("route-tester", questions)
+        assert_view_blocked(self, view, view["status"])
+        self.assertNotEqual("PAUSED_BUDGET", view["status"])
         result = self.launch([*self.args, "--answer", "route-tester=" + OTHER_MODEL], 2)
-        self.assertIn(
-            "Only a quota, content-filter, output-limit, context-window, failed-job authentication, stopped-job timeout or cross-model stop is answered with a model",
-            result.stderr,
-        )
-        result = self.launch([*self.args, "--answer", questions[0] + "=retry please"], 2)
-        self.assertIn("Use --resolver-response for this operational request", result.stderr)
+        self.assertIn("Input rejected: " + disposition.MESSAGE, result.stderr)
         self.assertEqual("gpt-5.6-sol", self.saved()[1]["settings"]["roles"]["tester"]["model"])
+        self.assertEqual([], self.view()["route_assignments"])
 
     def test_a_used_up_plan_sent_as_a_429_asks_for_a_model(self):
         # Z.AI's used-up plan as OpenCode reported it live (2026-10-05): an HTTP 429 that never says
