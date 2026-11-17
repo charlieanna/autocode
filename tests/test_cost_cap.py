@@ -241,7 +241,7 @@ class ClimbCapBlackbox(unittest.TestCase):
             "Print version",
         )
         spec.update(complete_product=True, criterion_checks={"C1": "raise SystemExit(1)"})
-        self.seed(spec, checker="gpt-6-sol")
+        self.seed(spec, checker="gpt-6-sol", tester_effort=None)
         self.build()
         self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat"])
         self.invoke("autoresolver", ["--run-dir", str(self.run), "--no-chat", *resolver_options], code)

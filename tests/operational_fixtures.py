@@ -1,6 +1,7 @@
 """Authentic historical requests, never permission for today's machinery publisher."""
 
 import copy
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -38,9 +39,20 @@ def assert_view_blocked(test, view, pause):
     test.assertNotIn("--", view["stop_reason"] or "")
 
 
-def legacy_publication(
+def kept_cause(run_dir):
+    """The whole cause of a blocked stop, kept in its runner-owned receipt (#3739).
+
+    The stop reason a person sees names only the job that stopped and why; the provider's exit, the
+    stage's own message and any operator advice stay with the incident's receipt.
+    """
+    row = disposition.held(json.loads((Path(run_dir) / "state.json").read_text()))
+    return row["decision"]["rationale"] if row else ""
+
+
+def legacy_queue(
     state, run_dir, *, pause=None, request=None, questions=None, budget=None, scope="operational_exhaustion"
 ):
+    """A request the old operational publisher staged and had not yet published (RESOLVER_PENDING)."""
     if pause is not None:
         state["status"] = pause
     status, stage = state["status"], state["next_stage"]
@@ -75,6 +87,12 @@ def legacy_publication(
         evidence={"resolver_receipt_id": receipt},
         next_stage=stage,
     )
+
+
+def legacy_publication(
+    state, run_dir, *, pause=None, request=None, questions=None, budget=None, scope="operational_exhaustion"
+):
+    legacy_queue(state, run_dir, pause=pause, request=request, questions=questions, budget=budget, scope=scope)
     identity = {
         "version": human.VERSION,
         "issuer": "resolver",

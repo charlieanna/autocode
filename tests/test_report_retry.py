@@ -174,18 +174,19 @@ class ReportRetryCLITests(unittest.TestCase):
         return TaskRun(self.project, run, command=self.entry, env=self.env, timeout=60), before
 
     def paused(self):
+        """A plain resume past the stopped report: AutoCode's exhausted recovery stops blocked and asks the
+        person nothing (#3682). The exact retry the stop named stays the operator's public command."""
         public, before = self.stopped()
+        attempt = public.status()["needs"]["retry_report_attempt"]
         self.env.pop("AUTOCODE_FIXTURE_REPORT_LOSS")
-        need = public.resume_paused()["needs"]
-        self.assertEqual("operational_exhaustion", need["resolver_scope"])
-        return public, need, before
+        self.assert_blocked(public.resume_paused())
+        return public, attempt, before
 
-    def respond(self, public, need):
-        public.respond_operational(
-            need["resolver_request_id"],
-            need["resolver_token"],
-            "Report delivery has been restored; retain existing limits and evidence.",
-        )
+    def assert_blocked(self, view):
+        self.assertEqual("PAUSED_REPEATED_FAILURE", view["status"])
+        self.assertEqual("blocked", view["recovery"]["category"])
+        self.assertIsNone(view["needs"])
+        self.assertIsNone(view["next_command"])
 
     def assert_preserved(self, before):
         after = self.saved()[1]
@@ -197,11 +198,7 @@ class ReportRetryCLITests(unittest.TestCase):
         self.assertEqual(2, sum(row["stage"] == "tester" for row in after["stages"]))
 
     def test_exact_report_retry_runs_fresh_validation_after_partial_repair_stop(self):
-        public, need, before = self.paused()
-        self.respond(public, need)
-        held = public.resume_paused()
-        self.assertEqual("PAUSED_REPEATED_FAILURE", held["status"])
-        attempt = held["needs"]["retry_report_attempt"]
+        public, attempt, before = self.paused()
         calls = (self.root / "launches.jsonl").read_bytes()
         with self.assertRaises(TaskRunError):
             public.retry_report(attempt + "-wrong")
@@ -224,7 +221,7 @@ class ReportRetryCLITests(unittest.TestCase):
 
     def test_investigator_report_repair_preserves_the_testers_retry(self):
         self.env["AUTOCODE_FIXTURE_INVALID_INVESTIGATOR"] = "1"
-        public, need, before = self.paused()
+        public, attempt, before = self.paused()
         accepted = before.get("report_repair_history", [])
         self.assertTrue(
             any(
@@ -232,22 +229,23 @@ class ReportRetryCLITests(unittest.TestCase):
                 for row in accepted
             )
         )
-        self.respond(public, need)
-        held = public.resume_paused()
-        self.assertTrue(public.retry_report(held["needs"]["retry_report_attempt"])["done"])
+        self.assertTrue(public.retry_report(attempt)["done"])
         self.assert_preserved(before)
 
-    def test_answered_request_does_not_hold_a_source_only_stale_repair(self):
-        public, need, before = self.paused()
+    def test_a_source_edit_at_the_blocked_stop_launches_nothing_on_resume(self):
+        """Before #3682 a person answered the stop's request and a source-only edit let a plain resume
+        finish. No request is published now: the edit leaves the stop blocked and resume launches nothing."""
+        public, _, before = self.paused()
         path = self.project / "greet.py"
         path.write_text(path.read_text() + "\n# Operator corrected the report delivery.\n")
-        self.respond(public, need)  # The displayed request is re-bound after the source edit.
-        view = public.status()
-        self.assertEqual("--resume-paused", view["needs"]["action"])
-        self.assertIn("resume", [row["kind"] for row in view["recovery"]["actions"]])
-        self.assertNotIn("retry_report_attempt", view["needs"])
-        self.assertTrue(public.resume_paused()["done"])
-        self.assert_preserved(before)
+        calls = (self.root / "launches.jsonl").read_bytes()
+        self.assert_blocked(public.status())
+        self.assert_blocked(public.resume_paused())
+        self.assertEqual(calls, (self.root / "launches.jsonl").read_bytes())
+        after = self.saved()[1]
+        key = before["pending_report_repair"]["original"]["failure_key"]
+        self.assertEqual(before["settings"]["limits"], after["settings"]["limits"])
+        self.assertEqual(before["failure_history"][key]["attempts"], after["failure_history"][key]["attempts"])
 
     def test_retry_that_fails_the_same_way_names_its_own_fresh_attempt(self):
         public, before = self.stopped()
@@ -255,17 +253,14 @@ class ReportRetryCLITests(unittest.TestCase):
         key = before["pending_report_repair"]["original"]["failure_key"]
         stages = lambda: [row["stage"] for row in self.saved()[1]["stages"]]
         # Delivery is still broken: one fresh Validator attempt, stopped by the bound before any repair.
-        need = public.retry_report(first)["needs"]
+        self.assert_blocked(public.retry_report(first))
         self.assertEqual(
             ["tester"], [stage for stage in stages()[len(before["stages"]) :] if stage.startswith("tester")]
         )
         self.assertEqual(4, self.saved()[1]["failure_history"][key]["streak"])
-        self.assertEqual("operational_exhaustion", need["resolver_scope"])
-        self.respond(public, need)
         state = self.saved()[1]
         fresh = state["pending_report_repair"]["original"]
         attempt = f"{fresh['iteration']:03d}/{Path(fresh['output']).stem}"
-        self.assertEqual(attempt, public.status()["needs"]["retry_report_attempt"])
         self.assertNotEqual(first, attempt)
         calls = (self.root / "launches.jsonl").read_bytes()
         with self.assertRaises(TaskRunError):

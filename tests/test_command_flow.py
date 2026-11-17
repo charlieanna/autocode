@@ -18,6 +18,8 @@ import autocode_providers
 import autocode_run_view as run_view
 import autocode_workspaces
 
+from tests import operational_fixtures
+
 
 class ConfigToolFlow(unittest.TestCase):
     def setUp(self):
@@ -396,9 +398,10 @@ class ConfigToolFlow(unittest.TestCase):
         self.assertNotEqual("builder", saved.get("active_stage", {}).get("stage"))
         self.assertTrue(any(stage.get("recovered_at") for stage in saved["stages"] if stage["stage"] == "builder"))
 
-    def test_a_plain_text_429_is_a_rate_limit_set_aside_by_a_plain_resume(self):
+    def test_a_plain_text_429_is_a_rate_limit_that_is_never_replayed(self):
         # #562: ``codex exec`` without --json ends a rate-limited stage with plain ERROR lines and no JSON
-        # error event. Read as a rate limit, the stopped Tester is retired by a resume: no --abandon-stage.
+        # error event. It is read as a rate limit, never replayed. With no route to change, the exhausted
+        # recovery is AutoCode's own: it stops blocked and asks nothing, and a resume launches nothing (#3682).
         self.configure_fixture(track_invocations=True)
         self.env["AUTOCODE_FIXTURE_PLAIN_ERROR"] = (
             "ERROR: exceeded retry limit, last status: 429 Too Many Requests\n" * 2
@@ -406,16 +409,18 @@ class ConfigToolFlow(unittest.TestCase):
         paused = self.launch("--chat", "Build a greeting tool")
         self.assertEqual(2, paused.returncode, paused.stdout + paused.stderr)
         run = next((self.project / ".autocode/runs").iterdir())
-        self.assertIn("tester exited 1", json.loads((run / "state.json").read_text())["stop_reason"])
+        self.assertIn("tester exited 1", operational_fixtures.kept_cause(run))
 
         del self.env["AUTOCODE_FIXTURE_PLAIN_ERROR"]
         resumed = self.launch("--run-dir", str(run), "--resume-paused", "--no-chat", answers="")
 
         self.assertEqual(2, resumed.returncode, resumed.stdout + resumed.stderr)
         view = run_view.view(json.loads((run / "state.json").read_text()))
-        self.assertTrue(
-            view["stop_reason"].startswith("Provider rate limit retained by AutoResolver"), view["stop_reason"]
-        )
+        self.assertEqual("PAUSED_RATE_LIMIT", view["status"], view["stop_reason"])
+        self.assertEqual("blocked", view["recovery"]["category"])
+        self.assertIsNone(view["needs"])
+        self.assertIn("The Tester step stopped", view["stop_reason"])
+        self.assertIn("tester exited 1", operational_fixtures.kept_cause(run))
         self.assertEqual(1, (run / "invocations.txt").read_text().splitlines().count("tester"))  # never replayed
 
     def test_sessionless_incomplete_checkpoints_pause_without_relaunch(self):

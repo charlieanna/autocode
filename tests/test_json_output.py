@@ -22,6 +22,8 @@ import autocode_support as support
 import autocode_util as util
 from goal_fixtures import body, seed_greeting_workspace
 
+from tests import operational_fixtures
+
 SCHEMA = json.loads((Path(__file__).resolve().parents[1] / "docs/schemas/status-view.schema.json").read_text())
 
 
@@ -397,9 +399,10 @@ class JsonActionCliTests(unittest.TestCase):
         self.assertEqual(0, self.invoke("--approve-goal", self.token)[0])
         approved = self.state
         for pause, category, after in (
-            # Auth stays on resume. A rate limit asks for corrective information, like a saved limit.
-            ("PAUSED_AUTH", "your_environment", ("PAUSED_AUTH", "resume", None)),
-            ("PAUSED_RATE_LIMIT", "model_or_provider", ("WAITING_FOR_USER", "answer", "operational_exhaustion")),
+            # Auth stays on resume. A rate limit with no route to change is AutoCode's own recovery to settle:
+            # it stops blocked under the same status and asks the person nothing.
+            ("PAUSED_AUTH", "your_environment", ("PAUSED_AUTH", "your_environment", "resume", None)),
+            ("PAUSED_RATE_LIMIT", "model_or_provider", ("PAUSED_RATE_LIMIT", "autocode", None, "blocked")),
         ):
             with self.subTest(pause):
                 state = copy.deepcopy(approved)
@@ -421,13 +424,16 @@ class JsonActionCliTests(unittest.TestCase):
                 payload = json.loads(stdout)
                 util.validate_schema(payload, SCHEMA)
                 view = payload["view"]
-                status_after, need_kind, scope = after
+                status_after, category_after, need_kind, recovery = after
                 self.assertEqual(
-                    (status_after, category, need_kind),
-                    (view["status"], view["pause_category"], view["needs"]["kind"]),
+                    (status_after, category_after, need_kind),
+                    (view["status"], view["pause_category"], (view["needs"] or {}).get("kind")),
                 )
-                if scope is not None:
-                    self.assertEqual((pause, scope), (view["needs"]["pause_origin"], view["needs"]["resolver_scope"]))
+                if recovery is not None:
+                    self.assertEqual(recovery, view["recovery"]["category"])
+                    self.assertIsNone(view["next_command"])
+                    self.assertIn("The Planner step stopped", view["stop_reason"])
+                    self.assertIn(f"fixture {pause}", operational_fixtures.kept_cause(self.run_dir))
                 else:
                     self.assertEqual(
                         (view["status"], view["needs"]),

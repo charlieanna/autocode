@@ -15,6 +15,7 @@ from pathlib import Path
 import inprocess_cli
 from blackbox_build_provider import HELLO_SOURCE, HELLO_TESTS
 
+from tests import operational_fixtures
 from tests import test_build_blackbox as build_fixture
 
 INTEGRATION_TESTS = """import subprocess, sys, unittest
@@ -290,14 +291,17 @@ class FailureRoutingCLI(unittest.TestCase):
         self.env["BUILD_AUDIT_FAULT"] = "crash"
         self.drive(codes=(2,))
         status = self.status()
-        self.assertEqual("WAITING_FOR_USER", status["status"])
-        self.assertIn(status["human_escalation"]["scope"], ("operational_recovery", "operational_exhaustion"))
+        # A crashed provider is AutoCode's own recovery: it stops blocked and asks the person nothing.
+        self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", status["status"])
+        self.assertEqual("blocked", status["view"]["recovery"]["category"])
+        self.assertIsNone(status["view"]["needs"])
         self.assertNotEqual("TASK_COMPLETE", status["status"])
         self.assertEqual(1, len(self.trace("builder")))
         self.assertEqual([], self.trace("investigate_stuck"))
         self.assert_no_strong()
         self.assertFalse((self.project / "main.py").exists())
-        self.assertIn("builder exited 9", status["view"]["stop_reason"])
+        self.assertIn("The Builder step stopped", status["view"]["stop_reason"])
+        self.assertIn("builder exited 9", operational_fixtures.kept_cause(self.run))
         before = self.call_order("builder")
         self.drive("--resume-paused", codes=(2,))
         self.assertEqual(before, self.call_order("builder"))
@@ -352,7 +356,7 @@ class FailureRoutingCLI(unittest.TestCase):
         self.call("autocode_build", ["--run-dir", str(self.run), "--no-chat"], (2,))
         status = self.status()
         self.assertNotEqual("TASK_COMPLETE", status["status"])
-        self.assertIn("without source changes", status["view"]["stop_reason"])
+        self.assertIn("without source changes", operational_fixtures.kept_cause(self.run))
         self.assertEqual(2, len(self.trace("builder")))
         self.assert_bound_read_only()
         self.assert_no_strong()
@@ -450,7 +454,7 @@ class FailureRoutingCLI(unittest.TestCase):
         self.call("autocode_build", ["--run-dir", str(self.run), "--no-chat"], (2,))
         status = self.status()
         self.assertNotEqual("TASK_COMPLETE", status["status"])
-        self.assertIn("builder exited 9", status["view"]["stop_reason"])
+        self.assertIn("builder exited 9", operational_fixtures.kept_cause(self.run))
         self.assertEqual(2, len(self.trace("builder")))
         self.assertEqual([], self.trace("investigate_stuck"))
         self.assert_no_strong()
@@ -761,9 +765,16 @@ class FailureRoutingCLI(unittest.TestCase):
         self.env.pop("FAILURE_ROUTING_BOUNDARY")
         self.drive("--resume-paused", codes=(2,))
         status = self.status()
-        self.assertEqual("WAITING_FOR_USER", status["status"])
-        self.assertIn(status["human_escalation"]["scope"], ("operational_recovery", "operational_exhaustion"))
-        self.assertIn("lacks a verified uninterrupted result", status["view"]["stop_reason"])
+        # The crashed Investigator attempt is AutoCode's own recovery: it stops blocked, keeps the cause,
+        # and asks the person nothing.
+        self.assertEqual("PAUSED_UNCERTAIN_STAGE", status["status"])
+        self.assertEqual("blocked", status["view"]["recovery"]["category"])
+        self.assertIsNone(status["view"]["needs"])
+        self.assertIn("The Investigator step stopped", status["view"]["stop_reason"])
+        self.assertNotIn("--abandon-stage", status["view"]["stop_reason"])
+        self.assertIn(
+            "No provider call or recovered report is automatically accepted", operational_fixtures.kept_cause(self.run)
+        )
         self.assertEqual(1, len(self.trace("builder")))
         self.assert_bound_read_only()
         before = self.call_order()
