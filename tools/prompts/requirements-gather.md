@@ -105,6 +105,11 @@ before. Name the job of the new message in that context. Acting on a review's fi
 it") is build, with design_document set to the one document in
 follow_up.previous_design.documents (after a design review, its design_under_review, and
 only when its verdict is approve). Answering or correcting a finished design review is design.
+follow_up.previous_result is what the finished job told the user, follow_up.previous_changed
+the files it changed and follow_up.previous_plan its plan's criteria with how each was checked.
+A question about that work ("what did you change?", "why this way?", "was it tested?") is
+discuss: answer it from these and by reading the changed files, and say plainly what they do
+not show rather than guessing. A request to change that work is build or bugfix as usual.
 Set design_document to the workspace path of an existing, approved design document a build
 implements as written, otherwise to the empty string.
 Inspect the user's idea and relevant workspace source. Return only a requirements handoff:

@@ -152,7 +152,41 @@ def follow_up(state: RunState) -> dict | None:
             if previous.get("design")
             else {}
         ),
+        # What the finished turn told the person, what it changed and what its plan checked, so a
+        # question about that work ("what did you change?", "was it tested?") is answered from the
+        # run's own record rather than from the request alone.
+        **outcome_context(previous),
     }
+
+
+RESULT_CHARS = 4000  # the finished turn's saved result, as the person saw it
+CHANGED_PATHS = 30  # files the finished turn changed, named for Requirements to read
+PLAN_CRITERIA = 20  # the finished turn's plan criteria and how each was checked
+
+
+def _clip(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
+def outcome_context(previous: dict) -> dict:
+    """The finished turn's own record, bounded: its saved result (``chat_response``), the files it
+    changed (``wrote``) and its plan's criteria (``plan``). Each is left out when the turn saved none."""
+    result = previous.get("chat_response")
+    changed = [path for path in previous.get("wrote") or [] if isinstance(path, str) and path]
+    plan = [row for row in previous.get("plan") or [] if isinstance(row, dict) and row.get("criterion")]
+    context: dict = {}
+    if isinstance(result, str) and result.strip():
+        context["previous_result"] = _clip(result.strip(), RESULT_CHARS)
+    if changed:
+        context["previous_changed"] = changed[:CHANGED_PATHS]
+        if len(changed) > CHANGED_PATHS:
+            context["previous_changed_more"] = len(changed) - CHANGED_PATHS
+    if plan:
+        context["previous_plan"] = [
+            {key: _clip(str(row[key]), 600) for key in ("criterion", "checked_by") if row.get(key)}
+            for row in plan[:PLAN_CRITERIA]
+        ]
+    return context
 
 
 def design_context(design: dict, workspace) -> dict:
