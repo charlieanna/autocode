@@ -466,6 +466,18 @@ were archived at tag `archive/pre-restructure-2026-09-26`
    identity alone. Never widen a gate to accept
    the recorded value, and never derive the new value from model text. A new such
    identity without its binding breaks `tests.test_saved_run_replay_cli` on master.
+8. **A check that can reject a completed model answer ships with its rejection
+   rate and its mechanical path** (#3346, owner-delegated decision 2026-11-17).
+   Most rejected-answer stage waste came from checks that were each right to add
+   (363 rejected launches across about 30 reasons before #3344). A pull request
+   that adds or tightens a check on a completed model answer must state its
+   rejection rate against saved responses (`autocode usage report` or saved
+   `.response.txt` / event records), expose any pure-report check in
+   `autocode report-check` so shell-capable stages can catch it before finishing,
+   and where the defect is mechanical (syntax, wrappers, runner-held quotes or
+   ids) ship the deterministic zero-model-call correction path
+   (`autocode_report_syntax`, checklist/source id grounding) rather than spending
+   a repair launch. Gates stay as strict as they were.
 
 ## Names
 
