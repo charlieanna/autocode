@@ -21,6 +21,10 @@ Routes for a new run, from kilocode's local listing:
   Builder: openai/gpt-6-sol at medium (OpenAI subscription; qualified for Builder)
 ```
 
+A stage you chose, in Stage models (`autocode stages`) or in the project's own file, keeps
+its model and level: its line ends `your choice` in place of `qualified for …`, and the
+other stages are selected around it, as in the run itself.
+
 A new run with no model flag prints the same lines for its roles before it spends
 anything. A client reads them from `autocode connections list --routes --json` as
 `routes[]` and `routes_lines`; `autocode models --selection` shows the same choice with

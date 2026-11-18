@@ -413,7 +413,7 @@ class RecoveryViewTests(unittest.TestCase):
             (
                 "recover_source",
                 self.state(
-                    "PAUSED_JOB_FAILURE",
+                    "PAUSED_STAGE_ABANDONED",
                     active_stage=active,
                     job_failure={
                         "reason": "Source identity unavailable",
@@ -669,7 +669,7 @@ class RecoveryViewTests(unittest.TestCase):
         for card in (self.card(resolver_wrote), held):
             self.assertNotIn("accept_source_edit", [row["kind"] for row in card["actions"]])
 
-    def test_missing_original_job_source_offers_inspection_without_execution(self):
+    def test_missing_job_source_is_closed_by_the_core_but_personal_abandonment_still_offers_inspection(self):
         for status in ("PAUSED_JOB_FAILURE", "PAUSED_STAGE_ABANDONED"):
             with self.subTest(status=status):
                 state = self.state(
@@ -687,9 +687,16 @@ class RecoveryViewTests(unittest.TestCase):
                     },
                 )
                 before = copy.deepcopy(state)
-                card = self.card(state)
+                view = run_view.view(state)
+                card = view["recovery"]
                 self.assertEqual(["inspect", "feedback"], [row["kind"] for row in card["actions"]])
-                self.assertIn("original source identity", card["saved_reason"])
+                if status == "PAUSED_JOB_FAILURE":
+                    self.assertEqual("continue", view["needs"]["kind"])
+                    self.assertEqual("--resume-paused", view["needs"]["action"])
+                    self.assertNotIn("--retry-failed-stage", view["next_command"])
+                else:
+                    self.assertEqual("recover_source", view["needs"]["kind"])
+                    self.assertIn("original source identity", card["saved_reason"])
                 self.assertEqual(before, state)
 
 

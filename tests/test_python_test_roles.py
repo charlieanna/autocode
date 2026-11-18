@@ -843,8 +843,41 @@ class UndecodableSourceTests(unittest.TestCase):
         latin = b"# coding: latin-1\nNAME = 'caf\xe9'\n"
         self.assertEqual(latin.decode("latin-1"), role_inventory._text("a.py", latin))
         self.assertEqual("x = 1  # caf\udce9\n", role_inventory._text("b.py", b"x = 1  # caf\xe9\n"))
-        with self.assertRaises(UnicodeDecodeError):
-            role_inventory._text("notes.txt", b"caf\xe9")
+        # A file of another name is read as UTF-8, and keeps what UTF-8 cannot decode the same way.
+        self.assertEqual("café", role_inventory._text("notes.txt", "café".encode()))
+        self.assertEqual("caf\udce9", role_inventory._text("notes.txt", b"caf\xe9"))
+
+    def test_a_link_to_a_file_that_is_not_text_takes_its_place_instead_of_stopping_the_run(self):
+        """Django links its documentation theme's PNG icons (docs/_theme/djangodocs-epub/static/*.png): a
+        run there stopped at setup with "'utf-8' codec can't decode byte 0x89 in position 0". A link is
+        read to see whether its endpoint declares tests; bytes that are not text declare none."""
+        png = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
+        with tempfile.TemporaryDirectory() as root:
+            workspace = Path(root)
+            for directory in ("docs/theme/static", "docs/epub/static", "tests"):
+                (workspace / directory).mkdir(parents=True)
+            (workspace / "docs/theme/static/note.png").write_bytes(png)
+            (workspace / "docs/epub/static/note.png").symlink_to("../../theme/static/note.png")
+            (workspace / "docs/notes.txt").write_bytes(b"caf\xe9 in Latin-1")
+            (workspace / "docs/latest.txt").symlink_to("notes.txt")
+            # A link named as a test is read too, before its endpoint's place is known.
+            (workspace / "tests/test_icon.py").symlink_to("../docs/theme/static/note.png")
+            (workspace / "tests/test_core.py").write_text(
+                "import unittest\n\nclass TestCore(unittest.TestCase):\n    def test_it(self):\n        pass\n"
+            )
+            names = (
+                "docs/theme/static/note.png",
+                "docs/epub/static/note.png",
+                "docs/notes.txt",
+                "docs/latest.txt",
+                "tests/test_icon.py",
+                "tests/test_core.py",
+            )
+            roles = role_inventory.from_workspace(workspace, verify.is_test_path, snapshot=dict.fromkeys(names, "file"))
+        for path in names[:4]:
+            self.assertEqual(role_policy.PRODUCT, roles.role(path), path)
+        self.assertNotEqual(role_policy.TEST, roles.role("tests/test_icon.py"), "a picture is no test oracle")
+        self.assertEqual(role_policy.TEST, roles.role("tests/test_core.py"))
 
 
 class RoleProofFreshnessTests(unittest.TestCase):

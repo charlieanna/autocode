@@ -22,15 +22,17 @@ except ImportError:
 
 
 def _text(path, data):
-    """A Python file's text in its declared (or default UTF-8) encoding.
+    """A file's text: a Python file's in its declared (or default UTF-8) encoding, any other file's as UTF-8.
 
     A file Python itself could not read (bytes its encoding cannot decode, or an unknown coding cookie,
     as in a real repository's Python 2 era files, #2944) keeps its bytes as surrogate escapes: parsing it
-    then fails like any unparseable source, which the role policy already treats as uncertain."""
-    if not path.endswith(".py"):
-        return data.decode("utf-8")
+    then fails like any unparseable source, which the role policy already treats as uncertain. A file of
+    another name is read only as a link's endpoint, to see whether it declares tests, and it need not be
+    text at all (Django links its documentation's PNG icons). It keeps its bytes the same way, so it
+    declares none and never stops the run."""
     try:
-        return data.decode(tokenize.detect_encoding(io.BytesIO(data).readline)[0])
+        encoding = tokenize.detect_encoding(io.BytesIO(data).readline)[0] if path.endswith(".py") else "utf-8"
+        return data.decode(encoding)
     except (SyntaxError, UnicodeDecodeError):
         return data.decode("utf-8", "surrogateescape")
 

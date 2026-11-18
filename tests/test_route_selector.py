@@ -288,6 +288,36 @@ class SelectionTests(unittest.TestCase):
         self.assertIsNone(routes["requirements"]["reasoning_effort"])
 
 
+class PinnedRolesTests(unittest.TestCase):
+    """One rule says which roles a person fixed: the run (autocode_configure._auto_select) and every view
+    of a new run's routes (model_catalogue.chosen_routes) read it, so they cannot disagree."""
+
+    def test_a_named_model_a_conversation_and_another_tool_each_fix_a_role(self):
+        from types import SimpleNamespace
+
+        args = SimpleNamespace(planner_model="a/planner", tester_model="b/tester", completion_provider="other")
+        fixed = selector.pinned_roles(
+            args,
+            roles={"completion": {"model": "d/saved"}},
+            defaults={"task_planner": "e/default"},
+            history_models={"builder": "c/built"},
+            history_providers={"task_planner": "other"},
+        )
+        self.assertEqual(
+            {
+                "requirements": "a/planner",  # follows a named Planner
+                "planner": "a/planner",
+                "builder": "c/built",
+                "tester": "b/tester",
+                "completion": "d/saved",  # another tool's role keeps the route it has
+                "task_planner": "e/default",  # or the tool's default
+            },
+            fixed,
+        )
+        self.assertNotIn("plan_reviewer", fixed)
+        self.assertEqual({}, selector.pinned_roles(SimpleNamespace()))
+
+
 class RouteRecordContractTests(unittest.TestCase):
     def test_the_selector_writes_the_origin_the_record_reads_back(self):
         saved = {"route_origins": {"builder": role_route.AUTO_SELECTED}}

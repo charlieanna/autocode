@@ -280,9 +280,15 @@ class BuildLoopFloorTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
 
+    @staticmethod
+    def runner(orchestrator):
+        """The runner as the loop reads it here: its orchestrator, and the clock it stamps a concluded
+        Builder classification with (#3795)."""
+        return SimpleNamespace(orchestrator=orchestrator, now=lambda: "2026-11-18T00:00:00+00:00")
+
     def test_requirements_chat_does_not_scan_the_workspace(self):
         state = {"settings": {"spec_first": True}, "next_stage": "requirements_gather"}
-        runner = SimpleNamespace(orchestrator=SimpleNamespace(drive=mock.Mock(), LoopExit=RuntimeError))
+        runner = self.runner(SimpleNamespace(drive=mock.Mock(), LoopExit=RuntimeError))
         with (
             mock.patch.object(build_loop.storage_budget, "projection") as projection,
             mock.patch.object(build_loop.checkout_lock, "exclusive", return_value=contextlib.nullcontext()),
@@ -303,7 +309,7 @@ class BuildLoopFloorTests(unittest.TestCase):
             before(current)
             self.fail("planning dispatched without the storage refusal")
 
-        runner = SimpleNamespace(orchestrator=SimpleNamespace(drive=drive, LoopExit=LoopExit))
+        runner = self.runner(SimpleNamespace(drive=drive, LoopExit=LoopExit))
         floor = {"workspace_bytes": 1000, "free_bytes": 1}
         with (
             mock.patch.object(build_loop.storage_budget, "projection", return_value=floor) as projection,
@@ -344,7 +350,7 @@ class BuildLoopFloorTests(unittest.TestCase):
             pass
 
         orchestrator = SimpleNamespace(drive=mock.Mock(), LoopExit=LoopExit)
-        runner = SimpleNamespace(orchestrator=orchestrator)
+        runner = self.runner(orchestrator)
         args = SimpleNamespace(unit=None)
         with (
             mock.patch.object(build_loop.storage_budget, "projection", return_value=band),

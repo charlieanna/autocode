@@ -76,6 +76,7 @@ try:
     from . import autocode_acceptance_tests as acceptance_tests
     from . import autocode_classification_recovery as classification_recovery
     from . import autocode_failures as failures
+    from . import autocode_job_end as job_end
     from . import autocode_model_identity as model_identity
     from . import autocode_pause_codes as pause_codes
     from . import autocode_permission_recovery as permission_recovery
@@ -102,6 +103,7 @@ except ImportError:
     import autocode_acceptance_tests as acceptance_tests
     import autocode_classification_recovery as classification_recovery
     import autocode_failures as failures
+    import autocode_job_end as job_end
     import autocode_model_identity as model_identity
     import autocode_pause_codes as pause_codes
     import autocode_permission_recovery as permission_recovery
@@ -997,7 +999,8 @@ def launched(state: RunState, request: dict) -> bool:
 
 
 def timed_out(state: RunState) -> bool:
-    """The Investigator itself ran out of time, after AutoCode's own longer deadlines.
+    """The Investigator itself ran out of time after AutoCode's own longer deadlines, or its provider
+    stopped it again after AutoCode's own retry (autocode_job_end.SETTLED_KINDS).
 
     The job runner then pauses for an exact retry of the Investigator (autocode_job_failure), a
     question about AutoCode's machinery; a live run (2026-11-06) stopped on "Continue?" that way.
@@ -1013,7 +1016,10 @@ def timed_out(state: RunState) -> bool:
         and state.get("status") == "PAUSED_JOB_FAILURE"
         and state.get("next_stage") == STAGE
         and failure.get("stage") == STAGE
-        and failure.get("kind") == "timeout"
+        and (
+            failure.get("kind") == "timeout"
+            or (failure.get("kind") in job_end.SETTLED_KINDS and not failure.get("route"))
+        )
     )
 
 

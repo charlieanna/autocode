@@ -956,7 +956,13 @@ class RunViewTests(unittest.TestCase):
             "write_diagnosis": {"unrestored": ["original source capture"]},
             "unrestored": ["original source capture"],
         }
-        for status in ("PAUSED_JOB_FAILURE", "PAUSED_STAGE_ABANDONED"):
+        # A failed job with no saved source is AutoCode's to end at the next resume (autocode_job_end);
+        # a person's own abandonment keeps the inspection.
+        self.assertEqual(
+            {"kind": "continue", "action": "--resume-paused"},
+            run_view.needs({"status": "PAUSED_JOB_FAILURE", "job_failure": failure}),
+        )
+        for status in ("PAUSED_STAGE_ABANDONED",):
             need = run_view.needs({"status": status, "job_failure": failure})
             self.assertEqual("recover_source", need["kind"])
             self.assertIsNone(need["action"])
