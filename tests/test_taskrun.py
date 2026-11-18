@@ -893,21 +893,32 @@ class RunViewTests(unittest.TestCase):
         )
 
     def test_a_pending_resolver_request_carries_its_token_and_scope(self):
-        public = {"request_id": "r1", "request_token": "t1", "scope": "operational_exhaustion"}
+        import autocode_resolver_human as human
+
         state = {
-            "status": "WAITING_FOR_USER",
-            "user_request": {"kind": "blocker"},
-            "pending_questions": [{"id": "q1", "question": "Raise the cap?"}],
-            "resolver_human_request": public,
-            "resolver": {"human_escalations": {"r1": {"status": "pending"}}},
+            "status": "RUNNING",
+            "task_id": "permission-fixture",
+            "next_stage": "draft_plan",
         }
+        human.queue(
+            state,
+            "permission",
+            {"stage": "draft_plan"},
+            request={
+                "kind": "permission",
+                "decision_needed": "May the task access the network?",
+                "impact": "The task requires an external resource",
+            },
+        )
+        self.assertEqual("escalate", human.evaluate(state))
+        public = human.current(state)
         need = run_view.needs(state)
         self.assertEqual(
-            ("r1", "t1", "operational_exhaustion"),
+            (public["request_id"], public["request_token"], "permission"),
             (need["resolver_request_id"], need["resolver_token"], need["resolver_scope"]),
         )
         # A consumed request is not answerable, so it carries none of them.
-        state["resolver"]["human_escalations"]["r1"]["status"] = "consumed"
+        state["resolver"]["human_escalations"][public["request_id"]]["status"] = "consumed"
         self.assertFalse({"resolver_request_id", "resolver_token", "resolver_scope"} & set(run_view.needs(state)))
 
     def test_plan_approval_needs_the_displayed_token(self):
