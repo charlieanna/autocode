@@ -674,7 +674,6 @@ export function numericConfirmation(state: PanelState, answers: Record<string, s
   const input = state.decisions.find((row) => row.kind === "integer")?.input;
   if (!input) return null;
   const total = integerValue(answers[input.id], input);
-  if (input.id === "grant_recovery") return `Allow ${total} more automatic recover${total === "1" ? "y" : "ies"} and continue?`;
   if (input.id === "planning_review_call_limit") {
     return `Set the total plan-review allowance to ${total} calls?`;
   }
@@ -683,11 +682,7 @@ export function numericConfirmation(state: PanelState, answers: Record<string, s
 
 /** The confirmation for a bound's separate raise with the typed number; a number out of bounds is a gap. */
 export function raiseConfirmation(input: IntegerCommandInput, text: string): string {
-  const total = integerValue(text, input);
-  if (input.id === "grant_recovery") {
-    return `Allow ${total} more automatic recover${total === "1" ? "y" : "ies"} and continue?`;
-  }
-  return boundQuestion(input, total);
+  return boundQuestion(input, integerValue(text, input));
 }
 
 function boundQuestion(input: IntegerCommandInput, total: string): string {
@@ -697,14 +692,12 @@ function boundQuestion(input: IntegerCommandInput, total: string): string {
 
 export function numericActionLabel(state: Pick<PanelState, "decisions">): string {
   const input = state.decisions.find((row) => row.kind === "integer")?.input;
-  if (input?.id === "grant_recovery") return "Grant and continue";
   if (input?.id === "planning_review_call_limit") return "Set review allowance";
   return input?.id === "max_seconds" || !input ? "Set total and continue" : RAISE_LABEL;
 }
 
 export function numericRecoveryEffect(state: PanelState): string {
   const input = state.decisions.find((row) => row.kind === "integer")?.input;
-  if (input?.id === "grant_recovery") return "AutoCode may then try to recover by itself up to that many more times. Other saved limits and model routes stay the same. It does not approve a plan.";
   if (input?.id === "planning_review_call_limit") return "This changes only the plan-review allowance. Used calls stay counted. Inspect the next action after saving; continuing can require a separate Resume. Other saved limits and model routes stay the same. It does not approve a plan.";
   return input ? boundEffect(input) : NUMERIC_RECOVERY_EFFECT;
 }
@@ -721,8 +714,7 @@ export async function confirmRaise(state: PanelState, decisionContext: string | 
   }
   const title = raiseConfirmation(input, value);
   onDialog?.(title);
-  const buttonLabel = input.id === "grant_recovery" ? "Grant and continue" : RAISE_LABEL;
-  return (await vscode.window.showWarningMessage(title, { modal: true, detail: boundEffect(input) }, buttonLabel)) === buttonLabel;
+  return (await vscode.window.showWarningMessage(title, { modal: true, detail: boundEffect(input) }, RAISE_LABEL)) === RAISE_LABEL;
 }
 
 export async function confirmJobTime(state: PanelState, id: string, value: string, decisionContext: string | undefined,
@@ -742,9 +734,6 @@ export async function confirmJobTime(state: PanelState, id: string, value: strin
 
 /** What raising a bound changes, and what it leaves alone. */
 export function boundEffect(input: IntegerCommandInput): string {
-  if (input.id === "grant_recovery") {
-    return "AutoCode may then try to recover by itself up to that many more times. Other saved limits and model routes stay the same. It does not approve a plan.";
-  }
   if (input.id === "max_seconds") return NUMERIC_RECOVERY_EFFECT;
   const noun = BOUND_WORDING[input.id]?.[1] ?? input.label;
   return `This changes only ${noun}, then resumes the run. Other saved limits and model routes stay the same. It does not approve a plan.`;
@@ -2189,12 +2178,11 @@ function updateActionButton() {
 // number and button, so a typed limit goes only into that command.
 function renderBoundRaise(container, state) {
   const input = state.boundRaise;
-  const isGrant = input.id === 'grant_recovery';
   const name = 'raise:' + input.id;
   const box = el('div', 'decision');
   box.id = 'bound-raise';
   box.appendChild(
-    el('div', 'q', (isGrant ? 'Or authorize more recoveries instead: ' : 'Or raise the limit instead: ') + input.label),
+    el('div', 'q', 'Or raise the limit instead: ' + input.label),
   );
   box.appendChild(el('div', 'why', numericHelp(input)));
   const field = document.createElement('input');
@@ -2209,8 +2197,7 @@ function renderBoundRaise(container, state) {
   field.addEventListener('keydown', enterTakes);
   box.appendChild(field);
   box.appendChild(hint);
-  const actionLabel = isGrant ? 'Grant and continue' : RAISE_LABEL;
-  const raise = el('button', null, (state.taking || state.working) ? 'Working…' : actionLabel);
+  const raise = el('button', null, (state.taking || state.working) ? 'Working…' : RAISE_LABEL);
   raise.id = 'raise-bound';
   raise.addEventListener('click', () => vscode.postMessage({ type: 'raise', value: answers[name] || '',
     runKey: state.workspace + '\\n' + state.runDir, decisionContext: state.decisionContext }));
@@ -2241,9 +2228,6 @@ function numericHelp(input) {
   const elapsed = formatBoundMetric(input.elapsed);
   if (input.id === 'max_stage_seconds') return 'Saved time per step: ' + input.current
     + ' seconds. Enter at least ' + input.minimum + ' seconds; this also applies to later steps.';
-  if (input.id === 'grant_recovery') return 'Automatic recovery allowance: ' + input.current
-    + '. Counted recoveries used: ' + used + '. Enter 1 to ' + input.maximum
-    + ' more.';
   if (input.id === 'planning_review_call_limit') return 'Saved allowance: ' + input.current
     + ' calls. Plan-review calls used: ' + used + '. Enter a total of at least ' + input.minimum + ' calls.';
   if (input.id === 'max_cost_usd') return 'Saved cost cap: $' + input.current + '. Known spend: $' + used

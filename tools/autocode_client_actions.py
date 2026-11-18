@@ -248,7 +248,6 @@ INTEGER_INPUTS = {
         False,
     ),
     "--planning-review-call-limit": ("planning_review_call_limit", "Total plan-review calls", "used", False),
-    "--grant-recovery": ("grant_recovery", "Additional recoveries", "used", False),
 }
 TOKEN_ENV = "AUTOCODE_EXPECTED_RECOVERY_TOKEN"
 
@@ -278,16 +277,13 @@ def check_input(view: dict, row, command: NamedCommand) -> dict:
     prefix = ["--resume-paused"] if row.get("arg_index") == 2 else []
     minimum, maximum = row.get("minimum"), row.get("maximum")
     bounded = type(minimum) is int and type(maximum) is int and 1 <= minimum <= maximum <= MAX_SAFE_INTEGER
-    if flag == "--grant-recovery":
-        limits = bounded and type(used) is int and used >= 1 and minimum == 1 and maximum == used
-    else:
-        limits = (
-            bounded
-            and _count(used, fractional=fractional)
-            and maximum == MAX_SAFE_INTEGER
-            and _count(current, fractional=fractional and flag != "--max-seconds")
-            and minimum == int(max(current, used)) + 1
-        )
+    limits = (
+        bounded
+        and _count(used, fractional=fractional)
+        and maximum == MAX_SAFE_INTEGER
+        and _count(current, fractional=fractional and flag != "--max-seconds")
+        and minimum == int(max(current, used)) + 1
+    )
     if (
         not limits
         or row.get("id") != identity

@@ -192,12 +192,9 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
             and need.get("resolver_scope") in ("blocker", "operational_exhaustion")
             and not need.get("route")
         ):
-            # Words for a person, never a flag (#2607): a grant names additional recoveries, a bound its raise.
+            # Words for a person, never a flag (#2607): a bound names its raise.
             inputs = need.get("command_inputs") or []
-            if any(row.get("id") == "grant_recovery" for row in inputs):
-                terms = ("authorize additional recoveries",)
-            else:
-                terms = ("raise the",) if inputs else ("corrective information",)
+            terms = ("raise the",) if inputs else ("corrective information",)
         elif kind == "planning_budget" and need.get("action"):
             terms = ("continue planning",)
         elif kind == "resume":
@@ -205,8 +202,6 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
                 terms = ("fresh component run", "approval")
             elif need.get("edit_required"):
                 terms = ("correct the plan", "fresh approval")
-            elif any(row.get("id") == "grant_recovery" for row in need.get("command_inputs") or []):
-                terms = ("authorize additional recoveries",)
             elif need.get("command_inputs") and need.get("action", "").endswith(" N"):
                 terms = ("raise the",)
             elif need.get("action", "").startswith("--feedback"):

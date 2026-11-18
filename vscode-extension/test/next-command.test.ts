@@ -89,18 +89,11 @@ function grantOffer(): StatusView {
     next_command: `AUTOCODE_EXPECTED_RECOVERY_TOKEN=current autocode --workspace ${WS} --run-dir ${RUN} --resume-paused --grant-recovery N --expected-recovery-token -` };
 }
 
-test("finite recovery grant is only the exact resume command and cannot exceed counted spend", () => {
+test("a recovery grant an older core offered is not a number this client fills", () => {
+  // No status view offers --grant-recovery since #3798: AutoCode closes a spent allowance itself.
   const view = grantOffer();
   const named = parseNamedCommand(view.next_command!, own);
-  const inputs = commandInputs(view, named);
-  assert.deepEqual(applyDecisions(named.argv, { grant_recovery: "1" }, inputs), ["--resume-paused", "--grant-recovery", "1", "--expected-recovery-token", "-"]);
-  for (const value of ["", "0", "4", "1.5", "1e2", "9007199254740992"]) assert.throws(() => applyDecisions(named.argv, { grant_recovery: value }, inputs), ClientGap);
-  for (const [key, value] of Object.entries({ used: 3.5, minimum: 0, maximum: 4, current: 0, flag: "--max-seconds" })) {
-    const bad = structuredClone(view); Object.assign(bad.needs!.command_inputs![0]!, { [key]: value });
-    assert.throws(() => commandInputs(bad, named), ClientGap);
-  }
-  assert.throws(() => commandInputs(view, { ...named, argv: named.argv.slice(1) }), ClientGap);
-  assert.throws(() => commandInputs(view, { ...named, env: { AUTOCODE_EXPECTED_RECOVERY_TOKEN: "stale" } }), ClientGap);
+  assert.throws(() => commandInputs(view, named), ClientGap);
 });
 
 test("typed review allowance binds both existing shapes without adding resume or approval", () => {

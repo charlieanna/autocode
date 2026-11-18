@@ -69,7 +69,6 @@ INTEGER_INPUTS = {
         False,
     ),
     "--planning-review-call-limit": ("planning_review_call_limit", "Total plan-review calls", "used", False),
-    "--grant-recovery": ("grant_recovery", "Additional recoveries", "used", False),
 }
 
 
@@ -91,16 +90,13 @@ def check_input(view, row, words, env):
     whole_current = fractional and flag != "--max-seconds"
     minimum, maximum = row.get("minimum"), row.get("maximum")
     bounded = type(minimum) is int and type(maximum) is int and 1 <= minimum <= maximum <= MAX_SAFE_INTEGER
-    if flag == "--grant-recovery":
-        limits = bounded and type(used) is int and used >= 1 and minimum == 1 and maximum == used
-    else:
-        limits = (
-            bounded
-            and _count(used, fractional=fractional)
-            and _count(current, fractional=whole_current)
-            and maximum == MAX_SAFE_INTEGER
-            and minimum == math.floor(max(current, used)) + 1
-        )
+    limits = (
+        bounded
+        and _count(used, fractional=fractional)
+        and _count(current, fractional=whole_current)
+        and maximum == MAX_SAFE_INTEGER
+        and minimum == math.floor(max(current, used)) + 1
+    )
     prefix = ["--resume-paused"] if row.get("arg_index") == 2 else []
     if (
         not limits

@@ -79,8 +79,10 @@ class CommandInputTests(unittest.TestCase):
         self.assertEqual({"kind": "continue", "action": "--resume-paused"}, view["needs"])
         self.assertNotIn("--grant-recovery", str(view["next_command"]))
         self.assertEqual(before, state)
-        for action in (inputs.GRANT_ACTION, "--resume-paused", None):
-            self.assertIsNone(inputs.project(state, {"kind": "resume", "action": action}, inputs.GRANT_ACTION))
+        grant = "--resume-paused --grant-recovery N"  # an operator's flag; no pause describes it
+        for action in (grant, "--resume-paused", None):
+            self.assertIsNone(inputs.project(state, {"kind": "resume", "action": action}, grant))
+        self.assertNotIn("--grant-recovery", inputs.PERSON_FLAGS)
 
     def test_recovery_spend_fallbacks_and_grant_history_expire_numeric_offer(self):
         state = self.grant_checkpoint()

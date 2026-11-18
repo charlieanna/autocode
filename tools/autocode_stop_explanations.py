@@ -659,12 +659,8 @@ def explain(
         and needs.get("pause_origin") == "PAUSED_TIMEOUT_RECOVERY"
     ):
         means = "Automatic recovery reached its allowance before a decision request was published."
-        does = (
-            f"{needs['action']} replenishes spent recovery slots and continues the run; "
-            "saved history, limits and approvals stay intact."
-            if needs.get("action") == "--resume-paused --grant-recovery N"
-            else "Resolve the pause reason, then --resume-paused."
-        )
+        # No status view offers a recovery grant (#3798): the next resume records the spent allowance's end.
+        does = "Resolve the pause reason, then --resume-paused."
     if (
         status == "PAUSED_PROCESS_CLEANUP"
         and isinstance(needs, dict)

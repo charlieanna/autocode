@@ -43,7 +43,6 @@ TOTAL_TIME_ACTION = "--resume-paused --max-seconds N"
 PLANNING_ACTION = "--planning-review-call-limit N"
 PLANNING_RESUME_ACTION = "--resume-paused " + PLANNING_ACTION
 PLANNING_SAVE_THEN_RESUME = PLANNING_ACTION + " then --resume-paused"
-GRANT_ACTION = "--resume-paused --grant-recovery N"
 
 
 # Run activity that makes any typed bound stale: the CLI reconciles it first.
@@ -145,7 +144,6 @@ PERSON_FLAGS = tuple(
         [
             *(spec[1] for spec in BOUNDS.values()),
             "--planning-review-call-limit",
-            "--grant-recovery",
         ]
     )
 )
