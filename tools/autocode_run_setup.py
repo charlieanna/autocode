@@ -68,6 +68,7 @@ try:
     from . import autocode_prompts as prompts
     from . import autocode_protected_oracles as protected_oracles
     from . import autocode_quota_route as quota_route
+    from . import autocode_recovery_exhaustion as recovery_exhaustion
     from . import autocode_recovery_view as recovery_view
     from . import autocode_registry as registry
     from . import autocode_regression as regression
@@ -119,6 +120,7 @@ except ImportError:
     import autocode_prompts as prompts
     import autocode_protected_oracles as protected_oracles
     import autocode_quota_route as quota_route
+    import autocode_recovery_exhaustion as recovery_exhaustion
     import autocode_recovery_view as recovery_view
     import autocode_registry as registry
     import autocode_regression as regression
@@ -1049,6 +1051,12 @@ def run_locked(
             print(str(error), file=sys.stderr)
             return owned_result(2, ready=state.get("status") == "RUNNING")
         except (runner.support.Paused, ValueError, RuntimeError, OSError) as error:
+            # The Investigator has already taken or declined a spent recovery allowance (autocode_stuck_job):
+            # nothing automatic remains, so the run ends with that as its recorded outcome, not a grant.
+            if recovery_exhaustion.conclude_pause(state, error, at=runner.now()):
+                runner.write_json(state_path, state)
+                print(f"{state['status']}: {state.get('stop_reason')}", file=sys.stderr)
+                return owned_result(2)
             blocked = operational_block.record(state, error, run_dir=run_dir, workspace=workspace)
             if not blocked:
                 run_status.pause(

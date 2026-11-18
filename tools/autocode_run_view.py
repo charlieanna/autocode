@@ -80,6 +80,7 @@ try:
     from . import autocode_project_notes_lifecycle as project_notes
     from . import autocode_python_test_roles as test_roles
     from . import autocode_quota_route as quota_route
+    from . import autocode_recovery_exhaustion as recovery_exhaustion
     from . import autocode_recovery_history as recovery_history
     from . import autocode_recovery_limits as recovery_limits
     from . import autocode_recovery_progress as recovery_progress
@@ -150,6 +151,7 @@ except ImportError:
     import autocode_project_notes_lifecycle as project_notes
     import autocode_python_test_roles as test_roles
     import autocode_quota_route as quota_route
+    import autocode_recovery_exhaustion as recovery_exhaustion
     import autocode_recovery_history as recovery_history
     import autocode_recovery_limits as recovery_limits
     import autocode_recovery_progress as recovery_progress
@@ -313,7 +315,9 @@ def view(
     status = state.get("status", "")
     next_action = action(state, run_dir=run_dir, workspace=workspace, stale_report_repair=stale_report_repair)
     stop_reason = (
-        validation_recovery.notice(state)
+        recovery_exhaustion.NOTICE
+        if recovery_exhaustion.pending(state)
+        else validation_recovery.notice(state)
         if validation_recovery.pending(state)
         else no_progress_recovery.notice(state)
         if no_progress_recovery.pending_legacy(state)
@@ -1279,6 +1283,10 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
         or (operational_block.presentation(state, include_hold=True))
     ):
         return None
+    if recovery_exhaustion.pending(state):
+        # A spent automatic recovery allowance is AutoCode's to close, not a grant for a person:
+        # the next resume records the run's outcome (autocode_recovery_exhaustion.settle).
+        return {"kind": "continue", "action": "--resume-paused"}
     if retired := workflows.retired_stage(state):
         # Saved at a stage this runtime no longer runs (owner decision 2026-11-10): nothing resumes it.
         return {
@@ -1681,14 +1689,6 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             need["action"] = "--resume-paused"
         elif review.get("action") and (review["status"] == "held" or "action" not in need):
             need["action"] = review["action"]
-        if (
-            status == "RESOLVER_PENDING"
-            and (queued := recovery_limits.queued_operational_hold(state))
-            and (queued.get("origin") or {}).get("pause_status") == "PAUSED_TIMEOUT_RECOVERY"
-        ):
-            need["pause_origin"] = "PAUSED_TIMEOUT_RECOVERY"
-            if "action" not in need and not any(state.get(key) for key in command_inputs.BUSY):
-                need["action"] = command_inputs.GRANT_ACTION
         pending = state.get("pending_report_repair") or {}
         rejected = report_retry.rejected_attempt(state) or {}
         resolved_already = bool(state.get("resolve_repair_request")) or any(

@@ -344,14 +344,20 @@ def advice(*, allow_grant, pause_status=None, attempt=None, state: RunState | No
     return INFORM_ADVICE
 
 
+def allowance_spent(state: RunState, count, maximum) -> bool:
+    """The automatic recovery allowance or the consecutive-timeout limit is used up: the one rule the
+    pause (``stop_reason``) and its recorded end (``autocode_recovery_exhaustion``) both read."""
+    limit = state.get("settings", {}).get("limits", {}).get("no_progress_batches", 3)
+    # A zero no-progress threshold does not disable the lifetime allowance.
+    return bool(count >= maximum or (limit and accounting.consecutive_timeouts(state) >= limit))
+
+
 def stop_reason(state: RunState, count, maximum, *, allow_grant=True):
     context = state.get("recovery_context") or {}
     denial = permission_exhaustion(context)
     if denial and snapshot(state["workspace"], state)["revision"] == context.get("source_revision"):
         return "PAUSED_REPEATED_FAILURE", denial
-    limit = state.get("settings", {}).get("limits", {}).get("no_progress_batches", 3)
-    # A zero no-progress threshold does not disable the lifetime allowance.
-    if count >= maximum or (limit and accounting.consecutive_timeouts(state) >= limit):
+    if allowance_spent(state, count, maximum):
         cause = recovery_context.exhaustion_cause(state)
         return "PAUSED_TIMEOUT_RECOVERY", (
             f"Automatic recovery budget exhausted; no further provider will launch. Last cause: {cause}. "

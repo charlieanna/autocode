@@ -1434,8 +1434,9 @@ review earns a refund or a recovery call, never both. A review call admitted und
 this refund policy (since 2026-09-29) is always given back when it fails, so Resolver
 reserves no planning recovery calls for such calls. Repeated silence stops instead
 at the ceiling of three automatic recoveries above (`PAUSED_TIMEOUT_RECOVERY`). The
-Investigator diagnoses that stop first and may grant one more recovery itself; only when it
-pauses does `--grant-recovery N` authorize more. The one-use reviewer route fallback needs a
+Investigator diagnoses that stop first and may grant one more recovery itself; when it does
+not, the run ends with a recorded `could_not_finish` outcome rather than asking anyone to grant
+more (an operator may still pass `--grant-recovery N` before that end). The one-use reviewer route fallback needs a
 recovery-funded second silent attempt, so it does not arise from such calls either.
 
 Review calls admitted before that policy stay charged. For their proven

@@ -24,13 +24,13 @@ import autocode_goal_lifecycle as lifecycle
 import autocode_goals as goals
 import autocode_job_failure as job_failure
 import autocode_job_source as job_source
+import autocode_recovery_exhaustion as recovery_exhaustion
 import autocode_resolver_human as human
 import autocode_run_view as run_view
 import autocode_support as support
 import autocode_taskrun as taskrun
 import goal_fixtures
 
-from .operational_fixtures import assert_operational_block
 from .test_needs_contract import NEED_BUILDERS, documented_kinds, emitted_kinds
 
 KIND_CASES = {
@@ -731,10 +731,11 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
     def test_operational_information_holds_existing_allowances(self):
         before = self.operational("operational_exhaustion")
         saved = support.read(self.directory / "state.json")
-        assert_operational_block(self, saved, "PAUSED_TIMEOUT_RECOVERY")
-        self.assertIsNone(before["needs"])
-        self.assertIsNone(before["next_command"])
-        self.assertIsNone(before["chat"]["input"])
+        # A spent allowance asks nothing: the next resume ends it with a recorded outcome.
+        self.assertEqual("paused", recovery_exhaustion.pending(saved)["origin"])
+        self.assertEqual("continue", before["needs"]["kind"])
+        self.assertNotIn("command_inputs", before["needs"])
+        self.assertNotIn("--grant-recovery", str(before["next_command"]))
         self.assertEqual(3, saved["automatic_recoveries_since_resume"])
         self.assertEqual(17, saved["active_seconds"])
         self.assertEqual(self.state["settings"]["limits"], saved["settings"]["limits"])
@@ -745,8 +746,8 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
         self.provider.assert_not_called()
 
     def test_exhausted_timeout_recovery_with_pending_resolve_grants_via_explicit_operator_cli(self):
-        # The product never asks a person to grant machinery recovery. The existing
-        # explicit operator command still preserves its bounded, audited authority.
+        # The product never asks a person to grant machinery recovery. The existing explicit
+        # operator command, passed before the run has ended, still preserves its audited authority.
         self.draft(approve=True)
         self.state.update(
             status="PAUSED_TIMEOUT_RECOVERY",
@@ -766,9 +767,8 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
         )
         self.save()
         before = self.run.status()
-        assert_operational_block(self, support.read(self.directory / "state.json"), "PAUSED_TIMEOUT_RECOVERY")
-        self.assertIsNone(before["needs"])
-        self.assertIsNone(before["next_command"])
+        self.assertEqual("continue", before["needs"]["kind"])
+        self.assertNotIn("--grant-recovery", str(before["next_command"]))
         admitted = []
 
         def fake_drive(loop_state, _dispatch, **_kwargs):

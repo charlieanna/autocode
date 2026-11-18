@@ -16,6 +16,7 @@ try:
     from . import autocode_operational_block_view as blocked
     from . import autocode_operational_disposition as disposition
     from . import autocode_operational_hold as hold
+    from . import autocode_recovery_exhaustion as recovery_exhaustion
     from . import autocode_recovery_progress as recovery_progress
     from . import autocode_startup_timeout_view as startup
     from . import autocode_stop as stop
@@ -25,6 +26,7 @@ except ImportError:
     import autocode_operational_block_view as blocked
     import autocode_operational_disposition as disposition
     import autocode_operational_hold as hold
+    import autocode_recovery_exhaustion as recovery_exhaustion
     import autocode_recovery_progress as recovery_progress
     import autocode_startup_timeout_view as startup
     import autocode_stop as stop
@@ -34,7 +36,8 @@ receipt = blocked.receipt
 
 
 def presentation(state: RunState, *, include_hold=False):
-    if stop.applied_stop(state) is not None:
+    if stop.applied_stop(state) is not None or recovery_exhaustion.pending(state):
+        # A spent recovery allowance is not a block: the next resume records the run's outcome.
         return None
     specific = blocked.presentation(state) or startup.presentation(state)
     if specific or not include_hold:

@@ -1974,21 +1974,13 @@ routes and plan approval. It does not reset a cycle, change allowance policy or
 approve the plan. Ordinary CLI callers retain their existing explicit zero
 semantics.
 
-An exhausted `PAUSED_TIMEOUT_RECOVERY` (whether still paused there, published as a `WAITING_FOR_USER` `operational_exhaustion` request, or held at `RESOLVER_PENDING` with a runner hold receipt) can name one additional finite choice:
-
-```json
-{"id":"grant_recovery","kind":"integer","flag":"--grant-recovery","placeholder":"N",
- "arg_index":2,"label":"Additional recoveries","current":3,"used":3,"minimum":1,"maximum":3}
-```
-
-Its only remaining command is `--resume-paused --grant-recovery N
---expected-recovery-token -`, using the same current private token channel
-(carried in the row's own `command` alongside `next_command` when published as
-`WAITING_FOR_USER`).
-`current` is the existing fixed automatic-recovery allowance; `used` is counted
-spend, including the existing legacy fallback. The finite input accepts 1 through
-`used`, validated as safe integers, and never supplies a default. Pending
-corrective information must first reach its deterministic held decision.
+An exhausted automatic recovery allowance (`PAUSED_TIMEOUT_RECOVERY`) names no
+choice for a person. The Investigator looks first; once it has, AutoCode ends the run with a recorded `could_not_finish` outcome naming the recoveries used, the limit, the last cause and the Investigator's look (`autocode_recovery_exhaustion`).
+A checkpoint saved at that pause, whether still paused there, published as a
+`WAITING_FOR_USER` `operational_exhaustion` request or held at `RESOLVER_PENDING`,
+shows `needs.kind` `continue`; its next resume withdraws the held request and records
+the same outcome. The `--grant-recovery N` CLI option still authorizes more recoveries
+for an operator who passes it before the run has ended; the view never offers it.
 
 This takes the existing grant action: choosing 1 replenishes one spent slot
 (for example, 3 counted becomes 2). It does not add to the fixed allowance or
