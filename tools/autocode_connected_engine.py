@@ -36,11 +36,13 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_captured_process as captured
+    from . import autocode_codex_settings as codex_settings
     from . import autocode_providers as providers
     from . import autocode_route_discovery as route_discovery
     from .providers import env_prep
 except ImportError:
     import autocode_captured_process as captured
+    import autocode_codex_settings as codex_settings
     import autocode_providers as providers
     import autocode_route_discovery as route_discovery
     from providers import env_prep
@@ -168,7 +170,12 @@ def _not_connected(name, which, runner, workspace, resolve) -> str | None:
             facade.login_check(workspace, run=runner)
             return None
         if name == "codex":
-            return None if runner(["codex", "login", "status"]).returncode == 0 else "codex is not logged in"
+            status = runner(["codex", "login", "status"])
+            if status.returncode != 0:
+                return "codex is not logged in"
+            # The run's own billing gate: a login it refuses is not a backend to choose.
+            refusal = codex_settings.login_refusal((status.stdout or "") + (status.stderr or ""))
+            return "codex is signed in on a route a run refuses" if refusal else None
         if name == "kilocode":
             facade = resolve("kilocode")
             if route_discovery.connected_accounts(facade, workspace, runner=None if runner is _run else runner):

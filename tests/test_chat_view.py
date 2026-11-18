@@ -163,9 +163,13 @@ class ChatViewTests(unittest.TestCase):
         state = {"status": "PAUSED_INVALID_OUTPUT", "next_stage": "builder", "stop_reason": cause}
         view = run_view.view(state, workspace=Path("/ws"), run_dir=Path("/run"))
         text = view["chat"]["notice"]
+        # "The saved report could not be accepted in its current form" named neither the step nor the problem,
+        # and "Resume after correction" asked the person to correct AutoCode's own answer (2026-11-18).
         self.assertEqual(
-            "I couldn’t finish this step. The saved report could not be accepted in its current form. "
-            "Your work so far is saved; choose “Resume after correction” when you’re ready. "
+            "I couldn’t finish this step. AutoCode did not accept the Builder step's answer. AutoCode could not "
+            "validate a stage's structured report; your saved work is intact. It stopped rather than spend more "
+            "on the same answer. "
+            "Your work so far is saved; choose “Try the Builder step again” when you’re ready. "
             "The run’s details show the recorded reason.",
             text,
         )

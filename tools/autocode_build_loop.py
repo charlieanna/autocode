@@ -29,6 +29,7 @@ try:
     from . import autocode_contract_identity as contract
     from . import autocode_cost as cost
     from . import autocode_dispatch as dispatch
+    from . import autocode_early_baseline as early_baseline
     from . import autocode_efficiency as efficiency
     from . import autocode_interventions as interventions
     from . import autocode_launch_inputs as launch_inputs
@@ -62,6 +63,7 @@ except ImportError:
     import autocode_contract_identity as contract
     import autocode_cost as cost
     import autocode_dispatch as dispatch
+    import autocode_early_baseline as early_baseline
     import autocode_efficiency as efficiency
     import autocode_interventions as interventions
     import autocode_launch_inputs as launch_inputs
@@ -336,8 +338,12 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
         autopilot.builder_failure.dispatch_guard(current, stage, workspace)
         # Admission parity with autopilot.dispatch_unit: a paused Builder
         # retry lane blocks the serial writer launch here as well.
-        if stage == "builder":
-            autopilot.builder_policy.guard(current)
+        if stage in ("plan_task", "builder"):
+            if stage == "builder":
+                autopilot.builder_policy.guard(current)
+            early_baseline.maybe_start(
+                current, workspace, run_dir, persist=lambda: runner.write_json(state_path, current)
+            )
         try:
             if native is not None:
                 native.dispatch_guard(current, stage, milestones.dispatch_guard)
@@ -549,6 +555,7 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
     except runner.orchestrator.LoopExit as stopped:
         return stopped.code
     except support.Paused as error:
+        early_baseline.reconcile_at_boundary(state, run_dir, persist=runner.write_json)
         wave = dispatch.select(state) if state.get("next_stage") == "orchestrator" else None
         if getattr(runner, "native_calls", None) is None and no_progress_recovery.conclude_exhausted(
             runner, state, run_dir, workspace, error, wave=wave

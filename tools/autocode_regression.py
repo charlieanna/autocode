@@ -76,6 +76,7 @@ try:
     from . import autocode_companion_tests as companion_tests
     from . import autocode_component_plan as component_plan
     from . import autocode_diff_coverage as diff_coverage
+    from . import autocode_early_baseline as early_baseline
     from . import autocode_first_suite as first_suite
     from . import autocode_focused_suite as focused_suite
     from . import autocode_follow_up as follow_up
@@ -123,6 +124,7 @@ except ImportError:
     import autocode_companion_tests as companion_tests
     import autocode_component_plan as component_plan
     import autocode_diff_coverage as diff_coverage
+    import autocode_early_baseline as early_baseline
     import autocode_first_suite as first_suite
     import autocode_focused_suite as focused_suite
     import autocode_follow_up as follow_up
@@ -672,6 +674,16 @@ def _baseline(
                 return result
         except (OSError, ValueError, TypeError, KeyError):
             pass
+    early_result = early_baseline.get_or_join(
+        state,
+        workspace,
+        run_dir,
+        binding,
+        progress=progress,
+        persist=status.persist,
+    )
+    if early_result is not None:
+        return early_result
     timeouts = dict(cached.get("settled_timeouts") or {})
     timeout_key = _settled_key(binding)
     settled = timeouts.get(timeout_key) if settled_timeout else None

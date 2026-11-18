@@ -480,7 +480,7 @@ class ClaudeTests(unittest.TestCase):
         self.assertEqual(doctor.MISSING, checks["engine"].status)  # a ready OpenCode is not what runs
         self.assertIn("engine claude (set in", checks["engine"].detail)
         project.write_text('engine = "codex"\n')
-        checks = self.checks(None, on_path("codex"), {("codex", "login", "status"): (0, "")})
+        checks = self.checks(None, on_path("codex"), {("codex", "login", "status"): (0, "Logged in using ChatGPT")})
         self.assertEqual(
             (doctor.OK, f"engine codex (set in {project}) is ready"), (checks["engine"].status, checks["engine"].detail)
         )
@@ -514,7 +514,7 @@ class ClaudeTests(unittest.TestCase):
             checks["engine"].detail,
         )
         # Codex alone, logged in: the same rule names the Codex engine.
-        checks = self.checks(None, on_path("codex"), {("codex", "login", "status"): (0, "")})
+        checks = self.checks(None, on_path("codex"), {("codex", "login", "status"): (0, "Logged in using ChatGPT")})
         self.assertEqual(doctor.OK, checks["engine"].status)
         self.assertTrue(checks["engine"].detail.startswith("engine codex (chosen from your connected accounts"))
         # The settings rows say what a run would use, as the run says it.

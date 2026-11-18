@@ -23,7 +23,7 @@ LOGGED_IN = {
     ),
 }
 LOGGED_OUT = {**LOGGED_IN, ("claude", "auth", "status", "--json"): (1, '{"loggedIn": false}')}
-CODEX_IN = {("codex", "login", "status"): (0, "")}
+CODEX_IN = {("codex", "login", "status"): (0, "Logged in using ChatGPT\n")}
 CODEX_OUT = {("codex", "login", "status"): (1, "")}
 
 
@@ -47,8 +47,17 @@ class ChooseTests(unittest.TestCase):
         patcher = patch.dict(os.environ, {"XDG_CONFIG_HOME": config.name})
         patcher.start()
         self.addCleanup(patcher.stop)
-        for name in ("AUTOCODE_PROVIDER", "AUTOCODE_PASS_ENV", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"):
+        for name in (
+            "AUTOCODE_PROVIDER",
+            "AUTOCODE_PASS_ENV",
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_AUTH_TOKEN",
+            "OPENAI_API_KEY",
+            "CODEX_API_KEY",
+            "OPENAI_BASE_URL",
+        ):
             os.environ.pop(name, None)
+        os.environ["CODEX_HOME"] = str(self.config / "codex")
 
     def choose(self, which, outputs):
         return connected.choose(which=which, runner=fake_runner(outputs))
@@ -110,6 +119,17 @@ class ChooseTests(unittest.TestCase):
             chosen = self.choose(on_path("claude", "codex"), {**LOGGED_IN, **CODEX_IN})
         self.assertEqual("codex", chosen["id"])
         self.assertIn("claude", [row["id"] for row in chosen["skipped"]])
+
+    def test_a_codex_login_every_run_refuses_is_not_chosen(self):
+        # A Codex signed in with an API key, or with one in the environment, was chosen and then every
+        # run refused it at start ("Joint planning requires Codex signed in with ChatGPT"): the choice now
+        # reads the run's own billing answer (autocode_codex_settings.billing_refusal).
+        api_key = {("codex", "login", "status"): (0, "Logged in using an API key - sk-***\n")}
+        self.assertIsNone(self.choose(on_path("codex"), api_key))
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test"}):
+            chosen = self.choose(on_path("codex"), CODEX_IN)
+        self.assertIsNone(chosen)
+        self.assertEqual("codex", self.choose(on_path("codex"), CODEX_IN)["id"])
 
 
 class ExplicitChoiceTests(unittest.TestCase):

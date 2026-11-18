@@ -26,6 +26,7 @@ try:
     from . import autocode_provider_auth as provider_auth
     from . import autocode_quota_route as quota_route
     from . import autocode_recovery_limits as recovery_limits
+    from . import autocode_rejection_summary as rejection_summary
     from . import autocode_run_messages as run_messages
     from . import autocode_stop as stop
     from .autocode_role_names import role_name
@@ -38,6 +39,7 @@ except ImportError:
     import autocode_provider_auth as provider_auth
     import autocode_quota_route as quota_route
     import autocode_recovery_limits as recovery_limits
+    import autocode_rejection_summary as rejection_summary
     import autocode_run_messages as run_messages
     import autocode_stop as stop
     from autocode_role_names import role_name
@@ -152,6 +154,9 @@ def _explanation(status, role, recorded=True):
         "PAUSED_ACCEPTANCE_TESTS": "Before building, the Tester's tests did not behave on today's code as the "
         "approved plan says.",
         "PAUSED_CONTENT_FILTER": "The provider's content filter refused the response. The same model is likely to refuse it again; another model is needed.",
+        # Not a report: the run's own records or an internal check (they matched the report group before).
+        "PAUSED_METADATA": "AutoCode could not read part of the run's saved records.",
+        "PAUSED_METADATA_ADMISSION": "An internal check did not start within its allowance. Saved work and usage are kept.",
     }
     if status in exact:
         return exact[status]
@@ -162,8 +167,10 @@ def _explanation(status, role, recorded=True):
             "A configured usage limit or unavailable usage evidence stopped the task.",
         ),
         (
-            ("INVALID_OUTPUT", "REPORT_REPAIR", "METADATA"),
-            "The saved report could not be accepted in its current form.",
+            ("INVALID_OUTPUT", "REPORT_REPAIR"),
+            f"AutoCode did not accept the {role} step's answer."
+            if role
+            else "AutoCode did not accept this step's answer.",
         ),
         (
             ("STALE_", "INVALID_PREDECESSOR", "EVIDENCE", "COMPLETION", "TRANSPORT_"),
@@ -516,6 +523,8 @@ def project(state: RunState, need=None):
     stage = _dict(state.get("active_stage")).get("stage") or state.get("next_stage")
     role = role_name(stage, _dict(_dict(state.get("settings")).get("workflow")).get("mode"))
     cause = _cause(state) or status
+    # A stage answer AutoCode refused: which stage, why, what it tried and what resuming does.
+    rejected = rejection_summary.summary(state, cause, role, stage)
     # A stop AutoCode recorded itself when it could not continue (autocode_stop.end, #2485).
     ended = next(
         (
@@ -550,6 +559,7 @@ def project(state: RunState, need=None):
             or _seatbelt_loopback_stop(state)
             or _acceptance_tests_stop(state)
             or _job_model_stop(state, role)
+            or (rejected or {}).get("what_happened")
             or _explanation(cause, role, bool(state.get("stop_reason")))
         ),
         "retained": f"{finished} finished attempt(s) remain in the history. Saved plan, messages and recorded evidence remain available; partial work still needs verification.",
@@ -787,11 +797,19 @@ def project(state: RunState, need=None):
         actions.append(
             _action(
                 "resume",
-                f"Resume with {handoff_role}" if handoff_role else "Resume" if requested else "Resume after correction",
+                f"Resume with {handoff_role}"
+                if handoff_role
+                else "Resume"
+                if requested
+                else rejected["resume_label"]
+                if rejected
+                else "Resume after correction",
                 f"Handle your saved message with {handoff_role} first. Existing model pins, limits and approval gates still apply."
                 if handoff_role
                 else "Continue from where the run paused. Existing model pins, limits and approval gates still apply."
                 if requested
+                else rejected["resume_effect"]
+                if rejected
                 else "Continue from this saved pause after its cause is corrected. Existing model pins, limits and approval gates still apply.",
             )
         )

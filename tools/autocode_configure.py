@@ -32,6 +32,7 @@ try:
     from . import autocode_base_patch as operator_patch
     from . import autocode_budget_recovery as budget_recovery
     from . import autocode_captured_process as captured
+    from . import autocode_codex_settings as codex_settings
     from . import autocode_compact_planning as compact_planning
     from . import autocode_design_manifest as design_manifest
     from . import autocode_figma as figma
@@ -68,6 +69,7 @@ except ImportError:
     import autocode_base_patch as operator_patch
     import autocode_budget_recovery as budget_recovery
     import autocode_captured_process as captured
+    import autocode_codex_settings as codex_settings
     import autocode_compact_planning as compact_planning
     import autocode_design_manifest as design_manifest
     import autocode_figma as figma
@@ -177,18 +179,10 @@ def budget_origins(args):
 
 
 def check_subscription(identity):
-    if (
-        identity.get("auth_mode") != "ChatGPT"
-        or identity.get("model_provider") not in (None, "openai")
-        or identity.get("openai_base_url")
-        or identity.get("environment_auth_present")
-        or identity.get("environment_base_url_present")
-    ):
-        raise support.Paused(
-            "PAUSED_BILLING_ROUTE",
-            "Joint planning requires Codex signed in with ChatGPT, "
-            "the default OpenAI endpoint and no API-key environment overrides; no billing fallback",
-        )
+    """Refuse a Codex login a run may not bill, naming what is wrong and how to fix it (codex_settings)."""
+    refusal = codex_settings.billing_refusal(identity)
+    if refusal:
+        raise support.Paused("PAUSED_BILLING_ROUTE", refusal)
 
 
 def _declared_levels(provider_mod, workspace, model, *, engine=None):
@@ -1054,6 +1048,7 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         "sensitive_paths": sensitive_paths.new_run_patterns(getattr(args, "sensitive_paths", None)),
         # The command that serves the app: the project's [serve], fixed at launch (autocode_dev_server_config).
         **({"serve": args.serve} if getattr(args, "serve", None) else {}),
+        **({"early_baseline": args.early_baseline} if getattr(args, "early_baseline", None) is not None else {}),
         "context_soft_tokens": args.context_soft_tokens if args.context_soft_tokens is not None else 10000,
         "rotation_after_input_tokens": args.rotate_after_input_tokens
         if args.rotate_after_input_tokens is not None
