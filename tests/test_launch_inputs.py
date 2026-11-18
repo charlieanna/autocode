@@ -765,6 +765,29 @@ class LaunchInputPolicyTests(Project):
         cached_identity.assert_called_once()
         execute.assert_not_called()
 
+    def test_a_clean_run_finds_the_suite_with_the_interpreter_the_run_recorded(self):
+        # A run started where its virtualenv (outside the project) was on PATH, and continued from a process
+        # where it is not, ran its acceptance proof with the system python3 and failed to load its plugins.
+        interpreter = self.temporary / "outside-venv" / "bin" / "python3"
+        interpreter.parent.mkdir(parents=True)
+        interpreter.write_text(f'#!/bin/sh\nexec {sys.executable} "$@"\n')
+        interpreter.chmod(0o755)
+        self.state["settings"] = {"protected_tests": {"command": f"{interpreter} -m unittest discover -v"}}
+        self.capture()
+        run, _ = launch_inputs.runners(self.state, self.root, self.run_dir, verify.scratch_run)
+        receipt = run(self.root, self.run_dir / "proof", tests=["test_calc.py"], timeout=60)
+        self.assertIn(str(interpreter), receipt["command"], receipt)
+        self.assertEqual(0, receipt["exit_code"], receipt)
+
+    def test_a_clean_run_with_an_explicit_command_runs_it_as_written(self):
+        self.state["settings"] = {"protected_tests": {"command": f"{sys.executable} -m unittest discover -v"}}
+        self.capture()
+        execute = mock.Mock(return_value={"exit_code": 0})
+        run, _ = launch_inputs.runners(self.state, self.root, self.run_dir, execute)
+        run(command="fixture command")
+        self.assertEqual(sys.executable, execute.call_args.kwargs["python"])
+        self.assertEqual("fixture command", execute.call_args.kwargs["command"])
+
     def test_injected_clean_runner_cannot_return_a_pass_after_its_input_changes(self):
         self.capture()
 

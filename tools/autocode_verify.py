@@ -1473,10 +1473,13 @@ def scratch_run(
     review_mutation_deadline=None,
     review_source=None,
     acceptance_preflight=False,
+    python=None,
 ) -> dict:
     """Execute in a copy of HEAD plus current changes and an optional reviewed patch.
     File/link overlays preserve cited inputs. Review mutation returns a typed
     observation; it never fabricates a receipt for an absent project command.
+    ``python`` is the run's recorded interpreter (autocode_test_environment.recorded_python); without it
+    the suite is detected with ``python_for``.
     """
     if type(acceptance_preflight) is not bool:
         raise ValueError("Acceptance preflight must be a boolean")
@@ -1524,6 +1527,7 @@ def scratch_run(
                 review_mutation=review_mutation,
                 review_mutation_deadline=review_mutation_deadline,
                 acceptance_preflight=acceptance_preflight,
+                python=python,
             )
             if review_mutation:
                 review_mutations.validate(answer.get("review_mutation"), run_dir)
@@ -1539,7 +1543,7 @@ def scratch_run(
                 prepare=lambda captured, before: prepare_scratch_tree(
                     workspace, run_dir, **{**parameters, "patch": captured}, _before_patch=before
                 ),
-                detect=lambda tree: detect_framework(tree, python=python_for(workspace)),
+                detect=lambda tree: detect_framework(tree, python=python or python_for(workspace)),
                 execute=run_suite,
                 remove=remove_tree,
                 is_test=is_test_path,
@@ -1554,7 +1558,7 @@ def scratch_run(
         review_snapshot = source_snapshot.snapshot(tree, paths=source_paths) if review_source else None
         review_locations = review_proof.source_locations(tree, review_source) if review_source else None
         if command is None:
-            python = python_for(workspace)
+            python = python or python_for(workspace)
             framework = detect_framework(tree, python=python)
             if framework is None and all(str(test).endswith(".py") for test in tests):
                 # A project with no suite of its own: standard unittest files still run.

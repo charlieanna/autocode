@@ -149,6 +149,7 @@ def execute(
     review_mutation=False,
     review_mutation_deadline=None,
     acceptance_preflight=False,
+    python=None,
 ):
     """Transport scratch inputs without changing their ordinary runner semantics."""
     supply = parameters.get("ignored_inputs")
@@ -158,6 +159,8 @@ def execute(
             raise ValueError("Owned preparation needs explicit launch-input Supply transport")
         parameters = {**parameters, "ignored_inputs": encode()}
     payload = {**parameters, "tests": list(tests), "command": command, "timeout": timeout}
+    if python:
+        payload["python"] = str(python)
     if acceptance_preflight:
         if acceptance_preflight is not True:
             raise ValueError("Acceptance preflight must be a boolean")
