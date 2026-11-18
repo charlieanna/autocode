@@ -1429,6 +1429,13 @@ function formatDuration(seconds) {
   return Math.floor(whole / 3600) + 'h' + String(Math.floor((whole % 3600) / 60)).padStart(2, '0') + 'm';
 }
 
+const OPENING_TEXT = 'Opening this chat…';
+
+/** A saved chat this window has selected but whose status has not been read yet (and did not fail to read). */
+function isOpening(data) {
+  return Boolean(data && data.selectedRun) && !data.state && !data.busy && !data.pendingBrief && !data.error;
+}
+
 /** A new chat's welcome: one line on what AutoCode does. */
 function renderWelcome() {
   const box = el('div', 'welcome');
@@ -2358,6 +2365,7 @@ function updateComposer() {
     : (chatEnvelope.busy || (chatEnvelope.state && chatEnvelope.state.working)) ? 'AutoCode is working. You can keep a draft here.'
     : (chatEnvelope.state && chatEnvelope.state.done) ? 'This run is finished. Start a new chat with +.'
     : (chatEnvelope.state && chatEnvelope.state.stopped) ? 'This run cannot continue automatically.'
+    : isOpening(chatEnvelope) ? OPENING_TEXT
     : 'Use the action above, or start a new chat.';
   document.getElementById('chat-error').textContent = chatEnvelope.error || '';
 }
@@ -2498,7 +2506,10 @@ function renderChat(data) {
   chatEnvelope = data;
   const messages = document.getElementById('messages');
   const welcome = { id: 'welcome', role: 'assistant', text: 'Hi! What would you like to work on today?' };
+  // A saved chat whose status is still being read is opening: it is not a new chat, so it shows no greeting.
+  const opening = isOpening(data);
   const rows = data.state && data.state.chat ? data.state.chat.messages
+    : opening ? []
     : [welcome, ...(data.pendingBrief ? [{ role: 'user', text: data.pendingBrief }] : [])];
   // A start that never reached a run leaves no transcript. The thread must still
   // hold what happened: the greeting, the request, and why it did not start.
@@ -2566,6 +2577,9 @@ function renderChat(data) {
     } else if (welcoming) {
       app.classList.remove('muted');
       renderWelcome();
+    } else if (opening) {
+      app.classList.add('muted');
+      app.appendChild(el('div', 'why', OPENING_TEXT));
     } else {
       app.classList.add('muted');
     }

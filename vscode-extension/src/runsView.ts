@@ -71,6 +71,8 @@ export class RunsProvider implements vscode.TreeDataProvider<RunNode> {
   constructor(private readonly controller: RunController) {}
 
   private nodes: RunNode[] = [];
+  /** Whether a list has been read yet; until then the tree says it is reading rather than showing nothing. */
+  private read = false;
   private readonly duplicateAllocations = new Map<string, Map<string, number>>();
   private loading?: Promise<void>;
   private pending = false;
@@ -107,6 +109,7 @@ export class RunsProvider implements vscode.TreeDataProvider<RunNode> {
       } while (this.pending && !this.disposed);
     } finally {
       this.loading = undefined;
+      this.read = true;
       if (!this.disposed) this.changed.fire(undefined);
     }
   }
@@ -116,7 +119,8 @@ export class RunsProvider implements vscode.TreeDataProvider<RunNode> {
   }
 
   getChildren(node?: RunNode): RunNode[] {
-    if (!node) return this.nodes;
+    // The registry read can take seconds with many chats: an empty tree then looks like no chats at all.
+    if (!node) return this.read ? this.nodes : [readingItem()];
     return node.kind === "workspace" ? node.runs : [];
   }
 
@@ -219,6 +223,12 @@ function messageItem(text: string): RunItem {
   item.iconPath = new vscode.ThemeIcon("info");
   item.contextValue = undefined;
   item.command = undefined;
+  return item;
+}
+
+function readingItem(): RunItem {
+  const item = messageItem("Reading chats…");
+  item.iconPath = new vscode.ThemeIcon("loading~spin");
   return item;
 }
 

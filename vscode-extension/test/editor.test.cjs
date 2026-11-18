@@ -1443,11 +1443,11 @@ test('model selection enables the action immediately, survives polling and disab
 });
 
 
-test('VS Code tree event replaces an initially empty sidebar after registry refresh', async () => {
+test('VS Code tree event replaces the sidebar\'s reading row after registry refresh', async () => {
   let listed = [];
   const provider = new RunsProvider({ list: async () => ({ runs: listed, diagnostics: [] }) });
   let rendered = provider.getChildren();
-  assert.equal(rendered.length, 0);
+  assert.deepEqual(rendered.map((node) => node.label), ['Reading chats…'], 'before the first read the tree says it is reading');
   const subscription = provider.onDidChangeTreeData(() => { rendered = provider.getChildren(); });
   try {
     listed = [{ ...run, id: 'run-one', availability: 'available', status: 'RUNNING' }];
@@ -7386,6 +7386,42 @@ test('a finished run closes with its result, requirements, changed files, cost a
 test('a finished run with no follow-up offer says so instead of pointing at an action that is not there', async (t) => {
   const ui = await openChat(t, { status: 'TASK_COMPLETE', done: true, needs: { kind: 'done' }, chat: { context: 'x', messages: [], input: null } });
   assert.equal(ui.document.getElementById('send-hint').textContent, 'This run is finished. Start a new chat with +.');
+});
+
+test('a saved chat whose status is still being read says it is opening, not a new chat with an action', async (t) => {
+  const ui = await openChat(t, null, false);
+  let answer;
+  controller.status.mock.mockImplementation(() => new Promise((resolve) => { answer = resolve; }));
+  ui.chat.show(run); await flush();
+  const rows = () => [...ui.document.querySelectorAll('#messages .message')].map((row) => row.textContent);
+  assert.deepEqual(rows(), [], 'no new-chat greeting in a chat that already has a thread');
+  assert.equal(ui.document.getElementById('welcome'), null);
+  assert.match(ui.document.querySelector('#app').textContent, /Opening this chat…/);
+  assert.equal(ui.document.getElementById('send-hint').textContent, 'Opening this chat…', 'no pointer at an action that is not shown');
+  answer(structuredClone(approvalView())); await flush(); await flush();
+  assert.equal(ui.document.querySelector('#take-action').textContent, 'Approve and build');
+  assert.doesNotMatch(ui.document.querySelector('#app').textContent, /Opening this chat/);
+});
+
+test('a saved chat whose status cannot be read shows the failure, not the opening line', async (t) => {
+  const ui = await openChat(t, null, false);
+  controller.status.mock.mockImplementation(async () => { throw new Error('Run not found'); });
+  ui.chat.show(run); await flush(); await flush();
+  assert.doesNotMatch(ui.document.getElementById('send-hint').textContent, /Opening this chat/);
+  assert.match(ui.document.querySelector('#chat-error').textContent, /Run not found/);
+});
+
+test('history says it is reading chats until the first list arrives', async () => {
+  let finish;
+  const provider = new RunsProvider({ list: async () => new Promise((resolve) => { finish = resolve; }) });
+  const reading = provider.refresh();
+  const first = provider.getChildren();
+  assert.equal(first.length, 1);
+  assert.equal(first[0].label, 'Reading chats…');
+  finish({ runs: [] });
+  await reading;
+  assert.ok(provider.getChildren().every((node) => node.label !== 'Reading chats…'), 'the list replaces the reading row');
+  provider.dispose();
 });
 
 test('a new chat welcomes with one short line and no example list', async (t) => {
