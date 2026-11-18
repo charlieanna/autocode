@@ -4218,6 +4218,34 @@ for (const result of ['rejected', 'question']) test(`automatic recovery does not
   else assert.ok(ui.document.querySelector('[data-question="q1"]'));
 });
 
+test('an automatic invocation failure survives a failed status read and waits for a fresh offer', async (t) => {
+  let selected = workingView();
+  let unreadable = false;
+  const ui = await openChat(t, selected, run, { statusFor() {
+    if (unreadable) throw new Error('Status reader unavailable');
+    return selected;
+  } });
+  selected = { status: 'RESOLVER_PENDING', done: false, needs: { kind: 'continue' },
+    next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --no-chat` };
+  let attempts = 0;
+  const launch = t.mock.method(cli, 'stream', async () => {
+    if (++attempts === 1) {
+      unreadable = true;
+      return { code: 2, stdout: '', stderr: 'Failed before launch', rejected: false };
+    }
+    selected = questionView();
+    return ok;
+  });
+  await ui.poll(); await flush(); await flush();
+  await ui.poll(); await flush();
+  assert.equal(launch.mock.callCount(), 1, 'an unreadable status grants no retry');
+  assert.match(ui.document.querySelector('#chat-error').textContent, /Status reader unavailable/);
+  unreadable = false;
+  await ui.poll(); await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 2, 'a fresh identical automatic offer can recover the failed invocation');
+  assert.ok(ui.document.querySelector('[data-question="q1"]'));
+});
+
 test('a continuing Requirements view keeps its progress instead of asking the person again', async (t) => {
   const ui = await openChat(t, {
     status: 'PAUSED_TOOL_CONTAINMENT', done: false, needs: null, next_command: null,

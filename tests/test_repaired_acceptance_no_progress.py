@@ -230,6 +230,8 @@ class RepairedAcceptanceNoProgressUnitTests(unittest.TestCase):
         self.assertEqual(projection["status"], shown["status"])
         self.assertIsNone(shown["chat"]["input"])
         self.assertIsNone(shown["chat"]["gate"])
+        self.assertIn("automatically", shown["explanation"]["what_it_means"])
+        self.assertNotIn("cannot continue", shown["explanation"]["explanation"])
         self.assertEqual(before, self.state)
 
     def test_repaired_acceptance_retry_grants_one_bounded_attempt_without_machinery_question(self):

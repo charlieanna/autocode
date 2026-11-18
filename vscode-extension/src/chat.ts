@@ -935,7 +935,8 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
    * stopping after the first left the person a bare Continue to press. A run waiting for another chat to leave
    * its folder (`checkout_wait`) is left to the poll, which continues it once the folder is free.
    */
-  private async advanceAfterInput(run: RunRef, initial?: StatusView): Promise<{ view: StatusView; code?: number | null }> {
+  private async advanceAfterInput(run: RunRef, initial?: StatusView,
+    afterTake?: (view: StatusView, code: number | null) => void): Promise<{ view: StatusView; code?: number | null }> {
     let view = initial ?? await this.controller.status(run);
     let code: number | null | undefined;
     for (let taken = 0; taken < ADVANCE_LIMIT; taken += 1) {
@@ -944,6 +945,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       if (taken > 0 && view.status !== "RUNNING") return { view, code };
       const before = advanceIdentity(view);
       code = (await this.controller.take(view, run)).code;
+      afterTake?.(view, code);
       view = await this.controller.status(run);
       if (advanceIdentity(view) === before) return { view, code };
     }
@@ -979,14 +981,19 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     tab.error = "";
     this.post();
     try {
-      const result = await this.advanceAfterInput(run, now);
+      const result = await this.advanceAfterInput(run, now, (taken, code) => {
+        // Retain a failed invocation even if its following status read fails.
+        // A later fresh poll still has to offer this exact automatic action.
+        if (reconcile && code === 2 && this.automaticOffer(taken, run) === reconcile
+            && tab.reconciliationAttempts!.count < RECONCILIATION_ATTEMPT_LIMIT) tab.reconciledOffer = undefined;
+      });
       if (reconcile && result.code === 2 && this.automaticOffer(result.view, run) === reconcile) {
         if (tab.reconciliationAttempts!.count < RECONCILIATION_ATTEMPT_LIMIT) {
           tab.reconciledOffer = undefined;
         } else {
           tab.error = "Automatic recovery did not advance after three attempts. The run and its failure history are retained.";
         }
-      }
+      } else if (reconcile) tab.reconciledOffer = reconcile;
     } catch (error) {
       if (this.activeKey === key) tab.error = messageOf(error);
       else void vscode.window.showErrorMessage(`AutoCode (${run.runDir}): ${messageOf(error)}`);
