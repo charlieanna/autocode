@@ -1048,6 +1048,7 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         "sensitive_paths": sensitive_paths.new_run_patterns(getattr(args, "sensitive_paths", None)),
         # The command that serves the app: the project's [serve], fixed at launch (autocode_dev_server_config).
         **({"serve": args.serve} if getattr(args, "serve", None) else {}),
+        **({"early_baseline": args.early_baseline} if getattr(args, "early_baseline", None) is not None else {}),
         "context_soft_tokens": args.context_soft_tokens if args.context_soft_tokens is not None else 10000,
         "rotation_after_input_tokens": args.rotate_after_input_tokens
         if args.rotate_after_input_tokens is not None

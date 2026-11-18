@@ -97,7 +97,7 @@ EFFORTS = tuple(spelling.removeprefix("--") for key in EFFORTS for spelling in n
 KEYS = (*ENGINE, *MODELS, *EFFORTS, *COMMANDS, *BUDGETS)
 # Settings only a project file gives, with no flag: a team's rule a new run saves (autocode_required_approver),
 # and the command that serves its app (autocode_dev_server_config).
-FILE_ONLY = (required_approver.KEY, dev_server_config.KEY, sensitive_paths.KEY)
+FILE_ONLY = (required_approver.KEY, dev_server_config.KEY, sensitive_paths.KEY, "early-baseline")
 
 _PROVIDER = (
     "the provider runs a command you installed, so a project cannot choose it: use --provider, "
@@ -236,6 +236,12 @@ def apply(actions, args, explicit, workspace, *, memory_input=None) -> dict[str,
             continue
         if key == sensitive_paths.KEY:  # no flag; autocode_configure saves it with a new run (#2021)
             setattr(args, sensitive_paths.SETTING, sensitive_paths.checked(value, source))
+            applied[key] = source
+            continue
+        if key == "early-baseline":
+            if not isinstance(value, bool):
+                raise ValueError(f"{source}: {key} must be true or false")
+            setattr(args, "early_baseline", value)
             applied[key] = source
             continue
         action = actions["--" + key]
