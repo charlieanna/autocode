@@ -210,6 +210,76 @@ class ActivityReporterTests(unittest.TestCase):
         self.assertEqual(("now", None), (record["activity"]["observed_at"], record["activity"]["stage_limit_seconds"]))
 
 
+class RetryStartupBudgetTests(unittest.TestCase):
+    def state(self, stage="write_acceptance_tests", **authorization):
+        return {
+            "settings": {
+                "limits": {"stage_timeout_seconds": 300, "idle_timeout_seconds": 300},
+                "budget_origins": {"idle_timeout_seconds": "runner_default"},
+            },
+            "job_failure": {"stage": stage, "job_retry_token": "jr:current", "retry_stage_timeout_seconds": 600},
+            "job_retry_authorization": {
+                "stage": stage,
+                "token": "jr:current",
+                "consumed": False,
+                **authorization,
+            },
+            # The previous attempt did useful work before its hard deadline, rather than starting silently.
+            "recovery_context": {"stage": stage, "stall_phase": "during_reasoning_or_output"},
+        }
+
+    def limits(self, state, stage="write_acceptance_tests", model="openai/gpt-6-sol", *, repair=False):
+        return role_launch.launch_limits(
+            state, model, stage, stage + "_report_repair" if repair else stage, report_only=repair
+        )
+
+    def test_exact_job_retries_keep_their_ordinary_idle_limit_without_a_second_startup_guard(self):
+        for stage in ("write_acceptance_tests", "check_design", "investigate_stuck", "resolve_repair"):
+            for model, idle in (("openai/gpt-6-sol", 300), ("zai-coding-plan/glm-5.3", 300), ("mimo-v2.6-pro", 900)):
+                with self.subTest(stage=stage, model=model):
+                    timeout, _, _, watch, saved = self.limits(self.state(stage), stage, model)
+                    self.assertEqual(600, timeout)
+                    self.assertIsNone(watch["first_event_limit"])
+                    self.assertIsNone(watch["first_event_origin"])
+                    self.assertEqual(idle, watch["idle_limit"])
+                    self.assertEqual(300, saved["idle_timeout_seconds"])
+                    with tempfile.TemporaryDirectory() as directory:
+                        events = Path(directory) / "events.jsonl"
+                        events.touch()
+                        monitor = role_launch.activity_monitor_mod.ActivityMonitor(
+                            events, idle_seconds=idle, first_event_seconds=watch["first_event_limit"], clock=lambda: 0
+                        )
+                        monitor.clock = lambda: 120
+                        self.assertIsNone(monitor.expired(), "the retry must survive a slow initial stream")
+                        monitor.clock = lambda: idle + 1
+                        self.assertEqual("idle", monitor.expired()["kind"], "ordinary inactivity still stops it")
+
+    def test_first_launches_other_stages_repairs_and_stale_authorizations_keep_the_startup_guard(self):
+        first = self.state()
+        first.pop("job_retry_authorization")
+        for state, stage, repair in (
+            (first, "write_acceptance_tests", False),
+            (self.state(), "check_design", False),
+            (self.state(), "write_acceptance_tests", True),
+            (self.state(token="jr:old"), "write_acceptance_tests", False),
+            (self.state(consumed=True), "write_acceptance_tests", False),
+            (self.state(stage="check_design"), "write_acceptance_tests", False),
+        ):
+            with self.subTest(state=state, stage=stage, repair=repair):
+                timeout, _, _, watch, _ = self.limits(state, stage, repair=repair)
+                self.assertEqual(300, timeout)
+                self.assertEqual(90, watch["first_event_limit"])
+
+    def test_an_explicit_idle_limit_and_the_saved_hard_deadline_stay_exact(self):
+        state = self.state()
+        state["settings"]["limits"]["idle_timeout_seconds"] = 37
+        state["settings"]["budget_origins"]["idle_timeout_seconds"] = "user_explicit"
+        timeout, _, _, watch, saved = self.limits(state)
+        self.assertEqual((600, 37, 37), (timeout, watch["idle_limit"], saved["idle_timeout_seconds"]))
+        self.assertIsNone(watch["first_event_limit"])
+        self.assertEqual(300, state["settings"]["limits"]["stage_timeout_seconds"])
+
+
 class RaiseForExitTests(unittest.TestCase):
     def check(self, state=None, record=None, **overrides):
         options = dict(

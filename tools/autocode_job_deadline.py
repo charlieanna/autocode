@@ -81,27 +81,28 @@ def plan(state: RunState, failure: dict, recovery: dict, *, abandoned: bool, dea
     return {"from": old, "to": new, "extension": spent + 1, "of": MAX_EXTENSIONS}
 
 
-def launch_limit(state: RunState, stage, configured, *, report_only=False):
-    """The hard deadline a launch of ``stage`` runs under.
+def authorized_retry(state: RunState, stage, *, report_only=False) -> bool:
+    """Whether this launch is the exact job retry whose authorization is still unconsumed.
 
-    The authorized, not yet admitted retry of the stopped job runs on the deadline saved with its
-    failure (an automatic extension, or the deadline the stopped attempt had). Every other launch,
-    report-only repairs included, runs on the run's ``configured`` stage limit.
+    The hard deadline and startup policy read this same binding before admission; admission still
+    checks the source and configuration before consuming it or starting a provider.
     """
     failure = state.get("job_failure") or {}
     authorization = state.get("job_retry_authorization") or {}
-    retry = _seconds(failure.get("retry_stage_timeout_seconds"))
-    if (
-        report_only
-        or retry is None
-        or failure.get("stage") != stage
-        or authorization.get("stage") != stage
-        or authorization.get("consumed") is not False
-        or not failure.get("job_retry_token")
-        or authorization.get("token") != failure["job_retry_token"]
-    ):
-        return configured
-    return retry
+    return bool(
+        not report_only
+        and failure.get("stage") == stage
+        and authorization.get("stage") == stage
+        and authorization.get("consumed") is False
+        and failure.get("job_retry_token")
+        and authorization.get("token") == failure["job_retry_token"]
+    )
+
+
+def launch_limit(state: RunState, stage, configured, *, report_only=False):
+    """The authorized retry keeps its saved hard deadline; every other launch keeps ``configured``."""
+    retry = _seconds((state.get("job_failure") or {}).get("retry_stage_timeout_seconds"))
+    return retry if retry is not None and authorized_retry(state, stage, report_only=report_only) else configured
 
 
 def reason(job: str, extension: dict) -> str:

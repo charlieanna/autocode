@@ -113,6 +113,14 @@ if mode not in ('success','terminal','abandon','exit42','capacity','rate','exter
  def deadline(child, seconds, checkpoint, *, activity=None, **kwargs):
   code=child.wait(timeout=10)
   if os.environ.get('JOB_TIMEOUTS') and len(Path(os.environ['JOB_CALLS']).read_text().splitlines())>int(os.environ['JOB_TIMEOUTS']):
+   if os.environ.get('JOB_SLOW_RETRY_START'):
+    # Exercise the actual launch monitor with a fake clock before it observes any event.
+    # The prior attempt worked until its hard deadline; this retry starts responding after 120 s.
+    clock=activity.clock;later=clock()+120;activity.clock=lambda:later
+    try:stopped=activity.expired()
+    finally:activity.clock=clock
+    if stopped:
+     checkpoint([]);activity.timeout=stopped;return code,True
    return real_deadline(child, seconds, checkpoint, activity=activity, **kwargs)
   checkpoint([])
   if mode=='cleanup':raise autocode.processes.ProcessError('injected cleanup cannot be proved')
@@ -316,6 +324,21 @@ class JobDeadlineExtensionTests(JobHarness):
         self.assertEqual(4, self.count())
         self.assertIn("3600-second", again["needs"]["reason"])
         self.assertEqual(900, self.limits(run)["stage_timeout_seconds"])
+
+    def test_a_longer_job_retry_survives_a_slow_initial_stream_without_a_model_question(self):
+        self.roomy(timeouts=1)
+        options = list(self.options)
+        at = options.index("--max-idle-seconds")
+        del options[at : at + 2]  # the runner's default, as in the live acceptance-test job
+        self.options = tuple(options)
+        self.env["JOB_SLOW_RETRY_START"] = "1"
+        run = self.start()
+        view = run.status()
+        self.assertEqual("PAUSED_DESIGN_CONFLICT", view["status"], view.get("needs"))
+        self.assertTrue((self.workspace / "docs/double.blockers.json").is_file())
+        self.assertEqual(2, self.count())
+        self.assertEqual(900, self.limits(run)["stage_timeout_seconds"])
+        self.assertEqual(300, self.limits(run)["idle_timeout_seconds"])
 
     def test_no_extension_without_room_under_the_total_time_cap(self):
         run = self.start()
