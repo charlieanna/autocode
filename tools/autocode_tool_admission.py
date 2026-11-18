@@ -92,6 +92,9 @@ def failure(error, *, kilo_readonly=False, isolation=None):
         # A check that ran out of time on a loaded host asks for another attempt, not a reinstalled Kilo (#2959).
         else ". Bounded setup retries were exhausted; the timeout does not establish a broken Kilo installation"
         if isinstance(error, KiloProbeTimeout)
+        # The sandbox's own checks follow the same rule (containment.setup_check): the host was slow, twice.
+        else ". Running out of time does not establish a broken sandbox or tool; resume to run the check again"
+        if isinstance(error, containment.SetupCheckTimeout)
         else ". Restore the qualified native setup; native role isolation requires its kernel tool boundary"
         if isolation is not None
         else ". Restore a qualified Kilo and its kernel shell setup; a Kilo stage cannot waive this boundary"

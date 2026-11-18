@@ -18,6 +18,73 @@ import autocode_util as util
 
 import tests  # noqa: F401 - runtime import path
 
+SANDBOX = containment.SANDBOX_EXEC if containment.backend() == containment.SEATBELT else containment.BWRAP
+
+
+class SetupCheckTests(unittest.TestCase):
+    """A model-free setup check that only ran out of time is tried once more and never read as a broken
+    setup: the rule Kilo's own setup checks follow (#2959), for the sandbox's checks too."""
+
+    def check(self, *outcomes):
+        answers = iter(outcomes)
+        self.limits = []
+
+        def run(argv, **options):
+            self.limits.append(options["timeout"])
+            answer = next(answers)
+            if isinstance(answer, BaseException):
+                raise answer
+            return answer
+
+        with mock.patch.object(containment.captured, "run_metadata", side_effect=run):
+            return containment.setup_check(["/bin/true"], what="The fixture check", timeout=10)
+
+    def test_a_check_that_ran_out_of_time_once_is_run_again_with_the_rest_of_the_budget(self):
+        late = subprocess.TimeoutExpired(["/bin/true"], 10)
+        answer = subprocess.CompletedProcess(["/bin/true"], 0, "", "")
+        self.assertIs(answer, self.check(late, answer))
+        first, second = self.limits
+        self.assertEqual(10, first)
+        self.assertTrue(10 < second <= containment.SETUP_CHECK_SECONDS, second)
+
+    def test_two_timeouts_say_the_check_ran_out_of_time_and_nothing_about_the_setup(self):
+        late = subprocess.TimeoutExpired(["/bin/true"], 10)
+        with self.assertRaises(containment.SetupCheckTimeout) as raised:
+            self.check(late, late)
+        # The run-setup checks report a problem for any SubprocessError; this one stays among them.
+        self.assertIsInstance(raised.exception, subprocess.SubprocessError)
+        self.assertRegex(str(raised.exception), r"^The fixture check did not answer within 10 seconds, nor within \d+")
+        self.assertIn("only ran out of time", str(raised.exception))
+        self.assertEqual(2, len(self.limits))
+
+    def test_an_answer_or_an_os_error_is_never_retried(self):
+        refused = subprocess.CompletedProcess(["/bin/true"], 3, "", "no namespaces")
+        self.assertIs(refused, self.check(refused))
+        self.assertEqual(1, len(self.limits))
+        with self.assertRaises(FileNotFoundError):
+            self.check(FileNotFoundError("no such tool"))
+        self.assertEqual(1, len(self.limits))
+
+    @unittest.skipUnless(SANDBOX and Path(SANDBOX).is_file(), "no sandbox binary on this host")
+    def test_the_contained_shell_is_prepared_when_its_start_check_answers_the_second_time(self):
+        probes = []
+
+        def slow_once(argv, **options):
+            if list(argv[1:]) == ["-c", "exit 0"]:
+                probes.append(options["timeout"])
+                if len(probes) == 1:
+                    raise subprocess.TimeoutExpired(argv, options["timeout"])
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        with tempfile.TemporaryDirectory() as root:
+            workspace = Path(root).resolve() / "project"
+            workspace.mkdir()
+            with mock.patch.object(containment.captured, "run_metadata", side_effect=slow_once):
+                boundary = containment.prepare(workspace, allow_write=False)
+        self.assertEqual(2, len(probes))
+        self.assertEqual(10, probes[0])
+        self.assertEqual(str(workspace), boundary["workspace"])
+
 
 class LaunchContainment(unittest.TestCase):
     def test_metadata_cleanup_uncertainty_is_not_a_waivable_boundary_failure(self):
@@ -67,6 +134,32 @@ class LaunchContainment(unittest.TestCase):
                     self.assertEqual(status, raised.exception.status)
                     self.assertIn(named, str(raised.exception))
                     self.assertNotIn("Restore qualified", str(raised.exception))
+
+    def test_a_sandbox_check_that_only_ran_out_of_time_is_not_blamed_on_the_setup(self):
+        """Live Arena sweep, 2026-11-18 (sympy-matrix-derivatives): a contained shell's ``exit 0`` overran
+        its 10 seconds at a load average of 235, and the run paused telling the person to "Restore a
+        qualified Kilo and its kernel shell setup", which was never broken."""
+        from providers.kilocode import KiloProvider
+
+        refusal = containment.SetupCheckTimeout(
+            "The contained shell's start check did not answer within 10 seconds, nor within 50 on a second "
+            "attempt; the check only ran out of time, and no provider was launched"
+        )
+        kilo = object.__new__(KiloProvider)
+        kilo.launch = mock.Mock(side_effect=refusal)
+        self.adapter.launch.side_effect = refusal
+        for name, adapter, platform in (("kilo", kilo, "linux"), ("opencode", self.adapter, launch.sys.platform)):
+            with (
+                self.subTest(tool=name),
+                mock.patch.object(launch.sys, "platform", platform),
+                self.assertRaises(util.Paused) as raised,
+            ):
+                launch.prepare(**{**self.options, "adapter": adapter})
+            self.assertEqual("PAUSED_TOOL_CONTAINMENT", raised.exception.status)
+            self.assertIn("The contained shell's start check did not answer within 10 seconds", str(raised.exception))
+            self.assertIn("Running out of time does not establish a broken sandbox or tool", str(raised.exception))
+            self.assertNotIn("Restore", str(raised.exception))
+            self.assertNotIn("--allow-uncontained-tools", str(raised.exception))
 
     def setUp(self):
         directory = tempfile.TemporaryDirectory()
