@@ -222,10 +222,12 @@ export class RunController {
     throw new ClientGap(`needs ${JSON.stringify(view.needs?.kind ?? null)} at ${view.status} names no next_command`);
   }
 
-  /** Only the current view can authorize automatic metadata reconciliation after a stopped process. */
-  isMetadataReconciliation(view: StatusView, run: RunRef): boolean {
+  /** Only a current named action can reconcile stopped metadata or publish a fresh decision. */
+  isAutomaticReconciliation(view: StatusView, run: RunRef): boolean {
     const { argv } = this.named(view, run);
-    return argv.length === 2 && argv[0] === "--reconcile-only";
+    return (argv.length === 2 && argv[0] === "--reconcile-only")
+      || (view.status === "RESOLVER_PENDING" && view.needs?.kind === "continue"
+        && argv.length === 1 && argv[0] === "--no-chat");
   }
 
   /**

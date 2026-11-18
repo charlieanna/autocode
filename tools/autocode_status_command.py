@@ -236,6 +236,8 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         pending = interventions.inspect(workspace, run_dir)["requests"]
     except interventions.InterventionError:
         pending = None  # An unreadable inbox cannot accept a request either.
+    human_projection = runner.resolver_human.projection(state)
+    decision_state = runner.resolver_human.decision_state(state, human_projection)
     public_view = runner.run_view.view(
         state,
         completion_current=completion_current,
@@ -253,6 +255,7 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         observation=observation,
         execution_inspection=execution_inspection,
         stop_pending=any(isinstance(row, dict) and row.get("kind") == "stop" for row in pending or []),
+        human_projection=human_projection,
     )
     if public_view.get("workflow") == "review" and state.get("status") == "TASK_COMPLETE":
         result = public_view["evidence"].get("workflow_result")
@@ -353,7 +356,7 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
     )
     following_name = None if stale_check or not following_id else runner.autocode_status.role_name(following_id, state)
     public_view["progress"] = progress_view.progress(
-        state,
+        decision_state,
         accepted=checkpoint["accepted_milestones"],
         needs=public_view["needs"],
         reviewed=reviewed_criteria(runner, state),
@@ -468,7 +471,7 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
                 "milestone_activation_pending": (run_dir / "milestone-checkpoints-requested.json").exists(),
                 "interventions": runner.intervention_metadata(workspace, run_dir, state),
                 "view": {**public_view, "delivery": runner.dependency.export(state, current, completion_current)},
-                **runner.resolver_human.projection(state),
+                **human_projection,
             },
             indent=2,
         )

@@ -4098,6 +4098,34 @@ test('once the other chat leaves the folder, the chat takes the named continue i
   assert.equal(launch.mock.callCount(), 1, 'taken once, not on every poll');
 });
 
+test('an expired decision takes only its named refresh once and leaves fresh approval to the person', async (t) => {
+  const ui = await openChat(t, workingView());
+  const stale = {
+    status: 'RESOLVER_PENDING', done: false, next_stage: 'draft_plan', iteration: 1,
+    needs: { kind: 'continue' }, controller: { kind: 'boundary', checked: true, alive: false },
+    next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --no-chat`,
+  };
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  await ui.poll({ ...stale, next_command: null }); await flush();
+  assert.equal(launch.mock.callCount(), 0, 'the status alone grants no action');
+  await ui.poll({ ...stale, next_command: stale.next_command.replace(run.runDir, '/foreign/run') });
+  await flush();
+  assert.equal(launch.mock.callCount(), 0, 'a foreign refresh is never taken');
+  await ui.poll(stale); await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 1, 'expired authorization is refreshed without asking a machinery question');
+  assert.deepEqual(launch.mock.calls[0].arguments[1], ['--no-chat', '--workspace', run.workspace, '--run-dir', run.runDir]);
+  await ui.poll(stale); await flush();
+  assert.equal(launch.mock.callCount(), 1, 'an unchanged publication cannot loop');
+  await ui.poll({ ...stale, status: 'AWAITING_GOAL_APPROVAL',
+    needs: { kind: 'approve_plan', token: 'reviewed-new-plan' },
+    next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --approve-goal reviewed-new-plan` });
+  await flush();
+  assert.equal(launch.mock.callCount(), 1, 'refresh grants no plan approval');
+  await ui.poll({ ...stale, chat: { context: 'another-expired-decision', input: null, messages: [] } });
+  await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 2, 'a later decision can refresh on the same CLI path');
+});
+
 test('stopped supervision takes its named metadata reconciliation once without a recovery click', async (t) => {
   const ui = await openChat(t, workingView());
   const stopped = {

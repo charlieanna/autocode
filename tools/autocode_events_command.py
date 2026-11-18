@@ -36,11 +36,13 @@ from pathlib import Path
 try:
     from . import autocode_build_worktree as build_worktree
     from . import autocode_registry as registry
+    from . import autocode_resolver_human as resolver_human
     from . import autocode_run_view as run_view
     from . import autocode_util as util
 except ImportError:
     import autocode_build_worktree as build_worktree
     import autocode_registry as registry
+    import autocode_resolver_human as resolver_human
     import autocode_run_view as run_view
     import autocode_util as util
 
@@ -107,7 +109,9 @@ def settled(state: RunState, run_dir: Path, workspace: Path) -> tuple[int, str] 
     if status in run_view.COMPLETE:
         return 0, f"run {status} after {len(events_of(state))} event(s)"
     try:
-        shown = run_view.action(state, run_dir=run_dir, workspace=workspace)
+        human_projection = resolver_human.projection(state)
+        status = resolver_human.decision_state(state, human_projection).get("status")
+        shown = run_view.action(state, run_dir=run_dir, workspace=workspace, human_projection=human_projection)
     except (KeyError, TypeError, AttributeError, ValueError) as error:
         return 2, f"status view could not read the checkpoint: {error}"
     need = shown.get("needs") or {}
@@ -116,7 +120,7 @@ def settled(state: RunState, run_dir: Path, workspace: Path) -> tuple[int, str] 
         label = shown.get("pause_category_label") or shown.get("pause_category") or status
         note = f"run needs you ({label})"
         return 2, f"{note}; next: {shown['next_command']}" if shown.get("next_command") else note
-    if status not in run_view.CONTINUE:
+    if status not in run_view.CONTINUE and not (status == "RESOLVER_PENDING" and kind == "continue"):
         return 2, f"run stopped at {status}"
     return None
 

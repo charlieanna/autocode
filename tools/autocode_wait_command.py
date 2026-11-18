@@ -36,12 +36,14 @@ try:
     from . import autocode_controller_owner as controller_owner
     from . import autocode_events_command as events
     from . import autocode_registry as registry
+    from . import autocode_resolver_human as resolver_human
     from . import autocode_run_view as run_view
     from . import autocode_util as util
 except ImportError:
     import autocode_controller_owner as controller_owner
     import autocode_events_command as events
     import autocode_registry as registry
+    import autocode_resolver_human as resolver_human
     import autocode_run_view as run_view
     import autocode_util as util
 
@@ -65,7 +67,9 @@ def outcome(state: RunState, run_dir: Path, workspace: Path) -> dict | None:
     if status in run_view.COMPLETE:
         return {"outcome": "complete", "status": status, "reason": f"run reported {status}"}
     try:
-        shown = run_view.action(state, run_dir=run_dir, workspace=workspace)
+        human_projection = resolver_human.projection(state)
+        status = resolver_human.decision_state(state, human_projection).get("status")
+        shown = run_view.action(state, run_dir=run_dir, workspace=workspace, human_projection=human_projection)
     except (KeyError, TypeError, AttributeError, ValueError) as error:
         return {
             "outcome": "stopped",
@@ -93,7 +97,7 @@ def outcome(state: RunState, run_dir: Path, workspace: Path) -> dict | None:
             "next_command": f"autocode --run-dir {run_dir} --workspace {workspace} --status",
             "reason": owner.get("reason"),
         }
-    if status not in run_view.CONTINUE:
+    if status not in run_view.CONTINUE and not (status == "RESOLVER_PENDING" and kind == "continue"):
         return {"outcome": "stopped", "status": status, "reason": f"run stopped at {status}"}
     return None
 

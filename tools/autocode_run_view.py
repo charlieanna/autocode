@@ -90,6 +90,7 @@ try:
     from . import autocode_report_retry as report_retry
     from . import autocode_request_usage as request_usage
     from . import autocode_requirements_review as requirements_review
+    from . import autocode_resolver_human as resolver_human
     from . import autocode_resolver_recommendation as recommendation
     from . import autocode_risk_disclosure as risk_disclosure
     from . import autocode_role_transport as role_transport
@@ -163,6 +164,7 @@ except ImportError:
     import autocode_report_retry as report_retry
     import autocode_request_usage as request_usage
     import autocode_requirements_review as requirements_review
+    import autocode_resolver_human as resolver_human
     import autocode_resolver_recommendation as recommendation
     import autocode_risk_disclosure as risk_disclosure
     import autocode_role_transport as role_transport
@@ -292,6 +294,7 @@ def view(
     observation=None,
     execution_inspection=None,
     stop_pending=False,
+    human_projection=None,
 ) -> dict:
     """Caller supplies fresh completion, evidence, repair, supervision and design-input inspections."""
     try:
@@ -314,12 +317,21 @@ def view(
         import autocode_replay_view as replay_view
         import autocode_scope_question as scope_question
         import autocode_worker_view as worker_view
+    saved_state = state
+    human_projection = resolver_human.projection(state) if human_projection is None else human_projection
+    state = resolver_human.decision_state(state, human_projection)
     replay = replay_view.completion_policy(state)
     replay_progress, invalid_replay, simulated = replay["progress"], replay["invalid"], replay["simulated"]
     if simulated or invalid_replay:
         completion_current = False
     status = state.get("status", "")
-    next_action = action(state, run_dir=run_dir, workspace=workspace, stale_report_repair=stale_report_repair)
+    next_action = action(
+        state,
+        run_dir=run_dir,
+        workspace=workspace,
+        stale_report_repair=stale_report_repair,
+        human_projection=human_projection,
+    )
     stop_reason = (
         recovery_exhaustion.NOTICE
         if recovery_exhaustion.pending(state)
@@ -343,7 +355,7 @@ def view(
         None
         if (operational_block.presentation(state, include_hold=True)) or recovery_exhaustion.pending(state)
         else reconciliation.offer(
-            state, liveness, controller=controller, stop_pending=stop_pending, workspace=workspace
+            saved_state, liveness, controller=controller, stop_pending=stop_pending, workspace=workspace
         )
     )
     if reconcile is not None:
@@ -358,7 +370,7 @@ def view(
                 workspace=workspace or state.get("workspace"),
             ),
         }
-    if controller_owner.continuing(state, controller):
+    if controller_owner.continuing(saved_state, controller):
         # The live controller will save its own next state; an action taken now is refused by the run lock.
         next_action = {"needs": None, "pause_category": None, "pause_category_label": None, "next_command": None}
     need = next_action["needs"]
@@ -1094,7 +1106,7 @@ def _route(question: dict) -> dict:
     return route
 
 
-def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair=False) -> dict:
+def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair=False, human_projection=None) -> dict:
     """What this run asks of a person: the need, its category, and the command that answers it.
 
     ``view`` composes those three from here, so a caller that only needs the next
@@ -1107,6 +1119,8 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
         from . import autocode_changeset_barrier as changeset_barrier
     except ImportError:
         import autocode_changeset_barrier as changeset_barrier
+    human_projection = resolver_human.projection(state) if human_projection is None else human_projection
+    state = resolver_human.decision_state(state, human_projection)
     terminal = stop.applied_stop(state) is not None
     if terminal:
         category = pause_category.category(state.get("status"), {"reason": stop.stop_reason(state)})
@@ -1137,7 +1151,7 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
             ),
         }
     status = state.get("status", "")
-    need = needs(state, stale_report_repair=stale_report_repair)
+    need = needs(state, stale_report_repair=stale_report_repair, human_projection=human_projection)
     category = pause_category.category(status, need)
     # This status also names novelty/source holds; only its bound hold needs a larger limit.
     resume_flags = (
@@ -1226,7 +1240,7 @@ def _person_facing(need: dict) -> dict:
     return need
 
 
-def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
+def needs(state: RunState, *, stale_report_repair=False, human_projection=None) -> dict | None:
     """What must happen next, or None when complete or an internal failure offers no person action.
 
     kind          what it asks for                  answered with
@@ -1291,6 +1305,12 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
                                                      a core-classified uncertain attempt may name
                                                      --abandon-stage ATTEMPT as deterministic recovery
     """
+    human_projection = resolver_human.projection(state) if human_projection is None else human_projection
+    refreshing_decision = bool(state.get("resolver_human_proposal")) or (
+        human_projection.get("status") == "RESOLVER_PENDING"
+        and human_projection.get("saved_status") in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL")
+    )
+    state = resolver_human.decision_state(state, human_projection)
     status = state.get("status", "")
     if (
         stop.applied_stop(state) is not None
@@ -1407,40 +1427,10 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             "kind": "continue",
             "action": "--resume-paused",
         }
-    # A Resolver proposal at RESOLVER_PENDING carries a person decision only when the writer
-    # boundary has not already settled it as machinery (#2896, #3145). evaluate() records a
-    # defer/recover/hold disposition when it declines to publish, and a runner-owned recovery
-    # receipt is AutoCode's own machinery whatever its scope; neither is a question for the
-    # person, and the hold's own next step is named below.
-    pending_proposal = state.get("resolver_human_proposal") or {}
-    disposition = ((state.get("resolver") or {}).get("human_disposition") or {}).get("action")
-    if (
-        status == "RESOLVER_PENDING"
-        and disposition not in ("defer", "recover", "hold")
-        and pending_proposal.get("scope") != "operational_exhaustion"
-        and not (pending_proposal.get("evidence") or {}).get("resolver_receipt_id")
-    ):
-        proposal = state.get("resolver_human_proposal") or {}
-        proposal_questions = proposal.get("questions") or []
-        if not proposal_questions and (proposal.get("request") or {}).get("decision_needed"):
-            req = proposal["request"]
-            proposal_questions = [
-                {
-                    "id": "resolver-decision",
-                    "question": req["decision_needed"],
-                    "why": req.get("impact", ""),
-                    "options": req.get("options", []),
-                    "proposed_default": "",
-                }
-            ]
-        if proposal_questions:
-            return _person_facing(
-                {
-                    "kind": "answer",
-                    "questions": [_question_view(q, resolver_scope=proposal.get("scope")) for q in proposal_questions],
-                    "resolver_scope": proposal.get("scope"),
-                }
-            )
+    # A proposal or expired publication has no answer authority. The writer must
+    # re-evaluate and publish the current decision before a client offers it.
+    if status == "RESOLVER_PENDING" and refreshing_decision:
+        return {"kind": "continue"}
     questions = state.get("pending_questions") or []
     reviews = [question for question in questions if question.get("review_criteria")]
     if reviews:

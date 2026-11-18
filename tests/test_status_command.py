@@ -26,23 +26,71 @@ class ConsistentSampleTests(unittest.TestCase):
     durable-worker flake of 2026-10-26 and 2026-10-27) must not produce a view whose continue offer
     carries the token of a checkpoint that no longer exists."""
 
-    def render(self, state, run, inspect):
+    def render(self, state, run, inspect, *, human_projection=None, envelope=False):
         import autocode as runner
         import autocode_status_command as command
 
         args = SimpleNamespace(inspect_evidence=False, run_dir="fixture", engine=None, explain=False)
         output = io.StringIO()
+        if human_projection is None:
+            human_projection = {
+                "status": state["status"],
+                "pending_questions": state.get("pending_questions", []),
+                "user_request": state.get("user_request"),
+                "human_escalation": state.get("resolver_human_request"),
+            }
         with (
             patch.object(command.controller_owner, "inspect", side_effect=inspect),
             patch.object(runner.milestones, "summary", return_value={"accepted_milestones": []}),
             patch.object(runner.dependency, "export", return_value={}),
             patch.object(runner, "intervention_metadata", return_value={}),
-            patch.object(runner.resolver_human, "projection", return_value={}),
+            patch.object(runner.resolver_human, "projection", return_value=human_projection) as project_human,
             redirect_stdout(output),
             redirect_stderr(io.StringIO()),
         ):
             command.render(runner, state, args, run.parent, run)
-        return json.loads(output.getvalue())["view"]
+        project_human.assert_called_once()
+        result = json.loads(output.getvalue())
+        return result if envelope else result["view"]
+
+    def test_the_envelope_and_editor_share_one_fresh_decision_projection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp).resolve() / "run"
+            run.mkdir()
+            saved = {
+                **state_at("draft_plan"),
+                "status": "WAITING_FOR_USER",
+                "pending_questions": [{"id": "old", "question": "Expired question"}],
+                "resolver_human_request": {"request_id": "old", "request_token": "expired"},
+            }
+            (run / "state.json").write_text(json.dumps(saved))
+            public = {
+                "status": "RESOLVER_PENDING",
+                "saved_status": "WAITING_FOR_USER",
+                "human_request_authorized": False,
+                "human_escalation": None,
+                "pending_questions": [],
+                "user_request": None,
+            }
+            shown = self.render(
+                saved,
+                run,
+                lambda *_args, **_kwargs: {
+                    "kind": "boundary",
+                    "checked": True,
+                    "alive": False,
+                    "receipt": None,
+                },
+                human_projection=public,
+                envelope=True,
+            )
+            self.assertEqual(shown["status"], shown["view"]["status"])
+            self.assertEqual("RESOLVER_PENDING", shown["status"])
+            self.assertEqual("WAITING_FOR_USER", shown["saved_status"])
+            self.assertEqual("continue", shown["view"]["needs"]["kind"])
+            self.assertIsNone(shown["view"]["chat"]["input"])
+            self.assertNotEqual("Waiting for you", shown["view"]["progress"]["headline"])
+            self.assertEqual(saved, json.loads((run / "state.json").read_text()))
 
     def test_a_checkpoint_replaced_during_inspection_is_read_again(self):
         import autocode_util as util

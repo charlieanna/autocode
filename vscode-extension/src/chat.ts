@@ -950,7 +950,9 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     let reconcile: string | undefined;
     if (now.needs?.kind === "continue" && now.next_command && !isWorking(now)) {
       try {
-        if (this.controller.isMetadataReconciliation(now, tab.run)) reconcile = now.next_command;
+        if (this.controller.isAutomaticReconciliation(now, tab.run)) {
+          reconcile = JSON.stringify([now.next_command, now.chat?.context ?? null]);
+        }
       } catch { /* A malformed or foreign command remains a client gap; it is never taken automatically. */ }
     }
     if (!tab.continuePending && (!before || !waitsForFolder(before))
