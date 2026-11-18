@@ -15,9 +15,13 @@ changes all reproduce it without a model.
 All readers now use the same read-only decision projection. An expired published
 request or unpublished proposal names ordinary continuation so the writer can
 re-evaluate it. Status samples that projection once for both the envelope and
-editor view. The original checkpoint still binds controller observations and
-tokens; readers never reissue, consume or approve a decision. Legacy questions
-without a Resolver publication retain their existing contract.
+editor view. Recovery owners inspect the original checkpoint, before its
+presentation is projected: an expired publication can still carry authenticated
+recovery evidence, including an older no-progress hold. Projecting it first hid
+that evidence and removed the recovery action. The original checkpoint also
+binds controller observations and tokens; readers never reissue, consume or
+approve a decision. Legacy questions without a Resolver publication retain their
+existing contract.
 
 VS Code takes this exact named refresh once per decision context, as it does
 metadata reconciliation. A missing or foreign command cannot trigger it, and a

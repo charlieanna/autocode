@@ -4171,6 +4171,53 @@ test('source recovery takes one bound resume and preserves held or foreign actio
   assert.equal(launch.mock.callCount(), 1, 'an unchanged source hold cannot loop');
 });
 
+for (const kind of ['source', 'decision', 'supervision']) for (const persistent of [false, true]) {
+  test(`automatic ${kind} continuation ${persistent ? 'bounds unchanged failed invocations' : 'recovers a failed invocation without asking the person'}`, async (t) => {
+    const ui = await openChat(t, workingView());
+    const source = {
+      status: 'PAUSED_SOURCE_UNAVAILABLE', done: false, needs: { kind: 'continue' },
+      controller: { kind: 'boundary', checked: true, alive: false },
+      progress: { headline: 'Recovering source access', line: 'Recovering source access' },
+      summary: { state: 'working', label: 'Working', sentence: 'Recovering source access.' },
+      chat: { messages: [], input: null, context: 'same-source-check', notice: 'I couldn’t finish this step. Continue to try again.' },
+      next_command: `AUTOCODE_EXPECTED_RECOVERY_TOKEN=recovery-v1:bound autocode --workspace ${run.workspace} --run-dir ${run.runDir} --resume-paused --expected-recovery-token -`,
+    };
+    if (kind === 'decision') {
+      source.status = 'RESOLVER_PENDING';
+      source.next_command = `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --no-chat`;
+    } else if (kind === 'supervision') {
+      source.status = 'RUNNING';
+      source.next_command = `AUTOCODE_RECONCILE_ONLY_TOKEN=checkpoint-v1:one autocode --workspace ${run.workspace} --run-dir ${run.runDir} --reconcile-only -`;
+    }
+    let attempts = 0;
+    const launch = t.mock.method(cli, 'stream', async () =>
+      persistent || ++attempts === 1
+        ? { code: 2, stdout: '', stderr: 'Cannot inspect source before launch', rejected: false } : ok);
+    for (let i = 0; i < 5; i += 1) { await ui.poll(source); await flush(); await flush(); }
+    assert.equal(launch.mock.callCount(), persistent ? 3 : 2);
+    assert.equal(ui.document.querySelector('#take-action'), null, 'the core-owned action asks no person to continue');
+    assert.doesNotMatch(ui.document.getElementById('app').textContent, /AutoCode is waiting for you|Continue to try again/);
+    if (persistent) assert.match(ui.document.getElementById('chat-error').textContent, /automatic recovery.*did not advance/i);
+    await ui.poll({ ...source, ...questionView() }); await flush();
+    assert.equal(launch.mock.callCount(), persistent ? 3 : 2, 'a human question remains a human gate');
+  });
+}
+
+for (const result of ['rejected', 'question']) test(`automatic recovery does not repeat after ${result}`, async (t) => {
+  const ui = await openChat(t, workingView());
+  const refresh = { status: 'RESOLVER_PENDING', done: false, needs: { kind: 'continue' },
+    next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --no-chat` };
+  const launch = t.mock.method(cli, 'stream', async () => {
+    if (result === 'question') ui.setView(questionView());
+    return { code: 2, stdout: '', stderr: 'Refused', rejected: result === 'rejected' };
+  });
+  await ui.poll(refresh); await flush(); await flush();
+  for (let i = 0; i < 3; i += 1) { await ui.poll(); await flush(); }
+  assert.equal(launch.mock.callCount(), 1);
+  if (result === 'rejected') assert.match(ui.document.querySelector('#chat-error').textContent, /rejected/i);
+  else assert.ok(ui.document.querySelector('[data-question="q1"]'));
+});
+
 test('a continuing Requirements view keeps its progress instead of asking the person again', async (t) => {
   const ui = await openChat(t, {
     status: 'PAUSED_TOOL_CONTAINMENT', done: false, needs: null, next_command: null,

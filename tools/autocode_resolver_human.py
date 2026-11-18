@@ -753,9 +753,10 @@ def projection(state: RunState):
 def needs_publication(state: RunState, public=None) -> bool:
     """A genuine decision needs publishing; a settled machinery disposition does not."""
     public = projection(state) if public is None else public
-    if public.get("status") == "RESOLVER_PENDING" and public.get("saved_status") in (
-        "WAITING_FOR_USER",
-        "AWAITING_GOAL_APPROVAL",
+    if (
+        state.get(PUBLIC)
+        and public.get("status") == "RESOLVER_PENDING"
+        and public.get("saved_status") in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL")
     ):
         return True
     proposal = state.get(PRIVATE) or {}

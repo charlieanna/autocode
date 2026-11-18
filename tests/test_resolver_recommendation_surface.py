@@ -88,10 +88,19 @@ class ResolverRecommendationSurfaceTests(unittest.TestCase):
                 }
             },
         }
+        state["goal_contract"].update(task_id="T1", revision=1)
+        state["goal_contract"]["hash"] = util.digest(state["goal_contract"])
         original = copy.deepcopy(state["goal_contract"])
         request = self.request(revision)
         request_before = copy.deepcopy(request)
-        proposal = human.queue(state, "blocker", {"stage": "resolve"}, request=request)
+        state["stages"] = [{"stage": "resolve", "output": "resolver.json", "exit_code": 0, "changed_files": []}]
+        proposal = human.queue(
+            state,
+            "blocker",
+            {"stage": "resolve"},
+            request=request,
+            evidence={"diagnosis": "The criterion needs a requirements decision", "output": "resolver.json"},
+        )
         text = proposal["request"]["decision_needed"]
         self.assertIn("C1 current: " + json.dumps(old), text)
         self.assertIn("C1 proposed: " + json.dumps(new), text)
@@ -99,24 +108,13 @@ class ResolverRecommendationSurfaceTests(unittest.TestCase):
         self.assertEqual(recommendation.ACCEPTANCE, proposal["request"]["options"][0])
         self.assertEqual(original, state["goal_contract"])
         self.assertEqual(request_before, request)
-        state.update(
-            status="WAITING_FOR_USER",
-            user_request=copy.deepcopy(proposal["request"]),
-            pending_questions=[{"id": "Q1", "question": text}],
-            resolver_human_request={
-                "request_id": "R1",
-                "request_token": "token",
-                "scope": "blocker",
-                "request": copy.deepcopy(proposal["request"]),
-            },
-            resolver={"human_escalations": {"R1": {"status": "pending", "identity": {"proposal": proposal}}}},
-        )
+        self.assertEqual("escalate", human.evaluate(state))
         need = run_view.needs(state)
         self.assertEqual(revision, need["recommended_revision"])
         self.assertEqual(recommendation.ACCEPTANCE, need["recommended_revision_response"])
         need["recommended_revision"]["acceptance_criteria"][0]["criterion"] = "Changed in a reader"
         self.assertEqual(new, state["user_request"]["recommended_revision"]["acceptance_criteria"][0]["criterion"])
-        state["resolver"]["human_escalations"]["R1"]["status"] = "consumed"
+        state["resolver"]["human_escalations"][state[human.PUBLIC]["request_id"]]["status"] = "consumed"
         self.assertNotIn("recommended_revision", run_view.needs(state))
 
     def test_other_stages_and_ambiguous_questions_cannot_publish_recommendations(self):

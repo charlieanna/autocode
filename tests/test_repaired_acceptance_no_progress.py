@@ -216,6 +216,22 @@ class RepairedAcceptanceNoProgressUnitTests(unittest.TestCase):
             "history": [],
         }
 
+    def test_expired_publication_keeps_recovery_facts_without_restoring_answer_authority(self):
+        self.state["stop_reason"] = "Repeated unchanged implementation batches require review"
+        binding = {**human._binding(self.state), "runtime_sources": "previous-runtime"}
+        with patch.object(human, "_binding", return_value=binding):
+            legacy_publication(self.state, self.run_dir, pause="PAUSED_NO_PROGRESS")
+        self.assertIsNotNone(no_progress_recovery.pending_legacy(self.state))
+        self.assertIsNone(human.current(self.state))
+        projection = human.projection(self.state)
+        before = copy.deepcopy(self.state)
+        shown = run_view.view(self.state, workspace=self.workspace, run_dir=self.run_dir, human_projection=projection)
+        self.assertEqual({"kind": "continue", "action": "--resume-paused"}, shown["needs"])
+        self.assertEqual(projection["status"], shown["status"])
+        self.assertIsNone(shown["chat"]["input"])
+        self.assertIsNone(shown["chat"]["gate"])
+        self.assertEqual(before, self.state)
+
     def test_repaired_acceptance_retry_grants_one_bounded_attempt_without_machinery_question(self):
         seeded = _seed_acceptance_proof(self.state, self.workspace, self.run_dir, with_retry_record=True)
         runtime = _runtime(self.run_dir)

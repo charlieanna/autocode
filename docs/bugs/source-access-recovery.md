@@ -32,7 +32,13 @@ report-only model repair.
 The status view now offers the existing resume action only after a fresh source
 inventory succeeds and any retained supervisor is positively stopped with a
 clean receipt. The action is bound to the exact saved recovery token. VS Code
-takes that named continuation once for the current offer. Unknown or live
+takes that named continuation for the current offer. A non-rejected exit 2
+that leaves the exact automatic offer unchanged is retried only after a fresh
+status read, at most three invocations. A successful no-op or explicit rejection
+is acknowledged once; a question or approval never becomes an automatic action.
+This also covers decision publication and stopped-supervision metadata actions.
+The editor shows recovery progress instead of asking the person to continue.
+Unknown or live
 supervision, unconfirmed cleanup, an outstanding stop, unavailable source and
 native or durable authority do not grant automatic continuation.
 
@@ -45,6 +51,9 @@ An unavailable source remains visibly blocked without asking a person to run a
 Git command or choose a recovery. AutoCode changes no Git trust configuration.
 The public recovery history also shows the successful source recheck and its
 original error, without presenting it as test evidence or plan approval.
+While a checked live controller reconciles that saved failure, the view suppresses
+its obsolete blocked card using the same observation that suppresses further
+actions. The failed attempt stays in recovery history.
 
 Regressions vary planning, Builder, Tester and completion stages, prelaunch
 failures, unreadable source, uncertain supervision, stops and foreign or unbound

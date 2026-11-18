@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 import autocode_client_actions as client
 import autocode_run_view as run_view
+import autocode_status_summary as summary
 import autocode_util as util
 
 from .test_liveness import inspection, metadata
@@ -104,6 +105,26 @@ class SourceReconciliationTests(unittest.TestCase):
         self.assertEqual("blocked", view["recovery"]["category"])
         self.assertNotIn("resume", view["recovery"]["what_happened"].lower())
         self.assertEqual(before, self.state)
+
+    def test_a_live_controller_reconciling_a_saved_failure_is_not_shown_as_blocked(self):
+        for status in ("PAUSED_SOURCE_UNAVAILABLE", "PAUSED_TOOL_CONTAINMENT", "PAUSED_VERIFICATION_UNCERTAIN"):
+            with self.subTest(status=status):
+                self.state["status"] = status
+                before = copy.deepcopy(self.state)
+                view = run_view.view(
+                    self.state,
+                    workspace=self.workspace,
+                    run_dir=self.run,
+                    liveness=self.fresh,
+                    controller={"kind": "running", "checked": True, "alive": True},
+                )
+                self.assertEqual("working", summary.project(view)["state"])
+                self.assertIsNone(
+                    view["recovery"], "The retained failure is history while its controller reconciles it"
+                )
+                self.assertIsNone(view["needs"])
+                self.assertIsNone(view["next_command"])
+                self.assertEqual(before, self.state)
 
     def test_unknown_live_or_unclean_supervision_cannot_continue(self):
         for fault in ("owner", "keeper", "provider", "unknown", "unclean", "stop_pending", "native"):

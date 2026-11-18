@@ -89,6 +89,8 @@ export interface PanelState {
   taking: boolean;
   /** This client is acting, or AutoCode reports live stage/controller work. */
   working: boolean;
+  /** The core names an automatic continuation; it requires no person action. */
+  automaticContinue: boolean;
   /** The pause the view offers while the run works (#1598); `requested` once one waits for the step to end. */
   pauseOffer: {
     label: string; effect: string | null; requested: boolean;
@@ -472,6 +474,10 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
   const jobTimeControls = view.done ? [] : controller.jobTimeControls(view, run);
   const requirements = progress?.requirements;
   const working = taking || isWorking(view);
+  let automaticContinue = false;
+  if (!view.done && !stopped && need?.kind === "continue" && view.next_command) {
+    try { automaticContinue = controller.isAutomaticReconciliation(view, run); } catch { /* Invalid commands remain a client gap. */ }
+  }
   return {
     chat: view.chat,
     requirementsView: view.requirements ?? null,
@@ -556,6 +562,7 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
     personOnly: leavesForPerson(need),
     taking,
     working,
+    automaticContinue,
     pauseOffer: view.pause && !view.done ? {
       label: view.pause.label ?? "Pause after this step",
       effect: view.pause.effect ?? null,
@@ -789,6 +796,7 @@ function emptyState(run: RunRef): PanelState {
     personOnly: false,
     taking: false,
     working: false,
+    automaticContinue: false,
     pauseOffer: null,
     allChanges: null,
     workingDiff: null,
@@ -1286,7 +1294,7 @@ function renderChatProgress(container, state) {
   // The log's own agent header says which stage works and what it does now, so the card does not
   // repeat the run's headline ("Requirements working") above it.
   const shown = groups.length ? lines.filter((line) => line !== state.headline) : lines;
-  (shown.length || groups.length ? shown : ['Thinking…']).forEach((line) => container.appendChild(el('div', 'line', line)));
+  (shown.length || groups.length ? shown : [state.automaticContinue ? state.headline : 'Thinking…']).forEach((line) => container.appendChild(el('div', 'line', line)));
   if (groups.length) {
     // Supersedes the bare activity list: the log already carries those tool marks.
     const list = el('div', 'activity live-log');
@@ -1705,7 +1713,7 @@ function restoreFocusedField(focusedAttr, selection) {
 function render(state) {
   const chatSlice = chatMode ? [
     state.status, state.needKind, state.pause, state.gap, state.canApprove, state.token,
-    state.taking, state.working, state.plan, state.criteria, state.decisions, state.decisionContext,
+    state.taking, state.working, state.automaticContinue, state.plan, state.criteria, state.decisions, state.decisionContext,
     state.actionLabel, state.actionEffect, state.stopped, state.unreadable, state.confirming,
     state.requirementsView,
     state.chat && [state.chat.phase, state.chat.notice, state.chat.progress, state.chat.activity, state.chat.log, state.chat.now, state.chat.review, state.chat.gate, state.chat.input && state.chat.input.kind],
@@ -1869,7 +1877,7 @@ function render(state) {
         });
         strip.appendChild(el('span', 'action-prompt', actionPrompt(state)));
         strip.appendChild(approve);
-      } else if (state.working && (state.needKind === 'continue' || !state.needKind)) {
+      } else if ((state.working || state.automaticContinue) && (state.needKind === 'continue' || !state.needKind)) {
         renderChatProgress(cardContent, state);
       } else if (state.needKind === 'continue') {
         const resume = el('button', null, 'Continue');
@@ -1886,9 +1894,9 @@ function render(state) {
       return;
     }
 
-    if (state.chat && state.chat.notice && state.chat.notice !== 'Working on your request…') {
+    if (!state.automaticContinue && state.chat && state.chat.notice && state.chat.notice !== 'Working on your request…') {
       cardContent.appendChild(el('div', 'notice', state.chat.notice));
-    } else if (state.pause) {
+    } else if (!state.automaticContinue && state.pause) {
       cardContent.appendChild(el('div', 'notice', 'I couldn’t finish this step. Open Run details to see what needs attention.'));
     }
     renderJobTimeControls(cardContent, state);
@@ -1911,7 +1919,7 @@ function render(state) {
         + 'not something the extension should work around.'));
       box.appendChild(el('pre', null, state.gap));
       cardContent.appendChild(box);
-    } else if (!state.done && state.working && (state.needKind === 'continue' || !state.needKind)) {
+    } else if (!state.done && (state.working || state.automaticContinue) && (state.needKind === 'continue' || !state.needKind)) {
       renderChatProgress(cardContent, state);
     } else if (!state.done) {
       if (state.decisions.length > 0) {

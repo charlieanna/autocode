@@ -153,10 +153,16 @@ class PersonOnlyQuestionTests(unittest.TestCase):
         self.assertIn("--resolver-response", view["chat"]["input"]["next_command"])
         self.assertEqual(composed(), human.current(self.state)["request"]["decision_needed"])
 
-    def test_a_pending_blocker_proposal_question_names_no_flags(self):
+    def test_a_pending_blocker_is_unanswerable_until_its_plain_question_is_published(self):
         # The issue's run: RESOLVER_PENDING with an unpublished proposal the writer has not settled.
         self.queue_blocker()
         self.state["status"] = "RESOLVER_PENDING"
+        before = copy.deepcopy(self.state)
+        waiting = self.view()
+        self.assertEqual("continue", waiting["needs"]["kind"])
+        self.assertIsNone(waiting["chat"]["input"])
+        self.assertEqual(before, self.state)
+        self.assertEqual("escalate", human.evaluate(self.state))
         need = self.view()["needs"]
         self.assertEqual(("answer", "blocker"), (need["kind"], need["resolver_scope"]))
         self.assert_plain(need)

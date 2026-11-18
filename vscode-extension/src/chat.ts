@@ -28,6 +28,9 @@ const STREAM_POLL_SECONDS = 0.25;
 const STREAM_QUIET_POLLS = 8;
 // At most this many named continues after one action of the person's; each must move the run on.
 const ADVANCE_LIMIT = 8;
+// A failed invocation can stop before the writer records anything. Re-read the
+// exact automatic offer before each retry; successful no-ops stay acknowledged.
+const RECONCILIATION_ATTEMPT_LIMIT = 3;
 
 /** What a continue that made progress changes, as TaskRun.advance_until_input compares it. */
 function advanceIdentity(view: StatusView): string {
@@ -86,8 +89,9 @@ interface ChatTab {
   starting: boolean;
   launching: boolean;
   continuePending?: boolean;
-  /** A metadata-only recovery offer is taken once per exact checkpoint, never on every poll. */
+  /** Successful or explicitly refused automatic offers are consumed for this checkpoint. */
   reconciledOffer?: string;
+  reconciliationAttempts?: { offer: string; count: number };
   /** What a run's start is doing before its first status view, in the core's words (#3079). */
   startingLabel: string;
   /** A chat that has not started: the stages it will run, with its own picks (`stages list --json`). */
@@ -931,43 +935,58 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
    * stopping after the first left the person a bare Continue to press. A run waiting for another chat to leave
    * its folder (`checkout_wait`) is left to the poll, which continues it once the folder is free.
    */
-  private async advanceAfterInput(run: RunRef, initial?: StatusView): Promise<void> {
+  private async advanceAfterInput(run: RunRef, initial?: StatusView): Promise<{ view: StatusView; code?: number | null }> {
     let view = initial ?? await this.controller.status(run);
+    let code: number | null | undefined;
     for (let taken = 0; taken < ADVANCE_LIMIT; taken += 1) {
-      if (view.done || view.needs?.kind !== "continue" || isWorking(view)) return;
+      if (view.done || view.needs?.kind !== "continue" || isWorking(view)) return { view, code };
       // After the first, only a running run's ready boundary is gone on with; a stop is the person's to see.
-      if (taken > 0 && view.status !== "RUNNING") return;
+      if (taken > 0 && view.status !== "RUNNING") return { view, code };
       const before = advanceIdentity(view);
-      await this.controller.take(view, run);
+      code = (await this.controller.take(view, run)).code;
       view = await this.controller.status(run);
-      if (advanceIdentity(view) === before) return;
+      if (advanceIdentity(view) === before) return { view, code };
     }
+    return { view, code };
+  }
+
+  private automaticOffer(view: StatusView, run: RunRef): string | undefined {
+    if (view.done || view.needs?.kind !== "continue" || !view.next_command || isWorking(view)) return;
+    try {
+      if (this.controller.isAutomaticReconciliation(view, run)) {
+        return JSON.stringify([view.next_command, view.chat?.context ?? null]);
+      }
+    } catch { /* A malformed or foreign command grants no automatic action. */ }
   }
 
   // A failed startup read or a held folder must not lose the first message's automatic continuation.
   private async continueWhenReady(tab: ChatTab, before: StatusView | undefined, now: StatusView | null): Promise<void> {
     if (!tab.run || !now) return;
-    let reconcile: string | undefined;
-    if (now.needs?.kind === "continue" && now.next_command && !isWorking(now)) {
-      try {
-        if (this.controller.isAutomaticReconciliation(now, tab.run)) {
-          reconcile = JSON.stringify([now.next_command, now.chat?.context ?? null]);
-        }
-      } catch { /* A malformed or foreign command remains a client gap; it is never taken automatically. */ }
-    }
+    const reconcile = this.automaticOffer(now, tab.run);
     if (!tab.continuePending && (!before || !waitsForFolder(before))
         && (!reconcile || reconcile === tab.reconciledOffer)) return;
     if (waitsForFolder(now) || this.busy.has(tab.key) || tab.starting) return;
     tab.continuePending = false;
     if (now.done || now.needs?.kind !== "continue" || isWorking(now)) return;
-    if (reconcile) tab.reconciledOffer = reconcile;
+    if (reconcile) {
+      tab.reconciledOffer = reconcile;
+      const count = tab.reconciliationAttempts?.offer === reconcile ? tab.reconciliationAttempts.count : 0;
+      tab.reconciliationAttempts = { offer: reconcile, count: count + 1 };
+    }
     const run = tab.run;
     const key = tab.key;
     this.busy.add(key);
     tab.error = "";
     this.post();
     try {
-      await this.advanceAfterInput(run, now);
+      const result = await this.advanceAfterInput(run, now);
+      if (reconcile && result.code === 2 && this.automaticOffer(result.view, run) === reconcile) {
+        if (tab.reconciliationAttempts!.count < RECONCILIATION_ATTEMPT_LIMIT) {
+          tab.reconciledOffer = undefined;
+        } else {
+          tab.error = "Automatic recovery did not advance after three attempts. The run and its failure history are retained.";
+        }
+      }
     } catch (error) {
       if (this.activeKey === key) tab.error = messageOf(error);
       else void vscode.window.showErrorMessage(`AutoCode (${run.runDir}): ${messageOf(error)}`);

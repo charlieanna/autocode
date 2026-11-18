@@ -17,6 +17,7 @@ from unittest import mock
 import autocode_args
 import autocode_configure
 import autocode_pause_command as pause_command
+import autocode_resolver_human as human
 import autocode_run_view as run_view
 import autocode_subcommands as subcommands
 
@@ -126,7 +127,38 @@ KIND_STATES = {
     },
 }
 
+
 # Attribute on the parsed args that proves the matching action family was selected.
+def _published_answer(state):
+    """Contract fixtures carry a current writer publication, not a fabricated token."""
+    state = copy.deepcopy(state)
+    scope = state.pop(human.PUBLIC)["scope"]
+    state.pop("resolver", None)
+    state.update(workspace="/tmp/ws", run_dir="/tmp/run")
+    questions = state.get("pending_questions", []) if scope == "clarification" else None
+    request = state.get("user_request")
+    if scope == "clarification":
+        state["requirements_body"] = {"open_blocking_questions": copy.deepcopy(questions)}
+    elif scope == "permission":
+        request = {"kind": "permission", "decision_needed": "Allow remote publication?", "impact": "Remote write"}
+    else:
+        request = {**(request or {}), "decision_needed": "Approve the correction?", "impact": "Requirements decision"}
+    state["stages"] = [{"stage": "resolve", "output": "resolver.json", "exit_code": 0, "changed_files": []}]
+    human.queue(
+        state,
+        scope,
+        {"stage": "resolve"},
+        questions=questions,
+        request=request,
+        evidence={"diagnosis": "A requirements decision is needed", "output": "resolver.json"},
+    )
+    if human.evaluate(state) != "escalate":
+        raise AssertionError("The answer fixture requires an authentic publication")
+    return state
+
+
+KIND_STATES["answer"] = _published_answer(KIND_STATES["answer"])
+
 KIND_ACCEPTANCE = {
     "approve_plan": lambda args: args.approve_goal == "plan-token",
     "continue": lambda args: args.chat is False,  # --no-chat relaunch
@@ -325,7 +357,7 @@ KIND_SHAPES = {
         _RESOLVER,
         {
             **_RESOLVER,
-            "resolver_human_request": {**_RESOLVER["resolver_human_request"], "scope": "operational_exhaustion"},
+            "resolver_human_request": {**_RESOLVER["resolver_human_request"], "scope": "permission"},
         },
     ],
     "review": [
@@ -365,6 +397,9 @@ KIND_SHAPES = {
         },
     ],
 }
+
+
+KIND_SHAPES["answer"] = [_published_answer(state) for state in KIND_SHAPES["answer"]]
 
 
 def documented_kinds() -> set[str]:

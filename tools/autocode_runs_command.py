@@ -161,8 +161,7 @@ def _row(workspace: Path, run_dir: Path, now: float, changesets, *, checkpoint) 
         shown_status, action_state, handoff = displayed["status"], displayed["action_state"], displayed["ready_handoff"]
     try:
         human_projection = resolver_human.projection(state)
-        action_state = resolver_human.decision_state(action_state, human_projection)
-        shown_status = action_state.get("status")
+        shown_status = resolver_human.decision_state(action_state, human_projection).get("status")
         shown = run_view.action(action_state, run_dir=run_dir, workspace=workspace, human_projection=human_projection)
     except (KeyError, TypeError, AttributeError, ValueError) as error:
         # A checkpoint another version wrote: the row still has to be shown.
