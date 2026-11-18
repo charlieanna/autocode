@@ -111,6 +111,14 @@ class DeclaredPythonEnvironmentTests(unittest.TestCase):
         self.assertEqual(str(self.python), selected)
         self.assertNotEqual(str(self.python.resolve()), selected)
 
+    def test_a_run_reads_the_interpreter_it_recorded(self):
+        suite = {"protected_tests": {"command": shlex.join([str(self.python), "-m", "pytest", "-q"])}}
+        self.assertEqual(str(self.python), test_environment.recorded_python(suite, self.project))
+        explicit = {**suite, "regression": {"python": sys.executable}}
+        self.assertEqual(sys.executable, test_environment.recorded_python(explicit, self.project))
+        for nothing in (None, {}, {"protected_tests": {"command": "python3 -m pytest"}}, {"regression": "x"}):
+            self.assertIsNone(test_environment.recorded_python(nothing, self.project))
+
     def test_workspace_relative_interpreter_is_based_on_the_project(self):
         python = self.project / "runtime/bin/python3"
         python.parent.mkdir(parents=True)

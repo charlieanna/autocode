@@ -580,7 +580,8 @@ def _on_the_change(state: RunState, workspace, run_dir, framework, command, labe
     own results (a scratch run reads a command it does not recognize by its exit code alone). None when
     the copy cannot be made."""
 
-    def scratch(workspace, folder, *, command, timeout, dependencies_from=None, ignored_inputs=None):
+    def scratch(workspace, folder, *, command, timeout, dependencies_from=None, ignored_inputs=None, python=None):
+        # ``command`` names its own interpreter; the run's recorded ``python`` changes nothing here.
         parameters = preparation.scratch_parameters(
             None, None, None, (), dependencies_from, None, False, ignored_inputs
         )

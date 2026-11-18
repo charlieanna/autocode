@@ -84,6 +84,28 @@ def python_for_test_command(project, command):
     return None
 
 
+def recorded_python(settings, project):
+    """The interpreter of the test suite a run recorded when it started, when that command names one.
+
+    ``python_for`` reads the process's PATH, which belongs to the process, not the run: a run started from a
+    terminal with the project's virtualenv on PATH and continued from an editor without it found the
+    system python3 and ran its proofs with another Python and other plugins. The suite the run recorded
+    (``settings.protected_tests.command``) names the interpreter it was found with, so every clean run of
+    the same run reads that one answer.
+    """
+    if not isinstance(settings, dict):
+        return None
+    # An interpreter the run was given explicitly wins, as it does in the regression proof.
+    explicit = (
+        (settings.get("regression") or {}).get("python") if isinstance(settings.get("regression"), dict) else None
+    )
+    if isinstance(explicit, str) and explicit and os.path.isfile(explicit) and os.access(explicit, os.X_OK):
+        return explicit
+    protected = settings.get("protected_tests")
+    command = protected.get("command") if isinstance(protected, dict) else None
+    return python_for_test_command(project, command) if isinstance(command, str) and command else None
+
+
 def _owned_private_dir(path: Path) -> bool:
     """True when path is a real directory owned by the current POSIX user with mode 0700."""
     try:

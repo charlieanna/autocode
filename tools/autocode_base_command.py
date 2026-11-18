@@ -29,9 +29,11 @@ def run(
     base_patch=None,
     dependencies_from=None,
     ignored_inputs=None,
+    python=None,
 ) -> dict:
     """``command``'s receipt from a clean copy of ``base``, naming that copy as ``tree`` so its output can
-    be compared with the candidate's (autocode_base_attribution.judge)."""
+    be compared with the candidate's (autocode_base_attribution.judge). ``command`` names its own
+    interpreter, so the run's recorded ``python`` changes nothing here."""
     workspace, run_dir = Path(workspace), Path(run_dir)
     tree = verify.make_tree(
         workspace,

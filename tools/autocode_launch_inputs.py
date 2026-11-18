@@ -32,6 +32,10 @@ try:
 except ImportError:
     import autocode_util as util
     import autocode_verify as verify
+try:
+    from . import autocode_test_environment as test_environment
+except ImportError:
+    import autocode_test_environment as test_environment
 
 STORE = "launch-sources"
 SHOWN = 10
@@ -603,15 +607,22 @@ def guard(state: RunState, workspace, run_dir):
 
 
 def runners(state: RunState, workspace, run_dir, scratch_run, execution_identity=None):
-    """Bind fresh launch-input policy to injected clean runners without a controller."""
+    """Bind fresh launch-input policy to injected clean runners without a controller.
+
+    Each clean run also gets the interpreter the run recorded with its suite (``recorded_python``), so a
+    proof finds tests with the Python the run started with, not whichever python3 this process's PATH
+    names. A runner given an explicit command runs that command as written.
+    """
     dependencies = state.get("project_workspace") or str(workspace)
+    recorded = test_environment.recorded_python(state.get("settings"), dependencies)
+    interpreter = {"python": recorded} if recorded else {}
 
     def current():
         return guard(state, workspace, run_dir)
 
     def run(*args, **kwargs):
         inputs = current()
-        receipt = scratch_run(*args, **kwargs, dependencies_from=dependencies, ignored_inputs=inputs)
+        receipt = scratch_run(*args, **interpreter, **kwargs, dependencies_from=dependencies, ignored_inputs=inputs)
         after = current()
         if (inputs.identity if inputs else None) != (after.identity if after else None):
             raise ValueError("Ignored launch inputs changed during clean execution")
