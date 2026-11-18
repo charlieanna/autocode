@@ -5,7 +5,7 @@
  * its own draft (keyed by tab key in the webview), status and errors.
  */
 import * as vscode from "vscode";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { RunController, type RunRef } from "./controller";
 import { requiresConfirmation } from "./core/next-command";
 import { chosenMode, type RunModes } from "./core/modes";
@@ -188,7 +188,9 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   resolveWebviewView(view: vscode.WebviewView): void {
     this.view = view;
     view.webview.options = { enableScripts: true, localResourceRoots: [] };
-    view.webview.onDidReceiveMessage((message: ChatMessage) => void this.receive(message));
+    view.webview.onDidReceiveMessage((message: ChatMessage) => {
+      if (this.view === view) void this.receive(message);
+    });
     view.onDidChangeVisibility(() => {
       if (!view.visible) return;
       this.ensureChatStages(this.active);
@@ -411,8 +413,10 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       if (!tab.stages) await this.loadChatStages(tab);
       const view = tab.stages;
       if (tab.run || !view?.chat || !view.chat.changeable) return;
+      const context = chatStagesFor(tab).context;
       const pick = await pickStageModel(view, chatRoute, (stage) => stage.chat ?? stage.configured ?? stage.chosen ?? stage.default, "for this chat");
-      if (pick && this.active === tab) await this.chatStage({ type: "chat_stage", stage: pick.stage.id, model: pick.model, effort: pick.effort });
+      if (pick && this.active === tab) await this.chatStage({ type: "chat_stage", runKey: tab.key, context,
+        stage: pick.stage.id, model: pick.model, effort: pick.effort });
       return;
     }
     const run = tab.run;
@@ -514,7 +518,8 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   /** The person's pick of where this chat works, from the list it shows; checked again at the start. */
   private choosePlace(message: ChatMessage): void {
     const tab = this.active;
-    if (tab.run || tab.starting || !tab.places) return;
+    if (message.runKey !== tab.key || message.context !== chatPlaceFor(tab).context
+      || tab.run || tab.starting || !tab.places) return;
     const place = tab.places.places.find((row) => row.id === message.place);
     if (!place) return;
     const branch = typeof message.branch === "string" && message.branch ? message.branch : undefined;
@@ -619,7 +624,8 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   private async chatStage(message: ChatMessage): Promise<void> {
     const tab = this.active;
     const stage = tab.stages?.stages.find((row) => row.id === message.stage);
-    if (tab.run || tab.starting || tab.stagesBusy || !stage) return;
+    if (message.runKey !== tab.key || message.context !== chatStagesFor(tab).context
+      || tab.run || tab.starting || tab.stagesBusy || !stage) return;
     let command: string[] | null;
     try {
       command = message.type === "chat_stage_reset" ? stage.chatReset
@@ -1259,6 +1265,11 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
 
 function runKey(run: RunRef): string { return `${run.workspace}\n${run.runDir}`; }
 
+/** Bind a setup control to its chat, CLI/backend and the exact public choices it showed. */
+function setupContext(tab: ChatTab, choices: unknown): string {
+  return createHash("sha256").update(JSON.stringify([tab.key, newChatCall().key, choices])).digest("hex");
+}
+
 /** Where a new chat in `cwd` (or the window's folder) may work, as the core lists it. */
 async function readPlaces(cwd?: string): Promise<WorktreeList> {
   const settings = readSettings();
@@ -1274,7 +1285,8 @@ async function readPlaces(cwd?: string): Promise<WorktreeList> {
 /** What the webview shows for a chat that has not started: the places, the pick, and its warning. */
 function chatPlaceFor(tab: ChatTab) {
   const list = tab.places;
-  if (!list) return { places: [], error: tab.placesMissing ? "This AutoCode cannot say where a chat works; it works in your folder. Update AutoCode."
+  const context = setupContext(tab, list);
+  if (!list) return { context, places: [], error: tab.placesMissing ? "This AutoCode cannot say where a chat works; it works in your folder. Update AutoCode."
     : tab.placesError ? `Where this chat works could not be read: ${tab.placesError}` : "", chosen: null, branch: null, warning: null, folder: "" };
   const chosen = tab.placeChoice?.place ?? list.defaultPlace;
   const place = list.places.find((row) => row.id === chosen);
@@ -1283,6 +1295,7 @@ function chatPlaceFor(tab: ChatTab) {
   const wanted = tab.placeChoice?.branch ?? null;
   const branch = wanted && place?.branches.some((row) => row.name === wanted) ? wanted : null;
   return {
+    context,
     folder: list.folder,
     error: "",
     chosen,
@@ -1321,6 +1334,7 @@ function sameWords(a: string[], b: string[]): boolean {
 function chatStagesFor(tab: ChatTab) {
   const view = tab.stages;
   return {
+    context: setupContext(tab, [tab.stagesKey, view]),
     busy: tab.stagesBusy,
     error: tab.stagesError,
     label: view?.label ?? "",

@@ -2667,7 +2667,10 @@ test('a new chat shows the stages it will run and changes one for itself alone b
   assert.equal(builder.value, 'haiku');
   assert.equal(builder.querySelector('option[value="opus"]').disabled, true, 'a model a checker runs is not offered');
   builder.value = 'sonnet'; builder.dispatchEvent(new ui.window.Event('change')); await flush(); await flush();
-  assert.deepEqual(JSON.parse(JSON.stringify(ui.sent.at(-1))), { type: 'chat_stage', stage: 'builder', model: 'sonnet', effort: 'medium' },
+  const { runKey: addressedChat, context, ...action } = JSON.parse(JSON.stringify(ui.sent.at(-1)));
+  assert.equal(addressedChat, ui.chat.activeKey);
+  assert.match(context, /^[a-f0-9]{64}$/);
+  assert.deepEqual(action, { type: 'chat_stage', stage: 'builder', model: 'sonnet', effort: 'medium' },
     'the webview names a pick, never a command');
   assert.deepEqual(calls.at(-1), ['stages', 'list', '--json', '--backend', 'claude', '--chat-stage', 'builder', 'sonnet', 'medium']);
   assert.ok(calls.every((argv) => argv[1] === 'list'), 'nothing is saved to Stage models');
@@ -2971,7 +2974,10 @@ test('a new chat works on a new branch of its own unless the person picks a bran
   const start = t.mock.method(controller, 'start', async (workspace, brief, created) => { created(run); return new Promise(() => {}); });
   const select = section.querySelector('select.branch');
   select.value = 'feature'; select.dispatchEvent(new ui.window.Event('change')); await flush();
-  assert.deepEqual(JSON.parse(JSON.stringify(ui.sent.at(-1))), { type: 'chat_place', place: 'branch', branch: 'feature' },
+  const { runKey: addressedChat, context, ...action } = JSON.parse(JSON.stringify(ui.sent.at(-1)));
+  assert.equal(addressedChat, ui.chat.activeKey);
+  assert.match(context, /^[a-f0-9]{64}$/);
+  assert.deepEqual(action, { type: 'chat_place', place: 'branch', branch: 'feature' },
     'the webview names a place, never a flag');
   assert.equal(ui.document.querySelector('#chat-place-summary').textContent, 'branch feature');
   ui.type('Build it'); ui.submit(); await flush(); await flush(); await flush();
@@ -3196,6 +3202,111 @@ test('a new chat keeps a model pick in its row, marked as being checked, until t
   assert.ok(!row().classList.contains('checking'));
   assert.equal(row().querySelector('select.model').disabled, false, 'the box answers again');
   assert.equal(ui.document.getElementById('models-name').textContent, 'Models · 1 changed');
+});
+
+for (const succeeds of [true, false]) test(`new-chat model controls keep keyboard focus after a ${succeeds ? 'successful' : 'rejected'} check`, async (t) => {
+  host.config.set('extraOptions', ['--engine', 'claude']);
+  let finish;
+  const ui = await openChat(t, null, false, { stages: (argv) => argv.includes('--chat-stage')
+    ? new Promise((resolve) => { finish = () => resolve(succeeds ? chatStageView(argv)
+      : { ...ok, code: 2, stderr: 'the Tester runs sonnet' }); }) : chatStageView(argv) });
+  const field = () => ui.document.querySelector('#chat-models [data-stage="builder"] select.model');
+  field().focus(); field().value = 'sonnet'; field().dispatchEvent(new ui.window.Event('change'));
+  await flush(); await flush();
+  assert.equal(typeof finish, 'function');
+  finish(); await flush(); await flush();
+  assert.equal(ui.document.activeElement, field(), 'checking and replacing a row must not drop keyboard focus');
+});
+
+test('new-chat placement controls keep keyboard focus when the selected branch is rendered', async (t) => {
+  const ui = await openChat(t, null, false, { worktrees: worktreeList });
+  const field = () => ui.document.querySelector('#chat-place select.branch');
+  field().focus(); field().value = 'feature'; field().dispatchEvent(new ui.window.Event('change'));
+  await flush();
+  assert.equal(ui.document.activeElement, field(), 'the branch choice must remain reachable by keyboard');
+});
+
+for (const control of ['model', 'place']) test(`a delayed new-chat ${control} control cannot change a different chat`, async (t) => {
+  host.config.set('extraOptions', ['--engine', 'claude']);
+  const calls = [];
+  const ui = await openChat(t, null, false, { stages: (argv) => { calls.push(argv); return chatStageView(argv); }, worktrees: worktreeList });
+  const original = ui.chat.receive.bind(ui.chat);
+  const held = [];
+  ui.chat.receive = async (message) => {
+    if (message.type === 'chat_stage' || message.type === 'chat_place') { held.push(message); return; }
+    return original(message);
+  };
+  const field = ui.document.querySelector(control === 'model' ? '#chat-models [data-stage="builder"] select.model' : '#chat-place select.branch');
+  field.value = control === 'model' ? 'sonnet' : 'feature'; field.dispatchEvent(new ui.window.Event('change'));
+  assert.equal(held.length, 1);
+  ui.chat.show(); await flush(); await flush();
+  const before = calls.length;
+  await original(held[0]); await flush(); await flush();
+  assert.equal(calls.length, before, 'an obsolete control never starts a model-list request');
+  assert.equal(ui.document.querySelector('#chat-models [data-stage="builder"] select.model').value, 'haiku');
+  assert.equal(ui.document.querySelector('#chat-place input[value="new_branch"]').checked, true);
+});
+
+test('a completed model check does not reclaim focus after the reader moves to the composer', async (t) => {
+  host.config.set('extraOptions', ['--engine', 'claude']);
+  let finish;
+  const ui = await openChat(t, null, false, { stages: (argv) => argv.includes('--chat-stage')
+    ? new Promise((resolve) => { finish = () => resolve(chatStageView(argv)); }) : chatStageView(argv) });
+  const field = ui.document.querySelector('#chat-models [data-stage="builder"] select.model');
+  field.focus(); field.value = 'sonnet'; field.dispatchEvent(new ui.window.Event('change'));
+  await flush();
+  ui.document.getElementById('message').focus();
+  finish(); await flush(); await flush();
+  assert.equal(ui.document.activeElement, ui.document.getElementById('message'));
+});
+
+test('a delayed model choice is rejected after the offered choices change in the same chat', async (t) => {
+  host.config.set('extraOptions', ['--engine', 'claude']);
+  const calls = [];
+  let reply = chatStageView;
+  const ui = await openChat(t, null, false, { stages: (argv) => { calls.push(argv); return reply(argv); } });
+  const original = ui.chat.receive.bind(ui.chat);
+  let held;
+  ui.chat.receive = async (message) => message.type === 'chat_stage' ? (held = message) : original(message);
+  const field = ui.document.querySelector('#chat-models [data-stage="builder"] select.model');
+  field.value = 'sonnet'; field.dispatchEvent(new ui.window.Event('change'));
+  // A shared settings update changes what this chat would run before the queued event arrives.
+  reply = (argv) => { const result = chatStageView(argv); const body = JSON.parse(result.stdout);
+    body.stages[0].chosen = { model: 'sonnet', effort: 'high' }; return { ...result, stdout: JSON.stringify(body) }; };
+  ui.chat.stageLists.put(ui.chat.active.sharedStages, reply([]).stdout); await flush();
+  const before = calls.length;
+  await original(held); await flush();
+  assert.equal(calls.length, before);
+  assert.equal(ui.document.querySelector('#chat-models [data-stage="builder"] select.level').value, 'high');
+});
+
+test('a delayed model choice is rejected after the backend changes, even with identical options', async (t) => {
+  host.config.set('extraOptions', ['--engine', 'claude']);
+  const calls = [];
+  const ui = await openChat(t, null, false, { stages: (argv) => { calls.push(argv); return chatStageView(argv); } });
+  const original = ui.chat.receive.bind(ui.chat);
+  let held;
+  ui.chat.receive = async (message) => message.type === 'chat_stage' ? (held = message) : original(message);
+  const field = ui.document.querySelector('#chat-models [data-stage="builder"] select.model');
+  field.value = 'sonnet'; field.dispatchEvent(new ui.window.Event('change'));
+  await host.vscode.workspace.getConfiguration('autocode').update('extraOptions', ['--engine', 'codex']);
+  await flush(); await flush();
+  const before = calls.length;
+  await original(held); await flush();
+  assert.equal(calls.length, before);
+  assert.equal(ui.document.querySelector('#chat-models [data-stage="builder"] select.model').value, 'haiku');
+});
+
+test('controls from a replaced chat webview cannot change its models', async (t) => {
+  host.config.set('extraOptions', ['--engine', 'claude']);
+  const calls = [];
+  const ui = await openChat(t, null, false, { stages: (argv) => { calls.push(argv); return chatStageView(argv); } });
+  const field = ui.document.querySelector('#chat-models [data-stage="builder"] select.model');
+  ui.chat.resolveWebviewView({ visible: true,
+    webview: { onDidReceiveMessage() {}, postMessage: async () => true }, onDidChangeVisibility() {}, onDidDispose() {} });
+  const before = calls.length;
+  field.value = 'sonnet'; field.dispatchEvent(new ui.window.Event('change')); await flush();
+  assert.equal(calls.length, before);
 });
 
 test('a new chat whose pick the core refuses goes back to what it runs and says why', async (t) => {

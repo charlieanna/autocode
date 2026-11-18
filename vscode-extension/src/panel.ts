@@ -2611,11 +2611,33 @@ function renderChat(data) {
  * and branch is preselected; the folder itself shows the core's warning, which the person confirms again
  * at the start. Only a place's id (and a listed branch) goes back; the core's own start flags are used.
  */
+// A check temporarily disables and replaces setup controls. Remember the focused control
+// until it returns, but never reclaim focus after the reader moves to another field or chat.
+let setupFocus = null;
+document.addEventListener('focusin', (event) => {
+  if (setupFocus && event.target !== document.body && !document.getElementById(setupFocus.host).contains(event.target)) setupFocus = null;
+});
+function keepSetupFocus(host, runKey) {
+  const sameChat = host.dataset.focusRun === runKey;
+  host.dataset.focusRun = runKey;
+  if (setupFocus && setupFocus.runKey !== runKey) setupFocus = null;
+  const focused = document.activeElement;
+  if (sameChat && host.contains(focused) && focused.dataset.setupFocus) setupFocus = { host: host.id, runKey, key: focused.dataset.setupFocus };
+  return () => {
+    if (!setupFocus || setupFocus.host !== host.id) return;
+    if (host.hidden) { setupFocus = null; return; }
+    const target = [...host.querySelectorAll('[data-setup-focus]')].find((node) => node.dataset.setupFocus === setupFocus.key);
+    if (!target) { setupFocus = null; return; }
+    if (target && !target.disabled) { target.focus({ preventScroll: true }); setupFocus = null; }
+  };
+}
+
 function renderChatPlace(data) {
   const host = document.getElementById('chat-place');
+  const restoreFocus = keepSetupFocus(host, data.runKey);
   const info = data.chatPlace;
   host.hidden = !info || data.busy || Boolean(data.selectedRun) || (!info.places.length && !info.error);
-  if (host.hidden) { host.dataset.content = ''; return; }
+  if (host.hidden) { host.dataset.content = ''; restoreFocus(); return; }
   const key = JSON.stringify(info);
   if (host.dataset.content === key) return;
   host.dataset.content = key;
@@ -2625,22 +2647,25 @@ function renderChatPlace(data) {
   const branchName = chosen && chosen.id === 'branch' ? info.branch : null;
   document.getElementById('chat-place-summary').textContent = info.error ? 'your folder'
     : chosen ? (branchName ? 'branch ' + branchName : chosen.id === 'branch' ? 'pick a branch' : chosen.label) : '';
-  if (info.error) { body.appendChild(el('div', 'chat-place-note', info.error)); return; }
+  if (info.error) { body.appendChild(el('div', 'chat-place-note', info.error)); restoreFocus(); return; }
   const group = 'chat-place-' + Math.random().toString(16).slice(2);
   info.places.forEach((place) => {
     const row = el('label', 'chat-place-option');
     row.dataset.place = place.id;
     const radio = el('input');
+    radio.dataset.setupFocus = 'place:' + place.id;
     radio.type = 'radio'; radio.name = group; radio.value = place.id; radio.checked = place.id === info.chosen;
     radio.addEventListener('change', () => {
       const first = place.branches.find((branch) => !branch.unavailable);
-      vscode.postMessage({ type: 'chat_place', place: place.id, branch: place.id === 'branch' ? (info.branch || (first && first.name) || '') : '' });
+      vscode.postMessage({ type: 'chat_place', runKey: data.runKey, context: info.context,
+        place: place.id, branch: place.id === 'branch' ? (info.branch || (first && first.name) || '') : '' });
     });
     row.appendChild(radio);
     row.appendChild(el('span', 'label', place.label));
     row.appendChild(el('span', 'does', place.does));
     if (place.id === 'branch') {
       const select = el('select', 'branch');
+      select.dataset.setupFocus = 'branch';
       select.setAttribute('aria-label', 'Branch this chat works on');
       const prompt = el('option', null, place.branches.length ? 'Pick a branch' : 'No other local branch');
       prompt.value = ''; prompt.disabled = true; prompt.selected = !branchName;
@@ -2650,7 +2675,7 @@ function renderChatPlace(data) {
         item.value = branch.name; item.disabled = Boolean(branch.unavailable); item.selected = branch.name === branchName;
         select.appendChild(item);
       });
-      select.addEventListener('change', () => vscode.postMessage({ type: 'chat_place', place: 'branch', branch: select.value }));
+      select.addEventListener('change', () => vscode.postMessage({ type: 'chat_place', runKey: data.runKey, context: info.context, place: 'branch', branch: select.value }));
       row.appendChild(select);
     }
     body.appendChild(row);
@@ -2660,6 +2685,7 @@ function renderChatPlace(data) {
     warning.setAttribute('role', 'note');
     body.appendChild(warning);
   }
+  restoreFocus();
 }
 
 /**
@@ -2669,9 +2695,10 @@ function renderChatPlace(data) {
  */
 function renderChatModels(data) {
   const host = document.getElementById('chat-models');
+  const restoreFocus = keepSetupFocus(host, data.runKey);
   const info = data.chatStages;
   host.hidden = !info || data.busy || Boolean(data.selectedRun) || (!info.stages.length && !info.error && !info.busy);
-  if (host.hidden) { host.dataset.content = ''; return; }
+  if (host.hidden) { host.dataset.content = ''; restoreFocus(); return; }
   const key = JSON.stringify(info);
   if (host.dataset.content === key) return;
   host.dataset.content = key;
@@ -2705,6 +2732,7 @@ function renderChatModels(data) {
       const pick = el('div', 'pick');
       const models = el('select', 'model'); models.setAttribute('aria-label', stage.label + ' model for this chat');
       const levels = el('select', 'level'); levels.setAttribute('aria-label', stage.label + ' reasoning level for this chat');
+      models.dataset.setupFocus = stage.id + ':model'; levels.dataset.setupFocus = stage.id + ':level';
       if (!stage.model) {
         const automatic = el('option', null, 'Chosen when the chat starts'); automatic.value = ''; automatic.disabled = true; automatic.selected = true;
         models.appendChild(automatic);
@@ -2728,7 +2756,8 @@ function renderChatModels(data) {
         });
       };
       fill(stage.effort || 'default');
-      const send = () => { if (models.value && levels.value) vscode.postMessage({ type: 'chat_stage', stage: stage.id, model: models.value, effort: levels.value }); };
+      const send = () => { if (models.value && levels.value) vscode.postMessage({ type: 'chat_stage', runKey: data.runKey, context: info.context,
+        stage: stage.id, model: models.value, effort: levels.value }); };
       models.addEventListener('change', () => { fill(levels.value || stage.effort); send(); });
       levels.addEventListener('change', send);
       models.disabled = levels.disabled = info.busy;
@@ -2738,11 +2767,12 @@ function renderChatModels(data) {
     if (stage.resettable) {
       const reset = el('button', 'link', stage.resetLabel || 'Use Stage models');
       reset.type = 'button'; reset.disabled = info.busy;
-      reset.addEventListener('click', () => vscode.postMessage({ type: 'chat_stage_reset', stage: stage.id }));
+      reset.addEventListener('click', () => vscode.postMessage({ type: 'chat_stage_reset', runKey: data.runKey, context: info.context, stage: stage.id }));
       row.appendChild(reset);
     }
     body.appendChild(row);
   });
+  restoreFocus();
 }
 
 /** A reader scrolled up keeps their place; the Latest button names the step running now (#1711). */
