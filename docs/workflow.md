@@ -710,6 +710,18 @@ import on base is not a reproduction. Without per-test results exit codes decide
 When nothing can be proven (for example no test command is found), the proof is
 `UNVERIFIED` and the bug fix cannot complete until a command is supplied.
 
+When the Resolver finds that the saved test or regression command itself cannot
+prove the change (it marks its blocker `correction="verification_commands"`; the
+mark never carries a command), AutoCode settles it without asking anyone. Once
+per run, it drops the saved explicit `--test-command`, `--regression-command` and
+`--test-report`, records the change and its reason as an `autocode`
+`verification_commands_changed` event, and sends the run through the Tester, whose
+proof then uses the commands AutoCode selects itself, before any acceptance. When
+there is no explicit command to drop, the commands were already replaced once, or a
+report repair still holds the old command's evidence, the run ends with a recorded
+`could_not_finish` outcome naming that cause. A checkpoint saved at such a blocker
+shows `continue`, and its next resume settles it the same way.
+
 For a feature with several milestones and named test criteria, a saved literal
 pytest or verbose unittest file/module list includes the run's cumulative new
 or changed Python test files at each proof. Earlier selectors, the interpreter,

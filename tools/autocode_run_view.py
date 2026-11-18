@@ -103,6 +103,7 @@ try:
     from . import autocode_trace_coverage as trace_coverage
     from . import autocode_transport_recovery as transport_recovery
     from . import autocode_validation_exhaustion_recovery as validation_recovery
+    from . import autocode_verification_config as verification_config
     from . import autocode_verification_view as verification_view
     from . import autocode_workflows as workflows
     from . import autocode_worktree_choice as worktree_choice
@@ -176,6 +177,7 @@ except ImportError:
     import autocode_transport_recovery as transport_recovery
     import autocode_usage
     import autocode_validation_exhaustion_recovery as validation_recovery
+    import autocode_verification_config as verification_config
     import autocode_verification_view as verification_view
     import autocode_workflows as workflows
     import autocode_worktree_choice as worktree_choice
@@ -319,6 +321,8 @@ def view(
     stop_reason = (
         recovery_exhaustion.NOTICE
         if recovery_exhaustion.pending(state)
+        else verification_config.NOTICE
+        if verification_config.pending(state)
         else classification_recovery.NOTICE
         if classification_recovery.pending(state)
         else validation_recovery.notice(state)
@@ -1294,6 +1298,10 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
         # A spent automatic recovery allowance is AutoCode's to close, not a grant for a person:
         # the next resume records the run's outcome (autocode_recovery_exhaustion.settle).
         return {"kind": "continue", "action": "--resume-paused"}
+    if verification_config.pending(state):
+        # The Resolver's verification-command correction is AutoCode's to settle, not a command for a
+        # person to type: the next resume drops the explicit commands or records the run's end.
+        return {"kind": "continue", "action": "--resume-paused"}
     if retired := workflows.retired_stage(state):
         # Saved at a stage this runtime no longer runs (owner decision 2026-11-10): nothing resumes it.
         return {
@@ -1498,26 +1506,13 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
         if route:
             answer["route"] = _route(route)
         elif answer.get("resolver_scope") in ("blocker", "operational_exhaustion"):
-            # A blocker the Resolver explicitly marked as a verification-command correction settles
-            # through configure_resume (#2973): the saved commands change, the blocker is retired and
-            # the Tester reruns. Any other blocker keeps the Resolver response.
-            try:
-                from . import autocode_verification_config as verification_config
-            except ImportError:
-                import autocode_verification_config as verification_config
-
-            if verification_config.command_correction(state):
-                answer["action"] = "--resume-paused --test-command COMMAND --regression-command COMMAND"
-                answer["correction"] = "verification_commands"
-            else:
-                # Not a requirements question: the CLI refuses --answer here and takes the
-                # operational response (#675). The route question above is the one exception.
-                answer["action"] = recovery_limits.RESPONSE_COMMAND
-                # A recovery novelty hold also admits one explicit scoped retry after inspection (#1012).
-                if answer.get("pause_origin") == "PAUSED_NO_PROGRESS" and (
-                    retry := recovery_limits.scoped_retry(state)
-                ):
-                    answer["retry_action"] = retry
+            # Not a requirements question: the CLI refuses --answer here and takes the
+            # operational response (#675). The route question above is the one exception.
+            # A verification-command correction never reaches here: AutoCode settles it (pending above).
+            answer["action"] = recovery_limits.RESPONSE_COMMAND
+            # A recovery novelty hold also admits one explicit scoped retry after inspection (#1012).
+            if answer.get("pause_origin") == "PAUSED_NO_PROGRESS" and (retry := recovery_limits.scoped_retry(state)):
+                answer["retry_action"] = retry
         return _person_facing(answer)
     if status == "AWAITING_GOAL_APPROVAL":
         # The approval token is saved when the CLI displays the plan; until then, relaunch to display it.
