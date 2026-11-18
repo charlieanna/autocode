@@ -18,10 +18,12 @@ from pathlib import Path
 
 try:
     from . import autocode_folder_adoption as folder_adoption
+    from . import autocode_git_location as git_location
     from . import autocode_scratch_projects as scratch_projects
     from . import autocode_util as util
 except ImportError:
     import autocode_folder_adoption as folder_adoption
+    import autocode_git_location as git_location
     import autocode_scratch_projects as scratch_projects
     import autocode_util as util
 
@@ -285,16 +287,9 @@ def bootstrap(selected, *, in_place: bool = False):
     selected = Path(selected).resolve()
     if not selected.is_dir():
         raise ValueError(f"workspace does not exist: {selected}")
-    inside = subprocess.run(
-        ["git", "-C", str(selected), "rev-parse", "--show-toplevel"],
-        capture_output=True,
-        text=True,
-        env=util.git_environment(),
-    )
-    if inside.returncode == 0:
-        raise ValueError(
-            f"workspace is inside the Git repository {inside.stdout.strip()}; select that repository root instead"
-        )
+    inside = git_location.root(selected)
+    if inside is not None:
+        raise ValueError(f"workspace is inside the Git repository {inside}; select that repository root instead")
     populated = any(entry.name != ".DS_Store" for entry in selected.iterdir())
     adopted = populated and in_place and folder_adoption.in_place(selected)
     if populated and not adopted:

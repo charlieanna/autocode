@@ -835,8 +835,9 @@ const METER_STYLES = `
   .chat-toolbar button.icon { flex: none; }
   #run-cost { flex: 1 1 auto; align-self: center; font-size: .75rem; opacity: .85; white-space: nowrap;
               overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-  #chat-models { flex-shrink: 0; margin: 0 6px 6px; border: 1px solid var(--vscode-panel-border); border-radius: 6px;
-                 padding: 4px 8px; font-size: .75rem; max-height: 40vh; overflow-y: auto; }
+  #chat-setup { flex: 0 1 auto; min-height: 0; max-height: 50vh; overflow-y: auto; }
+  #chat-models { margin: 0 6px 6px; border: 1px solid var(--vscode-panel-border); border-radius: 6px;
+                 padding: 4px 8px; font-size: .75rem; }
   #chat-models[hidden] { display: none; }
   #chat-models summary { cursor: pointer; }
   .chat-model { padding: 3px 0; border-top: 1px solid var(--vscode-panel-border); }
@@ -851,7 +852,7 @@ const METER_STYLES = `
                        color: var(--vscode-dropdown-foreground); border: 1px solid var(--vscode-dropdown-border); font-size: .72rem; }
   .chat-model select.level { flex: 0 0 auto; width: auto; }
   #chat-models .chat-models-error { color: var(--vscode-errorForeground); margin: 2px 0; }
-  #chat-place { flex-shrink: 0; margin: 0 6px 6px; border: 1px solid var(--vscode-panel-border); border-radius: 6px;
+  #chat-place { margin: 0 6px 6px; border: 1px solid var(--vscode-panel-border); border-radius: 6px;
                 padding: 4px 8px; font-size: .75rem; }
   #chat-place[hidden] { display: none; }
   #chat-place summary { cursor: pointer; }
@@ -1082,8 +1083,10 @@ export function panelHtml(chat = false): string {
 ${chat ? `<nav class="chat-toolbar" aria-label="AutoCode chat tools"><span id="run-cost" role="status" aria-label="Run cost"></span>${iconButton("connections", "Connections", ICONS.plug)}${iconButton("history", "History", ICONS.clock)}${iconButton("details", "Run details", ICONS.panel, true)}${iconButton("new-chat", "New chat", ICONS.plus)}</nav><div id="chat-tabs" role="tablist" aria-label="Open chats"></div><section id="run-header" aria-label="Run overview" hidden><div id="header-now"><span id="header-label"></span><span id="header-sentence"></span><span id="header-model"></span><span id="header-brief"></span><button type="button" id="header-collapse" class="fold" aria-expanded="true" aria-controls="header-body" title="Collapse the run overview" aria-label="Collapse the run overview">${ICONS.chevron}</button></div><div id="header-body"><table id="pipeline" aria-label="Stages"><thead><tr><th scope="col"><span class="sr-only">State</span></th><th scope="col" class="name">Stage</th><th scope="col" class="model">Model</th><th scope="col" class="num">Time</th><th scope="col" class="num tokens">Tokens</th><th scope="col" class="num">Cost</th></tr></thead><tbody></tbody><tfoot></tfoot></table><div id="header-stage"></div><div id="header-place"></div><div id="header-facts"></div><div id="header-links"><button type="button" id="header-toggle" class="link" aria-expanded="false" aria-controls="header-details">Show details</button><button type="button" id="change-stage-models" class="link" hidden>Change this chat's models</button></div><div id="header-details" hidden></div></div></section><div id="thread" tabindex="0" aria-label="Conversation"><div id="thread-content"><div id="messages" role="log" aria-label="Messages"></div>` : ""}
 <div id="app" class="muted">${chat ? "Describe what you want to build, fix, review, or discuss." : "Loading…"}</div>
 ${chat ? `</div></div><button id="latest" type="button" hidden>↓ Latest messages</button>
+<div id="chat-setup">
 <details id="chat-place" aria-label="Where this chat works" hidden><summary><span class="stages-title">Where this chat works</span> <span id="chat-place-summary"></span></summary><div id="chat-place-body"></div></details>
 <details id="chat-models" aria-label="This chat's models" open hidden><summary><span class="stages-title">This chat's models</span> <span id="chat-models-summary"></span></summary><div id="chat-models-body"></div></details>
+</div>
 <form id="composer">
 <label for="message" id="send-hint">Message AutoCode</label>
 <textarea id="message" aria-label="Message AutoCode" aria-describedby="keyboard-hint" placeholder="Ask AutoCode to work on this project…"></textarea>
@@ -2632,11 +2635,15 @@ function keepSetupFocus(host, runKey) {
   host.dataset.focusRun = runKey;
   if (setupFocus && setupFocus.runKey !== runKey) setupFocus = null;
   const focused = document.activeElement;
-  if (sameChat && host.contains(focused) && focused.dataset.setupFocus) setupFocus = { host: host.id, runKey, key: focused.dataset.setupFocus };
+  if (sameChat && host.contains(focused) && focused.dataset.setupFocus) setupFocus = {
+    host: host.id, runKey, key: focused.dataset.setupFocus, fallback: focused.dataset.setupFallback,
+  };
   return () => {
     if (!setupFocus || setupFocus.host !== host.id) return;
     if (host.hidden) { setupFocus = null; return; }
-    const target = [...host.querySelectorAll('[data-setup-focus]')].find((node) => node.dataset.setupFocus === setupFocus.key);
+    const controls = [...host.querySelectorAll('[data-setup-focus]')];
+    const target = controls.find((node) => node.dataset.setupFocus === setupFocus.key)
+      || controls.find((node) => node.dataset.setupFocus === setupFocus.fallback);
     if (!target) { setupFocus = null; return; }
     if (target && !target.disabled) { target.focus({ preventScroll: true }); setupFocus = null; }
   };
@@ -2655,9 +2662,13 @@ function renderChatPlace(data) {
   body.textContent = '';
   const chosen = info.places.find((place) => place.id === info.chosen);
   const branchName = chosen && chosen.id === 'branch' ? info.branch : null;
-  document.getElementById('chat-place-summary').textContent = info.error ? 'your folder'
+  document.getElementById('chat-place-summary').textContent = info.error ? 'Unavailable'
     : chosen ? (branchName ? 'branch ' + branchName : chosen.id === 'branch' ? 'pick a branch' : chosen.label) : '';
-  if (info.error) { body.appendChild(el('div', 'chat-place-note', info.error)); restoreFocus(); return; }
+  if (info.error) {
+    host.open = true;
+    const note = el('div', 'chat-place-note', info.error); note.setAttribute('role', 'alert');
+    body.appendChild(note); restoreFocus(); return;
+  }
   const group = 'chat-place-' + Math.random().toString(16).slice(2);
   info.places.forEach((place) => {
     const row = el('label', 'chat-place-option');
@@ -2777,6 +2788,7 @@ function renderChatModels(data) {
     if (stage.resettable) {
       const reset = el('button', 'link', stage.resetLabel || 'Use Stage models');
       reset.type = 'button'; reset.disabled = info.busy;
+      reset.dataset.setupFocus = stage.id + ':reset'; reset.dataset.setupFallback = stage.id + ':model';
       reset.addEventListener('click', () => vscode.postMessage({ type: 'chat_stage_reset', runKey: data.runKey, context: info.context, stage: stage.id }));
       row.appendChild(reset);
     }
