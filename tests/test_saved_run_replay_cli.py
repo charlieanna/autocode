@@ -340,6 +340,13 @@ class SavedRunReplayCliTest(unittest.TestCase):
         self.assertEqual("RESOLVER_PENDING", status_view["status"])
         self.assertEqual("continue", status_view["needs"]["kind"])
         self.assertIsNone(status_view["chat"]["input"])
+        status_view = task.advance_until_input()
+        self.assertEqual("WAITING_FOR_USER", status_view["status"])
+        self.assertEqual(
+            [(q["id"], q["question"]) for q in questions],
+            [(q["id"], q["question"]) for q in status_view["needs"]["questions"]],
+        )
+        self.assertEqual(1, status_view["usage"]["accounting"]["attempt_count"], "Refresh cannot replay Requirements")
 
         exported = subprocess.run(
             [*command, "replay", str(task.run_dir), "--export", str(self.root / "triage-recording"), "--json"],
@@ -386,7 +393,7 @@ class SavedRunReplayCliTest(unittest.TestCase):
                 self.assertEqual(0, replayed.returncode, replayed.stderr)
                 replayed_view = json.loads(replayed.stdout)["view"]
                 self.assertEqual("WAITING_FOR_USER", replayed_view["status"])
-                self.assertEqual(questions, replayed_view["needs"]["questions"])
+                self.assertEqual(status_view["needs"]["questions"], replayed_view["needs"]["questions"])
                 self.assertEqual(1, replayed_view["replay_progress"]["consumed"])
                 self.assertEqual("end", replayed_view["replay_progress"]["next_dispatch"])
                 self.assertFalse(marker.exists(), "offline replay invoked a live provider")

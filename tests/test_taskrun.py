@@ -1735,6 +1735,46 @@ class TaskRunTimeoutDetailTests(unittest.TestCase):
 
 
 class TaskRunClientTests(unittest.TestCase):
+    def test_plain_named_continuation_keeps_start_only_options_out_of_the_refresh(self):
+        run = taskrun.TaskRun(
+            Path("/work/repo"), Path("/work/repo/.autocode/runs/one"), options=("--single-model", "selected")
+        )
+        refreshing = {
+            "status": "RESOLVER_PENDING",
+            "next_stage": "requirements_gather",
+            "iteration": 1,
+            "phase": "DISCOVERING",
+            "done": False,
+            "needs": {"kind": "continue"},
+            "next_command": "autocode --run-dir /work/repo/.autocode/runs/one --workspace /work/repo --no-chat",
+        }
+        question = {**refreshing, "status": "WAITING_FOR_USER", "needs": {"kind": "answer"}}
+        with patch.object(run, "status", side_effect=[refreshing, question]), patch.object(run, "_invoke") as invoke:
+            self.assertIs(question, run.advance_until_input())
+        invoke.assert_called_once_with("advance", "--no-chat", advancing=True, secret_env={})
+
+    def test_plain_continuation_rejects_a_foreign_named_command(self):
+        from autocode_client_actions import ClientGap
+
+        run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
+        view = {
+            "done": False,
+            "needs": {"kind": "continue"},
+            "next_command": "autocode --run-dir /other/run --workspace /other --no-chat",
+            "status": "RESOLVER_PENDING",
+            "next_stage": "requirements_gather",
+            "iteration": 1,
+            "phase": "DISCOVERING",
+        }
+        with patch.object(run, "status", return_value=view), patch.object(run, "_invoke") as invoke:
+            try:
+                run.advance_until_input()
+            except Exception as error:
+                self.assertIsInstance(error, ClientGap)
+            else:
+                self.fail("A foreign named continuation cannot fall back to an invented command")
+        invoke.assert_not_called()
+
     def test_cross_model_answer_uses_the_current_derived_route_without_a_resolver_token(self):
         run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
         need = {

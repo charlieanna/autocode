@@ -128,7 +128,7 @@ class ChatCliTests(unittest.TestCase):
         self.assertFalse((self.workspace / "greet.py").exists())
 
     @unittest.skipUnless(sys.platform == "linux", "The supervised source-read fault observes its Linux parent")
-    def test_verification_git_refusal_is_source_recovery_without_repeating_the_builder(self):
+    def test_transient_source_probe_keeps_verification_and_the_approved_contract(self):
         self.verification_source_refusal("autocode.py")
 
     @unittest.skipUnless(sys.platform == "linux", "The supervised source-read fault observes its Linux parent")
@@ -142,14 +142,15 @@ class ChatCliTests(unittest.TestCase):
         wrapper = bindir / "git"
         wrapper.write_text(
             f"#!{sys.executable}\n"
-            "import os, re, sys\nfrom pathlib import Path\n"
+            "import json, os, re, sys\nfrom pathlib import Path\n"
             f"workspace = Path({str(self.workspace)!r})\nmarker = Path({str(marker)!r})\n"
-            "parent = Path('/proc/' + str(os.getppid()) + '/cmdline').read_bytes().split(b'\\0')\n"
-            f"target = any(Path(os.fsdecode(p)).name == {parent_name!r} for p in parent if p)\n"
+            "parent = [os.fsdecode(p) for p in Path('/proc/' + str(os.getppid()) + '/cmdline').read_bytes().split(b'\\0') if p]\n"
+            f"target = any(Path(p).name == {parent_name!r} for p in parent)\n"
+            f"target = target and ({parent_name!r} != 'autocode.py' or '--run-dir' in parent and 'capture' not in parent)\n"
             "reports = any(re.fullmatch(r'validator-[0-9]+\\.json', p.name) for p in workspace.glob('.autocode/runs/*/iterations/*/validator-*.json'))\n"
             f"ready = reports if {after_tester!r} else True\n"
             "if target and ready and not marker.exists() and 'diff-files' in sys.argv and '--diff-filter=M' in sys.argv and (workspace / 'greet.py').is_file():\n"
-            " marker.write_text('one failed proof query; later reads succeed')\n"
+            " marker.write_text(json.dumps({'parent': parent, 'query': sys.argv[1:]}))\n"
             " print('fatal: source inspection unavailable (injected)', file=sys.stderr)\n"
             " sys.exit(128)\n"
             f"os.execv({real_git!r}, [{real_git!r}, *sys.argv[1:]])\n"
@@ -168,7 +169,11 @@ class ChatCliTests(unittest.TestCase):
         self.assertEqual(1, sum(row["stage"] == "builder" for row in attempts))
         self.assertEqual(1, sum(row["stage"] == "tester" for row in attempts))
         self.assertFalse(any(row.get("report_only") for row in attempts), "A source failure is no model-report repair")
-        self.assertTrue(any(row["kind"] == "source_access_recovered" for row in completed["recoveries"]))
+        if after_tester:
+            self.assertTrue(
+                any(row["kind"] == "source_access_recovered" for row in completed["recoveries"]),
+                marker.read_text(),
+            )
         self.assertEqual(planned["displayed_plan"]["token"], completed["verification"]["contract_token"])
 
     def test_requirements_answers_any_opener_first_and_the_job_it_names_starts_after_approval(self):

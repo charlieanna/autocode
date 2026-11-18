@@ -43,6 +43,12 @@ causes, unpublished proposals, consistent status sampling and the inventory,
 attention, wait, event and editor consumers. Existing exact-token rejection and
 stop-precedence tests remain required.
 
+The public TaskRun client also takes the exact named continuation when it has
+no separate `needs.action` field. Previously that plain refresh fell back to
+relaunching with every start option; a chat started with `--single-model` then
+refused its refresh because that flag applies only to a new run. Foreign named
+commands remain refused, and a refreshed question requires its own answer.
+
 The corrected path was also exercised in the actual extension while a live
 GLM Requirements confirmation waited. Installing the candidate core expired
 the old request. VS Code took one named continuation and displayed the same
