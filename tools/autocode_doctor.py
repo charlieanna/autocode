@@ -319,9 +319,10 @@ LOGINS = {
 
 
 def route_check(name: str, workspace: Path | None, resolve=autocode_providers.resolve) -> Check:
-    """Every route a new run takes must be in the provider's model list: the profile's own defaults,
-    or the routes automatic selection replaces them with (model_catalogue.route_advice). A list that
-    cannot be read only warns, since a run then starts anyway."""
+    """Every route a new run takes must be in the provider's model list: the routes the person chose
+    (the project's file and the saved stage choices), then the profile's own defaults or the routes
+    automatic selection replaces them with (model_catalogue.route_advice). A list that cannot be read
+    only warns, since a run then starts anyway."""
     try:
         provider = resolve(name)
         available = provider.available_models(workspace)
@@ -336,10 +337,25 @@ def route_check(name: str, workspace: Path | None, resolve=autocode_providers.re
         )
     if available is None:
         return Check("routes", OK, f"provider {name} does not list its models; its routes are not checked")
-    routes = model_catalogue.route_advice(provider, available, workspace)
+    try:
+        routes = model_catalogue.route_advice(provider, available, workspace, backend=name)
+    except captured.ProcessError:
+        raise
+    except (OSError, ValueError) as error:
+        # The saved stage choices could not be read; a new run stops on the same file.
+        return Check(
+            "routes", WARN, f"cannot read the routes you chose: {error}", "`autocode stages` rewrites the file"
+        )
     missing = routes["missing"]
+    chose = ", ".join(model_catalogue.ROLES[role][0] for role in routes["chosen"])
     if not missing:
+        if routes["source"] == "choices":
+            return Check("routes", OK, f"{name} offers every route a new run takes: the ones you chose")
         if routes["source"] != "selection":
+            if chose:
+                return Check(
+                    "routes", OK, f"{name} offers the routes you chose ({chose}) and every other default model"
+                )
             return Check("routes", OK, f"{name} offers every role's default model")
         moved = "; ".join(
             f"{model_catalogue.ROLES[role][0]}: {seed} -> {taken}" for role, (seed, taken) in routes["replaced"].items()
@@ -348,6 +364,7 @@ def route_check(name: str, workspace: Path | None, resolve=autocode_providers.re
             "routes",
             OK,
             f"{name} offers every route a new run takes"
+            + (f"; you chose {chose}" if chose else "")
             + (
                 f"; automatic selection replaces the profile's fallback for {moved}"
                 if moved
@@ -365,6 +382,9 @@ def route_check(name: str, workspace: Path | None, resolve=autocode_providers.re
     gap = f"{name} does not offer: " + "; ".join(f"{model} ({', '.join(labels)})" for model, labels in by_model.items())
     if routes["reason"]:
         gap += f", and automatic selection cannot cover it ({routes['reason']})"
+    if any(role in routes["chosen"] for role in missing):
+        # Selection never replaces a route the person chose, so the fix is where it was chosen.
+        fixes.append("`autocode stages` changes a stage you chose")
     return Check(
         "routes",
         MISSING,

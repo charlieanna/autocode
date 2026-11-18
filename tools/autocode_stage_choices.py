@@ -40,6 +40,7 @@ import os
 import re
 import tempfile
 import tomllib
+import types
 from pathlib import Path
 
 try:
@@ -48,6 +49,7 @@ try:
     from . import autocode_model_identity as model_identity
     from . import autocode_model_shortlist as model_shortlist
     from . import autocode_names as names
+    from . import autocode_project_config as project_config
     from . import autocode_providers as providers
     from . import autocode_roles as roles
     from . import autocode_route_discovery as route_discovery
@@ -60,6 +62,7 @@ except ImportError:
     import autocode_model_identity as model_identity
     import autocode_model_shortlist as model_shortlist
     import autocode_names as names
+    import autocode_project_config as project_config
     import autocode_providers as providers
     import autocode_roles as roles
     import autocode_route_discovery as route_discovery
@@ -944,3 +947,34 @@ def apply(args, backend, *, file=None, say=None) -> list[str]:
     if taken and say is not None:
         say(f"Stage choices from {file}: {', '.join(LABELS[role] for role in taken)}")
     return taken
+
+
+def new_run(backend, workspace=None, *, file=None):
+    """The route arguments of a new run on ``backend`` in which nothing was typed.
+
+    What a run holds once its flags are read and ``apply`` has run, for a view that has no flags: the
+    project's own file first (``autocode_project_config``, when ``workspace`` is given), then the saved
+    choices. ``route_sources`` maps each role whose model one of them set to ``("project", where)`` or
+    ``("stage choices", file)``, and ``"single"`` to where a ``single-model`` was set, so a view can say
+    who chose a route. Weighing these arguments (``autocode_route_selector.pinned_roles``) weighs the
+    routes the run will take, never the ones it would take had nobody chosen.
+
+    A project file a run would refuse sets nothing here: the run and ``autocode doctor`` report it.
+    Raises ValueError for a ``stages.toml`` that cannot be read, as a new run does.
+    """
+    file = Path(file) if file is not None else path()
+    args = types.SimpleNamespace(route_sources={})
+    try:
+        project = project_config.read(workspace) if workspace is not None else {}
+    except (OSError, ValueError):
+        project = {}
+    for key, (value, source) in project.items():
+        if not isinstance(value, str) or (key not in project_config.MODELS and key not in project_config.EFFORTS):
+            continue
+        dest = names.flag("--" + key).removeprefix("--").replace("-", "_")
+        setattr(args, dest, value)
+        if dest.endswith("_model"):
+            args.route_sources[dest.removesuffix("_model")] = ("project", str(source))
+    for role in apply(args, backend, file=file):
+        args.route_sources.setdefault(role, ("stage choices", str(file)))
+    return args

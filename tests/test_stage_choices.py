@@ -382,6 +382,34 @@ class ApplyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, str(self.file)):
             choices.apply(self.args(), "claude", file=self.file)
 
+    def test_a_view_reads_the_route_arguments_a_new_run_with_nothing_typed_would_hold(self):
+        """`autocode models`, doctor and the connection view weigh these, so they weigh the routes a run
+        takes: the saved choices, under the project's own file as in a run."""
+        bare = choices.new_run("claude", file=self.file)
+        self.assertEqual((SONNET, "high"), (bare.builder_model, bare.builder_reasoning_effort))
+        self.assertEqual((OPUS, "xhigh"), (bare.tester_model, bare.tester_reasoning_effort))
+        self.assertEqual(("stage choices", str(self.file)), bare.route_sources["builder"])
+        self.assertFalse(hasattr(bare, "planner_model"), "a stage nobody chose is not set")
+        with tempfile.TemporaryDirectory() as project:
+            settings = Path(project) / ".autocode" / "config.toml"
+            settings.parent.mkdir()
+            settings.write_text(f'builder-model = "{HAIKU}"\ntester-reasoning-effort = "low"\n')
+            under = choices.new_run("claude", project, file=self.file)
+            self.assertEqual((HAIKU, None), (under.builder_model, getattr(under, "builder_reasoning_effort", None)))
+            self.assertEqual((OPUS, "low"), (under.tester_model, under.tester_reasoning_effort))
+            self.assertEqual("project", under.route_sources["builder"][0])
+            self.assertEqual(("stage choices", str(self.file)), under.route_sources["tester"])
+            settings.write_text(f'single-model = "{HAIKU}"\n')
+            single = choices.new_run("claude", project, file=self.file)
+            self.assertEqual((HAIKU, "project"), (single.single_model, single.route_sources["single"][0]))
+            self.assertFalse(hasattr(single, "builder_model"), "single-model takes no saved choice")
+            settings.write_text("no-such-key = 1\n")
+            refused = choices.new_run("claude", project, file=self.file)
+            self.assertEqual(SONNET, refused.builder_model, "a project file a run refuses sets nothing here")
+        self.file.write_text("[claude\n")
+        with self.assertRaisesRegex(ValueError, str(self.file)):
+            choices.new_run("claude", file=self.file)
+
 
 class StagesCommandTests(unittest.TestCase):
     """Public stage commands with fixed backend discovery and scripted model lists."""

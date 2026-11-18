@@ -281,6 +281,31 @@ def permitted_set(candidates):
     return {role: [candidate for candidate, _entry in _options(role, candidates, None)] for role in PIPELINE_ROLES}
 
 
+def pinned_roles(args, *, roles=None, defaults=None, history_models=None, history_providers=None):
+    """The roles a person fixed for a run and the model each keeps: what ``select`` takes as ``pinned``.
+
+    A role is fixed when a flag, the project's file, a saved stage choice (all of which arrive on
+    ``args`` as ``ROLE_model``) or this conversation (``history_models``) named its model; Requirements
+    follows a named Planner. A role pointed at another tool (``ROLE_provider`` or
+    ``history_providers``) keeps whatever route it already has in ``roles``, else the tool's default.
+    The run and every view of a new run's routes read this one rule, so a view never shows a route
+    selection would give a role the run keeps.
+    """
+    history_models = history_models or {}
+    history_providers = history_providers or {}
+    found = {}
+    for role in PIPELINE_ROLES:
+        named = getattr(args, f"{role}_model", None) or history_models.get(role)
+        if role == "requirements":
+            named = named or getattr(args, "planner_model", None)
+        explicit_tool = getattr(args, f"{role}_provider", None) or history_providers.get(role)
+        if named:
+            found[role] = named
+        elif explicit_tool:
+            found[role] = ((roles or {}).get(role) or {}).get("model") or (defaults or {}).get(role)
+    return found
+
+
 def current(selection, roles):
     """``selection`` with each saved route's model replaced by the one the run now uses.
 

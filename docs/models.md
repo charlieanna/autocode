@@ -327,7 +327,8 @@ Use `--no-auto-select` to retain fixed defaults. If discovery is unavailable or 
 field independent checkers, the default launch prints the reason and tries the fixed
 routes under the normal catalogue, billing and independence guards. Explicit
 `--auto-select` instead refuses before spending. Preview the choices and exclusions
-with `autocode models --selection --provider NAME`; this reads local listings only.
+with `autocode models --selection --provider NAME`; this reads local listings only, and
+keeps the stages you chose as a run does, each marked `kept`.
 
 Selection also needs the installed OpenCode version to have a row in the
 [conformance matrix](providers.md#conformance-matrix) whose result allows ordinary runs
@@ -555,8 +556,12 @@ accounts you allow to one route per role, or a stop that names what is missing. 
 chosen route is recorded with its origin (`auto_selected`) in the route record the
 status view shows. `autocode models --selection` shows the whole reasoning: the
 logins the tool reports, the route chosen for each role with its cost, and why every
-other qualified model lost (not connected on any login, a preferred or cheaper
-qualified route won, or it would check its own family's work).
+other qualified model lost (not connected on any login, outside the models you allow,
+a preferred or cheaper qualified route won, or it would check its own family's work).
+A stage you chose in Stage models or the project's file is not automatic selection's:
+it is shown as `kept`, and the view ends by naming those stages and where each was set.
+`autocode models`, `autocode doctor` and `autocode connections list --routes` read the
+same choices, so each names the routes the next run takes.
 
 Before the first stage, the [model-access preflight](#when-a-model-is-not-in-your-plans)
 probes exactly the chosen routes that are still unproven, one tiny call each at the
