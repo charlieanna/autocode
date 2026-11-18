@@ -261,8 +261,9 @@ class HumanPublicationTests(unittest.TestCase):
         self.assertIsNone(public)
         self.assertEqual({"reason": "need diagnosis"}, saved["resolution_request"])
         view = run_view.view(saved, run_dir=run, workspace=Path(saved["workspace"]))
-        self.assertIsNone(view["needs"])
-        self.assertIsNone(view["next_command"])
+        self.assertEqual({"kind": "continue", "action": "--resume-paused"}, view["needs"])
+        self.assertTrue(view["next_command"].endswith(" --resume-paused"))
+        self.assertNotIn("--grant-recovery", view["next_command"])
         self.assertIsNone(view["chat"]["input"])
         self.assertNotIn(recovery_limits.GRANT_ADVICE, view["stop_reason"])
         self.assertIn(str(error), json.dumps(saved["resolver"]["operational_receipts"]))
@@ -347,6 +348,23 @@ class HumanResponseCLITests(unittest.TestCase):
     saved = test_subprocess.SubprocessFlow.saved
     new_run_engine_args = ("--engine", "codex")
 
+    def assert_spent_end(self, run, before):
+        response = self.launch(["--run-dir", str(run), "--status"], 0)
+        view = json.loads(response.stdout)["view"]
+        self.assertEqual("PAUSED_INTERVENTION", view["status"])
+        self.assertIsNone(view["needs"])
+        self.assertIsNone(view["next_command"])
+        self.assertEqual("could_not_finish", view["recovery"]["outcome"]["result"])
+        self.assertFalse(view["done"])
+        _, after = self.saved()
+        self.assertEqual(before["stages"], after["stages"], "Closing a spent run launches no provider")
+        self.assertEqual(before["automatic_timeout_recoveries"], after["automatic_timeout_recoveries"])
+        self.assertEqual(before["settings"], after["settings"])
+        self.assertIsNone(human.current(after))
+        self.assertIsNone(human.retained(after))
+        self.assertFalse(after["resolver"].get("human_response_resolutions"))
+        return after
+
     def assert_attempts_preserved(self, before, after):
         """A local hold receipt is evidence, not another provider attempt."""
         prior = before["stages"]
@@ -426,7 +444,7 @@ class HumanResponseCLITests(unittest.TestCase):
         self.assertNotEqual("PAUSED_UNANSWERED_QUESTION", resumed["status"])
         self.assertGreater(len(resumed["stages"]), stages_before)
 
-    def test_real_cli_stale_machinery_response_is_refused_without_rebinding_or_launch(self):
+    def test_real_cli_stale_machinery_response_closes_the_spent_run_without_rebinding_or_launch(self):
         run, exhausted = self.timeout_exhausted_checkpoint()
         published = human.retained(exhausted)
         self.assertIsNotNone(published)
@@ -434,8 +452,7 @@ class HumanResponseCLITests(unittest.TestCase):
         saved = json.loads(path.read_text())
         saved["active_seconds"] = saved.get("active_seconds", 0) + 1
         path.write_text(json.dumps(saved))
-        before = path.read_bytes()
-        result = self.launch(
+        self.launch(
             [
                 "--run-dir",
                 str(run),
@@ -450,41 +467,33 @@ class HumanResponseCLITests(unittest.TestCase):
             ],
             2,
         )
-        self.assertIn(disposition.MESSAGE, result.stderr)
-        _, answered = self.saved()
-        self.assertIsNone(human.current(answered))
-        self.assertFalse(answered["resolver"].get("human_response_resolutions"))
+        answered = self.assert_spent_end(run, exhausted)
         reborn = answered["resolver"]["human_escalations"][published["request_id"]]
-        self.assertEqual("pending", reborn["status"])
-        self.assertEqual(before, path.read_bytes())
-        self.assertEqual(
-            len(exhausted["stages"]), len(answered["stages"]), "recording a response must not launch a provider"
-        )
+        self.assertEqual("superseded", reborn["status"])
 
-    def test_stale_rebind_rejects_forged_tokens_and_newer_requests(self):
+    def test_forged_machinery_response_cannot_reopen_a_spent_run(self):
         run, exhausted = self.timeout_exhausted_checkpoint()
         published = human.retained(exhausted)
         path = run / "state.json"
         saved = json.loads(path.read_text())
         saved["active_seconds"] = saved.get("active_seconds", 0) + 1
         path.write_text(json.dumps(saved))
+        arguments = [
+            "--run-dir",
+            str(run),
+            "--resolver-request",
+            published["request_id"],
+            "--resolver-response",
+            "provide_information",
+            "--resolver-message",
+            "no",
+            "--resolver-token",
+            published["request_token"][:-4] + "beef",
+        ]
+        self.launch(arguments, 2)
+        self.assert_spent_end(run, exhausted)
         before = path.read_bytes()
-        result = self.launch(
-            [
-                "--run-dir",
-                str(run),
-                "--resolver-request",
-                published["request_id"],
-                "--resolver-response",
-                "provide_information",
-                "--resolver-message",
-                "no",
-                "--resolver-token",
-                published["request_token"][:-4] + "beef",
-            ],
-            2,
-        )
-        self.assertIn(disposition.MESSAGE, result.stderr)
+        self.launch(arguments, 2)
         self.assertEqual(before, path.read_bytes())
 
     def test_real_cli_grant_recovery_resumes_an_exhausted_timeout_run(self):
@@ -494,8 +503,8 @@ class HumanResponseCLITests(unittest.TestCase):
         self.assertIn("--grant-recovery", published["request"]["decision_needed"])
         stages_before = len(exhausted["stages"])
         history = len(exhausted["automatic_timeout_recoveries"])
-        self.launch(["--run-dir", str(run), "--resume-paused", "--no-chat"], 2)
-        _, held = self.saved()
+        # An explicit operator grant precedes the plain resume that closes a spent run.
+        held = exhausted
         self.assertEqual(stages_before, len(held["stages"]))
         self.assertEqual(3, held["automatic_recoveries_since_resume"])
         self.assertIsNone(human.current(held))
@@ -530,12 +539,22 @@ class HumanResponseCLITests(unittest.TestCase):
         self.assertEqual("WAITING_FOR_USER", paused["status"])
         probe = self.root / "resume-recovery-launches.jsonl"
         self.env["AUTOCODE_REGISTRY_LAUNCH_PROBE"] = str(probe)
-        held = self.launch(["resume", "--run-dir", str(run), "--no-chat"], 2)
-        self.assertNotIn("Recovery grant recorded", held.stdout)
-        self.assertFalse(probe.exists(), "bare resume cannot grant recovery credit")
         result = self.launch(["resume", "--run-dir", str(run), "--grant-recovery", "1", "--no-chat"], 2)
         self.assertIn("Recovery grant recorded: 1", result.stdout)
         self.assertTrue(probe.exists(), "the authorized recovery must reach the provider")
+
+    def test_plain_resume_closes_the_spent_run_and_a_later_grant_cannot_reopen_it(self):
+        run, paused = self.timeout_exhausted_checkpoint()
+        probe = self.root / "ended-recovery-launches.jsonl"
+        self.env["AUTOCODE_REGISTRY_LAUNCH_PROBE"] = str(probe)
+        closed = self.launch(["resume", "--run-dir", str(run), "--no-chat"], 2)
+        self.assertNotIn("Recovery grant recorded", closed.stdout)
+        self.assert_spent_end(run, paused)
+        before = (run / "state.json").read_bytes()
+        result = self.launch(["resume", "--run-dir", str(run), "--grant-recovery", "1", "--no-chat"], 2)
+        self.assertNotIn("Recovery grant recorded", result.stdout)
+        self.assertFalse(probe.exists(), "An ended run cannot authorize another provider")
+        self.assertEqual(before, (run / "state.json").read_bytes())
 
     def test_grant_accepts_corrected_timeouts_in_the_same_cli_invocation(self):
         run, exhausted = self.timeout_exhausted_checkpoint()
