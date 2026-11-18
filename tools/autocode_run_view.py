@@ -1203,6 +1203,18 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
         inputs = [{**inputs[0], "command": named_raise}] if named_raise and token else None
     if inputs and need is not None:
         need = {**need, "command_inputs": inputs}
+    # At a limit AutoResolver could not settle, only a larger total continues the run: a written reply can't
+    # lift it (#2607). The raise is then the run's next action, not AutoResolver's information reply, which a
+    # client's generic card would otherwise take (live run, 2026-11-18: the chat said a reply can't lift the
+    # cost cap while `next_command` was that reply).
+    raise_next = (
+        inputs[0]["command"]
+        if separate and inputs and need is not None and need.get("resolver_scope") == "operational_exhaustion"
+        else None
+    )
+    if raise_next and need is not None and inputs:
+        # The typed slot is then next_command's own, as for any named raise: the row names no second command.
+        need = {**need, "command_inputs": [{key: value for key, value in inputs[0].items() if key != "command"}]}
     job_times = (
         job_time_view.offers(
             state, need, run_dir=run_dir or state.get("run_dir"), workspace=workspace or state.get("workspace")
@@ -1240,16 +1252,19 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
         "needs": need,
         "pause_category": category,
         "pause_category_label": pause_category.LABELS.get(category) if category else None,
-        "next_command": None
-        if not category and not ready_boundary
-        else pause_command.command(
-            need,
-            for_client=True,
-            run_dir=run_dir or state.get("run_dir"),
-            workspace=workspace or state.get("workspace"),
-            resume_flags=resume_flags,
-            recovery_token=token if inputs and not separate else None,
-            terminal=terminal,
+        "next_command": raise_next
+        or (
+            None
+            if not category and not ready_boundary
+            else pause_command.command(
+                need,
+                for_client=True,
+                run_dir=run_dir or state.get("run_dir"),
+                workspace=workspace or state.get("workspace"),
+                resume_flags=resume_flags,
+                recovery_token=token if inputs and not separate else None,
+                terminal=terminal,
+            )
         ),
     }
 

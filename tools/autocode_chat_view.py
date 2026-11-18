@@ -441,6 +441,8 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
                 ["autocode", "--workspace", str(workspace), "--run-dir", str(run_dir), flag, "MESSAGE"]
             ),
         }
+    # A limit is lifted only by a larger total (#2607): the raise is the run's next action, so no reply box.
+    bound_only = bool(resolver_reply and need.get("resolver_scope") == "operational_exhaustion" and raised_bound(need))
     if resolver_reply:
         question_text = "\n\n".join(
             "\n".join(filter(None, [q.get("question"), q.get("why"), *q.get("options", [])]))
@@ -468,29 +470,33 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
             messages.append(
                 {"id": "resolver-" + need["resolver_request_id"], "role": "assistant", "text": question_text}
             )
-        message_input = {
-            "kind": "resolver_response",
-            "label": "Send recovery reply",
-            # No token value in the named command: `--resolver-token -` reads this run's own saved
-            # request, so relaying or logging this text never carries the credential (#2958).
-            "next_command": shlex.join(
-                [
-                    "autocode",
-                    "--workspace",
-                    str(workspace),
-                    "--run-dir",
-                    str(run_dir),
-                    "--resolver-request",
-                    need["resolver_request_id"],
-                    "--resolver-token",
-                    "-",
-                    "--resolver-response",
-                    "provide_information",
-                    "--resolver-message",
-                    "MESSAGE",
-                ]
-            ),
-        }
+        message_input = (
+            None
+            if bound_only
+            else {
+                "kind": "resolver_response",
+                "label": "Send recovery reply",
+                # No token value in the named command: `--resolver-token -` reads this run's own saved
+                # request, so relaying or logging this text never carries the credential (#2958).
+                "next_command": shlex.join(
+                    [
+                        "autocode",
+                        "--workspace",
+                        str(workspace),
+                        "--run-dir",
+                        str(run_dir),
+                        "--resolver-request",
+                        need["resolver_request_id"],
+                        "--resolver-token",
+                        "-",
+                        "--resolver-response",
+                        "provide_information",
+                        "--resolver-message",
+                        "MESSAGE",
+                    ]
+                ),
+            }
+        )
     review = None
     questions = need.get("questions") or []
     if (
