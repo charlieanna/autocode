@@ -363,9 +363,13 @@ export function leavesForPerson(need: { kind?: string; resolver_scope?: string }
   return need.kind === "answer" && PERSON_ONLY_SCOPES.includes(need.resolver_scope ?? "");
 }
 
-/** A clean requested pause still waits for a person; its Resume click needs no second dialog. */
+/**
+ * Whether taking this person-only need asks again in a dialog. A clean requested pause's Resume needs no second
+ * dialog, and neither does an answer: the person typed it and pressed Send, and asking again to confirm their
+ * own reply was the double confirmation the 2026-11-18 audit found.
+ */
 export function requiresConfirmation(need: { kind?: string; resolver_scope?: string; confirmation_required?: boolean } | null): boolean {
-  return leavesForPerson(need) && !(need?.kind === "resume" && need.confirmation_required === false);
+  return leavesForPerson(need) && need?.kind !== "answer" && !(need?.kind === "resume" && need.confirmation_required === false);
 }
 
 /** The action a person takes on their own initiative while a stage runs. */

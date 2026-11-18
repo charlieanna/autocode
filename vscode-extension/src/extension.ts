@@ -16,6 +16,7 @@ import { ChatView } from "./chat";
 import { ConnectionsPanel } from "./connections";
 import { runStages, StagesPanel } from "./stages";
 import { StageListCache } from "./core/stage-cache";
+import { continueChoice } from "./core/view";
 import { readSettings, spendTarget } from "./settings";
 
 type RunTarget = RunRef | RunItem;
@@ -204,7 +205,7 @@ export function activate(context: vscode.ExtensionContext): void {
         const view = await controller.status(target);
         await vscode.env.clipboard.writeText(controller.commandText(view, target));
         void vscode.window.showInformationMessage(
-          "Copied the command AutoCode named. Its issued token travels in the environment, not the command line.",
+          "Copied the command for this run's next step.",
         );
       } catch (error) {
         void vscode.window.showErrorMessage(`AutoCode: ${messageOf(error)}`);
@@ -214,14 +215,21 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("autocode.continueRun", async (run?: RunTarget) => {
       const target = targetOf(run);
       if (!target) return void vscode.window.showInformationMessage("Select a run first.");
-      const proceed = await vscode.window.showWarningMessage(
-        "Continue this run? AutoCode will launch its next stage on the configured provider, which spends your model allowance.",
-        { modal: true },
-        "Continue",
-      );
-      if (proceed !== "Continue") return;
       try {
+        const before = continueChoice(await controller.status(target));
+        if (before === "working") {
+          return void vscode.window.showInformationMessage("This run is already working. AutoCode goes on by itself.");
+        }
+        if (before === "open") return showRun(target);
+        const proceed = await vscode.window.showWarningMessage(
+          "Continue this run? AutoCode will launch its next stage on the configured provider, which spends your model allowance.",
+          { modal: true },
+          "Continue",
+        );
+        if (proceed !== "Continue") return;
+        // The run may have moved on while the dialog was open: continue only what is still a plain continue.
         const view = await controller.status(target);
+        if (continueChoice(view) !== "continue") return showRun(target);
         await controller.take(view, target);
       } catch (error) {
         void vscode.window.showErrorMessage(`AutoCode: ${messageOf(error)}`);

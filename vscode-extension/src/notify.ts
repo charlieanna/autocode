@@ -16,7 +16,7 @@ export interface WaitNotice {
  */
 function outcomeFor(view: StatusView, tail: string): string {
   if (view.done) return "finished.";
-  if (view.needs?.kind === "continue") return "stopped. Nothing is needed from you; open the chat to continue it.";
+  if (view.needs?.kind === "continue") return "stopped. No decision is needed; press Continue in its chat to go on.";
   if (view.needs?.kind === "dependency") return "is waiting for another run to deliver. Nothing is needed from you.";
   return `is waiting for you - ${tail}`;
 }

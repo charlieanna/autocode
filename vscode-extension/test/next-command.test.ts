@@ -331,7 +331,10 @@ test("the core can suppress a duplicate resume dialog without authorizing automa
   assert.equal(requiresConfirmation({ kind: "resume" }), true);
   assert.equal(requiresConfirmation({ kind: "resume", confirmation_required: true }), true);
   assert.equal(requiresConfirmation({ kind: "retry_job", confirmation_required: false }), true);
-  assert.equal(requiresConfirmation({ kind: "answer", resolver_scope: "blocker", confirmation_required: false }), true);
+  // A typed answer is the person's decision when they press Send; asking again only repeated it.
+  assert.equal(requiresConfirmation({ kind: "answer", resolver_scope: "blocker" }), false);
+  assert.equal(requiresConfirmation({ kind: "answer", resolver_scope: "operational_exhaustion" }), false);
+  assert.equal(leavesForPerson({ kind: "answer", resolver_scope: "blocker" }), true);
 });
 
 test("a change set's actions are taken only as changeset status names them (#2066)", () => {

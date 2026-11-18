@@ -7,7 +7,7 @@
  */
 
 import * as vscode from "vscode";
-import { ClientGap, integerValue, leavesForPerson, requiresConfirmation, type OpenDecision } from "./core/next-command";
+import { ClientGap, integerValue, requiresConfirmation, type OpenDecision } from "./core/next-command";
 import type { AcceptanceCriterion, ChangesetSummary, DisplayedPlan, IntegerCommandInput, Question, RequirementsView, StatusView } from "./core/view";
 import { approvalToken, hasPlanReview, isWorking, needsSummary, pauseLabel, planForApproval, progressLine, usageLine } from "./core/view";
 import type { RunController, RunRef } from "./controller";
@@ -84,8 +84,6 @@ export interface PanelState {
   actionLabel: string | null;
   actionEffect: string | null;
   stopped: { title: string; explanation: string; retained: string | null; newConversation: string | null } | null;
-  commandText: string;
-  personOnly: boolean;
   taking: boolean;
   /** This client is acting, or AutoCode reports live stage/controller work. */
   working: boolean;
@@ -403,8 +401,8 @@ export class RunPanel {
       if (numeric || planning || (requiresConfirmation(view.needs ?? null) && confirmPersonOnly())) {
         const button = numeric ? numericActionLabel(state) : planning?.label ?? "Continue";
         const proceed = await vscode.window.showWarningMessage(
-          numeric ?? planning?.title ?? `AutoCode stopped this run for a person to decide (${view.needs?.kind}). Taking its named action applies your answer to that decision.`,
-          { modal: true, detail: numeric ? numericRecoveryEffect(state) : planning?.detail ?? needsSummary(view) },
+          numeric ?? planning?.title ?? (state.actionLabel ? `${state.actionLabel}?` : "Continue AutoCode?"),
+          { modal: true, detail: numeric ? numericRecoveryEffect(state) : planning?.detail ?? state.actionEffect ?? needsSummary(view) },
           button,
         );
         if (proceed !== button) return;
@@ -552,8 +550,6 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
     actionLabel,
     actionEffect,
     stopped,
-    commandText: safeCommandText(view, run, controller),
-    personOnly: leavesForPerson(need),
     taking,
     working,
     pauseOffer: view.pause && !view.done ? {
@@ -671,7 +667,7 @@ export function numericConfirmation(state: PanelState, answers: Record<string, s
   const input = state.decisions.find((row) => row.kind === "integer")?.input;
   if (!input) return null;
   const total = integerValue(answers[input.id], input);
-  if (input.id === "grant_recovery") return `Replenish ${total} recovery slot${total === "1" ? "" : "s"} and continue?`;
+  if (input.id === "grant_recovery") return `Allow ${total} more automatic recover${total === "1" ? "y" : "ies"} and continue?`;
   if (input.id === "planning_review_call_limit") {
     return `Set the total plan-review allowance to ${total} calls?`;
   }
@@ -682,7 +678,7 @@ export function numericConfirmation(state: PanelState, answers: Record<string, s
 export function raiseConfirmation(input: IntegerCommandInput, text: string): string {
   const total = integerValue(text, input);
   if (input.id === "grant_recovery") {
-    return `Replenish ${total} recovery slot${total === "1" ? "" : "s"} and continue?`;
+    return `Allow ${total} more automatic recover${total === "1" ? "y" : "ies"} and continue?`;
   }
   return boundQuestion(input, total);
 }
@@ -701,7 +697,7 @@ export function numericActionLabel(state: Pick<PanelState, "decisions">): string
 
 export function numericRecoveryEffect(state: PanelState): string {
   const input = state.decisions.find((row) => row.kind === "integer")?.input;
-  if (input?.id === "grant_recovery") return "This replenishes spent recovery slots under the existing fixed allowance. Recovery history is retained; excess is not banked. Other saved limits and model routes stay the same. It does not approve a plan.";
+  if (input?.id === "grant_recovery") return "AutoCode may then try to recover by itself up to that many more times. Other saved limits and model routes stay the same. It does not approve a plan.";
   if (input?.id === "planning_review_call_limit") return "This changes only the plan-review allowance. Used calls stay counted. Inspect the next action after saving; continuing can require a separate Resume. Other saved limits and model routes stay the same. It does not approve a plan.";
   return input ? boundEffect(input) : NUMERIC_RECOVERY_EFFECT;
 }
@@ -740,19 +736,11 @@ export async function confirmJobTime(state: PanelState, id: string, value: strin
 /** What raising a bound changes, and what it leaves alone. */
 export function boundEffect(input: IntegerCommandInput): string {
   if (input.id === "grant_recovery") {
-    return "This replenishes spent recovery slots under the existing fixed allowance. Recovery history is retained; excess is not banked. Other saved limits and model routes stay the same. It does not approve a plan.";
+    return "AutoCode may then try to recover by itself up to that many more times. Other saved limits and model routes stay the same. It does not approve a plan.";
   }
   if (input.id === "max_seconds") return NUMERIC_RECOVERY_EFFECT;
   const noun = BOUND_WORDING[input.id]?.[1] ?? input.label;
   return `This changes only ${noun}, then resumes the run. Other saved limits and model routes stay the same. It does not approve a plan.`;
-}
-
-function safeCommandText(view: StatusView, run: RunRef, controller: RunController): string {
-  try {
-    return controller.commandText(view, run);
-  } catch {
-    return "";
-  }
 }
 
 function emptyState(run: RunRef): PanelState {
@@ -785,8 +773,6 @@ function emptyState(run: RunRef): PanelState {
     actionLabel: null,
     actionEffect: null,
     stopped: null,
-    commandText: "",
-    personOnly: false,
     taking: false,
     working: false,
     pauseOffer: null,
@@ -1262,6 +1248,9 @@ function logLine(group) {
 function actionPrompt(state) {
   if (state.confirming) return state.confirming + ' — answer the dialog that opened';
   if (state.taking) return 'Sending your answer. AutoCode goes on as soon as it is saved.';
+  // A ready boundary asks for no decision, only the press that lets AutoCode start its next step (the
+  // notification says the same), so "waiting for you" read as a question nobody could find.
+  if (state.needKind === 'continue') return 'No decision is needed. Press Continue to go on.';
   return 'AutoCode is waiting for you';
 }
 
@@ -2034,7 +2023,7 @@ function render(state) {
   renderJobTimeControls(app, state);
 
   if (state.chat && state.chat.input && state.chat.input.kind === 'resolver_response' && !state.stopped) {
-    app.appendChild(el('div', 'notice', 'The conversation can accept a recovery reply. Sending information does not authorize a retry.'));
+    app.appendChild(el('div', 'notice', 'AutoCode needs information from you to go on. Reply in the conversation.'));
     const chat = el('button', null, 'Open conversation');
     chat.id = 'open-recovery-conversation';
     chat.addEventListener('click', () => vscode.postMessage({ type: 'chat' }));
@@ -2079,22 +2068,13 @@ function render(state) {
     if (!state.canApprove && state.needKind === 'approve_plan') {
       const notice = el('div', 'notice');
       notice.appendChild(el('div', null,
-        'AutoCode has not shown this client the plan its approval token binds to, so approving here would '
-        + 'approve something you have not read. Review it first:'));
-      notice.appendChild(el('pre', null, 'autocode --workspace ' + state.workspace + ' --run-dir ' + state.runDir + ' --status'));
+        'AutoCode has not shown the plan this approval is for, so it cannot be approved here yet. '
+        + 'Refresh, or open the chat to read the plan first.'));
       app.appendChild(notice);
     }
 
-    if (state.personOnly) {
-      app.appendChild(el('div', 'notice',
-        'This pause is AutoCode asking a person. The extension will ask before acting on it.'));
-    }
   }
 
-  if (state.commandText) {
-    app.appendChild(el('h2', null, 'Command the view named'));
-    app.appendChild(el('pre', null, state.commandText));
-  }
   restoreFocusedField(focusedAttr, selection);
 }
 
@@ -2155,7 +2135,7 @@ function renderJobTimeControls(container, state) {
     box.appendChild(el('div', 'why', input.purpose === 'approval'
       ? 'Saved: ' + input.current + ' seconds. Enter at least ' + input.minimum
         + ' seconds. Saving extends this plan’s limit; it does not approve or start the plan.'
-      : 'Saved: ' + input.current + ' seconds. Enter at least ' + input.minimum + ' seconds. Saving does not retry.'));
+      : 'Saved: ' + input.current + ' seconds. Enter at least ' + input.minimum + ' seconds.'));
     const field = document.createElement('input');
     field.type = 'text'; field.inputMode = 'numeric'; field.pattern = '[0-9]*';
     field.setAttribute('aria-label', input.label);
@@ -2255,7 +2235,7 @@ function numericHelp(input) {
     + ' seconds. Enter at least ' + input.minimum + ' seconds; this also applies to later steps.';
   if (input.id === 'grant_recovery') return 'Automatic recovery allowance: ' + input.current
     + '. Counted recoveries used: ' + used + '. Enter 1 to ' + input.maximum
-    + ' additional recoveries. A grant replenishes spent slots; history is kept.';
+    + ' more.';
   if (input.id === 'planning_review_call_limit') return 'Saved allowance: ' + input.current
     + ' calls. Plan-review calls used: ' + used + '. Enter a total of at least ' + input.minimum + ' calls.';
   if (input.id === 'max_cost_usd') return 'Saved cost cap: $' + input.current + '. Known spend: $' + used
