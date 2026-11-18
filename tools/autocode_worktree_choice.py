@@ -37,12 +37,14 @@ try:
     from . import autocode_controller_isolation as isolation
     from . import autocode_folder_adoption as folder_adoption
     from . import autocode_folder_checkouts as folder_checkouts
+    from . import autocode_git_location as git_location
     from . import autocode_util as util
     from . import autocode_workspaces as workspaces
 except ImportError:
     import autocode_controller_isolation as isolation
     import autocode_folder_adoption as folder_adoption
     import autocode_folder_checkouts as folder_checkouts
+    import autocode_git_location as git_location
     import autocode_util as util
     import autocode_workspaces as workspaces
 
@@ -162,14 +164,8 @@ def options(folder) -> dict:
     """The places a new chat in ``folder`` may work, with the chats already working there."""
     folder = Path(folder).resolve()
     controller = isolation.setup_view(folder, Path(isolation.__file__))
-    try:
-        root = Path(util.git(folder, "rev-parse", "--show-toplevel", timeout=30)).resolve()
-    except (OSError, ValueError):
-        root = None
-    try:
-        checkout = root == folder and bool(util.git(folder, "rev-parse", "--verify", "HEAD", timeout=30))
-    except (OSError, ValueError):
-        checkout = False
+    root = git_location.root(folder)
+    checkout = root == folder and git_location.has_ref(folder, "HEAD")
     uncommitted = checkout and workspaces.only_first_commit(folder)
     if not checkout or uncommitted:
         # Not the root of a checkout with a commit, or one where nothing is committed yet: the chat works where
@@ -306,8 +302,9 @@ def branch_problem(project, branch: str, run_dir=None) -> str | None:
     project = Path(project).resolve()
     try:
         util.git(project, "check-ref-format", "--branch", branch, timeout=30)
-        util.git(project, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}", timeout=30)
     except (OSError, ValueError):
+        return f"There is no local branch {branch} in {project}."
+    if not git_location.has_ref(project, f"refs/heads/{branch}"):
         return f"There is no local branch {branch} in {project}."
     tree = _checked_out(project).get(branch)
     if tree is not None:
@@ -328,27 +325,16 @@ def branch_problem(project, branch: str, run_dir=None) -> str | None:
 
 def _branches(folder: Path) -> list[str]:
     """Local branches, most recently committed first, without Builder workers' batch branches."""
-    try:
-        listed = util.git(
-            folder,
-            "for-each-ref",
-            "--sort=-committerdate",
-            "--format=%(refname:short)",
-            "refs/heads",
-            timeout=30,
-        )
-    except (OSError, ValueError):
-        return []
+    listed = git_location.read(
+        folder, "for-each-ref", "--sort=-committerdate", "--format=%(refname:short)", "refs/heads"
+    )
     names = [name for name in listed.splitlines() if name and not name.startswith(WORKER_BRANCH)]
     return names[:BRANCHES_SHOWN]
 
 
 def _checked_out(folder: Path) -> dict[str, Path]:
     """Each branch checked out in a worktree of this repository, with that worktree's path."""
-    try:
-        listed = util.git(folder, "worktree", "list", "--porcelain", timeout=30)
-    except (OSError, ValueError):
-        return {}
+    listed = git_location.read(folder, "worktree", "list", "--porcelain")
     result: dict[str, Path] = {}
     tree = None
     for line in listed.splitlines():
@@ -451,6 +437,10 @@ def cli(argv: list[str]) -> int:
     if not Path(folder).is_dir():
         print(f"autocode worktrees: {folder} is not a folder", file=sys.stderr)
         return 2
-    listing = options(folder)
+    try:
+        listing = options(folder)
+    except (OSError, ValueError) as error:
+        print(f"autocode worktrees: {error}", file=sys.stderr)
+        return 2
     print(json.dumps(listing, indent=2) if args.json else text(listing))
     return 0

@@ -13,7 +13,7 @@ import json
 import subprocess
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -369,6 +369,103 @@ class ExistingBranchTests(unittest.TestCase):
         self.assertEqual(
             {"state": "planning", "branch": "feature"}, util.read(run_dir / "state.json")["build_worktree"]
         )
+
+
+class GitDiscoveryFailureTests(unittest.TestCase):
+    def test_missing_git_and_failed_reads_cannot_offer_initialization(self):
+        root = checkout(self)
+        for error in (FileNotFoundError("git is unavailable"), subprocess.TimeoutExpired(["git"], 30)):
+            with self.subTest(error=type(error).__name__):
+                with mock.patch.object(subprocess, "run", side_effect=error):
+                    with self.assertRaisesRegex(ValueError, "Cannot inspect Git") as caught:
+                        choice.options(root)
+                    self.assertNotIn("core.hooksPath", str(caught.exception))
+
+    def test_broken_metadata_and_bare_repositories_are_not_new_projects(self):
+        root = checkout(self)
+        for name, marker in (("broken-link", "gitdir: /missing-autocode-git-dir\n"), ("empty-metadata", None)):
+            folder = root.parent / name
+            folder.mkdir()
+            if marker is None:
+                (folder / ".git").mkdir()
+            else:
+                (folder / ".git").write_text(marker)
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(ValueError, "Cannot inspect Git"):
+                    choice.options(folder)
+                with self.assertRaisesRegex(ValueError, "Cannot inspect Git"):
+                    workspaces.bootstrap(folder)
+        bare = root.parent / "bare"
+        git(root, "init", "--bare", "-q", str(bare))
+        with self.assertRaisesRegex(ValueError, "Cannot inspect Git"):
+            choice.options(bare)
+
+    def test_failed_git_queries_never_offer_a_fallback_placement(self):
+        root = checkout(self)
+        original = subprocess.run
+        for query in ("location", "head", "branches", "worktrees"):
+            with self.subTest(query=query):
+
+                def fail_query(command, *args, **kwargs):
+                    matches = (
+                        query == "location"
+                        and "--show-toplevel" in command
+                        or query == "head"
+                        and "--verify" in command
+                        and "HEAD" in command
+                        or query == "branches"
+                        and "for-each-ref" in command
+                        or query == "worktrees"
+                        and "worktree" in command
+                        and "list" in command
+                    )
+                    if matches:
+                        return subprocess.CompletedProcess(command, 128, "", "fatal: cannot read Git metadata\n")
+                    return original(command, *args, **kwargs)
+
+                with mock.patch.object(subprocess, "run", side_effect=fail_query):
+                    with self.assertRaisesRegex(ValueError, "Cannot inspect Git"):
+                        choice.options(root)
+
+    def test_an_untrusted_repository_is_never_described_as_a_new_project(self):
+        root = checkout(self)
+        with mock.patch.dict(
+            "os.environ",
+            {"GIT_TEST_ASSUME_DIFFERENT_OWNER": "1", "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"},
+        ):
+            with self.assertRaisesRegex(ValueError, "Cannot inspect Git"):
+                choice.options(root)
+
+    def test_bootstrap_never_initializes_after_a_failed_repository_query(self):
+        root = checkout(self)
+        original = subprocess.run
+        initialized = []
+
+        def fail_discovery(command, *args, **kwargs):
+            if "--show-toplevel" in command:
+                return subprocess.CompletedProcess(command, 128, "", "fatal: cannot read Git metadata\n")
+            if "init" in command:
+                initialized.append(command)
+            return original(command, *args, **kwargs)
+
+        with mock.patch.object(subprocess, "run", side_effect=fail_discovery):
+            with self.assertRaisesRegex(ValueError, "Cannot inspect Git"):
+                workspaces.bootstrap(root, in_place=True)
+        self.assertEqual([], initialized)
+
+    def test_the_public_list_fails_without_placement_or_git_setup_commands(self):
+        root = checkout(self)
+        output, errors = io.StringIO(), io.StringIO()
+        with mock.patch.dict(
+            "os.environ",
+            {"GIT_TEST_ASSUME_DIFFERENT_OWNER": "1", "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"},
+        ):
+            with redirect_stdout(output), redirect_stderr(errors):
+                result = choice.cli(["list", "--workspace", str(root), "--json"])
+        self.assertEqual(2, result)
+        self.assertEqual("", output.getvalue())
+        self.assertIn("Cannot inspect Git", errors.getvalue())
+        self.assertNotIn("git config", errors.getvalue())
 
 
 if __name__ == "__main__":

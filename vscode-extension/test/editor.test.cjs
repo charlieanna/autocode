@@ -3204,6 +3204,15 @@ test('a new chat keeps a model pick in its row, marked as being checked, until t
   assert.equal(ui.document.getElementById('models-name').textContent, 'Models · 1 changed');
 });
 
+test('an unreadable workspace is visibly unavailable instead of claiming it works in the folder', async (t) => {
+  const ui = await openChat(t, null, false, { worktrees: () => ({ ...ok, code: 2, stderr: 'Cannot inspect Git: repository access denied' }) });
+  const section = ui.document.getElementById('chat-place');
+  assert.equal(ui.document.getElementById('chat-place-summary').textContent, 'Unavailable');
+  assert.equal(section.open, true, 'the failure is visible before a person sends a task');
+  assert.match(section.querySelector('[role="alert"]').textContent, /repository access denied/);
+  assert.equal(section.querySelector('input'), null, 'no placement is offered from a failed read');
+});
+
 test('expanded new-chat settings share a shrinking scroll area outside the composer', async (t) => {
   const ui = await openChat(t, null, false, { stages: chatStageView, worktrees: worktreeList });
   const places = ui.document.getElementById('chat-place');

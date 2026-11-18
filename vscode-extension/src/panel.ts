@@ -2662,9 +2662,13 @@ function renderChatPlace(data) {
   body.textContent = '';
   const chosen = info.places.find((place) => place.id === info.chosen);
   const branchName = chosen && chosen.id === 'branch' ? info.branch : null;
-  document.getElementById('chat-place-summary').textContent = info.error ? 'your folder'
+  document.getElementById('chat-place-summary').textContent = info.error ? 'Unavailable'
     : chosen ? (branchName ? 'branch ' + branchName : chosen.id === 'branch' ? 'pick a branch' : chosen.label) : '';
-  if (info.error) { body.appendChild(el('div', 'chat-place-note', info.error)); restoreFocus(); return; }
+  if (info.error) {
+    host.open = true;
+    const note = el('div', 'chat-place-note', info.error); note.setAttribute('role', 'alert');
+    body.appendChild(note); restoreFocus(); return;
+  }
   const group = 'chat-place-' + Math.random().toString(16).slice(2);
   info.places.forEach((place) => {
     const row = el('label', 'chat-place-option');
