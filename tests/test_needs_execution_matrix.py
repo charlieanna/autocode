@@ -598,8 +598,35 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
         command = client_actions.fill_offer(before, row, named, "600")
         self.assertEqual(["--resume-paused", "--max-seconds", "600", "--expected-recovery-token", "-"], command.argv)
 
+    def source_less_failure(self, status):
+        self.state.update(status=status, stop_reason="The original source capture is unavailable")
+        self.state["job_failure"] = {
+            "reason": "The original source capture is unavailable",
+            "stage": "check_design",
+            "attempt_id": "001/check_design-01",
+            "job_retry_token": "inspected-job-token",
+            "archive": str(self.directory / "archive"),
+            "source_identity": None,
+            "kind": "exit",
+            "write_diagnosis": {},
+            "unrestored": [],
+        }
+        self.save()
+
+    def test_a_failed_job_without_its_source_ends_at_resume_instead_of_asking(self):
+        self.source_less_failure("PAUSED_JOB_FAILURE")
+        view = self.run.status()
+        self.assertEqual({"kind": "continue", "action": "--resume-paused"}, view["needs"])
+        after = self.run.resume_paused()
+        self.assertIsNone(after["needs"])
+        self.assertIsNone(after["next_command"])
+        outcome = after["recovery"]["outcome"]
+        self.assertEqual(("could_not_finish", "no_source_identity"), (outcome["result"], outcome["evidence"]["cause"]))
+        self.provider.assert_not_called()
+
     def test_recover_source_names_the_required_inspection(self):
-        self.state.update(status="PAUSED_JOB_FAILURE", stop_reason="The original source capture is unavailable")
+        # Kept for a person's own abandonment; a failed job with no source ends instead (above).
+        self.state.update(status="PAUSED_STAGE_ABANDONED", stop_reason="The original source capture is unavailable")
         self.state["job_failure"] = {
             "reason": "The original source capture is unavailable",
             "stage": "check_design",

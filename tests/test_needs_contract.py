@@ -110,7 +110,8 @@ KIND_STATES = {
         "settings": {},
     },
     "recover_source": {
-        "status": "PAUSED_JOB_FAILURE",
+        # Only a person's own abandonment keeps it: a failed job with no source ends (autocode_job_end).
+        "status": "PAUSED_STAGE_ABANDONED",
         "job_failure": {
             "reason": "stage failed without source",
             "stage": "answer_question",

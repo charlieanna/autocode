@@ -177,6 +177,12 @@ def gate_failures(runner, args, parser, state: RunState, state_path, run_dir, wo
         except ValueError as error:
             print(f"Input rejected: {error}", file=sys.stderr)
             return 2
+    elif gate == "automatic":
+        # A stopped job with nothing for a person to decide: its one automatic retry, or a recorded end.
+        if not job_failure.settle(runner, state, run_dir, workspace):
+            print(state.get("stop_reason"))
+            return 2
+        gate = "authorize"  # Authorized as the exact retry is; the retry operation adds nothing.
     elif gate:
         if gate.startswith("this pause"):
             print(f"Input rejected: {gate}", file=sys.stderr)
