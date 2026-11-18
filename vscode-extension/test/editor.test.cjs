@@ -5481,6 +5481,54 @@ test('a live message runs only the exact named grammar, and a refusal keeps the 
   assert.equal(ui.document.querySelector('#message').value, 'Also strip whitespace', 'an unsaved message stays to send again');
 });
 
+// #3259: Send now ends the running step and has the message answered at once, so a person need not wait
+// out a long Builder or Stop now and then Resume. Offered and taken only as the view names it.
+function sendNowView(extra = {}) {
+  const view = liveMessageView(extra);
+  view.chat.input.now_command = view.chat.input.next_command.replace(' --json', ' --now --json');
+  return view;
+}
+
+test('Send now submits the message with --now, only where the view names it (#3259)', async (t) => {
+  const ui = await openChat(t, liveMessageView());
+  const sendNow = () => ui.document.querySelector('#send-now');
+  ui.type('Use a flag instead');
+  assert.equal(sendNow().hidden, true, 'no Send now without a named offer');
+  await ui.poll(sendNowView());
+  assert.equal(sendNow().hidden, false);
+  assert.equal(sendNow().disabled, false);
+  assert.match(ui.document.querySelector('#send-hint').textContent, /Send now ends the step/);
+  const submit = t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: '{"accepted": true, "operation": "submit"}' }));
+  sendNow().click();
+  await flush(); await flush(); await flush();
+  const sends = submit.mock.calls.map((call) => call.arguments[1]).filter((argv) => argv[0] === 'intervention');
+  assert.equal(sends.length, 1);
+  const argv = sends[0];
+  assert.deepEqual(argv.slice(0, 6), ['intervention', 'submit', '--workspace', run.workspace, '--run-dir', run.runDir]);
+  assert.match(argv[7], /^message-[0-9a-f]{16}$/);
+  assert.deepEqual([argv[6], ...argv.slice(8)],
+    ['--request-id', '--kind', 'message', '--text', 'Use a flag instead', '--now', '--json']);
+  assert.equal(ui.document.querySelector('#message').value, '', 'the sent message leaves the composer');
+});
+
+test('Send now refuses a command outside its exact grammar and keeps the draft (#3259)', async (t) => {
+  const changed = sendNowView();
+  changed.chat.input.now_command = changed.chat.input.now_command.replace('--now', '--now --kind pause');
+  const ui = await openChat(t, changed);
+  const submit = t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: '{"accepted": true}' }));
+  ui.type('Use a flag instead');
+  ui.document.querySelector('#send-now').click();
+  await flush(); await flush();
+  assert.equal(submit.mock.calls.filter((call) => call.arguments[1][0] === 'intervention').length, 0);
+  assert.match(ui.document.querySelector('#chat-error').textContent, /Unsupported Send now action/);
+  assert.equal(ui.document.querySelector('#message').value, 'Use a flag instead');
+});
+
+test('Send now waits for a draft (#3259)', async (t) => {
+  const ui = await openChat(t, sendNowView());
+  assert.equal(ui.document.querySelector('#send-now').disabled, true, 'nothing to send yet');
+});
+
 test('Pause refuses a command the view did not name in the exact pause grammar (#1598)', async (t) => {
   const changed = pauseView();
   changed.pause.next_command = changed.pause.next_command.map((word) => (word === 'pause' ? 'stop' : word));

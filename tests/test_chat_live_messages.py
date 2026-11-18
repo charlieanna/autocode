@@ -24,11 +24,11 @@ WORKSPACE = Path("/project")
 RUN = WORKSPACE / ".autocode/runs/chat"
 
 
-def working_view():
+def working_view(**capability):
     state = {
         "status": "RUNNING",
         "settings": {"spec_first": True},
-        "intervention_capability": {"supports_messages": True},
+        "intervention_capability": {"supports_messages": True, **capability},
     }
     view = {
         "workspace": str(WORKSPACE),
@@ -78,6 +78,16 @@ class MessageOfferTests(unittest.TestCase):
             ],
             shlex.split(offer["next_command"]),
         )
+        schema = json.loads((ROOT / "docs/schemas/status-view.schema.json").read_text())
+        util.validate_schema(view["chat"], schema["properties"]["view"]["properties"]["chat"])
+
+    def test_a_runner_that_ends_a_step_for_a_message_also_names_send_now(self):
+        # #3259: "Send now" is the same submission with --now, named only when the runner records support.
+        self.assertNotIn("now_command", working_view()["chat"]["input"])
+        view = working_view(supports_message_now=True)
+        offer = view["chat"]["input"]
+        words = shlex.split(offer["next_command"])
+        self.assertEqual([*words[:-1], "--now", "--json"], shlex.split(offer["now_command"]))
         schema = json.loads((ROOT / "docs/schemas/status-view.schema.json").read_text())
         util.validate_schema(view["chat"], schema["properties"]["view"]["properties"]["chat"])
 

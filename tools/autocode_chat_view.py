@@ -413,28 +413,25 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
         and run_dir is not None
         and workspace is not None
     ):
-        message_input = {
-            "kind": "message",
-            "label": "Send message",
-            "next_command": shlex.join(
-                [
-                    "autocode",
-                    "intervention",
-                    "submit",
-                    "--workspace",
-                    str(workspace),
-                    "--run-dir",
-                    str(run_dir),
-                    "--request-id",
-                    "REQUEST_ID",
-                    "--kind",
-                    "message",
-                    "--text",
-                    "MESSAGE",
-                    "--json",
-                ]
-            ),
-        }
+        words = [
+            "autocode",
+            "intervention",
+            "submit",
+            "--workspace",
+            str(workspace),
+            "--run-dir",
+            str(run_dir),
+            "--request-id",
+            "REQUEST_ID",
+            "--kind",
+            "message",
+            "--text",
+            "MESSAGE",
+        ]
+        message_input = {"kind": "message", "label": "Send message", "next_command": shlex.join([*words, "--json"])}
+        if (state.get("intervention_capability") or {}).get("supports_message_now") is True:
+            # The same message, which also ends the step that is running and is answered at once (#3259).
+            message_input["now_command"] = shlex.join([*words, "--now", "--json"])
     if action and run_dir is not None and workspace is not None:
         kind, label, flag = action
         message_input = {

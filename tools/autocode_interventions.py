@@ -112,7 +112,7 @@ def _read_inbox(inbox: Path) -> dict[str, Any]:
             and not isinstance(request["observed_goal_token"], str)
             or request.get("boundary_pause_requested") is not True
             or "now" in request
-            and (request["now"] is not True or request["kind"] != "pause")
+            and (request["now"] is not True or request["kind"] not in ("pause", "message"))
             or request["id"] in seen_ids
         ):
             raise InterventionError("corrupt_inbox", "Intervention inbox has an invalid or duplicate request record")
@@ -158,8 +158,8 @@ def _payload(request_id: str, kind: str, text: str, now: bool = False) -> dict[s
         raise InterventionError("invalid_text", "Pause requests do not accept feedback text")
     if kind == "stop" and text:
         raise InterventionError("invalid_text", "Stop requests do not accept feedback text")
-    if now and kind != "pause":
-        raise InterventionError("invalid_now", "Only a pause can end the current step now")
+    if now and kind not in {"pause", "message"}:
+        raise InterventionError("invalid_now", "Only a pause or a message can end the current step now")
     return {"id": request_id, "kind": kind, "text": text, **({"now": True} if now else {})}
 
 
@@ -173,7 +173,8 @@ def submit(
 ) -> dict[str, Any]:
     """Persist one request, or return the original receipt for an identical retry.
 
-    ``now`` (a pause only) also ends the step that is running, instead of waiting for it to finish (#3263)."""
+    ``now`` (a pause or a message) also ends the step that is running, instead of waiting for it to finish
+    (#3263). A message sent now is answered as soon as the step has ended, with no pause (#3259)."""
     workspace, run_dir, state = _target(workspace, run_dir)
     payload = _payload(request_id, kind, text, now)
     try:
@@ -280,7 +281,7 @@ def submit(
 
 
 def stop_now_requested(run_dir: Path) -> bool:
-    """Whether a pause that ends the running step now waits in the inbox (#3263).
+    """Whether a pause or a message that ends the running step now waits in the inbox (#3263, #3259).
 
     Read by the stage supervisor while a provider runs, without the inbox lock: the inbox is replaced
     atomically, and an unreadable one holds no request, so it reads as none."""
@@ -289,7 +290,7 @@ def stop_now_requested(run_dir: Path) -> bool:
         requests = _read_inbox(inbox)["requests"]
     except (InterventionError, OSError):
         return False
-    return any(request.get("kind") == "pause" and request.get("now") is True for request in requests)
+    return any(request.get("kind") in ("pause", "message") and request.get("now") is True for request in requests)
 
 
 def inspect(workspace: Path, run_dir: Path) -> dict[str, Any]:
@@ -414,7 +415,10 @@ def cli(argv: list[str]) -> int:
     submit_parser.add_argument(
         "--now",
         action="store_true",
-        help="With --kind pause: end the step that is running now, keeping its partial work and logs",
+        help=(
+            "With --kind pause or message: end the step that is running now, keeping its partial work and logs;"
+            " a message is then answered at once, with no pause"
+        ),
     )
     submit_parser.add_argument(
         "--context-file", type=Path, help="Bounded public participant evidence for a task conversation"
