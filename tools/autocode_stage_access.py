@@ -36,6 +36,12 @@ JOB_WRITES: dict[str, tuple[str, ...]] = {}
 # repository changed mid-run (autocode_readonly_events), does not apply; its report repair stays read-only.
 WRITING_JOBS = ("write_acceptance_tests",)
 
+
+def writes_source(record) -> bool:
+    """Classify an existing attempt; its stage owner still checks permitted paths."""
+    return not record.get("report_only") and (record.get("role") == "builder" or record.get("stage") in WRITING_JOBS)
+
+
 # Where a workflow job keeps scratch copies and test output: inside the workspace, because OpenCode
 # stops a stage that touches an external directory (#228, #301), and under .autocode/, which every
 # source comparison ignores.

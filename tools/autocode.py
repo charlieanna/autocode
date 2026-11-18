@@ -66,7 +66,7 @@ try:
     from . import autocode_project_delivery as project_delivery
     from . import autocode_stop as stop_policy, autocode_status as status_records, autocode_readonly_events as readonly_events  # noqa: F401 - compatibility API
     from . import autocode_run_status as run_status, autocode_report_repair_queue as report_repair_queue, autocode_rejection_route as rejection_route, autocode_review_effort as review_effort, autocode_route_fit as route_fit, autocode_report_identity as report_identity
-    from . import autocode_source_scope as source_scope, autocode_source_diff as source_diff, autocode_source_snapshot as source_snapshot  # noqa: F401 - compatibility API
+    from . import autocode_source_scope as source_scope, autocode_source_diff as source_diff, autocode_source_snapshot as source_snapshot, autocode_stage_access as stage_access  # noqa: F401 - compatibility API
     from . import autocode_supervision as supervision, autocode_supervision_cli as supervision_cli, autocode_supervision_recovery as supervision_recovery, autocode_result_application as result_application, autocode_repaired_result as repaired_result, autocode_report_revalidation as report_revalidation, autocode_detached_output as detached_output  # noqa: F401 - compatibility API
     from . import autocode_run_view as run_view, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_event_log as event_log, autocode_rework_policy as rework_policy, autocode_approval_provenance as approval_provenance  # noqa: F401 - compatibility API
 except ImportError:
@@ -79,6 +79,7 @@ except ImportError:
     import autocode_source_scope as source_scope
     import autocode_source_diff as source_diff  # noqa: F401 - compatibility API
     import autocode_source_snapshot as source_snapshot  # noqa: F401 - compatibility API
+    import autocode_stage_access as stage_access
     import autocode_verbose as verbose
     import autocode_status
     import autocode_artifacts as artifacts
@@ -1329,7 +1330,7 @@ def reconcile_active(state: RunState, run_dir, workspace):
         raise support.Paused("PAUSED_UNCERTAIN_STAGE", "Recovered stage lacks its original source snapshot")
     before = read_json(Path(record["before_ref"]))
     after = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
-    if (record["role"] != "builder" or record.get("report_only")) and before["revision"] != after["revision"]:
+    if not stage_access.writes_source(record) and before["revision"] != after["revision"]:
         raise support.Paused(
             "PAUSED_STALE_VALIDATION",
             f"Read-only stage revision changed across interruption: {record['stage']} ran on source "
