@@ -24,6 +24,14 @@ describes that file in its behaviors and acceptance tests, and is planned like a
 the run is planned as a build. Every run, chat or not, starts at Requirements and has it name the
 job (#1860); what spec-first adds is the confirmation before the job starts.
 
+A chat is a discussion until you approve (owner decision, 2026-11-18). Requirements answers your
+latest message first, every time: a question gets its answer, "figure out why" gets the cause it found
+in the code, and "should we" gets its recommendation. A summary of a change, with the approval that
+starts the Planner, comes after that answer and is only an offer: reply instead and the discussion goes
+on, and nothing is planned until you approve. A follow-up turn gives Requirements the conversation
+before it as well (`follow_up.earlier_turns`, bounded), so "go with your first option" names an answer
+from several turns back.
+
 Adaptive planning never skips Requirements on such a run. Planning, plan review and plan approval are
 unchanged.
 
