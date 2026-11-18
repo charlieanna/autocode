@@ -111,10 +111,9 @@ class RunViewTests(unittest.TestCase):
             "active_stage": {"iteration": 1, "output": "/runs/r1/iterations/001/plan-challenge-01.json"},
         }
         shown = run_view.view(state, workspace=Path("/project"), run_dir=Path("/runs/r1"))
-        self.assertEqual("resume", shown["needs"]["kind"])
-        self.assertNotIn("abandon_stage", shown["needs"])
-        self.assertIn("--resume-paused", shown["next_command"])
-        self.assertNotIn("--abandon-stage", shown["next_command"])
+        self.assertIsNone(shown["needs"], "An unobserved source read is AutoCode's hold, not a person question")
+        self.assertIsNone(shown["next_command"])
+        self.assertEqual("blocked", shown["recovery"]["category"])
         self.assertFalse(shown["done"])
         self.assertIsNone(shown.get("displayed_plan"))
 

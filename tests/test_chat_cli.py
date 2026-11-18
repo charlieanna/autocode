@@ -98,9 +98,9 @@ class ChatCliTests(unittest.TestCase):
         run = taskrun.TaskRun(self.workspace, run_dir, options=options, env=self.env, timeout=300)
         held = run.status()
         self.assertEqual("PAUSED_SOURCE_UNAVAILABLE", held["status"])
-        self.assertEqual("your_environment", held["pause_category"])
-        self.assertEqual("resume", held["needs"]["kind"])
-        self.assertIn("--resume-paused", held["next_command"])
+        self.assertIsNone(held["needs"], "An unreadable source inventory is not a person question")
+        self.assertIsNone(held["next_command"])
+        self.assertEqual("blocked", held["recovery"]["category"])
         self.assertFalse(held["done"])
         self.assertIsNone(held.get("displayed_plan"))
         reports = {path.relative_to(run_dir): path.read_bytes() for path in run_dir.glob("iterations/*/*.jsonl")}
@@ -113,7 +113,10 @@ class ChatCliTests(unittest.TestCase):
             "An unresolved source refusal must not launch any provider",
         )
         marker.write_text("resolved")
-        resumed = run.resume_paused()
+        readable = run.status()
+        self.assertEqual("continue", readable["needs"]["kind"])
+        self.assertIn("--expected-recovery-token", readable["next_command"])
+        resumed = run.advance_until_input()
         self.assertEqual("approve_plan", resumed["needs"]["kind"])
         for path, content in reports.items():
             self.assertEqual(content, (run_dir / path).read_bytes(), "Recovery must preserve the retained report")

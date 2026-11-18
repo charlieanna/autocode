@@ -4141,6 +4141,36 @@ test('a core-observed continuation shows working while the saved pause has no ac
   assert.equal(launch.mock.callCount(), 0, 'a display observation never authorizes another action');
 });
 
+test('source recovery takes one bound resume and preserves held or foreign actions', async (t) => {
+  const ui = await openChat(t, workingView());
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  const source = {
+    status: 'PAUSED_SOURCE_UNAVAILABLE', done: false, needs: { kind: 'continue' },
+    controller: { kind: 'ended', checked: true, alive: false },
+    next_command: `AUTOCODE_EXPECTED_RECOVERY_TOKEN=recovery-v1:bound autocode --workspace ${run.workspace} --run-dir ${run.runDir} --resume-paused --expected-recovery-token -`,
+  };
+  await ui.poll({ ...source, needs: null, next_command: null,
+    recovery: { category: 'blocked', what_happened: 'Task source is unavailable' } });
+  await flush();
+  assert.equal(launch.mock.callCount(), 0, 'an unreadable source grants no continuation');
+  await ui.poll({ ...source, next_command: source.next_command.replace(run.runDir, '/foreign/run') });
+  await flush();
+  assert.equal(launch.mock.callCount(), 0, 'a foreign source continuation is refused');
+  await ui.poll({ ...source, next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --resume-paused` });
+  await flush();
+  assert.equal(launch.mock.callCount(), 0, 'an unbound resume is never automatic');
+  await ui.poll({ ...source, next_command: source.next_command.replace('AUTOCODE_EXPECTED_RECOVERY_TOKEN=recovery-v1:bound ', '') });
+  await flush();
+  assert.equal(launch.mock.callCount(), 0, 'a token selector without its private binding is not automatic');
+  await ui.poll(source); await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 1);
+  assert.deepEqual(launch.mock.calls[0].arguments[1],
+    ['--resume-paused', '--expected-recovery-token', '-', '--workspace', run.workspace, '--run-dir', run.runDir]);
+  assert.equal(launch.mock.calls[0].arguments[2].AUTOCODE_EXPECTED_RECOVERY_TOKEN, 'recovery-v1:bound');
+  await ui.poll(source); await flush();
+  assert.equal(launch.mock.callCount(), 1, 'an unchanged source hold cannot loop');
+});
+
 test('a continuing Requirements view keeps its progress instead of asking the person again', async (t) => {
   const ui = await openChat(t, {
     status: 'PAUSED_TOOL_CONTAINMENT', done: false, needs: null, next_command: null,

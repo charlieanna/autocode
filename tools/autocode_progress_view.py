@@ -142,6 +142,9 @@ def progress(
         headline, stage = "Continuing", None
         asked = "nothing needed from you"
         observed_continuation = True
+    elif status == "PAUSED_SOURCE_UNAVAILABLE":
+        headline = "Recovering source access" if kind == "continue" else "Source access unavailable"
+        asked = "nothing needed from you"
     elif stopped:
         headline = f"{stage or 'The stage'} {STOP_CLAIM}"
         # A stale run's next action can be the command itself; the person reads only its words.

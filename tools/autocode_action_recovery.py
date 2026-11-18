@@ -47,6 +47,7 @@ try:
     from . import autocode_route_advisory as route_advisory
     from . import autocode_run_status as run_status
     from . import autocode_runner_check as runner_check
+    from . import autocode_source_reconciliation as source_reconciliation
     from . import autocode_stage_recovery as stage_recovery
     from . import autocode_stage_stalls as stage_stalls
     from . import autocode_stop as stop
@@ -74,6 +75,7 @@ except ImportError:
     import autocode_route_advisory as route_advisory
     import autocode_run_status as run_status
     import autocode_runner_check as runner_check
+    import autocode_source_reconciliation as source_reconciliation
     import autocode_stage_recovery as stage_recovery
     import autocode_stage_stalls as stage_stalls
     import autocode_stop as stop
@@ -391,6 +393,10 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
     prior_next_action = state.get("next_action") if isinstance(state.get("next_action"), str) else None
     try:
         if args.resume_paused:
+            if source_reconciliation.prepare(runner, state, workspace):
+                decided.evidence_reconciled = True
+                args._resumed_pause = None  # Runner recovery, not a person's resume or an allowance renewal.
+                runner.write_json(state_path, state)
             if state.get("status") in ("PAUSED_VERIFICATION_UNCERTAIN", "PAUSED_STAGE_ABANDONED"):
                 runner_check.recover_interrupted(state, run_dir, runner.write_json)
             # Acknowledgement is not a new spending/recovery allowance.

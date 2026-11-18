@@ -370,6 +370,31 @@ def view(
                 workspace=workspace or state.get("workspace"),
             ),
         }
+    elif not operational_block.presentation(state, include_hold=True):
+        try:
+            from . import autocode_source_reconciliation as source_reconciliation
+        except ImportError:
+            import autocode_source_reconciliation as source_reconciliation
+        source_resume = source_reconciliation.offer(
+            saved_state,
+            workspace or state.get("workspace"),
+            liveness,
+            controller=controller,
+            stop_pending=stop_pending,
+        )
+        if source_resume is not None:
+            next_action = {
+                "needs": source_resume,
+                "pause_category": None,
+                "pause_category_label": None,
+                "next_command": pause_command.command(
+                    source_resume,
+                    for_client=True,
+                    run_dir=run_dir or state.get("run_dir"),
+                    workspace=workspace or state.get("workspace"),
+                    recovery_token=recovery_view.token(saved_state),
+                ),
+            }
     if controller_owner.continuing(saved_state, controller):
         # The live controller will save its own next state; an action taken now is refused by the run lock.
         next_action = {"needs": None, "pause_category": None, "pause_category_label": None, "next_command": None}
@@ -1312,6 +1337,10 @@ def needs(state: RunState, *, stale_report_repair=False, human_projection=None) 
     )
     state = resolver_human.decision_state(state, human_projection)
     status = state.get("status", "")
+    if status == "PAUSED_SOURCE_UNAVAILABLE":
+        # Only a fresh source/supervision observation in view() may name its
+        # bound continuation. Missing source is machinery, never a person question.
+        return None
     if (
         stop.applied_stop(state) is not None
         or status in COMPLETE

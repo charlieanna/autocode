@@ -102,6 +102,7 @@ def project(view: dict, *, stale: bool = False, completion_current=None, next_ac
         sentence = "Saved and ready to continue; nothing runs it until you do."
     elif (
         status in WORKING_STATUSES
+        or (status == "PAUSED_SOURCE_UNAVAILABLE" and kind == "continue")
         or kind == "dependency"
         or controller_owner.continuing(
             {"status": status, "execution": view.get("execution") or {}}, view.get("controller")

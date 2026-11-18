@@ -603,6 +603,21 @@ def project(state: RunState, need=None):
             )
         )
         return result
+    try:
+        from . import autocode_source_reconciliation as source_reconciliation
+    except ImportError:
+        import autocode_source_reconciliation as source_reconciliation
+    if source_failure := source_reconciliation.presentation(state, need):
+        result.update(source_failure)
+        if source_failure["category"] == "blocked":
+            actions.append(
+                _action(
+                    "new_conversation",
+                    "Start a new conversation",
+                    "Keep this conversation and its saved work, and start separate work in the same project.",
+                )
+            )
+        return result
     if fresh_run:
         why = (
             person_text.for_person(need.get("reason"))
