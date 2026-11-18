@@ -361,6 +361,8 @@ class PreparationRecoveryTests(unittest.TestCase):
         )
         self.runtime.SCHEMA_DIR = self.run / "schemas"
         self.runtime.rotate_if_needed = Mock()
+        # The loop stamps a concluded Builder classification with the runner's clock (#3795).
+        self.runtime.now = lambda: "2026-11-18T00:00:00+00:00"
         self.runtime.run_role = Mock(side_effect=error)
         self.runtime.ReportRepairQueued = type("ReportRepairQueued", (Exception,), {})
         args = SimpleNamespace(unit=None, chat=False, pause_after_stage=False)

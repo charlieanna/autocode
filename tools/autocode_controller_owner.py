@@ -350,7 +350,7 @@ def project(state: RunState, inspection):
     return shown
 
 
-def continuing(state, inspection):
+def continuing(state: RunState, inspection):
     """A live controller holds a saved stop: a resume or a raised limit is being applied (live VS Code
     test, 2026-11-18). The new controller owns the run from the moment it starts, but it saves RUNNING
     only after its checks (the provider's model listing took 60 to 100 seconds), and until then the
