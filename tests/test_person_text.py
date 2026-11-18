@@ -10,13 +10,15 @@ sentences only, while the saved request and the stop reason keep the operator ad
 import copy
 import unittest
 
+import autocode_pause_codes as pause_codes
 import autocode_person_text as person_text
 import autocode_progress_view as progress_view
 import autocode_recovery_limits as recovery_limits
 import autocode_resolver_human as human
 import autocode_run_view as run_view
+import autocode_status_summary as status_summary
 
-from . import test_blocker_next_action, test_resolver_human
+from . import test_blocker_next_action, test_needs_contract, test_resolver_human
 from .operational_fixtures import legacy_publication
 
 PERSON = (
@@ -208,6 +210,106 @@ class PersonOnlyQuestionTests(unittest.TestCase):
                 self.assertEqual(
                     retained["resolver"]["operational_receipts"], self.state["resolver"]["operational_receipts"]
                 )
+
+
+# A stop reason the runner saved for both audiences: the person's sentence, then operator advice.
+SAVED_FOR_BOTH = (
+    "The Builder stopped. "
+    + recovery_limits.GRANT_ADVICE
+    + " "
+    + recovery_limits.INFORM_ADVICE
+    + " Or correct it with --edit-goal FILE."
+)
+
+
+def person_fields(view):
+    """The status-view fields a client shows a person as they are, named by their path."""
+    progress = view.get("progress") or {}
+    yield "progress.needs_you", progress.get("needs_you")
+    yield "progress.line", progress.get("line")
+    yield "summary.sentence", (view.get("summary") or {}).get("sentence")
+    yield "explanation.what_it_means", (view.get("explanation") or {}).get("what_it_means")
+    recovery = view.get("recovery") or {}
+    for key in ("title", "what_happened", "retained"):
+        yield f"recovery.{key}", recovery.get(key)
+    for action in recovery.get("actions") or []:
+        yield "recovery.actions[].label", action.get("label")
+        yield "recovery.actions[].effect", action.get("effect")
+
+
+def rendered(state):
+    """The public view with the progress and summary the status command adds to it."""
+    view = run_view.view(copy.deepcopy(state))
+    view["progress"] = progress_view.progress(state, accepted=(), stage=None, needs=view["needs"])
+    view["summary"] = status_summary.project(view)
+    return view
+
+
+class PersonFieldsTests(unittest.TestCase):
+    """No view field written for a person names a flag, a token variable or a command, at any pause.
+
+    The progress view wrote the action into `progress.needs_you` ("give plan feedback with --feedback
+    TEXT or ... --planning-review-call-limit N"), which VS Code showed unfiltered in its wait
+    notification, Details and status bar; each client stripped other fields for itself."""
+
+    def states(self):
+        rows = [{"status": code, "stop_reason": SAVED_FOR_BOTH} for code in pause_codes.CODES]
+        rows.extend(test_needs_contract.KIND_STATES.values())
+        for extra in test_needs_contract.KIND_SHAPES.values():
+            rows.extend(extra)
+        return rows
+
+    def test_every_pause_code_and_needs_shape_shows_a_person_words_only(self):
+        states = self.states()
+        self.assertGreater(len(states), len(pause_codes.CODES))
+        for state in states:
+            view = rendered(state)
+            for field, value in person_fields(view):
+                with self.subTest(status=state["status"], field=field):
+                    if isinstance(value, str):
+                        self.assertFalse(person_text.machinery(value), value)
+                        self.assertFalse(person_text.internal_machinery(value), value)
+            with self.subTest(status=state["status"], field="progress.needs_you"):
+                self.assertTrue(view["progress"]["needs_you"])
+
+    def test_the_words_say_what_the_named_action_does(self):
+        cases = {
+            "PAUSED_PLANNING_BUDGET": "give plan feedback or raise the planning review limit",
+            "PAUSED_PERMISSION_LOOP": "inspect the pause, then say what changed",
+            "PAUSED_ACCEPTANCE_TESTS": "inspect the pause, then resume",
+        }
+        for status, asked in cases.items():
+            with self.subTest(status=status):
+                self.assertEqual(asked, rendered({"status": status, "stop_reason": "why"})["progress"]["needs_you"])
+        edit = {
+            "kind": "resume",
+            "edit_required": True,
+            "action": "--edit-goal FILE",
+            "feedback_action": "--feedback TEXT",
+        }
+        asked = progress_view.progress({"status": "PAUSED_COMPONENT_PLAN"}, accepted=(), stage=None, needs=edit)
+        self.assertEqual("correct the plan or give feedback on it; fresh approval needed", asked["needs_you"])
+        edit.pop("feedback_action")
+        asked = progress_view.progress({"status": "PAUSED_COMPONENT_PLAN"}, accepted=(), stage=None, needs=edit)
+        self.assertEqual("correct the plan; fresh approval needed", asked["needs_you"])
+        held = {"kind": "planning_budget", "action": "--resume-paused --resolver-request R"}
+        asked = progress_view.progress({"status": "PAUSED_PLANNING_BUDGET"}, accepted=(), stage=None, needs=held)
+        self.assertEqual("continue planning", asked["needs_you"])
+
+    def test_a_stale_runs_next_command_is_never_the_persons_words(self):
+        command = "--workspace /w --run-dir /r --reconcile-only"
+        stale = progress_view.progress({"status": "RUNNING"}, accepted=(), stage="Builder", needs=None, stopped=command)
+        self.assertEqual("inspect the stopped stage, then resume", stale["needs_you"])
+        named = "AutoResolver must reconcile retained attempt 002/builder-01"
+        stale = progress_view.progress({"status": "RUNNING"}, accepted=(), stage="Builder", needs=None, stopped=named)
+        self.assertEqual(named, stale["needs_you"])
+
+    def test_for_person_keeps_plain_text_and_drops_what_is_typed(self):
+        self.assertEqual("", person_text.for_person(None))
+        self.assertEqual("The Builder stopped.", person_text.for_person("The Builder stopped."))
+        self.assertEqual("The Builder stopped.", person_text.for_person(SAVED_FOR_BOTH))
+        self.assertEqual("", person_text.for_person(recovery_limits.GRANT_ADVICE))
+        self.assertEqual(person_text.SCHEMA_SUMMARY, person_text.for_person("acceptance_test_repairs failed"))
 
 
 if __name__ == "__main__":
