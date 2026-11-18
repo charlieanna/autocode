@@ -20,6 +20,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
@@ -133,6 +134,53 @@ class StorePause(util.Paused):
 
 # Errors that name a private store and their own remedy; provider_launch.prepare adds none of its own.
 STORE_ERRORS = (UnusableStore, StorePause)
+# The seconds a model-free setup check and its one retry share (setup_check).
+SETUP_CHECK_SECONDS = 60.0
+
+
+class SetupCheckTimeout(subprocess.SubprocessError):
+    """A model-free setup check ran out of time twice. Nothing says the setup itself is broken."""
+
+
+def setup_check(argv, *, what, timeout, **options):
+    """Run one model-free setup check, and once more when it only ran out of time.
+
+    A loaded host can take longer than a check's own limit just to start a process: a contained
+    shell's ``exit 0`` overran 10 seconds at a load average of 235 and paused a run that had done
+    nothing wrong. Running out of time says nothing about the sandbox or the tool, so the rule is the
+    one Kilo's setup checks follow (providers.kilocode_probe, #2959). The first attempt keeps its
+    ``timeout``. The retry starts after the first's process tree has stopped (captured.run_metadata)
+    and gets what is left of SETUP_CHECK_SECONDS, never less than ``timeout``. A nonzero exit and an
+    OS error are answers, not delays, and are returned or raised as they are, never retried.
+    """
+    started = time.monotonic()
+    try:
+        return captured.run_metadata(argv, timeout=timeout, **options)
+    except subprocess.TimeoutExpired:
+        again = max(timeout, SETUP_CHECK_SECONDS - (time.monotonic() - started))
+    try:
+        return captured.run_metadata(argv, timeout=again, **options)
+    except subprocess.TimeoutExpired as error:
+        raise SetupCheckTimeout(
+            f"{what} did not answer within {timeout:g} seconds, nor within {again:g} on a second attempt; "
+            "the check only ran out of time, and no provider was launched"
+        ) from error
+
+
+def _tool_version(executable, environment, workspace):
+    """``EXECUTABLE --version``, as a setup check."""
+    name = f"{Path(executable).name} --version"
+    return setup_check(
+        [executable, "--version"], what=name, env=environment, cwd=workspace, capture_output=True, text=True, timeout=15
+    )
+
+
+def _start_check(shell, root):
+    """The contained shell runs ``exit 0``: the sandbox starts and its profile parses."""
+    what = "The contained shell's start check"
+    return setup_check([str(shell), "-c", "exit 0"], what=what, cwd=root, capture_output=True, text=True, timeout=10)
+
+
 DENIAL_CHANGED = "Private run-state read denial changed; no provider launched"
 DENIAL_TEXT = re.compile(r"Operation not permitted|Permission denied|Read-only file system")
 NO_OPENCODE = "strict tool containment cannot find the opencode executable on PATH"
@@ -164,7 +212,7 @@ def _bubblewrap_problem():
             f"{BWRAP}; this machine is {sys.platform} without {BWRAP}"
         )
     try:
-        probe = captured.run_metadata(
+        probe = setup_check(
             [
                 BWRAP,
                 "--unshare-all",
@@ -181,6 +229,7 @@ def _bubblewrap_problem():
                 "-c",
                 "exit 0",
             ],
+            what="bubblewrap's namespace check",
             capture_output=True,
             text=True,
             timeout=15,
@@ -241,7 +290,9 @@ def backend_version(name):
     """The backend's own version for the transport identity: bwrap's, or macOS's for Seatbelt."""
     if name == BUBBLEWRAP:
         try:
-            result = captured.run_metadata([BWRAP, "--version"], capture_output=True, text=True, timeout=15)
+            result = setup_check(
+                [BWRAP, "--version"], what="bwrap --version", capture_output=True, text=True, timeout=15
+            )
         except (OSError, subprocess.SubprocessError):
             return None
         version = result.stdout.strip()
@@ -267,9 +318,7 @@ def unavailable(workspace=None, environment=None):
     if not executable:
         return opencode_problem(None)
     try:
-        result = captured.run_metadata(
-            [executable, "--version"], env=env, cwd=workspace, capture_output=True, text=True, timeout=15
-        )
+        result = _tool_version(executable, env, workspace)
     except (OSError, subprocess.SubprocessError) as error:
         return f"strict tool containment could not read the OpenCode version: {error}"
     return opencode_problem(result)
@@ -1157,7 +1206,7 @@ def prepare(
     shell.write_text(script)
     shell.chmod(0o500)
     profile.chmod(0o400)
-    probe = captured.run_metadata([str(shell), "-c", "exit 0"], cwd=root, capture_output=True, text=True, timeout=10)
+    probe = _start_check(shell, root)
     if probe.returncode:
         raise RuntimeError(
             f"Strict native tool sandbox is unavailable (exit {probe.returncode}): " + probe.stderr.strip()
@@ -1654,9 +1703,7 @@ def configure(
     executable = shutil.which(command[0], path=environment.get("PATH", ""))
     if not executable:
         raise RuntimeError("Strict native tool containment cannot find the provider executable")
-    version = captured.run_metadata(
-        [executable, "--version"], env=environment, cwd=workspace, capture_output=True, text=True, timeout=15
-    )
+    version = _tool_version(executable, environment, workspace)
     if version.returncode or version.stdout.strip() not in supported:
         raise RuntimeError(
             "Strict native tool containment requires qualified "
