@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -79,6 +81,77 @@ class DueTests(unittest.TestCase):
 
 
 class ResolveTests(unittest.TestCase):
+    def test_status_reports_the_inspection_error_without_claiming_the_saved_chat_is_gone(self):
+        root = checkout(self)
+        old = root / ".autocode" / "runs" / "r1"
+        old.mkdir(parents=True)
+        tree = Path(workspaces.create(root, "task")["workspace"])
+        child = tree / ".autocode" / "runs" / "r1"
+        child.mkdir(parents=True)
+        record = {
+            "workspace": str(root),
+            "build_worktree": {
+                "state": "moved",
+                "moved_to": {"workspace": str(tree), "run_dir": str(child)},
+            },
+        }
+        (old / "state.json").write_text(json.dumps(record))
+        (child / "state.json").write_text(json.dumps({"workspace": str(tree)}))
+        before = (old / "state.json").read_bytes()
+        entry = root.parent / "status_probe.py"
+        source = Path(__file__).resolve().parents[1] / "tools"
+        entry.write_text(
+            f"import sys\nsys.path.insert(0, {str(source)!r})\n"
+            "import autocode_workspaces as workspaces\n"
+            "from unittest.mock import patch\n"
+            "with patch.object(workspaces, 'git', side_effect=ValueError('Git inspection unavailable')):\n"
+            "    import autocode\n"
+            "    raise SystemExit(autocode.cli())\n"
+        )
+        result = subprocess.run(
+            [sys.executable, str(entry), "--workspace", str(root), "--run-dir", str(old), "--status"],
+            env={
+                **os.environ,
+                "AUTOCODE_HOME": str(root.parent / "registry"),
+                "XDG_STATE_HOME": str(root.parent / "state"),
+            },
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        self.assertEqual(2, result.returncode, result.stdout + result.stderr)
+        self.assertIn("Cannot verify the task worktree: Git inspection failed", result.stderr)
+        self.assertIn("Git inspection unavailable", result.stderr)
+        self.assertNotIn("missing or does not belong", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertEqual(before, (old / "state.json").read_bytes())
+
+    def test_a_failed_git_inspection_is_not_reported_as_a_missing_worktree(self):
+        root = checkout(self)
+        old = root / ".autocode" / "runs" / "r1"
+        tree = Path(workspaces.create(root, "task")["workspace"])
+        child = tree / ".autocode" / "runs" / "r1"
+        child.mkdir(parents=True)
+        saved = {"workspace": str(tree), "build_worktree": {"state": "building", "moved_from": {"run_dir": str(old)}}}
+        (child / "state.json").write_text(json.dumps(saved))
+        record = {"build_worktree": {"state": "moved", "moved_to": {"workspace": str(tree), "run_dir": str(child)}}}
+        original = workspaces.git
+        for location in (root, tree):
+            for error in (ValueError("Git inspection unavailable"), OSError("Git access denied")):
+                with self.subTest(location=location, error=error):
+
+                    def unavailable(folder, *args, **kwargs):
+                        if Path(folder) == location:
+                            raise error
+                        return original(folder, *args, **kwargs)
+
+                    with mock.patch.object(workspaces, "git", side_effect=unavailable):
+                        with self.assertRaisesRegex(ValueError, "Cannot verify.*Git"):
+                            build_worktree.resolve(root, old, record)
+                        with self.assertRaisesRegex(ValueError, "Cannot verify.*Git"):
+                            workspaces.resume_workspace(root, {**saved, "project_workspace": str(root)})
+        self.assertEqual((tree, child, saved), build_worktree.resolve(root, old, record))
+
     def test_a_moved_record_is_followed_only_to_the_run_that_came_from_it(self):
         root = checkout(self)
         old = root / ".autocode" / "runs" / "r1"

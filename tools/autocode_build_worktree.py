@@ -197,6 +197,8 @@ def resolve(workspace, run_dir, state: RunState) -> tuple[Path, Path, RunState] 
         ):
             return None
         saved = util.read(child / "state.json")
+    except workspaces.WorktreeInspectionError:
+        raise  # A failed query is not evidence that the saved worktree disappeared or changed owners.
     except (OSError, ValueError, KeyError, json.JSONDecodeError):
         return None
     origin = (saved.get(KEY) or {}).get("moved_from") or {}
