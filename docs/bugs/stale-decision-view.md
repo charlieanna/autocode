@@ -34,3 +34,11 @@ Regression coverage exercises questions and plan approval, several staleness
 causes, unpublished proposals, consistent status sampling and the inventory,
 attention, wait, event and editor consumers. Existing exact-token rejection and
 stop-precedence tests remain required.
+
+The corrected path was also exercised in the actual extension while a live
+GLM Requirements confirmation waited. Installing the candidate core expired
+the old request. VS Code took one named continuation and displayed the same
+Requirements under a new authentic request; attempts, tokens, cost and planning
+calls stayed unchanged. It submitted no confirmation. The operating agent then
+reviewed and confirmed the fresh Requirements, and the editor showed the
+subsequent planning work without an unavailable-action error.
