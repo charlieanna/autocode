@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_classification_recovery as classification
     from . import autocode_no_progress_recovery as no_progress
     from . import autocode_operational_block_view as blocked
     from . import autocode_operational_disposition as disposition
@@ -21,6 +22,7 @@ try:
     from . import autocode_stop as stop
     from . import autocode_validation_exhaustion_recovery as validation
 except ImportError:
+    import autocode_classification_recovery as classification
     import autocode_no_progress_recovery as no_progress
     import autocode_operational_block_view as blocked
     import autocode_operational_disposition as disposition
@@ -51,6 +53,11 @@ def presentation(state: RunState, *, include_hold=False):
                 "Saved work and evidence are retained; no result was accepted."
             ),
         }
-    if recovery_progress.pending(state) or validation.pending(state) or no_progress.pending_legacy(state):
+    if (
+        recovery_progress.pending(state)
+        or validation.pending(state)
+        or no_progress.pending_legacy(state)
+        or classification.pending(state)
+    ):
         return None
     return hold.presentation(state)

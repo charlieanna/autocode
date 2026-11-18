@@ -1,10 +1,17 @@
-"""One explicit retry of an abandoned, failure-bound Builder classification.
+"""One explicit retry of an abandoned, failure-bound Builder classification, and the end of a spent one.
 
 This module owns builder_failure_hold.classification_retry and the retry grant
 inside stuck_investigation. abandon retains the request and failed history;
 run_view projects the offer, autocode_action_recovery authorizes, and provider admission
 consumes it. Existing classification history counts every reservation. No Builder
 retry, proposal assignment, approval or spending limit is granted here.
+
+When nothing automatic can classify a held Builder failure any more (the milestone's
+classification allowance is spent, the Investigator is disabled, or the retained report is
+held by its spent repair limits), ``conclude`` ends the run with a recorded outcome
+(autocode_stop.end, #2485). It used to ask the person to edit the approved plan or start a
+new run, a question about AutoCode's own retries, and a held failure that had never been
+classified paused again on every resume (AGENTS.md "What a person is asked").
 """
 
 from __future__ import annotations
@@ -22,6 +29,8 @@ try:
     from . import autocode_investigation_policy as investigation_policy
     from . import autocode_report_repair_queue as repair_queue
     from . import autocode_report_repair_route as report_repair_route
+    from . import autocode_source_scope as source_scope
+    from . import autocode_stop as stop
     from . import autocode_util as util
 except ImportError:
     import autocode_builder_failure as failure
@@ -29,9 +38,20 @@ except ImportError:
     import autocode_investigation_policy as investigation_policy
     import autocode_report_repair_queue as repair_queue
     import autocode_report_repair_route as report_repair_route
+    import autocode_source_scope as source_scope
+    import autocode_stop as stop
     import autocode_util as util
 
 ACTION = "--resume-paused --retry-failed-stage --job-retry-token TOKEN"
+STATUS = "PAUSED_BUILDER_CLASSIFICATION"
+# What a saved checkpoint shows until its next resume ends it (autocode_action_retained_recovery).
+NOTICE = "AutoCode will close the spent Builder failure classification with a recorded outcome."
+CAUSES = {
+    "disabled": "the Investigator is disabled for this run",
+    "allowance": "this milestone's classification allowance is spent",
+    "repair_limits": "the retained report is held by its spent failure or repair limits",
+    "lost_request": "an older checkpoint did not retain its failed classification request",
+}
 STAGE = "investigate_stuck"
 BOUNDARY_BOUNDS = ("max_seconds", "max_cost_usd", "iteration_ceiling")
 
@@ -199,25 +219,9 @@ def offer(state: RunState):
     if not context:
         return None
     used, limit = len(failure.classified(state)), policy.classification_limit(state)
-    repair_finished = _repair_finished(state, context)
-    enabled = investigation_policy.enabled(state)
     continuation = _repair_continuation(state, context)
-    if not enabled or (not continuation and (used >= limit or not repair_finished)):
-        return {
-            "kind": "resume",
-            "reason": state.get("stop_reason"),
-            "edit_required": True,
-            "action": "--edit-goal FILE",
-            "feedback_action": None,
-            "classification_attempts": {"used": used, "limit": limit},
-            "recovery_hint": (
-                "The Investigator is disabled for this run. Review and change the approved plan, or start a new run with investigation enabled; retrying cannot override the saved policy."
-                if not enabled
-                else "The classification allowance is spent. Review and change the approved plan, or start a new run; resuming cannot refill it."
-                if used >= limit
-                else "The retained report is still held by its existing failure or repair limits. Inspect the artifacts and change the approved plan, or start a new run; a classification retry cannot bypass that gate."
-            ),
-        }
+    if _spent_cause(state, context):
+        return None  # Nothing for a person: the next resume ends the run (pending, conclude).
     token = "bc:" + util.digest(
         {"run_dir": state.get("run_dir"), "context": context, "configuration": configuration(state)}
     )
@@ -247,6 +251,117 @@ def offer(state: RunState):
     }
 
 
+def _spent_cause(state: RunState, context) -> str | None:
+    """Why a retained failed classification can go no further, or None while a retry remains."""
+    if not investigation_policy.enabled(state):
+        return "disabled"
+    if _repair_continuation(state, context):
+        return None
+    if len(failure.classified(state)) >= policy.classification_limit(state):
+        return "allowance"
+    return None if _repair_finished(state, context) else "repair_limits"
+
+
+def _bound(state: RunState, held) -> bool:
+    """The hold still belongs to the current task and approved contract (dispatch_guard releases it otherwise)."""
+    bound = held.get("binding") or {}
+    contract = state.get("goal_contract") or {}
+    return (
+        bound.get("task_digest") == util.digest(state.get("current_task") or {})
+        and bound.get("contract_hash") == contract.get("hash")
+        and bound.get("contract_revision") == contract.get("revision")
+    )
+
+
+def exhausted(state: RunState) -> dict | None:
+    """A held Builder failure that no automatic classification can take any more, or None.
+
+    Three holds reach here: a retained failed classification whose allowance, policy or repair
+    limits are spent; an older checkpoint whose failed request was not retained; and a failure
+    held unclassified because the milestone's allowance was already spent or the Investigator is
+    off (autocode_builder_failure.queue), which no resume could release. A hold awaiting
+    reconciliation (an attempt still open, uncertain artifacts, another repair) is not spent.
+    Pure: the caller checks the source revision (``conclude``)."""
+    held = state.get("builder_failure_hold") or {}
+    if (
+        state.get("status") != STATUS
+        or held.get("status") != STATUS
+        or not held.get("failure_id")
+        or not _bound(state, held)
+        or any(
+            state.get(key)
+            for key in (
+                "active_stage",
+                "active_runner_check",
+                "uncertain_artifacts",
+                "pending_builder_failure",
+                "stuck_investigation",
+            )
+        )
+    ):
+        return None
+    used, limit = len(failure.classified(state)), policy.classification_limit(state)
+    found = {"failure_id": held["failure_id"], "classification_attempts": {"used": used, "limit": limit}}
+    if held.get("classification_retry"):
+        context = _context(state)
+        cause = _spent_cause(state, context) if context else None
+        return {**found, "cause": cause} if cause else None
+    if "(The Investigator could not finish:" in (held.get("reason") or state.get("stop_reason") or ""):
+        return {**found, "cause": "lost_request"}
+    if state.get("pending_report_repair"):
+        return None
+    looked = any(
+        row.get("identity") == "builder-failure:" + held["failure_id"]
+        for row in state.get("stuck_investigations") or []
+    )
+    if looked:
+        return None  # A prior diagnosis of this failure is reused at resume (builder_failure).
+    if not investigation_policy.enabled(state):
+        return {**found, "cause": "disabled"}
+    return {**found, "cause": "allowance"} if used >= limit else None
+
+
+def pending(state: RunState) -> dict | None:
+    """A saved spent hold the next resume ends; nothing for a person (shown as `continue`)."""
+    return exhausted(state)
+
+
+def conclude(state: RunState, workspace, *, at) -> bool:
+    """End the run when its held Builder failure can no longer be classified; True when ended.
+
+    The outcome records the failure, the milestone's classification count and limit, the cause
+    and the Investigator history for this milestone, where the view and the report read them."""
+    found = exhausted(state)
+    held = state.get("builder_failure_hold") or {}
+    if not found or (held.get("binding") or {}).get("source_revision") != source_scope.snapshot(workspace, state).get(
+        "revision"
+    ):
+        return False
+    milestone = policy.key(state)
+    investigations = [
+        copy.deepcopy(row)
+        for row in state.get("stuck_investigations") or []
+        if row.get("trigger") == "builder_failure" and row.get("milestone_key") in (milestone, None)
+    ]
+    attempts = found["classification_attempts"]
+    reason = (
+        f"The Builder's failure could not be classified any further: {CAUSES[found['cause']]} "
+        f"({attempts['used']} of {attempts['limit']} classifications used), "
+        "and no further automatic recovery remains"
+    )
+    evidence = {
+        "pause_status": STATUS,
+        "cause": found["cause"],
+        "failure_id": found["failure_id"],
+        "binding": copy.deepcopy(held.get("binding")),
+        "classification_attempts": attempts,
+        "held_reason": held.get("reason"),
+        "investigations": investigations,
+    }
+    stop.end(state, reason, evidence, at=at)
+    return True
+
+
 def gate(state: RunState, *, resume, retry, token, correction=False):
     held = state.get("builder_failure_hold") or {}
     if (
@@ -254,8 +369,9 @@ def gate(state: RunState, *, resume, retry, token, correction=False):
         and not (retry or token or correction)
         and state.get("status") == "PAUSED_BUILDER_CLASSIFICATION"
         and (_context(state) or "(The Investigator could not finish:" in (held.get("reason") or ""))
+        and not pending(state)
     ):
-        return "Inspect current status for the bound classification retry or a plan correction; plain resume cannot release this hold."
+        return "Inspect current status for the bound classification retry; plain resume cannot release this hold."
     if not ((state.get("builder_failure_hold") or {}).get("classification_retry") and (retry or token)) and not (
         isinstance(token, str) and token.startswith("bc:")
     ):

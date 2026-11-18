@@ -289,8 +289,8 @@ single-unit invocation (`--unit`) stops at its own boundary. A native visual run
 (`VISUAL_REVIEW_PROFILE=`), whose scope cannot run the Investigator, never sends a stalled
 stage to it, so that pause keeps its original reason and spends no investigation. A Builder
 failure that needs classification still queues the Investigator there; native authority
-refuses it, and the run pauses `PAUSED_BUILDER_CLASSIFICATION` at the Builder with that
-classification spent, as before. `--diagnose-failed-stage`
+refuses it, and with that classification spent the run ends with a recorded outcome, as any
+Builder failure nothing can classify does ([Models](models.md)). `--diagnose-failed-stage`
 below remains the operator's explicit, policy-ledgered alternative for a Builder.
 
 ## Joint requirements planning and review
