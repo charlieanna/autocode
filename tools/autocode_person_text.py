@@ -124,6 +124,23 @@ def plain(text):
     return shown or FALLBACK
 
 
+def for_person(text) -> str:
+    """Saved text quoted to a person, or "" when nothing in it is for a person.
+
+    The one rule for a view field written for a person that quotes text the runner saved for both
+    audiences (a stop reason, a recovery hint, a stale run's next action): internal prompt and schema
+    prose becomes its plain summary, and sentences naming a flag, a token's environment variable or
+    an `autocode` command are left out."""
+    if not text:
+        return ""
+    if internal_machinery(text):
+        return human_summary(text) or ""
+    if not machinery(text):
+        return str(text)
+    cleaned = plain(text)
+    return "" if cleaned == FALLBACK else str(cleaned)
+
+
 def plain_option(option):
     """An option label without its "with --flag ..." clause; a label that is all machinery is dropped (None)."""
     if not isinstance(option, str) or not machinery(option):

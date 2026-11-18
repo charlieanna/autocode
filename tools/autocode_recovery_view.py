@@ -23,6 +23,7 @@ try:
     from . import autocode_internal_failure_view as operational_block
     from . import autocode_member_stop as member_stop
     from . import autocode_pause_authority as pause_authority
+    from . import autocode_person_text as person_text
     from . import autocode_provider_auth as provider_auth
     from . import autocode_quota_route as quota_route
     from . import autocode_recovery_limits as recovery_limits
@@ -36,6 +37,7 @@ except ImportError:
     import autocode_internal_failure_view as operational_block
     import autocode_member_stop as member_stop
     import autocode_pause_authority as pause_authority
+    import autocode_person_text as person_text
     import autocode_provider_auth as provider_auth
     import autocode_quota_route as quota_route
     import autocode_recovery_limits as recovery_limits
@@ -233,10 +235,6 @@ def _auth_stop(state: RunState) -> str | None:
 
 def _seatbelt_loopback_stop(state: RunState) -> str | None:
     """Explain a macOS Seatbelt 127.0.0.1 loopback bind stop in plain words (no CLI flags)."""
-    try:
-        from . import autocode_person_text as person_text
-    except ImportError:
-        import autocode_person_text as person_text
     reason = str(state.get("stop_reason") or "")
     if person_text.loopback_bind_blocked(reason):
         return person_text.seatbelt_loopback_diagnostic(for_person=True)
@@ -606,7 +604,11 @@ def project(state: RunState, need=None):
         )
         return result
     if fresh_run:
-        why = need.get("reason") or need.get("recovery_hint") or result["what_happened"]
+        why = (
+            person_text.for_person(need.get("reason"))
+            or person_text.for_person(need.get("recovery_hint"))
+            or result["what_happened"]
+        )
         if status in ACTIVE:
             # The saved status says a step was under way; whether that older worker still lives is not
             # this card's to claim, only that this version cannot take the step over.
@@ -630,17 +632,18 @@ def project(state: RunState, need=None):
             _action(
                 "feedback",
                 "Correct the component plan",
-                "Use --edit-goal FILE or --feedback TEXT to request a corrected draft. It needs fresh approval; "
+                "Edit the plan or give feedback to request a corrected draft. It needs fresh approval; "
                 "this action neither edits nor approves the saved contract.",
             )
         )
         return result
     if need.get("kind") == "recover_source":
         result["title"] = "Original source needs inspection"
+        unverifiable = (
+            "This saved attempt has no verifiable original source identity, so an exact retry is unavailable."
+        )
         result["what_happened"] = (
-            need["recovery_hint"]
-            if native_need is not None
-            else "This saved attempt has no verifiable original source identity, so an exact retry is unavailable."
+            person_text.for_person(need["recovery_hint"]) or unverifiable if native_need is not None else unverifiable
         )
         result["saved_reason"] = need.get("recovery_hint") or need.get("reason")
         actions.append(

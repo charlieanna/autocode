@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_classification_recovery as classification
     from . import autocode_contract_identity as contracts
     from . import autocode_no_progress_recovery as no_progress
     from . import autocode_operational_admission as admission
@@ -26,6 +27,7 @@ try:
     from . import autocode_support as support
     from . import autocode_validation_exhaustion_recovery as validation
 except ImportError:
+    import autocode_classification_recovery as classification
     import autocode_contract_identity as contracts
     import autocode_no_progress_recovery as no_progress
     import autocode_operational_admission as admission
@@ -55,6 +57,10 @@ def settle(runner, args, parser, state: RunState, state_path, run_dir, workspace
         runner.write_json(state_path, state)
         print(state.get("stop_reason") or state.get("next_action"))
         return True, 2  # A recorded outcome launches nothing; the recovery history stays.
+    if classification.pending(state) and classification.conclude(state, workspace, at=runner.now()):
+        runner.write_json(state_path, state)
+        print(state.get("stop_reason") or state.get("next_action"))
+        return True, 2  # A recorded outcome launches nothing; the failure and its history stay.
     if validation.pending(state) and validation.settle(state, _revision(state, workspace), at=runner.now()):
         runner.write_json(state_path, state)
         print(state.get("stop_reason") or state.get("next_action"))
@@ -153,5 +159,8 @@ OPERATIONS = operations.register(
     operations.Operation("retained_validation", operations.no_work, operations.no_work, observes=validation.pending),
     operations.Operation(
         "retained_recovery_allowance", operations.no_work, operations.no_work, observes=exhaustion.pending
+    ),
+    operations.Operation(
+        "retained_classification", operations.no_work, operations.no_work, observes=classification.pending
     ),
 )

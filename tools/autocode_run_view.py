@@ -317,6 +317,8 @@ def view(
     stop_reason = (
         recovery_exhaustion.NOTICE
         if recovery_exhaustion.pending(state)
+        else classification_recovery.NOTICE
+        if classification_recovery.pending(state)
         else validation_recovery.notice(state)
         if validation_recovery.pending(state)
         else no_progress_recovery.notice(state)
@@ -1316,19 +1318,10 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
     classification_need = classification_recovery.offer(state)
     if classification_need:
         return classification_need
-    if (
-        status == "PAUSED_BUILDER_CLASSIFICATION"
-        and not (state.get("builder_failure_hold") or {}).get("classification_retry")
-        and "(The Investigator could not finish:" in (state.get("stop_reason") or "")
-    ):
-        return {
-            "kind": "resume",
-            "reason": state.get("stop_reason"),
-            "edit_required": True,
-            "action": "--edit-goal FILE",
-            "feedback_action": None,
-            "recovery_hint": "This older checkpoint did not retain its failed classification request. Review and change the approved plan, or start a new run; its discarded Resolver proposal cannot be reconstructed by resume.",
-        }
+    if classification_recovery.pending(state):
+        # A spent classification is AutoCode's to close, not a plan edit for a person: the next
+        # resume records the run's outcome (autocode_classification_recovery.conclude).
+        return {"kind": "continue", "action": "--resume-paused"}
     failure = state.get("job_failure") or {}
     if quota_route.job_pause_current(state) and failure:
         known_source = bool(failure.get("source_identity"))

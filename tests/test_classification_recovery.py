@@ -277,52 +277,36 @@ class ClassificationRecoveryCLI(unittest.TestCase):
                 self.assertIn('model_reasoning_effort="medium"', call["argv"])
         self.assertEqual(2, len(self.trace("builder")))
 
-    def test_retry_preserves_the_existing_report_failure_limit(self):
+    def test_a_spent_retry_ends_the_run_with_its_evidence_instead_of_asking_for_a_plan_edit(self):
+        # Before: the second failed classification asked the person to edit the approved plan or
+        # start a new run (`edit_required`, --edit-goal FILE), a question about AutoCode's retries.
         self.seed()
         self.env.update(BUILD_AUDIT_FAULT="no_change", FAILURE_ROUTING_DIAGNOSIS="stale")
         self.drive(codes=(2,))
         first = self.status()["view"]["needs"]
         token = first["job_retry_token"]
         self.drive("--resume-paused", "--retry-failed-stage", "--job-retry-token", token, codes=(2,))
-        need = self.status()["view"]["needs"]
-        self.assertEqual(
-            {"used": 2, "limit": first["classification_attempts"]["limit"]}, need["classification_attempts"]
-        )
+        ended = self.status()
+        view = ended["view"]
         self.assertEqual(2, len(self.trace("investigate_stuck")))
-        self.assertEqual("resume", need["kind"])
-        self.assertTrue(need["edit_required"])
-        self.assertNotIn("job_retry_token", need)
-        self.assertIn("failure or repair limits", need["recovery_hint"])
+        self.assertEqual("PAUSED_INTERVENTION", view["status"])
+        self.assertIsNone(view["needs"])
+        self.assertIsNone(view["next_command"])
+        outcome = view["recovery"]["outcome"]
+        self.assertEqual("could_not_finish", outcome["result"])
+        self.assertEqual("repair_limits", outcome["evidence"]["cause"])
+        self.assertEqual(
+            {"used": 2, "limit": first["classification_attempts"]["limit"]},
+            outcome["evidence"]["classification_attempts"],
+        )
+        self.assertEqual(first["classification_id"], outcome["evidence"]["failure_id"])
         before = self.call_order()
         self.drive("--resume-paused", "--retry-failed-stage", "--job-retry-token", token, codes=(2,))
         self.drive("--resume-paused", codes=(2,))
         self.assertEqual(before, self.call_order())
         self.assertEqual(1, len(self.trace("builder")))
         self.assertEqual(self.approved_token, self.status()["contract_token"])
-
-        self.assertEqual("--edit-goal FILE", need["action"])
-        self.assertIsNone(need.get("feedback_action"))
-        held = self.status()
-        retained = {path: Path(path).read_bytes() for path in first["retained_evidence"]}
-        body = json.loads((self.root / "plan.json").read_text())["contract"]
-        body["intended_outcome"] = "Deliver the approved hello CLI after reviewing the failed classification"
-        edited = self.root / "edited-goal.json"
-        edited.write_text(json.dumps(body))
-        self.drive("--edit-goal", str(edited), codes=(0,))
-        corrected = self.status()
-        self.assertNotEqual(self.approved_token, corrected["contract_token"])
-        self.assertNotEqual("TASK_COMPLETE", corrected["status"])
-        self.assertFalse(corrected["completion_current"])
-        self.assertEqual(before, self.call_order())
-        self.assertEqual(held["view"]["usage"], corrected["view"]["usage"])
-        self.assertFalse((self.project / "main.py").exists())
-        self.assertEqual(retained, {path: Path(path).read_bytes() for path in retained})
-        self.call(
-            "autoplanner",
-            ["--run-dir", str(self.run), "--approve-goal", self.approved_token, "--no-chat"],
-            codes=(2,),
-        )
-        self.assertEqual(before, self.call_order())
+        self.assertEqual(outcome, self.status()["view"]["recovery"]["outcome"])
 
     def test_changed_source_refuses_the_classification_token_without_a_call(self):
         self.seed()
@@ -498,10 +482,9 @@ class ClassificationOfferTests(unittest.TestCase):
         token = recovery.offer(state)["job_retry_token"]
         state["settings"]["stuck_investigation"] = {"max_calls_per_run": 0}
         before = copy.deepcopy(state)
-        need = recovery.offer(state)
-        self.assertTrue(need["edit_required"])
-        self.assertNotIn("job_retry_token", need)
-        self.assertIn("disabled", need["recovery_hint"])
+        self.assertIsNone(recovery.offer(state))
+        self.assertEqual("disabled", recovery.pending(state)["cause"])
+        self.assertEqual("continue", run_view.needs(state)["kind"])
         runtime = SimpleNamespace(write_json=Mock())
         with self.assertRaisesRegex(ValueError, "allowance is exhausted"):
             recovery.authorize(runtime, state, Path("/owned/run"), Path("/owned"), token, supersede_job=Mock())
@@ -545,7 +528,7 @@ class ClassificationOfferTests(unittest.TestCase):
         state["current_task"]["objective"] = "A different task"
         self.assertIsNone(recovery.offer(state))
 
-    def test_a_spent_classification_allowance_offers_a_plan_correction(self):
+    def test_a_spent_classification_allowance_asks_nothing_and_ends_at_resume(self):
         state = self.state()
         limit = recovery.policy.classification_limit(state)
         for i in range(1, limit):
@@ -558,11 +541,57 @@ class ClassificationOfferTests(unittest.TestCase):
                 }
             )
         before = copy.deepcopy(state)
-        need = recovery.offer(state)
-        self.assertEqual({"used": limit, "limit": limit}, need["classification_attempts"])
-        self.assertTrue(need["edit_required"])
-        self.assertNotIn("job_retry_token", need)
+        self.assertIsNone(recovery.offer(state))
+        found = recovery.pending(state)
+        self.assertEqual({"used": limit, "limit": limit}, found["classification_attempts"])
+        self.assertEqual("allowance", found["cause"])
+        self.assertEqual({"kind": "continue", "action": "--resume-paused"}, run_view.needs(state))
+        self.assertEqual(recovery.NOTICE, run_view.view(state)["stop_reason"])
+        self.assertIsNone(recovery.gate(state, resume=True, retry=False, token=None))
         self.assertEqual(before, state)
+        revision = state["builder_failure_hold"]["binding"]["source_revision"]
+        with patch.object(recovery.source_scope, "snapshot", return_value={"revision": revision}):
+            self.assertTrue(recovery.conclude(state, Path("/owned"), at="2026-11-17T00:00:00Z"))
+        self.assertEqual("PAUSED_INTERVENTION", state["status"])
+        outcome = recovery.stop.outcome(state)
+        self.assertEqual("could_not_finish", outcome["result"])
+        self.assertEqual("allowance", outcome["evidence"]["cause"])
+        self.assertEqual(found["failure_id"], outcome["evidence"]["failure_id"])
+        self.assertIsNone(run_view.needs(state))
+
+    def test_a_changed_source_or_task_releases_the_hold_instead_of_ending_the_run(self):
+        state = self.state()
+        state["settings"]["stuck_investigation"] = {"max_calls_per_run": 0}
+        with patch.object(recovery.source_scope, "snapshot", return_value={"revision": "changed"}):
+            self.assertFalse(recovery.conclude(state, Path("/owned"), at="2026-11-17T00:00:00Z"))
+        self.assertIsNone(recovery.stop.outcome(state))
+        state["current_task"]["objective"] = "A different task"
+        self.assertIsNone(recovery.pending(state))
+
+    def test_an_unclassified_hold_at_the_spent_allowance_ends_instead_of_pausing_on_every_resume(self):
+        # builder_failure.queue held a new failure when the allowance was already spent; no resume
+        # could release it (dispatch_guard raised the same pause again).
+        state = self.state()
+        held = state["builder_failure_hold"]
+        held.pop("classification_retry")
+        held["failure_id"] = "never-classified"
+        state["stop_reason"] = held["reason"] = "Failure; failure classification requires reconciled evidence"
+        limit = recovery.policy.classification_limit(state)
+        for i in range(1, limit):
+            state["stuck_investigations"].append(
+                {
+                    "identity": f"failed-{i}",
+                    "trigger": "builder_failure",
+                    "milestone_key": recovery.policy.key(state),
+                    "outcome": "classified",
+                }
+            )
+        self.assertEqual("allowance", recovery.pending(state)["cause"])
+        state["stuck_investigations"].append({"identity": "builder-failure:never-classified", "outcome": "done"})
+        self.assertIsNone(recovery.pending(state), "a diagnosed failure is reused at resume, not ended")
+        state["stuck_investigations"].pop()
+        state["active_stage"] = {"stage": "builder"}
+        self.assertIsNone(recovery.pending(state), "an open attempt is reconciled first")
 
     def test_retained_resolver_proposal_is_displayed_without_assignment(self):
         state = self.state()
@@ -976,14 +1005,12 @@ class ClassificationOfferTests(unittest.TestCase):
         state["stuck_investigations"][1]["error"] = "A joint-planning CLI/auth/provider configuration changed"
         self.assertEqual(2, len(recovery.failure.classified(state)))
 
-    def test_older_failed_hold_names_a_plan_correction_instead_of_plain_resume(self):
+    def test_older_failed_hold_is_closed_by_autocode_not_a_plan_correction(self):
         state = self.state()
         state["builder_failure_hold"].pop("classification_retry")
         state["stop_reason"] = "Failure\n(The Investigator could not finish: provider setup failed)"
-        need = run_view.needs(state)
-        self.assertTrue(need["edit_required"])
-        self.assertIn("--edit-goal", need["action"])
-        self.assertNotIn("job_retry_token", need)
+        self.assertEqual({"kind": "continue", "action": "--resume-paused"}, run_view.needs(state))
+        self.assertEqual("lost_request", recovery.pending(state)["cause"])
 
 
 if __name__ == "__main__":

@@ -2153,7 +2153,7 @@ test('models and usage are shown once, in the run header, with no second section
   for (const id of ['telemetry', 'usage-details', 'model-info', 'usage-breakdown']) {
     assert.equal(ui.document.getElementById(id), null, `no #${id}: the run header is the one place for models and usage`);
   }
-  assert.equal(ui.document.querySelector('#composer').previousElementSibling.id, 'chat-models', 'nothing between the chat settings and the composer');
+  assert.equal(ui.document.querySelector('#composer').previousElementSibling.id, 'chat-setup', 'nothing between the chat settings and the composer');
   ui.type('Keep my unsent feedback');
   ui.document.querySelector('#header-toggle').click();
   const section = (id) => ui.document.querySelector(`#header-details [data-section="${id}"]`).textContent;
@@ -3204,6 +3204,29 @@ test('a new chat keeps a model pick in its row, marked as being checked, until t
   assert.equal(ui.document.getElementById('models-name').textContent, 'Models · 1 changed');
 });
 
+test('an unreadable workspace is visibly unavailable instead of claiming it works in the folder', async (t) => {
+  const ui = await openChat(t, null, false, { worktrees: () => ({ ...ok, code: 2, stderr: 'Cannot inspect Git: repository access denied' }) });
+  const section = ui.document.getElementById('chat-place');
+  assert.equal(ui.document.getElementById('chat-place-summary').textContent, 'Unavailable');
+  assert.equal(section.open, true, 'the failure is visible before a person sends a task');
+  assert.match(section.querySelector('[role="alert"]').textContent, /repository access denied/);
+  assert.equal(section.querySelector('input'), null, 'no placement is offered from a failed read');
+});
+
+test('expanded new-chat settings share a shrinking scroll area outside the composer', async (t) => {
+  const ui = await openChat(t, null, false, { stages: chatStageView, worktrees: worktreeList });
+  const places = ui.document.getElementById('chat-place');
+  const models = ui.document.getElementById('chat-models');
+  places.open = models.open = true;
+  const settings = places.parentElement;
+  assert.equal(models.parentElement, settings, 'both expanded sections consume one bounded area');
+  assert.equal(settings.contains(ui.document.getElementById('composer')), false, 'Send stays outside the scrolling settings');
+  const style = ui.window.getComputedStyle(settings);
+  assert.equal(style.overflowY, 'auto');
+  assert.equal(Number.parseFloat(style.minHeight), 0);
+  assert.ok(Number.parseFloat(style.flexShrink) > 0, 'settings yield space to the composer in short windows');
+});
+
 for (const succeeds of [true, false]) test(`new-chat model controls keep keyboard focus after a ${succeeds ? 'successful' : 'rejected'} check`, async (t) => {
   host.config.set('extraOptions', ['--engine', 'claude']);
   let finish;
@@ -3258,6 +3281,18 @@ test('a completed model check does not reclaim focus after the reader moves to t
   ui.document.getElementById('message').focus();
   finish(); await flush(); await flush();
   assert.equal(ui.document.activeElement, ui.document.getElementById('message'));
+});
+
+test('resetting a chat model returns focus to its model after the reset button disappears', async (t) => {
+  host.config.set('extraOptions', ['--engine', 'claude']);
+  const ui = await openChat(t, null, false, { stages: chatStageView });
+  const field = () => ui.document.querySelector('#chat-models [data-stage="builder"] select.model');
+  field().value = 'sonnet'; field().dispatchEvent(new ui.window.Event('change')); await flush(); await flush();
+  const reset = ui.document.querySelector('#chat-models [data-stage="builder"] button.link');
+  reset.focus(); reset.click(); await flush(); await flush();
+  assert.equal(ui.document.querySelector('#chat-models [data-stage="builder"] button.link'), null);
+  assert.equal(ui.document.activeElement, field());
+  assert.equal(field().value, 'haiku');
 });
 
 test('a delayed model choice is rejected after the offered choices change in the same chat', async (t) => {

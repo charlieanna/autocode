@@ -25,10 +25,12 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_attempt_ledger as attempt_ledger
+    from . import autocode_person_text as person_text
     from . import autocode_run_status as run_status
     from . import autocode_stage_activity as stage_activity
 except ImportError:
     import autocode_attempt_ledger as attempt_ledger
+    import autocode_person_text as person_text
     import autocode_run_status as run_status
     import autocode_stage_activity as stage_activity
 
@@ -134,7 +136,8 @@ def progress(
         asked = "nothing needed from you"
     elif stopped:
         headline = f"{stage or 'The stage'} {STOP_CLAIM}"
-        asked = stopped
+        # A stale run's next action can be the command itself; the person reads only its words.
+        asked = person_text.for_person(stopped) or "inspect the stopped stage, then resume"
     elif kind in WAITING:
         headline = WAITING[kind]
     elif status == "AWAITING_GOAL_APPROVAL":
@@ -425,7 +428,7 @@ def _asked(needs, state: RunState | None = None):
         and (needs or {}).get("native_cleanup") is True
         and needs.get("recovery_hint")
     ):
-        return needs["recovery_hint"]
+        return person_text.for_person(needs["recovery_hint"]) or "inspect the pause, then resume"
     if kind == "answer":
         if needs.get("resolver_scope") in ("blocker", "operational_exhaustion") and not needs.get("route"):
             # Words for a person, never a flag (#2607); a limit is raised, not explained away.
@@ -442,25 +445,23 @@ def _asked(needs, state: RunState | None = None):
         return f"{_count(len(needs.get('criteria') or []), 'requirement')} to review"
     if kind == "approve_plan":
         return "plan approval needed"
+    # Words for a person only: the command that answers is `next_command`, never this text (#2607).
     if kind == "planning_budget":
         if needs.get("action"):
-            return f"continue planning with {needs['action']}"
-        return (
-            "give plan feedback with --feedback TEXT or raise the planning review limit with "
-            "--resume-paused --planning-review-call-limit N"
-        )
+            return "continue planning"
+        return "give plan feedback or raise the planning review limit"
     if kind == "resume":
         if needs.get("new_run_required"):
             return "preserve this run; start a fresh component run with valid caller binding and new plan approval"
         if needs.get("edit_required"):
-            actions = " or ".join(action for action in (needs["action"], needs.get("feedback_action")) if action)
-            return f"correct the plan with {actions}; fresh approval needed"
+            feedback = " or give feedback on it" if needs.get("feedback_action") else ""
+            return f"correct the plan{feedback}; fresh approval needed"
         if _grant_offered(needs) and needs.get("action", "").endswith(" N"):
             return "authorize additional recoveries to continue"
         if (bound := _raised_bound(needs)) and needs.get("action", "").endswith(" N"):
             return f"raise the {bound} to continue"
-        if needs.get("action"):
-            return f"inspect the pause, then use {needs['action']}"
+        if str(needs.get("action") or "").startswith("--feedback"):
+            return "inspect the pause, then say what changed"
         return "inspect the pause, then resume"
     if kind == "retry_job" and needs.get("route"):
         route = needs["route"]

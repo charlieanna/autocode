@@ -1129,11 +1129,13 @@ separately from feedback, approval, source acceptance or abandonment. It starts
 one fresh read-only investigation of the same task, contract, source and failure;
 any queued Resolver proposal stays unassigned until the normal classification
 policy accepts the new diagnosis. Previous failures, repair counts, approvals,
-Builder allowances and time limits remain in force. Status offers `--edit-goal
-FILE` and requires fresh approval when a remaining failure or classification
-limit prevents retry.
-Older checkpoints that discarded the failed request also require a plan
-correction or a new run; plain resume cannot reconstruct the missing proposal.
+Builder allowances and time limits remain in force. When the milestone's
+classification allowance or the retained report's failure and repair limits are
+spent, or the Investigator is disabled, nothing automatic can classify the failure
+any more: the run ends with a recorded `could_not_finish` outcome naming the failure,
+the classifications used and the cause (`view.recovery.outcome`), and asks nobody to
+edit the plan. A checkpoint saved before this, including one that discarded its failed
+request, shows `needs.kind` `continue`; its next resume records the same outcome.
 
 If an exact job retry consumes a queued Stop or boundary pause before launching,
 the paused run keeps that job's retry and model-correction actions. They still

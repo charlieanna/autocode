@@ -42,29 +42,18 @@ def _upper_first(text: str) -> str:
     return text[:1].upper() + text[1:] if text else ""
 
 
-def _plain(text) -> str:
-    if not text:
-        return ""
-    if person_text.internal_machinery(text):
-        return person_text.human_summary(text) or ""
-    if not person_text.machinery(text):
-        return str(text)
-    cleaned = person_text.plain(text)
-    return "" if cleaned == person_text.FALLBACK else str(cleaned)
+_plain = person_text.for_person
 
 
 def _plain_asked(asked: object, raw_reason: object, recovery: dict) -> str:
-    """``progress.needs_you`` without CLI flags or leaked internal prompt/schema machinery (#3733)."""
+    """``progress.needs_you``, which the progress view writes in words only, or the plain summary of
+    leaked internal prompt/schema machinery when that is all the pause says (#3733)."""
     if person_text.internal_machinery(raw_reason) and (
         not asked or asked == NOTHING_NEEDED or str(asked).startswith("inspect the pause")
     ):
         return person_text.human_summary(raw_reason) or str(recovery.get("what_happened") or "")
     if not isinstance(asked, str) or not asked or asked == NOTHING_NEEDED:
         return ""
-    if asked.startswith("inspect the pause, then use ") and person_text.machinery(asked):
-        return "inspect the pause, then resume"
-    if person_text.machinery(asked):
-        return person_text.plain_option(asked) or ""
     return asked
 
 

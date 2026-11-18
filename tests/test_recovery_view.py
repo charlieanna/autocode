@@ -105,10 +105,12 @@ class RecoveryViewTests(unittest.TestCase):
         self.assertEqual("--edit-goal FILE", need["action"])
         record = {"worktree": "/p", "run_dir": "/p/.autocode/runs/old", "owner": "acme", "repo": "api", "number": 7}
         line = progress.progress(state, accepted=(), stage=None, needs=need)["needs_you"]
-        for text in (line, "\n".join(issue.next_steps(record, view))):
-            self.assertIn("--edit-goal", text)
-            self.assertIn("--feedback", text)
-            self.assertNotIn("--resume-paused", text)
+        # A person reads the words; the operator's issue steps keep the commands.
+        self.assertEqual("correct the plan or give feedback on it; fresh approval needed", line)
+        steps = "\n".join(issue.next_steps(record, view))
+        self.assertIn("--edit-goal", steps)
+        self.assertIn("--feedback", steps)
+        self.assertNotIn("--resume-paused", steps)
         self.assertEqual(before, state)
 
     def test_component_plan_stop_requires_edit_and_fresh_approval(self):
