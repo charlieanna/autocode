@@ -1812,7 +1812,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/a79bbbd330ea8a428bb5af73ab1a6058512ea9fe/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/c52474dcb6d91c3e66ff3012d6061d4abd801fbf/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -2897,7 +2897,11 @@ their deterministic qualification before this opt-in mode is exposed.</p>
 </tr>
 <tr>
 <td>Lost ordinary supervisor</td>
-<td>Fresh status may name private <code>--reconcile-only -</code> when owner, keeper and provider are positively dead. VS Code takes this metadata action once per exact offered checkpoint. With clean controller-loss cleanup, a source-read-only stage and unchanged launch inputs, Core archives the unfinished response, keeps usage and current independent evidence, and spends one existing recovery allowance. Its next named continuation passes normal stage, model and spending admission; missing independent evidence returns to verification. No response is adopted and reconciliation itself launches no provider. Other uncertainty stays held. A changed checkpoint, live/unknown role or stop refuses, and status does not offer it while a stop is applied or pending. Native visual workers and durable service actions remain outside this control.</td>
+<td>Fresh status may name private <code>--reconcile-only -</code> when owner, keeper and provider are positively dead. VS Code acknowledges a successful or explicitly refused metadata action once per exact offered checkpoint. A non-rejected exit 2 may retry at most three invocations, each after fresh status offers that exact automatic action and chat context. With clean controller-loss cleanup, a source-read-only stage and unchanged launch inputs, Core archives the unfinished response, keeps usage and current independent evidence, and spends one existing recovery allowance. Its next named continuation passes normal stage, model and spending admission; missing independent evidence returns to verification. No response is adopted and reconciliation itself launches no provider. Other uncertainty stays held. A changed checkpoint, live/unknown role or stop refuses, and status does not offer it while a stop is applied or pending. Native visual workers and durable service actions remain outside this control.</td>
+</tr>
+<tr>
+<td>Source inventory unavailable</td>
+<td>Keep the failed read and retained attempt. Fresh ordinary status may name <code>--resume-paused --expected-recovery-token -</code> as a <code>continue</code> only after source is readable and any retained supervisor is positively stopped with confirmed cleanup. VS Code takes that exact bound action through the same bounded automatic reconciliation. The writer rechecks under its run lock, records runner recovery and preserves all limits, usage, model choices, failure history and Resolver/report allowances. Existing reconciliation and approval gates still apply. Unreadable source, unknown cleanup, stops and native/durable authority stay held without asking a person to operate Git. No trust setting is changed.</td>
 </tr>
 <tr>
 <td>Host reboot</td>
@@ -3137,7 +3141,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/a79bbbd330ea8a428bb5af73ab1a6058512ea9fe/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/c52474dcb6d91c3e66ff3012d6061d4abd801fbf/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3974,7 +3978,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/a79bbbd330ea8a428bb5af73ab1a6058512ea9fe/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/c52474dcb6d91c3e66ff3012d6061d4abd801fbf/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
@@ -4203,6 +4207,10 @@ workers). <code>line</code> is the one line a person reads, for example
 <code>Builder working · 1 of 3 tasks done · 1 of 3 requirements checked, 1 failed · 1 open problem · nothing needed from you</code>;
 its wording may change, so programs read the fields beside it:</p>
 <ul>
+<li><code>continuing</code>: a freshly observed controller is applying a saved stop or
+  reconciling a closed attempt before saving its next transition. Clients
+  show work in progress while its next checkpoint is being saved. The observation
+  grants no action; the current <code>needs</code> and <code>next_command</code> still decide that.</li>
 <li><code>headline</code>: <code>Complete</code>, <code>Waiting for you</code>, <code>Paused</code>, <code>Waiting for another run</code>,
   <code>&lt;job&gt; working</code> (<code>Tester writing tests first</code> while the Tester writes the approved
   tests before the Builder starts), <code>&lt;job&gt; finished</code> (its report is saved but not applied yet),
