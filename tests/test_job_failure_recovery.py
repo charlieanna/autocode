@@ -43,6 +43,8 @@ mode=os.environ['JOB_MODE']
 if os.environ.get('JOB_TIMEOUTS') and len(Path(os.environ['JOB_CALLS']).read_text().splitlines())>int(os.environ['JOB_TIMEOUTS']):mode='success'
 # JOB_APIERRORS=N: the first N requests end on the provider's own APIError row (#3233 rerun).
 if os.environ.get('JOB_APIERRORS'):mode='apierror' if len(Path(os.environ['JOB_CALLS']).read_text().splitlines())<=int(os.environ['JOB_APIERRORS']) else 'success'
+# JOB_EXITS=N: the first N requests exit without a report, later ones succeed.
+if os.environ.get('JOB_EXITS'):mode='exit42' if len(Path(os.environ['JOB_CALLS']).read_text().splitlines())<=int(os.environ['JOB_EXITS']) else 'success'
 if mode=='lock':print('Error: database is locked',flush=True);raise SystemExit(42)
 if mode=='filtered':print(Path(os.environ['JOB_REPLAY']).read_text(),end='',flush=True);raise SystemExit(0)
 print(json.dumps({'type':'thread.started','thread_id':str(uuid.uuid4())}),flush=True)
@@ -263,6 +265,18 @@ class JobHarness(unittest.TestCase):
         self.assertEqual("PAUSED_DESIGN_CONFLICT", view["status"], view)
         self.assertTrue((self.workspace / "docs/double.blockers.json").is_file())
 
+    def ended(self, run, cause, calls):
+        """AutoCode ended the run with a recorded outcome: nothing for a person to answer or retry."""
+        view = run.status()
+        self.assertEqual("PAUSED_INTERVENTION", view["status"], view)
+        self.assertFalse(view["done"])
+        self.assertIsNone(view["needs"])
+        self.assertIsNone(view["next_command"])
+        outcome = view["recovery"]["outcome"]
+        self.assertEqual(("could_not_finish", cause), (outcome["result"], outcome["evidence"]["cause"]))
+        self.assertEqual(calls, self.count())
+        return outcome
+
     def paused(self, run, stage="check_design"):
         view = run.status()
         self.assertEqual("PAUSED_JOB_FAILURE", view["status"], view)
@@ -355,17 +369,26 @@ class JobProviderErrorRetryTests(JobHarness):
         self.finished(run.status())
         self.assertEqual(2, self.count())
 
-    def test_a_second_provider_error_pauses_for_the_exact_retry_under_its_own_name(self):
+    def test_a_second_provider_error_ends_the_run_with_its_evidence(self):
+        # Before: the run paused for a person to press "retry" a second time.
         self.env["JOB_APIERRORS"] = "9"
         run = self.start("success")
-        view = run.status()
-        self.assertEqual("PAUSED_JOB_FAILURE", view["status"], view)
-        self.assertEqual(2, self.count())
-        reason = view["needs"]["reason"]
+        outcome = self.ended(run, "retries_spent", 2)
+        reason = outcome["reason"]
         self.assertIn("the provider returned an error", reason)
         self.assertIn("400 Request failed: Connection prematurely closed BEFORE response", reason)
         self.assertIn("already retried", reason)
         self.assertNotIn("external-directory", reason)
+        (retry,) = outcome["evidence"]["automatic_retries"]
+        self.assertEqual("provider_error", retry["cause"])
+        run.advance()
+        self.assertEqual(2, self.count(), "an ended run launches nothing")
+
+    def test_a_job_that_exits_without_a_report_retries_once_and_completes(self):
+        self.env["JOB_EXITS"] = "1"
+        run = self.start("success")
+        self.finished(run.status())
+        self.assertEqual(2, self.count())
 
 
 class JobFailureTaskRunTests(JobHarness):
@@ -478,19 +501,20 @@ class JobFailureTaskRunTests(JobHarness):
         self.assertEqual(1, self.count())
         self.assertEqual(BROKEN, (self.workspace / "calc.py").read_text())
 
-    def test_t6_special_failures_pause_without_automatic_retry(self):
-        for mode, reason in (
-            ("capacity", "capacity"),
-            ("rate", "rate limit"),
-            ("external", "external-directory"),
-            ("lock", "database is locked"),
+    def test_t6_provider_stops_retry_once_then_end_and_a_denial_ends_at_once(self):
+        # Before: each paused for a person to press "retry", a decision with nothing to decide.
+        for mode, reason, cause, calls in (
+            ("capacity", "capacity", "retries_spent", 2),
+            ("rate", "rate limit", "retries_spent", 2),
+            ("external", "external-directory", "external_directory", 1),
+            ("lock", "database is locked", "retries_spent", 2),
         ):
             with self.subTest(mode=mode):
                 run = self.start(mode)
-                need = self.paused(run)
-                self.assertIn(reason, need["reason"])
+                outcome = self.ended(run, cause, calls)
+                self.assertIn(reason, outcome["reason"])
                 run.advance()
-                self.assertEqual(1, self.count())
+                self.assertEqual(calls, self.count())
                 self.calls.unlink()
 
     def test_a_content_filter_finish_at_a_clean_exit_names_the_refusal(self):
@@ -608,14 +632,16 @@ class JobFailureTaskRunTests(JobHarness):
 
     def test_ac19_ordinary_failure_is_archived_once_on_repeated_attach(self):
         run = self.start("exit42")
-        need = self.paused(run)
+        outcome = self.ended(run, "retries_spent", 2)
         for _ in range(2):
             again = TaskRun(
                 self.workspace, run.run_dir, command=run.command, options=run.options, env=run.env, timeout=60
             )
             again.advance()
-            self.paused(again)
-        self.assertEqual(1, len(list(Path(need["archive"]).parent.glob("archived-design-check-01-*"))))
+            self.ended(again, "retries_spent", 2)
+        archive = Path(outcome["evidence"]["archive"]).parent
+        for attempt in ("01", "02"):
+            self.assertEqual(1, len(list(archive.glob(f"archived-design-check-{attempt}-*"))), attempt)
 
     def test_ac29_crash_before_capture_with_unchanged_source_keeps_exact_retry(self):
         run = self.start("nocapture")

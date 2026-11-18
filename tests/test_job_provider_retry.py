@@ -6,8 +6,11 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
+import autocode_job_end as job_end
 import autocode_job_failure as job_failure
 import autocode_job_provider_retry as provider_retry
+import autocode_run_view as run_view
+import autocode_stop as stop
 import autocode_support as support
 
 # The tail of the live Tester's stream, with its paths and headers trimmed: a tool output that quotes
@@ -69,7 +72,12 @@ class ProviderErrorTests(unittest.TestCase):
 
 
 class PlanTests(unittest.TestCase):
-    FAILURE = {"kind": provider_retry.KIND, "stage": "write_acceptance_tests", "unrestored": []}
+    FAILURE = {
+        "kind": provider_retry.KIND,
+        "stage": "write_acceptance_tests",
+        "unrestored": [],
+        "source_identity": "source",
+    }
 
     def test_one_retry_per_job_in_a_run(self):
         self.assertEqual({"retry": 1, "of": 1}, provider_retry.plan({}, self.FAILURE, abandoned=False))
@@ -78,15 +86,111 @@ class PlanTests(unittest.TestCase):
         other = {"user_events": [{"kind": provider_retry.EVENT, "stage": "investigate_stuck"}]}
         self.assertEqual(1, provider_retry.plan(other, self.FAILURE, abandoned=False)["retry"])
 
+    def test_every_provider_stop_of_the_job_is_retried_the_same_way(self):
+        for kind in sorted(provider_retry.KINDS):
+            with self.subTest(kind=kind):
+                self.assertEqual(
+                    {"retry": 1, "of": 1}, provider_retry.plan({}, dict(self.FAILURE, kind=kind), abandoned=False)
+                )
+
     def test_other_stops_are_not_settled_here(self):
         for failure, abandoned in (
-            (dict(self.FAILURE, kind="exit"), False),
             (dict(self.FAILURE, kind="external_directory"), False),
+            (dict(self.FAILURE, kind="timeout"), False),
+            (dict(self.FAILURE, kind="quota"), False),
+            (dict(self.FAILURE, kind="person"), False),
             (dict(self.FAILURE, unrestored=["calc.py"]), False),
+            (dict(self.FAILURE, source_identity=None), False),
             (self.FAILURE, True),
         ):
             with self.subTest(failure=failure, abandoned=abandoned):
                 self.assertIsNone(provider_retry.plan({}, failure, abandoned=abandoned))
+
+
+class EndPolicyTests(unittest.TestCase):
+    """A paused failed job is AutoCode's to settle unless a person has something to decide (job_end)."""
+
+    def state(self, **failure):
+        return {
+            "status": "PAUSED_JOB_FAILURE",
+            "next_stage": "check_design",
+            "job_failure": {
+                "stage": "check_design",
+                "attempt_id": "001/design-check-01",
+                "kind": "exit",
+                "reason": "Design Reviewer: provider exited 42 without a terminal report",
+                "source_identity": "source",
+                "unrestored": [],
+                "archive": "/run/iterations/001",
+                "job_retry_token": "jr:fixture",
+                **failure,
+            },
+        }
+
+    def spent(self, state):
+        state["user_events"] = [{"kind": provider_retry.EVENT, "stage": "check_design", "cause": "exit"}]
+        return state
+
+    def test_a_retry_left_is_pending_and_a_spent_one_ends(self):
+        fresh = self.state()
+        self.assertTrue(job_end.pending(fresh))
+        self.assertIsNone(job_end.end_cause(fresh))
+        spent = self.spent(self.state())
+        self.assertEqual("retries_spent", job_end.end_cause(spent))
+        self.assertTrue(job_end.pending(spent))
+
+    def test_a_denial_and_a_missing_source_end_at_once(self):
+        self.assertEqual("external_directory", job_end.end_cause(self.state(kind="external_directory")))
+        for kind in ("exit", "timeout", "quota"):
+            with self.subTest(kind=kind):
+                self.assertEqual("no_source_identity", job_end.end_cause(self.state(kind=kind, source_identity=None)))
+
+    def test_what_a_person_decides_stays_with_the_person(self):
+        for state in (
+            self.state(kind="person"),
+            self.state(kind="quota", route={"question_id": "route-architect"}),
+            self.state(kind="timeout"),
+            self.spent(self.state(unrestored=["calc.py"])),
+            dict(self.state(), status="PAUSED_STAGE_ABANDONED"),
+        ):
+            with self.subTest(state=state["job_failure"]["kind"], status=state["status"]):
+                self.assertIsNone(job_end.end_cause(state))
+                self.assertFalse(job_end.pending(state))
+
+    def test_an_investigations_own_job_is_left_to_the_investigation(self):
+        for stage, record in (
+            ("investigate_stuck", "stuck_investigation"),
+            ("resolve_repair", "resolve_repair_request"),
+        ):
+            with self.subTest(stage=stage):
+                state = self.spent(self.state(stage=stage, source_identity=None))
+                state["user_events"][0]["stage"] = stage
+                state[record] = {"identity": "fixture"}
+                self.assertTrue(job_end.investigation_owned(state))
+                self.assertIsNone(job_end.end_cause(state))
+                self.assertFalse(job_end.pending(state))
+                del state[record]
+                self.assertEqual("no_source_identity", job_end.end_cause(state))
+
+    def test_conclude_records_the_cause_and_the_retries(self):
+        state = self.spent(self.state())
+        self.assertTrue(job_failure.conclude(state))
+        outcome = stop.outcome(state)
+        self.assertEqual(("could_not_finish", "retries_spent"), (outcome["result"], outcome["evidence"]["cause"]))
+        self.assertEqual("exit", outcome["evidence"]["automatic_retries"][0]["cause"])
+        self.assertIn("provider exited 42", outcome["reason"])
+        self.assertFalse(job_end.pending(state), "an ended run is not settled twice")
+        self.assertFalse(job_failure.conclude(state))
+
+    def test_the_view_shows_continue_until_the_resume_settles_it(self):
+        view = run_view.view(self.state())
+        self.assertEqual({"kind": "continue", "action": "--resume-paused"}, view["needs"])
+        self.assertEqual(job_end.NOTICE, view["stop_reason"])
+        self.assertNotIn("retry_job", str(view["needs"]))
+        self.assertEqual("automatic", job_failure.resume_gate(self.state(), resume=True, retry=False, token=None))
+        self.assertEqual(
+            "authorize", job_failure.resume_gate(self.state(), resume=True, retry=True, token="jr:fixture")
+        )
 
 
 class ClassificationTests(unittest.TestCase):

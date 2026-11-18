@@ -59,6 +59,7 @@ try:
     from . import autocode_finding_rescope as finding_rescope
     from . import autocode_goals as goals
     from . import autocode_implementation_discrepancy as implementation_discrepancy
+    from . import autocode_job_end as job_end
     from . import autocode_job_time_view as job_time_view
     from . import autocode_liveness as liveness_policy
     from . import autocode_member_stop as member_stop
@@ -131,6 +132,7 @@ except ImportError:
     import autocode_finding_rescope as finding_rescope
     import autocode_goals as goals
     import autocode_implementation_discrepancy as implementation_discrepancy
+    import autocode_job_end as job_end
     import autocode_job_time_view as job_time_view
     import autocode_liveness as liveness_policy
     import autocode_member_stop as member_stop
@@ -321,6 +323,8 @@ def view(
     stop_reason = (
         recovery_exhaustion.NOTICE
         if recovery_exhaustion.pending(state)
+        else job_end.NOTICE
+        if job_end.pending(state)
         else verification_config.NOTICE
         if verification_config.pending(state)
         else classification_recovery.NOTICE
@@ -1336,6 +1340,10 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
         # resume records the run's outcome (autocode_classification_recovery.conclude).
         return {"kind": "continue", "action": "--resume-paused"}
     failure = state.get("job_failure") or {}
+    if job_end.pending(state):
+        # A stopped job with nothing for a person to decide: the next resume retries it once or
+        # records the run's end (autocode_job_failure.settle), never a retry button for a person.
+        return {"kind": "continue", "action": "--resume-paused"}
     if quota_route.job_pause_current(state) and failure:
         known_source = bool(failure.get("source_identity"))
         need = {

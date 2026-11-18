@@ -300,7 +300,7 @@ design review approved; any other document is planned from requirements as usual
 | finished | `done` is true, `needs` is null | `--follow-up TEXT` | `follow_up(text)` |
 | waiting for you | `needs.kind` is `answer`, `approve_plan`, `review` or `planning_budget` | `--answer`/`--delegate` with `--resolver-token`, `--approve-goal`, `--approve-review`, `--feedback` | `answer`, `approve_plan`, `approve_review`, `feedback` |
 | stopped | `needs.kind` is `resume` | `autocode resume`, once the cause in `stop_reason` is resolved (`--resume-paused` after editing the design at `PAUSED_DESIGN_CONFLICT`) | `resume_paused()` |
-| stopped in a workflow job (Design Reviewer, stuck-stage Investigator, acceptance-test writer) | `needs.kind` is `retry_job`, or `recover_source` for an attempt with no saved source identity | `--resume-paused --retry-failed-stage --job-retry-token TOKEN` after inspecting `needs.archive`; with `needs.route` (quota, a content-filter refusal or an authenticated output limit), first `--answer route-ROLE=MODEL --job-retry-token TOKEN` to run it on another model, then the retry with the new token; for `recover_source`, a new run ([Task-run interface](task-run.md#failed-workflow-jobs)) | `retry_job(token)`; with `needs.route`, `assign_model(role, model)` first |
+| stopped in a workflow job (Design Reviewer, stuck-stage Investigator, acceptance-test writer) | `needs.kind` is `retry_job` (a model question, a person's stop or source they changed); a provider stop AutoCode retries itself shows `continue`, and an attempt with no saved source identity ends with a recorded outcome | `--resume-paused --retry-failed-stage --job-retry-token TOKEN` after inspecting `needs.archive`; with `needs.route` (quota, a content-filter refusal or an authenticated output limit), first `--answer route-ROLE=MODEL --job-retry-token TOKEN` to run it on another model, then the retry with the new token; for `recover_source`, a new run ([Task-run interface](task-run.md#failed-workflow-jobs)) | `retry_job(token)`; with `needs.route`, `assign_model(role, model)` first |
 | waiting on another run | `needs.kind` is `dependency` | `--receive-dependency MANIFEST` once that run delivers | `receive_dependency(manifest)` |
 
 The wrong one is refused with exit 2 and the run left as it was. `--follow-up` on an unfinished
@@ -1092,6 +1092,18 @@ model/limits still invalidate the retry. An older attempt with no saved original
 identity exposes `recover_source` and an explanation instead of a retry action.
 Inspect its archive and current changes before starting a new run.
 
+A stop with nothing for a person to decide is AutoCode's, not a retry button. A job that
+exited without a report, hit a provider error, a rate limit or a capacity failure, or found
+its provider's database locked is retried once on the same model and deadline, as the
+provider-error retry below is. When it stops that way again, its tool was denied a
+directory outside the project, or the attempt saved no original source identity, the run
+ends with a recorded `could_not_finish` outcome naming the cause, the attempt and its
+automatic retries (`autocode_job_end`, `autocode_job_failure.conclude`). A checkpoint saved
+at such a pause shows `needs.kind` `continue`; its next plain resume takes the one retry,
+under the same source and configuration checks as an exact retry, or records the end. A
+model question, a stop a person made and a source a person changed since the attempt stay
+as described here.
+
 A workflow job stopped by its hard stage deadline first settles that itself
 (#2605): AutoCode retries it on the same model with the stage deadline doubled,
 never past the run's remaining total time, at most twice for that job in a run, and
@@ -1106,8 +1118,8 @@ A workflow job whose provider ended the stream on the provider's own API error r
 (an `APIError` that is not a quota, rate limit, capacity, refusal, output or context
 limit, or authentication failure, such as a gateway's `400 Connection prematurely
 closed`) is retried once on the same model and deadline, under the run's caps. It is
-recorded with its reason as a runner `automatic_job_provider_error_retry` event. A
-second such stop of that job in the run pauses for its exact retry as below. An
+recorded with its reason and cause as a runner `automatic_job_provider_error_retry` event. A
+second such stop of that job in the run ends the run with a recorded outcome. An
 external-directory denial is named only from OpenCode's own `permission requested:
 external_directory` line, never from a mention of the word in the job's work.
 

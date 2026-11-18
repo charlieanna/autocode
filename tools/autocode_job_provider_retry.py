@@ -1,4 +1,4 @@
-"""A workflow job whose provider ended the stream on an API error retries itself once (#3233 rerun).
+"""A workflow job its provider stopped retries itself once (#3233 rerun).
 
 A live Tester writing acceptance tests on MiMo ran for 38 minutes, then the provider's gateway
 answered one request with ``400 Request failed: Connection prematurely closed BEFORE response``
@@ -7,9 +7,12 @@ on the same model is the obvious next step, and the person was asked to "inspect
 then retry". So a job whose provider stream ended on the provider's own ``APIError`` row, and that
 no other classification claimed (quota, rate limit, capacity, refusal, output or context limit,
 authentication), is retried once more on the same route and deadline, at most ``MAX_RETRIES``
-times for that job in a run. The run's money and time caps still apply before the launch. Each
-retry is recorded as a runner ``user_events`` entry (``EVENT``) with its reason, so the report and
-the verification view show the decision.
+times for that job in a run. A job that exited without a report, hit a rate limit or a capacity
+failure, or found its provider's database locked (``KINDS``) is retried the same way: none of these
+is a question for a person, who was asked to press "retry" for them. The run's money and time caps
+still apply before the launch. Each retry is recorded as a runner ``user_events`` entry (``EVENT``)
+with its reason and cause, so the report and the verification view show the decision. When the
+retry is spent, autocode_job_failure ends the run with a recorded outcome instead of waiting.
 
 ``provider_error`` and ``plan`` are pure; autocode_job_failure applies them. Imports nothing from AutoCode.
 """
@@ -25,6 +28,10 @@ if TYPE_CHECKING:
 MAX_RETRIES = 1
 EVENT = "automatic_job_provider_error_retry"
 KIND = "provider_error"
+# Stops about the provider's run of the job, not its work, its model or a person (#3801 follow-up):
+# a provider error, an exit without a report, a rate limit, a capacity failure, a locked provider
+# database. Each is retried the same way, once per job in a run; the event records which it was.
+KINDS = frozenset({KIND, "exit", "rate_limit", "capacity", "startup_lock"})
 MAX_MESSAGE = 300
 
 
@@ -71,7 +78,7 @@ def used(state: RunState, stage) -> int:
 
 def plan(state: RunState, failure: dict, *, abandoned: bool) -> dict | None:
     """The retry to authorize for this stopped job, or None when the stop is not one AutoCode settles."""
-    if abandoned or failure.get("kind") != KIND or failure.get("unrestored"):
+    if abandoned or failure.get("kind") not in KINDS or failure.get("unrestored") or not failure.get("source_identity"):
         return None
     spent = used(state, failure.get("stage"))
     if spent >= MAX_RETRIES:
@@ -88,5 +95,5 @@ def reason(job: str, retry: dict) -> str:
 
 
 def exhausted(job: str) -> str:
-    """Why a job that hit a provider error again paused after AutoCode's own retry."""
-    return f"AutoCode already retried the {job} after a provider error on the same model, so it now waits for its exact retry"
+    """Why a job that stopped again ends after AutoCode's own retry."""
+    return f"AutoCode already retried the {job} once on the same model, and no further automatic retry remains"

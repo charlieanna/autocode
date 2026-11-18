@@ -30,6 +30,7 @@ try:
     from . import autocode_context_window as context_window
     from . import autocode_investigation_workspace as investigation_workspace
     from . import autocode_job_deadline as job_deadline
+    from . import autocode_job_end as job_end
     from . import autocode_job_provider_retry as provider_retry
     from . import autocode_job_source as source
     from . import autocode_jobs as jobs
@@ -47,6 +48,7 @@ except ImportError:
     import autocode_context_window as context_window
     import autocode_investigation_workspace as investigation_workspace
     import autocode_job_deadline as job_deadline
+    import autocode_job_end as job_end
     import autocode_job_provider_retry as provider_retry
     import autocode_job_source as source
     import autocode_jobs as jobs
@@ -417,7 +419,7 @@ def recover(runtime, state: RunState, run_dir, workspace, error=None, *, abandon
     if not extension and kind == "timeout" and (spent := job_deadline.used(state, stage)):
         reason = failure["reason"] = reason + ". " + job_deadline.exhausted(roles.screen_name(stage), spent)
     retry = None if extension else provider_retry.plan(state, failure, abandoned=abandoned)
-    if not retry and kind == provider_retry.KIND and provider_retry.used(state, stage):
+    if not retry and kind in provider_retry.KINDS and provider_retry.used(state, stage):
         reason = failure["reason"] = reason + ". " + provider_retry.exhausted(roles.screen_name(stage))
     if extension or retry:
         # A hard stage deadline (#2605) or a provider's API error is machinery, not a question about
@@ -453,6 +455,8 @@ def recover(runtime, state: RunState, run_dir, workspace, error=None, *, abandon
         )
         if not abandoned:
             route_recovery.recover_job(runtime, launch, state, run_dir, workspace, reroute=reroute)
+    if not abandoned and kind != "person" and quota_route.job_pause_current(state):
+        conclude(state)
     runtime.write_json(Path(run_dir) / "state.json", state)
     if kind == "person" and not abandoned and not retention_error:
         stop.consume(state, run_dir, workspace, write_json=runtime.write_json, now=runtime.now)
@@ -524,6 +528,7 @@ def _retry_provider_error(state: RunState, run_dir, failure, retry):
             "at": util.now(),
             "stage": failure["stage"],
             "attempt_id": failure["attempt_id"],
+            "cause": failure["kind"],
             "previous_token": previous_token,
             "token": failure["job_retry_token"],
             "reason": decided,
@@ -535,6 +540,69 @@ def _retry_provider_error(state: RunState, run_dir, failure, retry):
         "consumed": False,
     }
     run_status.running(state, "EXECUTING", next_stage=failure["stage"])
+
+
+NOTICE = job_end.NOTICE
+end_cause = job_end.end_cause
+pending = job_end.pending
+
+
+def conclude(state: RunState, *, cause: str | None = None) -> bool:
+    """End the run at a failed job no automatic step can get past; True when it ended."""
+    cause = cause or end_cause(state)
+    if not cause:
+        return False
+    failure = state["job_failure"]
+    job = roles.screen_name(failure["stage"])
+    why = {
+        "no_source_identity": "the attempt saved no original source identity, so no exact retry can be checked",
+        "external_directory": "its tool was denied a directory outside the project, which a retry would repeat",
+        "retries_spent": "AutoCode already retried it once on the same model",
+    }.get(cause, cause)
+    stop.end(
+        state,
+        f"The {job} stopped and {why}: {failure['reason']}",
+        {
+            "pause_status": "PAUSED_JOB_FAILURE",
+            "cause": cause,
+            "stage": failure["stage"],
+            "attempt_id": failure.get("attempt_id"),
+            "kind": failure.get("kind"),
+            "archive": failure.get("archive"),
+            "unrestored": copy.deepcopy(failure.get("unrestored") or []),
+            "automatic_retries": [
+                copy.deepcopy(event)
+                for event in state.get("user_events") or []
+                if isinstance(event, dict)
+                and event.get("kind") in (provider_retry.EVENT, job_deadline.EVENT)
+                and event.get("stage") == failure["stage"]
+            ],
+        },
+        at=util.now(),
+    )
+    return True
+
+
+def settle(runtime, state: RunState, run_dir, workspace) -> bool:
+    """At a plain resume: authorize the job's one automatic retry, or end the run. True when it retries.
+
+    The retry passes the same checks as a person's exact retry (source, configuration, token); when
+    they refuse it, the run ends with that refusal as its cause rather than asking anyone.
+    """
+    failure = state.get("job_failure") or {}
+    if not end_cause(state) and (retry := provider_retry.plan(state, failure, abandoned=False)):
+        try:
+            _validate_retry(state, workspace, failure.get("job_retry_token"))
+        except ValueError as error:
+            conclude(state, cause=f"retry refused: {error}")
+        else:
+            _retry_provider_error(state, run_dir, failure, retry)
+            runtime.write_json(Path(run_dir) / "state.json", state)
+            return True
+    else:
+        conclude(state)
+    runtime.write_json(Path(run_dir) / "state.json", state)
+    return False
 
 
 def retry_configuration_matches(current, saved):
@@ -814,6 +882,8 @@ def resume_gate(state: RunState, *, resume, retry, token):
                 "attempt. Resume with --resume-paused to continue."
             )
         supersede(state)
+    if resume and not retry and not token and pending(state):
+        return "automatic"
     if state.get("job_failure") and (quota_route.job_pause_current(state) or token):
         if not (resume and retry):
             return state.get("stop_reason") or "Inspect the retained workflow-job attempt before retrying."
