@@ -4,6 +4,7 @@ import json
 import os
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -14,6 +15,7 @@ from unittest import mock
 import autocode_source_snapshot as source_snapshot
 import autocode_tool_containment as containment
 import autocode_toolchain as toolchain
+import autocode_util as util
 import autocode_verification_copy as copies
 
 
@@ -397,6 +399,88 @@ class VerificationSourceTests(unittest.TestCase):
         entries = self.index(tree)
         self.assertEqual(payload, self.git("cat-file", "blob", entries["large.bin"][1], root=tree))
         self.assertEqual(payload, large.read_bytes())
+
+    def sealed_copy(self, *, seal=True):
+        control = self.root / (".autocode/tool-containment-" + ("a" if seal else "b") * 32)
+        scratch = control / "scratch"
+        scratch.mkdir(parents=True)
+        result = copies.create(self.root, scratch, seal=seal)
+        return result, scratch / "verification"
+
+    def commit_sources(self):
+        (self.root / "pkg").mkdir()
+        (self.root / "pkg/module.py").write_text("VALUE = 1\n")
+        (self.root / "top.py").write_text("TOP = 1\n")
+        self.git("add", ".")
+        self.git("-c", "user.name=Test", "-c", "user.email=test@localhost", "commit", "-qm", "sources")
+
+    def test_a_sealed_copy_marks_every_path_and_names_only_its_root(self):
+        # #3812: the mark lets one kernel rule protect the copy, so the result names its root alone.
+        self.commit_sources()
+        result, tree = self.sealed_copy()
+        paths = [tree, *tree.rglob("*")]
+        self.assertGreater(len(paths), 8)  # The sources, their directories and the copy's own Git files.
+        self.assertEqual([], [str(path) for path in paths if not path.lstat().st_mode & stat.S_ISVTX])
+        self.assertEqual(
+            {"tree": str(tree), "sealed": True, "protected_paths": [str(tree)]},
+            {key: result[key] for key in ("tree", "sealed", "protected_paths")},
+        )
+        manifest = json.loads(Path(result["manifest"]).read_text())
+        self.assertEqual(copies.SEAL, manifest["seal"])
+        # The mark changes nothing a check reads: the same bytes, the same modes Git records.
+        self.assertEqual("VALUE = 1\n", (tree / "pkg/module.py").read_text())
+        self.assertEqual(self.index(self.root), self.index(tree))
+        self.assertEqual(tree, copies.execution(result["manifest"], result["sha256"], self.root)[0])
+        # Unsealed, as bubblewrap takes it: no mark, and every path named for a policy that needs each.
+        plain, other = self.sealed_copy(seal=False)
+        unmarked = [other, *other.rglob("*")]
+        self.assertEqual([], [str(path) for path in unmarked if path.lstat().st_mode & stat.S_ISVTX])
+        self.assertEqual(sorted(str(path) for path in unmarked), sorted(plain["protected_paths"]))
+        self.assertFalse(plain["sealed"])
+        self.assertNotIn("seal", json.loads(Path(plain["manifest"]).read_text()))
+        copies.execution(plain["manifest"], plain["sha256"], self.root)
+
+    def test_a_sealed_copy_that_lost_a_mark_is_refused_before_a_check_runs(self):
+        # A path without its mark is one the kernel rule misses, so the copy is no longer the one sealed.
+        self.commit_sources()
+        result, tree = self.sealed_copy()
+
+        def refused(path, message):
+            mode = stat.S_IMODE(path.lstat().st_mode)
+            os.chmod(path, mode & ~stat.S_ISVTX)
+            with self.assertRaisesRegex(ValueError, message):
+                copies.execution(result["manifest"], result["sha256"], self.root)
+            os.chmod(path, mode)
+            copies.execution(result["manifest"], result["sha256"], self.root)
+
+        refused(tree / "pkg/module.py", "Verification input changed: pkg/module.py")
+        refused(tree / "pkg", "Verification directory changed: pkg")
+        refused(tree, "Verification copy seal changed")
+        # A seal this version does not know is not read as "unsealed".
+        manifest = Path(result["manifest"])
+        manifest.write_text(json.dumps({**json.loads(manifest.read_text()), "seal": "other"}))
+        with self.assertRaisesRegex(ValueError, "Unexpected verification copy layout"):
+            copies.execution(str(manifest), util.file_hash(manifest), self.root)
+
+    def test_a_copied_link_is_sealed_itself_or_the_seal_is_refused(self):
+        (self.root / "target.py").write_text("TARGET = 1\n")
+        (self.root / "alias.py").symlink_to("target.py")
+        self.git("add", ".")
+        self.git("-c", "user.name=Test", "-c", "user.email=test@localhost", "commit", "-qm", "link")
+        if not hasattr(os, "lchmod"):
+            # No way to mark a link itself here (Linux), where a copy is one read-only mount instead.
+            with self.assertRaisesRegex(ValueError, "cannot seal a copied symlink"):
+                self.sealed_copy()
+            return
+        result, tree = self.sealed_copy()
+        link = tree / "alias.py"
+        self.assertTrue(link.is_symlink())
+        self.assertEqual("target.py", os.readlink(link))
+        self.assertTrue(link.lstat().st_mode & stat.S_ISVTX)
+        copies.execution(result["manifest"], result["sha256"], self.root)
+        os.lchmod(link, stat.S_IMODE(link.lstat().st_mode) & ~stat.S_ISVTX)
+        with self.assertRaisesRegex(ValueError, "Verification input changed: alias.py"):
+            copies.execution(result["manifest"], result["sha256"], self.root)
 
     def test_changed_copy_is_rejected_before_packing_and_only_own_control_is_removed(self):
         original = self.root / "source.txt"

@@ -37,12 +37,36 @@ except ImportError:
     from autocode_verification_budget import PREPARATION_ALLOWANCE_SECONDS
 
 
+# How a sealed copy's paths are marked: each carries the sticky bit, which changes nothing a check
+# reads. One kernel rule then denies every write to a marked path
+# (autocode_tool_containment.sealed_rule), so the policy is the same size for a copy of ten files
+# and of sixty thousand, where one rule per path made a contained shell slow to start and, past a
+# few thousand paths, impossible to compile (#3812).
+SEAL = "sticky"
+
+
 def _identity(path):
     if path.is_symlink():
         return "symlink:" + os.readlink(path)
     if path.is_file():
         return ("executable:" if path.stat().st_mode & 0o111 else "") + util.file_hash(path)
     return "deleted" if not path.exists() else "directory"
+
+
+def _mark(path):
+    """Set the seal on one path of the copy itself, never on what a link points at."""
+    mode = stat.S_IMODE(path.lstat().st_mode) | stat.S_ISVTX
+    if not path.is_symlink():
+        os.chmod(path, mode)
+        return
+    change = getattr(os, "lchmod", None)
+    if change is None:
+        raise ValueError("This platform cannot seal a copied symlink: " + str(path))
+    change(path, mode)
+
+
+def _marked(path):
+    return bool(path.lstat().st_mode & stat.S_ISVTX)
 
 
 def _remaining(deadline, command, *, ceiling=None):
@@ -384,8 +408,22 @@ def allocate(workspace, run_dir, *, source_paths=()):
 
 
 def create(
-    workspace, scratch, *, source_paths=(), setup_executor=None, run_dir=None, _deadline=None, _preparation_context=None
+    workspace,
+    scratch,
+    *,
+    source_paths=(),
+    setup_executor=None,
+    run_dir=None,
+    seal=False,
+    _deadline=None,
+    _preparation_context=None,
 ):
+    """Copy the sources into ``scratch/verification`` and publish the manifest that binds them.
+
+    ``seal`` marks every path of the finished copy (SEAL) and records that in the manifest, for a
+    kernel policy that protects marked paths with one rule. The result's ``protected_paths`` is
+    then the copy's root alone; unsealed, it names every path, for a policy that needs each one.
+    """
     # Copying, packing, staging and committing share one finite allowance.
     # Outer command/client/stage supervisors keep their existing deadlines.
     started = time.monotonic()
@@ -479,8 +517,8 @@ def create(
     if source.snapshot(root, paths=source_paths) != before:
         raise ValueError("Source changed while preparing verification copy")
     _remaining(deadline, "Verification source authentication")
-    files = {str(p.relative_to(tree)): _identity(p) for p in tree.rglob("*") if p.is_symlink() or p.is_file()}
-    protected = [str(tree), *(str(p) for p in tree.rglob("*"))]
+    paths = list(tree.rglob("*"))
+    files = {str(p.relative_to(tree)): _identity(p) for p in paths if p.is_symlink() or p.is_file()}
     manifest = scratch.parent / "verification-copy.json"
     data = {
         "version": 1,
@@ -490,13 +528,25 @@ def create(
         "source_paths": before.get("source_paths", []),
         "files": files,
         "joint_inputs": retained_joint_inputs,
-        "directories": [str(p.relative_to(tree)) for p in tree.rglob("*") if p.is_dir() and not p.is_symlink()],
+        "directories": [str(p.relative_to(tree)) for p in paths if p.is_dir() and not p.is_symlink()],
     }
+    if seal:
+        # Last, after every write to the copy: a marked path refuses a change of its own mode too.
+        for path in (tree, *paths):
+            _remaining(deadline, "Verification source sealing")
+            _mark(path)
+        data["seal"] = SEAL
     _remaining(deadline, "Verification source manifest")
     if run is not None:
         data["run_dir"] = str(run)
     util.atomic_json(manifest, data)
-    result = {"manifest": str(manifest), "sha256": util.file_hash(manifest), "protected_paths": protected}
+    result = {
+        "manifest": str(manifest),
+        "sha256": util.file_hash(manifest),
+        "tree": str(tree),
+        "sealed": bool(seal),
+        "protected_paths": [str(tree)] if seal else [str(tree), *(str(p) for p in paths)],
+    }
     _remaining(deadline, "Verification source manifest publication")
     return result
 
@@ -520,11 +570,13 @@ def execution(manifest, expected_hash, workspace):
         raise ValueError("Verification copy authority changed")
     data = json.loads(path.read_text())
     tree = control / "scratch" / "verification"
+    sealed = data.get("seal")
     if (
         data.get("version") != 1
         or data.get("workspace") != str(root)
         or data.get("tree") != str(tree)
         or data.get("run_dir") != (str(run) if run is not None else None)
+        or sealed not in (None, SEAL)
     ):
         raise ValueError("Unexpected verification copy layout")
     if (
@@ -534,6 +586,9 @@ def execution(manifest, expected_hash, workspace):
         or joint_inputs.inventory(tree) != data.get("joint_inputs", {})
     ):
         raise ValueError("Verification source changed; request fresh validation")
+    # A sealed copy is protected by its marks: a path without one is a path the kernel rule misses.
+    if sealed and not (tree.is_dir() and _marked(tree)):
+        raise ValueError("Verification copy seal changed")
     for name in data["directories"]:
         relative = Path(name)
         directory = tree / relative
@@ -543,10 +598,16 @@ def execution(manifest, expected_hash, workspace):
             or directory.is_symlink()
             or not directory.is_dir()
             or directory.resolve() != directory
+            or (sealed and not _marked(directory))
         ):
             raise ValueError("Verification directory changed: " + name)
     for name, expected in data["files"].items():
         relative = Path(name)
-        if relative.is_absolute() or ".." in relative.parts or _identity(tree / relative) != expected:
+        if (
+            relative.is_absolute()
+            or ".." in relative.parts
+            or _identity(tree / relative) != expected
+            or (sealed and not _marked(tree / relative))
+        ):
             raise ValueError("Verification input changed: " + name)
     return tree, {"source_revision": data["source_revision"], "manifest_sha256": expected_hash}

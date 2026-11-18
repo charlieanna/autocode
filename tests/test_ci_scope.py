@@ -74,9 +74,12 @@ class ScopeTests(unittest.TestCase):
             ("tools/autocode_native_launch.py", True),
             ("tools/autocode_verification_copy.py", True),
             ("tools/autocode_visual_protection.py", True),
+            # Kilo's client profile: its kernel test (ClientPolicyKernelTests) runs on Seatbelt only.
+            ("tools/autocode_kilo_isolation.py", True),
             # It does not load these test modules.
             ("tests/test_native_check_execution.py", False),
             ("tests/test_native_initial_callers.py", False),
+            ("tests/test_kilo_isolation.py", False),
         ):
             with self.subTest(path=path):
                 enabled = self.enabled(path)

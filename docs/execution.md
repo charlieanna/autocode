@@ -1882,7 +1882,7 @@ and nothing outside these mounts can be read. A file named `.env`, `.env.*`,
 covered by a device node the shell cannot open (`Permission denied`), as Seatbelt
 refuses reading those names.
 
-Two differences from Seatbelt follow from mounts:
+Three differences from Seatbelt follow from mounts:
 
 - A protected name that does not exist when a Builder starts (usually `.opencode`,
   `opencode.json` or `opencode.jsonc`) cannot be a mount point without creating it in
@@ -1894,6 +1894,20 @@ Two differences from Seatbelt follow from mounts:
 - The network namespace has its own loopback, so a test may listen on and connect to
   `127.0.0.1` inside the stage. The host's loopback services and every other address
   stay unreachable.
+- A reader's verification copy is read-only as a whole here, so a check cannot create
+  a build output inside it. Under Seatbelt the copied sources cannot be changed but a
+  check may still make, change and remove its own outputs beside them. Seatbelt does
+  that with one rule, whatever the copy's size (#3812): the runner sets the sticky
+  bit on the copy's root and on every file, directory and symlink in it before the
+  stage starts and records `"seal": "sticky"` in the copy's manifest, and the profile
+  denies every write operation on a path under the copy that carries that bit
+  (`(deny file-write* (require-all (subpath COPY) (file-mode #o1000)))`). That covers a
+  marked path's data, name, mode, flags, owner, ACL, attributes and times, so the mark
+  cannot be cleared from inside. A capture refuses a copy whose marks no longer match
+  its manifest. Seatbelt takes the last matching rule, so the rule is written after
+  every grant of writes, in the shell's profile and in Kilo's client profile, which
+  is the only profile Kilo's own Bash child runs under. A file a check copies inside
+  the copy with its mode preserved carries the mark too and cannot then be changed.
 
 ### Conformance in CI
 
@@ -1904,6 +1918,8 @@ CI runs the direct shell/Seatbelt controls in `UnicodeKernelTests` and
 test to execute and pass without skips or expected failures. The
 `linux-tool-containment` job does the same on Ubuntu with bubblewrap installed, adding
 `BubblewrapKernelTests` and the selected-toolchain controls in `tests/test_toolchain.py`.
+The macOS job also runs `ClientPolicyKernelTests` from `tests/test_kilo_isolation.py`:
+what the kernel refuses and allows in a verification copy under Kilo's client profile.
 Only the macOS job also runs the native readonly check tests (four classes in
 `tests/test_native_check_execution.py` and `OriginalCheckFailureTests` in
 `tests/test_native_initial_callers.py`): native checks need macOS Seatbelt and the
