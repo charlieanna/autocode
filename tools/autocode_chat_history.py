@@ -14,6 +14,7 @@ try:
     from . import autocode_project_delivery as project_delivery
     from . import autocode_requirements_chat as requirements_chat
     from . import autocode_requirements_review as requirements_review
+    from . import autocode_roles as roles
     from . import autocode_scratch_projects as scratch_projects
 except ImportError:
     import autocode_build_worktree as build_worktree
@@ -22,6 +23,7 @@ except ImportError:
     import autocode_project_delivery as project_delivery
     import autocode_requirements_chat as requirements_chat
     import autocode_requirements_review as requirements_review
+    import autocode_roles as roles
     import autocode_scratch_projects as scratch_projects
 
 # What a person did when they pressed a button, in their words rather than the CLI's answer value.
@@ -157,6 +159,17 @@ def messages(state: RunState, *, completed=False) -> list[dict]:
         if worktree is not None and isinstance(moved_after, int) and index >= moved_after:
             rows.append({"id": WORKTREE_NOTICE, "role": "assistant", "text": worktree})
             worktree = None
+        if event.get("kind") == "automatic_timeout_recovery" and event.get("timeout_kind") == "person":
+            # Stop now or Send now ended this stage (#3263, #3259): say so, or its card just disappears.
+            name = roles.screen_name(str(event.get("stage") or ""), state) or "running step"
+            rows.append(
+                {
+                    "id": f"stopped-by-you-{index}",
+                    "role": "assistant",
+                    "text": f"You stopped the {name}. Its partial work is kept.",
+                }
+            )
+            continue
         if event.get("kind") == "runner_check_auto_recovered":
             rows.append(
                 {

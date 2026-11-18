@@ -96,6 +96,16 @@ class SendNowCliTests(unittest.TestCase):
         ended = [row for row in state["stages"] if row["stage"] == "builder"]
         self.assertEqual(("person", True), (ended[0]["timeout_kind"], ended[0].get("abandoned")))
         self.assertNotEqual(stop.STOPPED_NOW_REASON, state.get("stop_reason"), "no pause for the person to resume")
+        # A person's stop is not a failure (#3259 follow-up): it reached no failure ledger, spent no automatic
+        # recovery, and the chat says the person stopped the Builder rather than dropping its card.
+        self.assertEqual("Stopped by you; partial work retained", ended[0]["rejection_reason"])
+        self.assertEqual(
+            [],
+            [row for row in (state.get("failure_history") or {}).values() if row["identity"]["stage"] == "builder"],
+        )
+        self.assertEqual(0, state.get("automatic_recoveries_since_resume", 0))
+        self.assertEqual(0, state.get("consecutive_timeout_recoveries", 0))
+        self.assertIn("You stopped the Builder. Its partial work is kept.", texts)
 
     def test_send_now_question_is_answered_and_the_ended_builder_runs_again(self):
         _, reached, stages = self.run_until_builder_and_send_now("question", "It prints one line.")

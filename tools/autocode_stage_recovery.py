@@ -835,17 +835,25 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
     records.account_stage(state, record)
     after_path = Path(record["output"]).with_suffix(".after.json")
     records.write_json(after_path, after)
+    # A person's Stop now or Send now (#3263, #3259) ends the stage through the deadline path, but nothing
+    # failed: it is archived the same way, and it is never counted as a failure, an automatic recovery or a stall.
+    by_person = record.get("timeout_kind") == "person"
     record.update(
         after_ref=str(after_path),
         source_revision=after["revision"],
         changed_files=support.changed_paths(before, after),
         abandoned=True,
         automatic_recovery=True,
-        rejection_reason="Timed-out non-terminal provider request automatically archived; partial work retained",
+        rejection_reason=(
+            "Stopped by you; partial work retained"
+            if by_person
+            else "Timed-out non-terminal provider request automatically archived; partial work retained"
+        ),
     )
     if "stall_phase" not in record:
         record.update(stall_recovery.classify_stall(record))
-    failures.record(state, record, error, records.now())
+    if not by_person:
+        failures.record(state, record, error, records.now())
     originals = records.archive_rejected_stage(state, run_dir, record, record["rejection_reason"])
     state["sessions"].pop(record.get("route_role", record["role"]), None)
     semantic_stage = record.get("original_stage") or record["stage"]
@@ -980,7 +988,8 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
         recovery["executed_work"] = stall_recovery.executed(record)
         if recovery["executed_work"].get("available"):
             recovery["instruction"] += " " + stall_recovery.INSTRUCTION
-    records.count_automatic_recovery(state)
+    if not by_person:
+        records.count_automatic_recovery(state)
     state.setdefault("automatic_timeout_recoveries", []).append(recovery)
     state.setdefault("user_events", []).append(
         {
@@ -990,9 +999,17 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
             "attempt_id": recovery["attempt_id"],
             "next_stage": next_stage,
             "changed_files": record["changed_files"],
+            # Read by the chat, which says the person stopped this stage (autocode_chat_history).
+            **({"timeout_kind": "person", "stage": semantic_stage} if by_person else {}),
         }
     )
     state["recovery_context"] = recovery
+    if by_person:
+        run_status.running(state, phase, next_stage=next_stage)
+        records.write_json(run_dir / "state.json", state)
+        for artifact in originals:
+            artifact.unlink(missing_ok=True)
+        return True
     resolver_runtime.observe_operational_recovery(records, state, run_dir, workspace, recovery)
     if record.get("reviewer_fallback_grant"):
         reviewer_fallback.record_failed(state, record["reviewer_fallback_grant"], record)
