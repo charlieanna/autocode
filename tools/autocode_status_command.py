@@ -362,6 +362,7 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         stage=stage_name,
         following=following_name,
         controller_running=(owner or {}).get("kind") == "running",
+        continuing=controller_owner.continuing(state, owner),
         internal_failure=operational_block.presentation(state, include_hold=True),
         liveness=public_view["liveness"],
     )
