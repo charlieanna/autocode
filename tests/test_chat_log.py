@@ -604,8 +604,14 @@ class ProjectTests(unittest.TestCase):
         # 2026-11-15: a "hi" showed only "Requirements working" for 27 s while Kilo started, then glm-5.3
         # answered in 3 s. Before the first event, the log says the model is starting and for how long.
         self.events.write_text("")
+        # As a real stage record keeps them: the model in launch_route, the backend in provider. A
+        # top-level "model" key never exists, so reading one named every live attempt "the model".
         self.state["active_stage"].update(
-            stage="requirements_gather", started_at="2026-11-15T03:11:31+00:00", model="zai-coding-plan/glm-5.3"
+            stage="requirements_gather",
+            started_at="2026-11-15T03:11:31+00:00",
+            engine="opencode",
+            provider="kilocode",
+            launch_route={"engine": "opencode", "provider": None, "model": "zai-coding-plan/glm-5.3"},
         )
         clock = datetime(2026, 11, 15, 3, 11, 55, tzinfo=UTC)
         with patch.object(log, "_clock", return_value=clock):
@@ -615,13 +621,16 @@ class ProjectTests(unittest.TestCase):
                 "id": "start:2026-11-15T03:11:31+00:00",
                 "agent": "Requirements",
                 "kind": "message",
-                "text": "Starting zai-coding-plan/glm-5.3 and waiting for its first reply (24 s so far).",
+                "text": "Kilo is starting and zai-coding-plan/glm-5.3 is reading the request; its first reply shows here"
+                " (24 s so far).",
             },
             note,
         )
         write(self.events, [codex("item.completed", "r1", type="reasoning", text="The task is just hi")])
         started, thought = self.project()
-        self.assertEqual((note["id"], "Started zai-coding-plan/glm-5.3."), (started["id"], started["text"]))
+        self.assertEqual(
+            (note["id"], "Kilo started; zai-coding-plan/glm-5.3 is replying."), (started["id"], started["text"])
+        )
         self.assertEqual("thinking", thought["kind"])
 
     def test_an_attempt_without_a_start_time_or_model_still_reads_plainly(self):
@@ -629,7 +638,26 @@ class ProjectTests(unittest.TestCase):
         self.assertEqual([], self.project(), "no start time, no note")
         self.state["active_stage"]["started_at"] = "not a time"
         [note] = self.project()
-        self.assertEqual("Starting the model and waiting for its first reply.", note["text"])
+        self.assertEqual(
+            "The backend is starting and the model is reading the request; its first reply shows here.", note["text"]
+        )
+
+    def test_the_start_note_names_each_backend_as_the_person_connected_it(self):
+        self.events.write_text("")
+        cases = (
+            ({"engine": "codex", "launch_route": {"engine": "codex", "model": "gpt-5.6-sol"}}, "Codex", "gpt-5.6-sol"),
+            ({"engine": "opencode", "launch_route": {"provider": "claude", "model": "opus"}}, "Claude Code", "opus"),
+            ({"engine": "opencode", "launch_route": {"model": "zai/glm-5.3"}}, "OpenCode", "zai/glm-5.3"),
+        )
+        for fields, backend, model in cases:
+            self.state["active_stage"] = {
+                **self.state["active_stage"],
+                **fields,
+                "started_at": "2026-11-15T03:11:31+00:00",
+            }
+            self.state["active_stage"].pop("provider", None)
+            [note] = self.project()
+            self.assertTrue(note["text"].startswith(f"{backend} is starting and {model} is reading"), note["text"])
 
     def test_an_attempt_that_cannot_be_confirmed_or_is_over_shows_nothing(self):
         self.assertEqual([], self.project(finished=True))
