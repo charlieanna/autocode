@@ -598,7 +598,7 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
 
 def hold_newer_pause(runner, args, state: RunState, state_path):
     """An earlier resume cannot release a pause accepted during its reconciliation."""
-    if args.resume_paused and stop.hold_newer_pause(
+    if getattr(args, "resume_paused", False) and stop.hold_newer_pause(
         state, getattr(args, "_resume_pause_frontier", stop.pause_frontier(state))
     ):
         runner.write_json(state_path, state)
