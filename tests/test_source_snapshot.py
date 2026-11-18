@@ -53,7 +53,7 @@ class SelectedSourceSnapshotTests(unittest.TestCase):
         path.write_text(text)
         return path
 
-    def test_git_inventory_and_head_fail_closed_with_an_actionable_pause(self):
+    def test_git_inventory_and_head_fail_closed_without_asking_a_person_to_resume(self):
         original = util.snapshot(self.root)
         config = (self.root / ".git/config").read_bytes()
         real = subprocess.check_output
@@ -68,7 +68,8 @@ class SelectedSourceSnapshotTests(unittest.TestCase):
                 with self.assertRaisesRegex(util.Paused, "dubious ownership") as held:
                     util.snapshot(self.root)
                 self.assertEqual("PAUSED_SOURCE_UNAVAILABLE", held.exception.status)
-                self.assertIn("resume", str(held.exception))
+                self.assertIn("AutoCode will recheck source access", str(held.exception))
+                self.assertNotIn("then resume", str(held.exception))
             self.assertEqual(config, (self.root / ".git/config").read_bytes())
             self.assertEqual(original, util.snapshot(self.root))
 
