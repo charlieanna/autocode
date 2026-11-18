@@ -22,6 +22,7 @@ import autocode_goals as goals
 import autocode_milestones as milestones
 import autocode_planning as planning
 import autocode_recovery_accounting as recovery_accounting
+import autocode_run_view as run_view
 import autocode_stuck_job as stuck_job
 import autocode_support as support
 import autocode_validation_recovery as validation_recovery
@@ -30,7 +31,6 @@ from autocode_activity import ActivityMonitor
 from goal_fixtures import envelope
 
 from . import test_goals, test_stuck_job
-from .operational_fixtures import assert_operational_block
 from .supervision_fixture import launcher
 
 
@@ -1152,18 +1152,31 @@ class ActivityRuntimeTests(unittest.TestCase):
         self.assertEqual(2, test_goals.GoalTests.invoke(self, role=inspect))
         self.assertEqual([], calls, "An ordinary invocation must retain the exhausted pause")
         self.assertEqual(3, self.state["consecutive_timeout_recoveries"])
-        assert_operational_block(self, self.state, "PAUSED_TIMEOUT_RECOVERY")
-        # Since 009c8b8 a plain explicit resume no longer replenishes the spent
-        # allowance; only an audited --grant-recovery N does.
-        self.assertEqual(2, test_goals.GoalTests.invoke(self, "--resume-paused", role=inspect))
-        self.assertEqual([], calls, "A plain resume must not restore a spent recovery allowance")
-        self.assertEqual(3, self.state["consecutive_timeout_recoveries"])
+        # A spent allowance asks a person nothing (#3798): the view names the resume that ends the run.
+        shown = run_view.view(self.state)
+        self.assertEqual("PAUSED_TIMEOUT_RECOVERY", shown["status"])
+        self.assertEqual({"kind": "continue", "action": "--resume-paused"}, shown["needs"])
+        spent = copy.deepcopy(self.state)
+        # The operator's audited --grant-recovery N, passed before the run has ended, reopens the allowance.
         self.assertEqual(2, test_goals.GoalTests.invoke(self, "--resume-paused", "--grant-recovery", "1", role=inspect))
         self.assertEqual(["task_planner"], calls)
         self.assertEqual(history, self.state["automatic_timeout_recoveries"])
         grants = [event for event in self.state["user_events"] if event.get("kind") == "recovery_grant"]
         self.assertEqual([1], [event["amount"] for event in grants])
         self.assertIsNone(grants[0]["request_id"], "a fresh blocked incident never published a person request")
+        # Since 009c8b8 a plain explicit resume no longer replenishes the spent allowance. Since #3798 it
+        # ends the run there with a recorded outcome: no stage launches, and a later grant changes nothing.
+        self.state.clear()
+        self.state.update(spent)
+        calls.clear()
+        self.assertEqual(2, test_goals.GoalTests.invoke(self, "--resume-paused", role=inspect))
+        self.assertEqual([], calls, "A plain resume must not restore a spent recovery allowance")
+        self.assertEqual(3, self.state["consecutive_timeout_recoveries"])
+        self.assertEqual(history, self.state["automatic_timeout_recoveries"])
+        ended = run_view.view(self.state)
+        self.assertEqual((False, None, None), (ended["done"], ended["needs"], ended["next_command"]))
+        self.assertEqual(2, test_goals.GoalTests.invoke(self, "--resume-paused", "--grant-recovery", "1", role=inspect))
+        self.assertEqual([], calls, "a grant after the recorded end launches nothing")
 
     def fake_provider(self, script):
         """Install a workspace-local offline executable, never the user's Codex."""
