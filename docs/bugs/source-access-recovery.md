@@ -18,6 +18,12 @@ classification as snapshots. They retain the Git failure and take the ordinary
 source recovery path. Git writes and optional missing-object reads retain their
 existing behavior; no report is accepted by a successful source read.
 
+The required review-diff reads at the end of a stage use that same source
+classification, both for streamed ordinary diffs and selected-source diffs built
+with a temporary index. Previously their Git exception could trigger a report
+repair or escape as a traceback. Scratch-index mutations keep their existing
+failure handling, and no diff or model report is accepted after a failed read.
+
 The live Tester and Completion Reviewer exposed the same lost classification
 at two more boundaries: a scratch worker returned only a traceback, and native
 copy preparation labelled its failed source query as broken Kilo containment.

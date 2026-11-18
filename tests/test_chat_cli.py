@@ -135,11 +135,20 @@ class ChatCliTests(unittest.TestCase):
     def test_owned_proof_worker_source_refusal_preserves_the_valid_tester_report(self):
         self.verification_source_refusal("autocode_verification_prepare_worker.py", after_tester=True)
 
-    def verification_source_refusal(self, parent_name, *, after_tester=False):
+    @unittest.skipUnless(sys.platform == "linux", "The supervised source-read fault observes its Linux parent")
+    def test_post_stage_diff_refusal_preserves_the_valid_tester_report_without_repair(self):
+        self.verification_source_refusal("autocode.py", after_tester=True, review_diff=True)
+
+    def verification_source_refusal(self, parent_name, *, after_tester=False, review_diff=False):
         marker = self.workspace.parent / "verification-source-refusal"
         bindir = Path(self.env["PATH"].split(os.pathsep)[0])
         real_git = shutil.which("git")
         wrapper = bindir / "git"
+        query = (
+            "'diff' in sys.argv and '--cached' in sys.argv"
+            if review_diff
+            else "'diff-files' in sys.argv and '--diff-filter=M' in sys.argv"
+        )
         wrapper.write_text(
             f"#!{sys.executable}\n"
             "import json, os, re, sys\nfrom pathlib import Path\n"
@@ -149,7 +158,7 @@ class ChatCliTests(unittest.TestCase):
             f"target = target and ({parent_name!r} != 'autocode.py' or '--run-dir' in parent and 'capture' not in parent)\n"
             "reports = any(re.fullmatch(r'validator-[0-9]+\\.json', p.name) for p in workspace.glob('.autocode/runs/*/iterations/*/validator-*.json'))\n"
             f"ready = reports if {after_tester!r} else True\n"
-            "if target and ready and not marker.exists() and 'diff-files' in sys.argv and '--diff-filter=M' in sys.argv and (workspace / 'greet.py').is_file():\n"
+            f"if target and ready and not marker.exists() and ({query}) and (workspace / 'greet.py').is_file():\n"
             " marker.write_text(json.dumps({'parent': parent, 'query': sys.argv[1:]}))\n"
             " print('fatal: source inspection unavailable (injected)', file=sys.stderr)\n"
             " sys.exit(128)\n"

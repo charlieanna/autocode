@@ -696,23 +696,27 @@ def _other_entry(path, unborn_ok=True):
     return None
 
 
-def source_git(root, *args, text=False, env=None, check=True, executable="git", timeout=None):
+def source_git(root, *args, text=False, env=None, check=True, executable="git", timeout=None, stdout=None):
     """Read required Git source facts without turning an I/O failure into a bad model report.
 
     Callers opt into this classification for source queries, never Git writes.
     ``check=False`` retains a caller's existing optional/missing-object behavior.
     Explicit scratch-index environments remain bound to the caller's observation.
+    ``stdout`` streams a required read to its existing artifact without buffering it.
     """
+    options = {
+        "cwd": root,
+        "text": text,
+        "errors": "replace" if text else None,
+        "stderr": subprocess.PIPE,
+        "env": git_environment() if env is None else env,
+        "timeout": timeout,
+    }
+    command = [str(executable), *args]
     try:
-        return subprocess.check_output(
-            [str(executable), *args],
-            cwd=root,
-            text=text,
-            errors="replace" if text else None,
-            stderr=subprocess.PIPE,
-            env=git_environment() if env is None else env,
-            timeout=timeout,
-        )
+        if stdout is not None:
+            return subprocess.run(command, stdout=stdout, check=True, **options).stdout
+        return subprocess.check_output(command, **options)
     except (subprocess.CalledProcessError, OSError) as error:
         if not check and isinstance(error, subprocess.CalledProcessError):
             return error.output

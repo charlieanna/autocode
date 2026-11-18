@@ -18,20 +18,16 @@ def write(workspace, destination, source, *, prefix=""):
     destination = Path(destination)
     if not source.get("source_paths"):
         with destination.open("wb") as output:
-            subprocess.run(
-                [
-                    "git",
-                    "diff",
-                    "--no-ext-diff",
-                    "--binary",
-                    "--src-prefix=a/" + prefix,
-                    "--dst-prefix=b/" + prefix,
-                    "HEAD",
-                ],
-                cwd=workspace,
+            util.source_git(
+                workspace,
+                "diff",
+                "--no-ext-diff",
+                "--binary",
+                "--src-prefix=a/" + prefix,
+                "--dst-prefix=b/" + prefix,
+                "HEAD",
                 env=util.git_environment(),
                 stdout=output,
-                check=True,
             )
         return
     with tempfile.TemporaryDirectory(prefix="source-diff-", dir=destination.parent) as directory:
@@ -53,7 +49,8 @@ def write(workspace, destination, source, *, prefix=""):
                 "--pathspec-file-nul",
                 data=b"\0".join(os.fsencode(name) for name in names) + b"\0",
             )
-        content = git(
+        content = util.source_git(
+            workspace,
             "diff",
             "--cached",
             "--no-ext-diff",
@@ -61,6 +58,7 @@ def write(workspace, destination, source, *, prefix=""):
             "--src-prefix=a/" + prefix,
             "--dst-prefix=b/" + prefix,
             "HEAD",
+            env=env,
         )
         for index, (name, identity) in enumerate(source["files"].items()):
             if identity.startswith("submodule:"):
