@@ -215,8 +215,8 @@ def _ended(line):
     """The provider's own error row for a call it ended: "provider_ended", or None.
 
     Any provider error qualifies unless it names a cause another recovery owns or that a retry
-    cannot help (quota, rate limit, sign-in, content filter, output limit), or the provider itself
-    marked it not retryable. OpenCode's ``MessageAbortedError`` ("Aborted") ended a Tester 34 s in,
+    cannot help (quota, rate limit, sign-in, content filter, output limit), the provider itself
+    marked it not retryable, or it carries an HTTP status other than a server error. OpenCode's ``MessageAbortedError`` ("Aborted") ended a Tester 34 s in,
     before any tool ran, and left the run with no way on (2026-11-18).
     """
     try:
@@ -233,6 +233,11 @@ def _ended(line):
         return None
     data = error.get("data", {})
     if not isinstance(data, dict) or data.get("isRetryable") is False or CONFLICT.search(line):
+        return None
+    # An HTTP status other than a server error is the provider refusing this request (a 401 sign-in, a 400
+    # malformed request, a 413 too large): the same request would be refused again.
+    statuses = [fields.get(key) for fields in (error, data) for key in ("statusCode", "status_code")]
+    if any(status is not None and status not in HTTP_CODES for status in statuses):
         return None
     return "provider_ended"
 

@@ -232,6 +232,8 @@ class NoEffectStreamTests(unittest.TestCase):
             ("APIError", {"message": "insufficient credits"}),
             ("APIError", {"message": "content filter triggered"}),
             ("APIError", {"message": "Bad request", "isRetryable": False}),
+            ("APIError", {"message": "Invalid API key", "statusCode": 401}),
+            ("APIError", {"message": "Request too large", "statusCode": 413}),
             ("", {"message": "Aborted"}),
         ):
             row = {"type": "error", "error": {"name": name, "data": data}}
