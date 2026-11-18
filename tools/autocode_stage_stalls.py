@@ -57,6 +57,8 @@ def repeated(state: RunState, stage: str, revision) -> list[dict]:
         at = streak.timestamp(row.get("at")) if isinstance(row, dict) else None
         if _stage(row) != stage or row.get("source_revision") != revision or at is None:
             continue
+        if row.get("timeout_kind") == "person":
+            continue  # a person's stop (#3263, #3259) is not the stage stalling
         if since is None or at > since:
             rows.append(row)
     return rows
