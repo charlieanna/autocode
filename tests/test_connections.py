@@ -185,6 +185,7 @@ class ConnectionTests(unittest.TestCase):
             for code, expected in ((0, "credentials_present"), (1, "sign_in_required"), (2, "check_failed")):
                 with (
                     self.subTest(code=code),
+                    mock.patch.dict(os.environ, {"CODEX_HOME": str(self.root / "no-codex")}),
                     mock.patch.object(
                         captured,
                         "run_metadata",
@@ -195,6 +196,46 @@ class ConnectionTests(unittest.TestCase):
                     self.assertEqual(expected, checked["connection_status"])
                     self.assertEqual(["codex", "login", "status"], run.call_args.args[0])
                     self.assertNotIn("ChatGPT", json.dumps(checked))
+
+    def test_a_codex_login_a_run_would_refuse_is_not_shown_as_ready(self):
+        """Connections said Codex was ready while every run refused it at start for its API key (2026-11-18)."""
+        (self.root / "codex").mkdir()
+        cases = (
+            ({}, "Logged in using an API key - sk-***", "not signed in with a ChatGPT account"),
+            ({"OPENAI_API_KEY": "sk-test"}, "Logged in using ChatGPT", "OPENAI_API_KEY"),
+            ({"OPENAI_BASE_URL": "https://proxy.example"}, "Logged in using ChatGPT", "another endpoint"),
+        )
+        for env, output, named in cases:
+            with (
+                self.subTest(named=named),
+                mock.patch.dict(os.environ, {"CODEX_HOME": str(self.root / "codex"), **env}),
+                mock.patch.object(connections.shutil, "which", return_value="/usr/bin/codex"),
+                mock.patch.object(
+                    captured, "run_metadata", return_value=subprocess.CompletedProcess([], 0, output, "")
+                ),
+            ):
+                for name in {"OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL"} - set(env):
+                    os.environ.pop(name, None)
+                row = connections.connection_view("codex", check=True)
+                self.assertEqual("sign_in_required", row["connection_status"])
+                self.assertIn(named, row["detail"])
+                self.assertIn("OpenCode or Kilo", row["detail"])
+                self.assertNotIn("sk-", json.dumps(row))
+        (self.root / "codex" / "config.toml").write_text('model_provider = "azure"\n')
+        with (
+            mock.patch.dict(os.environ, {"CODEX_HOME": str(self.root / "codex")}),
+            mock.patch.object(connections.shutil, "which", return_value="/usr/bin/codex"),
+            mock.patch.object(
+                captured,
+                "run_metadata",
+                return_value=subprocess.CompletedProcess([], 0, "Logged in using ChatGPT", ""),
+            ),
+        ):
+            for name in ("OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL"):
+                os.environ.pop(name, None)
+            row = connections.connection_view("codex", check=True)
+        self.assertEqual("sign_in_required", row["connection_status"])
+        self.assertIn("config.toml points it at another provider", row["detail"])
 
     def test_empty_kilo_auth_list_is_not_a_successful_login(self):
         for output, status in (

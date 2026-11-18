@@ -18,6 +18,7 @@ import sys
 
 try:
     from . import autocode_captured_process as captured
+    from . import autocode_codex_settings as codex_settings
     from . import autocode_connected_engine as connected_engine
     from . import autocode_direct_config as direct
     from . import autocode_project_config as project_config
@@ -26,6 +27,7 @@ try:
     from .providers import claude, command, env_prep
 except ImportError:
     import autocode_captured_process as captured
+    import autocode_codex_settings as codex_settings
     import autocode_connected_engine as connected_engine
     import autocode_direct_config as direct
     import autocode_project_config as project_config
@@ -186,6 +188,11 @@ def connection_view(name, *, check=False):
             # Registered status_command contract: 0 credentials present, 1 no
             # login, other exits operational failure. No model call is allowed.
             ready = result.returncode == 0
+            if name == "codex" and ready:
+                # A login every Codex run refuses (an API key, another endpoint) is not ready: the
+                # check reads the run's own answer, never echoing the status output.
+                refusal = codex_settings.login_refusal(result.stdout + result.stderr)
+                ready = not refusal
         # An auth-list command reports an empty login set with exit 0. Every
         # nonzero exit is an operational failure, including startup errors.
         if result.returncode != 0 and (auth_list or result.returncode != 1):
@@ -201,6 +208,8 @@ def connection_view(name, *, check=False):
                     "and billing show up when a run starts." + seatbelt_note
                 ),
             )
+        elif refusal and name == "codex":
+            row.update(connection_status="sign_in_required", detail=f"Signed in, but a run would refuse it. {refusal}")
         elif refusal:
             row.update(
                 connection_status="sign_in_required",

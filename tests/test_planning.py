@@ -944,16 +944,23 @@ class PlanningTests(unittest.TestCase):
     def test_subscription_guard_refuses_api_routes(self):
         good = {"auth_mode": "ChatGPT", "model_provider": None}
         autocode_configure.check_subscription(good)
-        for bad in (
-            {"auth_mode": "unknown"},
-            {"model_provider": "external"},
-            {"environment_auth_present": True},
-            {"environment_base_url_present": True},
-            {"openai_base_url": "https://other.test"},
+        # The refusal named all four conditions at once, so a person could not tell which one to fix
+        # (2026-11-18): it now names only the problem found, and how to fix it.
+        for bad, named in (
+            ({"auth_mode": "unknown"}, "not signed in with a ChatGPT account"),
+            ({"model_provider": "external"}, "config.toml points it at another provider"),
+            ({"environment_auth_present": True}, "OPENAI_API_KEY or CODEX_API_KEY"),
+            ({"environment_base_url_present": True}, "OPENAI_BASE_URL sends OpenAI requests"),
+            ({"openai_base_url": "https://other.test"}, "config.toml points it at another provider"),
         ):
             with self.subTest(bad=bad), self.assertRaises(support.Paused) as error:
                 autocode_configure.check_subscription({**good, **bad})
             self.assertEqual("PAUSED_BILLING_ROUTE", error.exception.status)
+            self.assertIn(named, str(error.exception))
+            self.assertIn("OpenCode or Kilo", str(error.exception))
+        with self.assertRaises(support.Paused) as error:
+            autocode_configure.check_subscription({**good, "environment_auth_present": True})
+        self.assertNotIn("not signed in", str(error.exception))
 
     def test_sol_defaults_to_opencode_and_saved_model_choices_are_preserved(self):
         args = SimpleNamespace(task_planner_model=None, builder_model=None, tester_model=None, planner_model=None)
