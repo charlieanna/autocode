@@ -653,7 +653,7 @@ def record_operational_exhaustion(runner, state: RunState, run_dir, error, *, re
             if parallel
             else quota_route.question(state, stopped, **rules)
         )
-        if stopped and stopped["active"]
+        if stopped and (stopped["active"] or stopped.get("kind") == "preflight")
         else None
     )
     if route:

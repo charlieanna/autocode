@@ -663,6 +663,7 @@ def check(
             checkpoint,
             time.monotonic,
             preflight_identity=identity,
+            roles=model_roles,
         )
         finite_time = ((state.get("settings") or {}).get("limits") or {}).get("max_seconds")
         try:

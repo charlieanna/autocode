@@ -92,6 +92,7 @@ ROLES = ("task_planner", "builder", "tester", "completion", "planner", "requirem
 # resume flag. The stuck-stage Investigator answer also saves its preparation pin.
 JOB_ROLES = ("architect", "stuck_investigator", "acceptance_tester")
 ROUTABLE = ROLES + JOB_ROLES
+PREFLIGHT_STAGE = "model_preflight"  # autocode_preflight_attempts.STAGE
 _JOB_PAUSES = ("PAUSED_JOB_FAILURE", "PAUSED_STAGE_ABANDONED")  # autocode_job_failure.PAUSES
 _OPENCODE_MODEL = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9._-]*/[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,120}")
 
@@ -164,6 +165,44 @@ def _routable(state: RunState, record: dict) -> str | None:
     if role in ROUTABLE and isinstance(configured.get(role), dict) and not state.get("parent_run"):
         return role
     return None
+
+
+def _preflight_stop(state: RunState, latest: dict | None) -> dict | None:
+    """The blocking access probe the run stopped at, when no stage attempt has run since it.
+
+    The probe is runner-owned, so ``latest`` (the newest role attempt) is never it; the probe must
+    come after that attempt, and the run must still be paused with the probe's own status or waiting
+    on the request that stop published.
+    """
+    rows = [row for row in state.get("stages") or [] if isinstance(row, dict)]
+    after = rows[rows.index(latest) + 1 :] if latest in rows else rows
+    probe = next((row for row in reversed(after) if row.get("stage") == PREFLIGHT_STAGE), None)
+    outcome = (probe or {}).get("preflight_outcome") or {}
+    if (
+        not probe
+        or not outcome.get("blocking")
+        or state.get("status") not in (outcome.get("status"), "WAITING_FOR_USER", "RESOLVER_PENDING")
+    ):
+        return None
+    return probe
+
+
+def _preflight_role(state: RunState, probe: dict) -> str | None:
+    """The routable role the probe's model was checked for, or the one about to launch among several."""
+    configured = (state.get("settings") or {}).get("roles") or {}
+    named = probe.get("preflight_roles")
+    # A probe saved before it recorded its roles was for the stage the run was about to launch.
+    candidates = named if isinstance(named, list) else [state.get("next_stage")]
+    routable = [role for role in candidates if _routable(state, {"role": role})]
+    if len(routable) > 1:
+        # One model checked for several roles: the question is for the one about to launch.
+        routable = [role for role in routable if role == state.get("next_stage")]
+    if len(routable) != 1:
+        return None
+    role = routable[0]
+    if isinstance(named, list) and (configured.get(role) or {}).get("model") != probe.get("model"):
+        return None  # The route has moved since the probe: a resume probes the new model.
+    return role
 
 
 def job_stop_status(failure: dict) -> str | None:
@@ -305,7 +344,10 @@ def stopped_attempt(state: RunState, *, failure_status) -> dict | None:
     - ``job``: a workflow job's attempt autocode_job_failure already set aside, with one exact
       retry bound to the run's configuration (#463). Its model is named with --answer and the
       job retry token, never with --abandon-stage or a --<role>-model flag;
-    - ``abandoned``: the attempt a person set aside with --abandon-stage while nothing has run since.
+    - ``abandoned``: the attempt a person set aside with --abandon-stage while nothing has run since;
+    - ``preflight``: the model access probe (autocode_model_preflight) that stopped the run before the
+      role's next stage launched, with nothing run since. No stage attempt exists to set aside, so its
+      model is named with --answer like a stage's, and nothing is abandoned.
 
     ``workflow_job`` is True for a workflow job's attempt: the ``job`` kind, or an uncertain
     ``stage`` that admission bound to its launch configuration (autocode_job_failure.admit saves
@@ -331,13 +373,19 @@ def stopped_attempt(state: RunState, *, failure_status) -> dict | None:
             ),
             None,
         )
-        if not latest or not latest.get("abandoned"):
+        probe = _preflight_stop(state, latest)
+        if probe is not None:
+            record, kind = probe, "preflight"
+        elif not latest or not latest.get("abandoned"):
             return None
-        record, kind = latest, "abandoned"
+        else:
+            record, kind = latest, "abandoned"
     events = record.get("events")
-    role = _routable(state, record)
+    role = _preflight_role(state, record) if kind == "preflight" else _routable(state, record)
     if kind == "job":
         status = job_stop_status(state["job_failure"])  # classified when the job stopped
+    elif kind == "preflight":
+        status = record["preflight_outcome"]["status"]  # classified when the probe stopped
     else:
         try:
             status = failure_status(events) if events and Path(events).is_file() else None
@@ -360,10 +408,14 @@ def stopped_attempt(state: RunState, *, failure_status) -> dict | None:
     bound_route = ((bound.get("roles") if isinstance(bound, dict) else None) or {}).get(role)
     return {
         "role": role,
-        "stage": record.get("original_stage") or record.get("stage"),
-        "attempt_id": _attempt_id(record),
+        # A probe is not the role's stage: the question names the job that was about to run.
+        "stage": role if kind == "preflight" else record.get("original_stage") or record.get("stage"),
+        "attempt_id": None if kind == "preflight" else _attempt_id(record),
         "events": events,
         "active": kind == "stage",
+        # A probe's stop is current like an uncertain stage's: its question is asked and answered,
+        # but there is no attempt to set aside (``attempt_id`` is None).
+        "current": kind in ("stage", "preflight"),
         "kind": kind,
         "model": _launched_model(record),
         "pause_status": status,
