@@ -2762,7 +2762,7 @@ class DesignManifestCliTests(unittest.TestCase):
         retries = [row for row in events if row.get("kind") == "automatic_job_provider_error_retry"]
         self.assertEqual([("collect_design", "exit")], [(row["stage"], row["cause"]) for row in retries])
 
-    def test_a_native_worker_that_keeps_failing_ends_with_its_retry_as_evidence(self):
+    def test_public_native_worker_failure_retains_both_attempts_and_stops_after_one_retry(self):
         self.env["FAKE_NATIVE_FAILURE"] = "1"
         run = taskrun.TaskRun.start(
             self.workspace,
@@ -2774,15 +2774,27 @@ class DesignManifestCliTests(unittest.TestCase):
         )
         saved = json.loads(run._invoke("status", "--status").stdout)["settings"]
         view = run.status()
-        self.assertEqual(("PAUSED_INTERVENTION", None, None), (view["status"], view["needs"], view["next_command"]))
+        self.assertEqual("PAUSED_INTERVENTION", view["status"], view)
+        self.assertEqual("collect_design", view["next_stage"])
         self.assertIn("Design inventory: provider exited 3", view["stop_reason"])
+        self.assertIsNone(view["needs"], "Provider recovery is AutoCode's machinery")
+        self.assertIsNone(view["next_command"])
         self.assertFalse(view["done"])
         self.assertFalse((self.workspace / "greet.py").exists())
-        evidence = view["recovery"]["outcome"]["evidence"]
-        self.assertEqual(
-            ("retries_spent", "exit", "collect_design"), (evidence["cause"], evidence["kind"], evidence["stage"])
-        )
-        self.assertEqual(1, len(evidence["automatic_retries"]))
+        outcome = view["recovery"]["outcome"]
+        self.assertEqual("could_not_finish", outcome["result"])
+        self.assertEqual("retries_spent", outcome["evidence"]["cause"])
+        self.assertEqual(1, len(outcome["evidence"]["automatic_retries"]))
+        attempts = view["usage"]["accounting"]["attempts"]
+        self.assertEqual(2, len(attempts), "Only the initial inventory and its one automatic retry ran")
+        self.assertEqual(attempts[0]["launch_route"], attempts[1]["launch_route"])
+        for attempt in attempts:
+            self.assertEqual(("collect_design", 3, False), (attempt["stage"], attempt["exit_code"], attempt["active"]))
+            self.assertTrue(attempt["rejected"])
+            self.assertEqual(attempt["event_file"]["sha256"], util.file_hash(attempt["events"]))
+        stopped = run.advance_until_input()
+        self.assertEqual(view["recovery"]["outcome"], stopped["recovery"]["outcome"])
+        self.assertEqual(2, stopped["usage"]["accounting"]["attempt_count"])
         current = json.loads(run._invoke("status", "--status").stdout)["settings"]
         self.assertEqual(saved["roles"], current["roles"])
         self.assertEqual(saved["limits"], current["limits"])
