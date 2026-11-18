@@ -354,6 +354,26 @@ def acknowledge_pause(state: RunState, at: str) -> None:
             receipt["resumed_at"] = at
 
 
+def pause_frontier(state: RunState):
+    """The applied pause an invocation may explicitly resume, not later input."""
+    intent = state.get("pause_intent") or {}
+    return (tuple(intent.get("request_ids") or ()), intent.get("applied_at")) if intent else None
+
+
+def hold_newer_pause(state: RunState, frontier) -> bool:
+    """A pause accepted during reconciliation supersedes the earlier resume."""
+    intent = state.get("pause_intent") or {}
+    if not intent or intent.get("acknowledged_at") or pause_frontier(state) == frontier or applied_stop(state):
+        return False
+    run_status.pause(state, STOP_STATUS, "Queued pause was applied; explicitly resume when ready.")
+    if state.get("next_stage") is None:
+        state["next_stage"] = "review_completion"
+    state.pop("completed_at", None)
+    state.pop("completion_actor", None)
+    state.pop("final_decision", None)
+    return True
+
+
 def resume_interrupted(state: RunState, at: str) -> bool:
     """--resume-paused on a pause that interrupted another: acknowledge it and return to that pause.
 

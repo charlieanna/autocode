@@ -624,6 +624,7 @@ def load_locked(runner, args, parser, state: RunState, state_path, run_dir, work
     args._recovery_grant_settings = copy.deepcopy(state.get("settings"))
     # The stop an explicit resume finds holding the run, for the build loop to record who resumed it (#722).
     args._resumed_pause = resumed_pause(state) if args.resume_paused else None
+    args._resume_pause_frontier = stop.pause_frontier(state)
     changing_plan_time = getattr(args, "_approval_time_change", False)
     changing_job_caps = getattr(args, "_job_cap_change", False)
     if not args.run_dir:
