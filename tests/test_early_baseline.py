@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 import shlex
 import time
 import unittest

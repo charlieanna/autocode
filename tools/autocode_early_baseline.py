@@ -370,9 +370,8 @@ def get_or_join(
             return None
 
         # Verify artifact integrity
-        if (
-            util.file_hash(handle.path) != handle.sha256
-            or not schedule.intact(handle.result["receipt"], root=Path(handle.path).parent)
+        if util.file_hash(handle.path) != handle.sha256 or not schedule.intact(
+            handle.result["receipt"], root=Path(handle.path).parent
         ):
             return None
 

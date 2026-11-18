@@ -241,7 +241,7 @@ def apply(actions, args, explicit, workspace, *, memory_input=None) -> dict[str,
         if key == "early-baseline":
             if not isinstance(value, bool):
                 raise ValueError(f"{source}: {key} must be true or false")
-            setattr(args, "early_baseline", value)
+            args.early_baseline = value
             applied[key] = source
             continue
         action = actions["--" + key]
