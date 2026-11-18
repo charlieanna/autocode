@@ -471,6 +471,7 @@ flag takes; a switch takes `true` or `false`.
 | Approvals (no flag) | `require-approver` |
 | Development server (no flag) | `serve` |
 | Sensitive paths (no flag) | `sensitive-paths` |
+| Early base-suite baseline (no flag) | `early-baseline` |
 
 `require-approver` has no flag: one plain Git email address, or a list of
 them, allowed to approve the run's plan and reviews and to accept its completion, such as
