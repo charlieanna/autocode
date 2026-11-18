@@ -534,16 +534,19 @@ class JobModelRouteTests(JobHarness):
     def test_a_job_stopped_for_another_reason_takes_no_model(self):
         (self.workspace / ".autocode" / "bin" / "codex").write_text(PROVIDER)  # an interrupted attempt, exit 42
         run = self.start("exit42")
-        need = self.stopped(run)
-        self.assertNotIn("route", need)
-        self.rejected(
-            run,
-            "--answer",
-            "route-architect=gpt-6-luna",
-            "--job-retry-token",
-            need["job_retry_token"],
-            message="did not stop on quota, a content-filter refusal, output limit, context window, provider authentication or a stopped-job timeout",
+        view = run.status()
+        # A provider exit is AutoCode's to retry once (autocode_job_end); once spent the run records its end.
+        self.assertEqual(("PAUSED_INTERVENTION", None, None), (view["status"], view["needs"], view["next_command"]))
+        outcome = view["recovery"]["outcome"]
+        self.assertEqual(
+            ("could_not_finish", "retries_spent", "exit"),
+            (outcome["result"], outcome["evidence"]["cause"], outcome["evidence"]["kind"]),
         )
+        self.assertEqual(["exit"], [row["cause"] for row in outcome["evidence"]["automatic_retries"]])
+        before = self.saved(run)
+        proc = self.cli(run, "--answer", "route-architect=gpt-6-luna")
+        self.assertEqual(2, proc.returncode, proc.stdout + proc.stderr)
+        self.assertEqual(before, self.saved(run), "an ended run takes no model")
 
     def test_a_refused_design_check_switches_on_its_own_by_default(self):
         self.options = tuple(opt for opt in self.options if opt != "--no-auto-select")

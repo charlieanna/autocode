@@ -18,7 +18,8 @@ FAILURE = {
     "attempt_id": "001/stuck-investigation-03",
     "job_retry_token": "jr:investigator",
     "reason": "Investigator interrupted",
-    "kind": "exit",
+    # A timeout keeps the person's exact retry; a provider exit is AutoCode's to retry (autocode_job_end).
+    "kind": "timeout",
     "source_identity": "saved",
     "source_paths": [],
     "configuration": {},
@@ -84,6 +85,8 @@ class StaleJobFailureTests(unittest.TestCase):
         )
         self.assertEqual("authorize", job_failure.resume_gate(state, resume=True, retry=True, token="jr:investigator"))
         self.assertIn("job_failure", state)
+        state["job_failure"]["kind"] = "exit"
+        self.assertEqual("automatic", job_failure.resume_gate(state, resume=True, retry=False, token=None))
 
     def test_status_offers_resume_for_the_later_pause_and_retry_for_the_job(self):
         need = run_view.needs(observed())

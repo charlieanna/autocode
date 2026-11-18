@@ -266,8 +266,10 @@ class PlanningAllowanceCLITests(unittest.TestCase):
     def test_explicit_operator_grant_replenishes_one_slot_without_other_authority(self):
         self.checkpoint(operational=True, grant=True)
         before = self.status()["usage"]["accounting"]["attempts"]
-        self.assertIsNone(self.status()["needs"])
-        self.assertIsNone(self.status()["next_command"])
+        # No grant is offered to a person (#3798): the view names the plain resume that records the end.
+        # An operator who passes --grant-recovery before that resume still replenishes a slot.
+        self.assertEqual({"kind": "continue", "action": "--resume-paused"}, self.status()["needs"])
+        self.assertNotIn("--grant-recovery", self.status()["next_command"])
         code, launched, output = self.invoke("--resume-paused", "--grant-recovery", "0")
         self.assertEqual((2, False), (code, launched), output)
         code, launched, output = self.invoke("--resume-paused", "--grant-recovery", "1")
