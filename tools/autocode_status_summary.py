@@ -15,8 +15,10 @@ supervises the retained attempt: neither is presented as delivered or as progres
 from __future__ import annotations
 
 try:
+    from . import autocode_controller_owner as controller_owner
     from . import autocode_person_text as person_text
 except ImportError:
+    import autocode_controller_owner as controller_owner
     import autocode_person_text as person_text
 
 NEEDS_YOU = "needs_you"
@@ -98,7 +100,11 @@ def project(view: dict, *, stale: bool = False, completion_current=None, next_ac
         # only when someone runs the command, so "Working" would have the person wait for nothing (#2332).
         state = NEEDS_YOU
         sentence = "Saved and ready to continue; nothing runs it until you do."
-    elif status in WORKING_STATUSES or kind == "dependency":
+    elif (
+        status in WORKING_STATUSES
+        or kind == "dependency"
+        or controller_owner.continuing({"status": status, "execution": view.get("execution")}, view.get("controller"))
+    ):
         state = WORKING
         sentence = _sentence(progress.get("headline") or "Working")
     else:

@@ -293,6 +293,7 @@ def view(
     try:
         from . import autocode_attention as attention
         from . import autocode_changeset_store as changeset_store
+        from . import autocode_controller_owner as controller_owner
         from . import autocode_coordination_admission as coordination_admission
         from . import autocode_coordination_store as coordination_store
         from . import autocode_related_profile as related_profile
@@ -302,6 +303,7 @@ def view(
     except ImportError:
         import autocode_attention as attention
         import autocode_changeset_store as changeset_store
+        import autocode_controller_owner as controller_owner
         import autocode_coordination_admission as coordination_admission
         import autocode_coordination_store as coordination_store
         import autocode_related_profile as related_profile
@@ -348,6 +350,9 @@ def view(
                 workspace=workspace or state.get("workspace"),
             ),
         }
+    if controller_owner.continuing(state, controller):
+        # The live controller will save its own next state; an action taken now is refused by the run lock.
+        next_action = {"needs": None, "pause_category": None, "pause_category_label": None, "next_command": None}
     need = next_action["needs"]
     task = state.get("current_task") or {}
     active = state.get("active_stage")

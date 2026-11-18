@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 import autocode_controller_owner as owners
 import autocode_process as processes
+import autocode_run_status as run_status
 import autocode_run_view as run_view
 import autocode_taskrun as taskrun
 import autocode_util as util
@@ -77,6 +78,19 @@ class OwnerInspectionTests(unittest.TestCase):
             self.assertTrue(observed["alive"])
             self.assertIs(self.state, owners.project(self.state, observed))
             owner.result(0, ready=True)
+
+    def test_a_live_controller_continues_a_saved_stop_except_a_durable_worker_waiting_at_it(self):
+        running, ready = {"kind": "running"}, {"kind": "ready"}
+        stop = {"status": "WAITING_FOR_USER"}
+        self.assertTrue(owners.continuing(stop, running))
+        self.assertTrue(owners.continuing({**stop, "execution": {"mode": "owned"}}, running))
+        # A durable worker stays alive at its saved stop and takes the action dispatched to it.
+        self.assertFalse(owners.continuing({**stop, "execution": {"mode": "durable_local"}}, running))
+        self.assertFalse(owners.continuing({**stop, "execution": {"mode": "unknown"}}, running))
+        for status in ("RUNNING", "COMPLETE", "TASK_COMPLETE"):
+            self.assertFalse(owners.continuing({"status": status}, running), status)
+        for inspection in (ready, {"kind": "boundary"}, {"kind": "busy"}, None):
+            self.assertFalse(owners.continuing(stop, inspection), inspection)
 
     def test_deliberate_ready_receipt_is_bound_to_the_exact_checkpoint(self):
         self.state["stages"] = [{"stage": "requirements_gather"}]
@@ -433,7 +447,8 @@ class ControllerExitCliTests(unittest.TestCase):
         }
         self.command = (sys.executable, "-B", str(TOOLS / "autocode.py"))
 
-    def test_exit_after_completed_requirements_reopens_with_precise_recovery(self):
+    def paused_after_requirements(self):
+        """A run whose controller died right after Requirements, so it pauses for a resume."""
         fault = self.root / "fault.py"
         fault.write_text(
             textwrap.dedent(f"""\
@@ -463,7 +478,10 @@ class ControllerExitCliTests(unittest.TestCase):
                 timeout=300,
             )
         self.assertEqual(71, failure.exception.process.returncode, failure.exception.process.stderr)
-        run = taskrun.TaskRun.attach(self.workspace, command=self.command, env=self.env, timeout=300)
+        return taskrun.TaskRun.attach(self.workspace, command=self.command, env=self.env, timeout=300)
+
+    def test_exit_after_completed_requirements_reopens_with_precise_recovery(self):
+        run = self.paused_after_requirements()
         checkpoint = (run.run_dir / "state.json").read_bytes()
         view = run.status()
         self.assertEqual(owners.STATUS, view["status"], view)
@@ -475,6 +493,35 @@ class ControllerExitCliTests(unittest.TestCase):
         self.assertEqual(checkpoint, (run.run_dir / "state.json").read_bytes(), "Status is read-only")
         resumed = run.resume_paused()
         self.assertEqual("approve_plan", resumed["needs"]["kind"], resumed)
+
+    def test_a_stop_a_live_controller_is_resuming_names_no_action_until_it_saves(self):
+        # Live VS Code test, 2026-11-18: after Resume or a raised cost cap the new controller owned the run
+        # at once but saved RUNNING only after its checks (60 to 100 seconds). Meanwhile the view still
+        # offered the stop's own resume, and pressing it again was refused by the run lock.
+        run = self.paused_after_requirements()
+        state = json.loads((run.run_dir / "state.json").read_text())
+
+        def persist(path, value):
+            util.atomic_json(path, value)
+            owners.checkpoint(path, value)
+
+        # The pause a writer saves for that exit (what the next advancing CLI persists from the projection).
+        run_status.pause(state, owners.STATUS, "Controller ended (exit code unavailable); saved work is retained.")
+        persist(run.run_dir / "state.json", state)
+        with util.run_lock(run.run_dir), owners.Owner(state, run.run_dir, persist) as owner:
+            view = run.status()
+            self.assertEqual(owners.STATUS, view["status"], "the saved stop is still what is saved")
+            self.assertEqual("running", view["controller"]["kind"])
+            self.assertIsNone(view["needs"], view)
+            self.assertIsNone(view["next_command"], view)
+            self.assertIsNone(view["pause_category"])
+            self.assertEqual("Continuing", view["progress"]["headline"], view["progress"])
+            self.assertEqual("working", view["summary"]["state"], view["summary"])
+            self.assertIsNone(view["summary"]["next_command"])
+            owner.result(2)
+        view = run.status()
+        self.assertEqual("resume", view["needs"]["kind"], "once the controller is gone the stop is offered again")
+        self.assertIn("--resume-paused", view["next_command"])
 
     def test_exit_with_completed_accounted_report_resumes_without_replaying_provider(self):
         marker = self.root / "provider-stages.jsonl"

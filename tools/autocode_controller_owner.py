@@ -37,6 +37,7 @@ except ImportError:
 
 FILE = "controller-owner.json"
 STATUS = "PAUSED_CONTROLLER_EXIT"
+COMPLETE = ("TASK_COMPLETE", "COMPLETE")
 MAX_BYTES = 16384
 # A launch marker also retains argv/context; its process identities use the same
 # strict reader, but it is not a small controller receipt. Keep both bounds finite.
@@ -347,6 +348,24 @@ def project(state: RunState, inspection):
     )
     run_status.pause(shown, STATUS if inspection["kind"] == "ended" else "PAUSED_PROCESS_CHECK", reason)
     return shown
+
+
+def continuing(state, inspection):
+    """A live controller holds a saved stop: a resume or a raised limit is being applied (live VS Code
+    test, 2026-11-18). The new controller owns the run from the moment it starts, but it saves RUNNING
+    only after its checks (the provider's model listing took 60 to 100 seconds), and until then the
+    saved stop still named its own resume. A person pressing it again was refused by the run lock.
+    Nothing can be taken until that controller saves, so the view names no action meanwhile. A durable
+    worker (``execution.mode`` ``durable_local``) is the exception: it stays alive at a saved stop and
+    takes the action dispatched to it, so its stop keeps its action. So is this process itself: a
+    controller reporting its own saved stop (``--json``) is not another one acting on it."""
+    receipt = (inspection or {}).get("receipt") or {}
+    return (
+        (inspection or {}).get("kind") == "running"
+        and (receipt.get("identity") or {}).get("pid") != os.getpid()
+        and state.get("status") not in ("RUNNING", *COMPLETE)
+        and ((state.get("execution") or {}).get("mode") in (None, "owned"))
+    )
 
 
 def display(state: RunState, inspection):
