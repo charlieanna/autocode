@@ -350,6 +350,57 @@ class EngineTests(unittest.TestCase):
         self.assertIn("automatic selection replaces", check.detail)
         self.assertIn("zhipuai-coding-plan/glm-5.3 -> zai-coding-plan/glm-5.3", check.detail)
 
+    def test_the_routes_a_person_chose_are_the_ones_checked(self):
+        """A new run keeps the stages saved in Stage models, so doctor checks those. It reported
+        "automatic selection replaces the profile's fallback" for routes the run never takes, and passed
+        a saved model the tool does not offer."""
+        import autocode_route_discovery as discovery
+
+        listed = ["zai-coding-plan/glm-5.3", "openai/gpt-6-luna", "openai/gpt-6-sol", "openai/gpt-6-astra"]
+        workers, judges = ("requirements", "planner", "builder"), ("plan_reviewer", "tester", "completion")
+        chosen = {
+            **dict.fromkeys(workers, "zai-coding-plan/glm-5.3"),
+            **dict.fromkeys(judges, "openai/gpt-6-sol"),
+            "task_planner": "openai/gpt-6-astra",
+        }
+        kilo = SimpleNamespace(
+            NAME="kilocode",
+            DEFAULT_MODELS={role: "zhipuai-coding-plan/glm-5.3" for role in chosen},
+            auth_table=lambda: {"command": ["kilo"], "routes": []},
+            available_models=lambda workspace=None: listed,
+        )
+
+        def check(saved):
+            with tempfile.TemporaryDirectory() as config, patch.dict(os.environ, {"XDG_CONFIG_HOME": config}):
+                file = Path(config) / "autocode" / "stages.toml"
+                file.parent.mkdir()
+                rows = (f'{role} = {{ model = "{model}", effort = "high" }}' for role, model in saved.items())
+                file.write_text("[kilocode]\n" + "\n".join(rows) + "\n")
+                with patch.object(discovery, "discover", side_effect=AssertionError("selected for nobody")):
+                    return doctor.route_check("kilocode", None, lambda name: kilo)
+
+        every = check(chosen)
+        self.assertEqual(doctor.OK, every.status)
+        self.assertEqual("kilocode offers every route a new run takes: the ones you chose", every.detail)
+        gone = check({**chosen, "builder": "zai-coding-plan/glm-9"})
+        self.assertEqual(doctor.MISSING, gone.status)
+        self.assertIn("zai-coding-plan/glm-9 (Builder)", gone.detail)
+        self.assertIn("`autocode stages` changes a stage you chose", gone.fix)
+
+    def test_a_stages_file_that_cannot_be_read_warns_instead_of_stopping_doctor(self):
+        kilo = SimpleNamespace(
+            NAME="kilocode",
+            DEFAULT_MODELS={"builder": "openai/gpt-6-luna"},
+            available_models=lambda workspace=None: ["openai/gpt-6-luna"],
+        )
+        with tempfile.TemporaryDirectory() as config, patch.dict(os.environ, {"XDG_CONFIG_HOME": config}):
+            file = Path(config) / "autocode" / "stages.toml"
+            file.parent.mkdir()
+            file.write_text("[kilocode\n")
+            check = doctor.route_check("kilocode", None, lambda name: kilo)
+        self.assertEqual(doctor.WARN, check.status)
+        self.assertIn("cannot be read as TOML", check.detail)
+
     def test_a_selection_that_cannot_field_a_set_keeps_the_gap_and_says_why(self):
         """The profile gap stays a gap when the tool's listings cannot be read (#1995)."""
         import autocode_route_discovery as discovery

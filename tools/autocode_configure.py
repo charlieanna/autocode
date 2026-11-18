@@ -394,17 +394,13 @@ def _auto_select(
     found = {**found, "candidates": allowed_models.keep(found["candidates"], getattr(args, "allowed_models", None))}
     # The run's full role set, not the four DEFAULT_ROLE_MODELS the roles dict
     # holds here: joint planning adds Requirements, Planner and Plan Reviewer.
-    pinned = {}
-    for role in route_selector.PIPELINE_ROLES:
-        named = getattr(args, f"{role}_model", None) or history_models.get(role)
-        if role == "requirements":
-            named = named or getattr(args, "planner_model", None)
-        explicit_tool = getattr(args, f"{role}_provider", None) or history_providers.get(role)
-        if named:
-            pinned[role] = named
-        elif explicit_tool:
-            # A role pointed at another tool keeps whatever route it already has.
-            pinned[role] = (roles.get(role) or {}).get("model") or provider_mod.DEFAULT_MODELS.get(role)
+    pinned = route_selector.pinned_roles(
+        args,
+        roles=roles,
+        defaults=provider_mod.DEFAULT_MODELS,
+        history_models=history_models,
+        history_providers=history_providers,
+    )
     if requested is None and set(pinned) == set(route_selector.PIPELINE_ROLES):
         # A fully pinned profile makes no automatic choice. Keep its existing
         # preflight and recovery policy instead of saving an empty permitted set.

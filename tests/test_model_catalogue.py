@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import io
 import json
+import os
 import sys
+import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -16,6 +19,8 @@ HERE = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(HERE))
 
 import autocode_builder_policy as policy  # noqa: E402
+import autocode_role_route as role_route  # noqa: E402
+import autocode_stage_choices as stage_choices  # noqa: E402
 import model_catalogue as mc  # noqa: E402
 
 CATALOGUE = [
@@ -531,6 +536,66 @@ class SelectionViewTest(unittest.TestCase):
         self.assertEqual("kilocode", payload["tool"])
         self.assertEqual("kilo/openai/gpt-6-sol", payload["routes"]["builder"]["model"])
 
+    def test_a_stage_the_person_chose_is_kept_and_the_rest_are_selected_around_it(self):
+        """The view showed the selection of a run in which nobody chose anything: with a Builder saved in
+        Stage models it still printed "Builder: kilo/openai/gpt-6-sol" and gave the Tester the Builder's
+        own model, a route no new run takes."""
+        import autocode_route_discovery as discovery
+
+        chosen = {"builder": ("kilo/z-ai/glm-5.3", "high")}
+        with stage_choices_home(chosen) as file, patch.object(discovery, "discover", return_value=self.FOUND):
+            code, text = self.run_selection()
+            out = io.StringIO()
+            with redirect_stdout(out):
+                mc.cli(["--selection", "--provider", "kilocode", "--json"])
+        payload = json.loads(out.getvalue())
+        self.assertEqual(0, code)
+        self.assertIn("Builder: kilo/z-ai/glm-5.3 on Kilo Gateway (high)", text)
+        self.assertIn("\n  kept: your stage choice\n", text)
+        self.assertIn(f"Not chosen automatically: Builder (your stage choices in {file}; ", text)
+        builder = payload["routes"]["builder"]
+        self.assertEqual(("kilo/z-ai/glm-5.3", "high", role_route.USER_EXPLICIT), tuple(builder[k] for k in KEPT))
+        self.assertEqual({"builder": "kilo/z-ai/glm-5.3"}, payload["chosen"])
+        self.assertEqual(["stage choices", str(file)], payload["sources"]["builder"])
+        for checker in ("tester", "completion"):
+            self.assertNotEqual("kilo/z-ai/glm-5.3", payload["routes"][checker]["model"], checker)
+            self.assertEqual(role_route.AUTO_SELECTED, payload["routes"][checker]["origin"])
+
+    def test_a_model_the_person_does_not_allow_is_never_selected_and_says_so(self):
+        import autocode_route_discovery as discovery
+
+        allowed = [c["model"] for c in self.FOUND["candidates"] if "deepseek" not in c["model"]]
+        with stage_choices_home({}, allowed=allowed), patch.object(discovery, "discover", return_value=self.FOUND):
+            code, text = self.run_selection()
+            out = io.StringIO()
+            with redirect_stdout(out):
+                mc.cli(["--selection", "--provider", "kilocode", "--json"])
+        payload = json.loads(out.getvalue())
+        self.assertEqual(0, code)
+        self.assertEqual(["kilo/deepseek/deepseek-v4.1-flash"], payload["excluded"])
+        self.assertTrue(all("deepseek" not in route["model"] for route in payload["routes"].values()))
+        self.assertIn("not allowed: ", text)
+        self.assertIn("outside the models you allow AutoCode to use", text)
+        self.assertNotIn("chosen: kilo/deepseek", text)
+
+
+KEPT = ("model", "reasoning_effort", "origin")
+
+
+@contextlib.contextmanager
+def stage_choices_home(choices, *, allowed=None, backend="kilocode"):
+    """The person's saved Stage models (``{role: (model, level)}``) and allowed models for ``backend``,
+    in a config home of their own; yields the file a new run would read them from."""
+    with tempfile.TemporaryDirectory(prefix="stage-choices-") as home:
+        file = Path(home) / "autocode" / "stages.toml"
+        stage_choices.save(
+            {backend: {role: {"model": model, "effort": level} for role, (model, level) in choices.items()}},
+            file,
+            allowed={backend: tuple(allowed)} if allowed else {},
+        )
+        with patch.dict(os.environ, {"XDG_CONFIG_HOME": home}):
+            yield file
+
 
 SEED_ONLY = "zhipuai-coding-plan/glm-5.3"
 SELECTED = ["zai-coding-plan/glm-5.3", "openai/gpt-6-luna", "openai/gpt-6-sol", "openai/gpt-6-astra"]
@@ -606,6 +671,117 @@ class RouteAdviceTest(unittest.TestCase):
         self.assertIn("Cannot read the tool's model listing", result["reason"])
 
 
+# What a person saved in Stage models on Kilo: every stage, none of them the route selection would pick.
+CHOSEN = {
+    "requirements": ("zai-coding-plan/glm-5.3", "low"),
+    "planner": ("zai-coding-plan/glm-5.3", "high"),
+    "builder": ("zai-coding-plan/glm-5.3", "high"),
+    "plan_reviewer": ("openai/gpt-6-sol", "high"),
+    "tester": ("openai/gpt-6-sol", "high"),
+    "completion": ("openai/gpt-6-sol", "high"),
+    "task_planner": ("openai/gpt-6-astra", "high"),
+}
+CHOSEN_ROUTES = {role: {"model": model} for role, (model, _level) in CHOSEN.items()}
+NEVER_SELECTED = {"side_effect": AssertionError("selected routes no new run would take")}
+
+
+class ChosenRoutesTest(unittest.TestCase):
+    """A new run keeps the routes the person chose (Stage models, the project's file) and selects only
+    the rest, so the check weighs those. It weighed the selection of a run in which nobody chose."""
+
+    def advice(self, listed=SELECTED, discover=None, workspace=None):
+        import autocode_route_discovery as discovery
+
+        stub = patch.object(
+            discovery, "discover", **({"return_value": kilo_found(listed)} if discover is None else discover)
+        )
+        with stub:
+            return mc.route_advice(kilo_provider(listed=listed), listed, workspace, backend="kilocode")
+
+    def test_the_stages_a_person_chose_are_the_routes_weighed_and_nothing_is_selected(self):
+        with stage_choices_home(CHOSEN) as file:
+            result = self.advice(discover=NEVER_SELECTED)
+        self.assertEqual("choices", result["source"])
+        self.assertEqual(CHOSEN_ROUTES, result["roles"])
+        self.assertEqual(({}, {}), (result["missing"], result["replaced"]))
+        self.assertEqual({role: ("stage choices", str(file)) for role in CHOSEN}, result["sources"])
+
+    def test_a_chosen_model_the_tool_does_not_offer_is_the_gap_and_selection_does_not_hide_it(self):
+        with stage_choices_home({**CHOSEN, "builder": ("zai-coding-plan/glm-9", "high")}):
+            result = self.advice(discover=NEVER_SELECTED)
+        self.assertEqual({"builder": "zai-coding-plan/glm-9"}, result["missing"])
+        self.assertEqual("choices", result["source"])
+
+    def test_selection_fills_only_the_stages_nobody_chose(self):
+        chosen = {"builder": CHOSEN["builder"], "tester": CHOSEN["tester"]}
+        with stage_choices_home(chosen):
+            result = self.advice()
+        self.assertEqual("selection", result["source"])
+        self.assertEqual({}, result["missing"])
+        for role, (model, _level) in chosen.items():
+            self.assertEqual(model, result["roles"][role]["model"], role)
+            self.assertNotIn(role, result["replaced"], "a chosen route is not one selection replaced")
+        self.assertEqual((SEED_ONLY, "zai-coding-plan/glm-5.3"), result["replaced"]["requirements"])
+        self.assertEqual({role: model for role, (model, _level) in chosen.items()}, result["chosen"])
+
+    def test_selection_stays_inside_the_models_the_person_allows(self):
+        allowed = [model for model in SELECTED if model != "openai/gpt-6-luna"]
+        with stage_choices_home({}, allowed=allowed):
+            result = self.advice()
+        self.assertEqual("selection", result["source"])
+        self.assertTrue(all(route["model"] in allowed for route in result["roles"].values()), result["roles"])
+
+    def test_a_chosen_route_replaces_a_profile_route_that_is_offered_too(self):
+        offered = [*KILO_PROFILE.values(), "openai/gpt-6-mini"]
+        with stage_choices_home({"builder": ("openai/gpt-6-mini", "high")}):
+            result = self.advice(listed=offered, discover=NEVER_SELECTED)
+        self.assertEqual(("profile", {}), (result["source"], result["missing"]))
+        self.assertEqual("openai/gpt-6-mini", result["roles"]["builder"]["model"])
+        self.assertEqual(KILO_PROFILE["tester"], result["roles"]["tester"]["model"])
+
+    def test_the_projects_own_file_wins_over_a_saved_choice_as_it_does_in_a_run(self):
+        with tempfile.TemporaryDirectory(prefix="project-") as project, stage_choices_home(CHOSEN) as file:
+            settings = Path(project) / ".autocode" / "config.toml"
+            settings.parent.mkdir()
+            settings.write_text('builder-model = "openai/gpt-6-luna"\n')
+            result = self.advice(discover=NEVER_SELECTED, workspace=Path(project))
+        self.assertEqual("openai/gpt-6-luna", result["roles"]["builder"]["model"])
+        self.assertEqual("project", result["sources"]["builder"][0])
+        self.assertEqual(("stage choices", str(file)), result["sources"]["tester"])
+        self.assertEqual(CHOSEN_ROUTES["tester"], result["roles"]["tester"])
+
+    def test_a_single_model_project_weighs_that_model_for_every_stage(self):
+        with tempfile.TemporaryDirectory(prefix="project-") as project, stage_choices_home(CHOSEN):
+            settings = Path(project) / ".autocode" / "config.toml"
+            settings.parent.mkdir()
+            settings.write_text('single-model = "openai/gpt-6-sol"\n')
+            result = self.advice(discover=NEVER_SELECTED, workspace=Path(project))
+        self.assertEqual({"openai/gpt-6-sol"}, {route["model"] for route in result["roles"].values()})
+        self.assertEqual(("choices", {}), (result["source"], result["missing"]))
+
+    def test_the_connection_view_names_a_chosen_route_as_the_persons_choice(self):
+        """`autocode connections` and setup print these lines as "Routes for a new run"."""
+        import autocode_route_discovery as discovery
+
+        with (
+            stage_choices_home({"builder": CHOSEN["builder"]}),
+            patch.object(discovery, "discover", return_value=kilo_found(SELECTED)),
+            patch("autocode_providers.resolve", return_value=kilo_provider()),
+        ):
+            found = mc.preview(provider="kilocode")
+        lines = mc.route_lines(found)
+        self.assertIn("Builder: zai-coding-plan/glm-5.3 at high (Z.AI Coding Plan subscription; your choice)", lines)
+        self.assertTrue(any(line.startswith("Tester: ") and line.endswith("; qualified for Tester)") for line in lines))
+        rows = {row["role"]: row for row in mc.route_rows(found)}
+        self.assertEqual(role_route.USER_EXPLICIT, rows["builder"]["origin"])
+        self.assertNotEqual("zai-coding-plan/glm-5.3", rows["tester"]["model"], "selected around the Builder")
+
+    def test_without_a_backend_nothing_is_read_and_the_profile_is_weighed_as_before(self):
+        with stage_choices_home(CHOSEN):
+            result = mc.route_advice(kilo_provider(listed=list(KILO_PROFILE.values())), list(KILO_PROFILE.values()))
+        self.assertEqual(("profile", {}), (result["source"], result["chosen"]))
+
+
 class ModelsCliTest(unittest.TestCase):
     """`autocode models` says what a new run can use, in the words a person acts on (#1995)."""
 
@@ -632,6 +808,50 @@ class ModelsCliTest(unittest.TestCase):
         self.assertNotIn("Cannot use with Kilo", text)
         self.assertIn("Every route a new run takes can be used:", text)
         self.assertIn(f"Requirements {SEED_ONLY} -> zai-coding-plan/glm-5.3", text)
+
+    def test_the_stages_a_person_chose_are_listed_as_the_routes_a_new_run_takes(self):
+        """Reported 2026-11-17: with every stage saved in Stage models, `autocode models --provider kilocode`
+        printed "Every route a new run takes can be used" over the Builder on openai/gpt-6-luna and the
+        Tester on zai-coding-plan/glm-5.3, while the run it described took the saved GLM Builder and GPT
+        Tester."""
+        with tempfile.TemporaryDirectory() as elsewhere, stage_choices_home(CHOSEN) as file:
+            code, text = self.models("--workspace", elsewhere, discover=NEVER_SELECTED)
+        self.assertEqual(0, code)
+        self.assertIn("Every route a new run takes can be used:", text)
+        for role, (model, _level) in CHOSEN.items():
+            self.assertIn(f"  {mc.ROLES[role][0]} ({mc.ROLES[role][1]}): {model}\n", text)
+        self.assertNotIn("Automatic selection replaces", text)
+        self.assertIn(
+            "Not chosen automatically: Requirements, Planner, Builder, Plan Reviewer, Tester, Completion Reviewer, "
+            f"Resolver and per-task Planner (your stage choices in {file}; `autocode stages` changes them).",
+            text,
+        )
+
+    def test_a_partly_chosen_set_names_what_was_chosen_beside_what_selection_replaced(self):
+        with tempfile.TemporaryDirectory() as elsewhere, stage_choices_home({"builder": CHOSEN["builder"]}):
+            code, text = self.models("--workspace", elsewhere)
+        self.assertEqual(0, code)
+        self.assertIn("  Builder (--builder-model): zai-coding-plan/glm-5.3\n", text)
+        self.assertIn(f"Requirements {SEED_ONLY} -> zai-coding-plan/glm-5.3", text)
+        self.assertNotIn("Builder openai/gpt-6-luna ->", text)
+        self.assertIn("Not chosen automatically: Builder (your stage choices in ", text)
+
+    def test_a_chosen_route_the_tool_does_not_offer_says_where_it_was_chosen(self):
+        chosen = {**CHOSEN, "builder": ("zai-coding-plan/glm-9", "high")}
+        with tempfile.TemporaryDirectory() as elsewhere, stage_choices_home(chosen) as file:
+            code, text = self.models("--workspace", elsewhere, discover=NEVER_SELECTED)
+        self.assertEqual(1, code)
+        self.assertIn("Cannot use with Kilo: zai-coding-plan/glm-9 (Builder).", text)
+        self.assertIn(f"Not chosen automatically: Builder (your stage choices in {file}; ", text)
+
+    def test_a_stages_file_that_cannot_be_read_is_reported_as_a_new_run_reports_it(self):
+        with tempfile.TemporaryDirectory() as elsewhere, stage_choices_home(CHOSEN) as file:
+            file.write_text("[kilocode\n")
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                code, _text = self.models("--workspace", elsewhere)
+        self.assertEqual(2, code)
+        self.assertIn(f"autocode models: {file} cannot be read as TOML", err.getvalue())
 
     def test_a_gap_selection_cannot_cover_still_fails_with_a_suggestion(self):
         code, text = self.models(discover={"side_effect": RuntimeError("no listings here")})

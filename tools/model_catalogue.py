@@ -536,51 +536,108 @@ class _ListedModels:
         return self._models
 
 
-def route_advice(provider, available, workspace=None) -> dict:
+def chosen_routes(backend, provider, workspace=None) -> dict:
+    """What the person fixed for a new run on ``backend``: the routes automatic selection never changes.
+
+    Read as a new run reads them (``autocode_stage_choices.new_run``: the project's file, then the saved
+    stage choices) and turned into pins by the run's own rule (``autocode_route_selector.pinned_roles``),
+    so a view of a new run's routes never shows one the run will not take. ``pinned`` maps each such
+    role to its model (every role to the one model a ``single-model`` names), ``efforts`` each role to
+    the level chosen for it, ``allowed`` is the person's list of models AutoCode may use or None for all
+    of them, and ``sources`` says where each pinned role's model was set: ``("project", where)`` or
+    ``("stage choices", file)``. No ``backend`` (a caller that names no registered tool) chooses nothing.
+    """
+    if not backend:
+        return {"pinned": {}, "efforts": {}, "allowed": None, "sources": {}}
+    try:
+        from . import autocode_stage_choices as stage_choices
+    except ImportError:
+        import autocode_stage_choices as stage_choices
+    args = stage_choices.new_run(backend, workspace)
+    single = getattr(args, "single_model", None)
+    if single:
+        pinned = dict.fromkeys(route_selector.PIPELINE_ROLES, single)
+        sources = dict.fromkeys(route_selector.PIPELINE_ROLES, args.route_sources.get("single"))
+    else:
+        named = route_selector.pinned_roles(args, defaults=getattr(provider, "DEFAULT_MODELS", None))
+        pinned = {role: model for role, model in named.items() if model}
+        # Requirements follows a named Planner (pinned_roles), so it shares the Planner's source.
+        follows = {"requirements": "planner"}
+        sources = {
+            role: args.route_sources.get(role) or args.route_sources.get(follows.get(role, role)) for role in pinned
+        }
+    shared = getattr(args, "reasoning_effort", None)
+    efforts = {
+        role: level
+        for role in route_selector.PIPELINE_ROLES
+        if (level := getattr(args, f"{role}_reasoning_effort", None) or shared)
+    }
+    return {"pinned": pinned, "efforts": efforts, "allowed": getattr(args, "allowed_models", None), "sources": sources}
+
+
+def route_advice(provider, available, workspace=None, *, backend=None) -> dict:
     """The routes a new run would take on ``provider``, and which of them it does not offer.
 
-    A profile route the run would never use is not a gap: `autocode_configure.select_routes` replaces
+    The routes the person chose for ``backend`` come first (`chosen_routes`: the project's file and the
+    saved stage choices), because a new run keeps them whatever selection would pick: each replaces
+    its role's profile route in what is weighed, and when they cover every role nothing else is read.
+
+    A profile route the run would never use is not a gap: `autocode_configure._auto_select` replaces
     the profile defaults with the selected routes whenever selection can field a set, and only falls
     back to the profile when it cannot. So the profile is weighed first and selection is consulted
     only when the profile shows a gap, which keeps the ordinary check to the one listing the caller
-    already has. Listing only: this launches no model and touches no credential.
+    already has. Selection then runs as the run's does: with the chosen routes pinned and only among
+    the models the person allows. Listing only: this launches no model and touches no credential.
 
-    ``source`` names which routes were weighed ("profile" or "selection"), ``replaced`` lists the
-    roles selection moved off their profile route, and ``reason`` says why selection could not.
+    ``source`` names which routes were weighed ("choices" when the person chose every role, else
+    "profile" or "selection"), ``chosen`` maps each role the person chose to its model and ``sources``
+    to where it was set, ``replaced`` lists the roles selection moved off their profile route, and
+    ``reason`` says why selection could not.
     """
     fixed = default_roles(provider)
+    chosen = chosen_routes(backend, provider, workspace)
+    pinned = {role: model for role, model in chosen["pinned"].items() if role in ROLES}
+    weighed = {role: {"model": pinned.get(role) or route["model"]} for role, route in fixed.items()}
+    weighed.update({role: {"model": model} for role, model in pinned.items() if role not in weighed})
+    if pinned:
+        # A run's own order, as `autocode stages` lists the stages; an untouched profile keeps its own.
+        weighed = {role: weighed[role] for role in route_selector.PIPELINE_ROLES if role in weighed}
+    whole = set(route_selector.PIPELINE_ROLES) <= set(pinned)
+    said = {"chosen": pinned, "sources": {role: chosen["sources"].get(role) for role in pinned}}
     result = {
-        "roles": fixed,
-        "missing": advise(fixed, available)["missing"],
-        "source": "profile",
+        "roles": weighed,
+        "missing": advise(weighed, available)["missing"],
+        "source": "choices" if whole else "profile",
         "replaced": {},
+        **said,
         "reason": None,
     }
-    if not result["missing"] or not selection_possible(provider):
+    if whole or not result["missing"] or not selection_possible(provider):
         return result
     try:
         try:
             from . import autocode_route_discovery as discovery
-            from . import autocode_route_selector as route_selector
         except ImportError:
             import autocode_route_discovery as discovery
-            import autocode_route_selector as route_selector
 
         found = discovery.discover(
             provider, workspace, inventory=_ListedModels(available) if available is not None else None
         )
-        chosen = route_selector.select(route_selector.PIPELINE_ROLES, found["candidates"])
+        # As the run selects (autocode_configure._auto_select): among the allowed models, around the pins.
+        selected = route_selector.select(
+            route_selector.PIPELINE_ROLES, allowed_models.keep(found["candidates"], chosen["allowed"]), pinned=pinned
+        )
     except captured.ProcessError:
         raise
     except (RuntimeError, ValueError, OSError) as error:
         result["reason"] = str(error)
         return result
-    if chosen.get("stop"):
-        result["reason"] = chosen["stop"]
+    if selected.get("stop"):
+        result["reason"] = selected["stop"]
         return result
     routes = {
         role: {"model": route["model"]}
-        for role, route in (chosen.get("routes") or {}).items()
+        for role, route in (selected.get("routes") or {}).items()
         if role in ROLES and route.get("model")
     }
     if not routes:
@@ -593,10 +650,29 @@ def route_advice(provider, available, workspace=None) -> dict:
         "replaced": {
             role: (fixed[role]["model"], route["model"])
             for role, route in routes.items()
-            if role in fixed and fixed[role]["model"] != route["model"]
+            if role in fixed and role not in pinned and fixed[role]["model"] != route["model"]
         },
+        **said,
         "reason": None,
     }
+
+
+def chosen_where(source, *, short=False) -> str:
+    """Who set a chosen route, for one line of text: ``sources`` as `chosen_routes` records them."""
+    kind, where = source or (None, None)
+    if kind == "stage choices":
+        return "your stage choice" if short else f"your stage choices in {where}; `autocode stages` changes them"
+    if kind == "project":
+        return "this project's setting" if short else f"this project's settings in {where}"
+    return "your own choice"
+
+
+def chosen_lines(routes: dict) -> list[str]:
+    """One line per place the person's routes were set, naming the roles each set."""
+    groups = defaultdict(list)
+    for role in routes.get("chosen") or {}:
+        groups[chosen_where((routes.get("sources") or {}).get(role))].append(ROLES[role][0])
+    return [f"Not chosen automatically: {', '.join(labels)} ({where})." for where, labels in groups.items()]
 
 
 def price_report(routes: dict[str, dict]) -> dict:
@@ -668,6 +744,7 @@ def render_selection(result: dict, found: dict) -> str:
     lines.append("")
     chosen = result["routes"]
     connected = {model_identity.identity(candidate["model"]): candidate for candidate in found["candidates"]}
+    excluded = {model_identity.identity(model) for model in result.get("excluded") or ()}
     for role in route_selector.PIPELINE_ROLES:
         if role not in chosen:
             continue
@@ -675,9 +752,19 @@ def render_selection(result: dict, found: dict) -> str:
         label = f"{ROLES[role][0]}" if role in ROLES else role
         level = route.get("reasoning_effort") or "model default"
         lines.append(f"{label}: {route['model']} on {route.get('account') or 'the tool'} ({level})")
+        if role in (result.get("chosen") or {}):
+            # The person's route: selection keeps it and only checks its independence, so no alternative lost.
+            lines.append(f"  kept: {chosen_where((result.get('sources') or {}).get(role), short=True)}")
+            continue
         for entry in route_selector.qualified(role):
             spellings = {model_identity.identity(route_id) for route_id in entry.get("routes") or [entry["model"]]}
             candidate = next((connected.get(identity) for identity in spellings if identity in connected), None)
+            if candidate is None and spellings & excluded:
+                lines.append(
+                    f"  not allowed: {entry['model']} — outside the models you allow AutoCode to use"
+                    f" (`autocode stages allow` changes them) [{route_selector.evidence_summary(entry)}]"
+                )
+                continue
             if candidate is None:
                 lines.append(
                     f"  not available: {entry['model']} — not connected on this tool's logins"
@@ -695,6 +782,8 @@ def render_selection(result: dict, found: dict) -> str:
             clash = route_selector.explains_clash(role, candidate["model"], chosen)
             why = clash or "a preferred or cheaper qualified route won"
             lines.append(f"  not chosen: {candidate['model']} — {why} [{route_selector.evidence_summary(entry)}]")
+    if result.get("chosen"):
+        lines += ["", *chosen_lines(result)]
     if result["probe"]:
         lines.append("")
         lines.append(
@@ -705,7 +794,13 @@ def render_selection(result: dict, found: dict) -> str:
 
 
 def preview(workspace=None, provider=None) -> dict:
-    """The routes automatic selection would choose now, from the tool's own local listings (#2057).
+    """The routes a new run would take now, from the tool's own local listings (#2057).
+
+    Selection as the run makes it (autocode_configure._auto_select): the routes the person chose are
+    kept (`chosen_routes`: the project's file and the saved stage choices, at the level chosen for
+    each), and the rest are selected around them among the models the person allows. ``chosen`` and
+    ``sources`` name the kept roles and where each was set; ``excluded`` lists the connected models
+    left out because they are not allowed.
 
     Listing only: discovery reads the tool's model and login lists and the selector is a pure
     function; nothing launches a model and no credential is returned. ``stop`` explains a
@@ -715,15 +810,29 @@ def preview(workspace=None, provider=None) -> dict:
     try:
         from . import autocode_providers
         from . import autocode_route_discovery as discovery
-        from . import autocode_route_selector as route_selector
     except ImportError:
         import autocode_providers
         import autocode_route_discovery as discovery
-        import autocode_route_selector as route_selector
-    module = autocode_providers.resolve(provider or autocode_providers.default_name())
+    name = provider or autocode_providers.default_name()
+    module = autocode_providers.resolve(name)
     found = discovery.discover(module, workspace)
-    result = route_selector.select(route_selector.PIPELINE_ROLES, found["candidates"])
-    return {**result, "tool": found["tool"], "accounts": found["accounts"], "candidates": found["candidates"]}
+    chosen = chosen_routes(name, module, workspace)
+    candidates = allowed_models.keep(found["candidates"], chosen["allowed"])
+    result = route_selector.select(route_selector.PIPELINE_ROLES, candidates, pinned=chosen["pinned"])
+    for role, route in (result["routes"] or {}).items():
+        # A level the person chose is the one the route runs at, as the run sets it after selecting.
+        if chosen["efforts"].get(role) is not None:
+            route["reasoning_effort"] = chosen["efforts"][role]
+    kept = {candidate["model"] for candidate in candidates}
+    return {
+        **result,
+        "tool": found["tool"],
+        "accounts": found["accounts"],
+        "candidates": candidates,
+        "chosen": chosen["pinned"],
+        "sources": {role: list(source) if source else None for role, source in chosen["sources"].items()},
+        "excluded": sorted(c["model"] for c in found["candidates"] if c.get("model") and c["model"] not in kept),
+    }
 
 
 def route_rows(result: dict, roles=None) -> list[dict]:
@@ -762,7 +871,8 @@ def route_lines(result: dict, roles=None) -> list[str]:
         level = row["reasoning_effort"] or "its own default"
         account = row["account"] or row["tool"] or "the tool"
         billing = f" {row['billing']}" if row["billing"] else ""
-        lines.append(f"{label}: {row['model']} at {level} ({account}{billing}; qualified for {label})")
+        why = "your choice" if row["origin"] == role_route.USER_EXPLICIT else f"qualified for {label}"
+        lines.append(f"{label}: {row['model']} at {level} ({account}{billing}; {why})")
     return lines
 
 
@@ -839,7 +949,7 @@ def cli(argv: list[str]) -> int:
         available = provider.available_models(args.workspace)
         if available is None:
             raise RuntimeError(f"provider {name} does not list its models (no models or models_command)")
-        routes = route_advice(provider, available, args.workspace)
+        routes = route_advice(provider, available, args.workspace, backend=name)
         roles = routes["roles"]
         signed_in = getattr(provider, "openai_auth", None)
         openai_auth = (
@@ -852,19 +962,24 @@ def cli(argv: list[str]) -> int:
     if args.json:
         print(json.dumps(advice, indent=2))
     elif advice["missing"]:
-        print(render_advice(advice, getattr(provider, "NAME", "OpenCode")))
+        # A missing route the person chose is changed where it was set, not by a flag on every run.
+        lost = {**routes, "chosen": [role for role in routes["chosen"] if role in advice["missing"]]}
+        print("\n".join([render_advice(advice, getattr(provider, "NAME", "OpenCode")), *chosen_lines(lost)]))
     else:
-        lines = render_catalogue(advice) + [
-            "Every default route can be used:"
-            if routes["source"] == "profile"
-            else "Every route a new run takes can be used:"
-        ]
+        if routes["source"] != "profile":
+            heading = "Every route a new run takes can be used:"
+        elif routes["chosen"]:
+            heading = "Every route you chose and every other default route can be used:"
+        else:
+            heading = "Every default route can be used:"
+        lines = render_catalogue(advice) + [heading]
         lines += [f"  {ROLES[role][0]} ({ROLES[role][1]}): {route['model']}" for role, route in roles.items()]
         if routes["replaced"]:
             lines.append(
                 "Automatic selection replaces the profile's route for: "
                 + "; ".join(f"{ROLES[role][0]} {seed} -> {taken}" for role, (seed, taken) in routes["replaced"].items())
             )
+        lines += chosen_lines(routes)
         print("\n".join(lines))
     return 1 if advice["missing"] else 0
 
