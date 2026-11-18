@@ -2200,7 +2200,7 @@
 
 
 <h1 id="models-roles-and-escalation">Models, roles, and escalation<a class="headerlink" href="#models-roles-and-escalation" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/994f3878938f16ba8801d06f15144d733738a446/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/36734d1ab73559069d389c4a6ec926c63508f30f/README.md">← Back to README</a></p>
 <h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
 <p>Every stage of a run has a <strong>role</strong>. Role names describe responsibilities, not
 mandatory models — each role can select any provider/model from <code>opencode models</code>
@@ -2372,7 +2372,7 @@ review allowance leaves room for it (a large plan, <code>plan_review_call_limit<
 final review and the Planner never climbs. If the stronger revision is still blocked, the
 final review returns the open concerns to you as blocking questions.</p>
 <p>Two scripted scenarios check these rows end to end, through <code>autocode --status --json</code>
-(<a href="https://github.com/charlieanna/autocode/blob/994f3878938f16ba8801d06f15144d733738a446/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
+(<a href="https://github.com/charlieanna/autocode/blob/36734d1ab73559069d389c4a6ec926c63508f30f/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
 attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
 Sol XHigh, one attempt with its cost, <code>passed</code>, and the run completes; <code>escalation_outcomes</code>
 stamps that attempt and the ordinary retry before it <code>passed</code> too. In <code>escalation-ladder-end</code>
@@ -2616,7 +2616,8 @@ and permitted alternatives without discovering new accounts.</p>
 field independent checkers, the default launch prints the reason and tries the fixed
 routes under the normal catalogue, billing and independence guards. Explicit
 <code>--auto-select</code> instead refuses before spending. Preview the choices and exclusions
-with <code>autocode models --selection --provider NAME</code>; this reads local listings only.</p>
+with <code>autocode models --selection --provider NAME</code>; this reads local listings only, and
+keeps the stages you chose as a run does, each marked <code>kept</code>.</p>
 <p>Selection also needs the installed OpenCode version to have a row in the
 <a href="../providers/#conformance-matrix">conformance matrix</a> whose result allows ordinary runs
 (<code>known-good</code> or <code>accepted-for-ordinary-runs</code>, #2060). On any other version the default
@@ -2821,8 +2822,12 @@ accounts you allow to one route per role, or a stop that names what is missing. 
 chosen route is recorded with its origin (<code>auto_selected</code>) in the route record the
 status view shows. <code>autocode models --selection</code> shows the whole reasoning: the
 logins the tool reports, the route chosen for each role with its cost, and why every
-other qualified model lost (not connected on any login, a preferred or cheaper
-qualified route won, or it would check its own family's work).</p>
+other qualified model lost (not connected on any login, outside the models you allow,
+a preferred or cheaper qualified route won, or it would check its own family's work).
+A stage you chose in Stage models or the project's file is not automatic selection's:
+it is shown as <code>kept</code>, and the view ends by naming those stages and where each was set.
+<code>autocode models</code>, <code>autocode doctor</code> and <code>autocode connections list --routes</code> read the
+same choices, so each names the routes the next run takes.</p>
 <p>Before the first stage, the <a href="#when-a-model-is-not-in-your-plans">model-access preflight</a>
 probes exactly the chosen routes that are still unproven, one tiny call each at the
 role's own reasoning level, within the run's cost cap — including built-in OpenCode
