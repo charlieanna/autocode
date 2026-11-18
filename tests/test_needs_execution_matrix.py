@@ -524,8 +524,9 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
         self.assertEqual(1, self.provider.call_count)
 
     def test_a_bound_held_behind_its_operational_request_is_raised_by_the_named_offer(self):
-        # #2044: once AutoResolver holds a bound pause, next_command is a plain resume and the raise was only
-        # prose (#1950). The view now names the raise as its own command; a person's number there releases.
+        # #2044: once AutoResolver holds a bound pause, next_command was a plain resume and the raise was only
+        # prose (#1950). Only a larger total lifts a limit, so the raise is now next_command itself, with the
+        # person's number in its one slot (live run, 2026-11-18); a number there releases.
         self.state["settings"]["limits"]["iteration_ceiling"] = 5
         self.state.update(
             status="PAUSED_ITERATION_LIMIT",
@@ -540,14 +541,13 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
         )
         self.save()
         before = self.run.status()
-        self.assertNotIn(" N", before["next_command"])
-        offer = client_actions.bound_offer(before, self.workspace, self.directory)
-        self.assertIsNotNone(offer)
-        row, named = offer
+        self.assertIsNone(client_actions.bound_offer(before, self.workspace, self.directory), "no second offer")
+        named = client_actions.named(before, self.workspace, self.directory)
+        [row] = client_actions.integer_inputs(before, named)
         self.assertEqual(("max_iterations", 5, 6, 7), (row["id"], row["current"], row["used"], row["minimum"]))
         with self.assertRaises(client_actions.ClientGap):
-            client_actions.fill_offer(before, row, named, "6")  # below the minimum: grants nothing
-        command = client_actions.fill_offer(before, row, named, "7")
+            client_actions.fill(before, named, {"max_iterations": "6"})  # below the minimum: grants nothing
+        command = client_actions.fill(before, named, {"max_iterations": "7"})
         self.assertEqual(["--resume-paused", "--max-iterations", "7", "--expected-recovery-token", "-"], command.argv)
         stale = {**command.env, "AUTOCODE_EXPECTED_RECOVERY_TOKEN": "recovery-v1:" + "0" * 64}
         refused = self.cli([*self.run.command, *self.place, *command.argv], env={**self.env, **stale}, advancing=True)
@@ -593,9 +593,11 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
         self.assertIn("reached its limit for total active time (1m15s used of 1m00s)", said[0])
         self.assertIn("A written reply can't lift a limit", said[0])
         self.assertNotIn("Reply with what changed", said[0])
-        row, named = client_actions.bound_offer(before, self.workspace, self.directory)
+        self.assertNotEqual("resolver_response", (before["chat"]["input"] or {}).get("kind"))
+        named = client_actions.named(before, self.workspace, self.directory)
+        [row] = client_actions.integer_inputs(before, named)
         self.assertEqual(76, row["minimum"])
-        command = client_actions.fill_offer(before, row, named, "600")
+        command = client_actions.fill(before, named, {"max_seconds": "600"})
         self.assertEqual(["--resume-paused", "--max-seconds", "600", "--expected-recovery-token", "-"], command.argv)
 
     def source_less_failure(self, status):

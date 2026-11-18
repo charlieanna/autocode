@@ -135,6 +135,22 @@ class CostCapCliTests(unittest.TestCase):
         self.assertIn("Cost: $", summary.stdout)
         self.assertIn("cap $5.00.", summary.stdout)
 
+    def test_at_the_cap_the_next_action_is_the_raise_never_a_written_reply(self):
+        # Live run, 2026-11-18: at the cap the chat said a written reply can't lift a limit, while the run's
+        # next action and the chat's reply box were AutoResolver's information reply.
+        started = taskrun.TaskRun.start(
+            self.workspace, BRIEF, options=OPTIONS, start_options=("--max-cost-usd", CAP), env=self.env, timeout=300
+        )
+        view = self.past_question(started.run_dir, started.status())
+        self.assert_cost_pause(view)
+        [row] = view["needs"]["command_inputs"]
+        self.assertEqual("max_cost_usd", row["id"])
+        self.assertNotIn("command", row, "the typed slot is next_command's own, not a second offer")
+        self.assertIn("--resume-paused --max-cost-usd N --expected-recovery-token -", view["next_command"])
+        self.assertNotIn("--resolver-response", view["next_command"])
+        composer = (view.get("chat") or {}).get("input") or {}
+        self.assertNotEqual("resolver_response", composer.get("kind"), composer)
+
     def test_a_next_attempt_projected_past_the_cap_pauses_before_it_launches(self):
         """#2019: an attempt of a job that already ran is priced before it launches, not only a climb. The fixture's
         Planner runs twice, around its one question (draft_plan drafts, revise_plan revises), on gpt-5.6-sol at
