@@ -153,7 +153,12 @@ class EveryPauseNumberIsDescribed(unittest.TestCase):
             view = run_view.view(paused(status), run_dir=RUN, workspace=WORKSPACE)
             self.check(view, status)
             described.update(row["flag"] for row in (view["needs"] or {}).get("command_inputs") or [])
-        self.assertEqual(set(command_inputs.PERSON_FLAGS), described, "a described number no pause reached")
+        # A spent recovery allowance is never a number for a person (#3798): --grant-recovery stays an
+        # operator's flag, usable before the run ends, and no pause describes it.
+        self.assertNotIn("--grant-recovery", described)
+        self.assertEqual(
+            set(command_inputs.PERSON_FLAGS) - {"--grant-recovery"}, described, "a described number no pause reached"
+        )
 
     def test_each_bound_pause_offers_its_own_raise(self):
         for status, (identity, flag, *_rest) in command_inputs.BOUNDS.items():
@@ -195,11 +200,13 @@ class EveryPauseNumberIsDescribed(unittest.TestCase):
                         state = support.read(run_dir / "state.json")
                     view = run_view.view(state, run_dir=RUN, workspace=WORKSPACE)
                     self.assertEqual("PAUSED_TIMEOUT_RECOVERY", view["status"])
-                    self.assertIsNone(view["needs"])
-                    self.assertIsNone(view["next_command"])
+                    # It asks a person nothing (#3798): the view names the resume that ends the run with
+                    # a recorded outcome (autocode_recovery_exhaustion), and no number to type.
+                    self.assertEqual({"kind": "continue", "action": "--resume-paused"}, view["needs"])
+                    self.assertTrue(view["next_command"].endswith(" --resume-paused"), view["next_command"])
                     self.assertIsNone(view["chat"]["input"])
                     self.assertIsNone(actions.bound_offer(view, WORKSPACE, RUN))
-                    self.assertEqual("blocked", view["recovery"]["category"])
+                    self.assertEqual("recovery", view["recovery"]["category"])
                     for key in (
                         "settings",
                         "automatic_recoveries_since_resume",
