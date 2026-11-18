@@ -28,7 +28,7 @@ class OperationalInformationCLITests(unittest.TestCase):
     saved = test_subprocess.SubprocessFlow.saved
     new_run_engine_args = ("--engine", "codex")
 
-    def checkpoint(self, status, reason, edit=None, *, legacy=False, **fields):
+    def checkpoint(self, status, reason, edit=None, *, legacy=False, settling=False, **fields):
         """A run AutoResolver stopped with a published operational_exhaustion request."""
         self.env["AUTOCODE_FIXTURE_MODE"] = "no-human"
         self.env["AUTOCODE_FIXTURE_QUOTA_STAGE"] = "review_completion"
@@ -93,7 +93,9 @@ class OperationalInformationCLITests(unittest.TestCase):
         else:
             runner.write_json(self.run / "state.json", stopped)
         view = self.status()
-        if cached is not None or runner.resolver_runtime.disposition.presentation(stopped):
+        if settling:
+            self.assert_settling(view)
+        elif cached is not None or runner.resolver_runtime.disposition.presentation(stopped):
             self.assert_blocked(view)
         else:
             self.assertEqual("operational_exhaustion", view["needs"]["resolver_scope"])
@@ -104,6 +106,11 @@ class OperationalInformationCLITests(unittest.TestCase):
         self.assertIsNone(view["next_command"])
         self.assertIsNone(view["chat"]["input"])
         self.assertEqual("blocked", view["recovery"]["category"])
+        self.assertFalse(view["done"])
+
+    def assert_settling(self, view):
+        self.assertEqual({"kind": "continue", "action": "--resume-paused"}, view["needs"])
+        self.assertIsNone(view["chat"]["input"], "Settling spent recovery asks no machinery question")
         self.assertFalse(view["done"])
 
     def refuse_cached_information(self, view, text="The environment was repaired"):
@@ -357,13 +364,17 @@ class OperationalInformationCLITests(unittest.TestCase):
             self.assert_blocked(self.status())
         self.assertEqual([], self.evaluations())
 
-    def assert_held_for_a_grant_once(self, checkpoint):
-        self.assert_blocked(checkpoint)
+    def assert_plain_resume_settles_without_a_grant(self, checkpoint):
+        self.assert_settling(checkpoint)
         _, before = self.saved()
         for _ in range(2):
             code, launched, output = self.resume()
-            self.assertEqual((2, False), (code, launched), output)
-            self.assert_blocked(self.status())
+            self.assertEqual((0, False), (code, launched), output)
+            view = self.status()
+            self.assertIsNone(view["needs"])
+            self.assertIsNone(view["next_command"])
+            self.assertIsNone(view["chat"]["input"])
+            self.assertEqual("could_not_finish", view["recovery"]["outcome"]["result"])
         _, after = self.saved()
         for key in (
             "automatic_recoveries_since_resume",
@@ -373,17 +384,19 @@ class OperationalInformationCLITests(unittest.TestCase):
         ):
             self.assertEqual(before.get(key), after.get(key), key)
         self.assertEqual([], self.evaluations())
-        # The existing explicit control still validates and grants exactly once;
-        # no machinery question or information review is needed for that proof.
+        # A later explicit grant cannot reopen the ended run. Granting before
+        # settlement remains covered by test_an_explicit_control_needs_no_machinery_information_review.
+        settled = (self.run / "state.json").read_bytes()
         code, launched, output = self.resume("--grant-recovery", "1")
-        self.assertNotIn("Input rejected", output)
-        self.assertTrue(launched, output)
+        self.assertEqual((2, False), (code, launched), output)
+        self.assertEqual(settled, (self.run / "state.json").read_bytes())
 
-    def test_a_decision_without_allowance_stays_paused_with_one_actionable_status(self):
-        self.assert_held_for_a_grant_once(
+    def test_a_decision_without_allowance_settles_without_a_machinery_question(self):
+        self.assert_plain_resume_settles_without_a_grant(
             self.checkpoint(
                 "PAUSED_TIMEOUT_RECOVERY",
                 "Automatic recovery budget exhausted; no further provider will launch.",
+                settling=True,
                 automatic_recoveries_since_resume=3,
                 consecutive_timeout_recoveries=3,
                 automatic_timeout_recoveries=[
@@ -574,11 +587,12 @@ class OperationalInformationCLITests(unittest.TestCase):
         checkpoint = self.checkpoint(
             "PAUSED_TIMEOUT_RECOVERY",
             "Automatic recovery budget exhausted; no further provider will launch.",
+            settling=True,
             automatic_recoveries_since_resume=3,
             consecutive_timeout_recoveries=3,
             automatic_timeout_recoveries=[{"stage": "builder", "timeout_reason": "idle watchdog"} for _ in range(3)],
         )
-        self.assert_blocked(checkpoint)
+        self.assert_settling(checkpoint)
         self.env.pop("AUTOCODE_FIXTURE_QUOTA_STAGE")
         code, launched, output = self.resume("--grant-recovery", "1")
         self.assertTrue(launched, output)
