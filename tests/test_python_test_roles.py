@@ -694,6 +694,122 @@ class NestedProjectTestTreeTests(unittest.TestCase):
             roles.is_test(added)
 
 
+class DeclaredTestPathTests(unittest.TestCase):
+    """A project names where its tests are in the configuration its runner reads. pytest keeps its suite in
+    ``testing/``, named in its ``pyproject.toml`` ``testpaths``, beside product code that imports modules by
+    computed name; every test there was ambiguous and a live run stopped on ``testing/test_assertrewrite.py``
+    (2026-11-18)."""
+
+    CASE = PinnedRolePolicyTests.CASE
+    LOADER = "import importlib\ndef load(name):\n    return importlib.import_module(name)\n"
+
+    def roles(self, sources, candidates=None):
+        return role_policy.build(sources, sources.__getitem__, verify.is_test_path, candidates=candidates)
+
+    def project(self, config, directory="testing", prefix=""):
+        return {
+            **config,
+            f"{prefix}src/pkg/__init__.py": "",
+            f"{prefix}src/pkg/plugins.py": self.LOADER,
+            f"{prefix}{directory}/conftest.py": "",
+            f"{prefix}{directory}/helpers.py": "VALUE = 1\n",
+            f"{prefix}{directory}/test_rewrite.py": self.CASE,
+            f"{prefix}{directory}/io/test_wcwidth.py": self.CASE,
+        }
+
+    CONFIGS = (
+        ("pyproject.toml", '[tool.pytest.ini_options]\ntestpaths = ["testing"]\n'),
+        ("pyproject.toml", '[tool.pytest]\ntestpaths = ["testing"]\n'),
+        ("pytest.ini", "[pytest]\ntestpaths = testing\n"),
+        ("pytest.toml", '[pytest]\ntestpaths = ["testing"]\n'),
+        ("tox.ini", "[tox]\nenvlist = py\n[pytest]\ntestpaths =\n    doc\n    testing\n"),
+        ("setup.cfg", "[metadata]\nname = pkg\n[tool:pytest]\ntestpaths = testing\n"),
+    )
+
+    def test_a_suite_in_a_directory_the_pytest_configuration_names_is_test(self):
+        for name, config in self.CONFIGS:
+            for directory in ("testing", "unit_tests", "qa/suite"):
+                with self.subTest(config=name, directory=directory):
+                    sources = self.project({name: config.replace("testing", directory)}, directory)
+                    added = f"{directory}/test_added.py"
+                    roles = self.roles(sources, candidates={added: self.CASE})
+                    for path in ("test_rewrite.py", "io/test_wcwidth.py", "helpers.py", "conftest.py"):
+                        self.assertTrue(roles.is_test(f"{directory}/{path}"), path)
+                    self.assertTrue(roles.is_test(added))
+                    self.assertTrue(roles.protected(f"{directory}/test_rewrite.py"))
+                    self.assertFalse(roles.is_test("src/pkg/plugins.py"))
+                    self.assertTrue(roles.test_path(f"{directory}/helpers.py"), "path-only readers get the same answer")
+
+    def test_a_project_below_the_root_names_its_tests_relative_to_itself(self):
+        sources = self.project(
+            {"web/pyproject.toml": '[tool.pytest.ini_options]\ntestpaths = ["testing"]\n'}, prefix="web/"
+        )
+        roles = self.roles(sources)
+        self.assertTrue(roles.is_test("web/testing/test_rewrite.py"))
+        self.assertFalse(roles.is_test("web/src/pkg/plugins.py"))
+
+    def test_without_a_named_directory_a_test_there_stays_ambiguous(self):
+        for name, config in (
+            ("pyproject.toml", '[project]\nname = "pkg"\n'),
+            ("pyproject.toml", '[tool.pytest.ini_options]\ntestpaths = ["."]\n'),
+            ("pyproject.toml", '[tool.pytest.ini_options]\ntestpaths = ["test*"]\n'),
+            ("pyproject.toml", '[tool.pytest.ini_options]\ntestpaths = ["../testing"]\n'),
+            ("pyproject.toml", '[tool.pytest.ini_options]\ntestpaths = ["missing"]\n'),
+            ("pyproject.toml", "[tool.pytest.ini_options\n"),
+            ("tox.ini", "[testenv]\ncommands = pytest testing\n"),
+            ("setup.cfg", "[pytest]\ntestpaths = testing\n"),
+        ):
+            with self.subTest(config=config):
+                roles = self.roles(self.project({name: config}))
+                with self.assertRaisesRegex(ValueError, "ambiguous"):
+                    roles.is_test("testing/test_rewrite.py")
+
+    def test_the_first_configuration_pytest_reads_is_the_one_that_counts(self):
+        sources = self.project(
+            {
+                "pytest.ini": "[pytest]\naddopts = -q\n",
+                "pyproject.toml": '[tool.pytest.ini_options]\ntestpaths = ["testing"]\n',
+            }
+        )
+        with self.assertRaisesRegex(ValueError, "ambiguous"):
+            self.roles(sources).is_test("testing/test_rewrite.py")
+
+    def test_a_named_directory_that_holds_product_code_stays_under_the_rule_by_name(self):
+        # Doctests: ``testpaths = ["src", "testing"]`` names the product too.
+        sources = self.project({"pyproject.toml": '[tool.pytest.ini_options]\ntestpaths = ["src", "testing"]\n'})
+        sources["src/pkg/test_utils.py"] = "def helper():\n    return 1\n"
+        sources["src/pkg/core.py"] = "from pkg import test_utils\n"
+        sources["testing/test_core.py"] = "import pkg.core\n" + self.CASE
+        roles = self.roles(sources)
+        self.assertTrue(roles.is_test("testing/test_rewrite.py"))
+        self.assertFalse(roles.is_test("src/pkg/core.py"))
+        with self.assertRaisesRegex(ValueError, "ambiguous"):
+            roles.is_test("src/pkg/test_utils.py")  # As without the configuration: never a test by it.
+        # A directory code outside it imports, or a package the packaging ships, is not a test tree.
+        for extra in (
+            {"src/pkg/core.py": "from testing import helpers\n"},
+            {
+                "pyproject.toml": '[tool.setuptools]\npackages = ["testing"]\n[tool.pytest.ini_options]\ntestpaths = ["testing"]\n'
+            },
+        ):
+            with self.subTest(extra=extra):
+                roles = self.roles({**sources, **extra})
+                with self.assertRaisesRegex(ValueError, "ambiguous"):
+                    roles.is_test("testing/test_rewrite.py")
+
+    def test_a_change_cannot_name_new_test_paths(self):
+        sources = self.project({"pyproject.toml": '[project]\nname = "pkg"\n'})
+        config = '[project]\nname = "pkg"\n[tool.pytest.ini_options]\ntestpaths = ["testing"]\n'
+        roles = self.roles(sources, candidates={"pyproject.toml": config, "testing/test_added.py": self.CASE})
+        for path in ("testing/test_rewrite.py", "testing/test_added.py"):
+            with self.subTest(path=path), self.assertRaisesRegex(ValueError, "ambiguous"):
+                roles.is_test(path)
+
+    def test_the_configuration_read_is_recorded_with_the_roles(self):
+        sources = self.project({"tox.ini": "[pytest]\ntestpaths = testing\n"})
+        self.assertIn("tox.ini", self.roles(sources).metadata)
+
+
 class RoleReadCostTests(unittest.TestCase):
     def test_unowned_dedicated_test_roots_need_no_source_or_ast_reads(self):
         sources = {f"tests/test_{index}.py": "# helper or test body\n" for index in range(500)}

@@ -9,6 +9,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import posixpath
+import sys
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -17,13 +18,15 @@ from pathlib import PurePosixPath
 try:
     from . import autocode_project_kinds as project_kinds
     from . import autocode_python_packaging as packaging
+    from . import autocode_python_test_roots as test_roots
     from . import autocode_python_tests as python_tests
 except ImportError:
     import autocode_project_kinds as project_kinds
     import autocode_python_packaging as packaging
+    import autocode_python_test_roots as test_roots
     import autocode_python_tests as python_tests
 
-VERSION = 7
+VERSION = 8
 PRODUCT, TEST, AMBIGUOUS = "product", "test", "ambiguous"
 TEST_DIRS = project_kinds.TEST_DIRS
 ROOT_TEST_DIRS = project_kinds.ROOT_TEST_DIRS
@@ -297,15 +300,17 @@ def _endpoint(path, paths, links):
     return path
 
 
-def _classify(paths, read, hint, ownership, links, *, original_tests=None):
+def _classify(paths, read, hint, ownership, links, *, original_tests=None, roots=frozenset()):
     def source(path):
         endpoint = _endpoint(path, paths, links)
         return read(endpoint) if endpoint is not None else ""
 
     packages = _packages(paths)
-    potential = {
-        p for p in paths if p.endswith(".py") and hint(p) and not _test_tree(p, packages) and not ownership.contains(p)
-    }
+
+    def tree(path):
+        return _test_tree(path, packages) or test_roots.under(path, roots)
+
+    potential = {p for p in paths if p.endswith(".py") and hint(p) and not tree(p) and not ownership.contains(p)}
     reached, dynamic = _runtime_reach(paths, source, hint, ownership, potential)
     runtime_targets = {_endpoint(path, paths, links) for path in paths if ownership.contains(path) or path in reached}
     oracle_targets = {
@@ -323,7 +328,7 @@ def _classify(paths, read, hint, ownership, links, *, original_tests=None):
         if not path.endswith(".py") or not hint(path):
             result[path] = TEST if hint(path) else PRODUCT
             continue
-        test_root = _test_tree(path, packages) or PurePosixPath(path).name == "conftest.py"
+        test_root = tree(path) or PurePosixPath(path).name == "conftest.py"
         if test_root and not (ownership.contains(path) or path in reached):
             result[path] = TEST
             continue
@@ -373,6 +378,45 @@ def _rooted(hint, paths):
     return hint if rule is project_kinds.is_test_path else lambda path: hint(path) or rule(path)
 
 
+def _module_names(path):
+    """Every dotted name ``path`` can be imported by, from any directory above it on ``sys.path``
+    (``src/pkg/core.py`` is ``pkg.core`` in a src layout). A standard-library name is the library's."""
+    parts = path[:-3].split("/")
+    if parts[-1] == "__init__":
+        parts.pop()
+    names = (".".join(parts[index:]) for index in range(len(parts)))
+    return {name for name in names if name and name.split(".")[0] not in sys.stdlib_module_names}
+
+
+def _test_roots(paths, read, ownership, links):
+    """The directories the original tree's pytest configuration names as its test paths
+    (autocode_python_test_roots), where nothing ships from them and no code outside them imports them.
+
+    A directory the project calls its tests is a test tree as ``tests/`` is, so a test kept there is a
+    test beside product code that imports by computed name. One that ships a package, or that code
+    elsewhere imports by any name (``testpaths = ["src", "tests"]`` for doctests), stays under the rule
+    by name."""
+    declared = test_roots.declared(paths, read, links)
+    if not declared.directories:
+        return frozenset(), declared.configs
+
+    def source(path):
+        endpoint = _endpoint(path, paths, links)
+        return read(endpoint) if endpoint is not None else ""
+
+    imports = {}
+    kept = set()
+    for root in sorted(declared.directories):
+        inside = {path for path in paths if test_roots.under(path, {root})}
+        if any(ownership.contains(path) for path in inside):
+            continue
+        names = set().union(*(_module_names(path) for path in inside if path.endswith(".py")))
+        outside = (path for path in paths if path.endswith(".py") and path not in inside)
+        if not any(names & imports.setdefault(path, _imports(path, source(path))[0]) for path in outside):
+            kept.add(root)
+    return frozenset(kept), declared.configs
+
+
 def build(paths, read, hint, *, candidates=None, links=None, candidate_links=None):
     """Freeze original roles before overlaying only added/changed test definitions.
 
@@ -389,7 +433,11 @@ def build(paths, read, hint, *, candidates=None, links=None, candidate_links=Non
         if "setup.py" in paths or "setup.cfg" in paths
         else packaging.declared(manifest)
     )
-    roles, runtime = _classify(paths, read, hint, ownership, links)
+    roots, configs = _test_roots(paths, read, ownership, links)
+    if roots:
+        named = hint
+        hint = lambda path: named(path) or test_roots.under(path, roots)  # noqa: E731
+    roles, runtime = _classify(paths, read, hint, ownership, links, roots=roots)
     # Code links whose bytes the original tree does not hold (absolute, or leading out of it): ambiguous only
     # because nothing could be read, so they carry no claim about the original's tests (_classify).
     unread = {
@@ -421,6 +469,7 @@ def build(paths, read, hint, *, candidates=None, links=None, candidate_links=Non
             ownership,
             current_links,
             original_tests={path for path, role in roles.items() if role == TEST},
+            roots=roots,
         )
         for path, role in current.items():
             old = roles.get(path)
@@ -437,6 +486,7 @@ def build(paths, read, hint, *, candidates=None, links=None, candidate_links=Non
             elif path in candidates and (old == AMBIGUOUS or old != role):
                 roles[path] = AMBIGUOUS
     metadata = {"pyproject.toml": hashlib.sha256(manifest.encode()).hexdigest()} if manifest is not None else {}
+    metadata.update(configs)
     eligible = frozenset(
         alias
         for alias, endpoint in original_test_links.items()
