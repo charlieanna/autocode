@@ -2739,6 +2739,29 @@ class DesignManifestCliTests(unittest.TestCase):
         self.assertEqual("approve_plan", reviewed["needs"]["kind"], reviewed)
         self.assertNotEqual(old["needs"]["token"], reviewed["needs"]["token"])
 
+    def test_a_native_worker_that_fails_once_is_retried_by_autocode_and_continues(self):
+        # A provider exit is AutoCode's to retry once on the same model (autocode_job_end), not a person's button.
+        self.path, self.body = inventory_bundle(self.root / "native-retry")
+        self.body["files"] = self.body["files"][:1]
+        self.body["cases"] = self.body["cases"][:2]
+        self.scope_inventory_to_fixture_task()
+        self.env["FAKE_NATIVE_FAILURE_ONCE"] = str(self.root / "native-failed-once")
+        self.env["FAKE_NATIVE_MANIFEST"] = str(self.path)
+        run = taskrun.TaskRun.start(
+            self.workspace,
+            BRIEF,
+            options=OPTIONS,
+            start_options=("--figma-file", "https://www.figma.com/design/FILEA"),
+            env=self.env,
+            timeout=120,
+        )
+        self.assertTrue((self.root / "native-failed-once").exists(), "the first collection failed")
+        view = run.status()
+        self.assertEqual("approve_plan", view["needs"]["kind"], view)
+        events = json.loads((run.run_dir / "state.json").read_text())["user_events"]
+        retries = [row for row in events if row.get("kind") == "automatic_job_provider_error_retry"]
+        self.assertEqual([("collect_design", "exit")], [(row["stage"], row["cause"]) for row in retries])
+
     def test_public_native_worker_failure_retains_both_attempts_and_stops_after_one_retry(self):
         self.env["FAKE_NATIVE_FAILURE"] = "1"
         run = taskrun.TaskRun.start(
@@ -2749,6 +2772,7 @@ class DesignManifestCliTests(unittest.TestCase):
             env=self.env,
             timeout=120,
         )
+        saved = json.loads(run._invoke("status", "--status").stdout)["settings"]
         view = run.status()
         self.assertEqual("PAUSED_INTERVENTION", view["status"], view)
         self.assertEqual("collect_design", view["next_stage"])
@@ -2771,6 +2795,9 @@ class DesignManifestCliTests(unittest.TestCase):
         stopped = run.advance_until_input()
         self.assertEqual(view["recovery"]["outcome"], stopped["recovery"]["outcome"])
         self.assertEqual(2, stopped["usage"]["accounting"]["attempt_count"])
+        current = json.loads(run._invoke("status", "--status").stdout)["settings"]
+        self.assertEqual(saved["roles"], current["roles"])
+        self.assertEqual(saved["limits"], current["limits"])
 
     def test_reference_revision_preserves_old_versions_and_requires_new_plan_review(self):
         self.path, self.body = inventory_bundle(self.root / "old-version")
