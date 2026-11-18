@@ -30,6 +30,7 @@ try:
     from . import autocode_first_reply_budget as first_reply_budget
     from . import autocode_format_correction as format_correction
     from . import autocode_idle_policy as idle_policy
+    from . import autocode_job_deadline as job_deadline
     from . import autocode_job_failure as job_failure
     from . import autocode_output_cap as output_cap
     from . import autocode_output_policy as output_policy
@@ -67,6 +68,7 @@ except ImportError:
     import autocode_first_reply_budget as first_reply_budget
     import autocode_format_correction as format_correction
     import autocode_idle_policy as idle_policy
+    import autocode_job_deadline as job_deadline
     import autocode_job_failure as job_failure
     import autocode_output_cap as output_cap
     import autocode_output_policy as output_policy
@@ -377,7 +379,10 @@ def launch_limits(state: RunState, model, original_stage: str, stage: str, *, re
         idle_limit,
         saved_origin,
         stage_timeout=stage_timeout,
-        silent_start=idle_policy.silent_start(state.get("recovery_context"), stage)
+        # An exact job retry already has a bounded launch allowance. Reapplying the short startup
+        # guard can stop its longer deadline before the provider even starts responding.
+        silent_start=job_deadline.authorized_retry(state, original_stage, report_only=report_only)
+        or idle_policy.silent_start(state.get("recovery_context"), stage)
         or bool(report_only and (state.get("pending_report_repair") or {}).get("silent_start_retried")),
     )
     tool_timeout = limits.get("tool_timeout_seconds", 1800)
