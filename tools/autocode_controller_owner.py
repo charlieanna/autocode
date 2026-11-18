@@ -37,6 +37,7 @@ except ImportError:
 
 FILE = "controller-owner.json"
 STATUS = "PAUSED_CONTROLLER_EXIT"
+COMPLETE = ("TASK_COMPLETE", "COMPLETE")
 MAX_BYTES = 16384
 # A launch marker also retains argv/context; its process identities use the same
 # strict reader, but it is not a small controller receipt. Keep both bounds finite.
@@ -347,6 +348,15 @@ def project(state: RunState, inspection):
     )
     run_status.pause(shown, STATUS if inspection["kind"] == "ended" else "PAUSED_PROCESS_CHECK", reason)
     return shown
+
+
+def continuing(state: RunState, inspection):
+    """A live controller holds a saved stop: a resume or a raised limit is being applied (live VS Code
+    test, 2026-11-18). The new controller owns the run from the moment it starts, but it saves RUNNING
+    only after its checks (the provider's model listing took 60 to 100 seconds), and until then the
+    saved stop still named its own resume. A person pressing it again was refused by the run lock.
+    Nothing can be taken until that controller saves, so the view names no action meanwhile."""
+    return (inspection or {}).get("kind") == "running" and state.get("status") not in ("RUNNING", *COMPLETE)
 
 
 def display(state: RunState, inspection):
