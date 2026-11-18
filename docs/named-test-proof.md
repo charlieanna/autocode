@@ -865,7 +865,13 @@ Dedicated test roots and supported test declarations keep test authority. A test
 a `tests/`-style directory at any depth, or a `test/` or `spec/` directory at the repository
 root or directly under a directory that is not a Python package (a project kept one directory
 down, such as Docutils' `docutils/test/` beside its `docutils/docutils/` package); a `test/`
-inside a package (`django/test/`) may be a shipped subpackage and is not a root. One test
+inside a package (`django/test/`) may be a shipped subpackage and is not a root. A directory
+the original tree's pytest configuration names in `testpaths` is a test root too, read relative to
+the directory of the configuration pytest itself would read there (`pytest.toml`, `pytest.ini`,
+`pyproject.toml`, `tox.ini` or `setup.cfg`, in pytest's order): pytest keeps its suite in `testing/`.
+A named directory that the packaging ships, or that code outside it imports by any dotted name, is
+not one, so `testpaths = ["src", "tests"]` never makes the product a test; the configuration read
+is recorded with the roles, and a change cannot name new test paths. One test
 file beside the code it tests is a test in the same way: a `tests.py` at any depth (an
 application's tests, as Django's `startapp` writes them and unittest discovery collects them),
 and a `test.py` at the top of the repository. A `tests.py` the package's own code imports is product code whatever it declares
