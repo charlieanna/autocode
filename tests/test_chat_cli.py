@@ -127,6 +127,7 @@ class ChatCliTests(unittest.TestCase):
         )
         self.assertFalse((self.workspace / "greet.py").exists())
 
+    @unittest.skipUnless(sys.platform == "linux", "The supervised source-read fault observes its Linux parent")
     def test_verification_git_refusal_is_source_recovery_without_repeating_the_builder(self):
         marker = self.workspace.parent / "verification-source-refusal"
         bindir = Path(self.env["PATH"].split(os.pathsep)[0])
@@ -136,7 +137,9 @@ class ChatCliTests(unittest.TestCase):
             f"#!{sys.executable}\n"
             "import os, sys\nfrom pathlib import Path\n"
             f"workspace = Path({str(self.workspace)!r})\nmarker = Path({str(marker)!r})\n"
-            "if not marker.exists() and 'diff-files' in sys.argv and '--diff-filter=M' in sys.argv and (workspace / 'greet.py').is_file():\n"
+            "parent = Path('/proc/' + str(os.getppid()) + '/cmdline').read_bytes().split(b'\\0')\n"
+            "core = any(Path(os.fsdecode(p)).name == 'autocode.py' for p in parent if p)\n"
+            "if core and not marker.exists() and 'diff-files' in sys.argv and '--diff-filter=M' in sys.argv and (workspace / 'greet.py').is_file():\n"
             " marker.write_text('one failed proof query; later reads succeed')\n"
             " print('fatal: source inspection unavailable (injected)', file=sys.stderr)\n"
             " sys.exit(128)\n"
