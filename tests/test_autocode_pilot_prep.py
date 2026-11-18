@@ -224,6 +224,43 @@ class PilotPrepTests(unittest.TestCase):
         self.assertFalse(view["done"], view)
         self.assertEqual("approve_plan", view["needs"]["kind"], view)
         self.assertTrue(view["needs"]["token"])
+        payload = subprocess.check_output(
+            [*taskrun.AUTOCODE, "--workspace", str(self.workspace), "--run-dir", str(run.run_dir), "--status"],
+            env=self.env,
+            text=True,
+            timeout=120,
+        )
+        self.assertTrue(
+            json.loads(payload)["human_request_authorized"], "The report must not expire the shown approval"
+        )
+        self.assertEqual(str(run.run_dir), json.loads(self.report.read_text())["run_dir"])
+
+    def test_a_report_outside_the_workspace_keeps_the_same_approval_boundary(self):
+        self.report = self.root / "outside-prep-report.json"
+        proc = self.coordinator(self.positive_fixture())
+        self.assertEqual(0, proc.returncode, proc.stdout + proc.stderr)
+        run_dir = Path(json.loads(self.report.read_text())["run_dir"])
+        run = taskrun.TaskRun(self.workspace, run_dir, options=tuple(FIXTURE_OPTIONS), env=self.env)
+        self.assertEqual("approve_plan", run.status()["needs"]["kind"])
+
+    def test_report_write_failure_stops_before_any_provider_or_run(self):
+        self.report.mkdir()
+        proc = self.coordinator(self.positive_fixture())
+        self.assertEqual(1, proc.returncode, proc.stdout + proc.stderr)
+        self.assertIn("no task run was started", proc.stderr)
+        self.assertFalse(self.calls.exists())
+        self.assertEqual([], self.run_dirs())
+
+    def test_report_cannot_overwrite_a_declared_input(self):
+        manifest = self.positive_fixture()
+        self.report = self.workspace / "pilot-public/PUBLIC-PROOF.md"
+        before = self.report.read_bytes()
+        proc = self.coordinator(manifest)
+        self.assertEqual(2, proc.returncode, proc.stdout + proc.stderr)
+        self.assertIn("overwrite a declared input", proc.stderr)
+        self.assertEqual(before, self.report.read_bytes())
+        self.assertFalse(self.calls.exists())
+        self.assertEqual([], self.run_dirs())
 
     def test_fixture_only_untracked_source_reaches_plan_approval(self):
         self.git("-c", "user.name=T", "-c", "user.email=t@example.test", "commit", "-qm", "empty base", "--allow-empty")
