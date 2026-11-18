@@ -71,6 +71,7 @@ try:
     from . import autocode_project_inventory as project_inventory
     from . import autocode_project_kinds as project_kinds
     from . import autocode_prompts as prompts
+    from . import autocode_proof_git as proof_git
     from . import autocode_proof_seam as proof_seam
     from . import autocode_proof_stability as proof_stability
     from . import autocode_python_tests as python_tests
@@ -121,6 +122,7 @@ except ImportError:
     import autocode_project_inventory as project_inventory
     import autocode_project_kinds as project_kinds
     import autocode_prompts as prompts
+    import autocode_proof_git as proof_git
     import autocode_proof_seam as proof_seam
     import autocode_proof_stability as proof_stability
     import autocode_python_tests as python_tests
@@ -174,24 +176,7 @@ is_test_path = test_results.is_test_path
 is_code_path = test_results.is_code_path
 
 
-def _scratch_env(workspace, scratch, *, keep_objects=False):
-    env = util.git_environment({"GIT_INDEX_FILE": str(Path(scratch, "index"))})
-    if not keep_objects:
-        objects = Path(workspace, _git(workspace, "rev-parse", "--git-path", "objects").strip()).resolve()
-        obj_dir = Path(scratch, "objects")
-        obj_dir.mkdir()
-        env.update(GIT_OBJECT_DIRECTORY=str(obj_dir), GIT_ALTERNATE_OBJECT_DIRECTORIES=str(objects))
-    return env
-
-
-def _git(cwd, *args, check=True, env=None, input=None):
-    git_env = util.git_environment() if env is None else env
-    result = subprocess.run(
-        ["git", *args], cwd=cwd, capture_output=True, encoding="utf-8", errors="replace", env=git_env, input=input
-    )
-    if check and result.returncode:
-        raise RuntimeError(f"git {' '.join(args)} failed: {result.stderr.strip()}")
-    return result.stdout
+_git, _read_git, _scratch_env = proof_git.command, proof_git.read, proof_git.scratch_env
 
 
 def _document_only_base(workspace, base, *, dependencies_from=None, independent=None, ignored_inputs=None):
@@ -249,7 +234,7 @@ def _document_only_base(workspace, base, *, dependencies_from=None, independent=
     separate = independent is not False and (
         launch_bound or (bool(dependencies_from) and Path(dependencies_from).resolve() != Path(workspace).resolve())
     )
-    regular = project_inventory.regular_entries(_git(workspace, "ls-tree", "-r", "-l", "-z", base))
+    regular = project_inventory.regular_entries(_read_git(workspace, "ls-tree", "-r", "-l", "-z", base))
     if regular is None:
         return False
     launched = ignored_inputs.generated if ignored_inputs is not None else {}
@@ -264,7 +249,7 @@ def _document_only_base(workspace, base, *, dependencies_from=None, independent=
 
 
 def _untested_base(workspace, base) -> bool:
-    paths = project_inventory.regular_paths(_git(workspace, "ls-tree", "-r", "-l", "-z", base), executable=True)
+    paths = project_inventory.regular_paths(_read_git(workspace, "ls-tree", "-r", "-l", "-z", base), executable=True)
     return paths is not None and not any(map(project_kinds.test_rule(paths), paths))
 
 
@@ -305,19 +290,19 @@ def _staged(workspace, base=None, *, keep=False):
     .autocode, AutoCode's own info/exclude rule) and `add -u -- .` an index with no files."""
     with tempfile.TemporaryDirectory(prefix="autocode-index-") as scratch:
         env = _scratch_env(workspace, scratch, keep_objects=keep)
-        real = Path(workspace, _git(workspace, "rev-parse", "--git-path", "index").strip())
+        real = Path(workspace, _read_git(workspace, "rev-parse", "--git-path", "index").strip())
         if real.is_file():
             shutil.copy2(real, env["GIT_INDEX_FILE"])  # with its timestamp: a racily clean entry stays racy
         dirty = [
             path
-            for path in _git(workspace, "-c", "core.fsmonitor=false", "diff-files", "--name-only", "-z", env=env).split(
-                "\0"
-            )
+            for path in _read_git(
+                workspace, "-c", "core.fsmonitor=false", "diff-files", "--name-only", "-z", env=env
+            ).split("\0")
             if path and not _ignored(path)
         ]
         others = [
             path
-            for path in _git(workspace, "ls-files", "-z", "--others", "--exclude-standard", env=env).split("\0")
+            for path in _read_git(workspace, "ls-files", "-z", "--others", "--exclude-standard", env=env).split("\0")
             if path and not _ignored(path)
         ]
         repositories = [path for path in others if path.endswith("/")]  # Git never stages inside one
@@ -326,7 +311,7 @@ def _staged(workspace, base=None, *, keep=False):
         add = [path for path in dirty if there[path]] + [path for path in others if not path.endswith("/")]
         if base:
             ignored = set(
-                _git(
+                _read_git(
                     workspace,
                     "diff-index",
                     "--cached",
@@ -360,7 +345,7 @@ def changed_files(workspace, base, *, source_paths=()) -> dict[str, str]:
     files (an in-place run's launch state, commit_worktree) counts only what changed since. An
     untracked Git repository is listed as ``dir/``, added."""
     with _staged(workspace, base) as (env, repositories):
-        tokens = _git(
+        tokens = _read_git(
             workspace, "diff-index", "--cached", "--name-status", "-z", "--no-renames", base, "--", env=env
         ).split("\0")
         changes = {
@@ -369,11 +354,11 @@ def changed_files(workspace, base, *, source_paths=()) -> dict[str, str]:
             if path
         }
         changes.update(dict.fromkeys(repositories, "added"))
-        for path in _git(workspace, "diff-files", "--name-only", "-z", "--diff-filter=M", env=env).split("\0"):
+        for path in _read_git(workspace, "diff-files", "--name-only", "-z", "--diff-filter=M", env=env).split("\0"):
             if path and Path(workspace, path).is_dir():  # a submodule with uncommitted work, as `git diff` shows it
                 changes.setdefault(path, "modified")
         if source_paths:
-            tracked = set(filter(None, _git(workspace, "ls-files", "-z", "--cached", env=env).split("\0")))
+            tracked = set(filter(None, _read_git(workspace, "ls-files", "-z", "--cached", env=env).split("\0")))
             selected = source_snapshot.snapshot(workspace, paths=source_paths)
             for path, identity in selected["files"].items():
                 if identity.startswith(("submodule:", "uninitialized-submodule")):
@@ -388,12 +373,12 @@ def commit_worktree(workspace):
     """HEAD when the checkout matches it, else a new child commit of HEAD holding the working tree as
     changed_files sees it, uncommitted and untracked files included (an untracked Git repository
     cannot be). No ref, index or file changes; None without a HEAD."""
-    head = _git(workspace, "rev-parse", "--verify", "-q", "HEAD", check=False).strip()
+    head = _read_git(workspace, "rev-parse", "--verify", "-q", "HEAD", check=False).strip()
     if not head:
         return None
     with _staged(workspace, keep=True) as (env, _):
         tree = _git(workspace, "write-tree", env=env).strip()
-    if tree == _git(workspace, "rev-parse", "HEAD^{tree}").strip():
+    if tree == _read_git(workspace, "rev-parse", "HEAD^{tree}").strip():
         return head
     return _git(
         workspace,
@@ -466,7 +451,9 @@ def detect_framework(root, *, python=None, test_root=None, base=None, package=No
     # tests, 2026-09-29). Ignored files, such as .autocode/, do not.
     files = [
         p
-        for p in _git(root, "ls-files", "-z", "--cached", "--others", "--exclude-standard", check=False).split("\0")
+        for p in _read_git(root, "ls-files", "-z", "--cached", "--others", "--exclude-standard", check=False).split(
+            "\0"
+        )
         if p
     ]
     if test_root is not None:
@@ -500,7 +487,7 @@ def _python_framework(root, files, python, base) -> Framework | None:
         note = f"pytest is configured but {python} cannot import it; using unittest" if configured else ""
         plain_start = None
         if base:
-            pinned_files = _git(root, "ls-tree", "-rz", "--name-only", base).split("\0")
+            pinned_files = _read_git(root, "ls-tree", "-rz", "--name-only", base).split("\0")
             pinned_tests = [p for p in pinned_files if PYTHON_TEST_MODULE.match(PurePosixPath(p).name)]
             plain_start = test_roots.added_empty_marker_start(root, tests, pinned_tests, pinned_files)
         if plain_start:
@@ -571,7 +558,7 @@ def _rooted_python(workspace, test_root, files, python, *, base=None) -> Framewo
     directory = workspace / test_root
     entries = {}
     if base:
-        for record in _git(workspace, "ls-tree", "-r", "-t", "-z", base).split("\0"):
+        for record in _read_git(workspace, "ls-tree", "-r", "-t", "-z", base).split("\0"):
             if record:
                 metadata, path = record.split("\t", 1)
                 entries[path] = metadata.split()
@@ -596,6 +583,8 @@ def _rooted_python(workspace, test_root, files, python, *, base=None) -> Framewo
                 configured |= _pytest_configured(policy_dir, relative, read=read)
                 if policy_dir == directory:
                     configured |= python_tests.prefers_pytest_in(policy_dir, relative, read)
+            except util.Paused:
+                raise
             except (OSError, ValueError, RuntimeError):
                 return None  # Unknown policy cannot authorize a smaller or first suite.
     files = test_roots.inside(test_root, files)
@@ -739,7 +728,9 @@ def vendored_files(source_root):
     included = set()
     for name in filter(
         None,
-        _git(source_root, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--", "vendor").split("\0"),
+        _read_git(source_root, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--", "vendor").split(
+            "\0"
+        ),
     ):
         path = Path(name)
         included.update((path, *path.parents))
@@ -797,11 +788,11 @@ def generated_sources(source_root):
     if not source_root:
         return []
     source_root = Path(source_root)
-    ignored = _git(
+    ignored = _read_git(
         source_root, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory", check=False
     ).split("\0")
     tracked_dirs = {
-        str(PurePosixPath(p).parent) for p in _git(source_root, "ls-files", "-z", check=False).split("\0") if p
+        str(PurePosixPath(p).parent) for p in _read_git(source_root, "ls-files", "-z", check=False).split("\0") if p
     }
     selected = []
     for relative in ignored:
@@ -1062,9 +1053,9 @@ def _effective_base(workspace, base, patch=None):
             patched = set(
                 filter(
                     None,
-                    _git(workspace, "diff-index", "--cached", "--name-only", "-z", "--no-renames", base, env=env).split(
-                        "\0"
-                    ),
+                    _read_git(
+                        workspace, "diff-index", "--cached", "--name-only", "-z", "--no-renames", base, env=env
+                    ).split("\0"),
                 )
             )
         entries = {}
@@ -1127,7 +1118,7 @@ def run_suite(framework, command, tree, evidence_dir, label, *, timeout, native_
             label,
             timeout=timeout,
             execute=run_command,
-            is_tracked=lambda path: bool(_git(tree, "--literal-pathspecs", "ls-files", "-z", "--", path)),
+            is_tracked=lambda path: bool(_read_git(tree, "--literal-pathspecs", "ls-files", "-z", "--", path)),
         )
     package, command = package_scope.split(framework, command)  # a package's suite runs from its directory
     root = Path(tree) / package if package else tree
@@ -1326,9 +1317,9 @@ def execution_identity(
     runtime.update({"prompts/" + name: hashlib.sha256(data).hexdigest() for name, data in prompts.CONTENTS.items()})
     generated = {
         p: schedule.tree_identity(workspace / p)
-        for p in _git(workspace, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory").split(
-            "\0"
-        )
+        for p in _read_git(
+            workspace, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory"
+        ).split("\0")
         if p
         and not p.endswith("/")
         and PurePosixPath(p).suffix in CODE_SUFFIXES
@@ -1719,6 +1710,8 @@ def _run_suite_base_definition(
             junit=junit,
             roles=getattr(framework, "test_roles", None),
         )
+    except util.Paused:
+        raise
     except (OSError, RuntimeError, ValueError) as error:
         return {"run": None, "boundary": f"the effective base could not be read ({error})"}
     definition, patched, roles = found.paths, found.patched, getattr(framework, "test_roles", None)
@@ -2317,7 +2310,7 @@ def verify(
     elif not (sources or support or preserve or ambiguous):
         fail.append("Only test files changed; a fix must change product code")
     deleted = python_tests.deleted_test_files(
-        (p for p in tests if changes[p] == "deleted"), lambda p: _git(workspace, "show", f"{base}:{p}")
+        (p for p in tests if changes[p] == "deleted"), lambda p: _read_git(workspace, "show", f"{base}:{p}")
     )
     if deleted:
         fail.append("Existing test files were deleted: " + ", ".join(deleted))
@@ -2428,7 +2421,7 @@ def verify(
             and framework is not None
             and framework.name == "go"
             and first_suite.no_go_project(
-                _git(workspace, "ls-tree", "-r", "-l", "-z", base),
+                _read_git(workspace, "ls-tree", "-r", "-l", "-z", base),
                 _copied_generated(dependencies_from, generated_record, generated_unrecorded, ignored_inputs),
             )
         )
@@ -2440,7 +2433,7 @@ def verify(
             and not base_patch
             and junit_proof.no_project(
                 commands["suite"],
-                _git(workspace, "ls-tree", "-r", "-l", "-z", base),
+                _read_git(workspace, "ls-tree", "-r", "-l", "-z", base),
                 _copied_generated(dependencies_from, generated_record, generated_unrecorded, ignored_inputs),
             )
         )
@@ -2523,7 +2516,7 @@ def _seam_names(workspace, base, changes, receipt, *, roles=None):
         if roles.is_test(path) if roles else is_test_path(path):
             test_words |= proof_seam.words(after)
         else:
-            before = "" if status == "added" else _git(workspace, "show", f"{base}:{path}", check=False)
+            before = "" if status == "added" else _read_git(workspace, "show", f"{base}:{path}", check=False)
             src_added, inline_words = changed_tests.seam_words(path, before, after, proof_seam)
             added, test_words = added | src_added, test_words | inline_words
     return proof_seam.used(_read(receipt.get("output") or ""), added, test_words)

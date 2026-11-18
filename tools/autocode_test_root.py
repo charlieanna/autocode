@@ -14,6 +14,11 @@ import subprocess
 from contextlib import ExitStack
 from pathlib import Path
 
+try:
+    from . import autocode_util as util
+except ImportError:
+    import autocode_util as util
+
 _SEGMENT = re.compile(r"[A-Za-z0-9_.][A-Za-z0-9_.@+-]*")
 POLICY_MAX_BYTES = 1024 * 1024
 
@@ -137,16 +142,7 @@ def read_policy(workspace: Path, path: Path) -> str:
 
 
 def _blob(workspace, object_id: str) -> str:
-    result = subprocess.run(
-        ["git", "cat-file", "blob", object_id],
-        cwd=workspace,
-        capture_output=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-    if result.returncode:
-        raise RuntimeError(f"git cat-file blob {object_id} failed: {result.stderr.strip()}")
-    return result.stdout
+    return util.source_git(workspace, "cat-file", "blob", object_id, text=True)
 
 
 def pinned_policy(workspace, path, entries) -> str:

@@ -10,6 +10,14 @@ fresh inventory, including a source failure before the first provider starts.
 Source availability and supervision are facts AutoCode can recheck; neither is
 a requirements or plan decision.
 
+The same live run then hit a Git read failure while preparing the regression
+proof, before the Tester had started. That query raised a generic runtime error,
+so the run blamed an invalid Tester answer and offered a manual retry. Required
+proof inventory and pinned-policy reads now use the same source-availability
+classification as snapshots. They retain the Git failure and take the ordinary
+source recovery path. Git writes and optional missing-object reads retain their
+existing behavior; no report is accepted by a successful source read.
+
 The status view now offers the existing resume action only after a fresh source
 inventory succeeds and any retained supervisor is positively stopped with a
 clean receipt. The action is bound to the exact saved recovery token. VS Code
