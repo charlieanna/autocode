@@ -347,7 +347,8 @@ def _launch_names(active: dict) -> tuple[str, str]:
     A stage record keeps its model in ``launch_route`` and its backend in ``provider`` (Kilo, Claude
     Code on the OpenCode facade) or ``engine`` (Codex, OpenCode); it has no top-level ``model``, so
     reading one named every live attempt "the model" (2026-11-18)."""
-    route = active.get("launch_route") if isinstance(active.get("launch_route"), dict) else {}
+    launch = active.get("launch_route")
+    route: dict = launch if isinstance(launch, dict) else {}
     model = str(route.get("model") or active.get("model") or "").strip()
     backend = next(
         (str(value) for value in (active.get("provider"), route.get("provider"), active.get("engine")) if value),
