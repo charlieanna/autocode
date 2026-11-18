@@ -59,6 +59,8 @@ interface ChatMessage {
   /** Tab messages (#1558): the webview addresses tabs by their key. */
   tabKey?: string;
   hasDraft?: boolean;
+  /** Send now (#3259): the message also ends the running step, through the view's `now_command`. */
+  now?: boolean;
   tabs?: { key?: string; run?: unknown; hasDraft?: boolean }[];
   activeKey?: string;
 }
@@ -805,7 +807,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       && message.runKey === tab.key && tab.run && !tab.starting && tab.status?.chat?.input?.kind === "message") {
       // The run works and the view takes a message for its next boundary (#3259): saved at once,
       // never held behind the stage this window is driving.
-      await this.queueMessage(tab, message.text, message.context ?? "");
+      await this.queueMessage(tab, message.text, message.context ?? "", message.now === true);
       return;
     }
     if (message.type === "send" && typeof message.text === "string" && message.text.trim()
@@ -979,7 +981,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
    * stage this window may be driving goes on; the run reads the message at its next boundary. A run no
    * one is driving, ready at a boundary, is continued so that boundary reads it.
    */
-  private async queueMessage(tab: ChatTab, text: string, context: string): Promise<void> {
+  private async queueMessage(tab: ChatTab, text: string, context: string, now = false): Promise<void> {
     const run = tab.run;
     const key = tab.key;
     if (!run || this.messaging.has(key)) return;
@@ -991,7 +993,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       // host, and the core checks the message's admission itself when it saves it.
       const view = tab.status;
       if (!view) throw new Error("The run's status is not read yet; send this again in a moment.");
-      await this.controller.queueMessage(view, run, text, context, `message-${randomBytes(8).toString("hex")}`);
+      await this.controller.queueMessage(view, run, text, context, `message-${randomBytes(8).toString("hex")}`, now);
       void this.view?.webview.postMessage({ type: "sent", runKey: key, text });
     } catch (error) {
       if (this.activeKey === key) tab.error = messageOf(error);

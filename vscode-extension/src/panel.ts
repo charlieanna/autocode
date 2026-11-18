@@ -968,6 +968,8 @@ const ICONS = {
   chevron: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 14.5l5-5 5 5" /></svg>`,
   tune: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M19 7h1M4 17h1M11 17h9" /><circle cx="16" cy="7" r="2.25" /><circle cx="8" cy="17" r="2.25" /></svg>`,
   pause: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5.5v13M15 5.5v13" /></svg>`,
+  /** Send now (#3259): an arrow through a bar, the message that cuts the running step short. */
+  sendNow: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h12M11 7l5 5-5 5M19.5 5.5v13" /></svg>`,
   stop: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="6.5" width="11" height="11" rx="1.5" fill="currentColor" stroke="none" /></svg>`,
 };
 
@@ -1063,8 +1065,8 @@ export function panelHtml(chat = false): string {
   #composer .run-control { flex: none; gap: 5px; color: var(--vscode-foreground);
     transition: background .12s ease, color .12s ease; }
   #composer .run-control span { max-width: 96px; }
-  #composer #stop-now-run { color: var(--vscode-errorForeground, #c72e2e); }
-  #composer #stop-now-run:hover:not(:disabled) { background: var(--vscode-inputValidation-errorBackground, rgba(161, 38, 13, .14)); }
+  #composer #stop-now-run, #composer #send-now { color: var(--vscode-errorForeground, #c72e2e); }
+  #composer #stop-now-run:hover:not(:disabled), #composer #send-now:hover:not(:disabled) { background: var(--vscode-inputValidation-errorBackground, rgba(161, 38, 13, .14)); }
   #composer .run-control:active:not(:disabled) { transform: translateY(1px); }
   #composer .run-control.busy svg { animation: run-control-pulse 1.1s ease-in-out infinite; }
   @keyframes run-control-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
@@ -1087,7 +1089,7 @@ ${chat ? `</div></div><button id="latest" type="button" hidden>↓ Latest messag
 <textarea id="message" aria-label="Message AutoCode" aria-describedby="keyboard-hint" placeholder="Ask AutoCode to work on this project…"></textarea>
 <div id="chat-error" role="alert"></div>
 <div class="actions"><button type="button" id="engine-picker" class="chip" title="Engine for new chats" aria-label="Engine for new chats">${ICONS.tune}<span id="engine-name">opencode</span></button><button type="button" id="mode-picker" class="chip" title="Run mode for new chats" aria-label="Run mode for new chats" hidden>${ICONS.route}<span id="mode-name"></span></button><button type="button" id="models-picker" class="chip" title="This chat's models" aria-label="This chat's models" hidden>${ICONS.chip}<span id="models-name">Models</span></button><span id="keyboard-hint" class="keyboard-hint">Enter to send · Shift+Enter for newline</span>
-<button type="button" id="pause-run" class="chip run-control" hidden>${ICONS.pause}<span>Pause</span></button><button type="button" id="stop-now-run" class="chip run-control" hidden>${ICONS.stop}<span>Stop now</span></button><button type="submit" id="send-message" disabled>Send</button></div></form>` : ""}
+<button type="button" id="pause-run" class="chip run-control" hidden>${ICONS.pause}<span>Pause</span></button><button type="button" id="stop-now-run" class="chip run-control" hidden>${ICONS.stop}<span>Stop now</span></button><button type="button" id="send-now" class="chip run-control" hidden>${ICONS.sendNow}<span>Send now</span></button><button type="submit" id="send-message" disabled>Send</button></div></form>` : ""}
 <script>
 const vscode = acquireVsCodeApi();
 const app = document.getElementById('app');
@@ -2351,6 +2353,13 @@ function updateComposer() {
   document.getElementById('send-message').hidden = Boolean(pause) && !input;
   document.getElementById('send-message').disabled = (chatEnvelope.busy && !live) || messaging || !allowed || (Boolean(pause) && !input) || !document.getElementById('message').value.trim();
   document.getElementById('send-message').textContent = 'Send ↑';
+  // Send now (#3259) ends the running step and has the message answered at once; only where the view names it.
+  const sendNow = document.getElementById('send-now');
+  const nowOffered = live && typeof input.now_command === 'string';
+  sendNow.hidden = !nowOffered;
+  sendNow.disabled = !nowOffered || document.getElementById('send-message').disabled || stopping || pausing;
+  sendNow.title = nowOffered ? "End the running step now and answer this message; the step's partial work is kept" : '';
+  sendNow.setAttribute('aria-label', 'Send now: end the running step and answer this message');
   const label = input ? input.label + (input.kind === 'resolver_response' || live ? '' : ' and continue') : 'Send message';
   document.getElementById('send-message').setAttribute('aria-label', label);
   document.getElementById('send-hint').textContent = chatEnvelope.state && chatEnvelope.state.confirming
@@ -2358,6 +2367,7 @@ function updateComposer() {
     : !chatEnvelope.selectedRun ? 'Message AutoCode'
     : unreadable ? 'Waiting for the status to read again. You can keep a draft here.'
     : messaging ? 'Saving your message…'
+    : live && typeof input.now_command === 'string' ? 'AutoCode is working. Send is read after the current step; Send now ends the step and answers at once.'
     : live ? 'AutoCode is working. A message you send now is read after the current step.'
     : stopping ? 'AutoCode is ending this step now; its partial work is kept. You can keep a draft here.'
     : pausing ? 'AutoCode pauses once this step is saved. You can keep a draft here.'
@@ -2854,6 +2864,12 @@ if (chatMode) {
   });
   document.getElementById('stop-now-run').addEventListener('click', () => {
     if (chatEnvelope && chatEnvelope.runKey) vscode.postMessage({ type: 'stopNow', runKey: chatEnvelope.runKey });
+  });
+  document.getElementById('send-now').addEventListener('click', () => {
+    if (document.getElementById('send-now').disabled || !chatEnvelope || !chatEnvelope.runKey) return;
+    chatBehavior.resume();
+    vscode.postMessage({ type: 'send', now: true, text: document.getElementById('message').value,
+      runKey: chatEnvelope.runKey, context: chatEnvelope.state && chatEnvelope.state.chat && chatEnvelope.state.chat.context });
   });
   document.getElementById('pause-run').addEventListener('click', () => {
     if (chatEnvelope && chatEnvelope.runKey) vscode.postMessage({ type: 'pause', runKey: chatEnvelope.runKey });

@@ -302,7 +302,13 @@ export interface StatusView {
     gate?: ChatGate | null;
     context: string;
     /** `message` is offered while the run works: saved for the next stage boundary (#3259). */
-    input: { kind: "feedback" | "follow_up" | "resolver_response" | "message"; label: string; next_command: string } | null;
+    input: {
+      kind: "feedback" | "follow_up" | "resolver_response" | "message";
+      label: string;
+      next_command: string;
+      /** Only on a message: the same submission that also ends the running step and is answered at once (#3259). */
+      now_command?: string;
+    } | null;
   };
 }
 

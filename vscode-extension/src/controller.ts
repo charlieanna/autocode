@@ -433,20 +433,26 @@ export class RunController {
    * run's intervention inbox for the next stage boundary. It never waits for the running stage and grants
    * nothing: Requirements answers it there, and only a change it classifies goes on as feedback.
    */
-  async queueMessage(view: StatusView, run: RunRef, text: string, shownContext: string, requestId: string): Promise<void> {
+  async queueMessage(
+    view: StatusView, run: RunRef, text: string, shownContext: string, requestId: string, now = false,
+  ): Promise<void> {
     if (!text.trim()) throw new ClientGap("Enter a message first");
     const input = view.chat?.input;
     if (!input || input.kind !== "message" || view.chat?.context !== shownContext) {
       throw new ClientGap("This conversation changed; review its current state before sending");
     }
-    const parsed = parseNamedCommand(input.next_command, effective(view, run));
-    const expected = ["intervention", "submit", "--request-id", "REQUEST_ID", "--kind", "message", "--text", "MESSAGE", "--json"];
+    // Send now (#3259) is the view's own `now_command`: the same message, which also ends the running step.
+    const named = now ? input.now_command : input.next_command;
+    if (typeof named !== "string") throw new ClientGap("AutoCode offers no Send now for this run right now");
+    const parsed = parseNamedCommand(named, effective(view, run));
+    const flags = now ? ["--now", "--json"] : ["--json"];
+    const expected = ["intervention", "submit", "--request-id", "REQUEST_ID", "--kind", "message", "--text", "MESSAGE", ...flags];
     if (JSON.stringify(parsed.argv) !== JSON.stringify(expected) || Object.keys(parsed.env).length || !requestId) {
-      throw new ClientGap("Unsupported live message action from AutoCode");
+      throw new ClientGap(now ? "Unsupported Send now action from AutoCode" : "Unsupported live message action from AutoCode");
     }
     const own = effective(view, run);
     const argv = ["intervention", "submit", "--workspace", own.workspace, "--run-dir", own.runDir,
-      "--request-id", requestId, "--kind", "message", "--text", text, "--json"];
+      "--request-id", requestId, "--kind", "message", "--text", text, ...flags];
     const result = await this.mutating([run, own], () => invoke(this.settings, argv));
     if (result.code !== 0) throw new Error(tail(result));
     let accepted = false;

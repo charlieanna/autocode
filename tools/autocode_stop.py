@@ -192,7 +192,11 @@ def state_writer(ordinary_write: Callable, persist_stopped: Callable) -> Callabl
     def write(path, value, *, before_commit=None, after_commit=None):
         if Path(path).name == "state.json" and isinstance(value, dict):
             value.setdefault("intervention_capability", {}).update(
-                supports_stop=True, supports_messages=True, supports_message_context=True, supports_stop_now=True
+                supports_stop=True,
+                supports_messages=True,
+                supports_message_context=True,
+                supports_stop_now=True,
+                supports_message_now=True,
             )
             if applied_stop(value):
                 assert_stopped(value)
@@ -321,7 +325,16 @@ def boundary_effects(
         if (
             not feedback
             and not held
-            and interventions.pending_admission_pause(state.get("status"), state.get("stop_reason"))
+            and (
+                interventions.pending_admission_pause(state.get("status"), state.get("stop_reason"))
+                # A message sent now ended the running step (#3259): the person asked for their message, not a
+                # pause, so the run goes straight to it. The ended step stays next, with its partial work.
+                or (
+                    any(item.get("now") is True for item in messages)
+                    and state.get("status") == STOP_STATUS
+                    and state.get("stop_reason") == STOPPED_NOW_REASON
+                )
+            )
         ):
             # Only this queued message held the launch, and taking it resolves that boundary (#3259): the run
             # was running, so it continues, and a question returns to a running run, not to this pause.

@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import autocode_interventions as interventions
+import autocode_run_messages as run_messages
 import autocode_stop as stop
 import autocode_support as support
 
@@ -165,7 +166,9 @@ class InterventionTests(unittest.TestCase):
         self.assertTrue(interventions.stop_now_requested(self.run))
         with self.assertRaisesRegex(interventions.InterventionError, "different payload"):
             interventions.submit(self.workspace, self.run, request_id="now", kind="pause", text="")
-        with self.assertRaisesRegex(interventions.InterventionError, "Only a pause can end the current step now"):
+        with self.assertRaisesRegex(
+            interventions.InterventionError, "Only a pause or a message can end the current step now"
+        ):
             interventions.submit(self.workspace, self.run, request_id="f", kind="feedback", text="x", now=True)
 
         state = json.loads(self.state_path.read_text())
@@ -187,7 +190,66 @@ class InterventionTests(unittest.TestCase):
         (self.run / interventions.INBOX_NAME).write_text(
             json.dumps({"version": 1, "requests": [{"id": "s", "kind": "stop", "now": True}]})
         )
-        self.assertFalse(interventions.stop_now_requested(self.run), "only a pause carries now")
+        self.assertFalse(interventions.stop_now_requested(self.run), "only a pause or a message carries now")
+
+    def test_a_message_sent_now_ends_the_running_step_and_is_held_by_the_supervisor(self):
+        # #3259: "Send now" ends the running step through the same supervisor check as Stop now.
+        interventions.submit(self.workspace, self.run, request_id="later", kind="pause", text="")
+        self.assertFalse(interventions.stop_now_requested(self.run))
+        with self.assertRaisesRegex(interventions.InterventionError, "Only a pause or a message"):
+            interventions.submit(self.workspace, self.run, request_id="s", kind="stop", text="", now=True)
+        receipt = interventions._payload("m", "message", "Also add a flag", now=True)
+        self.assertEqual({"id": "m", "kind": "message", "text": "Also add a flag", "now": True}, receipt)
+        inbox = self.run / interventions.INBOX_NAME
+        document = json.loads(inbox.read_text())
+        document["requests"].append(
+            {
+                **receipt,
+                "order": 2,
+                "submitted_at": "at",
+                "boundary_pause_requested": True,
+                "message_id": "run-message-m",
+            }
+        )
+        inbox.write_text(json.dumps(document))
+        self.assertEqual(
+            ["later", "m"], [row["id"] for row in interventions.inspect(self.workspace, self.run)["requests"]]
+        )
+        self.assertTrue(interventions.stop_now_requested(self.run))
+
+    def test_a_message_sent_now_is_answered_at_the_ended_step_without_a_pause(self):
+        # #3259: the supervisor ended the step and saved the "Stopped by you" pause; the message sent now
+        # turns that boundary straight into the Requirements conversation, returning to the ended step.
+        def stopped():
+            return {
+                "status": "PAUSED_INTERVENTION",
+                "phase": "EXECUTING",
+                "stop_reason": stop.STOPPED_NOW_REASON,
+                "next_stage": "builder",
+                "settings": {"spec_first": True},
+            }
+
+        receipt = {"id": "m", "kind": "message", "text": "Also add a flag", "now": True, "submitted_at": "at"}
+        state = stopped()
+        run_messages.receive(state, receipt)
+        stop.boundary_effects(state, [receipt], lambda: "at")
+        self.assertEqual(("RUNNING", "requirements_gather"), (state["status"], state["next_stage"]))
+        event = run_messages.active(state)
+        self.assertEqual(("Also add a flag", "builder"), (event["text"], event["return_stage"]))
+        self.assertNotIn("pause_intent", state)
+
+        later = {key: value for key, value in receipt.items() if key != "now"}
+        state = stopped()
+        run_messages.receive(state, later)
+        stop.boundary_effects(state, [later], lambda: "at")
+        self.assertEqual(("PAUSED_INTERVENTION", stop.STOPPED_NOW_REASON), (state["status"], state["stop_reason"]))
+        self.assertIsNone(run_messages.active(state), "a message for the next boundary leaves the person's stop")
+
+        state = stopped()
+        run_messages.receive(state, receipt)
+        pause = {"id": "p", "kind": "pause", "text": "", "now": True}
+        stop.boundary_effects(state, [pause, receipt], lambda: "at")
+        self.assertEqual("PAUSED_INTERVENTION", state["status"], "a person's pause in the same batch still holds")
 
     def test_idempotent_retry_and_conflict_do_not_change_history(self):
         first = interventions.submit(self.workspace, self.run, request_id="same", kind="feedback", text="Original")

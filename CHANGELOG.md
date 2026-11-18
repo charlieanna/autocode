@@ -9,6 +9,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Added
+
+- **Send now in the VS Code chat**: a message typed while a stage runs was read only after that stage finished, which could be a long Builder, and Stop now plus a message left the run paused for a Resume that said it "runs it again". Beside Send, Send now ends the running step (its partial work and logs are kept, as Stop now keeps them) and Requirements answers the message at once, with no pause. A question returns to the ended step; a change goes back through the plan, so the Builder never acts on the message before a new plan is approved (`intervention submit --kind message --now`, offered as `chat.input.now_command`, #3259).
+
 ### Fixed
 
 - **A run's proofs use the Python the run started with**: a run started where the project's virtualenv (kept outside the project) was on PATH, then continued from VS Code, ran its pre-build acceptance proof with the system `python3` instead. That Python's own pytest plugins failed to load, no test ran, and the run paused asking the person to correct tests that were not at fault. Every clean run of a run now finds its suite with the interpreter the run recorded with its test suite (or the explicit `python` setting), whatever this process's PATH says.

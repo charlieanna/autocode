@@ -715,6 +715,14 @@ The terminal keeps an unconfirmed draft, including when a plan prompt arrives
 before its receipt is reconciled. An older worker without message support and
 a coordinated member viewed on its own do not advertise this action.
 
+When the run's runner records `supports_message_now`, the `message` input also names
+`now_command`: the same submission with `--now`, which ends the step that is running (as
+`view.pause.stop_now` does, keeping its partial work and logs) and has Requirements answer the
+message at once, with no pause (#3259). A question then returns to the ended step, which runs again
+from its partial work; an explicit change takes ordinary planning and review, so the Builder never
+acts on the message's text. A client shows it as a second send button ("Send now") and fills it
+exactly as `next_command`.
+
 A coordinating owner may include `--context-file PATH` on a message submission.
 The file is bounded to 128 KiB and contains `kind: coordinated_task` and one to
 12 `participants`, each with an exact `target` label, `status` and public `plan`

@@ -889,7 +889,8 @@
             }},
             "context": {"type": "string"},
             "input": {"type": ["object", "null"], "required": ["kind", "label", "next_command"],
-              "properties": {"kind": {"enum": ["feedback", "follow_up", "resolver_response", "message"]}, "label": {"type": "string"}, "next_command": {"type": "string"}}}
+              "properties": {"kind": {"enum": ["feedback", "follow_up", "resolver_response", "message"]}, "label": {"type": "string"}, "next_command": {"type": "string"},
+                "now_command": {"type": "string", "description": "Only on a message input whose runner records supports_message_now: next_command with --now, which ends the running step and has the message answered at once (#3259)."}}}
           }
         },
         "displayed_plan": {

@@ -103,7 +103,10 @@ supervisor checks the inbox once a second, ends the provider as at a time limit 
 its partial work and logs as a timed-out attempt is kept, and the pause then applies at that boundary
 with the reason "Stopped by you…"; resuming runs the step again (a stopped Builder continues from its
 partial work, not the Completion Reviewer, #3334). The status view offers it as
-`view.pause.stop_now` when the run's runner records `supports_stop_now`. `--pause-after-stage` and the existing
+`view.pause.stop_now` when the run's runner records `supports_stop_now`. A message submitted with `--now` (#3259) ends
+the running step the same way, but the run does not pause: Requirements answers the message at that
+boundary, a question returns to the ended step and an explicit change goes back through planning. The
+status view offers it as `chat.input.now_command` when the runner records `supports_message_now`. `--pause-after-stage` and the existing
 run-local `pause-requested` file continue to stop at saved boundaries. `--status` is
 read-only and adds `interventions` with inspector versus recorded-runner capability,
 pending IDs/count, pause intent, applied receipts, inbox errors and blocked conditions.
