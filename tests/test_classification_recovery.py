@@ -242,8 +242,11 @@ class ClassificationRecoveryCLI(unittest.TestCase):
             stack.enter_context(patch.object(autocode, "timeout_recovery_guard", side_effect=boundary))
             if legacy:
                 # Reproduce the old boundary disposition through the real CLI, then
-                # remove the fault before asking its public view how to continue.
+                # remove the fault before asking its public view how to continue. The
+                # version that saved such a hold had no recorded end (#3795), so it does
+                # not judge the hold while the fault is in place.
                 stack.enter_context(patch.object(recovery, "pending_repair", return_value=False, create=True))
+                stack.enter_context(patch.object(recovery, "conclude", return_value=False))
             self.drive(codes=(2,))
         limited = self.status()
         extra = []
@@ -927,7 +930,12 @@ class ClassificationOfferTests(unittest.TestCase):
                 state = self.pending_classification_repair()
                 stuck.abandon(state, error)
                 need = recovery.offer(state)
-                self.assertEqual(allowed, need.get("kind") == "retry_job", need)
+                if allowed:
+                    self.assertEqual("retry_job", need["kind"], need)
+                else:
+                    # Nothing for a person: the held repair limits end the run at the next resume.
+                    self.assertIsNone(need)
+                    self.assertEqual("repair_limits", recovery._spent_cause(state, recovery._context(state)))
 
     def test_legacy_repair_cannot_bypass_another_failure_or_an_exhausted_repair(self):
         for changed in ("error", "spent", "older", "attempt_changed", "disabled"):
