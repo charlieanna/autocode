@@ -974,8 +974,8 @@ def contract(final: bool = False) -> dict:
             }
         return cite_sources(body)
     if CONFIG.get("criteria"):
-        # A draft the runner corrected (a spec-first case it saw already pass, now guard:) keeps that label,
-        # as a Planner revising the current draft would.
+        # A draft the runner corrected (a spec-first case it saw already pass, now guard:, or a guard it saw
+        # fail on the original code, now test:) keeps that label, as a Planner revising the current draft would.
         drafted = {
             row.get("id"): str(row.get("verification_method") or "")
             for row in ((DATA.get("goal_contract") or {}).get("body") or {}).get("acceptance_criteria") or []
@@ -985,7 +985,7 @@ def contract(final: bool = False) -> dict:
                 "id": cid,
                 "criterion": text,
                 "verification_method": drafted[cid]
-                if drafted.get(cid, "").startswith("guard:")
+                if drafted.get(cid, "").startswith(("test:", "guard:"))
                 else (text if text.strip().startswith(("test:", "guard:")) else CHECK),
                 "human_review": False,
             }

@@ -449,6 +449,85 @@ class RunnerCollectionTests(unittest.TestCase):
             )
             self.assertFalse(acceptance.receipts(state))
 
+    def test_a_guard_still_failing_on_the_original_code_goes_back_to_plan_review_as_a_test(self):
+        """Live run, 2026-11-18: a criterion the code lacked was planned as a guard. Its test failed on its
+        assertion through every rewrite, and the run ended in a pause saying the case could not be tested
+        on this host. Once the rewrites are spent the runner checks the original code and relabels it."""
+        import autocode_acceptance_tests_job as job
+
+        with tempfile.TemporaryDirectory() as root:
+            workspace = Path(root)
+            (workspace / "test_feature.py").write_text("def test_new():\n    assert False\n")
+            report = {
+                "tests": [
+                    {"case_id": "NEW", "test_name": "test_new", "file": "test_feature.py"},
+                    {"case_id": "KEEP", "test_name": "test_guard", "file": "test_feature.py"},
+                ],
+                "cannot_write": [],
+                "already_passing": [],
+            }
+            record = {"output": str(workspace / "tester.json"), "changed_files": ["test_feature.py"]}
+            failing = {"results": {"passed": [], "failed": ["test_new", "test_guard"]}}
+
+            def run(original_verdict, sent, asked):
+                state = approved({"NEW": "test: test_new", "KEEP": "guard: test_guard"})
+                acceptance.route(state)
+
+                def reference(selected, files):
+                    asked.append(selected)
+                    return {"verdicts": {cid: original_verdict for cid in selected}}
+
+                def attempt():
+                    job.apply(
+                        state,
+                        report,
+                        record,
+                        workspace,
+                        run_tests=lambda files: failing,
+                        evidence_dir=workspace,
+                        run_reference=reference,
+                        send_back=lambda body, changes: sent.append((body, changes)),
+                    )
+
+                for _ in range(job.MAX_REWRITES):
+                    attempt()
+                    self.assertEqual(([], []), (sent, asked), "the Tester's rewrites come first")
+                return state, attempt
+
+            sent, asked = [], []
+            state, attempt = run("fails", sent, asked)
+            attempt()
+            self.assertEqual([{"KEEP": ["test_guard"]}], asked)
+            body, changes = sent[0]
+            methods = {row["id"]: row["verification_method"] for row in body["acceptance_criteria"]}
+            self.assertEqual({"NEW": "test: test_new", "KEEP": "test: test_guard"}, methods)
+            self.assertEqual(["KEEP"], [row["item"] for row in changes])
+            self.assertEqual({"KEEP"}, acceptance.sent_back(state))
+            self.assertFalse(acceptance.receipts(state))
+
+            # The guard passes on the original code: the change broke it, so the plan stays as approved.
+            sent, asked = [], []
+            state, attempt = run("passes", sent, asked)
+            with self.assertRaisesRegex(job.TestsNeedRewriting, "already sent these tests back"):
+                attempt()
+            self.assertEqual(([], 1), (sent, len(asked)))
+
+            # Once per case: a guard already sent back takes the path to the Investigator.
+            sent, asked = [], []
+            state, attempt = run("fails", sent, asked)
+            acceptance.record_send_back(state, ["KEEP"], "earlier.json")
+            with self.assertRaisesRegex(job.TestsNeedRewriting, "already sent these tests back"):
+                attempt()
+            self.assertEqual(([], []), (sent, asked))
+
+            # A fault that is not a failing assertion stays the Tester's (a test the command never ran).
+            sent, asked = [], []
+            failing = {"results": {"passed": [], "failed": ["test_new"]}}
+            state, attempt = run("fails", sent, asked)
+            with self.assertRaisesRegex(job.TestsNeedRewriting, "already sent these tests back"):
+                attempt()
+            self.assertEqual(([], []), (sent, asked))
+
     def test_execution_failures_require_execution_while_existing_result_metadata_is_repairable(self):
         import autocode_acceptance_tests_job as job
         from autocode_report_repair_queue import ExecutionEvidenceRequired
@@ -1528,7 +1607,7 @@ class AcceptanceTestsCliTests(unittest.TestCase):
         self.scenario = dataclasses.replace(loaded, fake_fault="", fake_criteria=dict(CASES))
 
     def run_to_end(self, *planning, env=None, plan_messages=None, uncollected_writer=False, unloadable_writer=False):
-        self.plan_approvals = []
+        self.plan_approvals, self.plan_views = [], []
         project = without_maintenance(materialize(self.scenario.seed, self.root / "project"))
         flags, provider_env = fake_setup(self.scenario, self.root, self.scenario.dir / "reference")
         if uncollected_writer:
@@ -1607,6 +1686,7 @@ class AcceptanceTestsCliTests(unittest.TestCase):
                 return run, project, view
             if need["kind"] == "approve_plan":
                 self.plan_approvals.append(need["token"])
+                self.plan_views.append(view)
                 run.approve_plan(need["token"])
             elif need["kind"] == "review":
                 for criterion in need["criteria"]:
@@ -1861,6 +1941,23 @@ class AcceptanceTestsCliTests(unittest.TestCase):
         first, second = [index for index, stage in enumerate(order) if stage == "acceptance-tests"]
         self.assertIn("plan-challenge", order[first:second], order)
         self.assertLess(second, order.index("builder"), order)
+
+    def test_a_guard_for_behavior_the_code_lacks_goes_back_to_plan_review_as_a_test(self):
+        # C1 is new behavior planned as a guard: its test fails on the seed through the Tester's rewrites. The
+        # runner sees it fail on the original code too and proposes test: (live run, 2026-11-18), no pause.
+        cases = {**CASES, "C1": CASES["C1"].replace("test:", "guard:", 1)}
+        self.scenario = dataclasses.replace(self.scenario, fake_criteria=cases)
+        run, project, view = self.run_to_end("--joint-planning", "--no-adaptive-planning", "--spec-first")
+        self.assertTrue(view["done"], self.details(view))
+        self.assertEqual(2, len(self.plan_approvals), "the corrected plan needs its own approval")
+        criteria = {row["id"]: row for row in view["approved_contract"]["body"]["acceptance_criteria"]}
+        self.assertTrue(criteria["C1"]["verification_method"].startswith("test: "), criteria["C1"])
+        self.assertIn(view["acceptance_tests"]["results"]["C1"], {"fails", "cannot load"})
+        order = self.stage_order(run)
+        self.assertNotIn("stuck-investigation", order)
+        last = max(index for index, stage in enumerate(order) if stage == "acceptance-tests")
+        self.assertIn("plan-challenge", order[:last], order)
+        self.assertLess(last, order.index("builder"), order)
 
     def test_a_builder_that_edits_the_testers_file_goes_again_with_the_file_restored(self):
         run, project, view = self.run_to_end(
