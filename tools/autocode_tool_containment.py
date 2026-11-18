@@ -589,11 +589,31 @@ SEATBELT_WORDS = frozenset(
         "require-all",
         "require-any",
         "require-not",
+        "file-mode",
+        "#o1000",
     ]
 )
 # The write operations _render_policy() grants; an allow naming one must keep its shape.
 SEATBELT_WRITES = ("file-write*", "file-write-data")
 SEATBELT_TOKEN = re.compile(r'\s+|[()]|"(?:[^"\\]|\\["\\])*"|[^\s()"]+')
+
+
+def sealed_rule(tree, quoted=None):
+    """The one Seatbelt rule that protects a sealed verification copy at ``tree`` (#3812).
+
+    autocode_verification_copy.create(seal=True) sets the sticky bit on the copy's root and on every
+    file, directory and symlink in it. This rule denies each write operation on a path under
+    ``tree`` whose own mode carries that bit: its data, its name (unlink, rename away, rename or
+    swap over it), its mode, flags, owner, ACL, attributes and times. A path a check creates has no
+    such bit, so build outputs can still be made, changed and removed beside the sources, exactly
+    as with one ``(deny file-write* (literal PATH))`` per copied path, which this replaces. Clearing
+    the bit is itself a mode change of a marked path, so the rule protects its own mark.
+
+    Seatbelt takes the last matching rule, so this line must follow every rule that allows writes
+    over ``tree``. ``quoted`` renders the path as the surrounding profile does.
+    """
+    quoted = quoted or (lambda path: json.dumps(str(path), ensure_ascii=False))
+    return "(deny file-write* (require-all (subpath " + quoted(_path(tree)) + ") (file-mode #o1000)))"
 
 
 def _seatbelt_forms(text):
@@ -793,10 +813,12 @@ def _render_policy(
     denied_write_paths=(),
     write_files=(),
     private_reads=None,
+    sealed_trees=(),
 ):
     """Render from the supplied exact map; this is not approved-task authority.
 
     ``private_reads`` is a private_run_reads() denial for a readonly planning shell.
+    ``sealed_trees`` are sealed verification copies, each protected by one sealed_rule().
     """
     root, scratch = _path(workspace), _path(scratch)
     footprint = writer_footprint(root, write_paths) if write_paths is not None else None
@@ -880,6 +902,7 @@ def _render_policy(
     # Deny metadata changes on authority directories too: renaming an ancestor
     # could otherwise move a writable subtree over the runner's evidence.
     lines.extend("(deny file-write* " + literal(p) + ")" for p in sorted(protected))
+    lines.extend(sealed_rule(p, quoted) for p in sealed_trees)
     lines.extend("(deny file-write* " + subpath(_path(p)) + ")" for p in denied_write_paths)
     for value in denied_read_paths:
         denied = _path(value)
@@ -1109,7 +1132,9 @@ def prepare(
             from . import autocode_verification_copy as copies
         except ImportError:
             import autocode_verification_copy as copies
-        verification = copies.create(root, scratch, source_paths=source_paths)
+        # Seatbelt protects the copy by its seal: one rule, whatever the copy's size. bubblewrap
+        # mounts the copy's root read-only, which is one mount already.
+        verification = copies.create(root, scratch, source_paths=source_paths, seal=host == SEATBELT)
         protected_paths = [*protected_paths, *verification["protected_paths"]]
     profile = control / POLICY_FILES[host]
     watched = []
@@ -1124,6 +1149,7 @@ def prepare(
                 write_paths=footprint,
                 writer_path_kinds=kinds,
                 private_reads=private_reads,
+                sealed_trees=[verification["tree"]] if verification else (),
             ),
             encoding="utf-8",
         )

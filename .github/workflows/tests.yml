@@ -412,6 +412,8 @@ jobs:
           names = (
               "tests.test_tool_containment.UnicodeKernelTests",
               "tests.test_tool_containment.KernelTests",
+              # Kilo's own Bash child runs under its client profile alone (#3812).
+              "tests.test_kilo_isolation.ClientPolicyKernelTests",
               # Every class with a test gated on requires_native_check_host.
               "tests.test_native_check_execution.NativeCheckExecutionTests",
               "tests.test_native_check_execution.FixedNativeGitSetupFactsTests",
