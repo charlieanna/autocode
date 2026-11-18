@@ -284,7 +284,8 @@ def apply_job(stage, state: RunState, value, record, workspace, run_dir=None, ru
 
 
 def send_back_plan(state: RunState, body, changes, record):
-    """A spec-first case the runner saw already pass goes back to plan review relabelled guard: (#1200).
+    """A spec-first case the runner saw already pass goes back to plan review relabelled guard: (#1200),
+    and a guard whose test the runner saw fail on today's and the original code goes back relabelled test:.
 
     The runner builds the draft (no model writes its wording); the Plan Reviewer reviews it and the user
     approves it as any plan. Imported here, not in the job, which may not depend on the goal lifecycle."""
