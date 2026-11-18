@@ -298,7 +298,9 @@ class RecoveryViewTests(unittest.TestCase):
         resume = next(
             row for row in self.card(self.state("PAUSED_INVALID_OUTPUT"))["actions"] if row["kind"] == "resume"
         )
-        self.assertEqual("Resume after correction", resume["label"])
+        # Nothing of the person's needs correcting at a refused answer: resuming runs the step again.
+        self.assertEqual("Try the Builder step again", resume["label"])
+        self.assertIn("Nothing needs correcting first", resume["effect"])
 
     def test_only_a_clean_requested_pause_can_skip_the_second_resume_confirmation(self):
         for status in ("PAUSED_INTERVENTION", "PAUSED_REQUESTED"):
