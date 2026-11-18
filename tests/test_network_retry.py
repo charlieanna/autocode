@@ -173,14 +173,71 @@ def cut_short_stream(*extra, error=None):
     return ("\n".join(lines + [json.dumps(row) for row in extra]) + "\n").encode()
 
 
-class ReadOnlyPartialStreamTests(unittest.TestCase):
+def no_effect(raw, *, read_only=True, clean_exit=False):
+    return retry.no_effect_stream(raw, read_only=read_only, clean_exit=clean_exit)
+
+
+def aborted_error():
+    """OpenCode's row when it aborted a Tester 34 s in, before its first tool (2026-11-18)."""
+    return {
+        "type": "error",
+        "timestamp": 1795029501000,
+        "sessionID": "ses_aborted",
+        "error": {"name": "MessageAbortedError", "data": {"message": "Aborted"}},
+    }
+
+
+def aborted_stream(*extra):
+    rows = [
+        {"type": "step_start", "part": {"type": "step-start"}},
+        {"type": "autocode_progress", "detail": "native provider stream advanced"},
+        {"type": "reasoning", "part": {"type": "reasoning", "text": "reading the plan"}},
+        aborted_error(),
+        *extra,
+    ]
+    return ("\n".join(json.dumps(row) for row in rows) + "\n").encode()
+
+
+class NoEffectStreamTests(unittest.TestCase):
+    """One observation (no tool ran, no turn finished) decides, not the provider's wording."""
+
     def test_a_stream_cut_short_by_a_retryable_reset_classifies(self):
-        self.assertEqual("ECONNRESET", retry.read_only_partial_error(cut_short_stream()))
+        self.assertEqual("ECONNRESET", no_effect(cut_short_stream()))
 
     def test_a_stream_cut_short_by_the_generic_network_loss_classifies(self):
         # The archived #1797 discovery stream: five completed reads, then the generic row.
         stream = cut_short_stream(error=generic_network_failure())
-        self.assertEqual("network", retry.read_only_partial_error(stream))
+        self.assertEqual("network", no_effect(stream))
+
+    def test_a_call_the_provider_aborted_before_any_tool_classifies_for_every_role(self):
+        for read_only in (True, False):
+            with self.subTest(read_only=read_only):
+                self.assertEqual("provider_ended", no_effect(aborted_stream(), read_only=read_only))
+        bare = (
+            "\n".join([json.dumps({"name": "UnknownError", "data": {"message": "model exploded"}})]) + "\n"
+        ).encode()
+        self.assertEqual("provider_ended", no_effect(bare, read_only=False))
+
+    def test_a_tool_call_keeps_a_writer_or_tester_on_hold(self):
+        # The Builder writes and the Tester runs commands: once one of them ran a tool, the call had an effect.
+        tool = {"type": "tool_use", "part": {"type": "tool", "tool": "bash", "state": {"status": "completed"}}}
+        self.assertIsNone(no_effect(aborted_stream(tool), read_only=False))
+        self.assertIsNone(no_effect(cut_short_stream(), read_only=False))
+        self.assertEqual("provider_ended", no_effect(aborted_stream(tool), read_only=True))
+
+    def test_an_error_another_recovery_owns_or_the_provider_called_final_does_not(self):
+        for name, data in (
+            ("APIError", {"message": "429 rate limit exceeded", "isRetryable": True}),
+            ("ProviderAuthError", {"message": "Unauthorized: authentication failed"}),
+            ("APIError", {"message": "insufficient credits"}),
+            ("APIError", {"message": "content filter triggered"}),
+            ("APIError", {"message": "Bad request", "isRetryable": False}),
+            ("", {"message": "Aborted"}),
+        ):
+            row = {"type": "error", "error": {"name": name, "data": data}}
+            stream = aborted_stream().replace(json.dumps(aborted_error()).encode(), json.dumps(row).encode())
+            with self.subTest(name=name, data=data):
+                self.assertIsNone(no_effect(stream))
 
     def test_a_finished_turn_a_running_tool_an_unknown_row_or_a_second_error_does_not(self):
         for extra in (
@@ -191,11 +248,12 @@ class ReadOnlyPartialStreamTests(unittest.TestCase):
             failure(),
         ):
             with self.subTest(extra=extra):
-                self.assertIsNone(retry.read_only_partial_error(cut_short_stream(extra)))
-        self.assertIsNone(retry.read_only_partial_error(cut_short_stream() + b"a diagnostic line\n"))
+                self.assertIsNone(no_effect(cut_short_stream(extra)))
+        self.assertIsNone(no_effect(cut_short_stream() + b"a diagnostic line\n"))
         not_retryable = cut_short_stream().replace(b'"isRetryable": true', b'"isRetryable": false')
-        self.assertIsNone(retry.read_only_partial_error(not_retryable))
-        self.assertIsNone(retry.read_only_partial_error(cut_short_stream().replace(b"ECONNRESET", b"ENOTFOUND")))
+        self.assertIsNone(no_effect(not_retryable))
+        # An errno that is not a network one names no transport cause, but the call still had no effect.
+        self.assertEqual("provider_ended", no_effect(cut_short_stream().replace(b"ECONNRESET", b"ENOTFOUND")))
 
 
 def dropped_stream(*extra, reason="other", tokens=None):
@@ -211,10 +269,10 @@ def dropped_stream(*extra, reason="other", tokens=None):
     return ("\n".join(json.dumps(row) for row in rows) + "\n").encode()
 
 
-class ReadOnlyDroppedStreamTests(unittest.TestCase):
+class DroppedStreamTests(unittest.TestCase):
     def test_an_unexplained_finish_with_no_usage_classifies(self):
-        self.assertEqual("dropped_stream", retry.read_only_dropped_stream(dropped_stream()))
-        self.assertEqual("dropped_stream", retry.read_only_dropped_stream(dropped_stream(reason="unknown")))
+        self.assertEqual("dropped_stream", no_effect(dropped_stream(), clean_exit=True))
+        self.assertEqual("dropped_stream", no_effect(dropped_stream(reason="unknown"), clean_exit=True))
 
     def test_a_finished_turn_counted_usage_an_error_or_unknown_row_does_not(self):
         for stream in (
@@ -230,7 +288,7 @@ class ReadOnlyDroppedStreamTests(unittest.TestCase):
             b"",
         ):
             with self.subTest(stream=stream[-120:]):
-                self.assertIsNone(retry.read_only_dropped_stream(stream))
+                self.assertIsNone(no_effect(stream, clean_exit=True))
 
 
 class CommandProviderShapeTests(unittest.TestCase):
@@ -578,6 +636,48 @@ class RecoveryAdmissionTests(unittest.TestCase):
                 before = copy.deepcopy(self.state)
                 self.assertFalse(self.recover())
                 self.assertEqual(before, self.state)
+
+    def aborted(self, role):
+        events = Path(self.record["events"])
+        events.chmod(0o600)
+        events.write_bytes(aborted_stream())
+        events.chmod(0o400)
+        self.record.update(role=role, activity={"active_tool_count": 0, "completed_tool_count": 0})
+        before = json.loads(Path(self.record["before_ref"]).read_text())
+        retry.bind_attempt(self.state, self.record, before, self.workspace)
+
+    def test_a_call_aborted_before_its_first_tool_retries_once_for_any_role(self):
+        # 2026-11-18: OpenCode aborted the independent Tester 34 s in, before any tool, and the chat
+        # was left with no way on. Nothing ran, so the call is retried once, whichever stage it was.
+        for role in ("tester", "builder", "planner"):
+            with self.subTest(role=role):
+                self.setUp()  # a fresh run: the archive below moves this attempt's files
+                self.aborted(role)
+                self.assertTrue(self.recover())
+                archived = self.state["stages"][-1]
+                self.assertEqual("provider_ended", archived["network_retry_chain"]["cause"])
+                self.assertTrue(archived["abandoned"])
+                # The retry is the only one: the same abort on the child keeps its hold.
+                child = {
+                    **self.record,
+                    "output": str(self.base.with_name("requirements-gather-02").with_suffix(".json")),
+                }
+                child.pop("network_retry_chain")
+                retry.bind_attempt(self.state, child, scope.snapshot(self.workspace, self.state), self.workspace)
+                self.assertEqual(
+                    {"consumed": True, "cause": "provider_ended"},
+                    {key: child["network_retry_chain"][key] for key in ("consumed", "cause")},
+                )
+
+    def test_a_tester_aborted_after_a_tool_or_with_a_changed_workspace_keeps_its_hold(self):
+        self.aborted("tester")
+        self.record["activity"] = {"active_tool_count": 0, "completed_tool_count": 1}
+        before = copy.deepcopy(self.state)
+        self.assertFalse(self.recover())
+        self.assertEqual(before, self.state)
+        self.aborted("tester")
+        (self.workspace / "seed.txt").write_text("changed\n")
+        self.assertFalse(self.recover())
 
     def test_a_read_only_stage_that_changed_the_workspace_keeps_its_hold(self):
         self.cut_short("task_planner")

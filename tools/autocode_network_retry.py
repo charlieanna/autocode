@@ -1,4 +1,4 @@
-"""No-effect retries for explicitly retryable provider transport failures.
+"""No-effect retries for provider calls that ended before the stage had any effect.
 
 Only this module writes network_retry_binding/network_retry_chain on attempt
 records. Admission reads them and retained stage history; no run-state key,
@@ -6,8 +6,10 @@ provider route, budget, permission, or session is changed. Legacy attempts
 without the launch binding and ambiguous streams keep their existing hold.
 
 Covers the native OpenCode error row, the command-provider (kilocode) bare
-name/data row (#1001), and a read-only stream the provider ended with an
-unexplained finish, no counted usage and a clean exit (one retry, no renewal). Admission is classification-driven, not engine-driven:
+name/data row (#1001), and any stream ``no_effect_stream`` shows ran no tool
+(or only a read-only stage's completed tools) before the provider ended it,
+whatever error it gave, short of a cause another recovery owns (one retry, no
+renewal). Admission is classification-driven, not engine-driven:
 the shared attempt record (before_ref, supervision, receipts, binding) is
 engine-agnostic, and the strict-shape classifier decides. Bounds: a native
 failure keeps the validated one-retry semantics; an explicitly-retryable
@@ -55,7 +57,8 @@ NETWORK_CODES = frozenset({"ECONNRESET", "ETIMEDOUT", "EPIPE"})
 HTTP_CODES = frozenset({500, 502, 503, 504})
 MAX_NETWORK_RETRIES = 2  # consecutive recoveries in one command-provider chain (#1001)
 # Roles whose stages only read the workspace: Requirements, planning and plan review, completion review and
-# the Investigator. The Builder writes and the Tester runs commands, so a partial attempt of theirs keeps its hold.
+# the Investigator. The Builder writes and the Tester runs commands, so an attempt of theirs that ran a tool
+# keeps its hold; one that ended before its first tool had no effect and is retried like any other.
 READ_ONLY_ROLES = frozenset(
     {"requirements", "planner", "task_planner", "plan_reviewer", "completion", "stuck_investigator"}
 )
@@ -208,13 +211,48 @@ def retryable_error(raw):
         return None
 
 
-def read_only_partial_error(raw):
-    """A read-only stage's stream that a retryable reset cut short: its cause, or None (#1717).
+def _ended(line):
+    """The provider's own error row for a call it ended: "provider_ended", or None.
 
-    The laptop slept mid-stream and the connection reset on wake: the log held progress rows, four completed
-    read-only tool calls and a finished tool step, the error row, Kilo's console echo of it, and the unfinished
-    text it flushed. Such a stream is accepted only when every row is model text, reasoning, progress or a
-    completed tool call, no step finished the turn, and exactly one error row classifies as retryable.
+    Any provider error qualifies unless it names a cause another recovery owns or that a retry
+    cannot help (quota, rate limit, sign-in, content filter, output limit), or the provider itself
+    marked it not retryable. OpenCode's ``MessageAbortedError`` ("Aborted") ended a Tester 34 s in,
+    before any tool ran, and left the run with no way on (2026-11-18).
+    """
+    try:
+        row = json.loads(
+            line,
+            object_pairs_hook=_unique,
+            parse_float=_finite,
+            parse_constant=lambda _: (_ for _ in ()).throw(ValueError()),
+        )
+    except (ValueError, TypeError, RecursionError):
+        return None
+    error = row.get("error") if isinstance(row, dict) and row.get("type") == "error" else row
+    if not isinstance(error, dict) or not isinstance(error.get("name"), str) or not error["name"]:
+        return None
+    data = error.get("data", {})
+    if not isinstance(data, dict) or data.get("isRetryable") is False or CONFLICT.search(line):
+        return None
+    return "provider_ended"
+
+
+def no_effect_stream(raw, *, read_only, clean_exit=False):
+    """The cause of a stream the provider ended before the stage had any effect, or None.
+
+    One observation replaces a list of failure wordings: the stream holds only model text,
+    reasoning, progress and step rows, no step finished the turn, and no tool ran, except
+    completed tool calls of a stage that only reads the workspace. Such an attempt changed
+    nothing, so what the provider said when it ended does not decide whether it may run again.
+    It is accepted when the provider ended it with exactly one error row (``retryable_error``'s
+    cause when that classifies, else ``_ended``'s), or, at a clean exit with no error row, when
+    its last step ended for an unexplained reason with no counted usage ("dropped_stream").
+
+    Cases it covers: the laptop slept mid-plan and the connection reset after four reads (#1717);
+    OpenCode named only a generic connection loss (#1797); Kilo on MiMo closed the step with reason
+    "other", zero tokens and exit 0 (2026-11-05); OpenCode aborted a Tester before its first tool
+    (2026-11-18). The admission gate in ``recover`` still requires an unchanged workspace, stopped
+    processes, no report file and the exact launch binding, and allows one retry.
     """
     if not isinstance(raw, bytes):
         return None
@@ -222,7 +260,7 @@ def read_only_partial_error(raw):
         lines = raw.decode("utf-8").splitlines()
     except UnicodeError:
         return None
-    errors = []
+    errors, echoed, last = [], False, None
     for line in lines:
         if not line.strip():
             continue
@@ -230,7 +268,8 @@ def read_only_partial_error(raw):
             row = json.loads(line)
         except ValueError:
             if _ANSI.sub("", line).strip().startswith("Error:"):
-                continue  # Kilo's console echo of the error row
+                echoed = True  # Kilo's console echo of the error row
+                continue
             return None
         if not isinstance(row, dict):
             return None
@@ -240,49 +279,32 @@ def read_only_partial_error(raw):
         part = row.get("part") if isinstance(row.get("part"), dict) else {}
         if row.get("type") not in _NO_EFFECT_ROWS:
             return None
-        if row["type"] == "tool_use" and (part.get("state") or {}).get("status") not in ("completed", "error"):
+        if row["type"] == "tool_use" and (
+            not read_only or (part.get("state") or {}).get("status") not in ("completed", "error")
+        ):
             return None
-        if row["type"] == "step_finish" and part.get("reason") == "stop":
-            return None  # the turn finished: not a cut-short stream
-    return retryable_error(errors[0]) if len(errors) == 1 else None
+        if row["type"] == "step_finish":
+            if part.get("reason") == "stop":
+                return None  # the turn finished: not a stream cut short
+            last = part
+    if clean_exit:
+        return None if errors or echoed else _dropped(last)
+    if len(errors) != 1:
+        return None
+    return retryable_error(errors[0]) or _ended(errors[0])
 
+
+# How the archive reason names each cause that is not a transport failure.
+_KINDS = {
+    "dropped_stream": "Retryable provider stream failure",
+    "provider_ended": "Provider ended the call before it had any effect",
+}
 
 # The finish reasons a provider gives a step it ended without saying why: no "stop", no tool call.
 _UNEXPLAINED_FINISH = frozenset({"other", "unknown"})
 
 
-def read_only_dropped_stream(raw):
-    """A read-only stage's stream the provider ended with no answer and no error row: "dropped_stream", or None.
-
-    Kilo on Xiaomi's MiMo streamed two minutes of reasoning, then closed the step with finish reason
-    "other", zero tokens counted, and exited 0 without a turn (2026-11-05). Nothing failed loudly, so
-    no error row exists to classify; the stream itself is the evidence. It is accepted only when every
-    row is model text, reasoning, progress or a completed tool call, no step finished the turn, and the
-    last step ended with an unexplained reason and no counted usage.
-    """
-    if not isinstance(raw, bytes):
-        return None
-    try:
-        lines = raw.decode("utf-8").splitlines()
-    except UnicodeError:
-        return None
-    last = None
-    for line in lines:
-        if not line.strip():
-            continue
-        try:
-            row = json.loads(line)
-        except ValueError:
-            return None
-        if not isinstance(row, dict) or row.get("type") not in _NO_EFFECT_ROWS:
-            return None
-        part = row.get("part") if isinstance(row.get("part"), dict) else {}
-        if row["type"] == "tool_use" and (part.get("state") or {}).get("status") not in ("completed", "error"):
-            return None
-        if row["type"] == "step_finish":
-            if part.get("reason") == "stop":
-                return None  # the turn finished: not a dropped stream
-            last = part
+def _dropped(last):
     if not last or last.get("reason") not in _UNEXPLAINED_FINISH:
         return None
     tokens = last.get("tokens")
@@ -457,13 +479,10 @@ def recover(runtime, state: RunState, run_dir, workspace, error):
         ):
             return False
         read_only = record.get("role") in READ_ONLY_ROLES
-        raw = _read(record["events"], run_dir, PARTIAL_LIMIT if read_only else MAX_ERROR_BYTES)
-        if clean_exit:
-            code = read_only and read_only_dropped_stream(raw)
-        else:
-            code = (len(raw) <= MAX_ERROR_BYTES and retryable_error(raw.decode("utf-8"))) or (
-                read_only and read_only_partial_error(raw)
-            )
+        raw = _read(record["events"], run_dir, PARTIAL_LIMIT)
+        code = (
+            not clean_exit and len(raw) <= MAX_ERROR_BYTES and retryable_error(raw.decode("utf-8"))
+        ) or no_effect_stream(raw, read_only=read_only, clean_exit=clean_exit)
         if not code:
             return False
         before = json.loads(_read(record["before_ref"], run_dir, 8 * 1024 * 1024))
@@ -547,7 +566,7 @@ def recover(runtime, state: RunState, run_dir, workspace, error):
     delay = 0 if retry_number == 1 else 30
     spacing = f" after {delay}s" if delay else ""
     reason = (
-        f"Retryable provider {'stream' if code == 'dropped_stream' else 'network'} failure ({code}) "
+        f"{_KINDS.get(code, 'Retryable provider network failure')} ({code}) "
         "with no workspace effects; "
         f"fresh same-stage retry {retry_number}/{MAX_NETWORK_RETRIES}{spacing}"
     )
