@@ -199,9 +199,9 @@ class PersonOnlyQuestionTests(unittest.TestCase):
                 if settle:
                     self.assertEqual("none", human.evaluate(self.state))
                 view = self.view()
-                self.assertIsNone(view["needs"])
-                self.assertIsNone(view["next_command"])
-                self.assertIsNone(view["chat"]["input"])
+                # Nothing for a person: the next resume closes the spent allowance (autocode_recovery_exhaustion).
+                self.assertEqual({"kind": "continue", "action": "--resume-paused"}, view["needs"])
+                self.assertNotIn("--grant-recovery", str(view["next_command"]))
                 self.assertIsNone(view["chat"]["gate"])
                 shown = progress_view.progress(self.state, accepted=(), stage=None, needs=view["needs"])["needs_you"]
                 self.assertNotIn("authorize additional recoveries", shown or "")

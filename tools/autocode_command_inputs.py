@@ -1,14 +1,16 @@
 """Typed human decisions for exact core-named commands; no grants or mutation.
 
 Each finite number a pause leaves to a person is described here (#2044): the
-planning-review allowance, the recovery grant, and every exhaustible bound a
+planning-review allowance and every exhaustible bound a
 budget pause names in BOUNDS (active time, cost cap, iterations, planning calls, milestone time,
 milestone replans, unchanged batches). A bound is described wherever it holds
 the run: at its own pause, after AutoResolver published its operational
 request, and while held information names the raise. Where `next_command` is
 the raise, the row binds to it. Where it is not (a plain resume, an operational
 response), the row is `separate` and the status view names its own `command`.
-Nothing here grants anything, chooses a value or changes state.
+Nothing here grants anything, chooses a value or changes state. A spent automatic
+recovery allowance is not a number for a person: AutoCode closes it
+(autocode_recovery_exhaustion), so no recovery grant is described.
 """
 
 from __future__ import annotations
@@ -26,8 +28,6 @@ try:
     from . import autocode_pause_authority as pause_authority
     from . import autocode_planning_calls as planning_calls
     from . import autocode_planning_review_usage as review_usage
-    from . import autocode_recovery_accounting as accounting
-    from . import autocode_recovery_grants as recovery_grants
     from . import autocode_recovery_limits as recovery_limits
 except ImportError:
     import autocode_budget_state as budget_state
@@ -36,8 +36,6 @@ except ImportError:
     import autocode_pause_authority as pause_authority
     import autocode_planning_calls as planning_calls
     import autocode_planning_review_usage as review_usage
-    import autocode_recovery_accounting as accounting
-    import autocode_recovery_grants as recovery_grants
     import autocode_recovery_limits as recovery_limits
 
 MAX_INTEGER = 9007199254740991  # Exact in the Python and JavaScript clients.
@@ -170,7 +168,8 @@ def project(state: RunState, need, resume_flags):
         state.get("status") == "PAUSED_TIMEOUT_RECOVERY"
         or pause_authority.held_origin(state).get("pause_status") == "PAUSED_TIMEOUT_RECOVERY"
     ):
-        return _grant(state, need, resume_flags)
+        # A spent recovery allowance is AutoCode's to close (autocode_recovery_exhaustion): no number to type.
+        return None
     return _bound(state, need, resume_flags)
 
 
@@ -280,55 +279,3 @@ def _planning_counts(state: RunState):
     ):
         return None
     return current, used
-
-
-def _grant(state: RunState, need, resume_flags):
-    if (
-        not need
-        or need.get("new_run_required")
-        or need.get("edit_required")
-        or need.get("route")
-        or need.get("correction")
-        or any(state.get(key) for key in BUSY)
-    ):
-        return None
-    named = need.get("action") or resume_flags
-    if need.get("kind") == "resume" and named == GRANT_ACTION:
-        separate = False
-    elif (
-        need.get("kind") == "answer"
-        and need.get("resolver_scope") == "operational_exhaustion"
-        and need.get("pause_origin") == "PAUSED_TIMEOUT_RECOVERY"
-    ):
-        separate = True
-    else:
-        return None
-    try:
-        used = accounting.spent(state)
-    except (TypeError, ValueError):
-        return None
-    if type(used) is not int or not 1 <= used <= MAX_INTEGER:
-        return None
-    if state.get("status") != "PAUSED_TIMEOUT_RECOVERY" and not recovery_grants.eligible(
-        state,
-        current_request=recovery_limits.published_request,
-        queued_request=recovery_limits.queued_operational_hold,
-        count=used,
-        maximum=accounting.MAX_AUTOMATIC_RECOVERIES,
-    ):
-        return None
-    row = {
-        "id": "grant_recovery",
-        "kind": "integer",
-        "flag": "--grant-recovery",
-        "placeholder": "N",
-        "arg_index": 2,
-        "label": "Additional recoveries",
-        "current": accounting.MAX_AUTOMATIC_RECOVERIES,
-        "used": used,
-        "minimum": 1,
-        "maximum": used,
-    }
-    if separate:
-        row["command"] = None  # autocode_run_view names it, with the run's paths and recovery token
-    return [row]

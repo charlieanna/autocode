@@ -70,41 +70,17 @@ class CommandInputTests(unittest.TestCase):
         row = inputs.project(held, {"kind": "resume", "action": "--resume-paused"}, None)
         self.assertFalse(row and row[0]["id"] == "max_stage_seconds", "an older hold keeps its own authority")
 
-    def test_additional_recovery_input_replenishes_only_counted_slots(self):
+    def test_a_spent_recovery_allowance_is_never_a_number_for_a_person(self):
+        # It offered "Additional recoveries" (--grant-recovery N); AutoCode now closes the spent
+        # allowance itself with a recorded outcome (autocode_recovery_exhaustion).
         state = self.grant_checkpoint()
         before = copy.deepcopy(state)
         view = run_view.view(state)
-        self.assertEqual(
-            [
-                {
-                    "id": "grant_recovery",
-                    "kind": "integer",
-                    "flag": "--grant-recovery",
-                    "placeholder": "N",
-                    "arg_index": 2,
-                    "label": "Additional recoveries",
-                    "current": 3,
-                    "used": 3,
-                    "minimum": 1,
-                    "maximum": 3,
-                }
-            ],
-            view["needs"]["command_inputs"],
-        )
-        self.assertIn("--resume-paused --grant-recovery N --expected-recovery-token -", view["next_command"])
+        self.assertEqual({"kind": "continue", "action": "--resume-paused"}, view["needs"])
+        self.assertNotIn("--grant-recovery", str(view["next_command"]))
         self.assertEqual(before, state)
-        for used in (None, True, 0, -1, 3.5, inputs.MAX_INTEGER + 1, 10**1000):
-            bad = copy.deepcopy(state)
-            bad["automatic_recoveries_since_resume"] = used
-            self.assertIsNone(inputs.project(bad, {"kind": "resume"}, inputs.GRANT_ACTION))
-        for action in ("--resume-paused", "--grant-recovery N", inputs.GRANT_ACTION + " --approve-goal -"):
-            self.assertIsNone(inputs.project(state, {"kind": "resume", "action": action}, None))
-        for key in ("active_stage", "active_runner_check", "pending_report_repair", "uncertain_artifacts"):
-            bad = copy.deepcopy(state)
-            bad[key] = {"fixture": True}
-            self.assertIsNone(inputs.project(bad, {"kind": "resume"}, inputs.GRANT_ACTION))
-        with mock.patch.object(run_view.operational_information, "projection", return_value={"status": "pending"}):
-            self.assertNotIn("command_inputs", run_view.view(state)["needs"])
+        for action in (inputs.GRANT_ACTION, "--resume-paused", None):
+            self.assertIsNone(inputs.project(state, {"kind": "resume", "action": action}, inputs.GRANT_ACTION))
 
     def test_recovery_spend_fallbacks_and_grant_history_expire_numeric_offer(self):
         state = self.grant_checkpoint()
@@ -123,7 +99,7 @@ class CommandInputTests(unittest.TestCase):
         legacy = copy.deepcopy(state)
         del legacy["automatic_recoveries_since_resume"]
         legacy["no_progress_batches"] = 4
-        self.assertEqual(4, run_view.view(legacy)["needs"]["command_inputs"][0]["maximum"])
+        self.assertNotIn("command_inputs", run_view.view(legacy)["needs"])
 
     def planning_checkpoint(self, **changes):
         return checkpoint(

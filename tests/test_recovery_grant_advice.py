@@ -8,9 +8,12 @@ from unittest.mock import patch
 
 import autocode_operational_disposition as disposition
 import autocode_recovery_accounting as accounting
+import autocode_recovery_exhaustion as exhaustion
 import autocode_recovery_grants as grants
 import autocode_recovery_limits as limits
 import autocode_resolver_runtime as resolver_runtime
+import autocode_run_view as run_view
+import autocode_stop as stop
 import autocode_support as support
 
 from .operational_fixtures import assert_operational_block
@@ -278,8 +281,15 @@ class AdviceMatchesEligibility(unittest.TestCase):
                         resolver_runtime.record_operational_exhaustion(None, state, run, support.Paused(pause, cause))
                     )
                 queue.assert_not_called()
-                identity = assert_operational_block(self, state, pause)
-                self.assertIn(cause, json.dumps(disposition.diagnostic(state, identity)))
+                if pause == exhaustion.STATUS:
+                    # A spent recovery allowance is not left as a block: the next resume records the end.
+                    self.assertEqual({"kind": "continue", "action": "--resume-paused"}, run_view.needs(state))
+                    self.assertIsNotNone(exhaustion.pending(state))
+                    receipts = state["resolver"]["operational_receipts"]
+                    self.assertIn(cause, json.dumps(receipts))
+                else:
+                    identity = assert_operational_block(self, state, pause)
+                    self.assertIn(cause, json.dumps(disposition.diagnostic(state, identity)))
                 self.assertEqual(count, accounting.spent(state))
                 self.assertEqual({"no_progress_batches": 3}, state["settings"]["limits"])
                 self.assertNotIn("--grant-recovery", state["stop_reason"])
@@ -438,6 +448,9 @@ class QuotaStopAdviceNamesAbandon(unittest.TestCase):
                     support.Paused("PAUSED_TIMEOUT_RECOVERY", cause),
                 )
             )
-            identity = assert_operational_block(self, state, "PAUSED_TIMEOUT_RECOVERY")
-            self.assertIn(cause, json.dumps(disposition.diagnostic(state, identity)))
+            self.assertIn(cause, json.dumps(state["resolver"]["operational_receipts"]))
             self.assertNotIn(limits.GRANT_ADVICE, state["stop_reason"])
+            self.assertEqual({"kind": "continue", "action": "--resume-paused"}, run_view.needs(state))
+            self.assertTrue(exhaustion.settle(state, at="2026-11-17T00:00:00Z"))
+            self.assertEqual("could_not_finish", stop.outcome(state)["result"])
+            self.assertIsNone(run_view.needs(state))

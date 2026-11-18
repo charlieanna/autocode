@@ -20,6 +20,7 @@ try:
     from . import autocode_operational_admission as admission
     from . import autocode_operational_outcome as outcome
     from . import autocode_owned_operations as operations
+    from . import autocode_recovery_exhaustion as exhaustion
     from . import autocode_recovery_progress as progress
     from . import autocode_resolver_human as human
     from . import autocode_source_scope as source_scope
@@ -32,6 +33,7 @@ except ImportError:
     import autocode_operational_admission as admission
     import autocode_operational_outcome as outcome
     import autocode_owned_operations as operations
+    import autocode_recovery_exhaustion as exhaustion
     import autocode_recovery_progress as progress
     import autocode_resolver_human as human
     import autocode_source_scope as source_scope
@@ -51,6 +53,10 @@ def settle(runner, args, parser, state: RunState, state_path, run_dir, workspace
     """Return (handled, exit code); no matching evidence is not a successful owner."""
     if any(human.pending_interruptions(run_dir).values()):
         return False, None
+    if exhaustion.pending(state) and exhaustion.settle(state, at=runner.now()):
+        runner.write_json(state_path, state)
+        print(state.get("stop_reason") or state.get("next_action"))
+        return True, 2  # A recorded outcome launches nothing; the recovery history stays.
     if classification.pending(state) and classification.conclude(state, workspace, at=runner.now()):
         runner.write_json(state_path, state)
         print(state.get("stop_reason") or state.get("next_action"))
@@ -151,6 +157,9 @@ OPERATIONS = operations.register(
     ),
     operations.Operation("retained_accounting", operations.no_work, validate_accounting, observes=progress.pending),
     operations.Operation("retained_validation", operations.no_work, operations.no_work, observes=validation.pending),
+    operations.Operation(
+        "retained_recovery_allowance", operations.no_work, operations.no_work, observes=exhaustion.pending
+    ),
     operations.Operation(
         "retained_classification", operations.no_work, operations.no_work, observes=classification.pending
     ),
