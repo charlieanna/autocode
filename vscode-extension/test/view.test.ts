@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   approvalToken,
+  continueChoice,
   isWorking,
   needsSummary,
   pauseLabel,
@@ -357,4 +358,31 @@ test("isWorking recognizes a supervised local runner_check and preserves its pro
   assert.equal(view.runner_check?.phase, "mutation");
   assert.equal(view.runner_check?.current, 12);
   assert.equal(view.runner_check?.total, 80);
+});
+
+test("the History tree's Continue goes on only with a plain continue, never with a run already working", () => {
+  const next_command = "autocode --workspace /ws --run-dir /ws/.autocode/runs/r1";
+  assert.equal(continueChoice({ status: "PAUSED", done: false, needs: { kind: "continue" }, next_command }), "continue");
+  assert.equal(
+    continueChoice({ status: "RUNNING", done: false, needs: { kind: "continue" }, next_command, liveness: { kind: "supervised" } }),
+    "working",
+  );
+  assert.equal(
+    continueChoice({ status: "RUNNING", done: false, needs: { kind: "continue" }, next_command,
+      controller: { kind: "running", checked: true, alive: true } }),
+    "working",
+  );
+  // A run that needs the person, or names nothing to take, opens its chat instead of a spend dialog.
+  assert.equal(continueChoice({ status: "PAUSED", done: false, needs: { kind: "answer" }, next_command }), "open");
+  assert.equal(continueChoice({ status: "PAUSED", done: false, needs: { kind: "continue" } }), "open");
+  assert.equal(continueChoice({ status: "COMPLETED", done: true, needs: null }), "open");
+});
+
+test("needsSummary never shows a person the view's internal name for a need", () => {
+  assert.equal(needsSummary({ status: "S", done: false, needs: { kind: "some_new_kind" } }), "your decision in the chat");
+  assert.equal(needsSummary({ status: "S", done: false, needs: { kind: "some_new_kind", reason: "Pick a branch." } }), "Pick a branch.");
+  for (const kind of ["retry_job", "recover_source", "some_new_kind"]) {
+    const text = needsSummary({ status: "S", done: false, needs: { kind } });
+    assert.ok(!text.includes(kind) && !/source identity|inspection/.test(text), text);
+  }
 });

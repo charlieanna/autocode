@@ -157,7 +157,7 @@ for (const surface of ['chat', 'Run details']) {
     const field = ui.document.querySelector('[data-question="grant_recovery"]');
     const take = () => ui.document.querySelector('#take-action');
     assert.equal(field.value, ''); assert.equal(take().disabled, true);
-    for (const text of ['Automatic recovery allowance: 3', 'Counted recoveries used: 3', '1 to 3 additional recoveries']) assert.ok(ui.document.body.textContent.includes(text), text);
+    for (const text of ['Automatic recovery allowance: 3', 'Counted recoveries used: 3', 'Enter 1 to 3 more']) assert.ok(ui.document.body.textContent.includes(text), text);
     for (const value of ['0', '4', '1.5', '1e2', '9007199254740992']) {
       field.value = value; field.dispatchEvent(new ui.window.Event('input')); assert.equal(take().disabled, true);
     }
@@ -167,8 +167,8 @@ for (const surface of ['chat', 'Run details']) {
     const confirm = t.mock.method(host.vscode.window, 'showWarningMessage', async () => undefined);
     take().click(); await flush(); assert.equal(launch.mock.callCount(), 0);
     const [title, options, button] = confirm.mock.calls[0].arguments;
-    assert.ok(title.includes('1 recovery slot')); assert.equal(button, 'Grant and continue');
-    for (const text of ['fixed allowance', 'history is retained', 'excess is not banked', 'does not approve a plan']) assert.ok(options.detail.includes(text), text);
+    assert.ok(title.includes('1 more automatic recovery')); assert.equal(button, 'Grant and continue');
+    for (const text of ['up to that many more times', 'Other saved limits', 'does not approve a plan']) assert.ok(options.detail.includes(text), text);
     confirm.mock.mockImplementation(async () => button);
     take().click(); await flush(); assert.equal(launch.mock.callCount(), 1);
     const [, args, env] = launch.mock.calls[0].arguments;
@@ -370,9 +370,9 @@ for (const surface of ['chat', 'Run details']) {
     const confirm = t.mock.method(host.vscode.window, 'showWarningMessage', async (_title, _opts, button) => button);
     raise.click(); await flush();
     const [title, options, button] = confirm.mock.calls[0].arguments;
-    assert.equal(title, 'Replenish 1 recovery slot and continue?');
+    assert.equal(title, 'Allow 1 more automatic recovery and continue?');
     assert.equal(button, 'Grant and continue');
-    assert.ok(options.detail.includes('existing fixed allowance'), options.detail);
+    assert.ok(options.detail.includes('up to that many more times'), options.detail);
     assert.equal(launch.mock.callCount(), 1);
     const [, args, env] = launch.mock.calls[0].arguments;
     assert.deepEqual(args, ['--resume-paused', '--grant-recovery', '1', '--expected-recovery-token', '-', '--workspace', run.workspace, '--run-dir', run.runDir]);
@@ -1159,7 +1159,8 @@ test('a timed-out status read after a paused start keeps the allocated run', asy
 test('tree actions use the clicked run with no active run and with another run active', async (t) => {
   t.mock.timers.enable({ apis: ['setInterval'] });
   t.mock.method(RunController.prototype, 'list', async () => ({ runs: [], diagnostics: [] }));
-  t.mock.method(RunController.prototype, 'status', async () => ({ status: 'RUNNING', done: false, needs: { kind: 'continue' } }));
+  t.mock.method(RunController.prototype, 'status', async () => ({ status: 'RUNNING', done: false, needs: { kind: 'continue' },
+    next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}` }));
   const take = t.mock.method(RunController.prototype, 'take', async () => ok);
   const show = t.mock.method(ChatView.prototype, 'show', () => {});
   const context = { subscriptions: [], workspaceState: host.workspaceState };
@@ -1177,6 +1178,96 @@ test('tree actions use the clicked run with no active run and with another run a
   await host.commands.get('autocode.continueRun')(row);
   assert.deepEqual(take.mock.calls.at(-1).arguments[1], other);
   await flush();
+});
+
+test('the History tree\'s Continue neither asks nor launches for a run that is already working', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  t.mock.method(RunController.prototype, 'list', async () => ({ runs: [], diagnostics: [] }));
+  t.mock.method(RunController.prototype, 'status', async () => ({ status: 'RUNNING', done: false, needs: { kind: 'continue' },
+    liveness: { kind: 'supervised' }, next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}` }));
+  const take = t.mock.method(RunController.prototype, 'take', async () => ok);
+  const warn = t.mock.method(host.vscode.window, 'showWarningMessage', async () => 'Continue');
+  const info = t.mock.method(host.vscode.window, 'showInformationMessage', async () => undefined);
+  const context = { subscriptions: [], workspaceState: host.workspaceState };
+  activate(context);
+  t.after(() => context.subscriptions.forEach((item) => item.dispose?.()));
+  const row = new RunItem({ ...run, id: 'r1', availability: 'available', status: 'RUNNING' }, run.workspace);
+  await host.commands.get('autocode.continueRun')(row);
+  await flush();
+  assert.equal(warn.mock.callCount(), 0, 'no spend dialog for a run already taking its step');
+  assert.equal(take.mock.callCount(), 0);
+  assert.match(info.mock.calls.at(-1).arguments[0], /already working/);
+});
+
+test('the History tree\'s Continue opens the chat of a run that needs the person', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  t.mock.method(RunController.prototype, 'list', async () => ({ runs: [], diagnostics: [] }));
+  t.mock.method(RunController.prototype, 'status', async () => questionView());
+  const take = t.mock.method(RunController.prototype, 'take', async () => ok);
+  const warn = t.mock.method(host.vscode.window, 'showWarningMessage', async () => 'Continue');
+  const show = t.mock.method(ChatView.prototype, 'show', () => {});
+  const context = { subscriptions: [], workspaceState: host.workspaceState };
+  activate(context);
+  t.after(() => context.subscriptions.forEach((item) => item.dispose?.()));
+  const row = new RunItem({ ...run, id: 'r1', availability: 'available', status: 'RUNNING' }, run.workspace);
+  await host.commands.get('autocode.continueRun')(row);
+  await flush();
+  assert.equal(warn.mock.callCount(), 0);
+  assert.equal(take.mock.callCount(), 0);
+  assert.deepEqual(show.mock.calls.at(-1).arguments[0], run);
+});
+
+test('an empty History names no command to type', () => {
+  const provider = new RunsProvider({ list: async () => ({ runs: [], diagnostics: [] }) });
+  return provider.refresh().then(() => {
+    const [node] = provider.getChildren();
+    const text = provider.getChildren(node).map((item) => String(item.label)).join(' ');
+    assert.ok(!/autocode |`/.test(text), text);
+    provider.dispose();
+  });
+});
+
+test('Run details shows a person no command to type and no notice about the extension', async (t) => {
+  const view = retryJobView();
+  const ui = await openPanel(t, view);
+  const text = ui.document.querySelector('#app').textContent;
+  for (const absent of ['Command the view named', 'AUTOCODE_JOB_RETRY_TOKEN', '--resume-paused', 'The extension will ask', 'asking a person']) {
+    assert.ok(!text.includes(absent), absent);
+  }
+});
+
+test('Run details asks for a plan it has not shown without naming a command', async (t) => {
+  const approval = approvalView();
+  delete approval.displayed_plan;
+  const unread = await openPanel(t, approval);
+  const shown = unread.document.querySelector('#app').textContent;
+  assert.ok(!shown.includes('--status') && !shown.includes('autocode --'), shown);
+});
+
+test('Run details asks before a stopped step in words, never the need\'s internal name', async (t) => {
+  const panelUi = await openPanel(t, retryJobView());
+  const confirm = t.mock.method(host.vscode.window, 'showWarningMessage', async () => undefined);
+  panelUi.take().click();
+  await flush();
+  await flush();
+  const [title] = confirm.mock.calls[0].arguments;
+  assert.ok(!title.includes('retry_job') && !title.includes('('), title);
+});
+
+test('a blocker answer is sent when the person presses Send, without a second dialog', async (t) => {
+  const view = questionView();
+  view.needs.resolver_scope = 'blocker';
+  const confirm = t.mock.method(host.vscode.window, 'showWarningMessage', async () => undefined);
+  const panelUi = await openPanel(t, view);
+  const input = panelUi.document.querySelector('input');
+  input.value = 'Use the CLI';
+  input.dispatchEvent(new panelUi.window.Event('input'));
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  panelUi.take().click();
+  await flush();
+  await flush();
+  assert.equal(confirm.mock.callCount(), 0, 'the typed answer is the decision');
+  assert.equal(launch.mock.callCount(), 1);
 });
 
 function approvalView() {
@@ -4858,7 +4949,7 @@ test('Run details points to the bound operational reply instead of claiming no a
     next_command: 'autocode --resolver-request req-1 --resolver-token - --resolver-response provide_information --resolver-message MESSAGE' };
   const ui = await openPanel(t, view);
   const text = ui.document.querySelector('#app').textContent;
-  assert.ok(text.includes('conversation can accept a recovery reply'));
+  assert.ok(text.includes('Reply in the conversation'));
   assert.ok(!text.includes('No action the client can take'));
   assert.equal(ui.document.querySelector('#take-action'), null);
   const launch = t.mock.method(cli, 'stream', async () => ok);
@@ -5279,7 +5370,7 @@ test('non-requirements running stage shows Thinking in chat without offering Con
   assert.equal(chatUi.document.querySelector('.decision-card .notice'), null, 'stopped continue checkpoint must not show working notice');
   assert.equal(chatUi.document.querySelector('#take-action').textContent, 'Continue');
   assert.equal(chatUi.document.querySelector('#take-action').disabled, false);
-  assert.equal(chatUi.document.querySelector('#action-strip .action-prompt').textContent, 'AutoCode is waiting for you');
+  assert.equal(chatUi.document.querySelector('#action-strip .action-prompt').textContent, 'No decision is needed. Press Continue to go on.');
 
   // Even if a stale view retains a working notice string at a stopped checkpoint, the client suppresses it
   await chatUi.poll({ ...runningView, liveness: { kind: 'unknown' }, chat: { ...runningView.chat, notice: 'Working on your request…' } });
@@ -6214,9 +6305,16 @@ test('a failed status read keeps the status bar up saying so instead of hiding i
   assert.ok(statusText.includes('Builder working'), 'the bar shows the run again as soon as a read succeeds');
 });
 
+function retryJobView() {
+  return {
+    status: 'PAUSED_JOB_FAILURE', done: false,
+    needs: { kind: 'retry_job', reason: 'The workflow step stopped.', job_retry_token: 'retry-token-1' },
+    next_command: `AUTOCODE_JOB_RETRY_TOKEN=retry-token-1 autocode --resume-paused --retry-failed-stage --job-retry-token - --workspace ${run.workspace} --run-dir ${run.runDir}`,
+  };
+}
+
 test('Run details guards against concurrent clicks during status and modal confirmation (#1542)', async (t) => {
-  const view = questionView();
-  view.needs.resolver_scope = 'blocker'; // Triggers person-only confirmation modal
+  const view = retryJobView(); // A stopped workflow step asks before acting on it
   let resolveStatus;
   let blockStatus = false;
   const statusCalled = [];
@@ -6237,16 +6335,12 @@ test('Run details guards against concurrent clicks during status and modal confi
   t.after(() => dom.window.close());
 
   // Deliver state manually to simulate loaded panel
-  const initial = { ...stateFor(view, run, controller), decisions: [{ questionId: 'q1', kind: 'answer', text: 'Which?', options: [], suggested: null }] };
-  webview.deliver({ type: 'state', state: initial });
+  webview.deliver({ type: 'state', state: stateFor(view, run, controller) });
   await flush();
 
   blockStatus = true;
   const take = [...dom.window.document.querySelectorAll('button')].find((b) => b.textContent !== 'Refresh');
   assert.ok(take, 'take action button exists');
-  const input = dom.window.document.querySelector('input');
-  input.value = 'my answer';
-  input.dispatchEvent(new dom.window.Event('input'));
 
   const launch = t.mock.method(cli, 'stream', async () => ok);
   let resolveModal;
@@ -6286,14 +6380,10 @@ test('Run details guards against concurrent clicks during status and modal confi
 });
 
 test('Run details releases in-flight taking guard on cancellation or error (#1542)', async (t) => {
-  const view = questionView();
-  view.needs.resolver_scope = 'blocker';
+  const view = retryJobView();
   let modalResponse = 'Cancel';
   t.mock.method(host.vscode.window, 'showWarningMessage', async () => modalResponse);
   const panelUi = await openPanel(t, view);
-  const input = panelUi.document.querySelector('input');
-  input.value = 'answer 1';
-  input.dispatchEvent(new panelUi.window.Event('input'));
 
   const launch = t.mock.method(cli, 'stream', async () => ok);
 
@@ -7013,7 +7103,7 @@ test('a stopped run that needs nothing from the person never says it is waiting 
   });
   await ui.poll();
   assert.deepEqual(host.notices.map((notice) => notice.message), [
-    'AutoCode: alpha stopped. Nothing is needed from you; open the chat to continue it.',
+    'AutoCode: alpha stopped. No decision is needed; press Continue in its chat to go on.',
     'AutoCode: alpha is waiting for another run to deliver. Nothing is needed from you.',
   ]);
   for (const notice of host.notices) assert.doesNotMatch(notice.message, /waiting for you/);
@@ -7226,7 +7316,7 @@ test('test_ac19_idle_continue_need_notifies_once', async (t) => {
   views.set(alpha.runDir, { status: 'PAUSED', done: false, needs: { kind: 'continue' } });
   await ui.poll();
   assert.equal(host.notices.length, 1);
-  assert.equal(host.notices[0].message, 'AutoCode: alpha stopped. Nothing is needed from you; open the chat to continue it.');
+  assert.equal(host.notices[0].message, 'AutoCode: alpha stopped. No decision is needed; press Continue in its chat to go on.');
   await ui.poll();
   assert.equal(host.notices.length, 1);
 });
@@ -7308,7 +7398,7 @@ for (const [label, controllerState] of [
     assert.equal(host.notices.length, 0);
     await ui.poll({ ...preflight, controller: controllerState });
     assert.equal(host.notices.length, 1, 'stopped or unverified ownership is not work');
-    assert.equal(host.notices[0].message, 'AutoCode: alpha stopped. Nothing is needed from you; open the chat to continue it.');
+    assert.equal(host.notices[0].message, 'AutoCode: alpha stopped. No decision is needed; press Continue in its chat to go on.');
     const take = ui.document.querySelector('#take-action');
     assert.equal(take.textContent, 'Continue');
     assert.equal(take.disabled, false);

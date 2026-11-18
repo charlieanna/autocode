@@ -171,7 +171,7 @@ function groupByWorkspace(runs: RegistryRun[], now = Date.now(), allocations = n
     nodes.push({
       kind: "workspace",
       label: "No registered runs",
-      runs: [messageItem("Start a run, or run `autocode registry import` on a folder")],
+      runs: [messageItem("Start a run from the AutoCode chat")],
     });
   }
   return nodes;

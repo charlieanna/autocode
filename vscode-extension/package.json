@@ -292,7 +292,7 @@
         "autocode.confirmPersonOnly": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Ask before taking an action on a pause AutoCode stopped for a person to decide (`resume`, `retry_job`, `recover_source`, a blocker or an exhausted-recovery request). Keep this on: those are the decisions the run stopped to ask you."
+          "markdownDescription": "Ask before resuming a run that stopped for your decision, or going on with a step that stopped. Keep this on: those are the decisions the run stopped to ask you."
         },
         "autocode.notify": {
           "type": "boolean",

@@ -542,6 +542,18 @@ export function isWorking(view: StatusView): boolean {
       && view.controller.checked === true && view.controller.alive === true);
 }
 
+/**
+ * What the History tree's Continue does for a run: nothing while it is already working (a stage or a
+ * live controller moves it on), the named continue when that is all the run needs, and otherwise opens
+ * the run's chat, where its own question or button is. The tree row only knows the registry's status, so
+ * a RUNNING row asked the person to spend a model step on a run that was already taking one.
+ */
+export function continueChoice(view: StatusView): "working" | "continue" | "open" {
+  if (isWorking(view)) return "working";
+  if (!view.done && view.needs?.kind === "continue" && Boolean(view.next_command)) return "continue";
+  return "open";
+}
+
 /** Another run holds the folder this ready run's next step needs (the core's `checkout_wait`). */
 export function waitsForFolder(view: StatusView): boolean {
   return !view.done && view.needs?.kind === "continue" && typeof view.checkout_wait?.text === "string"
@@ -567,13 +579,14 @@ export function needsSummary(view: StatusView, working?: boolean): string {
       if (waitsForFolder(view)) return view.checkout_wait!.text!;
       return active ? "a stage is currently running" : "nothing; the run can simply proceed";
     case "retry_job":
-      return "inspection of a stopped workflow job";
+      return "a look at a workflow step that stopped";
     case "recover_source":
-      return "inspection of an attempt with no saved source identity";
+      return "a look at a stopped step before starting again";
     case "dependency":
       return "a producer run to deliver";
     default:
-      return need.reason ? `${need.kind}: ${need.reason}` : need.kind;
+      // The kind is the view's internal name for the need; a person reads its reason, or a plain fallback.
+      return need.reason || "your decision in the chat";
   }
 }
 
