@@ -124,6 +124,38 @@ class RecoverySessionTests(unittest.TestCase):
         account.assert_not_called()
         dispatch.assert_not_called()
 
+    def test_recovery_uses_source_writer_permission_instead_of_the_role_label(self):
+        for stage, role in (("builder", "builder"), ("write_acceptance_tests", "tester")):
+            with self.subTest(stage=stage):
+                record = self.attempt("writer")
+                record.update(stage=stage, role=role)
+                (self.workspace / "test_example.py").write_text("def test_example():\n    assert True\n")
+                with patch.object(runner, "commit_stage_result") as dispatch:
+                    runner.reconcile_active(self.state, self.run_dir, self.workspace)
+                dispatch.assert_called_once()
+                self.assertEqual(["test_example.py"], record["changed_files"])
+                self.assertEqual(util.snapshot(self.workspace)["revision"], record["source_revision"])
+                (self.workspace / "test_example.py").unlink()
+
+    def test_recovery_keeps_reviewers_and_report_repairs_read_only(self):
+        cases = (
+            ("tester", "tester", False),
+            ("finalize_plan", "task_planner", False),
+            ("write_acceptance_tests_report_repair", "tester", True),
+            ("builder_report_repair", "builder", True),
+        )
+        for stage, role, report_only in cases:
+            with self.subTest(stage=stage):
+                record = self.attempt("reviewer")
+                record.update(stage=stage, role=role, report_only=report_only)
+                (self.workspace / "test_example.py").write_text("def test_example():\n    assert True\n")
+                with patch.object(runner, "commit_stage_result") as dispatch:
+                    with self.assertRaises(runner.support.Paused) as caught:
+                        runner.reconcile_active(self.state, self.run_dir, self.workspace)
+                self.assertEqual("PAUSED_STALE_VALIDATION", caught.exception.status)
+                dispatch.assert_not_called()
+                (self.workspace / "test_example.py").unlink()
+
     def test_recovered_repair_transport_does_not_replace_the_original_session(self):
         original = self.attempt("original-reviewer")
         with patch.object(
