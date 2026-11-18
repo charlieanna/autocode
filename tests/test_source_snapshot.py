@@ -108,6 +108,27 @@ class SelectedSourceSnapshotTests(unittest.TestCase):
             with self.assertRaises(subprocess.CalledProcessError):
                 source_diff.write(self.root, self.root / ".autocode/review.diff", snapshot)
 
+    def test_review_diff_keeps_literal_content_and_the_users_index_in_both_modes(self):
+        (self.root / ".autocode").mkdir()
+        self.write("README.md", "Staged version\n")
+        self.git("add", "README.md")
+        self.write("README.md", "Literal __name__ [value] <text>\n")
+        self.write("docs/checklist.md", "Selected ignored output\n")
+        index = (self.root / ".git/index").read_bytes()
+        staged = self.git("diff", "--cached", "--binary")
+        for paths in (None, ["docs/checklist.md"]):
+            with self.subTest(paths=paths):
+                snapshot = source.snapshot(self.root, paths=paths) if paths else util.snapshot(self.root)
+                output = self.root / ".autocode/review.diff"
+                source_diff.write(self.root, output, snapshot)
+                self.assertIn(b"+Literal __name__ [value] <text>\n", output.read_bytes())
+                if paths:
+                    self.assertIn(b"+Selected ignored output\n", output.read_bytes())
+                else:
+                    self.assertNotIn(b"Selected ignored output", output.read_bytes())
+                self.assertEqual(index, (self.root / ".git/index").read_bytes())
+                self.assertEqual(staged, self.git("diff", "--cached", "--binary"))
+
     def test_ignored_deliverable_creation_edit_and_deletion_change_identity(self):
         paths = ["docs/checklist.md"]
         before = source.snapshot(self.root, paths=paths)
