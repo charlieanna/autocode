@@ -21,3 +21,10 @@ handle resolution and resume from the project. A read-only CLI status regression
 checks the error visible to a client, exit status, absence of a traceback and
 preservation of the saved record. Existing wrong-project and wrong-run checks
 still reject those targets.
+
+An actual VS Code chat was checked with a controlled failure of the Git identity
+query during read-only status. It showed the inspection error, retained the
+conversation and unsent draft, and kept focus in the composer. Restoring the
+normal status reader cleared the read error on the next poll, preserving the
+draft and the run's original result. No model or recovery action was started by
+the fault check.
