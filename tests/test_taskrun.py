@@ -111,10 +111,9 @@ class RunViewTests(unittest.TestCase):
             "active_stage": {"iteration": 1, "output": "/runs/r1/iterations/001/plan-challenge-01.json"},
         }
         shown = run_view.view(state, workspace=Path("/project"), run_dir=Path("/runs/r1"))
-        self.assertEqual("resume", shown["needs"]["kind"])
-        self.assertNotIn("abandon_stage", shown["needs"])
-        self.assertIn("--resume-paused", shown["next_command"])
-        self.assertNotIn("--abandon-stage", shown["next_command"])
+        self.assertIsNone(shown["needs"], "An unobserved source read is AutoCode's hold, not a person question")
+        self.assertIsNone(shown["next_command"])
+        self.assertEqual("blocked", shown["recovery"]["category"])
         self.assertFalse(shown["done"])
         self.assertIsNone(shown.get("displayed_plan"))
 
@@ -127,6 +126,22 @@ class RunViewTests(unittest.TestCase):
         self.assertFalse(action_authority.explicit_recovery_requested(SimpleNamespace(retry_report=None), None))
 
     def test_contract_fields(self):
+        from autocode_progress_view import progress
+
+        self.assertEqual(
+            {
+                "line",
+                "headline",
+                "continuing",
+                "stage",
+                "needs_you",
+                "for_earlier_request",
+                "tasks",
+                "requirements",
+                "problems",
+            },
+            set(progress({"status": "RUNNING"}, accepted=(), stage=None, needs=None)),
+        )
         self.assertIn("gate", run_view.view({"status": "RUNNING"})["chat"])
         self.assertEqual(
             {"job", "label", "state", "model", "reasoning_effort", "spent_usd", "spent_complete", "reason"},
@@ -877,21 +892,32 @@ class RunViewTests(unittest.TestCase):
         )
 
     def test_a_pending_resolver_request_carries_its_token_and_scope(self):
-        public = {"request_id": "r1", "request_token": "t1", "scope": "operational_exhaustion"}
+        import autocode_resolver_human as human
+
         state = {
-            "status": "WAITING_FOR_USER",
-            "user_request": {"kind": "blocker"},
-            "pending_questions": [{"id": "q1", "question": "Raise the cap?"}],
-            "resolver_human_request": public,
-            "resolver": {"human_escalations": {"r1": {"status": "pending"}}},
+            "status": "RUNNING",
+            "task_id": "permission-fixture",
+            "next_stage": "draft_plan",
         }
+        human.queue(
+            state,
+            "permission",
+            {"stage": "draft_plan"},
+            request={
+                "kind": "permission",
+                "decision_needed": "May the task access the network?",
+                "impact": "The task requires an external resource",
+            },
+        )
+        self.assertEqual("escalate", human.evaluate(state))
+        public = human.current(state)
         need = run_view.needs(state)
         self.assertEqual(
-            ("r1", "t1", "operational_exhaustion"),
+            (public["request_id"], public["request_token"], "permission"),
             (need["resolver_request_id"], need["resolver_token"], need["resolver_scope"]),
         )
         # A consumed request is not answerable, so it carries none of them.
-        state["resolver"]["human_escalations"]["r1"]["status"] = "consumed"
+        state["resolver"]["human_escalations"][public["request_id"]]["status"] = "consumed"
         self.assertFalse({"resolver_request_id", "resolver_token", "resolver_scope"} & set(run_view.needs(state)))
 
     def test_plan_approval_needs_the_displayed_token(self):
@@ -1709,6 +1735,49 @@ class TaskRunTimeoutDetailTests(unittest.TestCase):
 
 
 class TaskRunClientTests(unittest.TestCase):
+    def test_plain_named_continuation_keeps_start_only_options_out_of_the_refresh(self):
+        run = taskrun.TaskRun(
+            Path("/work/repo"), Path("/work/repo/.autocode/runs/one"), options=("--single-model", "selected")
+        )
+        refreshing = run_view.view(
+            {
+                "status": "RESOLVER_PENDING",
+                "next_stage": "requirements_gather",
+                "iteration": 1,
+                "phase": "DISCOVERING",
+                "done": False,
+                "resolver_human_proposal": {"questions": [{"id": "greeting", "question": "CLI or web?"}]},
+            },
+            workspace=run.workspace,
+            run_dir=run.run_dir,
+        )
+        question = {**refreshing, "status": "WAITING_FOR_USER", "needs": {"kind": "answer"}}
+        with patch.object(run, "status", side_effect=[refreshing, question]), patch.object(run, "_invoke") as invoke:
+            self.assertIs(question, run.advance_until_input())
+        invoke.assert_called_once_with("advance", "--no-chat", advancing=True, secret_env={})
+
+    def test_plain_continuation_rejects_a_foreign_named_command(self):
+        from autocode_client_actions import ClientGap
+
+        run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
+        view = {
+            "done": False,
+            "needs": {"kind": "continue", "action": "--no-chat"},
+            "next_command": "autocode --run-dir /other/run --workspace /other --no-chat",
+            "status": "RESOLVER_PENDING",
+            "next_stage": "requirements_gather",
+            "iteration": 1,
+            "phase": "DISCOVERING",
+        }
+        with patch.object(run, "status", return_value=view), patch.object(run, "_invoke") as invoke:
+            try:
+                run.advance_until_input()
+            except Exception as error:
+                self.assertIsInstance(error, ClientGap)
+            else:
+                self.fail("A foreign named continuation cannot fall back to an invented command")
+        invoke.assert_not_called()
+
     def test_cross_model_answer_uses_the_current_derived_route_without_a_resolver_token(self):
         run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
         need = {

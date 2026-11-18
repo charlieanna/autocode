@@ -1,5 +1,6 @@
 """Ordinary CLI owner exit, public recovery and birth-bound safety controls."""
 
+import copy
 import fcntl
 import json
 import os
@@ -91,6 +92,22 @@ class OwnerInspectionTests(unittest.TestCase):
             self.assertFalse(owners.continuing({"status": status}, running), status)
         for inspection in (ready, {"kind": "boundary"}, {"kind": "busy"}, None):
             self.assertFalse(owners.continuing(stop, inspection), inspection)
+
+    def test_a_live_controller_can_be_reconciling_a_closed_attempt_while_status_is_running(self):
+        running = {"kind": "running", "checked": True, "alive": True}
+        for field in ("active_stage", "active_runner_check"):
+            for exit_code in (0, -15, 1):
+                with self.subTest(field=field, exit_code=exit_code):
+                    state = {
+                        "status": "RUNNING",
+                        field: {"finished_at": "2026-11-18T11:05:00Z", "exit_code": exit_code},
+                    }
+                    before = copy.deepcopy(state)
+                    self.assertTrue(owners.continuing(state, running))
+                    self.assertEqual(before, state)
+                    self.assertFalse(owners.continuing({**state, "execution": {"mode": "durable_local"}}, running))
+        for record in ({}, {"finished_at": ""}, {"finished_at": "saved", "exit_code": None}):
+            self.assertFalse(owners.continuing({"status": "RUNNING", "active_stage": record}, running))
 
     def test_deliberate_ready_receipt_is_bound_to_the_exact_checkpoint(self):
         self.state["stages"] = [{"stage": "requirements_gather"}]

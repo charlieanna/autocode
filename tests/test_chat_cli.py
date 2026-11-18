@@ -98,9 +98,9 @@ class ChatCliTests(unittest.TestCase):
         run = taskrun.TaskRun(self.workspace, run_dir, options=options, env=self.env, timeout=300)
         held = run.status()
         self.assertEqual("PAUSED_SOURCE_UNAVAILABLE", held["status"])
-        self.assertEqual("your_environment", held["pause_category"])
-        self.assertEqual("resume", held["needs"]["kind"])
-        self.assertIn("--resume-paused", held["next_command"])
+        self.assertIsNone(held["needs"], "An unreadable source inventory is not a person question")
+        self.assertIsNone(held["next_command"])
+        self.assertEqual("blocked", held["recovery"]["category"])
         self.assertFalse(held["done"])
         self.assertIsNone(held.get("displayed_plan"))
         reports = {path.relative_to(run_dir): path.read_bytes() for path in run_dir.glob("iterations/*/*.jsonl")}
@@ -113,7 +113,10 @@ class ChatCliTests(unittest.TestCase):
             "An unresolved source refusal must not launch any provider",
         )
         marker.write_text("resolved")
-        resumed = run.resume_paused()
+        readable = run.status()
+        self.assertEqual("continue", readable["needs"]["kind"])
+        self.assertIn("--expected-recovery-token", readable["next_command"])
+        resumed = run.advance_until_input()
         self.assertEqual("approve_plan", resumed["needs"]["kind"])
         for path, content in reports.items():
             self.assertEqual(content, (run_dir / path).read_bytes(), "Recovery must preserve the retained report")
@@ -123,6 +126,64 @@ class ChatCliTests(unittest.TestCase):
             "Recovery must not replay the completed reviewer; the following finalize stage may run",
         )
         self.assertFalse((self.workspace / "greet.py").exists())
+
+    @unittest.skipUnless(sys.platform == "linux", "The supervised source-read fault observes its Linux parent")
+    def test_transient_source_probe_keeps_verification_and_the_approved_contract(self):
+        self.verification_source_refusal("autocode.py")
+
+    @unittest.skipUnless(sys.platform == "linux", "The supervised source-read fault observes its Linux parent")
+    def test_owned_proof_worker_source_refusal_preserves_the_valid_tester_report(self):
+        self.verification_source_refusal("autocode_verification_prepare_worker.py", after_tester=True)
+
+    @unittest.skipUnless(sys.platform == "linux", "The supervised source-read fault observes its Linux parent")
+    def test_post_stage_diff_refusal_preserves_the_valid_tester_report_without_repair(self):
+        self.verification_source_refusal("autocode.py", after_tester=True, review_diff=True)
+
+    def verification_source_refusal(self, parent_name, *, after_tester=False, review_diff=False):
+        marker = self.workspace.parent / "verification-source-refusal"
+        bindir = Path(self.env["PATH"].split(os.pathsep)[0])
+        real_git = shutil.which("git")
+        wrapper = bindir / "git"
+        query = (
+            "'diff' in sys.argv and '--cached' in sys.argv"
+            if review_diff
+            else "'diff-files' in sys.argv and '--diff-filter=M' in sys.argv"
+        )
+        wrapper.write_text(
+            f"#!{sys.executable}\n"
+            "import json, os, re, sys\nfrom pathlib import Path\n"
+            f"workspace = Path({str(self.workspace)!r})\nmarker = Path({str(marker)!r})\n"
+            "parent = [os.fsdecode(p) for p in Path('/proc/' + str(os.getppid()) + '/cmdline').read_bytes().split(b'\\0') if p]\n"
+            f"target = any(Path(p).name == {parent_name!r} for p in parent)\n"
+            f"target = target and ({parent_name!r} != 'autocode.py' or '--run-dir' in parent and 'capture' not in parent)\n"
+            "reports = any(re.fullmatch(r'validator-[0-9]+\\.json', p.name) for p in workspace.glob('.autocode/runs/*/iterations/*/validator-*.json'))\n"
+            f"ready = reports if {after_tester!r} else True\n"
+            f"if target and ready and not marker.exists() and ({query}) and (workspace / 'greet.py').is_file():\n"
+            " marker.write_text(json.dumps({'parent': parent, 'query': sys.argv[1:]}))\n"
+            " print('fatal: source inspection unavailable (injected)', file=sys.stderr)\n"
+            " sys.exit(128)\n"
+            f"os.execv({real_git!r}, [{real_git!r}, *sys.argv[1:]])\n"
+        )
+        wrapper.chmod(0o755)
+        run = taskrun.TaskRun.start(
+            self.workspace, BRIEF, options=(*FIXTURE_OPTIONS, "--no-adaptive-planning"), env=self.env, timeout=300
+        )
+        planned = run.status()
+        self.assertEqual("approve_plan", planned["needs"]["kind"])
+        run.approve_plan(planned["needs"]["token"])
+        completed = run.advance_until_input()
+        self.assertTrue(marker.exists())
+        self.assertTrue(completed["done"], completed.get("stop_reason"))
+        attempts = completed["usage"]["accounting"]["attempts"]
+        self.assertEqual(1, sum(row["stage"] == "builder" for row in attempts))
+        self.assertEqual(1, sum(row["stage"] == "tester" for row in attempts))
+        self.assertFalse(any(row.get("report_only") for row in attempts), "A source failure is no model-report repair")
+        if after_tester:
+            self.assertTrue(
+                any(row["kind"] == "source_access_recovered" for row in completed["recoveries"]),
+                marker.read_text(),
+            )
+        self.assertEqual(planned["displayed_plan"]["token"], completed["verification"]["contract_token"])
 
     def test_requirements_answers_any_opener_first_and_the_job_it_names_starts_after_approval(self):
         # An unrelated existing file must not force code inspection/citations

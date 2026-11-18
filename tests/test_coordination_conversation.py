@@ -360,6 +360,25 @@ class ConversationStepTests(unittest.TestCase):
         self.source["interventions"]["applied_receipts"] = [{"id": "stop", "kind": "stop"}]
         self.assertEqual("blocked", self.step()["kind"])
 
+    def test_source_named_continuation_refreshes_before_submitting_the_task_message(self):
+        self.activate()
+        self.source["next_command"] = "autocode --run-dir /source/run --workspace /source --no-chat"
+        for status in ("RESOLVER_PENDING", "PAUSED_SOURCE_UNAVAILABLE", "PAUSED_TIMEOUT_RECOVERY"):
+            with self.subTest(status=status):
+                self.source.update(status=status, needs={"kind": "continue", "action": "--no-chat"})
+                before = copy.deepcopy((self.record, self.source))
+                self.assertEqual({"kind": "conversation", "operation": "source_advance"}, self.step())
+                self.assertEqual(before, (self.record, self.source), "The status policy grants no answer or approval")
+        for intervention in (
+            {"stop_intent": {"request_ids": ["owner"]}},
+            {"inbox_error": {"code": "unreadable"}},
+            {"applied_receipts": [{"id": "owner", "kind": "stop"}]},
+            {"pending_ids": ["different-message"], "pending_count": 1},
+        ):
+            with self.subTest(intervention=intervention):
+                self.source["interventions"] = intervention
+                self.assertEqual("blocked", self.step()["kind"])
+
     def test_legacy_source_can_only_refresh_capability_at_an_idle_clarification_gate(self):
         active = self.activate()
         self.source["interventions"]["runner_capability"] = {}

@@ -61,6 +61,39 @@ class InterventionOrderingTests(unittest.TestCase):
             dry_run=False,
         )
 
+    def _resume_with_a_new_pause_during_reconciliation(self, status, *, completion=False):
+        self.state.update(status=status, phase="PAUSED_OR_BLOCKED", stop_reason="Retained step needs reconciliation")
+        self.fixture.state = self.state
+        original_contract = copy.deepcopy(self.state["goal_contract"])
+
+        def reconcile(state, run, workspace):
+            inbox.submit(workspace, run, request_id="newer-pause", kind="pause", text="")
+            self.assertTrue(runner.consume_interventions(state, run, workspace))
+            if completion:
+                state.update(status="TASK_COMPLETE", next_stage=None, completed_at="earlier", final_decision="accept")
+
+        with patch.object(runner, "reconcile_active", side_effect=reconcile):
+            self.assertEqual(2, self.fixture.invoke("--resume-paused", "--no-chat"))
+        self.assertEqual(0, self.fixture.invoke("--status"))
+        shown = json.loads(self.fixture.stdout)["view"]
+        self.assertEqual("PAUSED_INTERVENTION", shown["status"])
+        self.assertEqual("resume", shown["needs"]["kind"], "A later explicit resume is still required")
+        self.assertFalse(shown["done"])
+        self.assertEqual(original_contract, self.fixture.state["goal_contract"])
+        self.assertIsNone(self.fixture.state["pause_intent"]["acknowledged_at"])
+        self.assertIsNone(self.fixture.state["applied_interventions"][-1].get("resumed_at"))
+        self.assertNotIn("completed_at", self.fixture.state)
+        self.assertNotIn("final_decision", self.fixture.state)
+
+    def test_source_resume_cannot_consume_a_pause_received_during_reconciliation(self):
+        self._resume_with_a_new_pause_during_reconciliation("PAUSED_SOURCE_UNAVAILABLE")
+
+    def test_timeout_resume_cannot_consume_a_pause_received_during_reconciliation(self):
+        self._resume_with_a_new_pause_during_reconciliation("PAUSED_PROVIDER_TIMEOUT")
+
+    def test_completion_reconciled_during_resume_cannot_override_a_new_pause(self):
+        self._resume_with_a_new_pause_during_reconciliation("PAUSED_SOURCE_UNAVAILABLE", completion=True)
+
     def test_explicit_resume_is_durable_and_retry_preserves_original_receipt(self):
         first = self.submit("pause", "pause")
         runner.consume_interventions(self.state, self.run, self.workspace)

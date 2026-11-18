@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import autocode_source_diff as source_diff
 import autocode_source_snapshot as source
 import autocode_util as util
 
@@ -53,7 +54,7 @@ class SelectedSourceSnapshotTests(unittest.TestCase):
         path.write_text(text)
         return path
 
-    def test_git_inventory_and_head_fail_closed_with_an_actionable_pause(self):
+    def test_git_inventory_and_head_fail_closed_without_asking_a_person_to_resume(self):
         original = util.snapshot(self.root)
         config = (self.root / ".git/config").read_bytes()
         real = subprocess.check_output
@@ -68,9 +69,65 @@ class SelectedSourceSnapshotTests(unittest.TestCase):
                 with self.assertRaisesRegex(util.Paused, "dubious ownership") as held:
                     util.snapshot(self.root)
                 self.assertEqual("PAUSED_SOURCE_UNAVAILABLE", held.exception.status)
-                self.assertIn("resume", str(held.exception))
+                self.assertIn("AutoCode will recheck source access", str(held.exception))
+                self.assertNotIn("then resume", str(held.exception))
             self.assertEqual(config, (self.root / ".git/config").read_bytes())
             self.assertEqual(original, util.snapshot(self.root))
+
+    def test_required_review_diff_reads_keep_the_source_failure_for_both_capture_modes(self):
+        (self.root / ".autocode").mkdir()
+        self.write("docs/checklist.md", "Literal __name__\n")
+        index = (self.root / ".git/index").read_bytes()
+        real = subprocess.run
+
+        def refuse(args, **kwargs):
+            if args[1] == "diff":
+                raise subprocess.CalledProcessError(129, args, stderr=b"review diff source read refused")
+            return real(args, **kwargs)
+
+        for paths in (None, ["docs/checklist.md"]):
+            with self.subTest(paths=paths):
+                snapshot = source.snapshot(self.root, paths=paths) if paths else util.snapshot(self.root)
+                with mock.patch.object(subprocess, "run", side_effect=refuse):
+                    with self.assertRaisesRegex(util.Paused, "review diff source read refused") as held:
+                        source_diff.write(self.root, self.root / ".autocode/review.diff", snapshot)
+                    self.assertEqual("PAUSED_SOURCE_UNAVAILABLE", held.exception.status)
+                self.assertEqual(index, (self.root / ".git/index").read_bytes())
+
+    def test_review_diff_scratch_index_writes_keep_their_existing_failure(self):
+        (self.root / ".autocode").mkdir()
+        snapshot = source.snapshot(self.root, paths=["docs/checklist.md"])
+        real = subprocess.run
+
+        def refuse(args, **kwargs):
+            if args[1] == "read-tree":
+                raise subprocess.CalledProcessError(1, args, stderr=b"scratch index write refused")
+            return real(args, **kwargs)
+
+        with mock.patch.object(subprocess, "run", side_effect=refuse):
+            with self.assertRaises(subprocess.CalledProcessError):
+                source_diff.write(self.root, self.root / ".autocode/review.diff", snapshot)
+
+    def test_review_diff_keeps_literal_content_and_the_users_index_in_both_modes(self):
+        (self.root / ".autocode").mkdir()
+        self.write("README.md", "Staged version\n")
+        self.git("add", "README.md")
+        self.write("README.md", "Literal __name__ [value] <text>\n")
+        self.write("docs/checklist.md", "Selected ignored output\n")
+        index = (self.root / ".git/index").read_bytes()
+        staged = self.git("diff", "--cached", "--binary")
+        for paths in (None, ["docs/checklist.md"]):
+            with self.subTest(paths=paths):
+                snapshot = source.snapshot(self.root, paths=paths) if paths else util.snapshot(self.root)
+                output = self.root / ".autocode/review.diff"
+                source_diff.write(self.root, output, snapshot)
+                self.assertIn(b"+Literal __name__ [value] <text>\n", output.read_bytes())
+                if paths:
+                    self.assertIn(b"+Selected ignored output\n", output.read_bytes())
+                else:
+                    self.assertNotIn(b"Selected ignored output", output.read_bytes())
+                self.assertEqual(index, (self.root / ".git/index").read_bytes())
+                self.assertEqual(staged, self.git("diff", "--cached", "--binary"))
 
     def test_ignored_deliverable_creation_edit_and_deletion_change_identity(self):
         paths = ["docs/checklist.md"]

@@ -334,7 +334,19 @@ class SavedRunReplayCliTest(unittest.TestCase):
         )
         self.assertEqual(0, status_check.returncode, status_check.stderr)
         status_view = json.loads(status_check.stdout)["view"]
+        # Rewriting the retained report and settings expires the old question.
+        # Export still preserves those legacy inputs; only a fresh replay may
+        # publish its own question, with its own decision binding.
+        self.assertEqual("RESOLVER_PENDING", status_view["status"])
+        self.assertEqual("continue", status_view["needs"]["kind"])
+        self.assertIsNone(status_view["chat"]["input"])
+        status_view = task.advance_until_input()
         self.assertEqual("WAITING_FOR_USER", status_view["status"])
+        self.assertEqual(
+            [(q["id"], q["question"]) for q in questions],
+            [(q["id"], q["question"]) for q in status_view["needs"]["questions"]],
+        )
+        self.assertEqual(1, status_view["usage"]["accounting"]["attempt_count"], "Refresh cannot replay Requirements")
 
         exported = subprocess.run(
             [*command, "replay", str(task.run_dir), "--export", str(self.root / "triage-recording"), "--json"],

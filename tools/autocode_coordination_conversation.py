@@ -245,9 +245,15 @@ def step(document, requests, views, source):
     intervention = source.get("interventions") or {}
     need = source.get("needs") or {}
     clarification = source.get("status") == "WAITING_FOR_USER" and need.get("resolver_scope") == "clarification"
+    automatic = bool(
+        need.get("kind") == "continue"
+        and source.get("next_command")
+        and source.get("status") not in ("RUNNING", "AWAITING_GOAL_APPROVAL")
+    )
     if (
         source.get("status") not in ("RUNNING", "AWAITING_GOAL_APPROVAL")
         and not clarification
+        and not automatic
         or intervention.get("stop_intent")
         or intervention.get("inbox_error")
         or any(row.get("kind") == "stop" for row in intervention.get("applied_receipts", []))
@@ -256,6 +262,10 @@ def step(document, requests, views, source):
     pending_ids = intervention.get("pending_ids") or []
     if (set(pending_ids) - {active["source_request_id"]}) or (intervention.get("pending_count") and not pending_ids):
         return {"kind": "blocked", "reason": "A separate source intervention must be reconciled first"}
+    if automatic:
+        # Take the core's named refresh/reconciliation before submitting the
+        # task message. The next observation must still satisfy its human gate.
+        return {"kind": "conversation", "operation": "source_advance"}
     if not (intervention.get("runner_capability") or {}).get("supports_message_context"):
         if clarification and not pending_ids and not active.get("prepared_source"):
             return {"kind": "conversation", "operation": "prepare_source"}

@@ -750,6 +750,51 @@ def projection(state: RunState):
     }
 
 
+def needs_publication(state: RunState, public=None) -> bool:
+    """A genuine decision needs publishing; a settled machinery disposition does not."""
+    public = projection(state) if public is None else public
+    if (
+        state.get(PUBLIC)
+        and public.get("status") == "RESOLVER_PENDING"
+        and public.get("saved_status") in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL")
+    ):
+        return True
+    proposal = state.get(PRIVATE) or {}
+    return bool(
+        state.get("status") == "RESOLVER_PENDING"
+        and proposal
+        and ((state.get("resolver") or {}).get("human_disposition") or {}).get("action")
+        not in ("defer", "recover", "hold")
+        and proposal.get("scope") != "operational_exhaustion"
+        and not (proposal.get("evidence") or {}).get("resolver_receipt_id")
+    )
+
+
+def decision_state(state: RunState, public=None) -> RunState:
+    """Read-only presentation of a published decision at its current authorization frontier.
+
+    Readers cannot republish a stale request. They name the ordinary continuation
+    that lets the writer re-evaluate it instead of offering an expired answer or
+    approval. Legacy questions without a Resolver publication keep their contract.
+    The original checkpoint still owns controller observations and action tokens.
+    """
+    if not state.get(PUBLIC) or state.get("status") not in (
+        "WAITING_FOR_USER",
+        "AWAITING_GOAL_APPROVAL",
+        "RESOLVER_PENDING",
+    ):
+        return state
+    public = projection(state) if public is None else public
+    return cast(
+        "RunState",
+        {
+            **state,
+            **{key: public[key] for key in ("status", "pending_questions", "user_request") if key in public},
+            PUBLIC: public.get("human_escalation"),
+        },
+    )
+
+
 def pending_issued(state: RunState):
     """The published receipt's pending ledger entry, including one a settings write left stale."""
     public = state.get(PUBLIC) or {}

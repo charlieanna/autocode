@@ -621,7 +621,7 @@ def explain(
     stop_reason = stop_reason.strip().rstrip(".")
     held_cause = held_cause.strip().rstrip(".")
     if (
-        status in ("WAITING_FOR_USER", "PAUSED_NO_PROGRESS")
+        status in ("WAITING_FOR_USER", "PAUSED_NO_PROGRESS", "RESOLVER_PENDING")
         and isinstance(needs, dict)
         and needs.get("kind") == "continue"
         and needs.get("action") == "--resume-paused"

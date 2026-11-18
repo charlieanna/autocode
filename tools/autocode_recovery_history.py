@@ -100,6 +100,7 @@ def project(state: RunState) -> list[dict[str, Any]]:
         *_report_repairs(state),
         *_test_role_corrections(state),
         *_interrupted_reviews(state),
+        *_source_access_recoveries(state),
         *_sent_back(state),
         *_acceptance_test_repairs(state),
         *_retained_candidates(state),
@@ -536,3 +537,30 @@ def _interrupted_reviews(state: RunState):
                 ),
                 handled=False,
             )
+
+
+def _source_access_recoveries(state: RunState):
+    notes = state.get("reconciliation_notes")
+    for note in notes if isinstance(notes, list) else []:
+        if (
+            not isinstance(note, dict)
+            or note.get("kind") != "source_access_recovered"
+            or note.get("actor") != "runner"
+            or note.get("allowances_renewed") is not False
+            or not isinstance(note.get("source_revision"), str)
+            or re.fullmatch(r"[0-9a-f]{64}", note["source_revision"]) is None
+        ):
+            continue
+        yield _entry(
+            "source_access_recovered",
+            note.get("at"),
+            None,
+            state,
+            headline="Source access restored",
+            problem="AutoCode could not read the task's source inventory.",
+            action="AutoCode rechecked source access and resumed reconciliation under the saved model choices and limits. "
+            "This did not approve a plan or verify the code.",
+            by="AutoCode",
+            detail=note.get("reason"),
+            handled=True,
+        )

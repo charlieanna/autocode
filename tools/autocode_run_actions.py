@@ -232,6 +232,8 @@ def admit(runner, args, parser, state: RunState, state_path, run_dir, workspace,
 
     It runs only when no user decision was given: action_decisions.apply stops for every one.
     """
+    if (code := action_recovery.hold_newer_pause(runner, args, state, state_path)) is not None:
+        return code
     if not operational_admission.authorized(state, decided):
         return operational_admission.refuse()
     if state.get("status") != "TASK_COMPLETE" and (retired := workflows.retired_stage(state)):

@@ -463,8 +463,13 @@ class PersistentHost(unittest.TestCase):
             what="leaving the inbox restores the exact draft",
         )
         current = waiting.status()
+        self.evidence.append({"waiting_after_background_completion": current})
         self.assertEqual(self.attempts(current), waiting_attempts)
-        self.assertEqual(plan["chat"]["context"], current["chat"]["context"])
+        # Both chats deliberately share this folder. The other Builder changed
+        # its source, so the old approval must expire even though the terminal
+        # preserves the unsent draft. Independent projects are covered below.
+        self.assertNotEqual(plan["chat"]["context"], current["chat"]["context"])
+        self.assertEqual(plan["displayed_plan"], current["displayed_plan"])
         self.assertEqual(building["execution"]["controller_epoch"], self.run.status()["execution"]["controller_epoch"])
         screen.keys("C-u")
         screen.type("/quit")

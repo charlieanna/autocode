@@ -482,8 +482,8 @@ class ResolverHumanTests(unittest.TestCase):
         self.state["intake_input_hash"] = "different-user-input"
         self.assertIsNone(human.current(self.state))
 
-    def test_a_resolver_proposal_at_pending_is_visible_in_the_status_view(self):
-        """#2896: a decision in resolver_human_proposal must be answerable from the view alone."""
+    def test_an_unpublished_resolver_proposal_names_publication_instead_of_an_answer(self):
+        """A private proposal has no current request token; only the writer can publish it."""
         import autocode_run_view as run_view
 
         human.queue(
@@ -502,11 +502,75 @@ class ResolverHumanTests(unittest.TestCase):
         self.state["pending_questions"] = []
         need = run_view.needs(self.state)
         self.assertIsNotNone(need, "the view must name an action at RESOLVER_PENDING")
-        self.assertEqual("answer", need.get("kind"))
-        self.assertTrue(need.get("questions"), "the decision must appear as a question")
-        question = need["questions"][0]
-        self.assertIn("AC8", question.get("question", ""))
-        self.assertTrue(question.get("options"), "the decision must carry its options")
+        self.assertEqual("continue", need.get("kind"))
+        command = run_view.action(self.state)["next_command"]
+        self.assertIn("--no-chat", command)
+        self.assertNotIn("--answer", command)
+
+    def test_stale_published_requests_offer_refresh_without_changing_authority(self):
+        import autocode_run_view as run_view
+
+        self.queue_question()
+        self.assertEqual("escalate", human.evaluate(self.state))
+        original = copy.deepcopy(self.state)
+        binding = human._binding(self.state)
+        for field in ("runtime_sources", "settings", "observed_source", "current_task"):
+            with self.subTest(field=field), patch.object(human, "_binding", return_value={**binding, field: "new"}):
+                before = copy.deepcopy(self.state)
+                public = human.projection(self.state)
+                self.assertEqual("RESOLVER_PENDING", public["status"])
+                self.assertFalse(public["human_request_authorized"])
+                view = run_view.view(self.state, run_dir=self.state["run_dir"], workspace=self.root)
+                self.assertEqual(public["status"], view["status"])
+                self.assertEqual("continue", view["needs"]["kind"])
+                self.assertIn("--no-chat", view["next_command"])
+                self.assertNotIn("--answer", view["next_command"])
+                self.assertEqual("continue", run_view.needs(self.state)["kind"])
+                self.assertEqual(view["needs"], run_view.action(self.state)["needs"])
+                self.assertIsNone(view["chat"]["input"])
+                self.assertIsNone(view["attention"]["item"])
+                self.assertEqual(before, self.state, "Reads must not rebind or consume a saved request")
+        self.assertEqual(original, self.state)
+        current = run_view.action(self.state)["needs"]
+        self.assertEqual("answer", current["kind"])
+        self.assertEqual(original[human.PUBLIC]["request_token"], current["resolver_token"])
+
+    def test_stale_plan_approval_refreshes_without_offering_approval(self):
+        import autocode_run_view as run_view
+
+        self.contract()
+        self.state["displayed_goal"] = f"r1:{self.state['goal_contract']['hash']}"
+        human.queue(self.state, "goal_approval", {"stage": "draft_plan"}, status="AWAITING_GOAL_APPROVAL")
+        self.assertEqual("escalate", human.evaluate(self.state))
+        fresh = run_view.action(self.state)["needs"]
+        self.assertEqual("approve_plan", fresh["kind"])
+        self.assertEqual(f"r1:{self.state['goal_contract']['hash']}", fresh["token"])
+        binding = human._binding(self.state)
+        with patch.object(human, "_binding", return_value={**binding, "runtime_sources": "new"}):
+            shown = run_view.view(self.state)
+            self.assertEqual("RESOLVER_PENDING", shown["status"])
+            self.assertEqual("continue", shown["needs"]["kind"])
+            self.assertNotIn("--approve-goal", shown["next_command"])
+
+    def test_stale_request_is_consistent_in_inventory_wait_and_events(self):
+        import autocode_events_command as events
+        import autocode_runs_command as runs
+        import autocode_wait_command as wait
+
+        self.queue_question()
+        human.evaluate(self.state)
+        binding = human._binding(self.state)
+        directory = Path(self.state["run_dir"])
+        directory.mkdir(parents=True)
+        (directory / "state.json").write_text(json.dumps(self.state))
+        with patch.object(human, "_binding", return_value={**binding, "runtime_sources": "new"}):
+            row = runs.row(self.root, directory, now=0)
+            self.assertEqual("RESOLVER_PENDING", row["status"])
+            self.assertEqual("continue", row["needs"])
+            self.assertEqual("working", row["bucket"])
+            self.assertIsNone(row["attention"]["item"])
+            self.assertIsNone(wait.outcome(self.state, directory, self.root))
+            self.assertIsNone(events.settled(self.state, directory, self.root))
 
 
 class WithdrawnOperationalRequestTests(unittest.TestCase):

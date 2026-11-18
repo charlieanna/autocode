@@ -609,7 +609,17 @@ class ChatViewTests(unittest.TestCase):
             },
         }
         before = copy.deepcopy(state)
-        view = run_view.view(state, workspace=Path("/ws"), run_dir=Path("/run"))
+        view = run_view.view(
+            state,
+            workspace=Path("/ws"),
+            run_dir=Path("/run"),
+            human_projection={
+                "status": state["status"],
+                "pending_questions": state["pending_questions"],
+                "user_request": state["user_request"],
+                "human_escalation": state["resolver_human_request"],
+            },
+        )
         text = view["chat"]["messages"][0]["text"]
         self.assertIn("The same step repeatedly failed.", text)
         self.assertIn("details say what needs attention", text)

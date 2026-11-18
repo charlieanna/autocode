@@ -90,6 +90,7 @@ try:
     from . import autocode_report_retry as report_retry
     from . import autocode_request_usage as request_usage
     from . import autocode_requirements_review as requirements_review
+    from . import autocode_resolver_human as resolver_human
     from . import autocode_resolver_recommendation as recommendation
     from . import autocode_risk_disclosure as risk_disclosure
     from . import autocode_role_transport as role_transport
@@ -163,6 +164,7 @@ except ImportError:
     import autocode_report_retry as report_retry
     import autocode_request_usage as request_usage
     import autocode_requirements_review as requirements_review
+    import autocode_resolver_human as resolver_human
     import autocode_resolver_recommendation as recommendation
     import autocode_risk_disclosure as risk_disclosure
     import autocode_role_transport as role_transport
@@ -292,6 +294,7 @@ def view(
     observation=None,
     execution_inspection=None,
     stop_pending=False,
+    human_projection=None,
 ) -> dict:
     """Caller supplies fresh completion, evidence, repair, supervision and design-input inspections."""
     try:
@@ -314,25 +317,34 @@ def view(
         import autocode_replay_view as replay_view
         import autocode_scope_question as scope_question
         import autocode_worker_view as worker_view
+    saved_state = state
+    human_projection = resolver_human.projection(state) if human_projection is None else human_projection
+    state = resolver_human.decision_state(state, human_projection)
     replay = replay_view.completion_policy(state)
     replay_progress, invalid_replay, simulated = replay["progress"], replay["invalid"], replay["simulated"]
     if simulated or invalid_replay:
         completion_current = False
     status = state.get("status", "")
-    next_action = action(state, run_dir=run_dir, workspace=workspace, stale_report_repair=stale_report_repair)
+    next_action = action(
+        saved_state,
+        run_dir=run_dir,
+        workspace=workspace,
+        stale_report_repair=stale_report_repair,
+        human_projection=human_projection,
+    )
     stop_reason = (
         recovery_exhaustion.NOTICE
-        if recovery_exhaustion.pending(state)
+        if recovery_exhaustion.pending(saved_state)
         else job_end.NOTICE
-        if job_end.pending(state)
+        if job_end.pending(saved_state)
         else verification_config.NOTICE
-        if verification_config.pending(state)
+        if verification_config.pending(saved_state)
         else classification_recovery.NOTICE
-        if classification_recovery.pending(state)
-        else validation_recovery.notice(state)
-        if validation_recovery.pending(state)
-        else no_progress_recovery.notice(state)
-        if no_progress_recovery.pending_legacy(state)
+        if classification_recovery.pending(saved_state)
+        else validation_recovery.notice(saved_state)
+        if validation_recovery.pending(saved_state)
+        else no_progress_recovery.notice(saved_state)
+        if no_progress_recovery.pending_legacy(saved_state)
         else state.get("stop_reason")
     )
     try:
@@ -341,9 +353,9 @@ def view(
         import autocode_checkpoint_reconciliation as reconciliation
     reconcile = (
         None
-        if (operational_block.presentation(state, include_hold=True)) or recovery_exhaustion.pending(state)
+        if (operational_block.presentation(saved_state, include_hold=True)) or recovery_exhaustion.pending(saved_state)
         else reconciliation.offer(
-            state, liveness, controller=controller, stop_pending=stop_pending, workspace=workspace
+            saved_state, liveness, controller=controller, stop_pending=stop_pending, workspace=workspace
         )
     )
     if reconcile is not None:
@@ -358,7 +370,33 @@ def view(
                 workspace=workspace or state.get("workspace"),
             ),
         }
-    if controller_owner.continuing(state, controller):
+    elif not operational_block.presentation(saved_state, include_hold=True):
+        try:
+            from . import autocode_source_reconciliation as source_reconciliation
+        except ImportError:
+            import autocode_source_reconciliation as source_reconciliation
+        source_resume = source_reconciliation.offer(
+            saved_state,
+            workspace or state.get("workspace"),
+            liveness,
+            controller=controller,
+            stop_pending=stop_pending,
+        )
+        if source_resume is not None:
+            next_action = {
+                "needs": source_resume,
+                "pause_category": None,
+                "pause_category_label": None,
+                "next_command": pause_command.command(
+                    source_resume,
+                    for_client=True,
+                    run_dir=run_dir or state.get("run_dir"),
+                    workspace=workspace or state.get("workspace"),
+                    recovery_token=recovery_view.token(saved_state),
+                ),
+            }
+    continuing = controller_owner.continuing(saved_state, controller)
+    if continuing:
         # The live controller will save its own next state; an action taken now is refused by the run lock.
         next_action = {"needs": None, "pause_category": None, "pause_category_label": None, "next_command": None}
     need = next_action["needs"]
@@ -374,7 +412,7 @@ def view(
     plan = approved_contract(state)
     # Tokens and cost so far, by role (autocode_usage.summary), with the live accounting the cost reads.
     usage_summary = autocode_usage.summary(state)
-    recovery = recovery_view.project(state, need)
+    recovery = None if continuing else recovery_view.project(saved_state, need)
     result = {
         "replay_source": None if invalid_replay else replay_view.project(state, run_dir=run_dir),
         "replay_progress": replay_progress,
@@ -442,9 +480,9 @@ def view(
             status,
             stop_reason=stop_reason or "",
             needs=need,
-            held_cause=pause_authority.answered_cause(state),
+            held_cause=pause_authority.answered_cause(saved_state),
             ready=(controller or {}).get("kind") == "ready",
-            internal_failure=operational_block.presentation(state, include_hold=True),
+            internal_failure=operational_block.presentation(saved_state, include_hold=True),
             recovery=recovery,
         ),
         "current_task": {key: task.get(key) for key in ("id", "objective", "milestone_id")} if task else None,
@@ -1094,7 +1132,7 @@ def _route(question: dict) -> dict:
     return route
 
 
-def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair=False) -> dict:
+def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair=False, human_projection=None) -> dict:
     """What this run asks of a person: the need, its category, and the command that answers it.
 
     ``view`` composes those three from here, so a caller that only needs the next
@@ -1107,6 +1145,8 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
         from . import autocode_changeset_barrier as changeset_barrier
     except ImportError:
         import autocode_changeset_barrier as changeset_barrier
+    human_projection = resolver_human.projection(state) if human_projection is None else human_projection
+    display_state = resolver_human.decision_state(state, human_projection)
     terminal = stop.applied_stop(state) is not None
     if terminal:
         category = pause_category.category(state.get("status"), {"reason": stop.stop_reason(state)})
@@ -1118,7 +1158,7 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
         }
     if operational_block.presentation(state, include_hold=True):
         return {"needs": None, "pause_category": "autocode", "pause_category_label": "AutoCode", "next_command": None}
-    if changeset_barrier.held_approval(state):
+    if changeset_barrier.held_approval(display_state):
         held_need = {
             "kind": "approve_plan",
             "token": contract_identity.token(state["goal_contract"]),
@@ -1136,8 +1176,8 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
                 workspace=workspace or state.get("workspace"),
             ),
         }
-    status = state.get("status", "")
-    need = needs(state, stale_report_repair=stale_report_repair)
+    status = display_state.get("status", "")
+    need = needs(state, stale_report_repair=stale_report_repair, human_projection=human_projection)
     category = pause_category.category(status, need)
     # This status also names novelty/source holds; only its bound hold needs a larger limit.
     resume_flags = (
@@ -1226,7 +1266,7 @@ def _person_facing(need: dict) -> dict:
     return need
 
 
-def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
+def needs(state: RunState, *, stale_report_repair=False, human_projection=None) -> dict | None:
     """What must happen next, or None when complete or an internal failure offers no person action.
 
     kind          what it asks for                  answered with
@@ -1291,7 +1331,13 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
                                                      a core-classified uncertain attempt may name
                                                      --abandon-stage ATTEMPT as deterministic recovery
     """
+    human_projection = resolver_human.projection(state) if human_projection is None else human_projection
+    refreshing_decision = resolver_human.needs_publication(state, human_projection)
     status = state.get("status", "")
+    if status == "PAUSED_SOURCE_UNAVAILABLE":
+        # Only a fresh source/supervision observation in view() may name its
+        # bound continuation. Missing source is machinery, never a person question.
+        return None
     if (
         stop.applied_stop(state) is not None
         or status in COMPLETE
@@ -1407,40 +1453,14 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             "kind": "continue",
             "action": "--resume-paused",
         }
-    # A Resolver proposal at RESOLVER_PENDING carries a person decision only when the writer
-    # boundary has not already settled it as machinery (#2896, #3145). evaluate() records a
-    # defer/recover/hold disposition when it declines to publish, and a runner-owned recovery
-    # receipt is AutoCode's own machinery whatever its scope; neither is a question for the
-    # person, and the hold's own next step is named below.
-    pending_proposal = state.get("resolver_human_proposal") or {}
-    disposition = ((state.get("resolver") or {}).get("human_disposition") or {}).get("action")
-    if (
-        status == "RESOLVER_PENDING"
-        and disposition not in ("defer", "recover", "hold")
-        and pending_proposal.get("scope") != "operational_exhaustion"
-        and not (pending_proposal.get("evidence") or {}).get("resolver_receipt_id")
-    ):
-        proposal = state.get("resolver_human_proposal") or {}
-        proposal_questions = proposal.get("questions") or []
-        if not proposal_questions and (proposal.get("request") or {}).get("decision_needed"):
-            req = proposal["request"]
-            proposal_questions = [
-                {
-                    "id": "resolver-decision",
-                    "question": req["decision_needed"],
-                    "why": req.get("impact", ""),
-                    "options": req.get("options", []),
-                    "proposed_default": "",
-                }
-            ]
-        if proposal_questions:
-            return _person_facing(
-                {
-                    "kind": "answer",
-                    "questions": [_question_view(q, resolver_scope=proposal.get("scope")) for q in proposal_questions],
-                    "resolver_scope": proposal.get("scope"),
-                }
-            )
+    # A proposal or expired publication has no answer authority. The writer must
+    # re-evaluate and publish the current decision before a client offers it.
+    if human_projection.get("status") == "RESOLVER_PENDING" and refreshing_decision:
+        return {"kind": "continue", "action": "--no-chat"}
+    # Recovery owners inspect the saved checkpoint above. Only decision display
+    # uses this projection; it cannot erase retained evidence or authorize it.
+    state = resolver_human.decision_state(state, human_projection)
+    status = state.get("status", "")
     questions = state.get("pending_questions") or []
     reviews = [question for question in questions if question.get("review_criteria")]
     if reviews:

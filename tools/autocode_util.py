@@ -425,6 +425,11 @@ class Paused(RuntimeError):
         self.status = status
 
 
+def source_unavailable(error) -> bool:
+    """A source observation is deferred; it makes no claim about a model report."""
+    return isinstance(error, Paused) and error.status == "PAUSED_SOURCE_UNAVAILABLE"
+
+
 class ExecutionEvidenceRequired(ValueError):
     """A claimed report needs an execution or file read that report-only repair cannot supply.
 
@@ -691,20 +696,41 @@ def _other_entry(path, unborn_ok=True):
     return None
 
 
-def _snapshot_git(root, *args, text=False):
+def source_git(root, *args, text=False, env=None, check=True, executable="git", timeout=None, stdout=None):
+    """Read required Git source facts without turning an I/O failure into a bad model report.
+
+    Callers opt into this classification for source queries, never Git writes.
+    ``check=False`` retains a caller's existing optional/missing-object behavior.
+    Explicit scratch-index environments remain bound to the caller's observation.
+    ``stdout`` streams a required read to its existing artifact without buffering it.
+    """
+    options = {
+        "cwd": root,
+        "text": text,
+        "errors": "replace" if text else None,
+        "stderr": subprocess.PIPE,
+        "env": git_environment() if env is None else env,
+        "timeout": timeout,
+    }
+    command = [str(executable), *args]
     try:
-        return subprocess.check_output(
-            ["git", *args], cwd=root, text=text, stderr=subprocess.PIPE, env=git_environment()
-        )
+        if stdout is not None:
+            return subprocess.run(command, stdout=stdout, check=True, **options).stdout
+        return subprocess.check_output(command, **options)
     except (subprocess.CalledProcessError, OSError) as error:
+        if not check and isinstance(error, subprocess.CalledProcessError):
+            return error.output
         detail = getattr(error, "stderr", None) or str(error)
         if isinstance(detail, bytes):
             detail = detail.decode("utf-8", errors="replace")
         raise Paused(
             "PAUSED_SOURCE_UNAVAILABLE",
             f"Cannot snapshot source in {root}: git {' '.join(args)} failed: {detail.strip()[:2000]}. "
-            "Fix repository access or ownership, then resume. No source snapshot was accepted.",
+            "No source snapshot was accepted. AutoCode will recheck source access before continuing.",
         ) from error
+
+
+_snapshot_git = source_git
 
 
 def _unborn(root):

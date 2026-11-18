@@ -280,6 +280,91 @@ class RetryStartupBudgetTests(unittest.TestCase):
         self.assertEqual(300, state["settings"]["limits"]["stage_timeout_seconds"])
 
 
+class StageRetryStartupBudgetTests(unittest.TestCase):
+    def state(self, stage="builder", ledger="automatic_timeout_recoveries", phase="during_reasoning_or_output"):
+        recovery = {
+            "stage": stage,
+            "next_stage": stage,
+            "attempt_id": "001/attempt-02",
+            "source_revision": "retained-source",
+            "task_id": "T1",
+            "launch_binding": {"task_id": "T1"},
+            "stall_phase": phase,
+            "timeout_kind": "stage",
+        }
+        if ledger != "automatic_timeout_recoveries":
+            recovery.pop("task_id")  # Capacity/permission recoveries preserve this in launch_binding.
+        return {
+            "settings": {
+                "limits": {"stage_timeout_seconds": 300, "idle_timeout_seconds": 300},
+                "budget_origins": {"idle_timeout_seconds": "runner_default"},
+            },
+            "next_stage": stage,
+            "current_task": {"id": "T1"},
+            "recovery_context": recovery,
+            ledger: [dict(recovery)],
+        }
+
+    def watch(self, state, stage="builder", *, report_only=False):
+        return role_launch.launch_limits(
+            state,
+            "openai/gpt-6-sol",
+            stage,
+            stage + "_report_repair" if report_only else stage,
+            report_only=report_only,
+        )[3]
+
+    def test_a_stage_retry_keeps_its_ordinary_idle_budget_after_any_previous_stall_phase(self):
+        for stage in ("builder", "tester", "draft_plan", "review_completion"):
+            for phase in ("before_first_event", "during_reasoning_or_output", "during_tool_call"):
+                for ledger in (
+                    "automatic_timeout_recoveries",
+                    "automatic_capacity_recoveries",
+                    "automatic_permission_recoveries",
+                ):
+                    with self.subTest(stage=stage, phase=phase, ledger=ledger):
+                        watch = self.watch(self.state(stage, ledger, phase), stage)
+                        self.assertIsNone(watch["first_event_limit"])
+                        self.assertEqual(600 if stage == "draft_plan" else 300, watch["idle_limit"])
+
+    def test_unbound_obsolete_or_differently_routed_recovery_notes_keep_the_startup_guard(self):
+        for change in ("no_ledger", "other_attempt", "other_source", "other_task", "other_route", "other_launch"):
+            state = self.state()
+            recovery = state["recovery_context"]
+            if change == "no_ledger":
+                state.pop("automatic_timeout_recoveries")
+            elif change == "other_attempt":
+                recovery["attempt_id"] = "001/obsolete"
+            elif change == "other_source":
+                recovery["source_revision"] = "other-source"
+            elif change == "other_task":
+                state["current_task"]["id"] = "T2"
+            elif change == "other_route":
+                recovery["next_stage"] = "review_completion"
+            else:
+                state["next_stage"] = "tester"
+            with self.subTest(change=change):
+                self.assertEqual(90, self.watch(state)["first_event_limit"])
+        self.assertEqual(90, self.watch(self.state(), "review_completion")["first_event_limit"])
+
+    def test_only_a_pinned_repair_retry_skips_a_repeated_startup_guard(self):
+        for attempts, refunded, original, expected in (
+            (1, False, "tester", 90),
+            (2, False, "tester", None),
+            (1, True, "tester", None),
+            (2, True, "builder", 90),
+            (True, False, "tester", 90),
+        ):
+            state = self.state("tester")
+            state["pending_report_repair"] = {
+                "original": {"stage": original},
+                "attempts": attempts,
+                "silent_start_retried": refunded,
+            }
+            with self.subTest(attempts=attempts, refunded=refunded, original=original):
+                self.assertEqual(expected, self.watch(state, "tester", report_only=True)["first_event_limit"])
+
+
 class RaiseForExitTests(unittest.TestCase):
     def check(self, state=None, record=None, **overrides):
         options = dict(

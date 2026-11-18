@@ -218,12 +218,14 @@ class RunHistoryWorkTests(unittest.TestCase):
                 with ThreadPoolExecutor(max_workers=1) as pool:
                     future = pool.submit(writer)
 
-                    def action(state, *, run_dir, workspace):
+                    def action(state, *, run_dir, workspace, human_projection=None):
                         if run_dir == first:
                             events.append(("project", first))
                             requested.set()
                             future.result(timeout=5)
-                        return original_action(state, run_dir=run_dir, workspace=workspace)
+                        return original_action(
+                            state, run_dir=run_dir, workspace=workspace, human_projection=human_projection
+                        )
 
                     with (
                         mock.patch.dict(os.environ, history.environment),

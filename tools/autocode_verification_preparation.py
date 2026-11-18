@@ -20,6 +20,7 @@ from pathlib import Path
 
 try:
     from . import autocode_command_supervision as commands
+    from . import autocode_preparation_source_failure as source_failure
     from . import autocode_process as processes
     from . import autocode_supervision as supervision
     from . import autocode_util as util
@@ -28,6 +29,7 @@ try:
     from .autocode_verification_budget import PREPARATION_ALLOWANCE_SECONDS
 except ImportError:
     import autocode_command_supervision as commands
+    import autocode_preparation_source_failure as source_failure
     import autocode_process as processes
     import autocode_supervision as supervision
     import autocode_util as util
@@ -40,7 +42,7 @@ PHASE = ContextVar("verification_preparation_phase", default=None)
 PREFLIGHT_PUBLICATION = "autocode-acceptance-preflight-sha256="
 
 
-def published_refusal(receipt, result_sha, out, workspace):
+def published_refusal(receipt, result_sha, out, workspace, *, prefix=PREFLIGHT_PUBLICATION):
     """Authenticate exact worker-published negative bytes through native capture."""
     try:
         bound = recovery.bind_command(out, {**receipt, "processes": []}, preparation_cwd=Path(workspace).resolve())
@@ -54,8 +56,8 @@ def published_refusal(receipt, result_sha, out, workspace):
             data = stream.read(65537)
         if len(data) > 65536 or hashlib.sha256(data).hexdigest() != receipt.get("output_sha256"):
             return False
-        markers = [line for line in data.decode("utf-8").splitlines() if PREFLIGHT_PUBLICATION in line]
-        return bool(re.fullmatch("[0-9a-f]{64}", result_sha)) and markers == [PREFLIGHT_PUBLICATION + result_sha]
+        markers = [line for line in data.decode("utf-8").splitlines() if prefix in line]
+        return bool(re.fullmatch("[0-9a-f]{64}", result_sha)) and markers == [prefix + result_sha]
     except (OSError, ValueError, TypeError, KeyError, UnicodeError, recovery.receipts.OwnershipUncertain):
         return False
 
@@ -239,6 +241,20 @@ def launch(operation, workspace, out, parameters, *, timeout, env):
         or answer.get("nonce") != admission["nonce"]
     ):
         recovery.hold("preparation worker result does not bind its request")
+    if "source_refusal" in answer:
+        source_failure.rethrow(
+            answer,
+            receipt,
+            result_sha=answer_sha,
+            out=out,
+            workspace=workspace,
+            admission=admission,
+            reference=reference,
+            request=request,
+            request_sha=request_sha,
+            command=command,
+            published=published_refusal,
+        )
     if operation == "prepare":
         tree = Path(answer["tree"])
         if tree != out / "scratch" / "tree" or tree != tree.resolve() or not tree.is_dir():

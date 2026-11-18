@@ -100,6 +100,10 @@ def _migrate_project_ignore(directory):
 git = util.git  # hooks off and a time limit; see autocode_util.git
 
 
+class WorktreeInspectionError(ValueError):
+    """The worktree's Git identity could not be read; no ownership conclusion follows."""
+
+
 @contextlib.contextmanager
 def creating(project):
     """Serialize task worktree creation across autocode processes in one project.
@@ -123,7 +127,15 @@ def metadata(workspace):
     root = Path(workspace).resolve()
     if data.get("workspace") != str(root) or not root.is_relative_to(project / ".autocode/worktrees"):
         raise ValueError("Task worktree metadata does not match its project")
-    common = lambda p: Path(git(p, "rev-parse", "--path-format=absolute", "--git-common-dir")).resolve()
+
+    def common(folder):
+        try:
+            return Path(git(folder, "rev-parse", "--path-format=absolute", "--git-common-dir")).resolve()
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            raise WorktreeInspectionError(
+                f"Cannot verify the task worktree: Git inspection failed in {folder}: {error}"
+            ) from error
+
     if common(project) != common(root):
         raise ValueError("Task worktree no longer belongs to the selected project")
     return data

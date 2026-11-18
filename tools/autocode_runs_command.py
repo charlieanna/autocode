@@ -37,6 +37,7 @@ try:
     from . import autocode_controller_owner as controller_owner
     from . import autocode_registry as registry
     from . import autocode_replay_view as replay_view
+    from . import autocode_resolver_human as resolver_human
     from . import autocode_run_finder as run_finder
     from . import autocode_run_view as run_view
 except ImportError:
@@ -48,6 +49,7 @@ except ImportError:
     import autocode_controller_owner as controller_owner
     import autocode_registry as registry
     import autocode_replay_view as replay_view
+    import autocode_resolver_human as resolver_human
     import autocode_run_finder as run_finder
     import autocode_run_view as run_view
 
@@ -59,7 +61,7 @@ SETTLED = "settled"
 UNREADABLE = "unreadable"
 BUCKETS = (NEEDS, WORKING, SETTLED, UNREADABLE)
 # A controller is doing work in these statuses; they need no person yet.
-WORKING_STATUSES = ("RUNNING", "DISCOVERING", "WAITING_FOR_USER")
+WORKING_STATUSES = ("RUNNING", "DISCOVERING", "WAITING_FOR_USER", "RESOLVER_PENDING")
 NAME_WIDTH = 52
 TITLE_LIMIT = registry.TITLE_LIMIT  # a row's title: the first line of its task
 STAMP = "%Y-%m-%dT%H:%M:%S"
@@ -158,7 +160,9 @@ def _row(workspace: Path, run_dir: Path, now: float, changesets, *, checkpoint) 
         displayed = controller_owner.display(state, controller_owner.inspect(state, run_dir, workspace))
         shown_status, action_state, handoff = displayed["status"], displayed["action_state"], displayed["ready_handoff"]
     try:
-        shown = run_view.action(action_state, run_dir=run_dir, workspace=workspace)
+        human_projection = resolver_human.projection(state)
+        shown_status = resolver_human.decision_state(action_state, human_projection).get("status")
+        shown = run_view.action(action_state, run_dir=run_dir, workspace=workspace, human_projection=human_projection)
     except (KeyError, TypeError, AttributeError, ValueError) as error:
         # A checkpoint another version wrote: the row still has to be shown.
         return {
@@ -178,7 +182,7 @@ def _row(workspace: Path, run_dir: Path, now: float, changesets, *, checkpoint) 
     )
     command = shown["next_command"]
     reason = None
-    bucket = _bucket(need.get("kind"), state.get("status"))
+    bucket = _bucket(need.get("kind"), shown_status)
     ready = False
     if bucket == WORKING and command and handoff:
         # Saved by an answer, approval or follow-up and left for the person to continue: nothing runs

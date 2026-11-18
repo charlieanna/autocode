@@ -538,13 +538,15 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
             shutil.copytree(ROOT / "docs", broken_runtime / "docs")
             old_action = broken_runtime / "tools" / "autocode_action_scope.py"
             old_action.write_text(
-                old_action.read_text().replace(
-                    "human.current(state) or human.refresh_assigned_scope(state)", "human.current(state)"
-                )
+                old_action.read_text().replace("human.current(state) or human.refresh_assigned_scope(state)", "None")
             )
             client.command = (sys.executable, str(broken_runtime / "tools" / "autocode.py"))
-            with self.assertRaisesRegex(chat.actions.ClientGap, "cannot release this human gate"):
-                client.step()
+            member = next(row for row in summary["members"] if row["target"] == target)
+            refused = taskrun.TaskRun(
+                Path(member["workspace"]), Path(member["run_dir"]), command=client.command, env=self.env
+            )
+            with self.assertRaisesRegex(taskrun.TaskRunError, "cannot release this human gate"):
+                refused.assign_linked_scope(identity)
             # A repaired immutable runtime changes receipt bindings. Reopen
             # with identical resources and one harmless source marker; never
             # edit the child state to simulate the stranded handoff.
@@ -556,12 +558,17 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
             client.command = (sys.executable, str(repaired / "tools" / "autocode.py"))
             # Reopen through public status after the receipt was registered but
             # the real child action was refused; no run state is edited here.
-            recovered = coordination.read(client, client.status())
-            self.assertEqual("assign", recovered["needs"]["kind"])
+            for _ in range(12):
+                recovered = coordination.read(client, client.status())
+                if recovered["needs"]["kind"] == "assign" and recovered["needs"]["target"] == target:
+                    break
+                self.assertTrue(recovered.get("next_command"), "A stale scope receipt needs a named recovery")
+                client.step()
+            else:
+                self.fail("The core did not recover the refused assignment: " + str(recovered["needs"]))
             self.assertEqual(identity, recovered["needs"]["identity"])
             self.assertEqual("advance", recovered["next_command"][2])
             client.step()
-            member = next(row for row in recovered["members"] if row["target"] == target)
             view = taskrun.TaskRun(
                 Path(member["workspace"]), Path(member["run_dir"]), command=client.command, env=self.env
             ).status()

@@ -19,13 +19,13 @@ try:
     from . import autocode_command_supervision as commands
     from . import autocode_operational_block as operational_block
     from . import autocode_runner_check as runner_check
-    from .autocode_util import boundary_pause
+    from .autocode_util import boundary_pause, source_unavailable
 except ImportError:
     import autocode_command_receipt as receipts
     import autocode_command_supervision as commands
     import autocode_operational_block as operational_block
     import autocode_runner_check as runner_check
-    from autocode_util import boundary_pause
+    from autocode_util import boundary_pause, source_unavailable
 
 
 def raise_if_not_rejected(error):
@@ -35,7 +35,7 @@ def raise_if_not_rejected(error):
     #1851); a worker that already reconciled through the runner only re-raises.
     """
     operational_block.raise_if_blocked(error)
-    if isinstance(error, receipts.OwnershipUncertain) or boundary_pause(error):
+    if isinstance(error, receipts.OwnershipUncertain) or boundary_pause(error) or source_unavailable(error):
         raise error
 
 

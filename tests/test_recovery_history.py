@@ -81,6 +81,44 @@ def state(**keys):
 
 
 class RecoveryHistoryTests(unittest.TestCase):
+    def test_source_recovery_is_visible_without_claiming_tests_or_approval(self):
+        saved = {
+            "reconciliation_notes": [
+                {
+                    "kind": "source_access_recovered",
+                    "actor": "runner",
+                    "at": "2026-11-18T10:53:17Z",
+                    "source_revision": "a" * 64,
+                    "reason": "Git inventory could not be read",
+                    "allowances_renewed": False,
+                }
+            ]
+        }
+        before = copy.deepcopy(saved)
+        rows = history.project(saved)
+        self.assertEqual(1, len(rows))
+        self.assertEqual(
+            ("source_access_recovered", "AutoCode", True), (rows[0]["kind"], rows[0]["by"], rows[0]["handled"])
+        )
+        self.assertIn("limits", rows[0]["action"])
+        self.assertIn("not", rows[0]["action"])
+        import autocode_util as util
+
+        schema = json.loads((ROOT / "docs/schemas/status-view.schema.json").read_text())
+        util.validate_schema(rows, schema["properties"]["view"]["properties"]["recoveries"])
+        self.assertEqual(before, saved)
+
+    def test_source_notes_without_a_confirmed_read_are_not_successful_recoveries(self):
+        for changes in ({"source_revision": None}, {"allowances_renewed": True}, {"actor": "unknown"}):
+            note = {
+                "kind": "source_access_recovered",
+                "actor": "runner",
+                "source_revision": "a" * 64,
+                "allowances_renewed": False,
+                **changes,
+            }
+            self.assertEqual([], history.project({"reconciliation_notes": [note]}))
+
     def test_a_run_that_never_recovered_has_none(self):
         self.assertEqual([], history.project({}))
         self.assertEqual([], history.project({"history": [{"stage": "builder"}], "regression_proofs": []}))
@@ -425,6 +463,15 @@ class RecoveryHistoryTests(unittest.TestCase):
         current = state(
             status="RUNNING",
             phase="EXECUTING",
+            reconciliation_notes=[
+                {
+                    "kind": "source_access_recovered",
+                    "actor": "runner",
+                    "source_revision": "a" * 64,
+                    "at": "2026-11-18T10:53:17Z",
+                    "allowances_renewed": False,
+                }
+            ],
             user_events=[{"kind": "automatic_interruption_recovery", "stage": "tester", "at": "2026-11-16T10:00:00Z"}],
             retained_candidate_handoffs=[
                 {
