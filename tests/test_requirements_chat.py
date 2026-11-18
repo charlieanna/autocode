@@ -69,6 +69,24 @@ class RequirementsChatTests(unittest.TestCase):
         intro = " ".join(prompts.get("fragments/autoplanner/requirements-conversation.md").split())
         self.assertIn("answer it from the source; do not ask what they want built instead", intro)
 
+    def test_requirements_answers_first_and_its_summary_is_only_an_offer(self):
+        """Owner decision 2026-11-18: the chat is where a person discusses and decides; Requirements is
+        the discussion. Before, a summary replaced the answer: "figure out why X fails" got "here is the
+        fix I understood, is that right?" instead of the cause, and a confirmation was limited to the
+        summary and its question."""
+        intro = " ".join(prompts.get("fragments/autoplanner/requirements-conversation.md").split())
+        self.assertIn("Answer the latest message first, every time", intro)
+        self.assertIn('"figure out why" or "why does this fail" gets the cause you found in the code', intro)
+        self.assertIn("a summary of a change never replaces the answer to what they just asked", intro)
+        self.assertIn("When you ask the user to confirm a change, after any answer, say what you understood", intro)
+        self.assertNotIn("keep assistant_reply to what you understood", intro)
+        rendered = " ".join(
+            requirements_prompt.render(
+                prompts.get("requirements-gather.md"), {"properties": {"assistant_reply": {}}}
+            ).split()
+        )
+        self.assertIn("find the cause in the code first and give it in assistant_reply before the fix", rendered)
+
     def test_malformed_active_or_repair_stage_has_no_streamed_reply(self):
         for active in (None, "builder", ["requirements_gather"], True, 42):
             for repair in (False, True):

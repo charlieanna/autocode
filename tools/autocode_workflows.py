@@ -151,12 +151,39 @@ def follow_up(state: RunState) -> dict | None:
         # question about that work ("what did you change?", "was it tested?") is answered from the
         # run's own record rather than from the request alone.
         **outcome_context(previous),
+        **earlier_context(turns),
     }
+
+
+def earlier_context(turns: list) -> dict:
+    """The conversation before the finished turn, oldest first and bounded: each message the person sent
+    and the result they were shown for it, so "go with your second option" names an answer from several
+    turns back (owner decision 2026-11-18). The newest finished turn is previous_request and
+    previous_result; with one finished turn there is nothing earlier, and nothing is added."""
+    pairs = []
+    for index in range(len(turns) - 1):
+        said = turns[0]["previous"].get("task", "") if index == 0 else turns[index - 1].get("say", "")
+        result = (turns[index].get("previous") or {}).get("chat_response")
+        if not isinstance(said, str) or not said.strip():
+            continue
+        pair = {"message": _clip(said.strip(), EARLIER_MESSAGE_CHARS)}
+        if isinstance(result, str) and result.strip():
+            pair["result"] = _clip(result.strip(), EARLIER_RESULT_CHARS)
+        pairs.append(pair)
+    if not pairs:
+        return {}
+    context: dict = {"earlier_turns": pairs[-EARLIER_TURNS:]}
+    if len(pairs) > EARLIER_TURNS:
+        context["earlier_turns_omitted"] = len(pairs) - EARLIER_TURNS
+    return context
 
 
 RESULT_CHARS = 4000  # the finished turn's saved result, as the person saw it
 CHANGED_PATHS = 30  # files the finished turn changed, named for Requirements to read
 PLAN_CRITERIA = 20  # the finished turn's plan criteria and how each was checked
+EARLIER_TURNS = 8  # turns before the finished one, newest kept
+EARLIER_MESSAGE_CHARS = 1000  # each earlier message the person sent
+EARLIER_RESULT_CHARS = 2000  # each earlier result the person was shown
 
 
 def _clip(text: str, limit: int) -> str:
