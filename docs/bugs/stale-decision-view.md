@@ -43,11 +43,14 @@ causes, unpublished proposals, consistent status sampling and the inventory,
 attention, wait, event and editor consumers. Existing exact-token rejection and
 stop-precedence tests remain required.
 
-The public TaskRun client also takes the exact named continuation when it has
-no separate `needs.action` field. Previously that plain refresh fell back to
+The core marks this refresh as a named metadata action (`needs.action`), so
+TaskRun takes its exact command. Previously that plain refresh fell back to
 relaunching with every start option; a chat started with `--single-model` then
-refused its refresh because that flag applies only to a new run. Foreign named
-commands remain refused, and a refreshed question requires its own answer.
+refused its refresh because that flag applies only to a new run. Ordinary task
+advancement retains its explicit launch/budget options. Foreign named commands
+remain refused, and a refreshed question requires its own answer. Coordinated
+task conversations also take a source run's named continuation before submitting
+their message; independent questions, stops and unrelated messages remain held.
 
 The corrected path was also exercised in the actual extension while a live
 GLM Requirements confirmation waited. Installing the candidate core expired

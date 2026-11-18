@@ -538,13 +538,12 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
             shutil.copytree(ROOT / "docs", broken_runtime / "docs")
             old_action = broken_runtime / "tools" / "autocode_action_scope.py"
             old_action.write_text(
-                old_action.read_text().replace(
-                    "human.current(state) or human.refresh_assigned_scope(state)", "human.current(state)"
-                )
+                old_action.read_text().replace("human.current(state) or human.refresh_assigned_scope(state)", "None")
             )
             client.command = (sys.executable, str(broken_runtime / "tools" / "autocode.py"))
             with self.assertRaisesRegex(chat.actions.ClientGap, "cannot release this human gate"):
-                client.step()
+                for _ in range(5):
+                    client.step()  # A fresh decision observation may precede the refused assignment.
             # A repaired immutable runtime changes receipt bindings. Reopen
             # with identical resources and one harmless source marker; never
             # edit the child state to simulate the stranded handoff.

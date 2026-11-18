@@ -563,13 +563,13 @@ class TaskRun:
     def _advance(self, view: dict) -> dict:
         """Take this view's named continue action, or the ordinary ``--no-chat`` relaunch."""
         need = view.get("needs") or {}
-        if need.get("kind") == "continue" and view.get("next_command"):
+        if need.get("kind") == "continue" and need.get("action") and view.get("next_command"):
             try:
                 from . import autocode_client_actions as actions
             except ImportError:
                 import autocode_client_actions as actions
-            # Every named continuation is exact, including a plain decision refresh.
-            # Start-only options cannot accompany a running task's named action.
+            # A named recovery (--abandon-stage, --reconcile-only) is exactly the command the view
+            # names; launch settings belong to a relaunch, and the CLI refuses them on these actions.
             named = actions.named(view, self.workspace, self.run_dir)
             self._invoke("advance", *named.argv, advancing=True, secret_env=named.env)
         else:

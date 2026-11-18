@@ -153,6 +153,10 @@ class BlockerNeedTests(unittest.TestCase):
             request=blocker_request(),
             evidence={"diagnosis": "Proven contract contradiction", "output": "iterations/001/resolver-01.json"},
         )
+        unpublished = run_view.view(self.state)
+        self.assertEqual("continue", unpublished["needs"]["kind"])
+        self.assertIsNone(unpublished["chat"]["input"], "A proposal grants no answer authority")
+        publish_blocker(self.state)
         view = run_view.view(self.state)
         need = view["needs"]
         self.assertEqual("answer", need["kind"])

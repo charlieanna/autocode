@@ -1331,10 +1331,7 @@ def needs(state: RunState, *, stale_report_repair=False, human_projection=None) 
                                                      --abandon-stage ATTEMPT as deterministic recovery
     """
     human_projection = resolver_human.projection(state) if human_projection is None else human_projection
-    refreshing_decision = bool(state.get("resolver_human_proposal")) or (
-        human_projection.get("status") == "RESOLVER_PENDING"
-        and human_projection.get("saved_status") in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL")
-    )
+    refreshing_decision = resolver_human.needs_publication(state, human_projection)
     state = resolver_human.decision_state(state, human_projection)
     status = state.get("status", "")
     if status == "PAUSED_SOURCE_UNAVAILABLE":
@@ -1459,7 +1456,7 @@ def needs(state: RunState, *, stale_report_repair=False, human_projection=None) 
     # A proposal or expired publication has no answer authority. The writer must
     # re-evaluate and publish the current decision before a client offers it.
     if status == "RESOLVER_PENDING" and refreshing_decision:
-        return {"kind": "continue"}
+        return {"kind": "continue", "action": "--no-chat"}
     questions = state.get("pending_questions") or []
     reviews = [question for question in questions if question.get("review_criteria")]
     if reviews:

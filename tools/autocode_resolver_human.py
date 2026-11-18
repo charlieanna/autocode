@@ -750,6 +750,25 @@ def projection(state: RunState):
     }
 
 
+def needs_publication(state: RunState, public=None) -> bool:
+    """A genuine decision needs publishing; a settled machinery disposition does not."""
+    public = projection(state) if public is None else public
+    if public.get("status") == "RESOLVER_PENDING" and public.get("saved_status") in (
+        "WAITING_FOR_USER",
+        "AWAITING_GOAL_APPROVAL",
+    ):
+        return True
+    proposal = state.get(PRIVATE) or {}
+    return bool(
+        state.get("status") == "RESOLVER_PENDING"
+        and proposal
+        and ((state.get("resolver") or {}).get("human_disposition") or {}).get("action")
+        not in ("defer", "recover", "hold")
+        and proposal.get("scope") != "operational_exhaustion"
+        and not (proposal.get("evidence") or {}).get("resolver_receipt_id")
+    )
+
+
 def decision_state(state: RunState, public=None) -> RunState:
     """Read-only presentation of a published decision at its current authorization frontier.
 
