@@ -182,7 +182,7 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
             "approve_plan": ("approval",),
             "answer": ("answer",),
             "review": ("review",),
-            "planning_budget": ("--feedback", "--planning-review-call-limit"),
+            "planning_budget": ("plan feedback", "planning review limit"),
             "recover_source": ("inspect", "new run"),
             "retry_job": ("retry",),
             "resume": ("inspect", "resume"),
@@ -199,19 +199,21 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
             else:
                 terms = ("raise the",) if inputs else ("corrective information",)
         elif kind == "planning_budget" and need.get("action"):
-            terms = (need["action"],)
+            terms = ("continue planning",)
         elif kind == "resume":
             if need.get("new_run_required"):
                 terms = ("fresh component run", "approval")
             elif need.get("edit_required"):
-                terms = (need["action"], "fresh approval")
+                terms = ("correct the plan", "fresh approval")
             elif any(row.get("id") == "grant_recovery" for row in need.get("command_inputs") or []):
                 terms = ("authorize additional recoveries",)
             elif need.get("command_inputs") and need.get("action", "").endswith(" N"):
                 terms = ("raise the",)
-            elif need.get("action"):
-                terms = (need["action"],)
+            elif need.get("action", "").startswith("--feedback"):
+                terms = ("say what changed",)
         self.assertTrue(asked)
+        # Words for a person only: the command is the view's next_command, never this text.
+        self.assertNotRegex(asked, r"(?<![\w-])--[a-z]", f"{kind}: guidance names a flag")
         for term in terms:
             self.assertIn(term, asked, f"{kind}: guidance must name its accepted next action")
         return view
@@ -446,8 +448,7 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
         self.state.pop(human.PUBLIC, None)
         self.save()
         before = self.shown("planning_budget")
-        self.assertIn("--feedback", before["progress"]["needs_you"])
-        self.assertIn("--planning-review-call-limit", before["progress"]["needs_you"])
+        self.assertEqual("give plan feedback or raise the planning review limit", before["progress"]["needs_you"])
         after = self.run.feedback("Keep the scope; simplify the plan before another review")
         self.assertEqual("continue", after["needs"]["kind"])
         self.assertEqual("RUNNING", after["status"])
