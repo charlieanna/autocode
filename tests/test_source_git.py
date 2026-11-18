@@ -49,6 +49,7 @@ class SourceGitTests(unittest.TestCase):
             self.assertIsInstance(error, util.Paused)
             self.assertEqual("PAUSED_SOURCE_UNAVAILABLE", error.status)
             self.assertIn("source read denied", str(error))
+            self.assertNotIn("then resume", str(error), "Source recovery is AutoCode's machinery")
         else:
             self.fail("A required source read must not accept an unavailable inventory")
 

@@ -716,7 +716,7 @@ def source_git(root, *args, text=False, env=None, check=True):
         raise Paused(
             "PAUSED_SOURCE_UNAVAILABLE",
             f"Cannot snapshot source in {root}: git {' '.join(args)} failed: {detail.strip()[:2000]}. "
-            "Fix repository access or ownership, then resume. No source snapshot was accepted.",
+            "No source snapshot was accepted. AutoCode will recheck source access before continuing.",
         ) from error
 
 

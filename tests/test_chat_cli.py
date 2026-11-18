@@ -136,13 +136,10 @@ class ChatCliTests(unittest.TestCase):
             f"#!{sys.executable}\n"
             "import os, sys\nfrom pathlib import Path\n"
             f"workspace = Path({str(self.workspace)!r})\nmarker = Path({str(marker)!r})\n"
-            "resolved = marker.exists() and marker.read_text() == 'resolved'\n"
-            "if not resolved:\n"
-            " if 'diff-files' in sys.argv and '--diff-filter=M' in sys.argv and (workspace / 'greet.py').is_file():\n"
-            "  marker.write_text('blocked')\n"
-            " if marker.exists() and any(x in sys.argv for x in ('diff-files', 'ls-files')):\n"
-            "  print('fatal: source inspection unavailable (injected)', file=sys.stderr)\n"
-            "  sys.exit(128)\n"
+            "if not marker.exists() and 'diff-files' in sys.argv and '--diff-filter=M' in sys.argv and (workspace / 'greet.py').is_file():\n"
+            " marker.write_text('one failed proof query; later reads succeed')\n"
+            " print('fatal: source inspection unavailable (injected)', file=sys.stderr)\n"
+            " sys.exit(128)\n"
             f"os.execv({real_git!r}, [{real_git!r}, *sys.argv[1:]])\n"
         )
         wrapper.chmod(0o755)
@@ -152,26 +149,13 @@ class ChatCliTests(unittest.TestCase):
         planned = run.status()
         self.assertEqual("approve_plan", planned["needs"]["kind"])
         run.approve_plan(planned["needs"]["token"])
-        held = run.advance_until_input()
-        self.assertTrue(marker.exists())
-        self.assertEqual("PAUSED_SOURCE_UNAVAILABLE", held["status"], held.get("stop_reason"))
-        self.assertIsNone(held["needs"])
-        self.assertIsNone(held["next_command"])
-        attempts = held["usage"]["accounting"]["attempts"]
-        self.assertEqual(1, sum(row["stage"] == "builder" for row in attempts))
-        self.assertFalse(any(row["stage"] == "tester" for row in attempts))
-        source = (self.workspace / "greet.py").read_bytes()
-        still_held = run.resume_paused()
-        self.assertEqual("PAUSED_SOURCE_UNAVAILABLE", still_held["status"])
-        self.assertEqual(held["usage"], still_held["usage"], "An unavailable source must not start another model")
-        marker.write_text("resolved")
-        readable = run.status()
-        self.assertEqual("continue", readable["needs"]["kind"])
-        self.assertIn("--expected-recovery-token", readable["next_command"])
         completed = run.advance_until_input()
+        self.assertTrue(marker.exists())
         self.assertTrue(completed["done"], completed.get("stop_reason"))
-        self.assertEqual(1, sum(row["stage"] == "builder" for row in completed["usage"]["accounting"]["attempts"]))
-        self.assertEqual(source, (self.workspace / "greet.py").read_bytes())
+        attempts = completed["usage"]["accounting"]["attempts"]
+        self.assertEqual(1, sum(row["stage"] == "builder" for row in attempts))
+        self.assertEqual(1, sum(row["stage"] == "tester" for row in attempts))
+        self.assertTrue(any(row["kind"] == "source_access_recovered" for row in completed["recoveries"]))
         self.assertEqual(planned["displayed_plan"]["token"], completed["verification"]["contract_token"])
 
     def test_requirements_answers_any_opener_first_and_the_job_it_names_starts_after_approval(self):
