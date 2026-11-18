@@ -77,3 +77,11 @@ resume. Source and timeout CLI regressions reproduce this without a model.
 The first live GLM/Sol editor flow completed with all six requirements checked,
 three passing tests and only the two requested files changed. Its redacted bundle
 manifest is `7740c4bb9285e03251101abc26d869b183a2b91ff6bc2db4c86059ecf78fb9ad`.
+
+The bounded editor follow-up hit the review-diff boundary after a valid
+Requirements report repair. Installing the correction while its controller was
+stopped and taking the existing named continuation recovered that retained
+report. The editor displayed the reviewed Requirements with the same 33 attempts
+and recorded spend; source recovery launched no additional model call. The
+original report's out-of-range source citation remains correctly rejected in
+history, independently of the later Git failure.

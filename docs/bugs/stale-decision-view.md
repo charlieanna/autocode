@@ -23,9 +23,11 @@ binds controller observations and tokens; readers never reissue, consume or
 approve a decision. Legacy questions without a Resolver publication retain their
 existing contract.
 
-VS Code takes this exact named refresh once per decision context, as it does
-metadata reconciliation. A missing or foreign command cannot trigger it, and a
-newly published question or plan still requires its own answer or approval.
+VS Code acknowledges a successful or explicitly refused named refresh once per
+decision context, as it does metadata reconciliation. A non-rejected exit 2 can
+retry at most three invocations, each after a fresh status offers the exact same
+automatic action and context. A missing or foreign command cannot trigger it,
+and a newly published question or plan requires its own answer or approval.
 
 The live resume also exposed a related display race: a checked live controller
 can still hold its saved pause while applying the next action. Core correctly
