@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 import autocode_idle_policy as idle_policy
+import autocode_role_launch as role_launch
 import autocode_source_scope as source_scope
 import autocode_stage_recovery as stage_recovery
 import autocode_stall_recovery as stall_recovery
@@ -222,6 +223,11 @@ class StallRecoveryTests(unittest.TestCase):
         archived = [row for row in self.state["stages"] if not row.get("runner_owned")][-1]
         self.assertEqual("during_reasoning_or_output", archived["stall_phase"])
         self.assertEqual(0, archived["completed_tool_calls"])
+        self.state["settings"]["limits"] = {"stage_timeout_seconds": 300, "idle_timeout_seconds": 300}
+        self.state["settings"]["budget_origins"] = {"idle_timeout_seconds": "runner_default"}
+        watch = role_launch.launch_limits(self.state, "openai/gpt-6-sol", "builder", "builder", report_only=False)[3]
+        self.assertIsNone(watch["first_event_limit"], "a hard timeout must not restart the initial-stream guard")
+        self.assertEqual(300, watch["idle_limit"])
 
     def test_a_builder_stopped_before_its_first_event_is_relaunched_without_a_recovery_review(self):
         builder = {**self.record_for("builder"), "timeout_kind": "idle"}
@@ -241,7 +247,7 @@ class StallRecoveryTests(unittest.TestCase):
             idle_policy.first_event_limit(
                 300,
                 "runner_default",
-                silent_start=idle_policy.silent_start(self.state["recovery_context"], self.state["next_stage"]),
+                retry=idle_policy.silent_start(self.state["recovery_context"], self.state["next_stage"]),
             ),
         )
 
