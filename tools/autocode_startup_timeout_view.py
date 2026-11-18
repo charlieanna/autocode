@@ -19,6 +19,26 @@ except ImportError:
     import autocode_stop as stop
 
 
+# The last cause a spent recovery allowance records when only these stalls are known.
+STALLED_CAUSE = "the model step did not start responding after several attempts"
+
+
+def stalled_before_start(state: RunState, stage: str | None = None) -> bool:
+    """The last three automatic timeout recoveries of ``stage`` (default: the last one's) never saw a first event."""
+    attempts = state.get("automatic_timeout_recoveries") or []
+    if not isinstance(attempts, list) or len(attempts) < 3:
+        return False
+    stage = stage or (attempts[-1].get("stage") if isinstance(attempts[-1], dict) else None)
+    return bool(stage) and all(
+        isinstance(row, dict)
+        and row.get("stage") == stage
+        and row.get("timeout_kind") == "idle"
+        and row.get("stall_phase") == "before_first_event"
+        and row.get("completed_tool_calls") == 0
+        for row in attempts[-3:]
+    )
+
+
 def presentation(state: RunState):
     if stop.applied_stop(state):
         return None
@@ -34,17 +54,7 @@ def _startup(state: RunState):
     if evidence.get("status") != "PAUSED_TIMEOUT_RECOVERY":
         return None
     attempts = state.get("automatic_timeout_recoveries") or []
-    if not isinstance(attempts, list) or len(attempts) < 3:
-        return None
-    stage = evidence.get("stage")
-    if not stage or any(
-        not isinstance(row, dict)
-        or row.get("stage") != stage
-        or row.get("timeout_kind") != "idle"
-        or row.get("stall_phase") != "before_first_event"
-        or row.get("completed_tool_calls") != 0
-        for row in attempts[-3:]
-    ):
+    if not stalled_before_start(state, evidence.get("stage")):
         return None
     if (binding.get("accounting") or {}).get("automatic_timeout_recoveries") != attempts:
         return None
