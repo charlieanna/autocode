@@ -79,6 +79,19 @@ class OwnerInspectionTests(unittest.TestCase):
             self.assertIs(self.state, owners.project(self.state, observed))
             owner.result(0, ready=True)
 
+    def test_a_live_controller_continues_a_saved_stop_except_a_durable_worker_waiting_at_it(self):
+        running, ready = {"kind": "running"}, {"kind": "ready"}
+        stop = {"status": "WAITING_FOR_USER"}
+        self.assertTrue(owners.continuing(stop, running))
+        self.assertTrue(owners.continuing({**stop, "execution": {"mode": "owned"}}, running))
+        # A durable worker stays alive at its saved stop and takes the action dispatched to it.
+        self.assertFalse(owners.continuing({**stop, "execution": {"mode": "durable_local"}}, running))
+        self.assertFalse(owners.continuing({**stop, "execution": {"mode": "unknown"}}, running))
+        for status in ("RUNNING", "COMPLETE", "TASK_COMPLETE"):
+            self.assertFalse(owners.continuing({"status": status}, running), status)
+        for inspection in (ready, {"kind": "boundary"}, {"kind": "busy"}, None):
+            self.assertFalse(owners.continuing(stop, inspection), inspection)
+
     def test_deliberate_ready_receipt_is_bound_to_the_exact_checkpoint(self):
         self.state["stages"] = [{"stage": "requirements_gather"}]
         self.persist(self.run_dir / "state.json", self.state)
