@@ -84,7 +84,8 @@ nothing built), discuss (answer a question, weigh a tradeoff or investigate, cha
 nothing, even when the answer is to be written down), or none while no software outcome
 is named. When a request asks for several things, name the job of the first thing that
 must happen: "review this and fix what you find" is review, "why does this fail, then fix
-it" is bugfix. A question asked together with a change to make ("how does the cache work?
+it" is bugfix; for it, find the cause in the code first and give it in {confirmation_target}
+before the fix you summarize. A question asked together with a change to make ("how does the cache work?
 make it expire after an hour") is the change's job: answer the question in {confirmation_target}
 while you confirm the change. Do not guess build when unsure; the other jobs can lead to a build later.
 For review and design, leave required_behaviors and acceptance_tests empty: they
@@ -107,6 +108,8 @@ follow_up.previous_design.documents (after a design review, its design_under_rev
 only when its verdict is approve). Answering or correcting a finished design review is design.
 follow_up.previous_result is what the finished job told the user, follow_up.previous_changed
 the files it changed and follow_up.previous_plan its plan's criteria with how each was checked.
+follow_up.earlier_turns, when present, is the conversation before that, oldest first: each
+message the user sent and the result they were shown; a reference to an earlier answer means one of these.
 A question about that work ("what did you change?", "why this way?", "was it tested?") is
 discuss: answer it from these and by reading the changed files, and say plainly what they do
 not show rather than guessing. A request to change that work is build or bugfix as usual.

@@ -295,6 +295,9 @@ class FollowUpTests(unittest.TestCase):
         self.assertIn('"previous_result":"greet now rejects empty names', prompt)
         self.assertIn('"previous_changed":["app/greet.py"]', prompt)
         self.assertIn("follow_up.previous_result is what the finished job told the user", " ".join(prompt.split()))
+        self.assertIn(
+            "follow_up.earlier_turns, when present, is the conversation before that", " ".join(prompt.split())
+        )
 
     def test_a_second_question_sees_the_answer_to_the_first(self):
         self.finished_build()
@@ -303,6 +306,48 @@ class FollowUpTests(unittest.TestCase):
         self.state.update(status="TASK_COMPLETE", answer={"answer": "A guard keeps callers simple."})
         follow_up.accept(self.state, "Could it raise instead?", self.workspace, "t2")
         self.assertEqual("A guard keeps callers simple.", workflows.follow_up(self.state)["previous_result"])
+
+    def test_a_later_question_sees_every_earlier_answer_in_the_conversation(self):
+        """Owner decision 2026-11-18: "go with your first option" names an answer from several turns back.
+        Before, Requirements saw only the newest finished turn's result."""
+        self.finished_build()
+        answers = ["A guard keeps callers simple.", "Raising moves the check to every caller."]
+        follow_up.accept(self.state, "Why this way?", self.workspace, "t1")
+        for at, (answer, say) in enumerate(
+            zip(answers, ["Could it raise instead?", "Go with your first option."], strict=True)
+        ):
+            workflows.from_requirements(self.state, {"job": "discuss"})
+            self.state.update(status="TASK_COMPLETE", answer={"answer": answer})
+            follow_up.accept(self.state, say, self.workspace, f"t{at + 2}")
+        context = workflows.follow_up(self.state)
+        self.assertEqual("Go with your first option.", context["message"])
+        self.assertEqual("Raising moves the check to every caller.", context["previous_result"])
+        self.assertEqual(
+            [
+                {
+                    "message": "Reject empty names in greet.",
+                    "result": "greet now rejects empty names; tests/test_greet.py covers it.",
+                },
+                {"message": "Why this way?", "result": "A guard keeps callers simple."},
+            ],
+            context["earlier_turns"],
+        )
+        self.assertNotIn("earlier_turns_omitted", context)
+
+    def test_the_earlier_conversation_is_bounded_and_absent_after_one_turn(self):
+        def turn(say, result):
+            return {"say": say, "previous": {"task": "First request", "chat_response": result}}
+
+        self.assertEqual({}, workflows.earlier_context([turn("Second", "first answer")]))
+        turns = [turn(f"Message {index}", "r" * (workflows.EARLIER_RESULT_CHARS + 5)) for index in range(12)]
+        turns[3]["say"] = " "  # a turn whose message is empty names nothing
+        turns[5]["previous"]["chat_response"] = ""  # nor a result the person was not shown
+        context = workflows.earlier_context(turns)
+        self.assertEqual(workflows.EARLIER_TURNS, len(context["earlier_turns"]))
+        self.assertEqual(2, context["earlier_turns_omitted"])
+        self.assertEqual({"message": "Message 4"}, context["earlier_turns"][2])
+        self.assertEqual(workflows.EARLIER_RESULT_CHARS, len(context["earlier_turns"][0]["result"]))
+        self.assertTrue(context["earlier_turns"][0]["result"].endswith("…"))
 
     def test_the_finished_turn_reaches_requirements_bounded(self):
         previous = {
