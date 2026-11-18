@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import subprocess
 import tempfile
 import unittest
@@ -431,7 +432,7 @@ class GitDiscoveryFailureTests(unittest.TestCase):
         root = checkout(self)
         with mock.patch.dict(
             "os.environ",
-            {"GIT_TEST_ASSUME_DIFFERENT_OWNER": "1", "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"},
+            {"GIT_TEST_ASSUME_DIFFERENT_OWNER": "1", "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull},
         ):
             with self.assertRaisesRegex(ValueError, "Cannot inspect Git"):
                 choice.options(root)
@@ -458,7 +459,7 @@ class GitDiscoveryFailureTests(unittest.TestCase):
         output, errors = io.StringIO(), io.StringIO()
         with mock.patch.dict(
             "os.environ",
-            {"GIT_TEST_ASSUME_DIFFERENT_OWNER": "1", "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"},
+            {"GIT_TEST_ASSUME_DIFFERENT_OWNER": "1", "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull},
         ):
             with redirect_stdout(output), redirect_stderr(errors):
                 result = choice.cli(["list", "--workspace", str(root), "--json"])
