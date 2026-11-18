@@ -2322,7 +2322,7 @@
 
 
 <h1 id="workflow-planning-approval-and-handoffs">Workflow: planning, approval, and handoffs<a class="headerlink" href="#workflow-planning-approval-and-handoffs" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/b00cdb7d0ed78abce0df08db9753527ffd8b5505/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/7001bd2c51001471b7a26b4d0ffac9aafcb7b8bb/README.md">← Back to README</a></p>
 <p>This page covers the end-to-end conversation flow: how a rough idea becomes an
 approved plan, how that plan is implemented and reviewed, and what Autopilot
 coordinates along the way.</p>
@@ -3030,6 +3030,17 @@ that ran and failed on base and passed on the fix; a test that only fails to
 import on base is not a reproduction. Without per-test results exit codes decide.
 When nothing can be proven (for example no test command is found), the proof is
 <code>UNVERIFIED</code> and the bug fix cannot complete until a command is supplied.</p>
+<p>When the Resolver finds that the saved test or regression command itself cannot
+prove the change (it marks its blocker <code>correction="verification_commands"</code>; the
+mark never carries a command), AutoCode settles it without asking anyone. Once
+per run, it drops the saved explicit <code>--test-command</code>, <code>--regression-command</code> and
+<code>--test-report</code>, records the change and its reason as an <code>autocode</code>
+<code>verification_commands_changed</code> event, and sends the run through the Tester, whose
+proof then uses the commands AutoCode selects itself, before any acceptance. When
+there is no explicit command to drop, the commands were already replaced once, or a
+report repair still holds the old command's evidence, the run ends with a recorded
+<code>could_not_finish</code> outcome naming that cause. A checkpoint saved at such a blocker
+shows <code>continue</code>, and its next resume settles it the same way.</p>
 <p>For a feature with several milestones and named test criteria, a saved literal
 pytest or verbose unittest file/module list includes the run's cumulative new
 or changed Python test files at each proof. Earlier selectors, the interpreter,
@@ -3132,7 +3143,7 @@ saved with the run and cannot be changed on resume. Through <code>TaskRun</code>
   root, normally the package (<code>test_greet.TestGreet.test_x</code>), and a node:test file there that runs another test runner is still not named
   proof (#380). A feature that adds the first Go module in the package, on a
   base with no Go project, is not held to a base Go suite that cannot exist,
-  as at the root (<a href="https://github.com/charlieanna/autocode/blob/b00cdb7d0ed78abce0df08db9753527ffd8b5505/docs/bugs/2026-10-07-first-go-suite.md">#685</a>).</li>
+  as at the root (<a href="https://github.com/charlieanna/autocode/blob/7001bd2c51001471b7a26b4d0ffac9aafcb7b8bb/docs/bugs/2026-10-07-first-go-suite.md">#685</a>).</li>
 <li>Only the package's existing tests are retained as
   <a href="../protected-tests/">original test gates</a>, with the package suite as their
   command unless <code>--test-command</code> gives one, so a large repository does not bind
@@ -3210,7 +3221,7 @@ saved with the run and cannot be changed on resume. Through <code>TaskRun</code>
   also leaves a change outside the package <code>UNVERIFIED</code>, because the package
   suite never ran it.</p>
 <p>The <code>feature-monorepo-package</code> scenario
-(<a href="https://github.com/charlieanna/autocode/blob/b00cdb7d0ed78abce0df08db9753527ffd8b5505/scenarios/README.md#catalog">scenarios/README.md, Catalog</a>) runs a build in
+(<a href="https://github.com/charlieanna/autocode/blob/7001bd2c51001471b7a26b4d0ffac9aafcb7b8bb/scenarios/README.md#catalog">scenarios/README.md, Catalog</a>) runs a build in
 one package of a two-package repository with <code>--package</code> and the scripted
 model. Its reference completes; its broken variant, which also edits the other
 package, stops with each of those files named in the open <code>runner</code> finding.
@@ -3572,7 +3583,7 @@ it is generated from the front matter so reviewers can read the plan.</p>
 holds it. A plan read back from the file has the same goal hash as the run's. The scenario runner
 (<code>scenarios/run.py</code>) checks this at every plan approval its catalog runs reach: it exports the plan
 and reads the file back with <code>--check</code> before it approves the plan
-(<a href="https://github.com/charlieanna/autocode/blob/b00cdb7d0ed78abce0df08db9753527ffd8b5505/scenarios/README.md">scenarios/README.md</a>). The approval token is not in the file, so
+(<a href="https://github.com/charlieanna/autocode/blob/7001bd2c51001471b7a26b4d0ffac9aafcb7b8bb/scenarios/README.md">scenarios/README.md</a>). The approval token is not in the file, so
 committing it approves nothing. Text that looks like a credential is masked before the file is
 written, with the same policy as <code>autocode bundle</code>; the export then says that the file's goal hash
 differs from the run's.</p>
