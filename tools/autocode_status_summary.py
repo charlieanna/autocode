@@ -103,7 +103,9 @@ def project(view: dict, *, stale: bool = False, completion_current=None, next_ac
     elif (
         status in WORKING_STATUSES
         or kind == "dependency"
-        or controller_owner.continuing({"status": status, "execution": view.get("execution")}, view.get("controller"))
+        or controller_owner.continuing(
+            {"status": status, "execution": view.get("execution") or {}}, view.get("controller")
+        )
     ):
         state = WORKING
         sentence = _sentence(progress.get("headline") or "Working")
