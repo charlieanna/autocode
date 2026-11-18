@@ -142,9 +142,14 @@ class BuilderWorkerLifelineTests(unittest.TestCase):
         provider = self.until(
             lambda: next((e for e in self.events() if e["milestone"] == "M1"), None), "M1 provider never started"
         )
+        # A child can publish its result before it exits. Wait for the controller
+        # to record both exits so the signal only interrupts the held Builder.
         self.until(
-            lambda: all((self.result(m) or {}).get("status") == "BUILT" for m in ("M2", "M3")),
-            "M2 and M3 did not build",
+            lambda: all(
+                row.get("status") == "BUILT" and row.get("exit_code") == 0
+                for row in (self.worker(milestone) for milestone in ("M2", "M3"))
+            ),
+            "M2 and M3 did not finish successfully",
         )
         row = self.worker("M1")
         if row.get("supervision"):

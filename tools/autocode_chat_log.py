@@ -30,6 +30,7 @@ try:
     from . import autocode_repair_effort as repair_effort
     from . import autocode_review_effort as review_effort
     from . import autocode_roles as roles
+    from . import autocode_stage_choices as stage_choices
     from . import autocode_util as util
 except ImportError:
     import autocode_attempt_ledger as attempt_ledger
@@ -37,6 +38,7 @@ except ImportError:
     import autocode_repair_effort as repair_effort
     import autocode_review_effort as review_effort
     import autocode_roles as roles
+    import autocode_stage_choices as stage_choices
     import autocode_util as util
 
 LIMIT = 40  # entries from one attempt
@@ -339,18 +341,38 @@ def _clock() -> datetime:
     return datetime.now(UTC)
 
 
+def _launch_names(active: dict) -> tuple[str, str]:
+    """The backend tool and the model an attempt runs, as a person knows them ("Kilo", "glm-5.3").
+
+    A stage record keeps its model in ``launch_route`` and its backend in ``provider`` (Kilo, Claude
+    Code on the OpenCode facade) or ``engine`` (Codex, OpenCode); it has no top-level ``model``, so
+    reading one named every live attempt "the model" (2026-11-18)."""
+    launch = active.get("launch_route")
+    route: dict = launch if isinstance(launch, dict) else {}
+    model = str(route.get("model") or active.get("model") or "").strip()
+    backend = next(
+        (str(value) for value in (active.get("provider"), route.get("provider"), active.get("engine")) if value),
+        "",
+    )
+    return stage_choices.BACKEND_LABELS.get(backend, ""), model
+
+
 def _start_note(active: dict, agent: str, *, started: bool) -> list[dict]:
-    """One message saying the stage's model is starting, and how long its first reply has taken so far.
+    """One message saying what runs before the stage's first reply, and how long it has taken so far.
 
     Before the provider writes its first event the log was empty and the chat showed only "Requirements
     working": a Kilo launch on macOS spent 27 s starting before glm-5.3 answered "hi" in 3 s (2026-11-15).
-    The entry keeps its id, so once the model answers it reads as started rather than as still waiting."""
-    at, model = active.get("started_at"), str(active.get("model") or "").strip()
+    AutoCode's own preparation is done by then (0.2 to 1 s of the wait in 20 Requirements launches); the
+    rest is the backend tool starting and the model reading the request before it writes a word, so the
+    note names both. The entry keeps its id, so once the model answers it reads as started rather than
+    as still waiting."""
+    at = active.get("started_at")
     if not isinstance(at, str):
         return []
+    backend, model = _launch_names(active)
     who = model or "the model"
     if started:
-        text = f"Started {who}."
+        text = f"{backend or 'The backend'} started; {who} is replying."
     else:
         try:
             began = datetime.fromisoformat(at.replace("Z", "+00:00"))
@@ -358,7 +380,7 @@ def _start_note(active: dict, agent: str, *, started: bool) -> list[dict]:
         except ValueError:
             seconds = None
         waited = f" ({seconds} s so far)" if seconds is not None else ""
-        text = f"Starting {who} and waiting for its first reply{waited}."
+        text = f"{backend or 'The backend'} is starting and {who} is reading the request; its first reply shows here{waited}."
     return [{"id": f"start:{at}", "agent": agent, "kind": "message", "text": text}]
 
 
