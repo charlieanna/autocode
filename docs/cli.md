@@ -1088,9 +1088,9 @@ After inspecting the archived attempt, retry with `--resume-paused
 `needs.job_retry_token`. Plain resume does not repeat the job. Unrestored source
 blocks retry until the exact original source is restored. The CLI verifies file
 bytes, modes and Git HEAD even when a capture artifact is missing; changed
-model/limits still invalidate the retry. An older attempt with no saved original
-identity exposes `recover_source` and an explanation instead of a retry action.
-Inspect its archive and current changes before starting a new run.
+model/limits still invalidate the retry. An attempt with no saved original
+identity cannot be retried, whoever stopped it: status shows `continue`, and the
+next plain resume ends the run with that recorded cause (`no_source_identity`).
 
 A stop with nothing for a person to decide is AutoCode's, not a retry button. A job that
 exited without a report, hit a provider error, a rate limit or a capacity failure, or found

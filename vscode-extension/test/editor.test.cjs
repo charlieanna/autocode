@@ -5389,6 +5389,7 @@ test('all changes render during resolver_response pauses', async (t) => {
   };
   const ui = await openChat(t, view);
   assert.ok(ui.document.body.textContent.includes('Reply with what changed or how you want to proceed'), 'resolver card missing');
+  assert.doesNotMatch(ui.document.body.textContent, /Recovery is reviewed/, 'the card names no recovery machinery');
   const invoke = t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({
     version: 1, since: 'start', changed_files: ['app.txt'], patch: '+saved', truncated: false,
   }) }));

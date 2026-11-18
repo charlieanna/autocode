@@ -7,7 +7,9 @@ itself once (autocode_job_provider_retry), and when that is spent, the denial wo
 is no saved source to retry from, autocode_job_failure ends the run with a recorded outcome.
 
 A person's own stop or abandonment, a model question (quota, refusal and the other route stops) and
-a source the person changed after the attempt stay with the person. Read by the status view and the
+a source the person changed after the attempt stay with the person, as long as the attempt saved
+its original source identity. Without it no exact retry can be checked, so every current job pause
+ends with that recorded cause. Read by the status view and the
 resume gate; imports nothing above the policy layer.
 """
 
@@ -49,20 +51,21 @@ def investigation_owned(state: RunState) -> bool:
 def end_cause(state: RunState) -> str | None:
     """Why a paused failed job can go no further automatically, or None while it can or a person decides.
 
-    A person's own stop or abandonment, a model question (quota, refusal and the other route stops)
-    and a source the person changed after the attempt stay with the person. Every other stopped job
-    either still has its one automatic retry (``provider_retry.plan``) or ends.
+    An attempt with no saved original source identity ends, whatever stopped it: no retry of it can
+    be checked. Otherwise a person's own stop or abandonment, a model question (quota, refusal and
+    the other route stops) and a source the person changed after the attempt stay with the person.
+    Every other stopped job either still has its one automatic retry (``provider_retry.plan``) or ends.
     """
     failure = state.get("job_failure") or {}
     kind = failure.get("kind")
-    if state.get("status") != "PAUSED_JOB_FAILURE" or kind == "person" or stop.applied_stop(state) is not None:
-        return None
-    if investigation_owned(state):
-        return None
-    if not quota_route.job_pause_current(state):
+    if stop.applied_stop(state) is not None or investigation_owned(state) or not quota_route.job_pause_current(state):
         return None
     if not failure.get("source_identity"):
+        # Without the original source identity no exact retry can be checked, whoever stopped the job
+        # and whatever model question it carries, so nothing is left for a person to decide.
         return "no_source_identity"
+    if state.get("status") != "PAUSED_JOB_FAILURE" or kind == "person":
+        return None
     if failure.get("route") or failure.get("unrestored"):
         return None
     if kind == "external_directory":

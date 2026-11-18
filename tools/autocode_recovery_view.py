@@ -21,6 +21,7 @@ try:
     from . import autocode_accepted_source as accepted_source
     from . import autocode_builder_policy as builder_policy
     from . import autocode_internal_failure_view as operational_block
+    from . import autocode_job_end as job_end
     from . import autocode_member_stop as member_stop
     from . import autocode_pause_authority as pause_authority
     from . import autocode_person_text as person_text
@@ -35,6 +36,7 @@ except ImportError:
     import autocode_accepted_source as accepted_source
     import autocode_builder_policy as builder_policy
     import autocode_internal_failure_view as operational_block
+    import autocode_job_end as job_end
     import autocode_member_stop as member_stop
     import autocode_pause_authority as pause_authority
     import autocode_person_text as person_text
@@ -803,6 +805,8 @@ def project(state: RunState, need=None):
         and native_need is None
         and not active
         and not state.get("active_runner_check")
+        # A stopped job AutoCode settles itself offers no resume for a person to correct first.
+        and not job_end.pending(state)
     ):
         requested = cause in ("PAUSED_REQUESTED", "PAUSED_INTERVENTION")
         handoff = run_messages.resume_stage(state)

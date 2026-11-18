@@ -1755,7 +1755,7 @@ function render(state) {
     if (state.needKind === 'approve_plan') strip.classList.add('plan-approval');
 
     if (state.chat && state.chat.input && state.chat.input.kind === 'resolver_response') {
-      cardContent.appendChild(el('div', 'notice', 'Reply with what changed or how you want to proceed. Recovery is reviewed before the run can continue.'));
+      cardContent.appendChild(el('div', 'notice', 'Reply with what changed or how you want to proceed. AutoCode reads your reply before the run continues.'));
       if (state.boundRaise) renderBoundRaise(cardContent, state);
       app.appendChild(card);
       renderAllChanges(state);

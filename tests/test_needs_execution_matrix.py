@@ -626,19 +626,36 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
         self.assertEqual(("could_not_finish", "no_source_identity"), (outcome["result"], outcome["evidence"]["cause"]))
         self.provider.assert_not_called()
 
+    def source_less_stop_ends(self, status, kind):
+        # Before, a person's abandonment or stop with no saved source showed "Original source needs
+        # inspection" and a resume left it there: nothing a person could do ever moved the run.
+        self.source_less_failure(status)
+        self.state["job_failure"]["kind"] = kind
+        self.save()
+        view = self.run.status()
+        self.assertEqual({"kind": "continue", "action": "--resume-paused"}, view["needs"])
+        self.assertNotIn("inspect", view["progress"]["needs_you"].lower())
+        self.refuse(lambda: self.run.retry_job("inspected-job-token"), view, "no saved original source identity")
+        after = self.run.resume_paused()
+        self.assertIsNone(after["needs"])
+        self.assertIsNone(after["next_command"])
+        outcome = after["recovery"]["outcome"]
+        self.assertEqual(("could_not_finish", "no_source_identity"), (outcome["result"], outcome["evidence"]["cause"]))
+        self.assertEqual((status, kind), (outcome["evidence"]["pause_status"], outcome["evidence"]["kind"]))
+        self.assertEqual("001/check_design-01", outcome["evidence"]["attempt_id"])
+        self.provider.assert_not_called()
+
+    def test_an_abandoned_job_without_its_source_ends_at_resume_instead_of_asking(self):
+        self.source_less_stop_ends("PAUSED_STAGE_ABANDONED", "exit")
+
+    def test_a_job_a_person_stopped_without_its_source_ends_at_resume_instead_of_asking(self):
+        self.source_less_stop_ends("PAUSED_JOB_FAILURE", "person")
+
     def test_recover_source_names_the_required_inspection(self):
-        # Kept for a person's own abandonment; a failed job with no source ends instead (above).
-        self.state.update(status="PAUSED_STAGE_ABANDONED", stop_reason="The original source capture is unavailable")
-        self.state["job_failure"] = {
-            "reason": "The original source capture is unavailable",
-            "stage": "check_design",
-            "attempt_id": "001/check_design-01",
-            "job_retry_token": "inspected-job-token",
-            "archive": str(self.directory / "archive"),
-            "source_identity": None,
-            "write_diagnosis": {},
-            "unrestored": [],
-        }
+        # Kept only for an investigation's own job, which its investigation restores (autocode_job_end).
+        self.source_less_failure("PAUSED_JOB_FAILURE")
+        self.state["job_failure"]["stage"] = "investigate_stuck"
+        self.state["stuck_investigation"] = {"identity": "fixture"}
         self.save()
         view = self.run.status()
         self.assertEqual("recover_source", view["needs"]["kind"])
@@ -648,9 +665,6 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
         self.refuse(
             lambda: self.run.retry_job(view["needs"]["job_retry_token"]), view, "no saved original source identity"
         )
-        after = self.run.resume_paused()
-        self.assertEqual("recover_source", after["needs"]["kind"])
-        self.assertEqual(self.protected(view), self.protected(after))
         self.provider.assert_not_called()
 
     def test_human_review_accepts_only_the_current_validated_artifact(self):

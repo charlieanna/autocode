@@ -15,6 +15,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **A stopped step with no saved source no longer asks you to inspect it**: when a step you stopped or set aside had saved no copy of the original source, the chat showed "Original source needs inspection" and asked you to inspect the archived attempt before starting a new run, and pressing Continue left it there. No retry of such a step can be checked, so the next Continue now ends the run with that recorded reason, as it already did for a step its provider stopped.
+
+- **VS Code wording**: the reply card after AutoResolver's question no longer says "Recovery is reviewed"; a planning-limit summary from an older core no longer shows its command flags; and a command that runs out of time says how long AutoCode waited instead of printing the command and its flags in the Stage Models panel and the chat's model chip.
+
 - **A guard the code does not meet yet goes back to the plan**: a criterion planned as a guard (behavior that already works) whose test failed on today's code went back to the Tester, then the Investigator, and ended in a pause saying the case could not be tested on this host. Once the Tester's rewrites are spent, the runner now runs the same test on the original code; when it fails there too, the plan goes back to plan review with that criterion relabelled `test:` and the failing line shown, and needs its own approval before the Builder starts. Once per criterion: a second disagreement takes the old path.
 
 - **At a limit you set, the next action is raising it**: at a cost cap (or an active-time or iteration limit) that AutoResolver could not settle, the chat said "A written reply can't lift a limit", yet the run's next action, and the chat's reply box, was AutoResolver's request for corrective information. The raise sat beside it as a second offer. The run's next action is now the raise itself, with your number in its one slot, and the chat offers no reply box at such a limit.

@@ -9,6 +9,7 @@
  * No VS Code API, so it is unit-testable in-process.
  */
 
+import { personReason } from "./details";
 import { usageDisplay, type BudgetCost, type ModelRoute, type Usage } from "./telemetry";
 
 export interface Needs {
@@ -576,8 +577,11 @@ export function needsSummary(view: StatusView, working?: boolean): string {
       return `${need.questions?.length ?? 0} question(s)`;
     case "review":
       return `review of ${need.criteria?.length ?? 0} acceptance criteria`;
-    case "planning_budget":
-      return `a decision on more plan-review calls${need.reason ? `: ${need.reason}` : ""}`;
+    case "planning_budget": {
+      // An older core may give no `needs_you`: its raw reason can name flags, so only its person-facing part is shown.
+      const reason = need.reason ? personReason(need.reason) : "";
+      return `a decision on more plan-review calls${reason ? `: ${reason}` : ""}`;
+    }
     case "continue":
       if (waitsForFolder(view)) return view.checkout_wait!.text!;
       return active ? "a stage is currently running" : "nothing; the run can simply proceed";

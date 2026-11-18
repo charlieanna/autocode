@@ -982,20 +982,22 @@ class RunViewTests(unittest.TestCase):
             "write_diagnosis": {"unrestored": ["original source capture"]},
             "unrestored": ["original source capture"],
         }
-        # A failed job with no saved source is AutoCode's to end at the next resume (autocode_job_end);
-        # a person's own abandonment keeps the inspection.
-        self.assertEqual(
-            {"kind": "continue", "action": "--resume-paused"},
-            run_view.needs({"status": "PAUSED_JOB_FAILURE", "job_failure": failure}),
-        )
-        for status in ("PAUSED_STAGE_ABANDONED",):
-            need = run_view.needs({"status": status, "job_failure": failure})
-            self.assertEqual("recover_source", need["kind"])
-            self.assertIsNone(need["action"])
-            self.assertIn("original source identity", need["recovery_hint"])
-            self.assertEqual("jr:old", need["job_retry_token"])
-            self.assertEqual("/run/archive", need["archive"])
-            self.assertEqual(failure["write_diagnosis"], need["write_diagnosis"])
+        # A stopped job with no saved source is AutoCode's to end at the next resume (autocode_job_end),
+        # a person's own abandonment included: no retry of it can be checked.
+        for status in ("PAUSED_JOB_FAILURE", "PAUSED_STAGE_ABANDONED"):
+            self.assertEqual(
+                {"kind": "continue", "action": "--resume-paused"},
+                run_view.needs({"status": status, "job_failure": failure}),
+            )
+        # Only an investigation's own job keeps the inspection: its investigation restores the pause.
+        owned = {"status": "PAUSED_JOB_FAILURE", "job_failure": {**failure, "stage": "investigate_stuck"}}
+        need = run_view.needs({**owned, "stuck_investigation": {"identity": "fixture"}})
+        self.assertEqual("recover_source", need["kind"])
+        self.assertIsNone(need["action"])
+        self.assertIn("original source identity", need["recovery_hint"])
+        self.assertEqual("jr:old", need["job_retry_token"])
+        self.assertEqual("/run/archive", need["archive"])
+        self.assertEqual(failure["write_diagnosis"], need["write_diagnosis"])
 
     def test_running_continues(self):
         self.assertEqual({"kind": "continue"}, run_view.needs({"status": "RUNNING", "pending_questions": []}))
