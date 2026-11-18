@@ -123,11 +123,9 @@ def main(argv=None) -> int:
         return _fail([f"preparation failed while building or checking the verification copy: {error}"])
     if result["errors"]:
         return _fail(result["errors"])
-    try:
-        run = taskrun.TaskRun.start(workspace, brief, options=engine_options(args), timeout=args.timeout)
-    except taskrun.TaskRunError as error:
-        print(f"the task run failed to start after preparation: {error}", file=sys.stderr)
-        return 1
+    # The report may be project source. Publish its final bytes before any
+    # plan can bind that source, using TaskRun's public fresh-destination input.
+    run_dir = workspace / ".autocode" / "runs" / f"{invocation}-prepared"
     report = {
         "workspace": str(workspace),
         "manifest": str(Path(args.manifest)),
@@ -135,14 +133,23 @@ def main(argv=None) -> int:
         "copy_root": str(copy_root),
         "head": revision,
         "inputs": result["ok"],
-        "run_dir": str(run.run_dir),
+        "run_dir": str(run_dir),
     }
     try:
-        report_path = Path(args.report)
+        report_path = Path(args.report).resolve()
+        if any(report_path == (workspace / row["path"]).resolve() for row in result["ok"]):
+            return _fail(["the preparation report would overwrite a declared input"])
         report_path.parent.mkdir(parents=True, exist_ok=True)
         report_path.write_text(json.dumps(report, indent=2) + "\n")
-    except OSError as error:
-        print(f"the run started at {run.run_dir} but the prep report could not be written: {error}", file=sys.stderr)
+    except (OSError, RuntimeError) as error:
+        print(f"the prep report could not be written; no task run was started: {error}", file=sys.stderr)
+        return 1
+    try:
+        run = taskrun.TaskRun.start(
+            workspace, brief, options=engine_options(args), timeout=args.timeout, run_dir=run_dir
+        )
+    except taskrun.TaskRunError as error:
+        print(f"the task run failed to start after preparation: {error}", file=sys.stderr)
         return 1
     print(f"verified {len(result['ok'])} declared input(s) in {copy_root}; run started at {run.run_dir}")
     return 0
