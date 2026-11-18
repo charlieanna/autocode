@@ -90,7 +90,7 @@ def declared(paths, read, links=frozenset()) -> Declared:
     name for that project. A configured path that is the configuration's own directory, a glob or a
     path outside the tree names nothing either: each would make more than the suite a test."""
     paths = frozenset(paths)
-    found = {}
+    found: dict[str, list[str]] = {}
     for path in sorted(paths):
         name = PurePosixPath(path).name
         if name in CONFIG_FILES and path not in links:
