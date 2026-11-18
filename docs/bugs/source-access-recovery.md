@@ -60,3 +60,14 @@ failures, unreadable source, uncertain supervision, stops and foreign or unbound
 client actions. A public TaskRun check retains the failed source read and model
 output, refuses another provider while source is unreadable, then reconciles
 the retained report when access returns.
+
+The live resume exposed another boundary race: a pause accepted while saved
+evidence was being checked was acknowledged by the resume already in progress.
+Locked setup now records the pause that invocation may release. A newer applied
+pause is reasserted before final admission, including when reconciliation has
+proposed completion. Its receipt remains unacknowledged until a later explicit
+resume. Source and timeout CLI regressions reproduce this without a model.
+
+The first live GLM/Sol editor flow completed with all six requirements checked,
+three passing tests and only the two requested files changed. Its redacted bundle
+manifest is `7740c4bb9285e03251101abc26d869b183a2b91ff6bc2db4c86059ecf78fb9ad`.
