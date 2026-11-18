@@ -55,6 +55,33 @@ def states(view):
 
 
 class ProgressLineTests(unittest.TestCase):
+    def test_continuing_is_a_machine_readable_observation_not_a_saved_pause(self):
+        for status in ("PAUSED_REQUESTED", "PAUSED_TOOL_CONTAINMENT", "PAUSED_TIME_LIMIT"):
+            with self.subTest(status=status):
+                result = progress_view.progress(
+                    state(status=status, active_stage=None),
+                    accepted=[],
+                    stage="Requirements",
+                    needs=None,
+                    controller_running=True,
+                    continuing=True,
+                )
+                self.assertIs(True, result["continuing"])
+                self.assertEqual("Continuing", result["headline"])
+                self.assertEqual("nothing needed from you", result["needs_you"])
+        for options in ({"continuing": False}, {"continuing": True, "internal_failure": {"title": "Blocked"}}):
+            with self.subTest(options=options):
+                self.assertIs(
+                    False,
+                    progress_view.progress(
+                        state(status="PAUSED_REQUESTED", active_stage=None),
+                        accepted=[],
+                        stage=None,
+                        needs=None,
+                        **options,
+                    )["continuing"],
+                )
+
     def test_a_fresh_runs_first_save_names_no_stage_it_has_not_chosen(self):
         """A new run's first save carries the default next stage (plan_task) for a moment before the
         run chooses its first stage; the chat read that save and logged "Next: Planner" ahead of

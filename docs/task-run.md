@@ -2286,6 +2286,9 @@ workers). `line` is the one line a person reads, for example
 `Builder working · 1 of 3 tasks done · 1 of 3 requirements checked, 1 failed · 1 open problem · nothing needed from you`;
 its wording may change, so programs read the fields beside it:
 
+- `continuing`: a freshly observed controller is applying a saved stop. Clients
+  show work in progress while its next checkpoint is being saved. The observation
+  grants no action; the current `needs` and `next_command` still decide that.
 - `headline`: `Complete`, `Waiting for you`, `Paused`, `Waiting for another run`,
   `<job> working` (`Tester writing tests first` while the Tester writes the approved
   tests before the Builder starts), `<job> finished` (its report is saved but not applied yet),

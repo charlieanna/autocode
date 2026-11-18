@@ -127,6 +127,22 @@ class RunViewTests(unittest.TestCase):
         self.assertFalse(action_authority.explicit_recovery_requested(SimpleNamespace(retry_report=None), None))
 
     def test_contract_fields(self):
+        from autocode_progress_view import progress
+
+        self.assertEqual(
+            {
+                "line",
+                "headline",
+                "continuing",
+                "stage",
+                "needs_you",
+                "for_earlier_request",
+                "tasks",
+                "requirements",
+                "problems",
+            },
+            set(progress({"status": "RUNNING"}, accepted=(), stage=None, needs=None)),
+        )
         self.assertIn("gate", run_view.view({"status": "RUNNING"})["chat"])
         self.assertEqual(
             {"job", "label", "state", "model", "reasoning_effort", "spent_usd", "spent_complete", "reason"},

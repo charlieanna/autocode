@@ -129,6 +129,7 @@ def progress(
     problems = _problems(state, _rows(state.get("turns")))
     kind = (needs or {}).get("kind")
     asked = _asked(needs, state)
+    observed_continuation = False
     if internal_failure:
         headline = internal_failure["title"]
         asked = "nothing needed from you"
@@ -140,6 +141,7 @@ def progress(
     elif continuing:
         headline, stage = "Continuing", None
         asked = "nothing needed from you"
+        observed_continuation = True
     elif stopped:
         headline = f"{stage or 'The stage'} {STOP_CLAIM}"
         # A stale run's next action can be the command itself; the person reads only its words.
@@ -187,6 +189,7 @@ def progress(
     return {
         "line": line,
         "headline": headline,
+        "continuing": observed_continuation,
         "stage": stage,
         "needs_you": asked,
         "for_earlier_request": earlier,

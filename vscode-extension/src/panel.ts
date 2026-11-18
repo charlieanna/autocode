@@ -449,7 +449,7 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
     retained: view.recovery!.retained ?? null,
     newConversation: view.recovery!.actions?.find((row) => row.kind === "new_conversation")?.label ?? null,
   } : null;
-  if (!view.done && !stopped) {
+  if (!view.done && !stopped && progress?.continuing !== true) {
     try {
       const action = controller.plan(view, run);
       decisions = action.decisions.map((open) => describe(open, need, view));
@@ -1869,7 +1869,7 @@ function render(state) {
         });
         strip.appendChild(el('span', 'action-prompt', actionPrompt(state)));
         strip.appendChild(approve);
-      } else if (state.needKind === 'continue' && state.working) {
+      } else if (state.working && (state.needKind === 'continue' || !state.needKind)) {
         renderChatProgress(cardContent, state);
       } else if (state.needKind === 'continue') {
         const resume = el('button', null, 'Continue');
@@ -1911,7 +1911,7 @@ function render(state) {
         + 'not something the extension should work around.'));
       box.appendChild(el('pre', null, state.gap));
       cardContent.appendChild(box);
-    } else if (!state.done && state.needKind === 'continue' && state.working) {
+    } else if (!state.done && state.working && (state.needKind === 'continue' || !state.needKind)) {
       renderChatProgress(cardContent, state);
     } else if (!state.done) {
       if (state.decisions.length > 0) {

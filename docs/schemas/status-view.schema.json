@@ -408,7 +408,14 @@
             "renewed_at": {"type": ["string", "null"], "description": "When the person's last answer or feedback started the count again; null before any."}
           }
         },
-        "progress": {"type": "object", "description": "How far the run has got, from saved records; `line` is for a person, the fields beside it for programs."},
+        "progress": {
+          "type": "object",
+          "description": "How far the run has got, from saved records; `line` is for a person, the fields beside it for programs.",
+          "required": ["continuing"],
+          "properties": {
+            "continuing": {"type": "boolean", "description": "A freshly observed controller is applying a saved stop. This display observation carries no action authority."}
+          }
+        },
         "summary": {
           "type": "object",
           "description": "The run in one sentence (#2049). `state` is `done` only when completion is verified against the current checkout; a finished run without that, or a running checkpoint nothing supervises, is `stopped`. `blocked` retains unconfirmed internal cleanup or ownership and is not a terminal outcome. `next_command` is the view's own `next_command` (null when done or no person action can settle the internal failure).",

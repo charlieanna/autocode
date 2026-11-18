@@ -122,6 +122,8 @@ export interface EffortNeed {
 export interface Progress {
   line?: string;
   headline?: string;
+  /** A freshly observed controller is applying a saved stop; no client action is needed. */
+  continuing?: boolean;
   stage?: string;
   needs_you?: string;
   tasks?: { done: number; total: number; known?: boolean; items?: ProgressTask[] };
@@ -535,7 +537,8 @@ export function progressLine(view: StatusView): string {
 /** Live workflow work, a checked live controller advancing a no-action boundary, or a ready step waiting
  * for another chat to leave its folder (`checkout_wait`): the client goes on with it, the person is not asked. */
 export function isWorking(view: StatusView): boolean {
-  return ["supervised", "unsupervised"].includes(view.liveness?.kind ?? "")
+  return (!view.done && view.progress?.continuing === true)
+    || ["supervised", "unsupervised"].includes(view.liveness?.kind ?? "")
     || ["supervised", "unsupervised"].includes(view.runner_check?.liveness?.kind ?? "")
     || waitsForFolder(view)
     || (!view.done && view.needs?.kind === "continue" && view.controller?.kind === "running"

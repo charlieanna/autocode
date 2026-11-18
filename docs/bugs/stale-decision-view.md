@@ -23,6 +23,13 @@ VS Code takes this exact named refresh once per decision context, as it does
 metadata reconciliation. A missing or foreign command cannot trigger it, and a
 newly published question or plan still requires its own answer or approval.
 
+The live resume also exposed a related display race: a checked live controller
+can still hold its saved pause while applying the next action. Core correctly
+suppresses further actions, but the editor treated that absence as a client gap
+and asked the person to continue again. `progress.continuing` now carries the
+core's fresh observation explicitly. The editor shows ongoing work and takes no
+additional action at that boundary.
+
 Regression coverage exercises questions and plan approval, several staleness
 causes, unpublished proposals, consistent status sampling and the inventory,
 attention, wait, event and editor consumers. Existing exact-token rejection and

@@ -4126,6 +4126,34 @@ test('an expired decision takes only its named refresh once and leaves fresh app
   assert.equal(launch.mock.callCount(), 2, 'a later decision can refresh on the same CLI path');
 });
 
+test('a core-observed continuation shows working while the saved pause has no action', async (t) => {
+  const ui = await openChat(t, {
+    status: 'PAUSED_TOOL_CONTAINMENT', done: false, needs: null, next_command: null,
+    controller: { kind: 'running', checked: true, alive: true },
+    progress: { continuing: true, headline: 'Continuing', line: 'Continuing' },
+    summary: { state: 'working', label: 'Working', sentence: 'Continuing.' },
+  });
+  const text = ui.document.querySelector('#app').textContent;
+  assert.doesNotMatch(text, /No action the client can take|AutoCode named no action|AutoCode is waiting for you/);
+  assert.match(ui.document.querySelector('#run-header').textContent, /Working/);
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  await ui.poll(); await flush();
+  assert.equal(launch.mock.callCount(), 0, 'a display observation never authorizes another action');
+});
+
+test('a continuing Requirements view keeps its progress instead of asking the person again', async (t) => {
+  const ui = await openChat(t, {
+    status: 'PAUSED_TOOL_CONTAINMENT', done: false, needs: null, next_command: null,
+    controller: { kind: 'running', checked: true, alive: true },
+    progress: { continuing: true, headline: 'Continuing', line: 'Continuing' },
+    summary: { state: 'working', label: 'Working', sentence: 'Continuing.' },
+    chat: { phase: 'requirements', context: 'continuing-requirements', input: null, messages: [] },
+  });
+  assert.doesNotMatch(ui.document.querySelector('#app').textContent,
+    /No action the client can take|AutoCode named no action|AutoCode is waiting for you/);
+  assert.equal(ui.document.querySelector('#take-action'), null, 'the live controller owns the next step');
+});
+
 test('stopped supervision takes its named metadata reconciliation once without a recovery click', async (t) => {
   const ui = await openChat(t, workingView());
   const stopped = {
