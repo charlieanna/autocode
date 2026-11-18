@@ -245,6 +245,79 @@ class QuotaRouteTests(unittest.TestCase):
         state["stages"].append({"stage": "tester", "role": "tester", "events": record["events"]})
         self.assertIsNone(self.stopped(state))
 
+    def probe(self, state, *, status="PAUSED_BUDGET", blocking=True, model="gpt-5.6-sol", roles=("tester",)):
+        """A model access probe (autocode_preflight_attempts) that stopped the run before the Tester launched."""
+        events = self.root / "probe-events.jsonl"
+        events.write_text(json.dumps(api_error("The usage limit has been reached")) + "\n")
+        row = {
+            "stage": "model_preflight",
+            "role": "model_preflight",
+            "runner_owned": True,
+            "model": model,
+            "iteration": 4,
+            "attempt_id": "preflight/abc",
+            "events": str(events),
+            "output": str(self.root / "report.json"),
+            "launch_route": {"engine": "opencode", "provider": "kilocode", "model": model, "effort": "high"},
+            "preflight_outcome": {"model": model, "status": status, "blocking": blocking},
+        }
+        if roles is not None:
+            row["preflight_roles"] = list(roles)
+        state.pop("active_stage", None)
+        state.update(status=status, next_stage="tester")
+        state.setdefault("stages", []).append(row)
+        return row
+
+    def test_a_blocking_access_probe_is_the_stop_and_has_nothing_to_set_aside(self):
+        state = self.state()
+        state["stages"] = [{"stage": "builder", "role": "builder", "events": "b.jsonl"}]
+        self.probe(state)
+        state["stages"].append({"stage": "resolver", "runner_owned": True})
+        stopped = self.stopped(state)
+        self.assertEqual(
+            ("preflight", "tester", "PAUSED_BUDGET"), (stopped["kind"], stopped["role"], stopped["pause_status"])
+        )
+        self.assertEqual("gpt-5.6-sol", stopped["model"])
+        self.assertIsNone(stopped["attempt_id"])
+        self.assertTrue(stopped["current"])
+        self.assertFalse(stopped["active"])
+        asked = quota_route.question(state, stopped)
+        self.assertEqual("route-tester", asked["id"])
+        self.assertEqual("gpt-5.6-sol", asked["stopped_model"])
+        # Advice names the answer, never an attempt to set aside.
+        self.assertNotIn("--abandon-stage", quota_route.advice(asked, stopped["attempt_id"]))
+
+    def test_a_probe_saved_before_it_named_its_roles_is_for_the_stage_about_to_launch(self):
+        state = self.state()
+        self.probe(state, roles=None)
+        self.assertEqual("tester", self.stopped(state)["role"])
+        state["stages"][-1]["preflight_roles"] = ["completion", "tester"]
+        self.assertEqual("tester", self.stopped(state)["role"], "the role about to launch, of the two it served")
+        state["stages"][-1].pop("preflight_roles")
+        state["next_stage"] = "orchestrator"
+        self.assertIsNone(self.stopped(state))
+
+    def test_a_probe_is_no_longer_the_stop_once_anything_changed_after_it(self):
+        cases = {
+            "a stage ran after it": lambda s: s["stages"].append({"stage": "tester", "role": "tester", "events": "t"}),
+            "the run left its pause": lambda s: s.update(status="RUNNING"),
+            "the route moved since": lambda s: s["settings"]["roles"]["tester"].update(model="gpt-6-luna"),
+            "its roles are not about to launch": lambda s: s["stages"][-1].update(
+                preflight_roles=["completion", "builder"]
+            ),
+        }
+        for name, change in cases.items():
+            with self.subTest(name):
+                state = self.state()
+                self.probe(state)
+                change(state)
+                self.assertIsNone(self.stopped(state))
+        for status, blocking in (("PAUSED_PROVIDER_UNCERTAIN", False), ("PAUSED_BUDGET", False)):
+            with self.subTest(status=status, blocking=blocking):
+                state = self.state()
+                self.probe(state, status=status, blocking=blocking)
+                self.assertIsNone(self.stopped(state))
+
     def test_validate_accepts_another_model_and_refuses_launch_violations(self):
         state = self.state()
         self.validate(state, "gpt-6-luna")

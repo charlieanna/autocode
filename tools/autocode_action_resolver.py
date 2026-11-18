@@ -274,6 +274,11 @@ def answer_quota_question(runner, args, state: RunState, run_dir, workspace):
         parallel = worker_quota.current(candidate, proposal["origin"])
         # A batch member ran on its own model; a sibling's earlier answer may have moved the route (#465).
         ran_on = parallel[1].get("model") if parallel else None
+        if not parallel:
+            # An access probe's stop names the model it checked; a later flag may have saved another.
+            probe = quota_route.stopped_attempt(candidate, failure_status=support.failure_status)
+            if probe and probe["kind"] == "preflight":
+                ran_on = probe["model"]
         tool = None
         if quota_route.engine(candidate["settings"], role) == "opencode":
             # Codex names models bare, so only a connected tool's job reads TOOL:MODEL.
@@ -312,7 +317,7 @@ def answer_quota_question(runner, args, state: RunState, run_dir, workspace):
             attempt = {**stopped_worker, "stage": "builder", "pause_status": row["status"]}
         else:
             attempt = quota_route.stopped_attempt(candidate, failure_status=support.failure_status)
-            if not attempt or not attempt["active"] or attempt["role"] != role:
+            if not attempt or not attempt.get("current") or attempt["role"] != role:
                 raise ValueError(
                     "The quota-stopped attempt is no longer current; run with --no-chat to see the request"
                 )
@@ -345,6 +350,10 @@ def answer_quota_question(runner, args, state: RunState, run_dir, workspace):
                 worker_quota.assign_child(row, stopped_worker, model, abandon=runner.abandon_stage)
                 # The child attempt is archived; the parent has no unanswered
                 # decision and remains paused until an explicit resume.
+                runner.run_status.pause(candidate, "PAUSED_STAGE_ABANDONED")
+            elif attempt["kind"] == "preflight":
+                # The access probe stopped the run before any stage launched: there is no attempt
+                # to set aside, and the next resume probes the named model before it runs.
                 runner.run_status.pause(candidate, "PAUSED_STAGE_ABANDONED")
             else:
                 runner.abandon_stage(candidate, run_dir, workspace, attempt["attempt_id"])
