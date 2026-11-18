@@ -24,6 +24,7 @@ try:
     from . import autocode_budget_state as budget_state
     from . import autocode_build_worktree as build_worktree
     from . import autocode_checkout_lock as checkout_lock
+    from . import autocode_classification_recovery as classification_recovery
     from . import autocode_climb_cap as climb_cap
     from . import autocode_completion_result as completion_result
     from . import autocode_contract_identity as contract
@@ -58,6 +59,7 @@ except ImportError:
     import autocode_budget_state as budget_state
     import autocode_build_worktree as build_worktree
     import autocode_checkout_lock as checkout_lock
+    import autocode_classification_recovery as classification_recovery
     import autocode_climb_cap as climb_cap
     import autocode_completion_result as completion_result
     import autocode_contract_identity as contract
@@ -557,9 +559,15 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
     except support.Paused as error:
         early_baseline.reconcile_at_boundary(state, run_dir, persist=runner.write_json)
         wave = dispatch.select(state) if state.get("next_stage") == "orchestrator" else None
-        if getattr(runner, "native_calls", None) is None and no_progress_recovery.conclude_exhausted(
-            runner, state, run_dir, workspace, error, wave=wave
-        ):
+        if (
+            getattr(runner, "native_calls", None) is None
+            and no_progress_recovery.conclude_exhausted(runner, state, run_dir, workspace, error, wave=wave)
+        ) or classification_recovery.conclude(state, workspace, at=runner.now()):
             raise support.Paused(state["status"], state["stop_reason"]) from error
         raise
+    # A Builder failure held because nothing can classify it any more ends the run here, not on
+    # every later resume (autocode_builder_failure.queue holds it without raising). Recording the
+    # outcome launches nothing, so it holds under native authority too.
+    if classification_recovery.conclude(state, workspace, at=runner.now()):
+        runner.write_json(state_path, state)
     return None
