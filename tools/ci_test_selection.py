@@ -982,7 +982,11 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tests.test_json_contract", "tests.test_worktrees"),
     ),
     (
-        ("tools/autocode_source_reconciliation.py", "tools/autocode_proof_git.py"),
+        (
+            "tools/autocode_source_reconciliation.py",
+            "tools/autocode_proof_git.py",
+            "tools/autocode_preparation_source_failure.py",
+        ),
         ("tests.test_chat_cli",),
     ),
     (

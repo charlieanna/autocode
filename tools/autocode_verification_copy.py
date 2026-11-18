@@ -27,6 +27,7 @@ try:
     from . import autocode_source_snapshot as source
     from . import autocode_util as util
     from . import autocode_verification_failure as verification_failure
+    from .autocode_command_receipt import OwnershipUncertain
     from .autocode_verification_budget import PREPARATION_ALLOWANCE_SECONDS
 except ImportError:
     import autocode_dependency_dirs as dependency_dirs
@@ -34,6 +35,7 @@ except ImportError:
     import autocode_source_snapshot as source
     import autocode_util as util
     import autocode_verification_failure as verification_failure
+    from autocode_command_receipt import OwnershipUncertain
     from autocode_verification_budget import PREPARATION_ALLOWANCE_SECONDS
 
 
@@ -145,15 +147,10 @@ def _retain_history(root, tree, head, env, *, deadline):
     git = ["/usr/bin/git", "--no-replace-objects", "-c", "core.fsmonitor=false"]
     command = [*git, "rev-parse", "--git-path", "shallow"]
     shallow_path = (
-        subprocess.run(
-            command,
-            cwd=root,
-            env=environment,
-            check=True,
-            capture_output=True,
-            timeout=_remaining(deadline, command),
+        util.source_git(
+            root, *command[1:], executable=command[0], env=environment, timeout=_remaining(deadline, command)
         )
-        .stdout.decode()
+        .decode()
         .strip()
     )
     shallow_path = root / shallow_path
@@ -367,9 +364,10 @@ def allocate(workspace, run_dir, *, source_paths=()):
                 raise ValueError("Owned verification control directory remains after cleanup")
         except (OSError, ValueError) as cleanup:
             cleanup_error = str(cleanup)
-        if isinstance(error, subprocess.CalledProcessError):
+        git_error = error.__cause__ if util.source_unavailable(error) and cleanup_error else error
+        if isinstance(git_error, subprocess.CalledProcessError):
             raise verification_failure.GitPreparationFailed(
-                error,
+                git_error,
                 workspace=root,
                 run_dir=run,
                 control=control,
@@ -378,6 +376,8 @@ def allocate(workspace, run_dir, *, source_paths=()):
                 cleanup_confirmed=cleanup_error is None,
                 cleanup_error=cleanup_error,
             ) from error
+        if util.source_unavailable(error) and cleanup_error:
+            raise OwnershipUncertain("Verification copy cleanup was not confirmed: " + cleanup_error) from error
         if cleanup_error:
             error.add_note("Verification copy cleanup was not confirmed: " + cleanup_error)
         raise

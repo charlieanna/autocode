@@ -86,6 +86,8 @@ def environment(source=None):
 
 
 def failure(error, *, kilo_readonly=False, isolation=None):
+    if isinstance(error, util.Paused):
+        return error  # The failure already has its owning domain; a source read is not broken containment.
     recovery = (
         ""
         if isinstance(error, (*containment.STORE_ERRORS, containment.NativePermissionDenied))
@@ -141,6 +143,8 @@ def selected_tools(fallback, state: RunState, workspace, run_dir):
                 capture_command=tool_handoff.capture_command(output_policy.mode(settings)),
             )
         except processes.ProcessError:
+            raise
+        except util.Paused:
             raise
         except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
             # Missing configured permissions cannot be fixed by waiving the

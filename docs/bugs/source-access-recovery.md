@@ -18,6 +18,17 @@ classification as snapshots. They retain the Git failure and take the ordinary
 source recovery path. Git writes and optional missing-object reads retain their
 existing behavior; no report is accepted by a successful source read.
 
+The live Tester and Completion Reviewer exposed the same lost classification
+at two more boundaries: a scratch worker returned only a traceback, and native
+copy preparation labelled its failed source query as broken Kilo containment.
+Required reads now keep their domain pause through report application and
+provider admission. A worker publishes a negative result bound to its exact
+request and native output. The parent authenticates its admission, runtime and
+every inner command's collected custody before restoring the source pause.
+Unknown cleanup remains held; this transport grants no test PASS, accepted
+model report or fresh retry allowance. A source failure cannot trigger a
+report-only model repair.
+
 The status view now offers the existing resume action only after a fresh source
 inventory succeeds and any retained supervisor is positively stopped with a
 clean receipt. The action is bound to the exact saved recovery token. VS Code

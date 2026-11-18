@@ -5,12 +5,14 @@ from pathlib import Path
 
 try:
     from . import autocode_launch_inputs as launch_inputs
+    from . import autocode_preparation_source_failure as source_failure
     from . import autocode_util as util
     from . import autocode_verification_preparation as preparation
     from . import autocode_verification_recovery as recovery
     from . import autocode_verify as verify
 except ImportError:
     import autocode_launch_inputs as launch_inputs
+    import autocode_preparation_source_failure as source_failure
     import autocode_util as util
     import autocode_verification_preparation as preparation
     import autocode_verification_recovery as recovery
@@ -53,19 +55,21 @@ def main():
             parameters["ignored_inputs"], checkout=workspace
         )
     answer = {"request_sha256": args.request_sha256, "operation": request["operation"], "nonce": admission["nonce"]}
-    if request["operation"] == "prepare":
-        answer["tree"] = str(verify.prepare_scratch_tree(workspace, out, **parameters))
-    elif request["operation"] == "remove":
-        verify.remove_tree(workspace, out / "scratch" / "tree")
-    else:
-        # All project discovery (including environment Git), preparation, actual
-        # inner test capture and cleanup stay beneath the outer native keeper.
-        value = verify.scratch_run(workspace, out, **parameters)
-        if parameters.get("review_mutation") is True:
-            answer["review_mutation"] = value.get("review_mutation")
+    with source_failure.capture(answer):
+        if request["operation"] == "prepare":
+            answer["tree"] = str(verify.prepare_scratch_tree(workspace, out, **parameters))
+        elif request["operation"] == "remove":
+            verify.remove_tree(workspace, out / "scratch" / "tree")
         else:
-            answer["receipt"] = value
+            # All discovery, preparation, capture and cleanup retain the original keeper.
+            value = verify.scratch_run(workspace, out, **parameters)
+            if parameters.get("review_mutation") is True:
+                answer["review_mutation"] = value.get("review_mutation")
+            else:
+                answer["receipt"] = value
     util.atomic_json(result, answer)
+    if "source_refusal" in answer:
+        print(source_failure.PUBLICATION + util.file_hash(result), flush=True)
     if parameters.get("acceptance_preflight") is True and "acceptance_refusal" in answer.get("receipt", {}):
         print(preparation.PREFLIGHT_PUBLICATION + util.file_hash(result), flush=True)
 

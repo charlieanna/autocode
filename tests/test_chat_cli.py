@@ -129,17 +129,26 @@ class ChatCliTests(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform == "linux", "The supervised source-read fault observes its Linux parent")
     def test_verification_git_refusal_is_source_recovery_without_repeating_the_builder(self):
+        self.verification_source_refusal("autocode.py")
+
+    @unittest.skipUnless(sys.platform == "linux", "The supervised source-read fault observes its Linux parent")
+    def test_owned_proof_worker_source_refusal_preserves_the_valid_tester_report(self):
+        self.verification_source_refusal("autocode_verification_prepare_worker.py", after_tester=True)
+
+    def verification_source_refusal(self, parent_name, *, after_tester=False):
         marker = self.workspace.parent / "verification-source-refusal"
         bindir = Path(self.env["PATH"].split(os.pathsep)[0])
         real_git = shutil.which("git")
         wrapper = bindir / "git"
         wrapper.write_text(
             f"#!{sys.executable}\n"
-            "import os, sys\nfrom pathlib import Path\n"
+            "import os, re, sys\nfrom pathlib import Path\n"
             f"workspace = Path({str(self.workspace)!r})\nmarker = Path({str(marker)!r})\n"
             "parent = Path('/proc/' + str(os.getppid()) + '/cmdline').read_bytes().split(b'\\0')\n"
-            "core = any(Path(os.fsdecode(p)).name == 'autocode.py' for p in parent if p)\n"
-            "if core and not marker.exists() and 'diff-files' in sys.argv and '--diff-filter=M' in sys.argv and (workspace / 'greet.py').is_file():\n"
+            f"target = any(Path(os.fsdecode(p)).name == {parent_name!r} for p in parent if p)\n"
+            "reports = any(re.fullmatch(r'validator-[0-9]+\\.json', p.name) for p in workspace.glob('.autocode/runs/*/iterations/*/validator-*.json'))\n"
+            f"ready = reports if {after_tester!r} else True\n"
+            "if target and ready and not marker.exists() and 'diff-files' in sys.argv and '--diff-filter=M' in sys.argv and (workspace / 'greet.py').is_file():\n"
             " marker.write_text('one failed proof query; later reads succeed')\n"
             " print('fatal: source inspection unavailable (injected)', file=sys.stderr)\n"
             " sys.exit(128)\n"
@@ -158,6 +167,7 @@ class ChatCliTests(unittest.TestCase):
         attempts = completed["usage"]["accounting"]["attempts"]
         self.assertEqual(1, sum(row["stage"] == "builder" for row in attempts))
         self.assertEqual(1, sum(row["stage"] == "tester" for row in attempts))
+        self.assertFalse(any(row.get("report_only") for row in attempts), "A source failure is no model-report repair")
         self.assertTrue(any(row["kind"] == "source_access_recovered" for row in completed["recoveries"]))
         self.assertEqual(planned["displayed_plan"]["token"], completed["verification"]["contract_token"])
 

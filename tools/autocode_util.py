@@ -425,6 +425,11 @@ class Paused(RuntimeError):
         self.status = status
 
 
+def source_unavailable(error) -> bool:
+    """A source observation is deferred; it makes no claim about a model report."""
+    return isinstance(error, Paused) and error.status == "PAUSED_SOURCE_UNAVAILABLE"
+
+
 class ExecutionEvidenceRequired(ValueError):
     """A claimed report needs an execution or file read that report-only repair cannot supply.
 
@@ -691,7 +696,7 @@ def _other_entry(path, unborn_ok=True):
     return None
 
 
-def source_git(root, *args, text=False, env=None, check=True):
+def source_git(root, *args, text=False, env=None, check=True, executable="git", timeout=None):
     """Read required Git source facts without turning an I/O failure into a bad model report.
 
     Callers opt into this classification for source queries, never Git writes.
@@ -700,12 +705,13 @@ def source_git(root, *args, text=False, env=None, check=True):
     """
     try:
         return subprocess.check_output(
-            ["git", *args],
+            [str(executable), *args],
             cwd=root,
             text=text,
             errors="replace" if text else None,
             stderr=subprocess.PIPE,
             env=git_environment() if env is None else env,
+            timeout=timeout,
         )
     except (subprocess.CalledProcessError, OSError) as error:
         if not check and isinstance(error, subprocess.CalledProcessError):
