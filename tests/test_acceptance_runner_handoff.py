@@ -90,9 +90,14 @@ class AcceptanceRunnerHandoffTests(unittest.TestCase):
         # This fixture qualifies the writer-to-runner handoff and Builder admission;
         # its later reviewer does not cover our synthetic extra guard.
 
-    def test_deferred_test_with_bad_assertion_still_refuses_builder(self):
+    def test_deferred_test_with_bad_assertion_reaches_the_builder_only_through_a_corrected_plan(self):
         run, _, view = self.run_nested("self.assertEqual('wrong', out.strip())")
-        self.assertFalse(view["done"])
-        self.assertNotIn("builder", self.stage_order(run))
-        self.assertIn("guard NESTED", json.dumps(view))
-        self.assertIn("does not pass", json.dumps(view))
+        order = self.stage_order(run)
+        before = order[: order.index("builder")] if "builder" in order else order
+        # The Tester's rewrites come first. A guard still failing on the original code is a plan question: the
+        # plan goes back relabelled test:, naming the failure, and needs its own approval before any Builder.
+        self.assertEqual(4, before.count("acceptance-tests"), order)
+        self.assertIn("plan-challenge", before[before.index("acceptance-tests") :], order)
+        self.assertEqual(2, len(self.plan_approvals))
+        shown = {row["id"]: row for row in self.plan_views[1]["displayed_plan"]["acceptance_criteria"]}
+        self.assertEqual("test: test_runner_provider", shown["NESTED"]["verification_method"])

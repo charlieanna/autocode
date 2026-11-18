@@ -14,6 +14,9 @@ case says, and changes only test files and validated Go loading metadata. The ru
 A passing ``test:`` case on a retained candidate is checked on the original reference before any
 report repair or plan correction. A fresh original failure keeps its approved meaning; a fresh
 original pass goes back to plan review once, relabelled ``guard:`` in a runner-built draft (ORIGIN).
+The mirror holds for a ``guard:`` case: when the runner's rewrites are spent and its test still runs and fails
+on an assertion, today and on the original reference, the plan, not the test, is what disagrees with the code,
+so it goes back to plan review once relabelled ``test:`` in the same kind of draft.
 Missing original evidence holds verification. The final proof is always still required.
 That holds for a bug fix too: its plan can add ``test:`` cases of
 its own beside the Investigator's reproduction (autocode_acceptance_tests._cases), and one of those that
@@ -133,11 +136,14 @@ class TestsNeedRewriting(ExecutionEvidenceRequired):
     the new function at its top could not load on today's code, so the guard in it never ran, and the run
     asked the person how to fix the tests).
 
-    ``skipped`` names the cases whose tests the command collected and then skipped (#3261)."""
+    ``skipped`` names the cases whose tests the command collected and then skipped (#3261). ``failing_guards``
+    (case id -> {"name", "tests"}) is set only when every fault is a guard whose test ran and failed on its own
+    assertion: once the rewrites are spent, those may be cases the plan labelled wrongly (_guards_to_tests)."""
 
-    def __init__(self, message: str, *, skipped=()):
+    def __init__(self, message: str, *, skipped=(), failing_guards=None):
         super().__init__(message)
         self.skipped = sorted(skipped)
+        self.failing_guards = dict(failing_guards or {})
 
 
 class ReferenceEvidenceRequired(ExecutionEvidenceRequired):
@@ -310,13 +316,62 @@ def reproduction_ids(state: RunState) -> set[str]:
     return {case["id"] for case in test_cases.diagnosis_cases(state) if case.get("kind", "restore") != "preserve"}
 
 
-def corrected_body(state: RunState, names: dict[str, str]) -> dict:
-    """The approved plan with each case in ``names`` (id -> test name) relabelled from test: to guard:."""
+def corrected_body(state: RunState, names: dict[str, str], *, to: str = test_cases.GUARD_MARK) -> dict:
+    """The approved plan with each case in ``names`` (id -> test name) relabelled to ``to``, from the other mark."""
+    source = test_cases.MARK if to == test_cases.GUARD_MARK else test_cases.GUARD_MARK
     body = copy.deepcopy((state.get("goal_contract") or {}).get("body") or {})
     for row in body.get("acceptance_criteria") or []:
-        if row.get("id") in names and test_cases.mark(row.get("verification_method")) == test_cases.MARK:
-            row["verification_method"] = test_cases.GUARD_MARK + " " + names[row["id"]]
+        if row.get("id") in names and test_cases.mark(row.get("verification_method")) == source:
+            row["verification_method"] = to + " " + names[row["id"]]
     return body
+
+
+def _guards_to_tests(state: RunState, error: TestsNeedRewriting, files, record, send_back, run_reference) -> bool:
+    """Send guards whose tests still fail on today's code back to plan review relabelled test:; False if not.
+
+    Live run, 2026-11-18: a plan labelled a criterion the code did not meet yet as a guard. Its test failed on
+    its assertion, the Tester's rewrites could not make it pass without weakening it, and the run ended in a
+    pause saying the case could not be tested on this host. The runner now checks the same tests on the original
+    reference; when each still fails there, the plan's label is what is wrong, and the Plan Reviewer sees the
+    runner-built draft as for a test: case that already passes. Once per case: a second disagreement takes the
+    existing path to the Investigator."""
+    guards = error.failing_guards
+    rows = {
+        row.get("id"): row
+        for row in ((state.get("goal_contract") or {}).get("body") or {}).get("acceptance_criteria") or []
+    }
+    if (
+        not guards
+        or send_back is None
+        or run_reference is None
+        or acceptance.sent_back(state) & set(guards)
+        or any(
+            test_cases.mark((rows.get(cid) or {}).get("verification_method")) != test_cases.GUARD_MARK for cid in guards
+        )
+    ):
+        return False
+    original = run_reference({cid: guard["tests"] for cid, guard in guards.items()}, files)
+    verdicts = original.get("verdicts") or {}
+    if original.get("error") or set(verdicts) != set(guards) or any(v != "fails" for v in verdicts.values()):
+        return False
+    names = {cid: guard["name"] for cid, guard in guards.items()}
+    changes = [
+        {
+            "item": cid,
+            "change": "reworded",
+            "basis": "runner_proof",
+            "answer_id": "",
+            "replacement": f"{test_cases.MARK} {names[cid]} (the runner saw it fail on today's code and on the "
+            f"original code after {len(_rewrites(state))} rewrite(s) of the test, so today's code does not have "
+            "this behavior yet, or the test asserts something the criterion does not say"
+            + (f"; it failed with: {guards[cid]['detail']}" if guards[cid].get("detail") else "")
+            + ")",
+        }
+        for cid in sorted(guards)
+    ]
+    acceptance.record_send_back(state, sorted(guards), record.get("output"))
+    send_back(corrected_body(state, names, to=test_cases.MARK), changes)
+    return True
 
 
 def _output_excerpt(run: dict, *, keep: int = 3, limit: int = 400) -> str:
@@ -368,7 +423,7 @@ def _verdicts(
     skipped = test_cases.match_cases(named, results.get("skipped") or [])
     # A bug's reproduction must run and fail; a file that cannot load is no reproduction (autocode_proof_seam).
     unloadable = bool(results.get("collection_errors")) and not test_cases.bugfix(state)
-    verdicts, wrong, skipped_again = {}, [], []
+    verdicts, wrong, skipped_again, failing_guards = {}, [], [], {}
     needs_execution = False
     already = {row["case_id"] for row in value["already_passing"]}
     for case in named:
@@ -379,6 +434,12 @@ def _verdicts(
                 needs_execution = True
                 if skipped[case["id"]]:
                     skipped_again.append(case["id"])
+                elif failed[case["id"]] and not _own_error(case, rows[case["id"]]["file"], source, run):
+                    failing_guards[case["id"]] = {
+                        "name": case["test_name"],
+                        "tests": sorted(failed[case["id"]]),
+                        "detail": _failure_line(run, case["test_name"]),
+                    }
                 wrong.append(
                     _skipped(case, rows[case["id"]]["file"], run)
                     if skipped[case["id"]]
@@ -420,7 +481,10 @@ def _verdicts(
             "already exists, keep its test and also report the case in already_passing; do not weaken the test."
         )
         if needs_execution:
-            raise TestsNeedRewriting(message, skipped=skipped_again)
+            only_guards = len(failing_guards) == len(wrong) and not results.get("collection_errors")
+            raise TestsNeedRewriting(
+                message, skipped=skipped_again, failing_guards=failing_guards if only_guards else {}
+            )
         raise ValueError(message)
     return verdicts
 
@@ -444,6 +508,13 @@ def _failure_blocks(tail: str, test_name: str) -> list[str]:
         elif current is not None:
             current.append(line)
     return ["\n".join(block) for block in blocks]
+
+
+def _failure_line(run: dict, test_name: str, limit: int = 200) -> str:
+    """The last line of the runner's report of this test's failure (its assertion, usually); "" if none."""
+    blocks = _failure_blocks(str(run.get("tail") or ""), test_name)
+    lines = [line.strip() for line in (blocks[-1] if blocks else "").splitlines()[1:] if line.strip()]
+    return lines[-1][:limit] if lines else ""
 
 
 def _own_error(case: dict, file: str, source: str, run: dict) -> str:
@@ -630,6 +701,8 @@ def apply(
     except ExecutionEvidenceRequired as error:
         if isinstance(error, TestsNeedRewriting):
             if _rewrite(state, error, record):
+                return
+            if _guards_to_tests(state, error, files, record, send_back, run_reference):
                 return
             # The runner's own rewrites are spent, or the same cases came back skipped after the Tester was told:
             # the attempt is rejected, so the Investigator looks at it before any person is asked (#3261). A
