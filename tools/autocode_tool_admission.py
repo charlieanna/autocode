@@ -86,8 +86,8 @@ def environment(source=None):
 
 
 def failure(error, *, kilo_readonly=False, isolation=None):
-    if isinstance(error, util.Paused):
-        return error  # The failure already has its owning domain; a source read is not broken containment.
+    if util.source_unavailable(error):
+        return error  # A source read has its own owning domain; it is not broken containment.
     recovery = (
         ""
         if isinstance(error, (*containment.STORE_ERRORS, containment.NativePermissionDenied))
@@ -144,9 +144,9 @@ def selected_tools(fallback, state: RunState, workspace, run_dir):
             )
         except processes.ProcessError:
             raise
-        except util.Paused:
-            raise
         except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+            if util.source_unavailable(error):
+                raise  # A source read is not a Kilo readiness failure.
             # Missing configured permissions cannot be fixed by waiving the
             # kernel boundary, choosing another route, or asking a model.
             raise util.Paused(

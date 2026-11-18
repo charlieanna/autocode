@@ -2398,7 +2398,9 @@ class OperationalDispositionTests(unittest.TestCase):
         )
         self.assertIsNotNone(disposition.held(self.state), "a metadata return cannot retire the incident")
         self.assert_blocked_status()
-        args, decided = Arguments(resume_paused=True), actions.Decided()
+        # run_setup records the pause this invocation found, so the consumed pause is not a newer one.
+        args = Arguments(resume_paused=True, _resume_pause_frontier=stop.pause_frontier(self.state))
+        decided = actions.Decided()
         self.assertIsNone(
             admission.guard(writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided)
         )

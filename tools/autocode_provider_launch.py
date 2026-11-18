@@ -284,9 +284,9 @@ def prepare(
             ) from error
         except processes.ProcessError:
             raise
-        except util.Paused:
-            raise
         except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+            if util.source_unavailable(error):
+                raise  # A source read belongs to its own domain; it is not broken containment.
             if not containment:
                 if type(adapter) is KiloProvider and (planning or not allow_write):
                     raise util.Paused(
