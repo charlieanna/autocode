@@ -31,12 +31,14 @@ try:
     from . import autocode_recovery_context as recovery_context
     from . import autocode_recovery_limits as recovery_limits
     from . import autocode_resolver_human as human
+    from . import autocode_startup_timeout_view as startup_view
     from . import autocode_stop as stop
 except ImportError:
     import autocode_recovery_accounting as accounting
     import autocode_recovery_context as recovery_context
     import autocode_recovery_limits as recovery_limits
     import autocode_resolver_human as human
+    import autocode_startup_timeout_view as startup_view
     import autocode_stop as stop
 
 STATUS = "PAUSED_TIMEOUT_RECOVERY"
@@ -91,6 +93,9 @@ def conclude(state: RunState, *, at: str, cause: str | None = None, superseded_r
     used, maximum = accounting.spent(state), accounting.MAX_AUTOMATIC_RECOVERIES
     timeouts = accounting.consecutive_timeouts(state)
     last = recovery_context.exhaustion_cause(state)
+    if last == recovery_context.UNKNOWN_CAUSE and startup_view.stalled_before_start(state):
+        # A provider that never answered is a known cause; say so rather than "unknown".
+        last = startup_view.STALLED_CAUSE
     investigations = [
         copy.deepcopy(row) for row in state.get("stuck_investigations") or [] if row.get("status") == STATUS
     ]

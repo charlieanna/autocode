@@ -5,7 +5,10 @@ from pathlib import Path
 
 HOOK = r"""
 if stage == 'collect_design':
-    if os.environ.get('FAKE_NATIVE_FAILURE'):
+    once = os.environ.get('FAKE_NATIVE_FAILURE_ONCE')
+    if os.environ.get('FAKE_NATIVE_FAILURE') or (once and not Path(once).exists()):
+        if once:
+            Path(once).write_text('failed')
         print(json.dumps(dict(type='turn.failed', error=dict(message='Offline connector process failed'))), flush=True)
         raise SystemExit(3)
     if os.environ.get('FAKE_NATIVE_BLOCKED'):

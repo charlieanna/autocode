@@ -341,7 +341,7 @@ def view(
         import autocode_checkpoint_reconciliation as reconciliation
     reconcile = (
         None
-        if (operational_block.presentation(state, include_hold=True))
+        if (operational_block.presentation(state, include_hold=True)) or recovery_exhaustion.pending(state)
         else reconciliation.offer(
             state, liveness, controller=controller, stop_pending=stop_pending, workspace=workspace
         )
