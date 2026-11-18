@@ -369,7 +369,7 @@ class OperationalInformationCLITests(unittest.TestCase):
         _, before = self.saved()
         for _ in range(2):
             code, launched, output = self.resume()
-            self.assertEqual((0, False), (code, launched), output)
+            self.assertEqual((2, False), (code, launched), output)
             view = self.status()
             self.assertIsNone(view["needs"])
             self.assertIsNone(view["next_command"])
