@@ -106,7 +106,7 @@ def progress(
               (#1711: a finished Builder must not keep the headline across a Builder→Tester handoff)
     controller_running  the run's own controller is alive (autocode_controller_owner "running"), so a
               stage it names next is being started, not waiting for anyone
-    continuing  a live controller holds a saved stop (autocode_controller_owner.continuing): a resume or a
+    continuing  a live controller holds a saved stop or closed attempt (autocode_controller_owner.continuing): a resume or a
               raised limit is being applied, so the stop no longer waits for the person
     liveness  the same fresh classified stage observation as the public view; an open accounting
               slot or a saved timestamp alone never establishes working activity

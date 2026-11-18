@@ -351,7 +351,11 @@ def project(state: RunState, inspection):
 
 
 def continuing(state: RunState, inspection):
-    """A live controller holds a saved stop: a resume or a raised limit is being applied (live VS Code
+    """A live controller holds a saved stop or closed attempt while applying its next transition.
+
+    A closed provider record can still say RUNNING while its controller archives or validates it;
+    a missing accepted report does not make that live controller absent (live VS Code, 2026-11-18).
+    A resume or a raised limit can also be in flight (live VS Code
     test, 2026-11-18). The new controller owns the run from the moment it starts, but it saves RUNNING
     only after its checks (the provider's model listing took 60 to 100 seconds), and until then the
     saved stop still named its own resume. A person pressing it again was refused by the run lock.
@@ -360,10 +364,18 @@ def continuing(state: RunState, inspection):
     takes the action dispatched to it, so its stop keeps its action. So is this process itself: a
     controller reporting its own saved stop (``--json``) is not another one acting on it."""
     receipt = (inspection or {}).get("receipt") or {}
+    closed_attempt = any(
+        isinstance(record, dict)
+        and isinstance(record.get("finished_at"), str)
+        and bool(record["finished_at"])
+        and type(record.get("exit_code")) is int
+        for record in (state.get("active_stage"), state.get("active_runner_check"))
+    )
     return (
         (inspection or {}).get("kind") == "running"
         and (receipt.get("identity") or {}).get("pid") != os.getpid()
-        and state.get("status") not in ("RUNNING", *COMPLETE)
+        and state.get("status") not in COMPLETE
+        and (state.get("status") != "RUNNING" or closed_attempt)
         and ((state.get("execution") or {}).get("mode") in (None, "owned"))
     )
 

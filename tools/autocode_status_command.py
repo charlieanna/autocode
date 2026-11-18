@@ -159,6 +159,7 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         and worker_state.get("checked")
         and not worker_state.get("alive")
         and not active_finished
+        and not controller_owner.continuing(state, owner)
     )
     check = state.get("active_runner_check")
     check_workers: Any = runner.processes.recorded_worker_state(check) if check else None
@@ -169,6 +170,7 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         and state.get("status") == "RUNNING"
         and check_workers.get("checked")
         and not check_workers.get("alive")
+        and not controller_owner.continuing(state, owner)
     )
     strict_visual = runner.visual_runtime.requested(state)
     current: Any = (

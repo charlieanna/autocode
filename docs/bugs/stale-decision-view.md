@@ -30,6 +30,14 @@ and asked the person to continue again. `progress.continuing` now carries the
 core's fresh observation explicitly. The editor shows ongoing work and takes no
 additional action at that boundary.
 
+The same observation covers a closed attempt still saved as `RUNNING` while its
+live controller archives or validates it. A missing accepted report previously
+made that transition appear abandoned. Closed-attempt metadata plus the fresh
+controller observation now suppress that stale claim; an unfinished attempt
+without a closed record, an unknown controller and durable workers retain their
+existing handling. This changes display and action suppression, never report
+acceptance or retry authority.
+
 Regression coverage exercises questions and plan approval, several staleness
 causes, unpublished proposals, consistent status sampling and the inventory,
 attention, wait, event and editor consumers. Existing exact-token rejection and

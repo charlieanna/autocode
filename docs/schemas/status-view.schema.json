@@ -439,7 +439,7 @@
             "required": ["id", "kind", "at", "job", "headline", "problem", "action", "by", "detail", "handled"],
             "properties": {
               "id": {"type": "string"},
-              "kind": {"type": "string", "enum": ["rejected", "report_repaired", "sent_back", "investigated", "resolver_decision", "interrupted_attempt", "candidate_retained"]},
+              "kind": {"type": "string", "enum": ["rejected", "report_repaired", "sent_back", "investigated", "resolver_decision", "interrupted_attempt", "candidate_retained", "source_access_recovered"]},
               "at": {"type": ["string", "null"]},
               "job": {"type": ["string", "null"]},
               "headline": {"type": "string"},

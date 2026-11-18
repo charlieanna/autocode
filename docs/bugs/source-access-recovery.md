@@ -24,6 +24,8 @@ report-repair allowances. Existing artifact reconciliation, source freshness,
 plan approval, test evidence and launch gates still decide what can proceed.
 An unavailable source remains visibly blocked without asking a person to run a
 Git command or choose a recovery. AutoCode changes no Git trust configuration.
+The public recovery history also shows the successful source recheck and its
+original error, without presenting it as test evidence or plan approval.
 
 Regressions vary planning, Builder, Tester and completion stages, prelaunch
 failures, unreadable source, uncertain supervision, stops and foreign or unbound

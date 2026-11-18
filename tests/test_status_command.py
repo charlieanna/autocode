@@ -246,7 +246,7 @@ class FinalizingHandoffTests(unittest.TestCase):
         "alive": False,
     }
 
-    def render(self, *, controller, finished=True, liveness=None, workers=None):
+    def render(self, *, controller, finished=True, liveness=None, workers=None, closed=False):
         import autocode as runner
         import autocode_status_command as command
 
@@ -261,6 +261,8 @@ class FinalizingHandoffTests(unittest.TestCase):
                 "supervision": saved,
             },
         }
+        if closed:
+            state["active_stage"].update(finished_at="2026-11-18T11:05:00Z", exit_code=-15)
         args = SimpleNamespace(inspect_evidence=False, run_dir="fixture", engine=None, explain=False)
         output = io.StringIO()
         with tempfile.TemporaryDirectory() as tmp:
@@ -298,6 +300,15 @@ class FinalizingHandoffTests(unittest.TestCase):
         self.assertIsNone(payload["next_action"])
         self.assertEqual("working", payload["view"]["summary"]["state"])
         self.assertNotIn("nothing supervises", payload["view"]["summary"]["sentence"])
+
+    def test_a_closed_failed_attempt_its_live_controller_is_reconciling_shows_continuation(self):
+        payload = self.render(controller=self.CONTROLLER_RUNNING, finished=False, closed=True)
+        self.assertFalse(payload["active_stage_finished"], "The report is not accepted or complete")
+        self.assertFalse(payload["stale"])
+        self.assertTrue(payload["view"]["progress"]["continuing"])
+        self.assertEqual("working", payload["view"]["summary"]["state"])
+        self.assertIsNone(payload["view"]["needs"])
+        self.assertIsNone(payload["view"]["next_command"])
 
     def test_a_finished_stage_whose_controller_is_gone_is_still_abandoned(self):
         self.assert_abandoned(self.render(controller=self.CONTROLLER_GONE))
