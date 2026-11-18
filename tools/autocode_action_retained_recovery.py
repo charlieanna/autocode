@@ -26,6 +26,7 @@ try:
     from . import autocode_source_scope as source_scope
     from . import autocode_support as support
     from . import autocode_validation_exhaustion_recovery as validation
+    from . import autocode_verification_config as verification_config
 except ImportError:
     import autocode_classification_recovery as classification
     import autocode_contract_identity as contracts
@@ -39,6 +40,7 @@ except ImportError:
     import autocode_source_scope as source_scope
     import autocode_support as support
     import autocode_validation_exhaustion_recovery as validation
+    import autocode_verification_config as verification_config
 
 
 def _wave(runner, state: RunState):
@@ -57,6 +59,12 @@ def settle(runner, args, parser, state: RunState, state_path, run_dir, workspace
         runner.write_json(state_path, state)
         print(state.get("stop_reason") or state.get("next_action"))
         return True, 2  # A recorded outcome launches nothing; the recovery history stays.
+    if verification_config.settle(state, at=runner.now()):
+        # Corrected, the run stops before its Tester with the dropped commands recorded; ended, it records
+        # the outcome. Either way nothing is left for a person to type.
+        runner.write_json(state_path, state)
+        print(state.get("stop_reason") or state.get("next_action"))
+        return True, 2
     if classification.pending(state) and classification.conclude(state, workspace, at=runner.now()):
         runner.write_json(state_path, state)
         print(state.get("stop_reason") or state.get("next_action"))
@@ -162,5 +170,8 @@ OPERATIONS = operations.register(
     ),
     operations.Operation(
         "retained_classification", operations.no_work, operations.no_work, observes=classification.pending
+    ),
+    operations.Operation(
+        "retained_command_correction", operations.no_work, operations.no_work, observes=verification_config.pending
     ),
 )

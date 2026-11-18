@@ -29,7 +29,10 @@ try:
     from . import autocode_progressive_state as progressive_state
     from . import autocode_resolver_recovery as resolver_recovery
     from . import autocode_rework_policy as rework_policy
+    from . import autocode_run_status as run_status
     from . import autocode_source_scope as source_scope
+    from . import autocode_util as util
+    from . import autocode_verification_config as verification_config
 except ImportError:
     import autocode_acceptance_test_repair as acceptance_test_repair
     import autocode_acceptance_tests as acceptance_tests
@@ -41,7 +44,10 @@ except ImportError:
     import autocode_progressive_state as progressive_state
     import autocode_resolver_recovery as resolver_recovery
     import autocode_rework_policy as rework_policy
+    import autocode_run_status as run_status
     import autocode_source_scope as source_scope
+    import autocode_util as util
+    import autocode_verification_config as verification_config
 
 
 def user_request(
@@ -92,6 +98,10 @@ def user_request(
                 evidence["hashes"][record["output"]] = support.file_hash(Path(record["output"]))
                 resolver_recovery.retain_diagnosis(state, record)
             lifecycle.wait_for_user(state, request, origin=origin, evidence=evidence, next_stage="review_completion")
+            if stage == "resolve" and verification_config.settle(state, at=util.now()) == "corrected":
+                # A verification-command correction is AutoCode's to settle, not a person's: the
+                # explicit commands are dropped and the Tester proves the change at once.
+                run_status.running(state, "EXECUTING", next_stage=state["next_stage"])
         goals.record_decision(state, value)
         state.pop("agent_request", None)
         return True

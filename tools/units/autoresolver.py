@@ -343,8 +343,8 @@ def prepare(state: RunState, stage, state_path, schema_dir, *, retry_authorizati
 
 
 # The one correction a Resolver blocker may name: the saved test or regression command is wrong.
-# It only marks the blocker; the Resolver never supplies the commands. The status view then names
-# the existing configure_resume action, where the operator sets them (#2973). Null is listed first: a
+# It only marks the blocker; the Resolver never supplies the commands. AutoCode then drops the saved
+# explicit commands once, or ends the run (autocode_verification_config.settle, #2973). Null is listed first: a
 # scripted provider that fills a missing field with its first enum value means "no correction".
 CORRECTIONS = ("verification_commands",)
 CORRECTION_SCHEMA = {"type": ["string", "null"], "enum": [None, *CORRECTIONS]}

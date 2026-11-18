@@ -22,6 +22,7 @@ try:
     from . import autocode_startup_timeout_view as startup
     from . import autocode_stop as stop
     from . import autocode_validation_exhaustion_recovery as validation
+    from . import autocode_verification_config as verification_config
 except ImportError:
     import autocode_classification_recovery as classification
     import autocode_no_progress_recovery as no_progress
@@ -33,13 +34,14 @@ except ImportError:
     import autocode_startup_timeout_view as startup
     import autocode_stop as stop
     import autocode_validation_exhaustion_recovery as validation
+    import autocode_verification_config as verification_config
 
 receipt = blocked.receipt
 
 
 def presentation(state: RunState, *, include_hold=False):
-    if stop.applied_stop(state) is not None or recovery_exhaustion.pending(state):
-        # A spent recovery allowance is not a block: the next resume records the run's outcome.
+    if stop.applied_stop(state) is not None or recovery_exhaustion.pending(state) or verification_config.pending(state):
+        # A spent recovery allowance or a held command correction is not a block: the next resume settles it.
         return None
     specific = blocked.presentation(state) or startup.presentation(state)
     if specific or not include_hold:

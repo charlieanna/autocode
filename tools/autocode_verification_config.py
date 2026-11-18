@@ -1,4 +1,17 @@
-"""Explicit verification-command repair at a reconciled stopped run boundary."""
+"""Verification-command repair: an operator's explicit change at a stopped boundary, and the
+Resolver's verification-command correction, which AutoCode settles itself.
+
+The Resolver may mark a Completion Owner blocker as a verification-command correction (#2973): the
+saved test or regression command is wrong. The mark never carries a command, since a command from
+model text grants no authority. The run used to stop there and ask a person to type
+``--resume-paused --test-command COMMAND --regression-command COMMAND``, a question about AutoCode's
+own proof (AGENTS.md "What a person is asked"). ``settle`` instead drops the saved explicit commands,
+once per run, so the proof falls back to the commands it selects itself (detection, the plan's
+approved commands, command guards), records the change and its reason as an ``autocode``
+``verification_commands_changed`` event, and sends the run through the Tester before any acceptance.
+When there is no explicit command to drop, the correction was already made, or a report repair still
+holds the old command, the run ends with a recorded outcome (``autocode_stop.end``) instead.
+"""
 
 from __future__ import annotations
 
@@ -11,11 +24,13 @@ if TYPE_CHECKING:
 try:
     from . import autocode_junit as junit
     from . import autocode_run_status as run_status
+    from . import autocode_stop as stop
     from . import autocode_util as util
     from . import autocode_verification_repair as verification_repair
 except ImportError:
     import autocode_junit as junit
     import autocode_run_status as run_status
+    import autocode_stop as stop
     import autocode_util as util
     import autocode_verification_repair as verification_repair
 
@@ -24,6 +39,12 @@ BLOCKER_PROPOSAL: Final = "resolver_human_proposal"
 BLOCKER_REQUEST: Final = "resolver_human_request"
 BLOCKER_STAGES: Final = ("review_completion", "resolve")
 TESTER_STAGES: Final = {"glm_first_v1": "review_checkpoint", "glm_final_audit_v2": "builder"}
+# The saved settings a person or operator chose explicitly; without them the proof selects its own.
+EXPLICIT: Final = ("test_command", "regression_command", "test_report")
+# Attempts that must be reconciled before any command change (configure_resume refuses them too).
+_UNSETTLED: Final = ("active_stage", "uncertain_artifacts", "active_runner_check", "runner_check")
+# What a saved checkpoint shows until its next resume settles the correction.
+NOTICE: Final = "AutoCode will settle the Resolver's verification-command correction itself."
 
 
 def add_arguments(parser):
@@ -105,6 +126,94 @@ def command_correction(state: RunState) -> bool:
     return (proposal.get("origin") or {}).get("stage") == "resolve" and (proposal.get("request") or {}).get(
         "correction"
     ) == "verification_commands"
+
+
+def pending(state: RunState) -> bool:
+    """A held Resolver verification-command correction AutoCode settles itself; nothing in it is for a person."""
+    return command_correction(state) and not any(state.get(key) for key in _UNSETTLED)
+
+
+def _corrected(state: RunState) -> bool:
+    return any(
+        isinstance(event, dict)
+        and event.get("kind") == "verification_commands_changed"
+        and event.get("actor") == "autocode"
+        for event in state.get("user_events") or []
+    )
+
+
+def settle(state: RunState, *, at: str) -> str | None:
+    """Settle a held verification-command correction: "corrected", "ended", or None when none is held.
+
+    Corrected, the run is paused for its Tester with the explicit commands dropped; the caller decides
+    whether to continue at once (the live loop) or at the next resume (a saved checkpoint).
+    """
+    if not pending(state):
+        return None
+    proposal, entry = cast(tuple, blocker_hold(state))
+    settings = state.setdefault("settings", {})
+    previous = dict(settings.get("regression") or {})
+    explicit = {key: previous[key] for key in EXPLICIT if previous.get(key) is not None}
+    request = proposal.get("request") or {}
+    cause = (
+        "already_corrected"
+        if _corrected(state)
+        else "no_explicit_command"
+        if not explicit
+        else "report_repair_pending"
+        if state.get("pending_report_repair")
+        else None
+    )
+    if cause is None:
+        reason = (
+            "The Resolver found the saved verification command wrong, so AutoCode dropped the explicit "
+            "command and the proof reruns with the commands it selects itself, before any acceptance"
+        )
+        paused = _retire_blocker(state, proposal, entry, reason)
+        settings["regression"] = {key: value for key, value in previous.items() if key not in EXPLICIT}
+        state.setdefault("user_events", []).append(
+            {
+                "kind": "verification_commands_changed",
+                "actor": "autocode",
+                "at": at,
+                "reason": reason,
+                "diagnosis": request.get("impact"),
+                "previous": explicit,
+                "current": dict.fromkeys(explicit),
+            }
+        )
+        mode = (settings.get("workflow") or {}).get("mode")
+        run_status.pause(
+            state,
+            paused,
+            "AutoCode replaced the saved verification commands with the ones it selects itself; "
+            "the Tester proves the change next",
+            next_stage=TESTER_STAGES.get(cast(str, mode), "tester"),
+        )
+        return "corrected"
+    why = {
+        "already_corrected": "AutoCode already replaced the saved commands once in this run",
+        "no_explicit_command": "the saved commands are already the ones AutoCode selects itself",
+        "report_repair_pending": "a report repair still holds the old command's evidence",
+    }[cause]
+    paused = _retire_blocker(state, proposal, entry, f"The verification-command correction could not be applied: {why}")
+    stop.end(
+        state,
+        f"The Resolver found the verification commands unable to prove this change, and {why}",
+        {
+            "pause_status": paused,
+            "cause": cause,
+            "regression": {key: previous.get(key) for key in EXPLICIT},
+            "resolver_request": copy.deepcopy(request),
+            "corrections": [
+                copy.deepcopy(event)
+                for event in state.get("user_events") or []
+                if isinstance(event, dict) and event.get("kind") == "verification_commands_changed"
+            ],
+        },
+        at=at,
+    )
+    return "ended"
 
 
 def _retire_blocker(state: RunState, proposal, entry, reason: str) -> str:
