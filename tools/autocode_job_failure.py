@@ -563,7 +563,7 @@ def conclude(state: RunState, *, cause: str | None = None) -> bool:
         state,
         f"The {job} stopped and {why}: {failure['reason']}",
         {
-            "pause_status": "PAUSED_JOB_FAILURE",
+            "pause_status": state.get("status") or "PAUSED_JOB_FAILURE",
             "cause": cause,
             "stage": failure["stage"],
             "attempt_id": failure.get("attempt_id"),

@@ -111,11 +111,12 @@ KIND_STATES = {
         "settings": {},
     },
     "recover_source": {
-        # Only a person's own abandonment keeps it: a failed job with no source ends (autocode_job_end).
-        "status": "PAUSED_STAGE_ABANDONED",
+        # Only an investigation's own job keeps it: every other job pause with no source ends (autocode_job_end).
+        "status": "PAUSED_JOB_FAILURE",
+        "stuck_investigation": {"identity": "fixture"},
         "job_failure": {
             "reason": "stage failed without source",
-            "stage": "answer_question",
+            "stage": "investigate_stuck",
             "attempt_id": "001/answer_question-01",
             "job_retry_token": "job-token",
             "archive": "/tmp/archive",

@@ -246,7 +246,23 @@ test('a CLI call that never exits times out instead of hanging the caller foreve
   const started = Date.now();
   await assert.rejects(
     cli.stream({ command: 'sleep', prefix: [] }, ['30'], {}, undefined, 50, 120),
-    (error) => error instanceof cli.ActionDeadlineExceeded && /timed out after 120ms/.test(error.message),
+    (error) => error instanceof cli.ActionDeadlineExceeded && /did not finish within 1s/.test(error.message),
+  );
+  assert.ok(Date.now() - started < 5000, 'the timeout bound is what ends the call, not the sleep');
+});
+
+test('a timed-out action names its deadline to a person, never the command and its flags', async () => {
+  const error = new cli.ActionDeadlineExceeded(60000, '/private/autocode', ['stages', 'list', '--json']);
+  assert.equal(error.message, 'AutoCode did not finish within 1 minute and was stopped, so its result is unknown.');
+  assert.deepEqual(error.args, ['stages', 'list', '--json']);
+  for (const [ms, shown] of [[120, '1s'], [30000, '30s'], [90000, '90s'], [180000, '3 minutes']]) {
+    assert.match(new cli.ActionDeadlineExceeded(ms, 'x', ['--flag']).message, new RegExp(`within ${shown} `));
+    assert.doesNotMatch(new cli.ActionDeadlineExceeded(ms, 'x', ['--flag']).message, /--flag|\bx\b/);
+  }
+  const started = Date.now();
+  await assert.rejects(
+    cli.stream({ command: 'sleep', prefix: [] }, ['30'], {}, undefined, 50, 120),
+    (thrown) => thrown instanceof cli.ActionDeadlineExceeded && !/sleep|30/.test(thrown.message),
   );
   assert.ok(Date.now() - started < 5000, 'the timeout bound is what ends the call, not the sleep');
 });

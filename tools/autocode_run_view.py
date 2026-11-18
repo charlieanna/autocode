@@ -1335,7 +1335,8 @@ def needs(state: RunState, *, stale_report_repair=False, human_projection=None) 
                                                      TOKEN first names another model and issues a new token
                                                      (after a refusal, `action` is that answer until a
                                                      model is named)
-    recover_source missing original identity       inspect archive and source before a new run
+    recover_source an investigation's own job    inspect archive and source before a new run;
+                   missing original identity       every other job pause without it ends at resume
                                                      (a run saved at a stage this runtime no longer
                                                      runs is a `resume` with `new_run_required`)
     dependency    another run's accepted delivery   autocode wait --run-dir PRODUCER — returns when the

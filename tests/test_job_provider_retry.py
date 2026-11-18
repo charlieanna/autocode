@@ -141,9 +141,21 @@ class EndPolicyTests(unittest.TestCase):
 
     def test_a_denial_and_a_missing_source_end_at_once(self):
         self.assertEqual("external_directory", job_end.end_cause(self.state(kind="external_directory")))
-        for kind in ("exit", "timeout", "quota"):
+        for kind in ("exit", "timeout", "quota", "person"):
             with self.subTest(kind=kind):
                 self.assertEqual("no_source_identity", job_end.end_cause(self.state(kind=kind, source_identity=None)))
+
+    def test_a_missing_source_ends_whoever_stopped_the_job_and_whatever_it_asks(self):
+        # No retry of an attempt without its original source identity can be checked, so a person's
+        # abandonment, a model question or unrestored files leave nothing to decide either.
+        for state in (
+            dict(self.state(source_identity=None), status="PAUSED_STAGE_ABANDONED"),
+            self.state(kind="quota", route={"question_id": "route-architect"}, source_identity=None),
+            self.state(unrestored=["calc.py"], source_identity=None),
+        ):
+            with self.subTest(status=state["status"], failure=state["job_failure"]):
+                self.assertEqual("no_source_identity", job_end.end_cause(state))
+                self.assertTrue(job_end.pending(state))
 
     def test_what_a_person_decides_stays_with_the_person(self):
         for state in (

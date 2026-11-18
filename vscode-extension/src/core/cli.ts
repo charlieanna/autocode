@@ -37,12 +37,22 @@ export function invoke(options: CliOptions, args: string[], env: Record<string, 
   return stream(options, args, env, undefined, EXIT_GRACE_MS, timeoutMs);
 }
 
-/** A mutating CLI action exceeded its deadline and was stopped; its result is unknown. */
+/**
+ * A mutating CLI action exceeded its deadline and was stopped; its result is unknown.
+ *
+ * Its message is shown to a person as it is (the Stage Models panel, a chat's error line), so it
+ * names the deadline only. The command it stopped stays on the error for logs, never in the text.
+ */
 export class ActionDeadlineExceeded extends Error {
-  constructor(timeoutMs: number, file: string, args: string[]) {
-    super(`autocode timed out after ${timeoutMs}ms: ${file} ${args.join(" ")}`);
+  constructor(readonly timeoutMs: number, readonly file: string, readonly args: string[]) {
+    super(`AutoCode did not finish within ${formatDeadline(timeoutMs)} and was stopped, so its result is unknown.`);
     this.name = "ActionDeadlineExceeded";
   }
+}
+
+function formatDeadline(timeoutMs: number): string {
+  const seconds = Math.max(1, Math.round(timeoutMs / 1000));
+  return seconds < 60 || seconds % 60 ? `${seconds}s` : `${seconds / 60} minute${seconds === 60 ? "" : "s"}`;
 }
 
 /** A read's UI deadline passed; its configured CLI has not yet been collected. */

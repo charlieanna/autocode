@@ -151,7 +151,7 @@ test('no stdout or stderr callback leaks after timeout or successful settlement'
   const rows = children(t); const output = [];
   const failed = cli.stream(options, ['--status'], {}, (chunk) => output.push(chunk), 2000, 100).catch((error) => error);
   t.mock.timers.tick(100); await flush();
-  assert.match((await failed).message, /timed out/);
+  assert.match((await failed).message, /did not finish within/);
   rows[0].stdout.emit('data', Buffer.from('late stdout'));
   rows[0].stderr.emit('data', Buffer.from('late stderr'));
   rows[0].emit('error', new Error('late error'));

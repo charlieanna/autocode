@@ -67,6 +67,18 @@ test("pauseLabel only describes a stopped run, not an approval checkpoint", () =
   );
 });
 
+test("needsSummary keeps flags out of a planning-budget reason an older core sends without needs_you", () => {
+  const reason = "Planning review reached its limit of 4 calls. Run --planning-review-call-limit 6 to allow more.";
+  assert.equal(
+    needsSummary({ status: "PAUSED_PLAN_REVIEW_LIMIT", done: false, needs: { kind: "planning_budget", reason } }),
+    "a decision on more plan-review calls: Planning review reached its limit of 4 calls.",
+  );
+  assert.equal(
+    needsSummary({ status: "PAUSED_PLAN_REVIEW_LIMIT", done: false, needs: { kind: "planning_budget", reason: "Use --feedback TEXT." } }),
+    "a decision on more plan-review calls",
+  );
+});
+
 test("needsSummary says what the run waits for, in the view's own words where it has them", () => {
   assert.equal(
     needsSummary({ status: "S", done: false, progress: { needs_you: "plan approval needed" }, needs: { kind: "approve_plan" } }),

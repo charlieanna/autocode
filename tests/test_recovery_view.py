@@ -410,23 +410,6 @@ class RecoveryViewTests(unittest.TestCase):
                 ),
             ),
             ("approve_plan", self.state("AWAITING_GOAL_APPROVAL", active_stage=active, displayed_goal="r1:approved")),
-            (
-                "recover_source",
-                self.state(
-                    "PAUSED_STAGE_ABANDONED",
-                    active_stage=active,
-                    job_failure={
-                        "reason": "Source identity unavailable",
-                        "stage": "investigate_bug",
-                        "attempt_id": "004/builder-02",
-                        "job_retry_token": "old-token",
-                        "archive": "/run/archive",
-                        "source_identity": None,
-                        "write_diagnosis": {},
-                        "unrestored": ["original source capture"],
-                    },
-                ),
-            ),
         ]
         for kind, state in cases:
             with self.subTest(kind=kind):
@@ -669,35 +652,34 @@ class RecoveryViewTests(unittest.TestCase):
         for card in (self.card(resolver_wrote), held):
             self.assertNotIn("accept_source_edit", [row["kind"] for row in card["actions"]])
 
-    def test_missing_job_source_is_closed_by_the_core_but_personal_abandonment_still_offers_inspection(self):
+    def test_missing_job_source_is_closed_by_the_core_for_a_failure_and_an_abandonment(self):
+        # Without the original source identity no retry can be checked, whoever stopped the job:
+        # the next plain resume records the run's end instead of asking a person to inspect.
         for status in ("PAUSED_JOB_FAILURE", "PAUSED_STAGE_ABANDONED"):
-            with self.subTest(status=status):
-                state = self.state(
-                    status,
-                    next_stage="check_design",
-                    job_failure={
-                        "reason": "Provider stopped",
-                        "stage": "check_design",
-                        "attempt_id": "001/design-check-01",
-                        "job_retry_token": "old",
-                        "archive": "/run/archive",
-                        "source_identity": None,
-                        "write_diagnosis": {"unrestored": ["original source capture"]},
-                        "unrestored": ["original source capture"],
-                    },
-                )
-                before = copy.deepcopy(state)
-                view = run_view.view(state)
-                card = view["recovery"]
-                self.assertEqual(["inspect", "feedback"], [row["kind"] for row in card["actions"]])
-                if status == "PAUSED_JOB_FAILURE":
-                    self.assertEqual("continue", view["needs"]["kind"])
-                    self.assertEqual("--resume-paused", view["needs"]["action"])
+            for kind in ("exit", "person", "quota"):
+                with self.subTest(status=status, kind=kind):
+                    state = self.state(
+                        status,
+                        next_stage="check_design",
+                        job_failure={
+                            "reason": "Provider stopped",
+                            "kind": kind,
+                            "stage": "check_design",
+                            "attempt_id": "001/design-check-01",
+                            "job_retry_token": "old",
+                            "archive": "/run/archive",
+                            "source_identity": None,
+                            "write_diagnosis": {"unrestored": ["original source capture"]},
+                            "unrestored": ["original source capture"],
+                        },
+                    )
+                    before = copy.deepcopy(state)
+                    view = run_view.view(state)
+                    card = view["recovery"]
+                    self.assertEqual(["inspect", "feedback"], [row["kind"] for row in card["actions"]])
+                    self.assertEqual({"kind": "continue", "action": "--resume-paused"}, view["needs"])
                     self.assertNotIn("--retry-failed-stage", view["next_command"])
-                else:
-                    self.assertEqual("recover_source", view["needs"]["kind"])
-                    self.assertIn("original source identity", card["saved_reason"])
-                self.assertEqual(before, state)
+                    self.assertEqual(before, state)
 
 
 class AuthenticationStopTests(unittest.TestCase):
