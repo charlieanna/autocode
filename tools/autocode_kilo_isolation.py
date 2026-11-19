@@ -321,10 +321,10 @@ def _freeze_stage_files(target, environment, pins, *, journal, runtime_root=None
     )
 
 
-def _verification_protected_paths(boundary):
-    """Carry the original authenticated copy's literal input denials."""
+def _verification_manifest(boundary):
+    """The boundary's authenticated verification copy as (tree, manifest value), or None without one."""
     if "verification_copy" not in boundary:
-        return []
+        return None
     manifest = Path(boundary["verification_copy"])
     control = Path(boundary["profile"]).resolve().parent
     _require(
@@ -343,7 +343,6 @@ def _verification_protected_paths(boundary):
         and isinstance(value.get("directories"), list),
         "verification copy input layout changed",
     )
-    protected = [tree]
     for name in [*value["files"], *value["directories"]]:
         relative = Path(name)
         _require(
@@ -354,8 +353,52 @@ def _verification_protected_paths(boundary):
             and relative.as_posix() == name,
             "verification copy protected path changed",
         )
-        protected.append(tree / relative)
-    return sorted({str(containment._protected_path(path)) for path in protected})
+    return tree, value
+
+
+def _verification_protected_paths(boundary):
+    """The copy's paths a policy must name one by one: its root alone when the copy is sealed."""
+    copy = _verification_manifest(boundary)
+    if copy is None:
+        return []
+    tree, value = copy
+    names = [] if value.get("seal") is not None else [*value["files"], *value["directories"]]
+    return sorted({str(containment._protected_path(path)) for path in (tree, *(tree / name for name in names))})
+
+
+def _verification_denials(boundary):
+    """The exact Seatbelt lines that keep this boundary's verification inputs from being written.
+
+    A sealed copy (autocode_verification_copy.SEAL) takes its root's name and the one rule over its
+    marks, whatever its size; an unsealed one takes a literal for every path.
+    """
+    copy = _verification_manifest(boundary)
+    if copy is None:
+        return []
+    tree, value = copy
+    lines = [
+        "(deny file-write* (literal " + json.dumps(path, ensure_ascii=False) + "))"
+        for path in _verification_protected_paths(boundary)
+    ]
+    if value.get("seal") is not None:
+        try:
+            from . import autocode_verification_copy as copies
+        except ImportError:
+            import autocode_verification_copy as copies
+        _require(value["seal"] == copies.SEAL, "verification copy seal changed")
+        lines.append(containment.sealed_rule(tree))
+    return lines
+
+
+def _verification_inputs_denied(policy, boundary):
+    """Whether this Seatbelt policy text still denies writes to the boundary's verification inputs.
+
+    Seatbelt takes the last matching rule, so only a denial after the last write grant holds.
+    """
+    lines = policy.splitlines()
+    grants = [index for index, line in enumerate(lines) if line.startswith("(allow file-write")]
+    effective = set(lines[max(grants, default=-1) + 1 :])
+    return all(line in effective for line in _verification_denials(boundary))
 
 
 def whole_client_policy(
@@ -375,7 +418,7 @@ def whole_client_policy(
         root,
         target,
         read_roots=[*request["read_roots"], target, control],
-        protected_paths=[*request["protected_paths"], *_verification_protected_paths(boundary)],
+        protected_paths=request["protected_paths"],
         write_roots=(),
     )
     # The shell control and native client are siblings. Their exact read
@@ -395,6 +438,9 @@ def whole_client_policy(
     # The actual Bash child inherits this profile. Both Kilo runtime data and
     # tool writes live below the one original tool scratch.
     text += "(allow file-write* (subpath " + json.dumps(str(scratch)) + "))\n"
+    # Seatbelt takes the last matching rule, and the verification copy lives in that scratch. Its
+    # denials follow the grant: written before it, they were undone by it.
+    text += "".join(line + "\n" for line in _verification_denials(boundary))
     text += "(deny network-outbound (with errno EACCES) (remote tcp))\n"
     text += "(allow network-outbound (remote unix-socket (path-literal " + json.dumps(str(socket_path)) + ")))\n"
     if os_readonly_inputs:
@@ -1513,12 +1559,8 @@ def verify_boundary(boundary):
                 "installed Kilo profile omitted protected verification inputs",
             )
         else:
-            policy = Path(boundary["client_profile"]).read_text()
             _require(
-                all(
-                    "(deny file-write* (literal " + json.dumps(path, ensure_ascii=False) + "))" in policy
-                    for path in _verification_protected_paths(boundary)
-                ),
+                _verification_inputs_denied(Path(boundary["client_profile"]).read_text(), boundary),
                 "installed Kilo profile omitted protected verification inputs",
             )
         try:

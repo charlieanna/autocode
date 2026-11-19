@@ -70,6 +70,32 @@ class PolicyTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 containment.policy("/workspace", "/workspace/.autocode/stage/scratch", read_roots=[root])
 
+    def test_a_sealed_verification_copy_takes_one_rule_after_every_write_grant(self):
+        # #3812: one rule over the copy's marks, where every copied path had a literal of its own.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            scratch = root / ".autocode/tool-containment-stage/scratch"
+            tree = scratch / "verification"
+            tree.mkdir(parents=True)
+            rule = f'(deny file-write* (require-all (subpath "{tree}") (file-mode #o1000)))'
+            self.assertEqual(rule, containment.sealed_rule(tree))
+            ordinary = containment._render_policy(root, scratch, protected_paths=[tree]).splitlines()
+            lines = containment._render_policy(root, scratch, protected_paths=[tree], sealed_trees=[tree]).splitlines()
+            self.assertEqual(ordinary, [line for line in lines if line != rule])
+            self.assertEqual(1, lines.count(rule))
+            # Seatbelt takes the last matching rule: the denial follows every grant of writes.
+            grants = [index for index, line in enumerate(lines) if line.startswith("(allow file-write")]
+            self.assertGreater(lines.index(rule), max(grants))
+            # A planning shell has a copy too, and its profile is parsed again before launch (#1250):
+            # without the rule's words in that vocabulary every planning stage would pause.
+            (root / ".autocode/runs/own/planning").mkdir(parents=True)
+            reads = containment.private_run_reads(root, root / ".autocode/runs/own")
+            planning = containment._render_policy(
+                root, scratch, protected_paths=[tree], private_reads=reads, sealed_trees=[tree]
+            )
+            self.assertIn(rule, planning.splitlines())
+            self.assertTrue(containment._enforces_private_reads(containment.SEATBELT, planning.encode(), reads))
+
     def test_planning_profile_denies_the_run_store_after_every_read_allowance(self):
         # #1250: a readonly planning shell reads no run's private state, only its own planning/ artifacts.
         with tempfile.TemporaryDirectory() as directory:
@@ -1774,6 +1800,79 @@ class KernelTests(unittest.TestCase):
                 self.assert_denied(command)
         self.assertFalse(escape.exists())
         self.assertEqual(self.before, {p: hashlib.sha256(p.read_bytes()).hexdigest() for p in self.before})
+
+    def commit_workspace(self):
+        git = ["/usr/bin/git", "-C", str(self.workspace), "-c", "user.name=T", "-c", "user.email=t@example.invalid"]
+        if not (self.workspace / ".git").exists():
+            subprocess.run([*git, "init", "-q"], check=True)
+        subprocess.run([*git, "add", "--", "source.py", "pkg"], check=True)
+        subprocess.run([*git, "commit", "-qm", "fixture"], check=True)
+
+    def test_a_readers_verification_copy_cannot_be_changed_and_its_policy_does_not_grow(self):
+        # #3812: the copy's protection is one rule (Seatbelt) or one mount (bubblewrap) whatever its
+        # size. One rule per copied path took a contained shell ten seconds to start for 2,000 files
+        # and could not be compiled at all for 6,700.
+        package = self.workspace / "pkg"
+        package.mkdir()
+        (package / "module.py").write_text("NAME = 1\n")
+        (package / "alias.py").symlink_to("module.py")
+        self.commit_workspace()
+        arguments = {"read_roots": self.roots, "environment": self.env, "verification_copy": True}
+        reader = containment.prepare(self.workspace, **arguments)
+        tree = Path(reader["scratch"]) / "verification"
+        module, alias, new = tree / "pkg/module.py", tree / "pkg/alias.py", tree / "pkg/new.py"
+        quoted = shlex.quote
+        self.assertEqual("NAME = 1\n", self.run_shell("cat " + quoted(str(module)), reader).stdout)
+        for command in (
+            "echo changed >> " + quoted(str(module)),
+            ": > " + quoted(str(module)),
+            "mv " + quoted(str(module)) + " " + quoted(str(tree / "pkg/moved.py")),
+            "mv " + quoted(str(tree / "pkg")) + " " + quoted(str(tree / "moved")),
+            "mv " + quoted(str(alias)) + " " + quoted(str(tree / "pkg/moved-alias.py")),
+            "chmod 600 " + quoted(str(module)),
+            "echo other > "
+            + quoted(reader["scratch"] + "/other")
+            + " && mv "
+            + quoted(reader["scratch"] + "/other")
+            + " "
+            + quoted(str(module)),
+        ):
+            with self.subTest(command=command):
+                self.assert_denied(command, reader)
+        # The copy's own name: a rule on Seatbelt, a mount point (busy, not read-only) on bubblewrap.
+        moved = self.run_shell("mv " + quoted(str(tree)) + " " + quoted(reader["scratch"] + "/moved"), reader)
+        self.assertNotEqual(0, moved.returncode, moved.stdout)
+        self.assertTrue(tree.is_dir())
+        self.assertEqual("NAME = 1\n", module.read_text())
+        self.assertEqual("module.py", os.readlink(alias))
+        self.assertEqual(0, self.run_shell(": > " + quoted(reader["scratch"] + "/note"), reader).returncode)
+        if NATIVE == containment.SEATBELT:
+            # A check may make, change and move its own build outputs beside the sources.
+            for command in (
+                "echo built > " + quoted(str(new)),
+                "echo more >> " + quoted(str(new)),
+                "mv " + quoted(str(new)) + " " + quoted(str(tree / "pkg/renamed.py")),
+                "mkdir " + quoted(str(tree / "build")),
+            ):
+                with self.subTest(command=command):
+                    self.assertEqual(0, self.run_shell(command, reader).returncode)
+        else:
+            # The whole copy is one read-only mount.
+            self.assert_denied(": > " + quoted(str(new)), reader)
+        import autocode_verification_copy as copies
+
+        copies.execution(reader["verification_copy"], reader["verification_copy_sha256"], self.workspace)
+        # Sixty more sources: the same number of rules (or mounts), and no line naming a copied path.
+        for index in range(60):
+            (package / f"extra_{index}.py").write_text(f"EXTRA = {index}\n")
+        self.commit_workspace()
+        larger = containment.prepare(self.workspace, **arguments)
+        separator = b"\n" if NATIVE == containment.SEATBELT else b"\0"
+        small, large = (Path(b["profile"]).read_bytes().split(separator) for b in (reader, larger))
+        self.assertEqual(len(small), len(large))
+        self.assertTrue((Path(larger["scratch"]) / "verification/pkg/extra_59.py").is_file())
+        self.assertEqual([], [part for part in large if b"extra_" in part])
+        self.assert_denied(": > " + quoted(str(Path(larger["scratch"]) / "verification/pkg/extra_59.py")), larger)
 
     def test_status_view_names_the_boundary_recorded_for_a_contained_launch(self):
         # #709: a real launch's boundary blocks a planted write outside the workspace, and the status
