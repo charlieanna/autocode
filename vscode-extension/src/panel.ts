@@ -467,6 +467,11 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
     } catch (error) {
       gap = error instanceof ClientGap ? error.message : messageOf(error);
     }
+    // A plan-only run names its approval for what it does ("Accept plan"): the same action, never another one.
+    if (need?.kind === "approve_plan" && typeof need.label === "string" && need.label) {
+      actionLabel = need.label;
+      actionEffect = typeof need.effect === "string" ? need.effect : null;
+    }
   }
   const boundRaise = view.done || stopped ? null : controller.boundRaise(view, run);
   const jobTimeControls = view.done ? [] : controller.jobTimeControls(view, run);
@@ -1919,7 +1924,7 @@ function render(state) {
       if (state.boundRaise) renderBoundRaise(cardContent, state);
 
       var approving = state.needKind === 'approve_plan';
-      var label = (state.taking || state.working) ? 'Working…' : (approving ? 'Approve and build'
+      var label = (state.taking || state.working) ? 'Working…' : (approving ? (state.actionLabel || 'Approve and build')
         : (state.needKind === 'review' ? 'Accept the reviewed criteria' : (state.decisions.some((row) => row.kind === 'integer') ? state.numericActionLabel : (state.decisions.length ? 'Send answers and continue' : state.actionLabel || 'Continue'))));
       if (state.actionEffect) cardContent.appendChild(el('div', 'why', state.actionEffect));
       const take = el('button', null, label);
@@ -2045,7 +2050,7 @@ function render(state) {
 
     const actions = el('div', 'actions');
     var approving = state.needKind === 'approve_plan';
-    var label = (state.taking || state.working) ? 'Working…' : (approving ? 'Approve this plan'
+    var label = (state.taking || state.working) ? 'Working…' : (approving ? (state.actionLabel || 'Approve this plan')
       : (state.needKind === 'review' ? 'Accept the reviewed criteria' : (state.decisions.some((row) => row.kind === 'integer') ? state.numericActionLabel : state.actionLabel || 'Take the named action')));
     if (state.actionEffect) actions.appendChild(el('div', 'why', state.actionEffect));
     const take = el('button', null, label);

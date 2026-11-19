@@ -36,6 +36,11 @@ export interface Needs {
   job_time_controls?: IntegerCommandInput[];
   /** False only when the core offers a clean requested-pause resume; the person still clicks Resume. */
   confirmation_required?: boolean;
+  /** A plan-only run's approval: the same `--approve-goal` action, which accepts the plan and builds nothing. */
+  plan_only?: boolean;
+  /** The core's own words for the named action, such as "Accept plan" for a plan-only approval. */
+  label?: string;
+  effect?: string;
 }
 
 /**

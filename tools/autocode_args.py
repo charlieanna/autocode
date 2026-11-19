@@ -35,6 +35,7 @@ try:
     from . import autocode_names as names
     from . import autocode_owned_operations as owned_operations
     from . import autocode_package_scope as package_scope
+    from . import autocode_plan_only as plan_only
     from . import autocode_project_config as project_config
     from . import autocode_related_profile as related_profile
     from . import autocode_requirements_triage as requirements_triage
@@ -63,6 +64,7 @@ except ImportError:
     import autocode_names as names
     import autocode_owned_operations as owned_operations
     import autocode_package_scope as package_scope
+    import autocode_plan_only as plan_only
     import autocode_project_config as project_config
     import autocode_related_profile as related_profile
     import autocode_requirements_triage as requirements_triage
@@ -539,6 +541,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         help="With --resume-paused, authorize N more automatic timeout recoveries for a run paused at PAUSED_TIMEOUT_RECOVERY; the recovery history stays intact",
     )
     skip_requirements.add_arguments(parser)
+    plan_only.add_argument(parser)
     parser.add_argument(
         "--plan-review-full",
         action="store_true",

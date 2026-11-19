@@ -3439,7 +3439,7 @@ following the brief. A client shows the label and description and passes the
 chosen mode's `start_args` unchanged when it starts a run; it never builds its
 own list or adds flags to a mode. The flags apply only to the new run: a saved
 run keeps the flow it started with. Listing launches nothing and reads no run.
-Optional `spend_confirmation` is `"planning"` for Full mode: start the Requirements
+Optional `spend_confirmation` is `"planning"` for both listed modes: start the Requirements
 conversation without a spend dialog, then honor the core's review confirmation
 before preparing the plan. Requirements conversation still uses the selected
 model allowance. A mode with `"start"` (none today) can plan immediately, so a
@@ -3449,19 +3449,37 @@ launch for older cores.
 | Mode | Start flags | What it changes |
 | --- | --- | --- |
 | `full` (default) | `--joint-planning --spec-first` | Requirements talks with the person and confirms what it understood before the plan is prepared ([Spec-first runs](spec-first.md)). |
+| `plan` | `--joint-planning --spec-first --plan-only` | The same Requirements conversation, Planner and Plan Reviewer, then the run ends at the accepted plan: the Builder, the Tester and the Completion Reviewer never run and nothing is changed ([Plan-only runs](#plan-only-runs)). |
 
 Every chat starts with the Requirements conversation (owner decision,
-2026-10-22), so `full` is the only mode listed. The `quick` mode
+2026-10-22). The `quick` mode
 (`--joint-planning --no-spec-first --adaptive-planning`), which let a clear
 request skip Requirements, was removed; the `--adaptive-planning` flag itself
 remains. A client still reads the list rather than assuming one mode, and a
 choice it saved that the list no longer names, such as `quick`, starts the
 default instead of failing.
 
-Every mode keeps the plan approval, the Tester and the Completion Reviewer: a
-mode changes how much planning happens before approval, never what counts as
-done. A CLI without `modes` (exit 2 with a usage error) offers no choice; a
+Every mode keeps the plan approval and the Plan Reviewer, and a mode that builds
+keeps the Tester and the Completion Reviewer: a mode changes how much planning
+happens before approval, or whether the approved plan is built, never what counts
+as done. A CLI without `modes` (exit 2 with a usage error) offers no choice; a
 client then starts the full flow.
+
+### Plan-only runs
+
+A run started with `--plan-only` plans and reviews, then stops. The reviewed plan is
+shown with the usual approval, `needs.kind` `approve_plan` bound to the displayed
+token, which also carries `plan_only: true`, `label` ("Accept plan") and `effect`.
+A client shows that label in place of its own approval wording and takes the same
+named `--approve-goal` action. Taking it accepts the plan: the run ends
+`TASK_COMPLETE` with `done` true, `progress.headline` "Plan accepted" and the plan
+as `approved_contract`, and `stage_decisions` lists the Builder, the Tester and the
+Completion Reviewer as skipped. Launching the run again builds nothing. Feedback
+before acceptance revises the plan as in any run, and a follow-up on the accepted
+plan is planned and reviewed again under the same choice. `autocode plan --export`
+writes the accepted plan as a file to review or share. The flag needs joint
+planning, cannot be combined with `--skip-to-build`, and is chosen when the run
+starts; a saved run keeps its choice.
 
 ### Automatic routes for new runs
 

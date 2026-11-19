@@ -26,11 +26,13 @@ if TYPE_CHECKING:
 try:
     from . import autocode_attempt_ledger as attempt_ledger
     from . import autocode_person_text as person_text
+    from . import autocode_plan_only as plan_only
     from . import autocode_run_status as run_status
     from . import autocode_stage_activity as stage_activity
 except ImportError:
     import autocode_attempt_ledger as attempt_ledger
     import autocode_person_text as person_text
+    import autocode_plan_only as plan_only
     import autocode_run_status as run_status
     import autocode_stage_activity as stage_activity
 
@@ -134,7 +136,7 @@ def progress(
         headline = internal_failure["title"]
         asked = "nothing needed from you"
     elif done:
-        headline = "Complete"
+        headline = plan_only.ACCEPTED_HEADLINE if plan_only.owns(state) else "Complete"
     elif status == "PAUSED_INTERVENTION" and str(state.get("stop_reason") or "").startswith(run_status.ENDED_PREFIX):
         headline, stage = ENDED, None
         asked = "nothing needed from you"

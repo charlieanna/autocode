@@ -41,6 +41,7 @@ try:
     from . import autocode_output_policy as output_policy
     from . import autocode_pause_authority as pause_authority
     from . import autocode_pause_command as pause_command
+    from . import autocode_plan_only as plan_only
     from . import autocode_planner_routes as planner_routes
     from . import autocode_planning_calls as planning_calls
     from . import autocode_quota_route as quota_route
@@ -78,6 +79,7 @@ except ImportError:
     import autocode_output_policy as output_policy
     import autocode_pause_authority as pause_authority
     import autocode_pause_command as pause_command
+    import autocode_plan_only as plan_only
     import autocode_planner_routes as planner_routes
     import autocode_planning_calls as planning_calls
     import autocode_providers
@@ -499,6 +501,8 @@ def _refuse_new_run_flags(args, state: RunState, *, started, single_model):
         )
     if started and requirements_review.resume_refused(state.get("settings") or {}, getattr(args, "spec_first", None)):
         raise ValueError("--spec-first is a new-run policy; a saved run keeps its planning flow")
+    if started and plan_only.resume_refused(state.get("settings") or {}, args):
+        raise ValueError(f"{plan_only.FLAG} is chosen when a run starts; a saved run keeps its choice")
 
 
 def _new_run_policy_settings(settings, args, joint: bool, v2: bool, *, task: str | None) -> None:
@@ -508,6 +512,8 @@ def _new_run_policy_settings(settings, args, joint: bool, v2: bool, *, task: str
         settings["auto_select_disabled"] = True
     if requirements_review.new_run_setting(getattr(args, "spec_first", None), joint, v2):
         settings[requirements_review.SETTING] = True
+    if plan_only.new_run_setting(args, joint):
+        settings[plan_only.SETTING] = True
     settings[requirements_triage.SETTING] = requirements_triage.new_run_setting(
         getattr(args, "requirements_triage", None), joint, v2, task=task
     )

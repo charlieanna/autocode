@@ -1472,8 +1472,8 @@ def accept_completion(state: RunState, workspace: Path, *, run_dir=None) -> None
 
 
 def recheck_completion(state: RunState, workspace, *, run_dir=None):
-    if state.get("status") != "TASK_COMPLETE":
-        return
+    if state.get("status") != "TASK_COMPLETE" or jobs.built_nothing(state):
+        return  # an answered discussion or an accepted plan has no built code whose evidence can go stale
     changed_inputs = None
     try:
         launch_inputs.guard(state, workspace, run_dir)

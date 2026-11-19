@@ -11,6 +11,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- **Plan only, a run mode that plans and stops**: pick "Plan only" for a new chat (or start a run with `--plan-only`) to use AutoCode just for planning. Requirements, the Planner and the Plan Reviewer run as usual; the reviewed plan's approval button says "Accept plan", and taking it ends the chat with that plan as its result. The Builder, the Tester and the Completion Reviewer never run and nothing is changed. Launching the chat again builds nothing, and an answered discussion no longer pauses as "Completion is no longer current" when it is launched again either.
+
 - **Send now in the VS Code chat**: a message typed while a stage runs was read only after that stage finished, which could be a long Builder, and Stop now plus a message left the run paused for a Resume that said it "runs it again". Beside Send, Send now ends the running step (its partial work and logs are kept, as Stop now keeps them) and Requirements answers the message at once, with no pause. A question returns to the ended step; a change goes back through the plan, so the Builder never acts on the message before a new plan is approved (`intervention submit --kind message --now`, offered as `chat.input.now_command`, #3259).
 
 ### Fixed

@@ -28,14 +28,15 @@ class RunModeListTests(unittest.TestCase):
         listed = self.listed()
         self.assertEqual(1, listed["schema_version"])
         # Every chat starts with Requirements (owner decision 2026-10-22): "quick", which skipped it, is gone.
-        self.assertEqual(["full"], [mode["id"] for mode in listed["modes"]])
+        # "plan" runs the same planning flow and ends at the accepted plan (autocode_plan_only).
+        self.assertEqual(["full", "plan"], [mode["id"] for mode in listed["modes"]])
         self.assertEqual("full", listed["default"])
         for mode in listed["modes"]:
             self.assertEqual({"id", "label", "description", "start_args", "spend_confirmation"}, set(mode))
             self.assertTrue(all(word.startswith("--") for word in mode["start_args"]), mode)
             self.assertNotIn("--no-spec-first", mode["start_args"], "no mode skips the Requirements conversation")
         self.assertEqual(["--joint-planning", "--spec-first"], listed["modes"][0]["start_args"])
-        self.assertEqual(["planning"], [mode["spend_confirmation"] for mode in listed["modes"]])
+        self.assertEqual(["planning", "planning"], [mode["spend_confirmation"] for mode in listed["modes"]])
 
     def test_a_listed_mode_cannot_be_changed_through_the_view(self):
         self.listed()["modes"][0]["start_args"].append("--auto-approve")
@@ -116,6 +117,21 @@ class RunModeCliTests(unittest.TestCase):
             0,
             "The Completion Reviewer still checks the work",
         )
+
+    def test_plan_mode_confirms_requirements_plans_reviews_and_ends_at_the_accepted_plan(self):
+        run, view = self.start("plan")
+        question = view["needs"]["questions"][-1]["id"]
+        self.assertTrue(question.startswith("requirements-review-"), view.get("needs"))
+        run.answer(question, "plan")
+        view = run.advance_until_input()
+        self.assertEqual(("approve_plan", True), (view["needs"]["kind"], view["needs"].get("plan_only")))
+        self.assertGreater(self.count(run, "plan-challenge"), 0, "The Plan Reviewer checks the plan")
+        run.approve_plan(view["needs"]["token"])
+        done = run.advance_until_input()
+        self.assertEqual(("TASK_COMPLETE", "Plan accepted"), (done["status"], done["progress"]["headline"]))
+        self.assertEqual(0, self.count(run, "builder"), "Nothing is built")
+        self.assertEqual(0, self.count(run, "validator"))
+        self.assertFalse((Path(done["workspace"]) / "greet.py").exists())
 
 
 if __name__ == "__main__":

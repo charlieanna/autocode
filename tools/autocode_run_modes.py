@@ -3,14 +3,15 @@
 A run mode is a named set of start flags for a new run. Clients (the VS Code
 extension, the terminal chat, the dashboard) offer these choices and pass the
 chosen mode's ``start_args`` unchanged when they start a run; they never build
-a list of their own. Every mode keeps the plan approval, the Tester and the
-Completion Reviewer: a mode changes how much planning a run does before you
-approve it, never what counts as done. Listing launches nothing and reads no run.
+a list of their own. Every mode keeps the plan approval and the Plan Reviewer;
+a mode that builds also keeps the Tester and the Completion Reviewer. A mode
+never changes what counts as done. Listing launches nothing and reads no run.
 
 Every chat starts with the Requirements conversation (owner decision,
-2026-10-22), so ``full`` is the only mode; the "quick" mode that let a clear
-request skip Requirements is gone. A client still reads the list and must take
-a saved choice the list no longer names as the default.
+2026-10-22); the "quick" mode that let a clear request skip Requirements is
+gone. ``plan`` runs the same planning flow and ends at the accepted plan
+(autocode_plan_only): nothing is built. A client still reads the list and must
+take a saved choice the list no longer names as the default.
 """
 
 from __future__ import annotations
@@ -33,6 +34,16 @@ MODES = (
             "prepared, reviewed and shown to you for approval before anything is built."
         ),
         "start_args": ["--joint-planning", "--spec-first"],
+        "spend_confirmation": "planning",
+    },
+    {
+        "id": "plan",
+        "label": "Plan only",
+        "description": (
+            "The same Requirements conversation, plan and independent plan review, then it stops: accepting the "
+            "reviewed plan ends the chat with the plan as its result. Nothing is built or changed."
+        ),
+        "start_args": ["--joint-planning", "--spec-first", "--plan-only"],
         "spend_confirmation": "planning",
     },
 )
