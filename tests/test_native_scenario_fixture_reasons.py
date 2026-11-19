@@ -263,6 +263,49 @@ class NativeScenarioFixtureReasonTests(unittest.TestCase):
                     with self.subTest(case=case, proof=change):
                         self.assertEqual([], self.judge(root, current, producer))
 
+    def test_a_collected_mutation_check_leaves_reasons_only_for_lines_without_a_mutant(self):
+        # Go and JavaScript have text mutants (#3817): the Tester's reason covers a line the check found no
+        # site on, says so, and is never offered for a line a mutant judged or beside a surviving mutant.
+        with fixture_case("feature-go-first-package") as (root, _, data, producer):
+            proof = data["regression_proof"]
+            pins = {row["path"]: row["sha256"] for row in proof["changed_code_evidence"]["obligations"]}
+            killed = {"line": 11, "outcome": "killed"}
+            proof["mutation_check"] = {
+                "collected": True,
+                "files": [
+                    {"path": "cmd/retention/main.go", "sha256": pins["cmd/retention/main.go"], "mutants": [killed]},
+                    {"path": "policy/policy.go", "sha256": pins["policy/policy.go"], "mutants": []},
+                ],
+            }
+            rows = self.judge(root, data, producer)
+            judged = {row["gap_id"] for row in rows}
+            line_11 = [
+                row["gap_id"]
+                for row in proof["changed_code_evidence"]["obligations"]
+                if (row["path"], row["line"]) == ("cmd/retention/main.go", 11)
+            ]
+            self.assertEqual(len(proof["changed_code_evidence"]["obligations"]) - 1, len(rows))
+            self.assertNotIn(line_11[0], judged)
+            for row in rows:
+                self.assertTrue(row["reason"].startswith("The mutation check has no mutation site "), row["reason"])
+                self.assertNotIn("Native Go mutation is unavailable", row["reason"])
+            for change in (
+                {"files": [{**proof["mutation_check"]["files"][0]}]},
+                {"files": [{**file, "sha256": "0" * 64} for file in proof["mutation_check"]["files"]]},
+                {
+                    "files": [
+                        {**proof["mutation_check"]["files"][0], "mutants": [{**killed, "outcome": "survived"}]},
+                        proof["mutation_check"]["files"][1],
+                    ]
+                },
+                {"survivors": {"C1": [{}]}},
+                {"collected": None},
+            ):
+                current = copy.deepcopy(data)
+                current["regression_proof"]["mutation_check"].update(change)
+                with self.subTest(change=change):
+                    self.assertEqual([], self.judge(root, current, producer))
+
     def test_leaf_and_ancestor_alias_links_and_unreadable_files_are_refused(self):
         for case in CASES:
             with fixture_case(case) as (root, reference, data, producer):

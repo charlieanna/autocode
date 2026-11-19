@@ -21,6 +21,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **Go changes are no longer held for mutants that never ran.** Go answered a mutant's tests from its test cache when a test built and ran the package's own command, so the unmutated pass was reported for each mutant; and a mutant that did not compile stayed `not_run`, so its line could never be shown tested or given a reason. Each Go mutant now runs uncached, a mutant that does not build is left out as no mutation site, and the scripted scenario Tester gives its reasons only to lines with no mutant (#3817 follow-up).
+
 - **Planning no longer asks you to approve a fix to its own plan.** When the plan contradicted itself, or held a test that could not run as written (a nine-byte HTTP/2 PING payload where the protocol takes eight), the Planner or Plan Reviewer asked you whether to correct it, with only one real answer, and an unattended run stopped there. Such a question now names the plan's criteria or milestones it is about, AutoCode records a correction request for the Planner, and you see the corrected plan for approval as usual (#3818).
 
 - **A Go, node:test, Vitest, Jest or Mocha change of ordinary size can finish.** The changed-line mutation check ran only Python tests, so every changed line of such a change needed its own hand-written Tester reason, and the Builder was sent back twice for a gap no change of its could close: one Go run spent three hours and $13 after a passing proof. Those runners' proofs now get mutants of their changed lines, judged by the selected tests, under the same rules as Python. A runner that still has none (Cargo, RSpec and others) sends its lines to the Investigator at once and records why (#3817).

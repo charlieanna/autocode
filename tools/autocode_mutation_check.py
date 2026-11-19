@@ -21,6 +21,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import os
+import shlex
 import tempfile
 import time
 from pathlib import Path
@@ -29,8 +30,10 @@ try:
     from . import autocode_affected_tests as affected_tests
     from . import autocode_command_receipt as command_receipt
     from . import autocode_diff_coverage as diff_coverage
+    from . import autocode_go_tests as go_tests
     from . import autocode_mutants as mutants
     from . import autocode_mutation_results as mutation_results
+    from . import autocode_package_scope as package_scope
     from . import autocode_proof_stability as proof_stability
     from . import autocode_python_tests as python_tests
     from . import autocode_test_cases as test_cases
@@ -39,8 +42,10 @@ except ImportError:
     import autocode_affected_tests as affected_tests
     import autocode_command_receipt as command_receipt
     import autocode_diff_coverage as diff_coverage
+    import autocode_go_tests as go_tests
     import autocode_mutants as mutants
     import autocode_mutation_results as mutation_results
+    import autocode_package_scope as package_scope
     import autocode_proof_stability as proof_stability
     import autocode_python_tests as python_tests
     import autocode_test_cases as test_cases
@@ -117,9 +122,35 @@ def isolated(command, cache) -> str:
     )
 
 
-def _unchanged(command, cache) -> str:
-    """A runner that is not Python keeps its command: the bytecode cache is Python's alone."""
-    return command
+def _uncached(command, cache) -> str:
+    """A runner that is not Python keeps its command, except that Go may not answer from its test cache.
+
+    ``go test`` replays a package's earlier result when the test binary and the files the test opened
+    are unchanged. A test that builds and runs the package's own command (``go build`` in an external
+    ``main_test`` package) links none of the mutated code, so every mutant after the first was answered
+    with the unmutated pass (#3817 follow-up): ``-count=1`` makes each mutant's tests run. A command that
+    already sets a count keeps it, and a command Go's parser does not read is left as it is.
+    """
+    found = package_scope.entered(command)
+    invocation = go_tests.parse(found[1] if found else command)
+    if invocation is None or any(word.partition("=")[0] in ("-count", "-test.count") for word in invocation.arguments):
+        return command
+    uncached = shlex.join([*invocation.prefix, invocation.executable, "test", "-count=1", *invocation.arguments])
+    return package_scope.command(found[0], uncached) if found else uncached
+
+
+def _did_not_build(receipt) -> bool:
+    """True when a package failed to build. The unmutated reference built, so the mutant's edit broke it:
+    the tests of that package never ran, and the other packages' passes say nothing about the edit."""
+    results = (receipt or {}).get("results")
+    if not isinstance(results, dict) or receipt.get("error") or receipt.get("timed_out"):
+        return False
+    broken = results.get("collection_errors")
+    return (
+        isinstance(broken, list)
+        and bool(broken)
+        and all(isinstance(name, str) and name.endswith("::[build failed]") for name in broken)
+    )
 
 
 def judge(receipt, tests) -> tuple[str, list[str]]:
@@ -280,7 +311,7 @@ def _collect(
             unavailable=NO_SELECTION,
         )
     make = mutants.python_mutants if python else text_mutants.text_mutants
-    prepare = isolated if python else _unchanged
+    prepare = isolated if python else _uncached
     suffixes: tuple[str, ...] = (
         (".py", ".pyi")
         if python
@@ -461,6 +492,11 @@ def _collect(
             if not ownership_uncertain:
                 target.write_bytes(source)
                 os.utime(target, ns=(times.st_atime_ns, times.st_mtime_ns))
+        if not python and _did_not_build(receipt):
+            # The text mutator's edit was not a program (Go's "declared and not used" when a dropped call
+            # was a name's only use): no test ran, so the site is not a mutation of the product (#3817).
+            row["notes"].append(f"{row['path']}:{mutant.line}: the {mutant.operator} mutant did not build; not a site")
+            continue
         expected_tests = mutant_tests if enforcement else passed
         judged = receipt if python else mutation_results.selected(receipt, expected_tests)
         outcome, observed = (
