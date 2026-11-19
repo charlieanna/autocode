@@ -11,11 +11,14 @@ import shlex
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 if sys.platform == "linux":
     import fcntl
@@ -34,6 +37,92 @@ from tests.test_taskrun import BRIEF, FIXTURE_OPTIONS
 
 ROOT = Path(__file__).resolve().parents[1]
 CORE = [sys.executable, str(ROOT / "tools" / "autocode.py")]
+
+
+class GateObservationTests(unittest.TestCase):
+    def test_worker_loss_waits_for_a_status_sample_that_includes_the_ready_attempt(self):
+        # The provider can reach its FIFO after --status sampled its checkpoint,
+        # but before the caller tests the ready marker. Exercise the real loss
+        # check with that ordering; no worker or system service is launched.
+        with tempfile.TemporaryDirectory() as tmp:
+            host = PersistentHost("test_worker_loss_after_edits_keeps_source_routes_and_unfinished_verification")
+            host.workspace = Path(tmp)
+            host.env, host.gates, host.evidence = {}, {}, []
+            for name in ("greet.py", "test_greet.py", "README.md"):
+                (host.workspace / name).write_bytes(b"saved source\n")
+
+            def hold(stage):
+                host.gates[stage] = (host.workspace / (stage + "-ready"), host.workspace / (stage + "-gate"))
+
+            before = {
+                "status": "RUNNING",
+                "done": False,
+                "controller": {"kind": "running", "checked": True, "alive": True},
+                "needs": {"kind": "continue"},
+                "execution": {"launch_id": "offline-loss"},
+                "routes": {"tester": "saved-route"},
+                "usage": {"accounting": {"attempts": [{"stage": "builder", "active": False}]}},
+            }
+            held = {
+                **before,
+                "usage": {
+                    "accounting": {
+                        "attempts": [
+                            {"stage": "builder", "active": False},
+                            {"stage": "tester", "active": True},
+                        ]
+                    }
+                },
+            }
+            killed, samples = False, []
+
+            def status():
+                samples.append(True)
+                if killed:
+                    return {**held, "controller": {"kind": "ended"}}
+                if len(samples) == 1:
+                    host.gates["tester"][0].touch()
+                    return before
+                return held
+
+            def kill(_pid, _signal):
+                nonlocal killed
+                killed = True
+
+            host.hold, host.start, host.plan, host.dispatch = hold, mock.Mock(), mock.Mock(), mock.Mock()
+            host.run = SimpleNamespace(status=status)
+            with (
+                mock.patch.object(services, "UserServices") as services_class,
+                mock.patch.object(os, "kill", side_effect=kill),
+                mock.patch.object(time, "sleep"),
+            ):
+                services_class.return_value.inspect.return_value = {"checked": True, "pid": 12345}
+                host.test_worker_loss_after_edits_keeps_source_routes_and_unfinished_verification()
+            self.assertTrue(killed)
+            self.assertEqual(3, len(samples), "The stale snapshot must be rejected before worker loss")
+
+    def test_a_ready_marker_matches_only_its_own_active_attempt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ready = Path(tmp) / "tester-ready"
+            gates = {"tester": (ready, Path(tmp) / "tester-gate")}
+
+            def view(stage, active=True):
+                return {"usage": {"accounting": {"attempts": [{"stage": stage, "active": active}]}}}
+
+            self.assertFalse(held_attempt(view("tester"), gates))
+            ready.touch()
+            self.assertFalse(held_attempt({}, gates))
+            self.assertFalse(held_attempt(view("builder"), gates))
+            self.assertFalse(held_attempt(view("tester", False), gates))
+            self.assertTrue(held_attempt(view("tester"), gates))
+
+
+def held_attempt(view, gates):
+    """A ready provider is part of this public snapshot only when its active attempt is too."""
+    return any(
+        row.get("active") and row.get("stage") in gates and gates[row["stage"]][0].exists()
+        for row in view.get("usage", {}).get("accounting", {}).get("attempts", [])
+    )
 
 
 @unittest.skipUnless(
@@ -187,14 +276,12 @@ class PersistentHost(unittest.TestCase):
         self.fail("Offline fixture never reached plan approval")
 
     def at_stage(self, stage, *, advance=False):
+        return self.at_any_stage((stage,), advance=advance)
+
+    def at_any_stage(self, stages, *, advance=False):
+        gates = {stage: self.gates[stage] for stage in stages}
         return self.wait(
-            lambda view: (
-                self.gates[stage][0].exists()
-                and any(
-                    row.get("active") and row.get("stage") == stage
-                    for row in view.get("usage", {}).get("accounting", {}).get("attempts", [])
-                )
-            ),
+            lambda view: held_attempt(view, gates) and actions.working(view),
             advance=advance,
         )
 
@@ -332,13 +419,7 @@ class PersistentHost(unittest.TestCase):
                 self.assertEqual(identity, self.attempts(after))
                 self.assertEqual(epoch, after["execution"]["controller_epoch"])
         self.release("builder")
-        tested = self.wait(
-            lambda view: (
-                any(self.gates[stage][0].exists() for stage in ("tester", "review_checkpoint"))
-                and actions.working(view)
-            ),
-            advance=False,
-        )
+        tested = self.at_any_stage(("tester", "review_checkpoint"))
         edited = {name: (self.workspace / name).read_bytes() for name in ("greet.py", "test_greet.py", "README.md")}
         self.leave("ctrl_d")
         self.assertEqual(self.attempts(tested), self.attempts(self.run.status()))
@@ -635,10 +716,7 @@ class PersistentHost(unittest.TestCase):
             self.hold(stage)
         self.start()
         self.dispatch(self.plan())
-        before = self.wait(
-            lambda view: any(self.gates[stage][0].exists() for stage in self.gates) and actions.working(view),
-            advance=False,
-        )
+        before = self.at_any_stage(("tester", "review_checkpoint"))
         files = {name: (self.workspace / name).read_bytes() for name in ("greet.py", "test_greet.py", "README.md")}
         observed = services.UserServices(env=self.env).inspect(before["execution"]["launch_id"])
         self.assertTrue(observed["checked"])
