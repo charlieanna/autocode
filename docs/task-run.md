@@ -1815,6 +1815,10 @@ runs. A typed quota/refusal route retains the provider category; an operational
 request uses the additive `needs.pause_origin` when its published request names
 that cause.
 
+`status_label` is the status in a person's words, the same words the registry list gives each
+chat (`tools/autocode_status_label.py`), and `next_stage_label` is the next stage's job name
+(`Planner` for `draft_plan`), or null. A client shows these, never `status` or `next_stage`.
+
 `next_command` formats the current `needs` and existing recovery controls. It
 contains the owned run/workspace paths, and issued tokens travel through their
 paired environment variables with the `-` selector; the AutoResolver token needs no

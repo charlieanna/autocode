@@ -96,11 +96,13 @@ try:
     from . import autocode_resolver_recommendation as recommendation
     from . import autocode_risk_disclosure as risk_disclosure
     from . import autocode_role_transport as role_transport
+    from . import autocode_roles as roles
     from . import autocode_route_ladder as route_ladder
     from . import autocode_run_stage_models as run_stage_models
     from . import autocode_stage_decisions as stage_decisions
     from . import autocode_stage_pipeline as stage_pipeline
     from . import autocode_stage_policy as stage_policy
+    from . import autocode_status_label as status_label
     from . import autocode_stop_explanations as stop_explanations
     from . import autocode_task_input as task_input
     from . import autocode_tool_containment as tool_containment
@@ -170,12 +172,14 @@ except ImportError:
     import autocode_resolver_recommendation as recommendation
     import autocode_risk_disclosure as risk_disclosure
     import autocode_role_transport as role_transport
+    import autocode_roles as roles
     import autocode_route_ladder as route_ladder
     import autocode_run_metrics
     import autocode_run_stage_models as run_stage_models
     import autocode_stage_decisions as stage_decisions
     import autocode_stage_pipeline as stage_pipeline
     import autocode_stage_policy as stage_policy
+    import autocode_status_label as status_label
     import autocode_stop_explanations as stop_explanations
     import autocode_task_input as task_input
     import autocode_tool_containment as tool_containment
@@ -458,6 +462,8 @@ def view(
         "pause_category": next_action["pause_category"],
         "pause_category_label": next_action["pause_category_label"],
         "status": status,
+        # The status in a person's words, as the run list words it (autocode_status_label).
+        "status_label": status_label.label(status),
         "next_command": next_action["next_command"],
         "liveness": stage_liveness,
         "done": status in COMPLETE and not simulated and not invalid_replay,
@@ -475,6 +481,8 @@ def view(
         "dev_server": deepcopy(dev_server),
         "phase": state.get("phase"),
         "next_stage": state.get("next_stage"),
+        # The next stage's job name on screen (autocode_roles): 'draft_plan' -> 'Planner'.
+        "next_stage_label": roles.screen_name(str(state.get("next_stage") or ""), state) or None,
         "iteration": state.get("iteration"),
         "stop_reason": stop_reason,
         # Plain-English explanation of this stop (#715), added never renamed.

@@ -9,7 +9,7 @@
 import * as vscode from "vscode";
 import { ClientGap, integerValue, requiresConfirmation, type OpenDecision } from "./core/next-command";
 import type { AcceptanceCriterion, ChangesetSummary, DisplayedPlan, IntegerCommandInput, Question, RequirementsView, StatusView } from "./core/view";
-import { approvalToken, hasPlanReview, isWorking, needsSummary, pauseLabel, planForApproval, progressLine, usageLine } from "./core/view";
+import { approvalToken, hasPlanReview, isWorking, needsSummary, pauseLabel, planForApproval, progressLine, stageWords, statusWords, usageLine } from "./core/view";
 import type { RunController, RunRef } from "./controller";
 import { markdown, type TextNode } from "./chat-markdown";
 import { chatStyles, installChatBehavior } from "./upstream/kilo-chat";
@@ -55,6 +55,8 @@ export interface PanelState {
   workspace: string;
   runDir: string;
   status: string;
+  /** `status` in a person's words (`view.status_label`): what the panel shows, never the code. */
+  statusText: string;
   done: boolean;
   headline: string;
   line: string;
@@ -494,15 +496,16 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
     workspace: run.workspace,
     runDir: run.runDir,
     status: view.status,
+    statusText: statusWords(view.status, view.status_label),
     done: view.done,
-    headline: progress?.headline ?? view.status,
+    headline: progress?.headline ?? statusWords(view.status, view.status_label),
     line: progressLine(view),
     needsYou: progress?.needs_you ?? null,
     workflow: view.workflow ?? null,
     turn: view.turn ?? null,
     iteration: view.iteration ?? null,
     phase: view.phase ?? null,
-    nextStage: view.next_stage ?? null,
+    nextStage: stageWords(view.next_stage, view.next_stage_label),
     task: view.task ?? null,
     usage: usageLine(view),
     stageModels: view.stage_models ? { changeable: view.stage_models.changeable === true, reason: view.stage_models.reason ?? null } : null,
@@ -749,8 +752,9 @@ function emptyState(run: RunRef): PanelState {
     workspace: run.workspace,
     runDir: run.runDir,
     status: "unknown",
+    statusText: "Status unknown",
     done: false,
-    headline: "unknown",
+    headline: "Status unknown",
     line: "",
     needsYou: null,
     workflow: null,
@@ -1959,7 +1963,7 @@ function render(state) {
   app.appendChild(el('h1', null, state.headline));
   app.appendChild(el('div', 'line', state.line));
   const meta = [
-    state.status,
+    state.statusText,
     state.workflow ? state.workflow + ' workflow' : null,
     state.turn ? 'turn ' + state.turn : null,
     state.iteration ? 'iteration ' + state.iteration : null,

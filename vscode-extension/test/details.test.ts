@@ -94,7 +94,11 @@ test("where the run is uses the core's summary and plain meaning, never its stat
   assert.ok(section(waiting, "where")!.lines.includes("Waiting for: Requirements asks which database to use"));
   // An older core without a summary still says where the run is.
   const older = runHeader({ status: "PAUSED_TIME_LIMIT", done: false, progress: { headline: "Paused at the time limit" } })!;
-  assert.deepEqual([older.label, older.sentence], ["Paused time limit", "Paused at the time limit"]);
+  // Its label is the core's status label when it sends one, else plain words: never the status name.
+  assert.deepEqual([older.label, older.sentence], ["Paused", "Paused at the time limit"]);
+  const labelled = runHeader({ status: "PAUSED_TIME_LIMIT", status_label: "Paused by AutoCode", done: false })!;
+  assert.equal(labelled.label, "Paused by AutoCode");
+  for (const header of [older, labelled]) assert.doesNotMatch(header.label, /PAUSED_|time limit/i);
   assert.equal(runHeader(null), null);
 });
 
