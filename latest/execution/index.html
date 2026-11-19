@@ -2044,7 +2044,7 @@
 
 
 <h1 id="execution-and-completion">Execution and completion<a class="headerlink" href="#execution-and-completion" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/34c39af3cbf195a9a037817825acb916c7e3f48f/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/e2139088386aa0860caaba89f0e4ee8172f5cdb6/README.md">← Back to README</a></p>
 <p>This page covers independent milestone Builders, milestone checkpoints and acceptance,
 open findings, timeouts and recovery, and the completion gate.</p>
 <h2 id="the-projects-own-tests-as-examples">The project's own tests as examples<a class="headerlink" href="#the-projects-own-tests-as-examples" title="Permanent link">&para;</a></h2>
@@ -2420,17 +2420,17 @@ before a PASS is accepted, the runner requires its own current execution of each
 <li><strong>What is refused.</strong> A check that runs <code>git status</code> is refused before anything
   runs: it reads the working tree's state, not the product, and once the work is
   committed and merged it lists nothing
-  (<a href="https://github.com/charlieanna/autocode/blob/34c39af3cbf195a9a037817825acb916c7e3f48f/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
+  (<a href="https://github.com/charlieanna/autocode/blob/e2139088386aa0860caaba89f0e4ee8172f5cdb6/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
   that names <code>git status</code> is refused when its author hands it in: a criterion's
   verification method, a task's validation plan or requirements, a progressive
   slice's check, a user's <code>--edit-goal</code> or <code>--goal-file</code>. The Planner, Plan Reviewer, Completion
   Reviewer or Resolver gets its report back for repair, with every such row named.
-  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/34c39af3cbf195a9a037817825acb916c7e3f48f/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
+  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/e2139088386aa0860caaba89f0e4ee8172f5cdb6/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
   A new plan with a command that <code>/bin/sh</code> cannot parse is refused at the same
   points, in the same repair. The replay runs each planned command with
   <code>/bin/sh -c</code>, so the runner asks that shell to read the command with <code>sh -n</code>,
   which runs nothing. A live step with backticks inside double quotes could
-  never run (<a href="https://github.com/charlieanna/autocode/blob/34c39af3cbf195a9a037817825acb916c7e3f48f/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
+  never run (<a href="https://github.com/charlieanna/autocode/blob/e2139088386aa0860caaba89f0e4ee8172f5cdb6/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
 <li><strong>A validate task's new steps are run when it is written.</strong> A Completion
   Reviewer or Resolver that finds a criterion without evidence hands the Tester a
   validate task, with steps of its own. Such a step must exit 0 in this replay,
@@ -2443,7 +2443,7 @@ before a PASS is accepted, the runner requires its own current execution of each
   the last accepted validation passed on this same source, is not run again here,
   and a failure the base revision has identically is the base's, as below. An
   implement task's steps are not run: they may fail until the Builder works
-  (<a href="https://github.com/charlieanna/autocode/blob/34c39af3cbf195a9a037817825acb916c7e3f48f/docs/bugs/2026-11-13-task-kind-survey.md">task-kind survey</a>, section 36).</li>
+  (<a href="https://github.com/charlieanna/autocode/blob/e2139088386aa0860caaba89f0e4ee8172f5cdb6/docs/bugs/2026-11-13-task-kind-survey.md">task-kind survey</a>, section 36).</li>
 <li><strong>When one does not reproduce.</strong> The Tester's report is rejected with the
   command, the runner's exit code and the end of its output. The Tester then runs
   again on the same source, once, and is told the command, how its replay ended
@@ -2832,7 +2832,7 @@ plan and review approval the harness gave a run must also be listed among that r
 and so must each budget pause the scenario's person acknowledged, as the resume that names it.
 In a components scenario each such gate names the task run it was given to, so an
 approval listed only in another component's run fails
-(<a href="https://github.com/charlieanna/autocode/blob/34c39af3cbf195a9a037817825acb916c7e3f48f/scenarios/README.md">scenarios/README.md</a>).</p>
+(<a href="https://github.com/charlieanna/autocode/blob/e2139088386aa0860caaba89f0e4ee8172f5cdb6/scenarios/README.md">scenarios/README.md</a>).</p>
 <h4 id="required-approver">Required approver<a class="headerlink" href="#required-approver" title="Permanent link">&para;</a></h4>
 <p>A team that wants only named people to approve can list their Git email addresses as
 <code>require-approver</code> in its <a href="../cli/#project-settings">project settings</a>:</p>
@@ -3843,7 +3843,7 @@ and nothing outside these mounts can be read. A file named <code>.env</code>, <c
 <code>auth.json</code>, <code>id_rsa</code> or <code>id_ed25519</code> in the workspace when the stage starts is
 covered by a device node the shell cannot open (<code>Permission denied</code>), as Seatbelt
 refuses reading those names.</p>
-<p>Two differences from Seatbelt follow from mounts:</p>
+<p>Three differences from Seatbelt follow from mounts:</p>
 <ul>
 <li>A protected name that does not exist when a Builder starts (usually <code>.opencode</code>,
   <code>opencode.json</code> or <code>opencode.jsonc</code>) cannot be a mount point without creating it in
@@ -3855,6 +3855,20 @@ refuses reading those names.</p>
 <li>The network namespace has its own loopback, so a test may listen on and connect to
   <code>127.0.0.1</code> inside the stage. The host's loopback services and every other address
   stay unreachable.</li>
+<li>A reader's verification copy is read-only as a whole here, so a check cannot create
+  a build output inside it. Under Seatbelt the copied sources cannot be changed but a
+  check may still make, change and remove its own outputs beside them. Seatbelt does
+  that with one rule, whatever the copy's size (#3812): the runner sets the sticky
+  bit on the copy's root and on every file, directory and symlink in it before the
+  stage starts and records <code>"seal": "sticky"</code> in the copy's manifest, and the profile
+  denies every write operation on a path under the copy that carries that bit
+  (<code>(deny file-write* (require-all (subpath COPY) (file-mode #o1000)))</code>). That covers a
+  marked path's data, name, mode, flags, owner, ACL, attributes and times, so the mark
+  cannot be cleared from inside. A capture refuses a copy whose marks no longer match
+  its manifest. Seatbelt takes the last matching rule, so the rule is written after
+  every grant of writes, in the shell's profile and in Kilo's client profile, which
+  is the only profile Kilo's own Bash child runs under. A file a check copies inside
+  the copy with its mode preserved carries the mark too and cannot then be changed.</li>
 </ul>
 <h3 id="conformance-in-ci">Conformance in CI<a class="headerlink" href="#conformance-in-ci" title="Permanent link">&para;</a></h3>
 <p>CI runs the direct shell/Seatbelt controls in <code>UnicodeKernelTests</code> and
@@ -3864,6 +3878,8 @@ refuses reading those names.</p>
 test to execute and pass without skips or expected failures. The
 <code>linux-tool-containment</code> job does the same on Ubuntu with bubblewrap installed, adding
 <code>BubblewrapKernelTests</code> and the selected-toolchain controls in <code>tests/test_toolchain.py</code>.
+The macOS job also runs <code>ClientPolicyKernelTests</code> from <code>tests/test_kilo_isolation.py</code>:
+what the kernel refuses and allows in a verification copy under Kilo's client profile.
 Only the macOS job also runs the native readonly check tests (four classes in
 <code>tests/test_native_check_execution.py</code> and <code>OriginalCheckFailureTests</code> in
 <code>tests/test_native_initial_callers.py</code>): native checks need macOS Seatbelt and the
