@@ -274,19 +274,24 @@ class RunnerTests(unittest.TestCase):
         check = self.collect(FakeRun(self.tree, WEAK, outcome=hang))
         self.assertEqual(["timeout", "not_run"], [row[2] for row in self.outcomes(check)][1:3])
 
-    def test_nothing_runs_without_a_python_proof_whose_tests_can_be_selected(self):
+    def test_nothing_runs_without_a_supported_proof_whose_tests_can_be_selected(self):
         cases = {
-            "go": ({"framework": "go", "command": "go test ./..."}, "Python unittest and pytest proofs only"),
-            "shell": ({"command": COMMAND + " | tee log"}, "cannot select the proving tests alone"),
-            "unnamed": ({"cases": [{"id": "C9", "test_name": "test_c9_missing"}]}, "no judged test is named"),
+            "cargo": ({"framework": "cargo", "command": "cargo test"}, "this proof ran cargo", "no_mutation_source"),
+            "shell": (
+                {"command": COMMAND + " | tee log"},
+                "cannot select the proving tests alone",
+                "runner_cannot_select",
+            ),
+            "unnamed": ({"cases": [{"id": "C9", "test_name": "test_c9_missing"}]}, "no judged test is named", None),
         }
-        for name, (options, note) in cases.items():
+        for name, (options, note, unavailable) in cases.items():
             with self.subTest(case=name):
                 run = FakeRun(self.tree, WEAK)
                 check = self.collect(run, **options)
                 self.assertEqual([], run.calls)
                 self.assertFalse(check["collected"])
                 self.assertIn(note, check["note"])
+                self.assertEqual(unavailable, check.get("unavailable"))
 
     def test_no_mutant_runs_when_the_proving_tests_fail_unmutated(self):
         run = FakeRun(self.tree, {C1: lambda f: False, C2: lambda f: True})

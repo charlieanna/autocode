@@ -17,14 +17,19 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_builder_failure as builder_failure
+    from . import autocode_mutation_check as mutation_check
     from . import autocode_run_status as run_status
     from . import autocode_util as util
 except ImportError:
     import autocode_builder_failure as builder_failure
+    import autocode_mutation_check as mutation_check
     import autocode_run_status as run_status
     import autocode_util as util
 
 REPAIR_ROUNDS = 2
+# The proof's runner produces no mutation evidence at all (autocode_mutation_check.record ``unavailable``).
+# A Builder change cannot close such a gap, so its rounds are not spent on it (#3817).
+UNCLOSABLE = (mutation_check.NO_SOURCE, mutation_check.NO_SELECTION)
 # The Tester's rejected reasons the Builder sees; each names the test its line still needs.
 REJECTIONS_SHOWN = 20
 
@@ -100,6 +105,8 @@ def route(state: RunState, record, *, investigation_enabled, rejected=()):
     reason = assessment["reason"]
     scope_reason = _scope_conflict(task, contract, rejected)
     builder_rounds = sum(row.get("action") == "builder" for row in previous)
+    mutation_report = proof.get("mutation_check") or {}
+    unclosable = mutation_report.get("unavailable") in UNCLOSABLE
     event = {
         "kind": "changed_code_rework",
         **binding,
@@ -107,10 +114,18 @@ def route(state: RunState, record, *, investigation_enabled, rejected=()):
         "review_output": record["output"],
         "assessment": assessment,
         "at": util.now(),
-        "action": "reviewer" if scope_reason else "builder" if builder_rounds < REPAIR_ROUNDS else "investigator",
+        "action": "reviewer"
+        if scope_reason
+        else "builder"
+        if builder_rounds < REPAIR_ROUNDS and not unclosable
+        else "investigator",
     }
     if scope_reason:
         event["scope_reason"] = scope_reason
+    elif unclosable:
+        event["builder_skipped"] = "No Builder change can give these lines mutation evidence: " + str(
+            mutation_report.get("note") or mutation_report["unavailable"]
+        )
     else:
         # Which Builder round this is and how many the gate allows, so the status view can say
         # "round 1 of 2" from the record (the Investigator takes the round after the last one).
@@ -126,6 +141,8 @@ def route(state: RunState, record, *, investigation_enabled, rejected=()):
         if assigned
         else ""
     )
+    if unclosable:
+        reason += ". " + event["builder_skipped"]
     run_status.running(
         state,
         "EXECUTING",

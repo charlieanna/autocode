@@ -10,8 +10,10 @@ a test that asserts something, but not enough, gets past.
 Report only: nothing here changes the verdict, the failures, the unverified reasons or the proof's
 receipts, and no mutant run is one of the proof's ``checks``. One deadline, ``BUDGET_SECONDS``,
 covers the unmutated run and every mutant: the same limit as one check replay. Python unittest and
-pytest proofs only for now. Imports nothing from the runner; the caller owns the scratch tree and
-runs the commands.
+pytest proofs are mutated through the AST (autocode_mutants); Go, node:test, Vitest, Jest and Mocha
+proofs through tokens (autocode_text_mutants, #3817). Any other runner's record says so in
+``unavailable``. Imports nothing from the runner; the caller owns the scratch tree and runs the
+commands.
 """
 
 from __future__ import annotations
@@ -32,6 +34,7 @@ try:
     from . import autocode_proof_stability as proof_stability
     from . import autocode_python_tests as python_tests
     from . import autocode_test_cases as test_cases
+    from . import autocode_text_mutants as text_mutants
 except ImportError:
     import autocode_affected_tests as affected_tests
     import autocode_command_receipt as command_receipt
@@ -41,6 +44,7 @@ except ImportError:
     import autocode_proof_stability as proof_stability
     import autocode_python_tests as python_tests
     import autocode_test_cases as test_cases
+    import autocode_text_mutants as text_mutants
 
 BUDGET_SECONDS = 900
 # A mutant that never returns (a negated loop condition) should not spend every other mutant's time:
@@ -48,19 +52,40 @@ BUDGET_SECONDS = 900
 # budget left. No mutant starts with less than the floor left; one the budget cut short is not_run.
 MUTANT_FACTOR = 10
 MUTANT_FLOOR_SECONDS = 60
-FRAMEWORKS = ("unittest", "pytest")
+PYTHON_FRAMEWORKS = ("unittest", "pytest")
+# Runners whose proving tests autocode_proof_stability.narrow can select by name, and the language of the
+# sources their mutants are made from (#3817). Their selection is a name pattern, so a reference or mutant
+# run may report tests beside the selected ones (autocode_mutation_results.selected).
+TEXT_FRAMEWORKS = {"go": "go", "node": "js", "vitest": "js", "jest": "js", "mocha": "js"}
+FRAMEWORKS = PYTHON_FRAMEWORKS + tuple(TEXT_FRAMEWORKS)
+# Why a proof's runner can produce no mutation evidence at all. No Builder change closes such a gap, so
+# the changed-line repair route reads it (autocode_changed_code_rework.route).
+NO_SOURCE = "no_mutation_source"
+NO_SELECTION = "runner_cannot_select"
 OUTCOMES = ("killed", "survived", "timeout", "not_run")
 NOT_PASSED = "not run: the proof did not pass"
 
 
-def record(note=None, files=(), *, collected=False) -> dict:
-    return {
+def record(note=None, files=(), *, collected=False, unavailable=None) -> dict:
+    result = {
         "collected": collected,
         "note": note,
         "limit_per_file": mutants.PER_FILE_LIMIT,
         "budget_seconds": BUDGET_SECONDS,
         "files": list(files),
     }
+    if unavailable is not None:
+        result["unavailable"] = unavailable
+    return result
+
+
+def unsupported(framework_name) -> dict:
+    """The record of a proof whose runner has no mutation source, saying which runner it was."""
+    return record(
+        "the mutation check runs Python unittest and pytest, Go, node:test, Vitest, Jest and Mocha proofs; "
+        "this proof ran " + (framework_name or "no named-test runner"),
+        unavailable=NO_SOURCE,
+    )
 
 
 def proving_tests(cases, proof, framework_name) -> list[str]:
@@ -144,10 +169,7 @@ def collect(
     nothing runs (the whole suite is never the fallback).
     """
     if framework_name not in FRAMEWORKS:
-        return record(
-            "the mutation check runs Python unittest and pytest proofs only for now; this proof ran "
-            + (framework_name or "no named-test runner")
-        )
+        return unsupported(framework_name)
     try:
         tests = proving_tests(cases, proof, framework_name)
         return _collect(
@@ -196,7 +218,7 @@ def collect_selected_tests(
     ownership is never converted into a report-only note or permission to clean up its tree.
     """
     if framework_name not in FRAMEWORKS:
-        return record("the mutation check runs Python unittest and pytest tests only for now")
+        return unsupported(framework_name)
     try:
         tests = list(test_ids)
         if any(not isinstance(test, str) or not test for test in tests):
@@ -245,13 +267,24 @@ def _collect(
 ) -> dict:
     if not tests:
         return record("no judged test is named after a due case, so the mutation check ran no test")
+    python = framework_name in PYTHON_FRAMEWORKS
     narrowed = proof_stability.narrow(framework_name, command, tests)
-    if not narrowed or python_tests.parse(narrowed, include_owned=True) is None:
-        return record("this runner cannot select the proving tests alone, so the mutation check ran no test")
+    if not narrowed or (python and python_tests.parse(narrowed, include_owned=True) is None):
+        return record(
+            "this runner cannot select the proving tests alone, so the mutation check ran no test",
+            unavailable=NO_SELECTION,
+        )
+    if python:
+        make, suffixes, prepare = mutants.python_mutants, (".py", ".pyi"), isolated
+    else:
+        make, prepare = text_mutants.text_mutants, lambda command, cache: command
+        suffixes = tuple(
+            suffix for suffix, kind in text_mutants.LANGUAGES.items() if kind == TEXT_FRAMEWORKS[framework_name]
+        )
     root = Path(tree).resolve()
     rows, planned = [], []
     for path, status in files:
-        if not path.endswith((".py", ".pyi")):
+        if not path.endswith(suffixes):
             continue
         row: dict = {"path": path, "mutants": [], "notes": []}
         rows.append(row)
@@ -262,7 +295,7 @@ def _collect(
         try:
             source, times = target.read_bytes(), target.stat()
             changed = mutants.changed_lines(diff_coverage.hunks(diff_text([(path, status)])))
-            made, notes = mutants.python_mutants(
+            made, notes = make(
                 path,
                 source,
                 set().union(*changed.values()),
@@ -327,8 +360,9 @@ def _collect(
             total=total_mutants,
             elapsed_seconds=elapsed,
         )
-    reference = run(isolated(narrowed, cache), "unmutated", reference_limit)
-    outcome, passed = (proved_outcome if enforcement else judge)(reference, tests)
+    reference = run(prepare(narrowed, cache), "unmutated", reference_limit)
+    observed_reference = reference if python else mutation_results.selected(reference, tests)
+    outcome, passed = (proved_outcome if enforcement else judge)(observed_reference, tests)
     if outcome != "survived" or (strict and set(passed) != set(tests)):
         failed = record(
             "the proving tests did not pass unmutated in the mutation check's own run, so no mutant ran", rows
@@ -343,7 +377,9 @@ def _collect(
             }
         return failed
     bound = max(MUTANT_FLOOR_SECONDS, MUTANT_FACTOR * float(reference.get("duration_seconds") or 0))
-    mutant_command = mutation_results.stop_command(narrowed) if enforcement else narrowed
+    # A runner selected by name pattern runs to the end: its early stop would leave tests beside the
+    # selected ones unreported in an order nothing here controls.
+    mutant_command = mutation_results.stop_command(narrowed) if enforcement and python else narrowed
     selection_by_site: dict[tuple[str, int], dict] = {}
     selection_summary = None
     if enforcement:
@@ -393,7 +429,7 @@ def _collect(
             continue
         label, limit = f"mutant-{number:02d}", min(remaining, bound)
         active_command = mutant_command
-        if enforcement and site_selection is not None and site_selection.get("command"):
+        if enforcement and python and site_selection is not None and site_selection.get("command"):
             active_command = mutation_results.stop_command(site_selection["command"])
         if progress is not None:
             elapsed = round(max(0.0, time.monotonic() - started_wall), 1)
@@ -412,7 +448,7 @@ def _collect(
             # Each version its own whole second, so a cached compile keyed by modification time and size
             # (a test's own Python, started with a minimal environment, -E or -I) is never reused.
             os.utime(target, ns=(times.st_atime_ns, times.st_mtime_ns - number * 1_000_000_000))
-            receipt = run(isolated(active_command, cache), label, limit)
+            receipt = run(prepare(active_command, cache), label, limit)
         except command_receipt.OwnershipUncertain:
             ownership_uncertain = strict
             raise
@@ -421,12 +457,15 @@ def _collect(
                 target.write_bytes(source)
                 os.utime(target, ns=(times.st_atime_ns, times.st_mtime_ns))
         expected_tests = mutant_tests if enforcement else passed
+        judged = receipt if python else mutation_results.selected(receipt, expected_tests)
         outcome, observed = (
             mutation_results.outcome(
-                receipt, expected_tests, stopped=mutation_results.stops_after_failure(receipt.get("command", ""))
+                judged,
+                expected_tests,
+                stopped=python and mutation_results.stops_after_failure(receipt.get("command", "")),
             )
             if enforcement
-            else judge(receipt, passed)
+            else judge(judged, passed)
         )
         survived = observed if outcome == "survived" else []
         if enforcement:

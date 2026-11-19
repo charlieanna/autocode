@@ -341,6 +341,12 @@ def _sent_back(state: RunState):
         writer = row.get("test_owner") == "write_acceptance_tests" and row.get("action") == "builder"
         if writer:
             action, by = "AutoCode sent the selected tests to the independent Tester for stronger assertions.", "Tester"
+        elif row.get("action") == "investigator" and row.get("builder_skipped"):
+            action, by = (
+                "No Builder change can give these lines mutation evidence for this test runner, "
+                "so AutoCode called the Investigator.",
+                "Investigator",
+            )
         elif row.get("action") == "investigator":
             action, by = (
                 "The Builder had already been sent back twice, so AutoCode called the Investigator.",

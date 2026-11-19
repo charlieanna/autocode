@@ -1076,6 +1076,10 @@
           "scope_reason": {
             "type": "string"
           },
+          "builder_skipped": {
+            "description": "Why the Investigator took the lines in the first round: the proof's runner produces no mutation evidence, which no Builder change could close (#3817).",
+            "type": "string"
+          },
           "source_revision": {
             "type": "string"
           },

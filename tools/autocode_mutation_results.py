@@ -46,6 +46,30 @@ def stops_after_failure(command):
     return invocation.kind == "pytest" and arguments[:1] == ["-x"] and arguments[-1:] == ["--maxfail=1"]
 
 
+def selected(receipt, tests):
+    """The receipt as if only ``tests`` had run, for a runner that selects tests by a name pattern (#3817).
+
+    ``go test -run`` also runs a selected subtest's parent and siblings, and an unanchored
+    ``--test-name-pattern`` can match a test beside the selected one. Those results are dropped, so
+    ``outcome`` judges exactly the selected tests. A test beside them that failed while every selected
+    test passed leaves the receipt as it was: its failure, not theirs, set the exit code, so the run
+    proves nothing either way. Uncollected and collection-error entries are left as they were.
+    """
+    results = (receipt or {}).get("results")
+    if not isinstance(results, dict) or not all(isinstance(results.get(key), list) for key in ("passed", "failed")):
+        return receipt
+    chosen = set(tests)
+    if set(results["failed"]) - chosen and not set(results["failed"]) & chosen:
+        return receipt
+    kept = {
+        key: [test for test in results[key] if test in chosen]
+        for key in ("passed", "failed", "skipped")
+        if isinstance(results.get(key), list)
+    }
+    total = sum(len(group) for group in kept.values())
+    return {**receipt, "results": {**results, **kept, "total": total}}
+
+
 def outcome(receipt, selected, *, stopped=False):
     """Require a complete reference/survivor; a selected failure can end a mutant.
 
