@@ -85,7 +85,7 @@ function editor() {
     StatusBarAlignment: { Left: 1 }, ProgressLocation: { Notification: 15 }, ViewColumn: { One: 1 }, ConfigurationTarget: { Global: 1, Workspace: 2 },
     TreeItem: class { constructor(label, collapsibleState) { this.label = label; this.collapsibleState = collapsibleState; } },
     TreeItemCollapsibleState: { None: 0, Collapsed: 1, Expanded: 2 },
-    Uri: { file: (value) => value }, MarkdownString: class {},
+    Uri: { file: (value) => value }, MarkdownString: class { constructor(value = "") { this.value = value; } },
     ThemeIcon: class { constructor(id, color) { this.id = id; this.color = color; } }, ThemeColor: class {},
     EventEmitter: class {
       listeners = new Set();

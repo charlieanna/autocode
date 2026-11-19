@@ -19,7 +19,7 @@
       "description": "The status view (tools/autocode_run_view.py, docs/task-run.md#status-view), with `progress` and `delivery` added by the status command.",
       "required": [
         "schema", "status", "done", "needs", "pause_category", "pause_category_label", "next_command",
-        "phase", "next_stage", "iteration", "stop_reason", "explanation", "current_task", "task", "task_sha256",
+        "phase", "next_stage", "next_stage_label", "status_label", "iteration", "stop_reason", "explanation", "current_task", "task", "task_sha256",
         "workflow", "workflow_source", "workflow_reason", "turn", "evidence", "approvals", "evidence_report",
         "acceptance_tests", "usage", "cost", "planning_calls", "progress", "summary", "delivery", "liveness", "controller", "recovery", "recoveries",
         "verification", "review_result", "verification_obligation", "code_checkpoints", "runner", "runner_check", "dependency",
@@ -129,6 +129,8 @@
         "next_command": {"type": ["string", "null"], "description": "The command that answers `needs`, with issued tokens passed through their environment variables and the AutoResolver token read back from the run the command names (#2958); placeholders such as ANSWER are left for a person. Null for an active or completed run."},
         "phase": {"type": ["string", "null"]},
         "next_stage": {"type": ["string", "null"]},
+        "next_stage_label": {"type": ["string", "null"], "description": "next_stage as the job name a person sees, such as Planner; null when there is no next stage."},
+        "status_label": {"type": ["string", "null"], "description": "status in a person's words, as the registry list words it: Working, Paused for your decision, Finished."},
         "iteration": {"type": ["integer", "null"]},
         "stop_reason": {"type": ["string", "null"]},
         "explanation": {

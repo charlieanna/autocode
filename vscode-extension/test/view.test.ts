@@ -14,6 +14,8 @@ import {
   RunStarting,
   usageLine,
   readChangesetSummary,
+  stageWords,
+  statusWords,
 } from "../src/core/view";
 
 const envelope = (view: unknown) => JSON.stringify({ ok: true, view });
@@ -65,6 +67,25 @@ test("pauseLabel only describes a stopped run, not an approval checkpoint", () =
     pauseLabel({ ...approval, status: "PAUSED_TRANSPORT_CHANGED", pause_category_label: "Your environment" }),
     "Your environment",
   );
+});
+
+test("pauseLabel words the pause category when an older core sends no label", () => {
+  const paused = { status: "PAUSED_TIME_LIMIT", done: false, pause_category: "your_environment" };
+  assert.equal(pauseLabel(paused), "Your environment");
+  assert.equal(pauseLabel({ ...paused, pause_category: "model_or_provider" }), "Model or provider");
+});
+
+test("statusWords and stageWords take the core's words, and never show a code without them", () => {
+  assert.equal(statusWords("PAUSED_PLANNING_BUDGET", "Paused by AutoCode"), "Paused by AutoCode");
+  assert.equal(statusWords("PAUSED_PLANNING_BUDGET"), "Paused");
+  assert.equal(statusWords("RUNNING"), "Working");
+  assert.equal(statusWords("TASK_COMPLETE"), "Finished");
+  assert.equal(statusWords("AWAITING_GOAL_APPROVAL"), "Plan ready for your approval");
+  assert.equal(statusWords("SOMETHING_NEW"), "Something new");
+  assert.equal(statusWords(null), "Status unknown");
+  assert.equal(stageWords("draft_plan", "Planner"), "Planner");
+  assert.equal(stageWords("draft_plan"), "Draft plan");
+  assert.equal(stageWords(null), null);
 });
 
 test("needsSummary keeps flags out of a planning-budget reason an older core sends without needs_you", () => {
@@ -169,9 +190,28 @@ test("readRegistryList reads the summary where the CLI actually puts it", () => 
   assert.equal(list.runs[0]!.status, "PAUSED_BUDGET");
   assert.equal(list.runs[0]!.phase, "PAUSED_OR_BLOCKED");
   assert.equal(list.runs[0]!.nextStage, "terra");
+  assert.equal(list.runs[0]!.statusLabel, null, "an older core sends no label");
   assert.equal(list.runs[0]!.diagnostic, null);
   assert.equal(list.runs[0]!.title, null);
   assert.equal(list.runs[0]!.updatedAt, null);
+});
+
+test("readRegistryList reads the core's words for a chat's status and next stage", () => {
+  const list = readRegistryList(
+    JSON.stringify({
+      runs: [
+        {
+          availability: "available",
+          diagnostic: { status: "PAUSED_PLANNING_BUDGET", status_label: "Paused by AutoCode", next_stage: "draft_plan", next_stage_label: "Planner" },
+          id: "run-1",
+          run_dir: "/ws/.autocode/runs/a",
+          workspace: "/ws",
+        },
+      ],
+    }),
+  );
+  assert.equal(list.runs[0]!.statusLabel, "Paused by AutoCode");
+  assert.equal(list.runs[0]!.nextStageLabel, "Planner");
 });
 
 test("readRegistryList reads each chat's title and last activity from its summary", () => {

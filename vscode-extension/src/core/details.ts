@@ -15,6 +15,7 @@
  */
 
 import { duration, money as stageMoney, runTotal, stages as meterStages, tokens as stageTokens, totalText, type StageRow } from "./meter";
+import { statusWords } from "./status-words";
 
 type Row = Record<string, unknown>;
 
@@ -313,7 +314,8 @@ function where(view: Row): { state: string; label: string; sentence: string; sec
   const summary = mapping(view.summary);
   const progress = mapping(view.progress);
   const state = text(summary.state) || (view.done === true ? "done" : "working");
-  const label = text(summary.label) || capitalize(words(view.status, "Starting").toLowerCase());
+  // The core's summary label, else its status label; a bare status code is never the header.
+  const label = text(summary.label) || text(view.status_label) || (text(view.status) ? statusWords(text(view.status)) : "Starting");
   const rawSentence = withoutCommands(text(summary.sentence));
   const sentence = (isInternalMachinery(rawSentence) ? humanMachinerySummary(rawSentence) : rawSentence)
     || text(progress.headline)
