@@ -87,7 +87,9 @@ def project(
     elif view.get("done"):
         if completed_without_building:
             state, sentence, command = (
-                DONE, _sentence(progress.get("headline") or "Response complete") + " Nothing was built or changed.", None
+                DONE,
+                _sentence(progress.get("headline") or "Response complete") + " Nothing was built or changed.",
+                None,
             )
         elif completion_current is True:
             state, sentence, command = DONE, "Complete, and verified against the current checkout.", None

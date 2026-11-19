@@ -1011,10 +1011,16 @@ class ChatViewTests(unittest.TestCase):
 
     def test_an_accepted_plan_returns_its_approach_without_claiming_code_delivery(self):
         state = {
-            "status": "TASK_COMPLETE", "task": "Plan a greeting", "settings": {"plan_only": True},
-            "goal_contract": {"approval_status": "approved", "revision": 3, "body": {
-                "intended_outcome": "A greeting", "technical_approach": ["Keep tests/__init__.py"]}},
-            "task_branch": "autocode/planned-greeting", "project_workspace": "/project",
+            "status": "TASK_COMPLETE",
+            "task": "Plan a greeting",
+            "settings": {"plan_only": True},
+            "goal_contract": {
+                "approval_status": "approved",
+                "revision": 3,
+                "body": {"intended_outcome": "A greeting", "technical_approach": ["Keep tests/__init__.py"]},
+            },
+            "task_branch": "autocode/planned-greeting",
+            "project_workspace": "/project",
             "workspace": "/project/.autocode/worktrees/greeting",
         }
         text = self.project(state, "done", True)["messages"][-1]["text"]

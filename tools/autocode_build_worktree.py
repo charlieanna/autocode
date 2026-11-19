@@ -340,5 +340,6 @@ def notice(state: RunState) -> str | None:
         text += f" Not included from your folder: {named}."
     return text + (
         " This is a plan-only chat: accepting the reviewed plan ends it without building or changing project files."
-        if planning_only else " When it is done, review and merge the branch; I never merge it myself."
+        if planning_only
+        else " When it is done, review and merge the branch; I never merge it myself."
     )

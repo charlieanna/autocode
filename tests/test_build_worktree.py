@@ -250,10 +250,16 @@ class NoticeTests(unittest.TestCase):
         for existing in (False, True):
             for after_events in ({}, {"after_events": 1}):
                 with self.subTest(existing=existing, after_events=after_events):
-                    state = {"settings": {"plan_only": True}, "build_worktree": {
-                        "state": "building", "branch": "plan-greeting", "existing_branch": existing,
-                        "moved_from": {"workspace": "/project"}, **after_events,
-                    }}
+                    state = {
+                        "settings": {"plan_only": True},
+                        "build_worktree": {
+                            "state": "building",
+                            "branch": "plan-greeting",
+                            "existing_branch": existing,
+                            "moved_from": {"workspace": "/project"},
+                            **after_events,
+                        },
+                    }
                     text = build_worktree.notice(state)
                     self.assertTrue(text.startswith("I prepare this plan on "), text)
                     self.assertIn("accepting the reviewed plan ends it", text)

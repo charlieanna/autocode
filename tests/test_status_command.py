@@ -106,12 +106,27 @@ class ConsistentSampleTests(unittest.TestCase):
             run.mkdir()
             subprocess.run(["git", "init", "-q", str(run.parent)], check=True)
             subprocess.run(
-                ["git", "-C", str(run.parent), "-c", "user.name=T", "-c", "user.email=t@example.test",
-                 "commit", "-q", "--allow-empty", "-m", "base"], check=True,
+                [
+                    "git",
+                    "-C",
+                    str(run.parent),
+                    "-c",
+                    "user.name=T",
+                    "-c",
+                    "user.email=t@example.test",
+                    "commit",
+                    "-q",
+                    "--allow-empty",
+                    "-m",
+                    "base",
+                ],
+                check=True,
             )
             (run / "state.json").write_text(json.dumps(state))
             shown = self.render(
-                state, run, lambda *_args, **_kwargs: {"kind": "boundary", "checked": True, "alive": False},
+                state,
+                run,
+                lambda *_args, **_kwargs: {"kind": "boundary", "checked": True, "alive": False},
                 envelope=True,
             )
         public = shown["view"]

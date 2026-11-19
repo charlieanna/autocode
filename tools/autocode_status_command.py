@@ -378,7 +378,10 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         public_view["next_command"] = ["--workspace", str(workspace), "--run-dir", str(run_dir), "--resume-paused"]
     # The run in one sentence and its exact next action (#2049); `--summary` prints only this.
     public_view["summary"] = status_summary.project(
-        public_view, stale=stale or stale_check, completion_current=completion_current, next_action=next_action,
+        public_view,
+        stale=stale or stale_check,
+        completion_current=completion_current,
+        next_action=next_action,
         completed_without_building=completed_without_building,
     )
     public_view["chat"]["progress"] = chat_progress.project(
