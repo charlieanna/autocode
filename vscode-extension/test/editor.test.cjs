@@ -8735,11 +8735,43 @@ test('complete material canonical plan is reviewable before approval on both exi
   }
 });
 
+test('concise plan overview precedes expandable full evidence on both approval surfaces', async (t) => {
+  for (const surface of ['chat', 'Run details']) {
+    await t.test(surface, async (t) => {
+      const view = approvalView();
+      view.displayed_plan.review_summary_markdown = 'Proposed migration\n\n## Proposed approach\n\nPreserve the data and replace its reader.\n\nDuration and execution cost are not estimated.';
+      const ui = surface === 'chat' ? await openChat(t, view) : await openPanel(t, view);
+      const overview = ui.document.querySelector('.plan-overview');
+      const evidence = ui.document.querySelector('details.plan-evidence');
+      assert.ok(overview, 'the canonical summary is the first reading path');
+      assert.ok(evidence, 'all canonical material remains expandable');
+      assert.ok(overview.compareDocumentPosition(evidence) & 4);
+      assert.equal(evidence.open, false);
+      assert.match(evidence.querySelector('summary').textContent, /Full plan and acceptance criteria/);
+      assert.match(evidence.textContent, /Run migration test/);
+      assert.equal(evidence.querySelectorAll('script').length, 0);
+      evidence.open = true; evidence.dispatchEvent(new ui.window.Event('toggle'));
+      evidence.querySelector('summary').focus();
+      await ui.poll({ ...view, needs: { ...view.needs, effect: 'Approve this exact plan.' } });
+      const refreshed = ui.document.querySelector('details.plan-evidence');
+      assert.equal(refreshed.open, true, 'unrelated updates keep the expanded audit');
+      assert.equal(ui.document.activeElement, refreshed.querySelector('summary'), 'the disclosure keeps keyboard focus');
+      const replacement = structuredClone(view);
+      replacement.needs.token = replacement.displayed_plan.token = 'r2:new';
+      replacement.displayed_plan.revision = 2;
+      replacement.displayed_plan.hash = 'new';
+      await ui.poll(replacement);
+      assert.equal(ui.document.querySelector('details.plan-evidence').open, false, 'a different plan starts with its new overview');
+    });
+  }
+});
+
 test('canonical review content is required before either editor surface can dispatch approval', async (t) => {
   for (const surface of ['chat', 'Run details']) {
     for (const review_markdown of [undefined, null, {}, '', ' \n\t']) {
       await t.test(surface + ' ' + JSON.stringify(review_markdown), async (t) => {
         const view = approvalView(); view.displayed_plan.review_markdown = review_markdown;
+        view.displayed_plan.review_summary_markdown = 'A summary alone never grants approval.';
         const ui = surface === 'chat' ? await openChat(t, view) : await openPanel(t, view);
         const launch = t.mock.method(cli, 'stream', async () => ok);
         const button = ui.document.querySelector('#take-action') || ui.take();

@@ -2559,7 +2559,11 @@ class GoalTests(unittest.TestCase):
                 "git_delivery": contract["body"].get("git_delivery"),
                 "scope_exclusions": contract["body"].get("scope_exclusions"),
             },
-            {key: value for key, value in displayed.items() if key != "review_markdown"},
+            {
+                key: value
+                for key, value in displayed.items()
+                if key not in ("review_markdown", "review_summary_markdown")
+            },
         )
         self.assertIsInstance(displayed["review_markdown"], str)
         self.assertIn(original["intended_outcome"], displayed["review_markdown"])

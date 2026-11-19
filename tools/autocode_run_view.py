@@ -652,6 +652,11 @@ def view(
                     "revision": contract["revision"],
                     "hash": contract["hash"],
                     "token": state["displayed_goal"],
+                    "review_summary_markdown": plan_file.summary_markdown(
+                        contract["body"],
+                        revision=contract["revision"],
+                        status="approved" if contract_identity.approved(state) else "not approved",
+                    ),
                     "review_markdown": plan_file.review_markdown(contract["body"]),
                     **{
                         key: deepcopy(contract["body"].get(key))

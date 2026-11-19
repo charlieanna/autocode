@@ -2306,13 +2306,19 @@ No field is a percentage or an estimate from elapsed time.
 `displayed_plan` is an optional structured approval projection: `revision`, `hash`,
 `token`, `acceptance_criteria`, `constraints` and `permission_boundaries`. It appears
 only when the last displayed token matches the current sealed contract. It also includes required
+`review_summary_markdown`, a bounded overview derived from that same body: proposed approach,
+work stages, scope counts, boundaries, remaining decisions and approval status. Duration and
+execution cost are explicitly unestimated because the canonical contract records no such estimate.
+This overview adds no model call, new recommendation or approval authority. The complete
 `review_markdown`: core-generated readable material terms of that same canonical body,
 including outcome/user, deliverables, behaviors, failure cases, approach, decisions,
 criteria and verification, milestone dependencies/paths, first task, exact-output
 examples and local commit intent. It omits file front matter, approval tokens and
 opaque runner records. This display text is never parsed as action authority;
 structured fields and the exact token remain authoritative. The VS Code approval
-card and Run details display the same complete content before approval; a missing,
+card and Run details show the overview first with the complete content in an expandable
+**Full plan and acceptance criteria** section before approval. Older cores with complete
+`review_markdown` but no summary keep the full text visible. A missing,
 empty or malformed review blocks approval with the existing client-gap explanation.
 Saved legacy bodies are rendered from their available terms without changing their
 identity; older cores lacking this field must be updated before the new editor can

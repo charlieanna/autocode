@@ -182,7 +182,7 @@ class PlanCommandTests(unittest.TestCase):
         path.write_text(exported.replace('"Localization"', '"Localization and time zones"', 1))
         code, out, err = self.plan("--check", str(path))
         self.assertEqual((2, ""), (code, out))
-        self.assertIn("no longer matches it (line", err)
+        self.assertIn("no longer matches its contract (line", err)
         self.assertIn(f"autocode plan --render {path}", err)
         code, out, err = self.plan("--render", str(path))
         self.assertEqual((0, ""), (code, err))
@@ -207,7 +207,7 @@ class PlanCommandTests(unittest.TestCase):
         path.write_text("# Plan\n")
         code, out, err = self.plan("--check", str(path))
         self.assertEqual((2, ""), (code, out))
-        self.assertTrue(err.startswith("autocode plan: A plan file starts with its front matter"), err)
+        self.assertTrue(err.startswith("autocode plan: A plan file starts with a readable overview"), err)
 
 
 class CatalogPlanExportTests(unittest.TestCase):

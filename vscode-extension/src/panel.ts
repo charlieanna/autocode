@@ -104,7 +104,7 @@ export interface PanelState {
   /** The run's whole change, once a step is saved: the one diff a person reads (owner decision 2026-11-13). */
   allChanges: { label: string; context: string } | null;
   /** The plan the current token asks to approve, only when the view shows it. */
-  plan: { revision: number | null; review: TextNode[]; criteria: AcceptanceCriterion[]; constraints: string[]; boundaries: string[]; exclusions: string[]; delivery: string | null; milestones: { id: string; objective: string; acceptance_criteria: string[] }[]; flow: string[] } | null;
+  plan: { revision: number | null; identity: string; overview: TextNode[]; review: TextNode[]; criteria: AcceptanceCriterion[]; constraints: string[]; boundaries: string[]; exclusions: string[]; delivery: string | null; milestones: { id: string; objective: string; acceptance_criteria: string[] }[]; flow: string[] } | null;
   /** The token the approval is bound to; the webview echoes it back so a stale click cannot approve. */
   token: string | null;
   /** False when the action would be an approval of a plan this client never displayed. */
@@ -609,6 +609,8 @@ function planShape(view: StatusView): PanelState["plan"] {
 function planOf(plan: DisplayedPlan): NonNullable<PanelState["plan"]> {
   return {
     revision: plan.revision ?? null,
+    identity: plan.token ?? JSON.stringify([plan.revision, plan.hash, plan.review_markdown]),
+    overview: typeof plan.review_summary_markdown === "string" ? markdown(plan.review_summary_markdown) : [],
     review: markdown(plan.review_markdown ?? ""),
     criteria: plan.acceptance_criteria ?? [],
     constraints: plan.constraints ?? [],
@@ -1011,6 +1013,9 @@ export function panelHtml(chat = false): string {
   .assumption-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 3px; font-size: .78rem; }
   .requirements-details { margin: 8px 0; font-size: .84rem; }
   .requirements-details summary { cursor: pointer; font-weight: 600; }
+  .plan-evidence { margin-top: 14px; border-top: 1px solid var(--vscode-panel-border); padding-top: 10px; }
+  .plan-evidence > summary { cursor: pointer; font-weight: 600; }
+  .plan-evidence > summary:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 3px; }
   .custom-answer, .assumption-override { margin-top: 6px; }
   .activity { margin: 6px 0; font-family: var(--vscode-editor-font-family, monospace); font-size: .82rem; }
   .activity-row { display: flex; gap: 6px; opacity: .85; }
@@ -1096,6 +1101,7 @@ const chatMode = ${chat};
 const RAISE_LABEL = ${JSON.stringify(RAISE_LABEL)};
 const WELCOME_TEXT = ${JSON.stringify(WELCOME_TEXT)};
 const initialWebviewState = vscode.getState?.() || {};
+const openPlanEvidence = Object.assign(Object.create(null), initialWebviewState.openPlanEvidence || {});
 // The header's details stay open or closed across reads, tabs and a recreated webview.
 let headerOpen = initialWebviewState.headerOpen === true;
 // So does folding the whole overview to its one summary line. It starts folded: at the default
@@ -1694,7 +1700,8 @@ function renderDecisionControl(box, decision, showQuestionText, ariaQuestion) {
 function restoreFocusedField(focusedAttr, selection) {
   if (!focusedAttr) return;
   const selector = focusedAttr[0] === 'question' ? '[data-question]'
-    : focusedAttr[0] === 'customFor' ? '[data-custom-for]' : '[data-review-override]';
+    : focusedAttr[0] === 'customFor' ? '[data-custom-for]'
+    : focusedAttr[0] === 'planEvidence' ? '[data-plan-evidence]' : '[data-review-override]';
   const input = [...document.querySelectorAll(selector)].find((node) => node.dataset[focusedAttr[0]] === focusedAttr[1]);
   if (input) {
     input.focus();
@@ -1723,6 +1730,7 @@ function render(state) {
     focused.dataset.question ? ['question', focused.dataset.question]
     : focused.dataset.customFor ? ['customFor', focused.dataset.customFor]
     : focused.dataset.reviewOverride ? ['reviewOverride', focused.dataset.reviewOverride]
+    : focused.dataset.planEvidence ? ['planEvidence', focused.dataset.planEvidence]
     : null
   );
   const selection = focusedAttr && focused.tagName === 'INPUT'
@@ -2091,7 +2099,26 @@ function render(state) {
 
 function renderPlan(parent, plan) {
   const content = el('div', 'plan-content message-content');
-  appendFormatted(content, plan.review);
+  if (plan.overview.length) {
+    const overview = el('div', 'plan-overview');
+    appendFormatted(overview, plan.overview);
+    content.appendChild(overview);
+    const evidence = el('details', 'plan-evidence');
+    const key = JSON.stringify([current.workspace, current.runDir, plan.identity]);
+    evidence.open = openPlanEvidence[key] === true;
+    const disclosure = el('summary', null, 'Full plan and acceptance criteria');
+    disclosure.dataset.planEvidence = key;
+    evidence.appendChild(disclosure);
+    const full = el('div', 'plan-full');
+    appendFormatted(full, plan.review);
+    evidence.appendChild(full);
+    evidence.addEventListener('toggle', () => {
+      openPlanEvidence[key] = evidence.open;
+      const saved = vscode.getState?.() || {};
+      vscode.setState?.({ ...saved, openPlanEvidence });
+    });
+    content.appendChild(evidence);
+  } else appendFormatted(content, plan.review);
   parent.appendChild(content);
 }
 

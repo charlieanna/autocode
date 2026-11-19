@@ -908,8 +908,9 @@
         "displayed_plan": {
           "type": "object",
           "description": "Present while a sealed plan is displayed for approval. review_markdown contains its complete material terms for display only; structured fields and token remain authoritative. milestones and end_to_end_flow (#2434) are present only where the contract body has them; sealed legacy plans omit both.",
-          "required": ["review_markdown"],
+          "required": ["review_markdown", "review_summary_markdown"],
           "properties": {
+            "review_summary_markdown": {"type": "string", "description": "Bounded overview generated from the same sealed canonical plan: proposed approach, stages, scope, missing estimates, decisions and approval status. Display only; never sufficient for approval without the complete review_markdown."},
             "review_markdown": {"type": "string", "description": "Core-generated readable material terms of this exact canonical plan, without file front matter, approval tokens or opaque runner records; never parsed as action authority."},
             "milestones": {
               "type": "array",

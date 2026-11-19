@@ -188,7 +188,7 @@ class ReadTests(unittest.TestCase):
     def test_a_file_whose_text_no_longer_matches_its_front_matter_is_refused(self):
         text = plan_file.export(plan_body(), revision=2, approved=False)
         self.path.write_text(text.replace('"Web service"', '"Web service or API"', 1))
-        with self.assertRaisesRegex(ValueError, r"no longer matches it \(line \d+\).*autocode plan --render"):
+        with self.assertRaisesRegex(ValueError, r"no longer matches its contract \(line \d+\).*autocode plan --render"):
             goal_file.read(self.path)
 
     def test_a_missing_file_and_a_file_without_a_plan_are_refused(self):

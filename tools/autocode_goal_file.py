@@ -1,12 +1,12 @@
 """`autocode --goal-file PATH`: a saved run's next plan revision from a plan file (#720).
 
 A team reviews a run's plan as the file `autocode plan --export` writes (autocode_plan_file) and edits it in a
-pull request. Loading the merged file makes its front matter's contract the run's next draft revision,
+pull request. Loading the merged file makes its canonical contract the run's next draft revision,
 exactly as `--edit-goal` does with a body (autocode_action_decisions), and the plan then goes through
 ordinary approval: in joint planning the Plan Reviewer reviews it first, as it reviews any edit.
 
-The file is refused when AutoCode cannot read it, or when its text no longer matches its front matter:
-reviewers read the text, so loading a front matter that says something else would build a plan nobody read.
+The file is refused when AutoCode cannot read it, or when its text no longer matches its canonical contract:
+reviewers read the text, so loading a contract that says something else would build a plan nobody read.
 Its plan gets the checks every draft gets on install (autocode_goal_lifecycle.install_draft) and, with the
 planner's own messages, the ones only a planner's draft gets (``check``). A file still holding text the export
 masked as credential-shaped is refused first, since loading it would make the mask the plan's text.
@@ -63,7 +63,7 @@ def read(path: Path) -> plan_file.PlanFile:
         raise ValueError(f"{path} is not a plan file AutoCode can load: {error}") from None
     if plan.stale_line is not None:
         raise ValueError(
-            f"{path}: the text under the front matter no longer matches it (line {plan.stale_line}), so reviewers "
+            f"{path}: the generated plan text no longer matches its contract (line {plan.stale_line}), so reviewers "
             f"read a plan other than the one it holds. Run `autocode plan --render {path}`, review the "
             "regenerated text, then load the file"
         )
@@ -112,7 +112,7 @@ def _refuse_masked(current: dict, body: dict) -> None:
         raise ValueError(
             f"The plan file was masked on export: `autocode plan --export` wrote `{MASKED}` in its "
             f"{', '.join(keys)} in place of credential-shaped text, and loading it would make the marker the plan's "
-            "text. Restore the masked values in its front matter (or reword that text so it holds "
+            "text. Restore the masked values in its contract JSON (or reword that text so it holds "
             "no credential), run `autocode plan --render FILE` on it, then load it"
         )
 

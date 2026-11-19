@@ -1,9 +1,9 @@
 """`autocode plan`: a saved run's plan as a file a team reviews in a pull request (#720).
 
 `--export PATH` writes the run's current contract (approved or waiting for approval) as Markdown
-with a front matter that holds the contract exactly (autocode_plan_file). `--check PATH` reads such
+with a concise overview and expandable canonical contract (autocode_plan_file). `--check PATH` reads such
 a file back and prints its goal hash, and exits 2 when the file cannot be read or its text no longer
-matches its front matter. `--render PATH` regenerates that text after the front matter was edited.
+matches its canonical contract. `--render PATH` regenerates that text after the contract JSON was edited.
 
 Read-only toward the run: like `autocode events` it reads the saved checkpoint, takes no run lock,
 records nothing and launches nothing. Only the named file is written.
@@ -82,8 +82,8 @@ def check_payload(path: Path) -> tuple[int, dict]:
     plan = plan_file.read(read(path))
     if plan.stale_line is not None:
         msg = (
-            f"{path}: the text under the front matter no longer matches it (line {plan.stale_line}). "
-            f"The front matter is the plan: run `autocode plan --render {path}` to regenerate the text"
+            f"{path}: the generated plan text no longer matches its contract (line {plan.stale_line}). "
+            f"The canonical JSON is the plan: run `autocode plan --render {path}` to regenerate the text"
         )
         return 2, {
             "path": str(path),
@@ -118,14 +118,14 @@ def check(path: Path) -> tuple[int, str]:
 
 
 def render_payload(path: Path) -> dict:
-    """Regenerate ``path``'s text from its front matter and return the structured payload."""
+    """Regenerate ``path``'s text from its canonical contract and return the structured payload."""
     text = plan_file.rendered(read(path))
     write(path, text)
     goal = plan_file.read(text).goal_hash
     return {
         "path": str(path),
         "goal_hash": goal,
-        "message": f"Regenerated the text of {path} from its front matter; goal hash {goal}",
+        "message": f"Regenerated the text of {path} from its canonical contract; goal hash {goal}",
     }
 
 
@@ -166,7 +166,7 @@ def parser() -> argparse.ArgumentParser:
     action.add_argument("--export", type=Path, metavar="PATH", help="write the run's current plan to this file")
     action.add_argument("--check", type=Path, metavar="PATH", help="read a plan file and print its goal hash")
     action.add_argument(
-        "--render", type=Path, metavar="PATH", help="regenerate a plan file's text from its edited front matter"
+        "--render", type=Path, metavar="PATH", help="regenerate a plan file's text from its edited contract JSON"
     )
     result.add_argument("--workspace", type=Path, help="with --export: project whose saved run to export")
     result.add_argument(
