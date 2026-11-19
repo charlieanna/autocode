@@ -18,6 +18,18 @@ def view(status, *, needs=None, done=False, headline=None, needs_you=None, next_
 
 
 class StatusSummaryTests(unittest.TestCase):
+    def test_a_completed_non_build_job_has_no_code_reverification_or_delivery_claim(self):
+        for headline in ("Plan accepted", "Answer complete"):
+            with self.subTest(headline=headline):
+                finished = view("TASK_COMPLETE", done=True, headline=headline, next_command="retained-command")
+                result = summary.project(finished, completion_current=False, completed_without_building=True)
+                self.assertEqual("done", result["state"])
+                self.assertIsNone(result["next_command"])
+                self.assertIn("Nothing was built or changed", result["sentence"])
+                self.assertNotIn("verified against", result["sentence"])
+                # Display wording alone never bypasses a built task's evidence gate.
+                self.assertEqual("stopped", summary.project(finished, completion_current=False)["state"])
+
     def test_a_question_reads_as_needing_you_with_the_views_own_command(self):
         result = summary.project(
             view(

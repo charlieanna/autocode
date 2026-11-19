@@ -63,6 +63,14 @@ class PlanOnlyCliTests(unittest.TestCase):
         self.assertIsNone(accepted["needs"])
         self.assertEqual(need["token"], accepted["approved_contract"]["token"])
         self.assertEqual(plan_only.ACCEPTED_HEADLINE, accepted["progress"]["headline"], accepted["progress"])
+        self.assertEqual("done", accepted["summary"]["state"])
+        self.assertIsNone(accepted["next_command"], "An accepted plan needs no code re-verification")
+        self.assertIsNone(accepted["summary"]["next_command"])
+        self.assertIn("Nothing was built or changed", accepted["summary"]["sentence"])
+        reply = accepted["chat"]["messages"][-1]["text"]
+        self.assertIn("Proposed approach", reply)
+        self.assertIn("Nothing was built or changed", reply)
+        self.assertNotIn("Merge that branch", reply)
 
         # Launching the saved run again launches nothing and keeps the accepted plan as its result:
         # no Builder, Tester or Completion Reviewer ever ran, so no built-code evidence can go stale.

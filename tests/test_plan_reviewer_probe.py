@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 import autocode_measured_routes as measured_routes
 import autocode_model_probe as model_probe
+import autocode_plan_file as plan_file
 import autocode_plan_reviewer_probe as reviewer_probe
 import autocode_route_selector as route_selector
 import autocode_taskrun as taskrun
@@ -237,6 +238,35 @@ class RunReviewerProbeTests(unittest.TestCase):
         self.assertEqual(["P4", "P5"], [request for request, *_ in calls])
         self.assertEqual("the probe reached its $3.00 cap", outcome["stopped"])
         self.assertEqual([], outcome["results"], "a full pass cut off is not recorded")
+
+
+class ExportedPlanFormatTests(unittest.TestCase):
+    def test_probe_reads_and_rewrites_both_public_plan_formats(self):
+        original = {"intended_outcome": "Keep literal tests/__init__.py", "technical_approach": ["One function"]}
+        for version in sorted({1, 2, plan_file.FORMAT}):
+            with self.subTest(version=version), tempfile.TemporaryDirectory(prefix="reviewer-plan-format-") as parent:
+                front = {
+                    "autocode_plan": version,
+                    "goal_hash": plan_file.goal_hash(original),
+                    "revision": 3,
+                    "approval_status": "not approved",
+                    "contract": original,
+                }
+                exported = plan_file.document(front)
+                self.assertEqual(front, model_probe._front_matter(exported))
+                changed = {**original, "technical_approach": ["A deliberately different approach"]}
+                path = model_probe._plan_file(
+                    Path(parent), front, changed, (sys.executable, str(HERE / "autocode.py")), {}
+                )
+                parsed = plan_file.read(path.read_text())
+                self.assertEqual(version, parsed.format)
+                self.assertEqual(changed, parsed.body)
+                self.assertEqual(front["goal_hash"], parsed.exported_hash)
+                self.assertIsNone(parsed.stale_line)
+
+    def test_unreadable_export_is_reported_as_a_taskrun_error(self):
+        with self.assertRaisesRegex(taskrun.TaskRunError, "exported plan file"):
+            model_probe._front_matter("# No canonical contract")
 
 
 class ThroughTheCliTests(unittest.TestCase):

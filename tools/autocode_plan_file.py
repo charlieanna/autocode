@@ -7,8 +7,8 @@ runner records), the goal hash and where it was exported from. The overview and 
 from the contract so a reviewer can read it; edit the contract JSON, then regenerate the text
 (``autocode plan --render``).
 
-Format 2 holds that JSON in a fenced code block after ``CONTRACT_MARKER``. Format 1 files, whose JSON
-front matter precedes all prose, remain readable and re-render with their original format and bytes.
+Formats 2 and 3 hold that JSON in a fenced block after ``CONTRACT_MARKER``. Format 3 corrects singular
+scope wording; earlier formats retain their original text. Format 1's JSON front matter precedes all prose.
 Keys, in order:
 
 - ``autocode_plan``: the file format, ``FORMAT``.
@@ -44,7 +44,8 @@ try:
 except ImportError:
     import autocode_util as util
 
-FORMAT = 2
+FORMAT = 3
+SUPPORTED_FORMATS = (1, 2, FORMAT)
 FENCE = "---"
 CONTRACT_MARKER = "<!-- autocode-plan-contract -->"
 KEYS = ("autocode_plan", "goal_hash", "revision", "approval_status", "contract")
@@ -143,7 +144,12 @@ def _layout(front: dict) -> tuple[str, str, str, str]:
         return "", FENCE, FENCE, render(body, exported_hash=front["goal_hash"], revision=revision, status=status)
     current = goal_hash(body)
     changed = current != front["goal_hash"]
-    overview = summary_markdown(body, revision=revision, status="not approved" if changed else status)
+    overview = summary_markdown(
+        body,
+        revision=revision,
+        status="not approved" if changed else status,
+        _format_two=front["autocode_plan"] == 2,
+    )
     if changed:
         overview += (
             "\n\nThis content differs from the exported revision; its approval does not apply to this edited plan."
@@ -204,7 +210,7 @@ def read(text: str) -> PlanFile:
         ) from None
     front = _front(front)
     if (front["autocode_plan"] == 1) != legacy:
-        raise ValueError("Plan format 1 starts with front matter; format 2 has an overview and marked JSON block")
+        raise ValueError("Plan format 1 starts with front matter; later formats have an overview and marked JSON block")
     prefix, _, _, suffix = _layout(front)
     stale = _difference(lines[:start], prefix.split("\n")[:-1], offset=1)
     return PlanFile(
@@ -246,9 +252,10 @@ def _constant(name):
 def _front(front) -> dict:
     if not isinstance(front, dict):
         raise ValueError("The front matter must be one JSON object")
-    if front.get("autocode_plan") not in (1, FORMAT):
+    if front.get("autocode_plan") not in SUPPORTED_FORMATS:
         raise ValueError(
-            f"This file is plan format {front.get('autocode_plan')!r}; this AutoCode reads plan formats 1 and {FORMAT}"
+            f"This file is plan format {front.get('autocode_plan')!r}; this AutoCode reads plan formats "
+            + ", ".join(map(str, SUPPORTED_FORMATS))
         )
     unknown = sorted(set(front) - set(KEYS))
     missing = [key for key in KEYS if key not in front]
@@ -362,7 +369,7 @@ def render(body: dict, *, exported_hash: str, revision: int, status: str) -> str
     return util.redact("\n".join(out))
 
 
-def summary_markdown(body: dict, *, revision: int, status: str) -> str:
+def summary_markdown(body: dict, *, revision: int, status: str, _format_two=False) -> str:
     """A bounded reading lead from canonical facts, never a second model-authored plan.
 
     The contract has no duration or execution-price estimate. Counts describe scope, not an
@@ -395,10 +402,13 @@ def summary_markdown(body: dict, *, revision: int, status: str) -> str:
     milestones = body.get("milestones") or []
     stages = [row.get("objective", "") for row in milestones] or body.get("end_to_end_flow") or []
     out += rows("Work stages", stages, maximum=4, limit=160, ordered=True, empty="No work stages recorded.")
+    count = len(body.get("acceptance_criteria") or [])
+    stages_word = "stage" if len(stages) == 1 and not _format_two else "stages"
+    criteria_word = "acceptance criterion" if count == 1 and not _format_two else "acceptance criteria"
     out += [
         "## Effort and cost",
         "",
-        f"Planned scope: {len(stages)} stages; {len(body.get('acceptance_criteria') or [])} acceptance criteria. "
+        f"Planned scope: {len(stages)} {stages_word}; {count} {criteria_word}. "
         "Duration and execution cost are not estimated. Model calls and retries affect actual usage.",
         "",
     ]

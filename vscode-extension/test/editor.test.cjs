@@ -8735,6 +8735,34 @@ test('complete material canonical plan is reviewable before approval on both exi
   }
 });
 
+test('Run details gives the current decision priority over runtime history and progress records', async (t) => {
+  for (const decision of ['plan', 'question']) {
+    await t.test(decision, async (t) => {
+      const view = headerView({ ...(decision === 'plan' ? approvalView() : questionView()),
+        task: 'Original request to keep available',
+        progress: { tasks: { items: [{ id: 'T1', label: 'Historical task', state: 'done' }] },
+          requirements: { items: [{ id: 'R1', criterion: 'Historical requirement', state: 'unchecked' }] },
+          problems: { items: [{ id: 'F1', finding: 'Historical nonblocking finding', severity: 'info', blocking: false }] } },
+      });
+      if (decision === 'plan') view.displayed_plan.review_summary_markdown = 'The current canonical approach';
+      const ui = await openPanel(t, view);
+      const take = ui.document.querySelector('#take-action');
+      const primary = decision === 'plan' ? ui.document.querySelector('.plan-overview')
+        : ui.document.querySelector('[data-question="q1"]');
+      assert.ok(primary, 'the current plan or question is shown');
+      for (const background of [
+        ...ui.document.querySelectorAll('.detail-section'),
+        ...[...ui.document.querySelectorAll('h2')].filter((h) => ['Request', 'Tasks', 'Requirements', 'Open problems'].includes(h.textContent)),
+      ]) {
+        assert.ok(primary.compareDocumentPosition(background) & 4, `${decision}: decision must precede ${background.textContent.slice(0,50)}`);
+        assert.ok(take.compareDocumentPosition(background) & 4, `${decision}: runtime records must not bury its action`);
+      }
+      assert.match(ui.document.body.textContent, /Historical task/);
+      assert.match(ui.document.body.textContent, /Original request to keep available/);
+    });
+  }
+});
+
 test('concise plan overview precedes expandable full evidence on both approval surfaces', async (t) => {
   for (const surface of ['chat', 'Run details']) {
     await t.test(surface, async (t) => {

@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { duration, finishSummary, money, runTotal, sessionTotal, stages, struggling, tokens, totalText, type StageRow } from "../src/core/meter";
 import { statusLine } from "../src/statusBar";
-import type { StatusView } from "../src/core/view";
+import { readStatusPayload, type StatusView } from "../src/core/view";
 
 // The same cases as the terminal chat's tests/test_chat_meter.py: both clients read one view alike.
 const NOW = Date.parse("2026-11-02T01:10:00Z");
@@ -194,6 +194,17 @@ test("small amounts and counts read briefly", () => {
   assert.deepEqual([0.2, 0.254, 0.5].map(money), ["$0.20", "$0.254", "$0.50"], "below a dollar still shows cents");
   assert.deepEqual([950, 1234, 184_000, 3_400_000].map(tokens), ["950", "1.2k", "184k", "3.4M"]);
   assert.deepEqual([9, 245, 3725].map(duration), ["9s", "4m05s", "1h02m"]);
+});
+
+test("a result without current code verification does not claim checked implementation requirements", () => {
+  const publicView = { done: true,
+    progress: { headline: "Plan accepted", requirements: { checked: 0, failed: 0, unchecked: 6, awaiting_review: 0 } } };
+  // The core writes completion_current in the public envelope, alongside view.
+  const done = readStatusPayload(JSON.stringify({ view: publicView, completion_current: false }));
+  assert.equal(finishSummary(done)!.requirements, null);
+  assert.equal(finishSummary(done)!.headline, "Plan accepted");
+  const current = readStatusPayload(JSON.stringify({ view: publicView, completion_current: true }));
+  assert.deepEqual(finishSummary(current)!.requirements, { checked: 0, total: 6 });
 });
 
 test("a finished run's summary names its result, requirements, changed files and stage time", () => {

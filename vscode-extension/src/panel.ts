@@ -1986,42 +1986,6 @@ function render(state) {
   ].filter(Boolean);
   app.appendChild(el('div', 'meta', meta.join('  ·  ')));
   if (state.stopped) renderStopped(state.stopped);
-  if (state.header) renderDetailSections(app, state.header.sections);
-
-  if (state.task) {
-    app.appendChild(el('h2', null, 'Request'));
-    app.appendChild(el('pre', null, state.task));
-  }
-
-  if (state.tasks.length) {
-    app.appendChild(el('h2', null, 'Tasks'));
-    state.tasks.forEach(stateRow);
-  }
-
-  if (state.requirements.length) {
-    app.appendChild(el('h2', null, 'Requirements'));
-    if (state.requirementCounts) {
-      const c = state.requirementCounts;
-      const counts = el('div', 'counts');
-      counts.appendChild(el('span', null, c.checked + ' checked'));
-      counts.appendChild(el('span', null, c.failed + ' failed'));
-      counts.appendChild(el('span', null, c.awaitingReview + ' awaiting your review'));
-      counts.appendChild(el('span', null, c.unchecked + ' unchecked'));
-      app.appendChild(counts);
-    }
-    state.requirements.forEach(stateRow);
-  }
-
-  if (state.problems.length) {
-    app.appendChild(el('h2', null, 'Open problems'));
-    state.problems.forEach((item) => {
-      const row = el('div', 'row');
-      row.appendChild(el('span', 'state ' + (item.blocking ? 'blocking' : ''), item.severity || 'finding'));
-      row.appendChild(el('span', null, item.id + ': ' + item.finding));
-      app.appendChild(row);
-    });
-  }
-
   if (state.criteria.length) {
     app.appendChild(el('h2', null, 'Criteria to accept'));
     state.criteria.forEach((row) => app.appendChild(el('div', 'row', row.id + ': ' + row.criterion)));
@@ -2092,6 +2056,43 @@ function render(state) {
       app.appendChild(notice);
     }
 
+  }
+
+  // The current decision and its named action come before historical diagnostics on every surface.
+  if (state.header) renderDetailSections(app, state.header.sections);
+
+  if (state.task) {
+    app.appendChild(el('h2', null, 'Request'));
+    app.appendChild(el('pre', null, state.task));
+  }
+
+  if (state.tasks.length) {
+    app.appendChild(el('h2', null, 'Tasks'));
+    state.tasks.forEach(stateRow);
+  }
+
+  if (state.requirements.length) {
+    app.appendChild(el('h2', null, 'Requirements'));
+    if (state.requirementCounts) {
+      const c = state.requirementCounts;
+      const counts = el('div', 'counts');
+      counts.appendChild(el('span', null, c.checked + ' checked'));
+      counts.appendChild(el('span', null, c.failed + ' failed'));
+      counts.appendChild(el('span', null, c.awaitingReview + ' awaiting your review'));
+      counts.appendChild(el('span', null, c.unchecked + ' unchecked'));
+      app.appendChild(counts);
+    }
+    state.requirements.forEach(stateRow);
+  }
+
+  if (state.problems.length) {
+    app.appendChild(el('h2', null, 'Open problems'));
+    state.problems.forEach((item) => {
+      const row = el('div', 'row');
+      row.appendChild(el('span', 'state ' + (item.blocking ? 'blocking' : ''), item.severity || 'finding'));
+      row.appendChild(el('span', null, item.id + ': ' + item.finding));
+      app.appendChild(row);
+    });
   }
 
   restoreFocusedField(focusedAttr, selection);

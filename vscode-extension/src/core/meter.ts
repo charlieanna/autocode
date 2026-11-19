@@ -284,7 +284,7 @@ export function finishSummary(view: unknown): FinishSummary | null {
   const ran = stages(view).map((row) => row.seconds).filter((value): value is number => value !== null);
   return {
     headline: text(progress.headline) || text(root.status) || "Finished",
-    requirements: total ? { checked: isNumber(requirements.checked) ? requirements.checked : 0, total } : null,
+    requirements: total && root.completion_current !== false ? { checked: isNumber(requirements.checked) ? requirements.checked : 0, total } : null,
     files,
     seconds: ran.length ? ran.reduce((a, b) => a + b, 0) : null,
     total: runTotal(view),

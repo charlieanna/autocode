@@ -207,6 +207,8 @@ class BodyTests(unittest.TestCase):
         self.assertIn("`plans/issue-7.md` is plan revision 2 of AutoCode run `run-1`, waiting for approval.", body)
         self.assertIn(f"Its goal hash is `{'a' * 64}`, what `autocode plan --check plans/issue-7.md` prints.", body)
         self.assertIn("`autocode plan --render plans/issue-7.md`", body)
+        self.assertIn("edit the JSON", body)
+        self.assertNotIn("between the two `---` lines", body)
         self.assertIn("Merging this pull request approves nothing.", body)
         self.assertIn("`autocode --goal-file plans/issue-7.md`", body)
         self.assertIn("A new run cannot be started from the file yet.", body)
@@ -215,6 +217,7 @@ class BodyTests(unittest.TestCase):
 
     def test_a_masked_file_says_its_goal_hash_differs_from_the_runs_plan(self):
         body = issue_plan.body(self.RECORD, self.entry(run_goal_hash="b" * 64))
+        self.assertIn("restore those values in the canonical JSON", body)
         self.assertIn(
             f"masked as `[REDACTED]` in this file, so its goal hash differs from the run's plan (`{'b' * 64}`)", body
         )

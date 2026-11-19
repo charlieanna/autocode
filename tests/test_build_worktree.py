@@ -246,6 +246,21 @@ class MoveTests(unittest.TestCase):
 
 
 class NoticeTests(unittest.TestCase):
+    def test_a_plan_only_worktree_promises_a_plan_without_a_build_or_merge(self):
+        for existing in (False, True):
+            for after_events in ({}, {"after_events": 1}):
+                with self.subTest(existing=existing, after_events=after_events):
+                    state = {"settings": {"plan_only": True}, "build_worktree": {
+                        "state": "building", "branch": "plan-greeting", "existing_branch": existing,
+                        "moved_from": {"workspace": "/project"}, **after_events,
+                    }}
+                    text = build_worktree.notice(state)
+                    self.assertTrue(text.startswith("I prepare this plan on "), text)
+                    self.assertIn("accepting the reviewed plan ends it", text)
+                    self.assertIn("without building or changing project files", text)
+                    self.assertNotIn("review and merge", text)
+                    self.assertIn("your branch" if existing else "its own branch", text)
+
     def test_the_notice_names_the_branch_and_what_the_build_leaves_out(self):
         self.assertIsNone(build_worktree.notice({"build_worktree": {"state": "planning"}}))
         self.assertIsNone(build_worktree.notice({}))

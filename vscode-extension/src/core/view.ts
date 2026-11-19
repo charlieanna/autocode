@@ -241,6 +241,8 @@ export interface RunnerCheck {
 }
 
 export interface StatusView {
+  /** Existing public envelope verdict retained by readStatusPayload for the closing card. */
+  completion_current?: boolean;
   schema?: number;
   /** The run's effective workspace: may differ from a client handle named before bootstrap relocation. */
   workspace?: string | null;
@@ -426,7 +428,8 @@ export function readStatusPayload(raw: string): StatusView {
     throw new RunStarting(label);
   }
   if (!view || typeof view !== "object") throw new Error("--status did not return a status view");
-  return view as StatusView;
+  const completionCurrent = (parsed as Record<string, unknown>).completion_current;
+  return typeof completionCurrent === "boolean" ? { ...view, completion_current: completionCurrent } as StatusView : view as StatusView;
 }
 
 export interface RegistryAction {

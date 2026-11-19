@@ -314,7 +314,7 @@ class PlanFileTests(unittest.TestCase):
             + text,
             "not a JSON number": front.replace('"revision": 1', '"revision": NaN') + "\n---\n" + text,
             "unknown: reviewer": front.replace("{", '{\n  "reviewer": "ana",', 1) + "\n---\n" + text,
-            "reads plan formats 1 and 2": front.replace('"autocode_plan": 1', '"autocode_plan": 99') + "\n---\n" + text,
+            "reads plan formats": front.replace('"autocode_plan": 1', '"autocode_plan": 99') + "\n---\n" + text,
             "64-character SHA-256": front.replace(util.digest(body()), "abc") + "\n---\n" + text,
             "must be one JSON object": "---\n[]\n---\n",
             "contract.acceptance_criteria must be a list of objects": front.replace(

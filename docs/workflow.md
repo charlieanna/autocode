@@ -1309,9 +1309,10 @@ comes first. The fenced JSON block is the plan: the contract
 body exactly as the run holds it (each criterion with how it is verified and the `test:` or
 `guard:` name it cites, the request's exact-output examples, milestones, what is out of scope,
 the runner's records), its goal hash, and the plan revision it came from and whether that was
-approved. Both reading paths are generated from it. New exports use plan-file format 2;
-format 1 files, with JSON front matter between `---` lines, remain readable and re-render
-in their original format without changing their existing text.
+approved. Both reading paths are generated from it. New exports use plan-file format 3,
+which corrects singular scope wording. Formats 1 and 2 remain readable and re-render
+in their original format without changing their existing text; format 1 keeps its JSON
+front matter between `---` lines.
 
 The goal hash is the SHA-256 of the contract body: what the plan says, whatever run or revision
 holds it. A plan read back from the file has the same goal hash as the run's. The scenario runner

@@ -92,6 +92,37 @@ class ConsistentSampleTests(unittest.TestCase):
             self.assertNotEqual("Waiting for you", shown["view"]["progress"]["headline"])
             self.assertEqual(saved, json.loads((run / "state.json").read_text()))
 
+    def test_a_requirements_answer_is_done_without_code_reverification(self):
+        import subprocess
+
+        import autocode_requirements_chat as chat
+
+        from tests.test_requirements_chat import RequirementsChatTests
+
+        state = {**state_at(None), **RequirementsChatTests.discussion()}
+        self.assertTrue(chat.answer_now(state, {"output": None}))
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp).resolve() / "run"
+            run.mkdir()
+            subprocess.run(["git", "init", "-q", str(run.parent)], check=True)
+            subprocess.run(
+                ["git", "-C", str(run.parent), "-c", "user.name=T", "-c", "user.email=t@example.test",
+                 "commit", "-q", "--allow-empty", "-m", "base"], check=True,
+            )
+            (run / "state.json").write_text(json.dumps(state))
+            shown = self.render(
+                state, run, lambda *_args, **_kwargs: {"kind": "boundary", "checked": True, "alive": False},
+                envelope=True,
+            )
+        public = shown["view"]
+        self.assertEqual("TASK_COMPLETE", public["status"])
+        self.assertFalse(shown["completion_current"], "No code verification was performed or claimed")
+        self.assertEqual("done", public["summary"]["state"])
+        self.assertIsNone(public["next_command"])
+        self.assertIsNone(public["summary"]["next_command"])
+        self.assertIn("Nothing was built or changed", public["summary"]["sentence"])
+        self.assertIn("It is in-process because", public["chat"]["messages"][-1]["text"])
+
     def test_a_checkpoint_replaced_during_inspection_is_read_again(self):
         import autocode_util as util
 

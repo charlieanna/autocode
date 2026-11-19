@@ -11,6 +11,8 @@ try:
     from . import autocode_build_worktree as build_worktree
     from . import autocode_contract_identity as contract_identity
     from . import autocode_message_context as message_context
+    from . import autocode_plan_file as plan_file
+    from . import autocode_plan_only as plan_only
     from . import autocode_project_delivery as project_delivery
     from . import autocode_requirements_chat as requirements_chat
     from . import autocode_requirements_review as requirements_review
@@ -20,6 +22,8 @@ except ImportError:
     import autocode_build_worktree as build_worktree
     import autocode_contract_identity as contract_identity
     import autocode_message_context as message_context
+    import autocode_plan_file as plan_file
+    import autocode_plan_only as plan_only
     import autocode_project_delivery as project_delivery
     import autocode_requirements_chat as requirements_chat
     import autocode_requirements_review as requirements_review
@@ -38,6 +42,11 @@ DELIVERY_NOTICE = "project-delivered"
 
 def response(state: RunState) -> str:
     """The completed turn's saved result, without reading report files or logs."""
+    if plan_only.owns(state):
+        contract = state["goal_contract"]
+        return "Plan accepted. Nothing was built or changed.\n\n" + plan_file.summary_markdown(
+            contract.get("body") or {}, revision=contract["revision"], status="approved"
+        )
     workflow = (state.get("workflow") or {}).get("kind")
     if workflow == "discuss":
         answer = state.get("answer") or {}
