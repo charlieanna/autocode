@@ -117,6 +117,11 @@ def isolated(command, cache) -> str:
     )
 
 
+def _unchanged(command, cache) -> str:
+    """A runner that is not Python keeps its command: the bytecode cache is Python's alone."""
+    return command
+
+
 def judge(receipt, tests) -> tuple[str, list[str]]:
     """(outcome, the proving tests that passed). ``killed`` when a proving test failed or the run failed
     before it could report them; ``survived`` when none failed and some passed; else ``timeout`` or
@@ -274,13 +279,13 @@ def _collect(
             "this runner cannot select the proving tests alone, so the mutation check ran no test",
             unavailable=NO_SELECTION,
         )
-    if python:
-        make, suffixes, prepare = mutants.python_mutants, (".py", ".pyi"), isolated
-    else:
-        make, prepare = text_mutants.text_mutants, lambda command, cache: command
-        suffixes = tuple(
-            suffix for suffix, kind in text_mutants.LANGUAGES.items() if kind == TEXT_FRAMEWORKS[framework_name]
-        )
+    make = mutants.python_mutants if python else text_mutants.text_mutants
+    prepare = isolated if python else _unchanged
+    suffixes: tuple[str, ...] = (
+        (".py", ".pyi")
+        if python
+        else tuple(suffix for suffix, kind in text_mutants.LANGUAGES.items() if kind == TEXT_FRAMEWORKS[framework_name])
+    )
     root = Path(tree).resolve()
     rows, planned = [], []
     for path, status in files:

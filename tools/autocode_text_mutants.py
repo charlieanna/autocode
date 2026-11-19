@@ -133,7 +133,7 @@ def text_mutants(
             numbered.append((number, ordinals[site.operator], site))
     numbered.sort(key=lambda row: (row[2].start, OPERATORS.index(row[2].operator)))
     digest = hashlib.sha256(source_bytes).hexdigest()
-    chosen = []
+    chosen: list[Mutant] = []
     for number, ordinal, site in _spread(numbered):
         if len(chosen) >= limit:
             break
