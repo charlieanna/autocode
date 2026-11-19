@@ -30,8 +30,12 @@ Focused export/import tests cover large plans, literal punctuation, malicious
 fences/markers, JSON reformatting, duplicate keys, invalid values, redaction and
 unchanged versus replaced identity. Generated-webview regressions cover both chat
 and Run details, complete evidence, keyboard focus, summary-only refusal and the
-older-core fallback. Live verification and current-head CI are recorded below
-once their outcomes are observed.
+older-core fallback. Focused export/import checks pass 51 tests; affected public
+status/approval/architecture checks pass 259 tests (one platform skip). Extension
+typecheck/build pass, with 745 tests passing and 22 opt-in skips. The macOS capture
+containment check's editable-install import refusal reproduces on clean master;
+the Linux checks remain required. Live editor/model outcomes and final-head CI
+are tracked in [PR #3862](https://github.com/charlieanna/autocode/pull/3862).
 
 The preceding cost run's terminal evidence and the concurrent merge of #3846 are
 corrected in [the cost note](2026-11-19-vscode-cost-visibility.md).

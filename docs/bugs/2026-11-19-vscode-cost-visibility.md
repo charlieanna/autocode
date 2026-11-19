@@ -92,5 +92,6 @@ terminal bundle manifest:
 PR #3846's required CI passed at `35e8ea28f19caee053021e800cb011ada3501f53`.
 A concurrent session merged it as `2139fc9786fa094edc6b081e405d0b1ac46016c4`
 before the planned successful follow-up was observed. Cost display was verified;
-the successful reviewed-plan follow-up remains pending with #3833. This distinction
-is also recorded in the merged PR's verification description.
+at that merge, the successful reviewed-plan follow-up was still pending. This
+distinction is recorded in the merged PR's description; subsequent live plan
+verification is tracked in [PR #3862](https://github.com/charlieanna/autocode/pull/3862).
