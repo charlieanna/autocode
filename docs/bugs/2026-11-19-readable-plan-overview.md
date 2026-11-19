@@ -45,6 +45,17 @@ alias assertions reproduce on clean master. A separate shell-observation fixture
 failure was corrected in [PR #3863](https://github.com/charlieanna/autocode/pull/3863)
 after its current-head CI passed. Linux CI remains required for the feature head.
 
+The first follow-up head passed its 1,182-test/64-module Ubuntu suite, extension,
+lint and Linux containment checks. Its native worker job exposed a pre-existing
+fixture race: a provider's ready marker appeared after the sampled checkpoint,
+so an earlier attempt list was compared with the newly held Tester. The same
+ordering fails deterministically without the fix. [PR #3893](https://github.com/charlieanna/autocode/pull/3893)
+made all gated observations require the matching active public attempt while
+retaining the no-replay assertions, and merged after all checks passed, including
+10 actual Linux worker tests. The UX follow-up was rebased onto that correction;
+its application source is unchanged. Eight earlier local path/workflow/timeout
+failures also pass with canonical temporary paths and one candidate package.
+
 The preceding cost run's terminal evidence and the concurrent merge of #3846 are
 corrected in [the cost note](2026-11-19-vscode-cost-visibility.md).
 
@@ -98,4 +109,4 @@ export. Model language consistency remains a separate issue.
 [PR #3862](https://github.com/charlieanna/autocode/pull/3862) was merged by another
 session before this live flow and all CI had finished. The follow-up corrections
 above were kept local until the live outcome was observed; their exact-head CI
-and merge are recorded in the follow-up pull request.
+and merge are recorded in [PR #3886](https://github.com/charlieanna/autocode/pull/3886).
