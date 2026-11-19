@@ -8,6 +8,7 @@ offered gap, source pin and cited runner proof.
 import copy
 import hashlib
 import json
+import re
 from pathlib import Path
 
 
@@ -1226,7 +1227,7 @@ NATIVE_FIXTURES = {
         "tests": ["window/regression_test.go"],
         "pins": {
             "window/interval.go": "a1a33ed1eb52e31ebf27af9c336185c5477b6a02f391b1ae07d6eac046fbfa3b",
-            "window/regression_test.go": "51a1e1917c6cd23e24c77ea37d9ab3e2560789a683b9e4436181b485b8779697",
+            "window/regression_test.go": "d8995c1c43f9d54fc89ea51bb4e67a7846f56a16cf58e27f974dc3edef2b4cd7",
             "window/interval_test.go": "553e6649b3c6b6c58274c6a94a627522945b8857cc4fd1712a4a572e5095010d",
         },
         "produced": ["window/interval.go", "window/regression_test.go"],
@@ -1387,9 +1388,7 @@ def _native_fixture(data, root, producer):
         or not isinstance(proof.get("source_files"), list)
         or not all(isinstance(name, str) for name in proof["source_files"])
         or not set(spec["reasons"]) <= set(proof["source_files"])
-        or mutation.get("collected") is not False
-        or mutation.get("files") != []
-        or mutation.get("survivors")
+        or (sites := _native_sites(mutation, spec)) is None
     ):
         return []
     for name in ("fail_to_pass", "pass_to_pass"):
@@ -1413,6 +1412,7 @@ def _native_fixture(data, root, producer):
             or type(line) is not int
             or line not in spec["reasons"][path]
             or row.get("mutation_outcomes") != []
+            or (path, line) in sites
         ):
             continue
         identity = [revision, context, path, spec["pins"][path], line]
@@ -1430,11 +1430,43 @@ def _native_fixture(data, root, producer):
                     "gap_id": gap,
                     "decision": "accept",
                     "reason_kind": "instrumentation_unavailable",
-                    "reason": spec["reasons"][path][line],
+                    "reason": _native_reason(spec["reasons"][path][line], mutation),
                     "evidence_refs": [proof["path"], path],
                 }
             )
     return accepted
+
+
+def _native_sites(mutation, spec):
+    """The (path, line) of every mutant the check made, or None when the check contradicts the fixture.
+
+    A runner without mutation support collects nothing. Go and JavaScript have text mutants (#3817): their
+    check must cover each scripted source at its pinned bytes, and every mutant there must have been killed.
+    A line with a mutant is judged by it, never by a reason.
+    """
+    files = mutation.get("files")
+    if not isinstance(files, list) or not all(isinstance(row, dict) for row in files) or mutation.get("survivors"):
+        return None
+    mutants = [(row.get("path"), mutant) for row in files for mutant in row.get("mutants") or []]
+    if mutation.get("collected") is False:
+        return set() if not mutants else None
+    pinned = {row.get("path"): row.get("sha256") for row in files}
+    if mutation.get("collected") is not True or any(pinned.get(path) != spec["pins"][path] for path in spec["reasons"]):
+        return None
+    if any(not isinstance(mutant, dict) or mutant.get("outcome") != "killed" for _, mutant in mutants):
+        return None
+    return {(path, mutant.get("line")) for path, mutant in mutants}
+
+
+def _native_reason(reason, mutation):
+    """The scripted reason, saying what the check found when it did mutate the line's language."""
+    if mutation.get("collected") is not True:
+        return reason
+    return re.sub(
+        r"^Native [A-Za-z]+ mutation is unavailable( for [^.]*)?\.",
+        lambda match: "The mutation check has no mutation site " + (match.group(1) or "on this line").strip() + ".",
+        reason,
+    )
 
 
 BY_PROJECT_PINS = {

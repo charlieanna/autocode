@@ -10,6 +10,9 @@ func TestC1ExcludesUpperEndpoint(t *testing.T) {
 	if window.Contains(10, 20, 20) {
 		t.Fatal("[10, 20) must exclude its upper endpoint")
 	}
+	if !window.Contains(10, 20, 10) {
+		t.Fatal("[10, 20) must still include its lower endpoint")
+	}
 }
 
 func TestC2EmptyInterval(t *testing.T) {

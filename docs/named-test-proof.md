@@ -702,9 +702,13 @@ from `tools/autocode_mutants.py`).
   operator (`+` and `-`, not beside a string); flip `true` and `false`; return
   `undefined` (JavaScript) or `nil` for a returned name (Go); and blank a call made
   as a statement on its own line. Spaces on both sides keep generics, shifts,
-  arrows and Go's `<-` out. Nothing compiles a mutant beforehand: one that does
-  not build or load reports no complete result for its selected tests and ends
-  `not_run`, never `killed`. These runners select tests by a name pattern, so the
+  arrows and Go's `<-` out. Nothing compiles a mutant beforehand: a Go mutant whose
+  package does not build (`return nil` for an `int`, a blanked call that was a
+  name's only use) is no mutant at all, so it is left out with a file note and its
+  line needs a reason like any line without a site; one that does not load reports
+  no complete result for its selected tests and ends `not_run`, never `killed`.
+  Go runs every mutant with `-count=1`: its test cache answered a test that builds
+  and runs the package's command with the unmutated pass. These runners select tests by a name pattern, so the
   parent and siblings of a selected Go subtest, or another test the pattern
   matches, may run too; only the selected tests are judged, and a run where only
   such another test failed proves nothing. They are not narrowed per mutant and

@@ -279,14 +279,62 @@ class RealRunnerMutationTests(unittest.TestCase):
         }
         result = self.check(files, base, change, "go", "go test ./...", ["example.com/calc::TestClamp/high"])
         self.assertTrue(result["collected"], result["note"])
+        # `return hi` -> `return nil` does not build for an int: not a mutant at all, so the line has no site
+        # and needs a reason, rather than a `not_run` mutant no test could ever kill.
+        self.assertEqual([(4, "negate_condition", "killed"), (4, "swap_bound", "survived")], self.outcomes(result))
         self.assertEqual(
-            [
-                (4, "negate_condition", "killed"),
-                (4, "swap_bound", "survived"),
-                (5, "constant_return", "not_run"),
-            ],
+            ["calc.go:5: the constant_return mutant did not build; not a site"], result["files"][0]["notes"]
+        )
+
+    @unittest.skipUnless(shutil.which("go"), "go is not installed")
+    def test_go_runs_each_mutant_instead_of_replaying_its_cached_pass(self):
+        # A main package's external test builds and runs the command, so its test binary links none of the
+        # mutated code and `go test` answered every mutant with the unmutated run's cached pass.
+        main = (
+            'package main\n\nimport (\n\t"fmt"\n\t"os"\n)\n\nfunc main() {\n\tif len(os.Args) > 1 {\n'
+            '\t\tfmt.Println("args")\n\t\treturn\n\t}\n\tfmt.Println("none")\n}\n'
+        )
+        files = {
+            "go.mod": "module example.com/cli\n\ngo 1.21\n",
+            "main_test.go": 'package main_test\n\nimport (\n\t"os/exec"\n\t"path/filepath"\n\t"testing"\n)\n\n'
+            'func TestCLI(t *testing.T) {\n\tbinary := filepath.Join(t.TempDir(), "cli")\n'
+            '\tif out, err := exec.Command("go", "build", "-o", binary, ".").CombinedOutput(); err != nil {\n'
+            '\t\tt.Fatalf("build: %v %s", err, out)\n\t}\n'
+            '\tfor arg, want := range map[string]string{"": "none\\n", "x": "args\\n"} {\n'
+            '\t\targs := []string{}\n\t\tif arg != "" {\n\t\t\targs = append(args, arg)\n\t\t}\n'
+            "\t\tif out, _ := exec.Command(binary, args...).Output(); string(out) != want {\n"
+            '\t\t\tt.Fatalf("%q: %q, want %q", arg, out, want)\n\t\t}\n\t}\n}\n',
+        }
+        base = {"main.go": 'package main\n\nimport "fmt"\n\nfunc main() {\n\tfmt.Println("none")\n}\n'}
+        result = self.check(files, base, {"main.go": main}, "go", "go test ./...", ["example.com/cli::TestCLI"])
+        self.assertTrue(result["collected"], result["note"])
+        self.assertEqual(
+            [(9, "negate_condition", "killed"), (9, "swap_bound", "killed"), (10, "drop_call", "killed")],
             self.outcomes(result),
         )
+
+    def test_a_mutant_that_breaks_one_packages_build_is_not_a_site_whatever_other_packages_did(self):
+        broken = "example.com/app/cmd::[build failed]"
+        results = {"passed": ["example.com/app/policy::TestA"], "failed": [broken], "collection_errors": [broken]}
+        self.assertTrue(mutation_check._did_not_build({"results": results}))
+        for receipt in (
+            {"results": {**results, "collection_errors": ["x.test.js::[collection]"]}},
+            {"results": {**results, "collection_errors": []}},
+            {"results": results, "timed_out": True},
+            {"results": results, "error": "launch failed"},
+            None,
+        ):
+            with self.subTest(receipt=receipt):
+                self.assertFalse(mutation_check._did_not_build(receipt))
+
+    def test_only_a_go_test_command_is_made_uncached(self):
+        self.assertEqual(
+            "go test -count=1 -run '^TestA$' ./...", mutation_check._uncached("go test -run '^TestA$' ./...", "c")
+        )
+        self.assertEqual("cd svc && go test -count=1 ./...", mutation_check._uncached("cd svc && go test ./...", "c"))
+        for kept in ("go test -count=3 ./...", "env A=1 go test -count 2 ./...", "node --test", "go vet ./..."):
+            with self.subTest(command=kept):
+                self.assertEqual(kept, mutation_check._uncached(kept, "c"))
 
     @unittest.skipUnless(shutil.which("node"), "node is not installed")
     def test_node_test_kills_a_mutant_and_keeps_an_unobserved_one_a_survivor(self):
