@@ -17,6 +17,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A project whose tracked link leads out of it, such as `config/rates.json -> ../../shared/rates.json`, now passes its own tests in the runner's copies: the scratch trees of the regression proof and acceptance tests, and a native check's copy, point such a link at the file it leads to, where they had kept the relative spelling that leads nowhere from a copy at another depth and the Tester could not prove the approved plan.
+
 - A stage may cite a file the project reaches through its own link out of the workspace, such as a shared `config/rates.json`, by its path in the workspace: the citation and read checks now take the same answer as the sandbox (`autocode_workspace_links.linked_file`), where they had refused it as "not a file in the workspace" and sent the report to a repair and an Investigator call.
 
 - **A contained shell starts quickly on macOS for a large repository.** The macOS sandbox wrote one deny rule per file of a verification copy, so a shell took 10 to 22 seconds to start, and for a repository as large as Django the policy could not be compiled and no stage could start. One rule now protects the whole copy. In the Kilo backend those rules also came before the grant that undid them, so they never held; they now follow it (#3812).

@@ -285,6 +285,20 @@ class VerificationSourceTests(unittest.TestCase):
         self.assertEqual(b"", self.git("for-each-ref", "--format=%(refname)", root=tree))
         self.assertEqual(before, source_snapshot.snapshot(self.root))
 
+    def test_a_relative_link_out_of_the_project_leads_to_the_same_file_from_the_copy(self):
+        # P4 live run, 2026-11-19: a tracked config/rates.json -> ../../shared/rates.json led nowhere from the
+        # runner's copy, so the project's own tests could not read it there.
+        shared = self.home / "shared"
+        shared.mkdir()
+        (shared / "rates.json").write_text('{"USD": 2}\n')
+        (self.root / "config").mkdir()
+        (self.root / "config" / "rates.json").symlink_to(Path("..") / ".." / "shared" / "rates.json")
+        (self.root / "config" / "inside").symlink_to("rates.json")
+        tree = self.allocate()
+        self.assertEqual('{"USD": 2}\n', (tree / "config" / "rates.json").read_text())
+        self.assertEqual(str(shared / "rates.json"), os.readlink(tree / "config" / "rates.json"))
+        self.assertEqual("rates.json", os.readlink(tree / "config" / "inside"))  # a link inside keeps its spelling
+
     def test_deleted_input_stays_absent_and_empty_index_retains_source_history(self):
         removed = self.root / "removed.txt"
         removed.write_text("removed current source\n")

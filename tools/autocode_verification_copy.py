@@ -27,6 +27,7 @@ try:
     from . import autocode_source_snapshot as source
     from . import autocode_util as util
     from . import autocode_verification_failure as verification_failure
+    from . import autocode_workspace_links as workspace_links
     from .autocode_command_receipt import OwnershipUncertain
     from .autocode_verification_budget import PREPARATION_ALLOWANCE_SECONDS
 except ImportError:
@@ -35,6 +36,7 @@ except ImportError:
     import autocode_source_snapshot as source
     import autocode_util as util
     import autocode_verification_failure as verification_failure
+    import autocode_workspace_links as workspace_links
     from autocode_command_receipt import OwnershipUncertain
     from autocode_verification_budget import PREPARATION_ALLOWANCE_SECONDS
 
@@ -448,6 +450,7 @@ def create(
     if _preparation_context is not None:
         _preparation_context.update(source_revision=before["revision"], source_paths=before.get("source_paths", []))
     inputs = _inventory(root, source_paths)
+    leads = workspace_links.leads(root)  # a relative link out of the workspace leads nowhere from the copy
     copied = {}
     for name, identity in inputs.items():
         _remaining(deadline, "Verification source copying")
@@ -459,6 +462,8 @@ def create(
             link = os.readlink(original)
             if os.path.isabs(link) and Path(link).is_relative_to(root):
                 link = str(tree / Path(link).relative_to(root))
+            elif name in leads:
+                link = str(leads[name])
             target.symlink_to(link)
         else:
             shutil.copy2(original, target)

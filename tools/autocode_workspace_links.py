@@ -134,6 +134,66 @@ def linked_file(workspace):
     return check
 
 
+def leads(workspace) -> dict[str, Path]:
+    """``{name: absolute target}`` for each of the workspace's links out of it whose target ``read_targets``
+    grants: where a copy of the workspace must point the link for it to lead to the same file."""
+    root = Path(workspace).resolve()
+    granted = read_targets(root)
+    found = {}
+    for name, _directory in outside(root):
+        try:
+            written = os.readlink(root / name)
+            target = (root / name).resolve()
+        except (OSError, RuntimeError):
+            continue
+        if Path(os.path.normpath(Path(root, name).parent / written)).is_relative_to(root):
+            continue  # it leads out through another link, which is the one a copy re-points
+        if any(target == path or target.is_relative_to(path) for path in granted):
+            found[name] = target
+    return found
+
+
+def carry(workspace, tree) -> list[str]:
+    """Keep the workspace's links out of it leading to the same files from a copy of it at ``tree``.
+
+    A link is stored as written: ``config/rates.json -> ../../shared/rates.json`` leads to the shared file
+    from the workspace and to nothing from a scratch tree two directories deeper, so every test that read
+    it failed there, the project's unchanged tests included (P4 live run, 2026-11-19: the Tester could not
+    prove the approved plan, "the runner's isolated copy has a dangling config/rates.json symlink"). Each
+    such link the copy still holds as the workspace wrote it is pointed at the absolute file or directory
+    it leads to (``leads``), and Git in the copy is told to keep its recorded entry, so the copy's status
+    still shows only the change. Returns the names re-pointed.
+    """
+    root, tree = Path(workspace).resolve(), Path(tree)
+    carried = []
+    for name, target in leads(root).items():
+        copy = tree / name
+        try:
+            if not copy.is_symlink() or os.readlink(copy) != os.readlink(root / name):
+                continue
+        except OSError:
+            continue
+        copy.unlink()
+        copy.symlink_to(target, target_is_directory=target.is_dir())
+        carried.append(name)
+    if carried and (tree / ".git").exists():
+        tracked = subprocess.run(
+            ["git", "-C", str(tree), "ls-files", "-z", "--", *carried],
+            capture_output=True,
+            check=True,
+            timeout=GIT_SECONDS,
+        )
+        names = [name for name in os.fsdecode(tracked.stdout).split("\0") if name]
+        if names:
+            subprocess.run(
+                ["git", "-C", str(tree), "update-index", "--skip-worktree", "--", *names],
+                capture_output=True,
+                check=True,
+                timeout=GIT_SECONDS,
+            )
+    return carried
+
+
 def _below(root: Path, name) -> Path | None:
     """``name`` relative to ``root`` as written, without following links; None outside it."""
     if not isinstance(name, (str, Path)) or not str(name).strip() or "\0" in str(name):
