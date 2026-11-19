@@ -70,6 +70,21 @@ class RecoveryExhaustionTests(unittest.TestCase):
         self.assertIsNone(exhaustion.pending(self.state))
         self.assertFalse(exhaustion.settle(self.state, at=AT), "an ended run is not ended twice")
 
+    def test_the_recorded_end_names_its_cause_without_the_command_an_operator_would_type(self):
+        # A timeout's saved reason also tells an operator what to type; the end a person reads keeps
+        # only its words, and the evidence keeps the whole cause.
+        self.spend()
+        cause = (
+            "No new provider activity within the inactivity limit (1 seconds, set explicitly; "
+            "change it with autocode resume --max-idle-seconds N)"
+        )
+        self.state["recovery_context"] = {"timeout_reason": cause}
+        self.assertTrue(exhaustion.conclude(self.state, at=AT))
+        outcome = stop.outcome(self.state)
+        self.assertTrue(outcome["reason"].endswith("Last cause: No new provider activity within the inactivity limit"))
+        self.assertNotIn("--", self.state["stop_reason"])
+        self.assertEqual(cause, outcome["evidence"]["last_cause"])
+
     def test_a_published_request_about_the_allowance_is_withdrawn_before_the_end(self):
         self.spend()
         legacy_publication(self.state, self.root / "run", request=self.request())

@@ -11,7 +11,7 @@ import autocode_process as processes
 from autocode_taskrun import TaskRun
 
 from tests import test_subprocess as subprocess_test_support
-from tests.operational_fixtures import assert_view_blocked
+from tests.operational_fixtures import assert_view_ended
 
 
 @unittest.skipUnless(sys.platform == "linux", "Requires the supported Linux provider boundary and ELF fixture")
@@ -110,9 +110,9 @@ class KiloWrapperIdleCliTests(unittest.TestCase):
         )
         envelope = json.loads(status.stdout)
         view = envelope["view"]
-        # The idle stop is an operational stop: AutoCode's bounded recoveries run, then it stops
-        # with nothing for a person to answer (#3682).
-        assert_view_blocked(self, view, "PAUSED_TIMEOUT_RECOVERY")
+        # The idle stop is an operational stop: AutoCode's bounded recoveries run, then it ends the run
+        # with a recorded outcome and nothing for a person to answer (#3682, #3798).
+        assert_view_ended(self, view, "No new provider activity within the inactivity limit")
         self.assertIsNone(view.get("approved_contract"))
         limits = envelope["settings"]["limits"]
         self.assertEqual(
