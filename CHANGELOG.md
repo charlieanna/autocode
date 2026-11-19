@@ -17,6 +17,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **A source-roots stop is no longer offered as "readable again"**: when discovery under the configured source roots could not see every checkout, the status view still offered to continue because the task's own folder was readable, and continuing stopped at the same place. The offer now rechecks discovery too, so the stop shows what to fix instead of a continue that cannot work.
 - **A run that ran out of automatic recoveries no longer tells you a command to type**: its recorded end quoted the last timeout's operator advice ("change it with autocode resume --max-idle-seconds N"). The end you read now names the cause in words; the full cause stays in the run's evidence.
 - **The Runs tree and Run Details show a chat's status in words**: each chat in the VS Code Runs list read like "5m ago · PAUSED_PLANNING_BUDGET → draft_plan", its tooltip listed status and phase codes, and Run Details led with the status code. They now read "5m ago · Paused by AutoCode → Planner": the registry list and the status view carry `status_label` and `next_stage_label`, worded once in the core, and the client falls back to plain words for an older core.
 
