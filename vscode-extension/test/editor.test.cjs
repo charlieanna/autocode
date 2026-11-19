@@ -2116,6 +2116,43 @@ for (const [label, finalState, extraNotice] of [
   });
 }
 
+test('cost availability and its explanation survive rendering, keyboard focus and updated receipts', async (t) => {
+  const unknown = headerView({
+    cost: { spent_usd: null, running_usd: null, cap_usd: null, complete: false, unpriced_stages: 3,
+      breakdown: { unpriced: { usage_missing: 0, model_unknown: 0, rate_unavailable: 3, models_without_rate: ['custom/model'] } } },
+    usage: { accounting: { complete: true, active_attempts: 0,
+      tokens: { input_tokens: { value: 3_000_000, complete: true }, output_tokens: { value: 100_000, complete: true } } } },
+  });
+  const ui = await openChat(t, unknown);
+  const cost = ui.document.querySelector('#run-cost');
+  assert.equal(cost.textContent, 'Cost unavailable · 3.1M tokens');
+  assert.equal(ui.window.getComputedStyle(cost).whiteSpace, 'normal', 'the longer availability label wraps instead of clipping the known token count');
+  assert.match(cost.title, /no saved price.*custom\/model/i);
+  assert.match(cost.getAttribute('aria-label'), /no saved price.*custom\/model/i);
+  assert.equal(cost.tabIndex, 0, 'keyboard users can reach the explanation');
+  cost.focus();
+  ui.document.querySelector('#header-toggle').click();
+  assert.match(ui.document.querySelector('[data-section="usage"]').textContent, /no saved price.*custom\/model/i);
+  const noUsage = { ...unknown, cost: { ...unknown.cost,
+    breakdown: { unpriced: { usage_missing: 3, model_unknown: 0, rate_unavailable: 0, models_without_rate: [] } } } };
+  await ui.poll(noUsage);
+  assert.match(cost.title, /token usage.*(?:missing|incomplete|insufficient)/i, 'same total, changed reason must update');
+  assert.doesNotMatch(cost.title, /custom\/model/);
+  await ui.poll({ ...unknown, cost: { spent_usd: 0.3, reported_usd: 0.25, estimated_usd: 0.05,
+    complete: false, unpriced_stages: 3, prices_as_of: '2026-11-19', breakdown: unknown.cost.breakdown } });
+  assert.equal(cost.textContent, '$0.30+ · 3.1M tokens');
+  assert.match(cost.title, /partial.*known subtotal/i);
+  assert.match(cost.title, /Provider-reported: \$0\.25/);
+  assert.match(cost.title, /Price-table estimate: \$0\.05/);
+  await ui.poll({ ...unknown, cost: { spent_usd: 0.3, reported_usd: 0.3, complete: true, unpriced_stages: 0, breakdown: {} } });
+  assert.equal(cost.textContent, '$0.30 · 3.1M tokens');
+  assert.match(cost.title, /coverage.*complete/i);
+  assert.doesNotMatch(cost.title, /partial|unavailable|Price-table estimate:/i, 'old explanations are replaced');
+  assert.equal(ui.document.activeElement, cost, 'updating the explanation preserves focus');
+  await ui.poll({ ...unknown, done: true });
+  assert.doesNotMatch(ui.document.querySelector('#finish-summary .facts').textContent, /CostCost unavailable/, 'the closing card already labels its cost');
+});
+
 test('chat drafts survive polling, hidden view restoration and switching runs', async (t) => {
   const ui = await openChat(t, chatView());
   ui.type('a draft for this run');
@@ -7764,7 +7801,7 @@ test('a long stage name gives its run badge room in the sidebar', async (t) => {
   assert.equal(line.querySelector('.runs').textContent, '×2');
   assert.equal(line.querySelector('.runs').title, 'ran 2 times');
   assert.equal(row.querySelector('.sub').textContent, 'claude-sonnet-5-5 medium');
-  assert.deepEqual([...row.querySelectorAll('td.num')].map((cell) => cell.textContent), ['1m00s', '2.4k', '']);
+  assert.deepEqual([...row.querySelectorAll('td.num')].map((cell) => cell.textContent), ['1m00s', '2.4k', 'Unavailable']);
 
   const rules = [...ui.document.styleSheets].flatMap((sheet) => [...sheet.cssRules]);
   const style = (selector) => rules.find((rule) => rule.selectorText === selector)?.style;

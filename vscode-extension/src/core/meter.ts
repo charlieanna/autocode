@@ -64,7 +64,7 @@ const text = (value: unknown): string => (typeof value === "string" ? value.trim
 
 /** A dollar amount: cents for a dollar or more, three figures below. */
 export function money(value: number | null | undefined): string {
-  if (!isNumber(value)) return "$?";
+  if (!isNumber(value)) return "Cost unavailable";
   if (value === 0) return "$0";
   if (value >= 1) return `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   if (value < 0.001) return "<$0.001";
@@ -227,7 +227,8 @@ export function runTotal(view: unknown): RunTotal | null {
   const spent = isNumber(cost.running_usd) ? (finished ?? 0) + cost.running_usd : finished;
   const [input, inputWhole] = known(used.input_tokens);
   const [output, outputWhole] = known(used.output_tokens);
-  if (spent === null && !input && !output) return null;
+  if (spent === null && !input && !output && !(isNumber(cost.unpriced_stages) && cost.unpriced_stages > 0)
+    && !rows(mapping(mapping(root.usage).accounting).attempts).length) return null;
   return {
     spentUsd: spent,
     inheritedUsd: isNumber(cost.inherited_usd) ? cost.inherited_usd : 0,
@@ -241,7 +242,7 @@ export function runTotal(view: unknown): RunTotal | null {
 /** "$1.21 of $5.00 · 651k tokens", each part with `+` while some of it is not reported yet. */
 export function totalText(total: RunTotal | null, withCap = true): string {
   if (!total) return "";
-  let spent = total.spentUsd === null ? "$?" : money(total.spentUsd);
+  let spent = money(total.spentUsd);
   if (!total.costComplete && total.spentUsd !== null) spent += "+";
   if (withCap && total.capUsd !== null) spent += ` of ${money(total.capUsd)}`;
   return total.tokens ? `${spent} · ${tokens(total.tokens)}${total.tokensComplete ? "" : "+"} tokens` : spent;
@@ -255,9 +256,9 @@ export function totalText(total: RunTotal | null, withCap = true): string {
 export function sessionTotal(totals: (RunTotal | null)[]): RunTotal | null {
   const shown = totals.filter((total): total is RunTotal => total !== null);
   if (!shown.length) return null;
+  const priced = shown.filter((total) => total.spentUsd !== null);
   return {
-    spentUsd: shown.some((total) => total.spentUsd === null) ? null
-      : shown.reduce((sum, total) => sum + total.spentUsd! - total.inheritedUsd, 0),
+    spentUsd: priced.length ? priced.reduce((sum, total) => sum + total.spentUsd! - total.inheritedUsd, 0) : null,
     inheritedUsd: 0,
     capUsd: null,
     tokens: shown.reduce((sum, total) => sum + total.tokens, 0),

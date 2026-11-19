@@ -4,10 +4,14 @@ import copy
 import unittest
 
 import autocode_cost as cost
+import autocode_event_metrics as event_metrics
+import autocode_request_usage as request_usage
 import autocode_role_route as role_route
 import autocode_route_discovery as route_discovery
 import autocode_route_evidence as routes
 import autocode_usage as usage
+
+from tools.providers.opencode import normalized_events
 
 
 def record(stage, amount=None, **fields):
@@ -15,6 +19,58 @@ def record(stage, amount=None, **fields):
 
 
 class CostBreakdownTests(unittest.TestCase):
+    def test_native_kilo_and_opencode_cost_receipts_survive_custom_routes_failures_and_repairs(self):
+        """#3832: distinguish missing provider billing from a lost positive receipt."""
+        for engine in ("kilocode", "opencode"):
+            for amount in (0.25, 0, None):
+                with self.subTest(engine=engine, amount=amount):
+                    events = [
+                        {
+                            "type": "step_finish",
+                            "sessionID": "session",
+                            "part": {
+                                "id": "receipt",
+                                "reason": "stop",
+                                "cost": amount,
+                                "tokens": {
+                                    "input": 100,
+                                    "output": 20,
+                                    "reasoning": 10,
+                                    "cache": {"read": 40, "write": 5},
+                                },
+                            },
+                        }
+                    ]
+                    normalized = normalized_events(events)
+                    metrics = event_metrics.summarize(
+                        normalized,
+                        {"accounting": request_usage.accounting(events)},
+                        usage.reported_cost(normalized),
+                    )
+                    stage = {
+                        "stage": "draft_plan",
+                        "engine": engine,
+                        "command": [engine, "run", "--model", "custom/model"],
+                        "metrics": metrics,
+                        "exit_code": 1,
+                        "finished_at": "2026-11-19T00:00:00Z",
+                    }
+                    repair = {**stage, "stage": "draft_plan_report_repair", "exit_code": 0}
+                    view = cost.view({"stages": [stage, repair]})
+                    rows = view["breakdown"]["by_stage"]
+                    self.assertEqual(2, sum(row["stages"] for row in rows))
+                    self.assertEqual(1, sum(row["failed_stages"] for row in rows))
+                    self.assertEqual(145, metrics["provider_tokens"]["input_tokens"])
+                    self.assertEqual(30, metrics["provider_tokens"]["output_tokens"])
+                    self.assertIsNone(view["estimated_usd"], "a custom route has no invented price")
+                    if amount:
+                        self.assertEqual((0.5, 0.5, True), (view["spent_usd"], view["reported_usd"], view["complete"]))
+                    else:
+                        self.assertIsNone(view["spent_usd"])
+                        self.assertFalse(view["complete"])
+                        self.assertEqual(2, view["breakdown"]["unpriced"]["rate_unavailable"])
+                        self.assertEqual(["custom/model"], view["breakdown"]["unpriced"]["models_without_rate"])
+
     def test_process_outcomes_repeats_and_inherited_cost_reconcile_without_guessing_waste(self):
         state = {
             "settings": {"limits": {"max_cost_usd": 5}},

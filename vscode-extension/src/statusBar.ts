@@ -1,5 +1,6 @@
 /** The window status bar's line for the run the chat shows: its state, current stage and cost. */
 import { runTotal, stages, totalText } from "./core/meter";
+import { costExplanation } from "./core/cost";
 import { isWorking, type StatusView } from "./core/view";
 import { waitsForPerson } from "./notify";
 
@@ -20,7 +21,7 @@ export function statusLine(view: StatusView, now = Date.now()): StatusLine {
     icon = "$(sync~spin)";
     what = running.job;
   }
-  const tooltip = [view.progress?.line ?? view.status, waitsForPerson(view) ? "Waiting for you" : "", cost ? `Cost: ${totalText(runTotal(view))}` : ""]
+  const tooltip = [view.progress?.line ?? view.status, waitsForPerson(view) ? "Waiting for you" : "", cost ? `Cost: ${totalText(runTotal(view))}\n${costExplanation(view)}` : ""]
     .filter(Boolean).join("\n");
   return { text: `${icon} AutoCode: ${what}${cost ? ` · ${cost}` : ""}`, tooltip };
 }
