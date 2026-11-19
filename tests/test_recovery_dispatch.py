@@ -27,6 +27,7 @@ CHAIN_ORDER = (
     "verification_preparation",
     "job_failure",
     "network",
+    "setup_check_timeout",
     "startup",
     "truncated_review",
     "reasoning_exhaustion",
@@ -37,11 +38,12 @@ CHAIN_ORDER = (
     "no_progress",
 )
 
-# Where each row's recoverer lives: six in their own modules, four on the runner.
+# Where each row's recoverer lives: seven in their own modules, four on the runner.
 MODULE_ROWS = {
     "verification_preparation": (recovery_dispatch.verification_failure_recovery, "recover"),
     "job_failure": (recovery_dispatch.job_failure, "recover"),
     "network": (recovery_dispatch.network_retry, "recover"),
+    "setup_check_timeout": (recovery_dispatch.setup_check_retry, "recover"),
     "startup": (recovery_dispatch.provider_recovery, "recover_startup"),
     "route": (recovery_dispatch.route_recovery, "recover"),
     "reasoning_exhaustion": (recovery_dispatch.output_cap_recovery, "recover"),

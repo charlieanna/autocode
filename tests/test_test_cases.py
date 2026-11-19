@@ -1498,6 +1498,24 @@ class PromptTests(unittest.TestCase):
             with self.subTest(stage=stage):
                 self.assertEqual(wanted, "NO TIMING CRITERIA" in autoplanner.context(state, stage, state_path)[0])
 
+    def test_the_timing_rule_leaves_hang_guards_and_unchanged_tests_to_autocode(self):
+        # Live VS Code test, 2026-11-18: a deadlock fix's plan was blocked for its 30-second thread joins and for
+        # the existing suite's timeout=5 waits, and the Planner asked the person twice to choose between the rule
+        # and the approved plan. A hang guard is not a speed criterion, and the rule covers what the plan changes.
+        from units import autoplanner
+
+        from tests.saved_diagnosis import investigated
+
+        state = investigated(fix_size="large")
+        state["settings"]["roles"]["plan_reviewer"] = {"model": "p"}
+        state_path = Path(state["workspace"]) / "state.json"
+        for stage in ("draft_plan", "review_plan", "revise_plan", "finalize_plan"):
+            with self.subTest(stage=stage):
+                prompt = autoplanner.context(state, stage, state_path)[0]
+                self.assertIn("A hang guard", prompt)
+                self.assertIn("an existing test this plan leaves unchanged", prompt)
+                self.assertIn("never a question for the person", prompt)
+
     def test_the_builder_is_told_to_write_the_named_tests(self):
         from units import common
 

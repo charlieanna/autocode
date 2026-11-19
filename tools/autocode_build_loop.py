@@ -44,6 +44,7 @@ try:
     from . import autocode_regression as regression
     from . import autocode_resolve_repair_job as resolve_repair_job
     from . import autocode_resolver_runtime as resolver_runtime
+    from . import autocode_setup_check_retry as setup_check_retry
     from . import autocode_skip_requirements as skip_requirements
     from . import autocode_storage_budget as storage_budget
     from . import autocode_support as support
@@ -79,6 +80,7 @@ except ImportError:
     import autocode_regression as regression
     import autocode_resolve_repair_job as resolve_repair_job
     import autocode_resolver_runtime as resolver_runtime
+    import autocode_setup_check_retry as setup_check_retry
     import autocode_skip_requirements as skip_requirements
     import autocode_storage_budget as storage_budget
     import autocode_support as support
@@ -133,7 +135,13 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
         # A saved report repair has no tools; admit ordinary stages after it clears.
         if tools_checked or current.get("pending_report_repair") or getattr(runner, "native_calls", None) is not None:
             return
-        tool_admission.selected_tools(getattr(runner, "opencode", None), current, workspace, run_dir)
+        setup_check_retry.patiently(
+            lambda: tool_admission.selected_tools(getattr(runner, "opencode", None), current, workspace, run_dir),
+            current,
+            run_dir,
+            persist=lambda: runner.write_json(state_path, current),
+            where="tool_admission",
+        )
         tools_checked = True
 
     def check_storage(current):
