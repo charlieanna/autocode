@@ -17,7 +17,7 @@ nothing (``owns``). Imports only lower-level modules: never the runner, Autopilo
 from __future__ import annotations
 
 import datetime as dt
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -76,7 +76,7 @@ def describe_approval(state: RunState, need: dict) -> dict:
 
 def accept(state: RunState) -> None:
     """End a plan-only run whose plan was just approved: the plan is the result, and no stage runs next."""
-    if not enabled(state) or cast(dict, state.get("goal_contract") or {}).get("approval_status") != "approved":
+    if not enabled(state) or (state.get("goal_contract") or {}).get("approval_status") != "approved":
         return
     run_status.complete(state, completed_at=dt.datetime.now(dt.UTC).isoformat())
 
@@ -86,14 +86,14 @@ def owns(state: RunState) -> bool:
     return (
         enabled(state)
         and state.get("status") == "TASK_COMPLETE"
-        and cast(dict, state.get("goal_contract") or {}).get("approval_status") == "approved"
+        and (state.get("goal_contract") or {}).get("approval_status") == "approved"
     )
 
 
 def render(state: RunState) -> str:
-    """The completion summary: the accepted plan's goal and milestones, and how to build it later."""
-    contract = cast(dict, state.get("goal_contract") or {})
-    body = cast(dict, contract.get("body") or {})
+    """The completion summary: the accepted plan's outcome and milestones, and how to save it as a file."""
+    contract = state.get("goal_contract") or {}
+    body = contract.get("body") or {}
     lines = ["PLAN ACCEPTED — nothing was built or changed", ""]
     if outcome := str(body.get("intended_outcome") or "").strip():
         lines += [outcome, ""]
