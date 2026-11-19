@@ -764,7 +764,10 @@ STOP_CHECK_SECONDS = 1.0
 PERSON_STOP_REASON = "Stopped by you"
 # Why the supervisor itself ended a provider, saved as the launch's `timeout_kind`. The usage report
 # gives each kind its class (`autocode_rejection_classes.KIND_CLASSES`); a new kind needs one there.
-STOP_KINDS = ("stage", "idle", "tool", "progress", "person")
+STOP_KINDS = ("stage", "idle", "tool", "progress", "person", "cost")
+# How often the supervisor asks whether the running stage has taken the run to its cost cap. Reading the
+# stage's usage so far reads its event file, so this is slower than the person's stop check.
+COST_CHECK_SECONDS = 15.0
 
 
 def wait_for_stage(
@@ -777,11 +780,15 @@ def wait_for_stage(
     startup_grace=0,
     on_root=None,
     stop_requested=None,
+    cost_reached=None,
 ):
     """Wait for a provider stage under its deadlines; returns (exit code, whether the supervisor stopped it).
 
     ``stop_requested`` (no arguments) is asked about once a second while the supervisor owns the
-    stage; when it answers true the stage is ended as at a deadline, with kind ``person`` (#3263)."""
+    stage; when it answers true the stage is ended as at a deadline, with kind ``person`` (#3263).
+    ``cost_reached`` (no arguments) is asked every COST_CHECK_SECONDS; when it returns a reason, the run's
+    spend with this stage's so far has reached the person's cost cap, and the stage is ended the same way,
+    with kind ``cost`` (autocode_cost_watch)."""
     receipts = process_receipts.ReceiptWorker()
     tree = ProcessTree(child.pid, receipts.record)
     deadline = util.monotonic() + timeout if timeout else None
@@ -904,8 +911,15 @@ def wait_for_stage(
         except Exception:  # an unreadable request is no request; the deadlines still bound the stage
             return False
 
+    def cost_stop():
+        try:
+            return cost_reached()
+        except Exception:  # an unreadable usage file is no answer; the boundary check still holds the cap
+            return None
+
     def supervise():
         next_stop_check = util.monotonic()
+        next_cost_check = util.monotonic() + COST_CHECK_SECONDS
         while not stopped.is_set() and not watchdog_fired.is_set():
             # Routine polling must not reap a fast exit before identity capture.
             # Deadline termination remains active while inspection or writes stall.
@@ -921,6 +935,11 @@ def wait_for_stage(
                 next_stop_check = current + STOP_CHECK_SECONDS
                 if person_stopped():
                     stop_at_deadline({"kind": "person", "reason": PERSON_STOP_REASON})
+                    return
+            if cost_reached is not None and current >= next_cost_check:
+                next_cost_check = current + COST_CHECK_SECONDS
+                if reason := cost_stop():
+                    stop_at_deadline({"kind": "cost", "reason": reason})
                     return
             # Event-driven, not time-driven: completed tool calls already seen, so no startup grace.
             if activity is not None and latest_observation[1].get("progress_stop"):
@@ -1032,7 +1051,9 @@ def wait_for_stage(
         else None
     )
     watchdog = (
-        threading.Thread(target=supervise, daemon=True) if activity is not None or stop_requested is not None else None
+        threading.Thread(target=supervise, daemon=True)
+        if activity is not None or stop_requested is not None or cost_reached is not None
+        else None
     )
     observer = threading.Thread(target=observe, daemon=True) if activity is not None else None
     try:

@@ -170,6 +170,17 @@ def messages(state: RunState, *, completed=False) -> list[dict]:
                 }
             )
             continue
+        if event.get("kind") == "automatic_timeout_recovery" and event.get("timeout_kind") == "cost":
+            # The run reached the person's cost cap while this stage ran (autocode_cost_watch).
+            name = roles.screen_name(str(event.get("stage") or ""), state) or "running step"
+            rows.append(
+                {
+                    "id": f"stopped-at-cost-cap-{index}",
+                    "role": "assistant",
+                    "text": f"The {name} was stopped at your cost cap. Its partial work is kept.",
+                }
+            )
+            continue
         if event.get("kind") == "runner_check_auto_recovered":
             rows.append(
                 {

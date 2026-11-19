@@ -47,6 +47,7 @@ try:
     from . import autocode_stage_stalls as stage_stalls
     from . import autocode_stale_handoff as stale_handoff
     from . import autocode_stall_recovery as stall_recovery
+    from . import autocode_stop_kinds as stop_kinds
     from . import autocode_support as support
     from . import autocode_validation_recovery as validation_recovery
     from . import autocode_workflow as workflow
@@ -76,6 +77,7 @@ except ImportError:
     import autocode_stage_stalls as stage_stalls
     import autocode_stale_handoff as stale_handoff
     import autocode_stall_recovery as stall_recovery
+    import autocode_stop_kinds as stop_kinds
     import autocode_support as support
     import autocode_validation_recovery as validation_recovery
     import autocode_workflow as workflow
@@ -838,6 +840,8 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
     # A person's Stop now or Send now (#3263, #3259) ends the stage through the deadline path, but nothing
     # failed: it is archived the same way, and it is never counted as a failure, an automatic recovery or a stall.
     by_person = record.get("timeout_kind") == "person"
+    # The cost cap reached while the stage ran ends it the same way: nothing failed, and it runs again.
+    unfailed_stop = stop_kinds.unfailed(record.get("timeout_kind"))
     record.update(
         after_ref=str(after_path),
         source_revision=after["revision"],
@@ -847,12 +851,14 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
         rejection_reason=(
             "Stopped by you; partial work retained"
             if by_person
+            else "Stopped at your cost cap; partial work retained"
+            if unfailed_stop
             else "Timed-out non-terminal provider request automatically archived; partial work retained"
         ),
     )
     if "stall_phase" not in record:
         record.update(stall_recovery.classify_stall(record))
-    if not by_person:
+    if not unfailed_stop:
         failures.record(state, record, error, records.now())
     originals = records.archive_rejected_stage(state, run_dir, record, record["rejection_reason"])
     state["sessions"].pop(record.get("route_role", record["role"]), None)
@@ -888,7 +894,7 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
     # it is the point: a packet written for a Builder that no route relaunches is never read.
     continues_builder = (
         semantic_stage == "builder"
-        and record.get("timeout_kind", "stage") in ("stage", "person")
+        and record.get("timeout_kind", "stage") in ("stage", *stop_kinds.UNFAILED)
         and not record.get("report_only")
     )
     # A Builder stopped before its first provider event ran no tool and reported nothing, and this one
@@ -959,6 +965,15 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
             "Inspect the retained partial work and evidence before continuing; do not treat it as a completed "
             "report. Nothing timed out, so keep the plan and limits; preserve all acceptance checks."
         )
+    elif unfailed_stop:
+        # The run reached the person's cost cap while this attempt ran (autocode_cost_watch); it continues
+        # only after they raise or remove the cap.
+        recovery["instruction"] = (
+            "The run reached the person's cost cap while this request ran, so it was stopped and archived after "
+            "its workers stopped. Inspect the retained partial work and evidence before continuing; do not treat "
+            "it as a completed report. Nothing timed out, so keep the plan and limits; preserve all acceptance "
+            "checks."
+        )
     elif silent_builder and not continues_builder:
         recovery["instruction"] = (
             "The previous request was stopped before its provider emitted any event: it ran no tool, changed "
@@ -988,7 +1003,7 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
         recovery["executed_work"] = stall_recovery.executed(record)
         if recovery["executed_work"].get("available"):
             recovery["instruction"] += " " + stall_recovery.INSTRUCTION
-    if not by_person:
+    if not unfailed_stop:
         records.count_automatic_recovery(state)
     state.setdefault("automatic_timeout_recoveries", []).append(recovery)
     state.setdefault("user_events", []).append(
@@ -1000,11 +1015,11 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
             "next_stage": next_stage,
             "changed_files": record["changed_files"],
             # Read by the chat, which says the person stopped this stage (autocode_chat_history).
-            **({"timeout_kind": "person", "stage": semantic_stage} if by_person else {}),
+            **({"timeout_kind": record["timeout_kind"], "stage": semantic_stage} if unfailed_stop else {}),
         }
     )
     state["recovery_context"] = recovery
-    if by_person:
+    if unfailed_stop:
         run_status.running(state, phase, next_stage=next_stage)
         records.write_json(run_dir / "state.json", state)
         for artifact in originals:

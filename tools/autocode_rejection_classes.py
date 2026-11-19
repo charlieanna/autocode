@@ -67,6 +67,7 @@ KIND_CLASSES: dict[str, str] = {
     "stage": "stage_wall",
     "progress": "stage_wall",
     "person": "other",
+    "cost": "other",
 }
 _PROVIDER_TIMEOUT_MARKERS = (
     "timed-out non-terminal",

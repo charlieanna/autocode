@@ -302,6 +302,28 @@ class PartialWorkTests(unittest.TestCase):
         self.assertIn("repair it rather than restart", recovery["instruction"])
         self.assertNotIn("validation", self.state)
 
+    def test_a_builder_stopped_at_the_cost_cap_returns_to_the_builder_and_is_no_failure(self):
+        # Live VS Code test, 2026-11-18: the cap is now checked while a stage runs (autocode_cost_watch). The
+        # stop is the person's limit, not a failure: the Builder keeps its partial work and runs again once the
+        # cap is raised, and nothing counts toward failures or automatic recoveries.
+        self.admit()
+        self.change_source()
+        self.state["validation"] = {"verdict": "FAIL"}
+        self.record.update(timeout_kind="cost", timeout_reason="Stopped at your $6 cost cap")
+        recovery = self.timeout()
+        self.assertEqual(
+            ("builder", "EXECUTING", "RUNNING"), (self.state["next_stage"], self.state["phase"], self.state["status"])
+        )
+        self.assertEqual("builder", recovery["next_stage"])
+        self.assertTrue(recovery["partial_work"]["available"], recovery["partial_work"])
+        self.assertIn("reached the person's cost cap", recovery["instruction"])
+        self.assertNotIn("failure_history", self.state)
+        self.assertEqual(
+            "Stopped at your cost cap; partial work retained", self.state["stages"][-1]["rejection_reason"]
+        )
+        event = self.state["user_events"][-1]
+        self.assertEqual(("cost", "builder"), (event["timeout_kind"], event["stage"]))
+
     def test_a_wall_stopped_builder_returns_to_the_builder_not_the_completion_reviewer(self):
         # #3284: the 3600 s wall archived Builders that were provably still working, and the route
         # then sent each run to the Completion Reviewer, which audited files no Builder had reported.

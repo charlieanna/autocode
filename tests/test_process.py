@@ -544,6 +544,7 @@ worker.wait()
         startup_grace=0,
         tool_ready=False,
         stop_requested=None,
+        cost_reached=None,
     ):
         """Run a real event-writing worker without making cleanup speed an assertion."""
         with tempfile.TemporaryDirectory() as temp:
@@ -582,6 +583,7 @@ worker.wait()
                             activity_checkpoint=checkpoint_activity,
                             startup_grace=startup_grace,
                             stop_requested=stop_requested,
+                            cost_reached=cost_reached,
                         )
                     else:
                         with patch.object(processes.ProcessTree, "sample", sample(child)):
@@ -669,6 +671,39 @@ while True:
         self.assertTrue(expired)
         self.assertEqual({"kind": "person", "reason": "Stopped by you"}, reason)
         self.assertEqual(2, len(asked), "the supervisor stops at the first check that finds the request")
+
+    def test_the_cost_cap_reached_while_a_stage_runs_ends_it_before_any_limit(self):
+        # Live VS Code test, 2026-11-18: the cap was checked only between stages, and a run capped at $6
+        # paused at $8.30 after its Builder alone spent about $2.40.
+        body = """index = 0
+while True:
+    emit({'type':'item.completed','item':{'id':str(index),'type':'command_execution','command':'true','exit_code':0}})
+    index += 1
+    time.sleep(.06)
+"""
+        asked = []
+
+        def cost_reached():
+            asked.append(True)
+            return "Stopped at your $6 cost cap" if len(asked) >= 2 else None
+
+        with patch.object(processes, "COST_CHECK_SECONDS", 0.05):
+            code, expired, _, reason = self.activity_child(body, idle=60, tool=60, total=120, cost_reached=cost_reached)
+        self.assertNotEqual(0, code)
+        self.assertTrue(expired)
+        self.assertEqual({"kind": "cost", "reason": "Stopped at your $6 cost cap"}, reason)
+        self.assertEqual(2, len(asked), "the supervisor stops at the first check that finds the cap reached")
+
+    def test_an_unreadable_usage_file_does_not_stop_the_stage(self):
+        def broken():
+            raise OSError("events unreadable")
+
+        body = "emit({'type':'item.completed','item':{'id':'a','type':'command_execution','command':'true','exit_code':0}})\ntime.sleep(1.3)\n"
+        with patch.object(processes, "COST_CHECK_SECONDS", 0.05):
+            code, expired, _, reason = self.activity_child(body, idle=60, tool=60, total=120, cost_reached=broken)
+        self.assertEqual(0, code)
+        self.assertFalse(expired)
+        self.assertIsNone(reason)
 
     def test_an_unreadable_stop_request_is_no_request(self):
         def broken():

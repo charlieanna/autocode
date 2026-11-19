@@ -165,9 +165,23 @@ class JobPersonStopTests(unittest.TestCase):
                 self.assertEqual(1, runtime.account_stage.call_count)
                 self.assertEqual([record], state["stages"])
 
+    def test_a_job_stopped_at_the_cost_cap_holds_at_the_cap_and_runs_the_same_job_again(self):
+        # autocode_cost_watch: the cap reached while a job runs stops it as Stop now does, but the run holds at
+        # the person's cost cap, and no stop request waits to be consumed.
+        for stage in jobs.STAGES:
+            with self.subTest(stage=stage):
+                state, record, runtime = self.prepared(stage, kind="cost")
+                state["settings"].setdefault("limits", {})["max_cost_usd"] = 1
+                self.assertTrue(self.recover(state, runtime))
+                self.assertEqual("PAUSED_COST_LIMIT", state["status"])
+                self.assertIn("cost cap while the", state["stop_reason"])
+                self.assertEqual(stage, state["next_stage"])
+                self.assertEqual("cost", record["job_failure_kind"])
+                self.assertNotIn("job_failure", state)
+
     def test_person_classification_uses_structured_metadata_not_prose(self):
         runtime = SimpleNamespace(support=support)
-        for kind in ("person", "stage", "idle", "tool"):
+        for kind in ("person", "cost", "stage", "idle", "tool"):
             with self.subTest(kind=kind):
                 record = {
                     "stage": "write_acceptance_tests",
@@ -175,7 +189,9 @@ class JobPersonStopTests(unittest.TestCase):
                     "timeout_kind": kind,
                     "timeout_reason": "Stopped by you",
                 }
-                self.assertEqual("person" if kind == "person" else "timeout", failure._reason(runtime, record, None)[0])
+                self.assertEqual(
+                    kind if kind in ("person", "cost") else "timeout", failure._reason(runtime, record, None)[0]
+                )
         for malformed in (1, "true"):
             record.update(timed_out=malformed, timeout_kind="person")
             self.assertEqual("timeout", failure._reason(runtime, record, None)[0])

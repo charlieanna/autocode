@@ -17,6 +17,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **A cost cap now holds while a stage runs.** The cap was checked only between stages, so one stage could run well past it: a run capped at $6 paused at $8.30 after its Builder alone cost about $2.40. The running stage's spend so far is now checked every 15 seconds; once the run reaches the cap the stage is stopped as Stop now stops it, its partial work is kept, and raising the cap runs it again.
+
 - **After you confirm the Requirements summary, the run names the Planner as next.** It printed "No contract yet; resume to interview with the Requirements Gatherer" though Requirements was done and the Planner was the next stage. It now names the stage that works on the plan next, and keeps the Requirements wording while questions wait for an answer.
 
 - **Plan review no longer asks you about hang guards or tests the plan leaves alone.** The rule against timing-based tests was applied to a deadlock fix's generous thread-join bounds, which only turn a hang into a failure, and to the project's existing tests, so the Planner asked the person twice to choose between the rule and the plan. A hang guard and an unchanged existing test are now outside the rule, and restating a timed criterion without the time is a proof correction AutoCode makes itself.
