@@ -17,6 +17,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **A contained shell starts quickly on macOS for a large repository.** The macOS sandbox wrote one deny rule per file of a verification copy, so a shell took 10 to 22 seconds to start, and for a repository as large as Django the policy could not be compiled and no stage could start. One rule now protects the whole copy. In the Kilo backend those rules also came before the grant that undid them, so they never held; they now follow it (#3812).
+
 - **A cost cap now holds while a stage runs.** The cap was checked only between stages, so one stage could run well past it: a run capped at $6 paused at $8.30 after its Builder alone cost about $2.40. The running stage's spend so far is now checked every 15 seconds; once the run reaches the cap the stage is stopped as Stop now stops it, its partial work is kept, and raising the cap runs it again.
 
 - **After you confirm the Requirements summary, the run names the Planner as next.** It printed "No contract yet; resume to interview with the Requirements Gatherer" though Requirements was done and the Planner was the next stage. It now names the stage that works on the plan next, and keeps the Requirements wording while questions wait for an answer.

@@ -59,6 +59,9 @@ NATIVE_CHECKS = (
     "tools/autocode_visual_protection",
     "tests/test_native_check_",
     "tests/test_native_initial_callers",
+    # The Seatbelt profile Kilo's client and its Bash child run under: its kernel test runs there too.
+    "tools/autocode_kilo_isolation",
+    "tests/test_kilo_isolation",
 )
 # A fake OpenCode CLI run whose stages launch contained (#709): only linux-tool-containment
 # requires it to run, under bubblewrap, without skipping. That job runs for every Python file

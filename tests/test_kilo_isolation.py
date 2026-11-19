@@ -1,0 +1,200 @@
+"""Kilo's whole-client Seatbelt policy and the verification copy it must keep from being written (#3812)."""
+
+import json
+import os
+import shlex
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+import autocode_kilo_isolation as isolation
+import autocode_tool_containment as containment
+import autocode_util as util
+import autocode_verification_copy as copies
+
+SEATBELT = sys.platform == "darwin" and Path("/usr/bin/sandbox-exec").is_file()
+
+
+class ClientPolicyTests(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name).resolve()
+        self.target = self.root / ".autocode/runs/fake/native-kilo-owned"
+        self.target.mkdir(parents=True)
+        self.control = self.root / ".autocode/tool-containment-owned"
+        self.scratch = self.control / "scratch"
+        self.tree = self.scratch / "verification"
+        (self.tree / "src").mkdir(parents=True)
+        self.source = self.tree / "src/input.py"
+        self.source.write_bytes(b"protected copied source\n")
+        self.grant = '(allow file-write* (subpath "' + str(self.scratch) + '"))'
+
+    def boundary(self, **manifest):
+        value = {
+            "version": 1,
+            "workspace": str(self.root),
+            "tree": str(self.tree),
+            "files": {"src/input.py": util.file_hash(self.source)},
+            "directories": ["src"],
+            **manifest,
+        }
+        path = self.control / "verification-copy.json"
+        path.write_text(json.dumps(value))
+        return {
+            "workspace": str(self.root),
+            "profile": str(self.control / "policy.sb"),
+            "scratch": str(self.scratch),
+            "verification_copy": str(path),
+            "verification_copy_sha256": util.file_hash(path),
+        }
+
+    def policy(self, boundary):
+        environment = {}
+        if not (self.scratch / "kilo-runtime").exists():
+            isolation._relocate_client_runtime(boundary, environment)
+        else:
+            for key, name in isolation.MUTABLE_DIRECTORIES.items():
+                environment[key] = str(self.scratch / "kilo-runtime" / name)
+        request = {"read_roots": [], "protected_paths": []}
+        return isolation.whole_client_policy(
+            self.root, self.target, boundary, request, environment, str(self.root / "source.sock")
+        )
+
+    def literal(self, path):
+        return '(deny file-write* (literal "' + str(path) + '"))'
+
+    def test_a_sealed_copy_is_denied_by_one_rule_written_after_the_scratch_grant(self):
+        boundary = self.boundary(seal=copies.SEAL)
+        lines = self.policy(boundary).splitlines()
+        rule = containment.sealed_rule(self.tree)
+        self.assertEqual([self.literal(self.tree), rule], isolation._verification_denials(boundary))
+        # Seatbelt takes the last matching rule and the copy lives in the granted scratch, so a denial
+        # written before the grant is undone by it.
+        self.assertEqual(1, lines.count(self.grant))
+        for denial in (self.literal(self.tree), rule):
+            self.assertEqual(1, lines.count(denial))
+            self.assertGreater(lines.index(denial), lines.index(self.grant))
+        # One rule for the whole copy: no line names a path inside it.
+        self.assertEqual([], [line for line in lines if str(self.tree) + "/" in line])
+        self.assertTrue(isolation._verification_inputs_denied("\n".join(lines), boundary))
+
+    def test_an_unsealed_copy_keeps_a_denial_for_each_path_after_the_scratch_grant(self):
+        boundary = self.boundary()
+        lines = self.policy(boundary).splitlines()
+        expected = [self.literal(path) for path in (self.tree, self.tree / "src", self.source)]
+        self.assertEqual(expected, isolation._verification_denials(boundary))
+        for denial in expected:
+            self.assertGreater(lines.index(denial), lines.index(self.grant))
+        self.assertNotIn("file-mode", "\n".join(lines))
+
+    def test_a_policy_whose_denials_precede_the_grant_or_are_missing_is_refused(self):
+        boundary = self.boundary(seal=copies.SEAL)
+        text = self.policy(boundary)
+        rule = containment.sealed_rule(self.tree)
+        moved = [line for line in text.splitlines() if line != rule]
+        moved.insert(moved.index(self.grant), rule)
+        for name, weakened in {
+            "the rule before the grant": "\n".join(moved),
+            "the rule missing": text.replace(rule + "\n", ""),
+            "a later grant over the scratch": text + self.grant + "\n",
+        }.items():
+            with self.subTest(name):
+                self.assertFalse(isolation._verification_inputs_denied(weakened, boundary))
+        self.assertTrue(isolation._verification_inputs_denied(text, boundary))
+
+    def test_a_manifest_with_another_seal_is_refused(self):
+        boundary = self.boundary(seal="unknown")
+        with self.assertRaisesRegex(ValueError, "verification copy seal changed"):
+            isolation._verification_denials(boundary)
+
+    def test_a_boundary_without_a_copy_adds_no_denial(self):
+        boundary = self.boundary()
+        del boundary["verification_copy"], boundary["verification_copy_sha256"]
+        self.assertEqual([], isolation._verification_denials(boundary))
+        self.assertEqual([], isolation._verification_protected_paths(boundary))
+
+
+@unittest.skipUnless(SEATBELT, "requires real macOS Seatbelt enforcement")
+class ClientPolicyKernelTests(unittest.TestCase):
+    """What the kernel does under the client policy: Kilo's own Bash child runs under this profile alone."""
+
+    def setUp(self):
+        parent = Path(__file__).resolve().parents[1] / ".autocode"
+        parent.mkdir(exist_ok=True)
+        directory = tempfile.TemporaryDirectory(prefix="kilo-isolation-tests-", dir=parent)
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name).resolve() / "project"
+        (self.root / "pkg").mkdir(parents=True)
+        (self.root / "pkg/module.py").write_text("VALUE = 1\n")
+        (self.root / "alias.py").symlink_to("pkg/module.py")
+        git = ["/usr/bin/git", "-C", str(self.root), "-c", "user.name=T", "-c", "user.email=t@example.invalid"]
+        for arguments in (["init", "-q"], ["add", "."], ["commit", "-qm", "fixture"]):
+            subprocess.run([*git, *arguments], check=True, capture_output=True)
+        roots = [Path(sys.prefix).resolve(), Path(sys.base_prefix).resolve()]
+        environment = {**os.environ, "PATH": str(Path(sys.executable).parent) + ":/usr/bin:/bin"}
+        self.boundary = containment.prepare(
+            self.root, read_roots=roots, environment=environment, verification_copy=True
+        )
+        self.scratch = Path(self.boundary["scratch"])
+        self.tree = self.scratch / "verification"
+        target = self.root / ".autocode/runs/fake/native-kilo-owned"
+        target.mkdir(parents=True)
+        child = {}
+        isolation._relocate_client_runtime(self.boundary, child)
+        request = {"read_roots": roots, "protected_paths": []}
+        text = isolation.whole_client_policy(
+            self.root, target, self.boundary, request, child, str(self.root / "source.sock")
+        )
+        self.profile = target / "client.sb"
+        self.profile.write_text(text)
+
+    def run_under_policy(self, command):
+        return subprocess.run(
+            ["/usr/bin/sandbox-exec", "-f", str(self.profile), "/bin/sh", "-c", command],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+    def test_the_client_policy_refuses_every_change_to_a_copied_input_and_allows_new_outputs(self):
+        module, package, alias = self.tree / "pkg/module.py", self.tree / "pkg", self.tree / "alias.py"
+        quoted = {name: shlex.quote(str(path)) for name, path in (("m", module), ("p", package), ("a", alias))}
+        new = shlex.quote(str(self.tree / "pkg/new.py"))
+        changes = [
+            "echo changed >> " + quoted["m"],
+            ": > " + quoted["m"],
+            "mv " + quoted["m"] + " " + quoted["m"] + ".moved",
+            "mv " + quoted["p"] + " " + quoted["p"] + ".moved",
+            "mv " + quoted["a"] + " " + quoted["a"] + ".moved",
+            "chmod 600 " + quoted["m"],
+            "touch " + quoted["m"],
+            "echo other > " + new + ".tmp && mv " + new + ".tmp " + quoted["m"],
+            "mv " + shlex.quote(str(self.tree)) + " " + shlex.quote(str(self.scratch / "moved")),
+        ]
+        for command in changes:
+            with self.subTest(command=command):
+                result = self.run_under_policy(command)
+                self.assertNotEqual(0, result.returncode, result.stdout)
+                self.assertIn("Operation not permitted", result.stderr)
+        self.assertEqual("VALUE = 1\n", module.read_text())
+        self.assertEqual("pkg/module.py", os.readlink(alias))
+        # The copy's manifest still describes it: nothing a capture reads has changed.
+        copies.execution(self.boundary["verification_copy"], self.boundary["verification_copy_sha256"], self.root)
+        # A check may still make, change and move its own outputs beside the sources.
+        for command in (
+            "echo built > " + new,
+            "echo more >> " + new,
+            "mv " + new + " " + new + ".renamed",
+            "mkdir " + shlex.quote(str(self.tree / "build")),
+            ": > " + shlex.quote(str(self.scratch / "note")),
+        ):
+            with self.subTest(command=command):
+                result = self.run_under_policy(command)
+                self.assertEqual(0, result.returncode, result.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()
