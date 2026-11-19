@@ -369,7 +369,7 @@ def render(body: dict, *, exported_hash: str, revision: int, status: str) -> str
     return util.redact("\n".join(out))
 
 
-def summary_markdown(body: dict, *, revision: int, status: str, _format_two=False) -> str:
+def summary_markdown(body: dict, *, revision: int, status: str, details_below: bool = True, _format_two=False) -> str:
     """A bounded reading lead from canonical facts, never a second model-authored plan.
 
     The contract has no duration or execution-price estimate. Counts describe scope, not an
@@ -428,7 +428,8 @@ def summary_markdown(body: dict, *, revision: int, status: str, _format_two=Fals
         empty="No blocking questions recorded in the plan.",
     )
     out += [
-        "This overview is condensed. The full plan below contains all terms, acceptance criteria and source evidence."
+        "This overview is condensed."
+        + (" The full plan below contains all terms, acceptance criteria and source evidence." if details_below else "")
     ]
     return util.redact("\n".join(out)).strip()
 

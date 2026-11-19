@@ -1029,6 +1029,8 @@ class ChatViewTests(unittest.TestCase):
         self.assertIn(r"tests/\_\_init\_\_\.py", text)
         self.assertNotIn("Delivered on branch", text)
         self.assertNotIn("Merge that branch", text)
+        self.assertIn("This overview is condensed.", text)
+        self.assertNotIn("full plan below", text)
 
     def test_a_hi_in_a_folder_outside_git_hears_nothing_about_folders(self):
         """Typing "hi" in a folder outside Git was answered with a paragraph about a private project and

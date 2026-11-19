@@ -45,7 +45,7 @@ def response(state: RunState) -> str:
     if plan_only.owns(state):
         contract = state.get("goal_contract") or {}
         return "Plan accepted. Nothing was built or changed.\n\n" + plan_file.summary_markdown(
-            contract.get("body") or {}, revision=contract["revision"], status="approved"
+            contract.get("body") or {}, revision=contract["revision"], status="approved", details_below=False
         )
     workflow = (state.get("workflow") or {}).get("kind")
     if workflow == "discuss":
