@@ -17,6 +17,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **The Runs tree and Run Details show a chat's status in words**: each chat in the VS Code Runs list read like "5m ago · PAUSED_PLANNING_BUDGET → draft_plan", its tooltip listed status and phase codes, and Run Details led with the status code. They now read "5m ago · Paused by AutoCode → Planner": the registry list and the status view carry `status_label` and `next_stage_label`, worded once in the core, and the client falls back to plain words for an older core.
+
 - **A stopped step with no saved source no longer asks you to inspect it**: when a step you stopped or set aside had saved no copy of the original source, the chat showed "Original source needs inspection" and asked you to inspect the archived attempt before starting a new run, and pressing Continue left it there. No retry of such a step can be checked, so the next Continue now ends the run with that recorded reason, as it already did for a step its provider stopped.
 
 - **VS Code wording**: the reply card after AutoResolver's question no longer says "Recovery is reviewed"; a planning-limit summary from an older core no longer shows its command flags; and a command that runs out of time says how long AutoCode waited instead of printing the command and its flags in the Stage Models panel and the chat's model chip.
