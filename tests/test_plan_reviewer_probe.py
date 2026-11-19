@@ -1,6 +1,7 @@
 """The Plan Reviewer probe: its planted flaws, its grader and its runs through the task-run interface (#3630)."""
 
 import copy
+import importlib.util
 import os
 import shutil
 import sys
@@ -241,6 +242,23 @@ class RunReviewerProbeTests(unittest.TestCase):
 
 
 class ExportedPlanFormatTests(unittest.TestCase):
+    def test_the_packaged_probe_reads_the_same_public_contract(self):
+        # Load this checkout as a package, independently of any older editable
+        # autocode_cli installation. The script and installed CLI use both paths.
+        package_name = "autocode_probe_reader_test"
+        spec = importlib.util.spec_from_file_location(
+            package_name, HERE / "__init__.py", submodule_search_locations=[str(HERE)]
+        )
+        package = importlib.util.module_from_spec(spec)
+        with patch.dict(sys.modules, {package_name: package}):
+            spec.loader.exec_module(package)
+            probe = importlib.import_module(package_name + ".autocode_model_probe")
+            original = {"intended_outcome": "Keep tests/__init__.py", "technical_approach": ["One function"]}
+            exported = plan_file.export(original, revision=3, approved=False)
+            self.assertEqual(package_name, probe.plan_file.__package__)
+            self.assertEqual(original, probe._front_matter(exported)["contract"])
+            self.assertEqual(plan_file.goal_hash(original), probe._front_matter(exported)["goal_hash"])
+
     def test_probe_reads_and_rewrites_both_public_plan_formats(self):
         original = {"intended_outcome": "Keep literal tests/__init__.py", "technical_approach": ["One function"]}
         for version in sorted({1, 2, plan_file.FORMAT}):
