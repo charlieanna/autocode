@@ -1,27 +1,22 @@
 #!/usr/bin/env python3
-"""Script the Requirements passes of the overlap acceptance tests (#3233).
+"""Script the Requirements passes of the chat's no-assumption tests (#3233).
 
 A test-local adapter over the scenario harness's scripted provider
 (``scenarios/harness/fake_codex.py``), the same pattern as ``human_stop_provider``:
 only model output is scripted. The tests drive the real CLI and controller.
 
-Two shapes are scripted on top of the ordinary report, selected by
-``AUTOCODE_OVERLAP_MODE``:
-
-- ``questions``: until the question below is among the call's saved answers, the
-  Requirements pass asks it (a questions-only handoff on a full-schema call, the
-  triage contract's ``ready: False`` on a triage call). Once any saved answer for
-  it exists, the ordinary complete report is handed over.
-- ``open-questions``: the complete report with that one open question, so a
-  pause shows the handoff's own open question with its offered default.
+With ``AUTOCODE_OVERLAP_MODE=questions``, until the question below is among the
+call's saved answers, the Requirements pass asks it (a questions-only handoff on a
+full-schema call, the triage contract's ``ready: False`` on a triage call). Once a
+saved answer for it exists, the ordinary complete report is handed over.
 
 Every report's ``summary`` records the exact saved answers the call ran with, so
 a test can see which call's report the run adopted. Every provider invocation
 appends one JSON line to ``AUTOCODE_OVERLAP_LOG`` when its prompt is read -
 before any output exists - with the stage and the saved answers it was given,
-and the question ids its packet shows as answered by the person. A pass that
-runs while the person is still reading therefore shows the offered defaults as
-its saved answers and no recorded answer from the person.
+and the question ids its packet shows as answered by the person. A call that
+ran while the person was still reading would show the offered default as a saved
+answer with no recorded answer from the person.
 """
 
 from __future__ import annotations
@@ -31,7 +26,6 @@ import os
 import re
 import runpy
 import sys
-import threading
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -50,12 +44,6 @@ QUESTION = {
     "kind": "decision",
     "category": "requested_outcome",
     "delegable": False,
-}
-SECOND_QUESTION = {
-    **QUESTION,
-    "id": "OVERLAP_FORMAT",
-    "question": "Should the greeting use plain text or JSON?",
-    "proposed_default": "Plain text",
 }
 
 
@@ -127,18 +115,6 @@ class _PromptTap:
                     "answered": _answered(packet),
                 }
             )
-            if (
-                os.environ.get("AUTOCODE_OVERLAP_HOLD_FULL") == "1"
-                and packet.get("stage") == "requirements_gather"
-                and _saved(packet).get(QUESTION_ID)
-            ):
-                # An observed usage event precedes the held call; cancellation terminates the
-                # provider rather than racing a fixed-duration sleep to completion.
-                print(
-                    json.dumps({"type": "turn.completed", "usage": {"input_tokens": 17, "output_tokens": 3}}),
-                    flush=True,
-                )
-                threading.Event().wait()
         return data
 
     def __getattr__(self, name):
@@ -153,13 +129,9 @@ def main() -> int:
     def report_for(stage, data):
         report = original(stage, data)
         saved = _saved(data)
-        questions = [QUESTION, SECOND_QUESTION] if mode == "two-questions" else [QUESTION]
-        if mode == "defaultless":
-            questions = [{**QUESTION, "proposed_default": ""}]
-        if stage != "requirements_gather" or not mode:
+        questions = [QUESTION]
+        if stage != "requirements_gather" or mode != "questions":
             return _stamp(report, saved)
-        if mode == "review-only":
-            return _stamp(_grounded_in_task(report, data), saved)
         if "ready" in report:
             # The triage contract: blocking questions now, the full pass once they are answered.
             return _stamp(
@@ -171,10 +143,8 @@ def main() -> int:
                 },
                 saved,
             )
-        if mode in ("questions", "two-questions", "defaultless") and not all(saved.get(row["id"]) for row in questions):
+        if not all(saved.get(row["id"]) for row in questions):
             report = {**report, "required_behaviors": [], "acceptance_tests": [], "open_questions": questions}
-        elif mode == "open-questions":
-            report = {**report, "open_questions": questions}
         # Builder-added correction (documented in the run report): the scripted provider quotes
         # its configured scenario brief, so a case that runs a longer brief (MEDIUM_BRIEF) would
         # hand over a report the Requirements handoff's coverage gate rightly refuses -- no line

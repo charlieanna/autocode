@@ -328,6 +328,13 @@ and a planning restart keeps the count (`tools/autocode_planning_calls.py`). At 
 `PAUSED_PLANNING_CALL_LIMIT` for the person, as the cost cap does, and only they raise or remove it
 (`--max-planning-calls`). Like the cost cap it is a spending cap: AutoResolver never manages or raises it.
 
+**AutoCode assumes no answer, owner decision 2026-11-19 (#3233).** While a question waits for the
+person, no model call runs on an answer they have not given, even the question's own suggested
+default: the model waits while the person reads. The terminal chat's background Requirements pass
+(#3580) that assumed the defaults was removed for this; a run saved with one still settles it on
+resume without adopting its report (`autocode_requirements_overlap.recover`). Do not bring back a
+speculative pass on assumed answers, in any client.
+
 **Terminal chat, approved 2026-10-19 (#1622), in `tools/autocode_chat_client.py`.**
 The same contract as the VS Code client, with the shared rules in
 `tools/autocode_client_actions.py`: it starts `autocode` as an argument array, reads

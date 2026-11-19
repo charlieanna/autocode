@@ -1,54 +1,23 @@
-"""The Requirements reading-time overlap: the full pass runs while the person reads (#3233 part 1).
+"""Settle a saved run's Requirements background pass, which AutoCode no longer starts (#3233).
 
-At a chat blocking-question pause the controller blocks in ``chat_checkpoint`` and nothing runs
-until the person answers, and only then does the full Requirements pass start. This module holds
-what changes that, all of it over run state:
+AutoCode used to run the full Requirements pass while the person read its blocking questions,
+assuming each question's offered default, and kept that report when the answers matched (#3580).
+The owner removed it on 2026-11-19: AutoCode makes no assumption about an answer and waits for
+the person. No new run starts such a pass.
 
-- **Eligibility** follows the original request's step 1: a live chat paused on the Requirements
-  handoff's own unresolved blocking/open questions, every one offering a nonempty default, and cap
-  admission. That includes a questions-only/triage handoff, a spec-first complete handoff's open
-  questions and a default-flow complete handoff's business questions alike — whether the old flow
-  set ``needs_refresh`` never mattered to the overlap (a differing answer explicitly schedules the
-  ordinary full pass with the real answers). Pauses that are not the handoff's own blocking
-  questions — the spec-first review confirmation, a scope decision, a resolver question — and runs
-  under an approved goal contract keep today's path, as does any pause with a defaultless
-  question: the adoption rule could not be evaluated exactly without the person's answer.
-- **Cap admission**: the background call counts toward the run's existing caps, so it is not
-  started when that could exceed one. A finite cost cap disables it (the existing accounting
-  exposes estimates, not an enforceable maximum for one call); a finite active-time cap admits it
-  only when the enforced stage deadline plus its bounded termination allowance fits the remaining
-  active-time allowance.
-- **The assumed-answers digest** binds a kept background report to the exact question ids and
-  answer values its call assumed, so the Requirements handoff can refuse a report computed under
-  different answers than the person actually gave.
-- **The adopt/discard comparison**: every answer matching its offered default after canonicalization
-  through ``autocode_answer_options`` keeps the background report; any difference discards it and
-  the ordinary pass runs with the real answers. ``/default`` selects the offered default.
-- **Ownership**: the background call is one bounded call owned by the existing controller inside
-  ``chat_checkpoint`` (autocode.py), never a second controller or cross-run layer (AGENTS.md rule
-  5). Live cancellation and crash/resume disposal settle only a process whose recorded execution
-  identity still verifies (autocode_process); a reused PID is never signalled.
-
-The dispatch machinery lives here too — ``RequirementsOverlapPass`` and the ``Controller`` that
-starts, settles and records it. The module stays a lower layer (AGENTS.md rule 2): the
-launch-path callables that live in autocode.py or autopilot.py — the stage launch, request
-preparation, accounting, commit, record saving and launch guard, with the support helpers and
-schema location they use — are injected by ``chat_checkpoint`` and never imported, so no module
-joins an import cycle. The main-thread input wait that lets a queued Stop or boundary pause reach
-the controller while the person reads is ``autocode_requirements_overlap_input``.
+A run saved by the terminal chat while that pass was running can still be resumed. ``recover``
+settles it on the ordinary resume path: its report is never adopted, the provider it owned is
+stopped only through its verified process identity (a reused PID is never signalled), and its
+observed spend is accounted once as a discarded speculative attempt.
 """
 
 from __future__ import annotations
 
 import contextlib
-import copy
 import json
-import math
 import os
 import signal
-import threading
 import time
-import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -56,179 +25,17 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
-    from . import autocode_answer_options as answer_options
-    from . import autocode_budget_state as budget_state
-    from . import autocode_interventions as interventions
-    from . import autocode_job_deadline as job_deadline
     from . import autocode_process as processes
-    from . import autocode_requirements_review as requirements_review
     from . import autocode_util as util
 except ImportError:
-    import autocode_answer_options as answer_options
-    import autocode_budget_state as budget_state
-    import autocode_interventions as interventions
-    import autocode_job_deadline as job_deadline
     import autocode_process as processes
-    import autocode_requirements_review as requirements_review
     import autocode_util as util
 
-#: The sidecar the background pass checkpoints its candidate state to, so the paused run's own
-#: ``state.json`` stays authoritative while the call runs.
+#: The sidecar a saved background pass checkpointed its candidate state to.
 SIDECAR_NAME = "requirements-overlap-state.json"
-
-#: The bounded termination allowance added to the enforced stage deadline when admitting the
-#: call against an active-time cap: the supervisor's own SIGTERM→SIGKILL escalation (its
-#: ``DEFAULT_KILL_AFTER`` of 2 s) plus process collection, held generously.
-TERMINATION_ALLOWANCE_SECONDS = 10.0
 
 #: Per-signal grace while stopping a verified owned provider: SIGTERM, then SIGKILL.
 SIGNAL_GRACE_SECONDS = 2.0
-
-
-def _canonical_answer(question, text) -> str:
-    """Canonicalize ``text`` against ``question``'s offered choices (or strip free-text whitespace)."""
-    raw = str("" if text is None else text).strip()
-    if isinstance(question, dict) and raw:
-        options_only = {"id": question.get("id", ""), "options": question.get("options") or []}
-        if answer_options.labels(options_only):
-            with contextlib.suppress(ValueError):
-                return str(answer_options.offered(options_only, raw))
-        with contextlib.suppress(ValueError):
-            return str(answer_options.offered(question, raw))
-    return raw
-
-
-def answer_texts(answers) -> dict:
-    """``{question id: answer text}`` from the saved answers mapping (a row or a plain string)."""
-    rows = {}
-    for question_id, row in (answers or {}).items():
-        rows[str(question_id)] = row.get("text") if isinstance(row, dict) else row
-    return rows
-
-
-def answers_digest(answers, questions=None) -> str:
-    """The digest of the canonical question ids and answer values a pass assumed or received.
-
-    Order-independent, so a mapping's serialization order never changes the binding.
-    """
-    by_id = {str(row.get("id")): row for row in (questions or ()) if isinstance(row, dict) and row.get("id")}
-    pairs = []
-    for question_id, row in (answers or {}).items():
-        qid = str(question_id)
-        raw = row.get("text") if isinstance(row, dict) else row
-        question = by_id.get(qid) or (row.get("question") if isinstance(row, dict) else None)
-        pairs.append((qid, _canonical_answer(question, raw)))
-    return util.digest(sorted(pairs))
-
-
-def assumed_defaults(questions) -> dict:
-    """``{question id: canonical offered default}`` for a pause whose every question offers a default."""
-    return {str(row["id"]): _canonical_answer(row, row.get("proposed_default")) for row in questions or ()}
-
-
-def answers_match(questions, answers) -> tuple[bool, str]:
-    """Whether every person answer matches its offered default after canonicalization, and why not when it doesn't."""
-    given = answer_texts(answers)
-    for row in questions or []:
-        qid = str(row.get("id"))
-        if _canonical_answer(row, given.get(qid, "")) != _canonical_answer(row, row.get("proposed_default") or ""):
-            return False, qid + " was answered differently from its offered default"
-    return True, "answers matched offered defaults"
-
-
-def eligible(state: RunState, questions) -> dict:
-    """Whether the controller may start the background full Requirements pass at this pause.
-
-    Returns ``{"eligible": bool, "reason": str}``; the reason is recorded in the run's overlap
-    evidence either way. Requires every pause question to be one of the handoff's own open
-    questions offering a nonempty default; cap admission is a separate decision (``admission``).
-    """
-    rows = list(questions or [])
-    if not rows:
-        return {"eligible": False, "reason": "the pause asks nothing"}
-    if requirements_review.current_turn_has_contract(state):
-        return {"eligible": False, "reason": "an approved goal contract owns this run's requirements"}
-    report = requirements_review.current_turn_handoff(state).get("report") or {}
-    own = {row.get("id") for row in report.get("open_questions") or []}
-    if not all(row.get("id") in own for row in rows):
-        return {
-            "eligible": False,
-            "reason": "the pause carries a question that is not the handoff's own open question "
-            "(a review confirmation, a scope decision or a resolver question)",
-        }
-    defaultless = sorted(str(row.get("id")) for row in rows if not str(row.get("proposed_default") or "").strip())
-    if defaultless:
-        return {
-            "eligible": False,
-            "reason": "question(s) " + ", ".join(defaultless) + " offer no default to assume",
-        }
-    return {
-        "eligible": True,
-        "reason": "the handoff's blocking questions all offer defaults; the background pass assumes them "
-        "while the person reads",
-    }
-
-
-def _finite(value) -> float | None:
-    """A positive finite limit, or None for absent, zero, negative, boolean or unusable values."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
-        return None
-    return float(value)
-
-
-def _recorded_active_seconds(value) -> float | None:
-    """A recorded, finite, nonnegative usage measurement; absent, boolean or invalid values are unknown."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
-        return None
-    return float(value)
-
-
-def admission(state: RunState) -> dict:
-    """Whether the run's existing caps admit one more bounded Requirements call before it starts.
-
-    Conservative by construction (#3233 item 4). A finite cost cap (``max_cost_usd`` as a positive
-    number — the same reading as ``autocode_cost.cap``, where absent and 0 mean no cap) disables
-    the speculative launch: the existing accounting exposes estimates rather than an enforceable
-    maximum cost for one call, and missing pricing, missing history or an estimated projection is
-    never proof of headroom. Every attempt requires a positive enforced effective stage deadline,
-    including an authorized retry extension. With a finite active-time cap (``max_seconds``), that
-    deadline plus its bounded termination allowance must fit in the remaining active-time allowance;
-    when that bound or the remaining allowance cannot be established, the call is skipped. Every configured cap and model choice is preserved; the
-    skip is recorded and the ordinary post-answer path runs.
-    """
-    limits = (state.get("settings") or {}).get("limits") or {}
-    if _finite(limits.get("max_cost_usd")) is not None:
-        return {
-            "admitted": False,
-            "reason": "a finite cost cap cannot bound one speculative call's spend; the existing post-answer flow continues",
-        }
-    deadline = _finite(job_deadline.launch_limit(state, "requirements_gather", limits.get("stage_timeout_seconds")))
-    if deadline is None:
-        return {
-            "admitted": False,
-            "reason": "no positive enforced effective stage deadline bounds the speculative call",
-        }
-    active_cap = _finite(limits.get("max_seconds"))
-    if active_cap is not None:
-        usage = _recorded_active_seconds(budget_state.raw_active_seconds(state))
-        if usage is None:
-            return {
-                "admitted": False,
-                "reason": "the run's active-time usage is not a recorded finite measurement, so the remaining "
-                "allowance cannot be established",
-            }
-        remaining = active_cap - usage
-        bound = deadline + TERMINATION_ALLOWANCE_SECONDS
-        if not math.isfinite(remaining) or remaining < bound:
-            return {
-                "admitted": False,
-                "reason": f"the bounded speculative call (a {deadline:g}s stage deadline plus its termination "
-                f"allowance) does not fit the remaining active-time allowance",
-            }
-    return {
-        "admitted": True,
-        "reason": "no finite cost cap and the bounded call fits the remaining active-time allowance",
-    }
 
 
 def provider_identity(record) -> dict | None:
@@ -328,384 +135,6 @@ def stop_verified(record, *, live=None, kill=None, pause=None) -> dict:
     }
 
 
-class RequirementsOverlapPass:
-    """The one bounded background full Requirements call a chat blocking-question pause owns (#3233).
-
-    Started inside ``chat_checkpoint`` when every blocking question offers a default and the
-    handoff's answers start the full pass today, so the person's reading time overlaps the call.
-    The candidate state is a frozen copy whose assumed defaults exist only as that call's saved
-    answers; its state checkpoints go to a sidecar so the paused ``state.json`` stays
-    authoritative. Not a second controller: one thread, one provider call, settled by the same
-    controller when the person answers.
-    """
-
-    STOP_JOIN_SECONDS = 30
-
-    def __init__(self, controller: Controller, state: RunState, run_dir, questions, save):
-        self.controller = controller
-        self.save = save
-        self.run_dir = Path(run_dir)
-        self.state_path = self.run_dir / "state.json"
-        self.questions = copy.deepcopy(list(questions))
-        prior_answers = state.get("answers") or {}
-        by_id = {str(row.get("id")): row for row in self.questions if isinstance(row, dict) and row.get("id")}
-        self.assumed = {
-            **{
-                str(qid): _canonical_answer(
-                    by_id.get(str(qid)) or (row.get("question") if isinstance(row, dict) else None),
-                    row.get("text") if isinstance(row, dict) else row,
-                )
-                for qid, row in prior_answers.items()
-            },
-            **assumed_defaults(self.questions),
-        }
-        self.digest = answers_digest(self.assumed, questions=self.questions)
-        self.nonce = uuid.uuid4().hex
-        self.workspace = Path(state["workspace"])
-        self.candidate = {
-            **copy.deepcopy(state),
-            "status": "RUNNING",
-            "phase": "DISCOVERING",
-            "next_stage": "requirements_gather",
-            "pending_questions": [],
-            "answers": {
-                key: {
-                    "text": text,
-                    **(
-                        {"question": by_id[key]}
-                        if key in by_id
-                        else (
-                            {"question": prior_answers[key]["question"]}
-                            if isinstance(prior_answers.get(key), dict) and "question" in prior_answers[key]
-                            else {}
-                        )
-                    ),
-                }
-                for key, text in self.assumed.items()
-            },
-        }
-        self.candidate.pop("active_stage", None)
-        self.cancelled = threading.Event()
-        self.settlement = None
-        self.value = None
-        self.record = None
-        self.error = None
-        self.outcome = None  # finished | failed | cancelled
-        self.candidate["requirements_overlap"] = self.describe("running")
-        self.thread = threading.Thread(target=self._run, name="requirements-overlap", daemon=True)
-
-    def describe(self, status: str, reason: str = "") -> dict:
-        return {
-            "at": self.controller.now(),
-            "status": status,
-            "reason": reason,
-            "questions": [row.get("id") for row in self.questions],
-            "assumed_answers_digest": self.digest,
-            "attempt_nonce": self.nonce,
-            "speculative": True,
-            **({"error": type(self.error).__name__ + ": " + str(self.error)} if self.error is not None else {}),
-        }
-
-    def _persist(self, path, value):
-        """The candidate never owns the run's state: its checkpoints go to a sidecar."""
-        if Path(path).name == "state.json" and Path(path).parent == self.run_dir:
-            if isinstance(value.get("active_stage"), dict):
-                value["active_stage"]["requirements_overlap_nonce"] = self.nonce
-                if self.cancelled.is_set():
-                    self.settlement = self.controller.stop_owned(value["active_stage"])
-            return self.controller.support.atomic_json(self.run_dir / SIDECAR_NAME, value)
-        return self.save(path, value)
-
-    def _run(self):
-        if self.cancelled.is_set():
-            self.outcome = "cancelled"
-            return
-        try:
-            try:
-                from .units import common as units_common
-            except ImportError:
-                from units import common as units_common
-            self.controller.guard(self.candidate, self.workspace, self.run_dir)
-            request = self.controller.prepare_request(
-                self.candidate, "requirements_gather", self.state_path, self.controller.schema_dir
-            )
-            schema_path = self.run_dir / "schemas" / "v3-requirements_gather.json"
-            self._persist(schema_path, self.controller.support.model_output_schema(request.schema))
-            if self.cancelled.is_set():
-                self.outcome = "cancelled"
-                return
-            value, record = self.controller.run_role(
-                role=request.role,
-                prompt=request.prompt,
-                sandbox=units_common.launch_sandbox("requirements_gather", request.allow_write),
-                workspace=self.workspace,
-                run_dir=self.run_dir,
-                state=self.candidate,
-                schema=schema_path,
-                model=self.candidate["settings"]["roles"][request.route_role]["model"],
-                allow_write=request.allow_write,
-                dry_run=False,
-                persist=self._persist,
-            )
-            record["requirements_overlap_nonce"] = self.nonce
-            self.value, self.record = value, record
-            self.outcome = "finished"
-        except BaseException as error:  # settled by the controller, never raised into the chat
-            self.error = error
-            self.record = self.record or self.candidate.get("active_stage")
-            self.outcome = "failed"
-
-    def wait(self):
-        """Wait for the call to finish; bounded by its own supervision, as an ordinary dispatch is."""
-        self.thread.join()
-
-    def stop(self):
-        """Stop the background call; a call that already finished is simply not adopted."""
-        self.cancelled.set()
-        if self.outcome is None:
-            record = self.record or self.candidate.get("active_stage") or {}
-            self.settlement = self.controller.stop_owned(record)
-        self.thread.join(timeout=self.STOP_JOIN_SECONDS)
-        if self.outcome == "cancelled":
-            self.settlement = {"settled": True, "reason": "cancelled before provider dispatch"}
-        elif self.outcome == "finished":
-            self.settlement = {"settled": True, "reason": "the supervised provider already finished"}
-        if self.thread.is_alive():
-            self.settlement = {"settled": False, "reason": "the background dispatch has not exited"}
-
-
-class Controller:
-    """The chat controller's wiring for the background pass (#3233).
-
-    This module is a lower layer (AGENTS.md rule 2), so the launch-path callables that live in
-    autocode.py or autopilot.py — the stage launch (``run_role``), request preparation, stage
-    accounting, the result commit, record saving and the launch guard, plus the support helpers
-    and the schema location they use — are injected here by ``chat_checkpoint`` and never
-    imported. One bounded background call per eligible pause, owned by that controller. The
-    ownership hooks (``owned_live``/``owned_kill``/``owned_pause``) default to the existing
-    process-identity boundary and are injectable for deterministic tests.
-    """
-
-    def __init__(
-        self,
-        *,
-        run_role,
-        prepare_request,
-        account_stage,
-        commit_stage_result,
-        save_record,
-        guard,
-        support,
-        now,
-        schema_dir,
-        owned_live=None,
-        owned_kill=None,
-        owned_pause=None,
-    ):
-        self.run_role = run_role
-        self.prepare_request = prepare_request
-        self.account_stage = account_stage
-        self.commit_stage_result = commit_stage_result
-        self.save_record = save_record
-        self.guard = guard
-        self.support = support
-        self.now = now
-        self.schema_dir = schema_dir
-        self.owned_live = owned_live
-        self.owned_kill = owned_kill
-        self.owned_pause = owned_pause
-
-    @classmethod
-    def wired(cls, runner, *, now=None, schema_dir=None) -> Controller:
-        """Build the controller from the chat controller's own callables (autocode.chat_checkpoint).
-
-        ``runner`` is the autocode module object itself (never imported here), so the injected
-        callables are exactly the ones the ordinary stage path uses.
-        """
-        return cls(
-            run_role=runner.run_role,
-            prepare_request=runner.autopilot.prepare_request,
-            account_stage=runner.account_stage,
-            commit_stage_result=runner.commit_stage_result,
-            save_record=runner.save_record,
-            guard=runner.launch_inputs.guard,
-            support=runner.support,
-            now=now or runner.now,
-            schema_dir=schema_dir or runner.SCHEMA_DIR,
-        )
-
-    @classmethod
-    def resume(cls, state: RunState, run_dir, runner) -> dict | None:
-        """Reconcile an owned unfinished background pass on the ordinary resume path (``recover``)."""
-        result = recover(
-            state,
-            run_dir,
-            save=runner.write_json,
-            account_stage=runner.account_stage,
-            save_record=runner.save_record,
-            event_metrics=runner.support.event_metrics,
-        )
-        if result and result.get("cleanup_pending"):
-            raise runner.support.Paused("PAUSED_PROCESS_CLEANUP", result["uncertainty"])
-        return result
-
-    def stop_owned(self, record) -> dict:
-        """Stop the provider a background attempt owns, through the verified-identity boundary."""
-        return stop_verified(
-            record,
-            live=self.owned_live,
-            kill=self.owned_kill,
-            pause=self.owned_pause,
-        )
-
-    def _charge(self, state: RunState, record, outcome: str, *, save: bool, reason: str = ""):
-        """Account a background attempt exactly once, its annotation on the attempt itself (#3233).
-
-        The speculative/outcome/reason binding lives on the authoritative stage record that
-        carries the attempt's observed tokens and cost — the identity the run's stage history,
-        resume reconciliation and the usage view already read — never on a second unbound
-        attempt. The reason is the final keep/discard decision's own reason, so a refused
-        adoption re-annotates the attempt it had first marked kept, without charging again.
-        Usage the attempt's events cannot establish is left as an explicit uncertainty (no
-        metrics invented), named in the outcome's reason.
-        """
-        if not isinstance(record, dict):
-            return record
-        record["speculative"] = True
-        record["outcome"] = outcome
-        record["reason"] = reason
-        if not record.get("metrics") and record.get("events") and Path(record["events"]).is_file():
-            with contextlib.suppress(OSError, ValueError, TypeError):
-                record["metrics"] = self.support.event_metrics(record["events"])
-        if not record.get("overlap_accounted"):
-            # run_role may have charged the isolated candidate. Charge the parent once,
-            # including when adoption rejects the report after this first accounting.
-            record.pop("accounted", None)
-            self.account_stage(state, record)
-            record["overlap_accounted"] = True
-        if save and not any(row is record for row in state.get("stages") or []):
-            self.save_record(state, record)
-        return record
-
-    def record(self, state: RunState, entry: dict | None):
-        """Move the current overlap record aside, keeping its own settled status and reason.
-
-        A superseded entry is spend evidence of the pass it described: it keeps the status and
-        reason it settled under, and a later pass's reason belongs to that later pass's entry
-        alone.
-        """
-        current = state.get("requirements_overlap") or {}
-        if current:
-            state.setdefault("requirements_overlap_history", []).append(dict(current))
-        if entry is not None:
-            state["requirements_overlap"] = entry
-
-    def start(self, state: RunState, run_dir, save):
-        """Start the background full Requirements pass for an eligible chat blocking-question pause.
-
-        ``None`` keeps today's behavior: an ineligible pause, a queued intervention, denied cap
-        admission, or a run without the ordinary terminal chat (native visual runs own their
-        launches; ``--no-chat``, durable and resumed-later runs never reach ``chat_checkpoint``).
-        """
-        questions = state.get("pending_questions") or []
-        decision = eligible(state, questions)
-        if not decision.get("eligible"):
-            return None
-        if interventions.pending(run_dir):
-            return None  # queued input takes precedence; the ordinary flow applies it
-        gate = admission(state)
-        if not gate.get("admitted"):
-            self.record(
-                state,
-                {
-                    "at": self.now(),
-                    "status": "skipped",
-                    "reason": gate.get("reason"),
-                    "questions": [row.get("id") for row in questions],
-                    "speculative": True,
-                },
-            )
-            save(Path(run_dir) / "state.json", state)
-            return None
-        self.record(state, None)
-        background = RequirementsOverlapPass(self, state, run_dir, questions, save)
-        state["requirements_overlap"] = {**background.describe("running"), "reason": decision["reason"]}
-        save(Path(run_dir) / "state.json", state)
-        background.thread.start()
-        return background
-
-    def settle(self, background: RequirementsOverlapPass, state: RunState, run_dir, save, *, literal=None):
-        """Keep or discard the background pass once the person answered the pause's questions.
-
-        The keep decision compares the exact typed replies (``literal``, captured at the chat
-        input boundary before whitespace stripping or offered-choice canonicalization) with the
-        offered defaults; a case-only or whitespace difference discards the report even when the
-        answer validator saved the same canonical option, and ``/default`` selects the offered
-        default exactly. The saved answers themselves stay canonical, and the ordinary
-        replacement call receives those actual accepted answers.
-        """
-        given = literal if literal is not None else state.get("answers") or {}
-        keep, reason = answers_match(background.questions, given)
-        if keep:
-            background.wait()
-        else:
-            background.stop()
-        record = background.record
-        kept = False
-        if keep and background.value is not None and record is not None:
-            self._charge(state, record, "kept", save=False, reason=reason)  # the commit below saves the attempt
-            state["requirements_overlap"] = {
-                **state.get("requirements_overlap", {}),
-                "status": "adopting",
-                "record_output": record.get("output"),
-            }
-            try:
-                self.commit_stage_result(
-                    state, "requirements_gather", background.value, record, Path(state["workspace"]), run_dir
-                )
-                kept = True
-            except (ValueError, KeyError, self.support.Paused) as error:
-                reason = f"the background report was refused: {error}"
-        if not kept:
-            if keep and background.value is None:
-                reason = "the background call produced no report; the ordinary pass runs with the real answers"
-            self._charge(state, record, "discarded", save=record is not None, reason=reason)
-            state.update({"next_stage": "requirements_gather", "phase": "DISCOVERING"})
-        entry = background.describe("kept" if kept else "discarded", reason)
-        if background.settlement is not None and not background.settlement.get("settled"):
-            entry["uncertainty"] = background.settlement.get("reason")
-        self.record(state, entry)
-        save(Path(run_dir) / "state.json", state)
-        if entry.get("uncertainty"):
-            raise self.support.Paused("PAUSED_PROCESS_CLEANUP", entry["uncertainty"])
-
-    def cancel(self, background: RequirementsOverlapPass, state: RunState, run_dir, save, *, reason: str = ""):
-        """Stop a background pass the chat left unsettled and account it once (#3233 item 5).
-
-        Stop and a boundary pause taken while the person has not answered, EOF, Ctrl-C,
-        ``/pause``, feedback and every other unsettled exit take this path: the owned call is
-        stopped through the verified-identity boundary, its observed spend is accounted exactly
-        once as speculative-discarded, the discarded outcome is persisted, and a queued
-        intervention stays for the existing controller intervention consumer — before any answer
-        or result can be adopted.
-        """
-        reason = reason or "the chat stopped or paused before the answers were taken"
-        background.stop()
-        self._charge(state, background.record, "discarded", save=background.record is not None, reason=reason)
-        entry = background.describe("discarded", reason)
-        if background.settlement is not None and not background.settlement.get("settled"):
-            entry["uncertainty"] = background.settlement.get("reason")
-        self.record(state, entry)
-        if run_dir is not None:
-            save(Path(run_dir) / "state.json", state)
-        if entry.get("uncertainty"):
-            raise self.support.Paused("PAUSED_PROCESS_CLEANUP", entry["uncertainty"])
-
-    def abandon(self, background: RequirementsOverlapPass, state: RunState, run_dir=None, save=None):
-        """The unsettled-exit path ``chat_checkpoint``'s finally block takes."""
-        self.cancel(background, state, run_dir, save)
-
-
 def recover(
     state: RunState,
     run_dir,
@@ -717,7 +146,7 @@ def recover(
     settle_owned=None,
     now=None,
 ) -> dict | None:
-    """Reconcile an owned unfinished background pass when the run is loaded again (#3233 item 5).
+    """Reconcile a saved run's unfinished background pass when the run is loaded again (#3233).
 
     Runs in the ordinary run-loading/reconciliation path, before the early return for a missing
     main ``active_stage``, on every resume — chat or not. A persisted ``running`` overlap record
@@ -796,3 +225,18 @@ def recover(
     state["requirements_overlap"] = entry
     save(run_dir / "state.json", state)
     return entry
+
+
+def resume(state: RunState, run_dir, runner) -> dict | None:
+    """Settle a saved unfinished pass on the ordinary resume path (``autocode.reconcile_active``)."""
+    result = recover(
+        state,
+        run_dir,
+        save=runner.write_json,
+        account_stage=runner.account_stage,
+        save_record=runner.save_record,
+        event_metrics=runner.support.event_metrics,
+    )
+    if result and result.get("cleanup_pending"):
+        raise runner.support.Paused("PAUSED_PROCESS_CLEANUP", result["uncertainty"])
+    return result

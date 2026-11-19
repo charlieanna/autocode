@@ -380,7 +380,7 @@
                       },
                       "speculative": {
                         "type": "boolean",
-                        "description": "True on the attempt of the full Requirements pass AutoCode ran in the background while the person read a blocking-question pause (#3233 part 1). Its spend is real and counted; only its report may be thrown away. Absent on every other attempt."
+                        "description": "True on the attempt of the full Requirements pass a run saved before 2026-11-19 ran in the background while the person read a blocking-question pause (#3233 part 1, since removed). Its spend is real and counted. No new run makes such an attempt; absent on every other attempt."
                       },
                       "outcome": {
                         "type": "string",

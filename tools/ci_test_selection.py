@@ -1507,8 +1507,8 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tests.test_chat_polling_cli", "tests.test_chat_inventory_cli"),
     ),
     (("tools/autocode.py", "tools/autopilot.py", "tools/autocode_taskrun.py"), ("tests.test_launch_state_cli",)),
-    # The chat reading-time overlap (#3233) launches the CLI and reads its public usage rows, so its
-    # acceptance cases are not reachable from the chat controller, the pass or the accounting by imports.
+    # The chat waits for the person's answer and settles a saved run's retired background pass (#3233);
+    # its CLI case launches the chat, so no import reaches it from the controller or the accounting.
     (
         ("tools/autocode.py", "tools/autocode_requirements_overlap", "tools/autocode_usage"),
         ("tests.test_requirements_overlap",),

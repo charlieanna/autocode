@@ -1,38 +1,23 @@
-"""Main-thread answer input that notices interventions during Requirements overlap.
+"""The one reader of the person's answers that every chat prompt shares.
 
-All chat prompts share the same reader. Reads stop at the newline, so switching between
-ordinary input and the interruptible wait never loses TextIOWrapper read-ahead. The decoder
-belongs to the actual stdin stream and survives a split Unicode character or a paused partial
-line. No input thread owns a second copy of the conversation.
+Reads stop at the newline, one byte at a time, so a later prompt (or an ordinary ``input()``
+consumer) can still read its own line: no prompt prefetches another prompt's input into a
+private buffer, and piped answers are never lost to TextIOWrapper read-ahead. The decoder
+belongs to the actual stdin stream and survives a split Unicode character. The module keeps
+its name from the retired Requirements reading-time overlap (#3233), which introduced it.
 """
 
 from __future__ import annotations
 
 import codecs
 import os
-import select
 import sys
-import time
 
-try:
-    from . import autocode_interventions as interventions
-except ImportError:
-    import autocode_interventions as interventions
-
-INTERVENED = object()
-POLL_SECONDS = 0.1
 _current = None
 
 
 def _unreadable(reason):
-    return RuntimeError(f"Chat input cannot be observed while a background Requirements call runs: {reason}")
-
-
-def _ready(fileno):
-    try:
-        return bool(select.select([fileno], [], [], 0)[0])
-    except (OSError, ValueError) as error:
-        raise _unreadable(f"stdin readiness failed: {error}") from error
+    return RuntimeError(f"Chat input cannot be read: {reason}")
 
 
 class _Reader:
@@ -54,13 +39,8 @@ class _Reader:
         self.eof = not data
         return self.decoder.decode(data, final=self.eof)
 
-    def line(self, *, waiting=False, pending=lambda: False, ready=None, chunk=None, pause=time.sleep, interval=0.1):
-        injected = chunk is not None
-        chunk = self.chunk if chunk is None else chunk
-        ready = (lambda: _ready(self.fileno)) if ready is None else ready
+    def line(self):
         while True:
-            if waiting and pending():
-                return INTERVENED
             if "\n" in self.buffer:
                 line, _, self.buffer = self.buffer.partition("\n")
                 return line[:-1] if line.endswith("\r") else line
@@ -69,14 +49,7 @@ class _Reader:
                     line, self.buffer = self.buffer, ""
                     return line
                 raise EOFError
-            if not waiting or ready():
-                data = chunk()
-                # An incremental decoder may legitimately return no text before EOF.
-                if injected and data == "":
-                    self.eof = True
-                self.buffer += data
-            else:
-                pause(interval)
+            self.buffer += self.chunk()
 
 
 class _InputProxy:
@@ -87,7 +60,7 @@ class _InputProxy:
 
     def fileno(self):
         # Force input() through readline even on a tty. Its C readline path would
-        # bypass a partial Unicode character retained by the interruptible reader.
+        # bypass a partial Unicode character retained by the reader.
         return -1
 
     def readline(self):
@@ -100,37 +73,18 @@ class _InputProxy:
         return getattr(self.reader.stream, name)
 
 
-def read(
-    prompt, run_dir=None, waiting=False, *, pending=None, ready=None, chunk=None, pause=None, poll_seconds=POLL_SECONDS
-):
+def read(prompt):
+    """Show ``prompt`` and return the person's next line, as ``input()`` does."""
     global _current
     stream = sys.stdin
     try:
         fileno = stream.fileno()
-    except (AttributeError, OSError, ValueError, TypeError) as error:
-        if not waiting:
-            return input(prompt)
-        raise _unreadable("stdin has no file descriptor") from error
+    except (AttributeError, OSError, ValueError, TypeError):
+        return input(prompt)
     if _current is None or _current.stream is not stream:
         _current = _Reader(stream, fileno)
-    reader = _current
-    if not waiting:
-        sys.stdin = _InputProxy(reader)
-        try:
-            return input(prompt)
-        finally:
-            sys.stdin = stream
-    pending = (
-        (lambda directory: directory is not None and bool(interventions.pending(directory)))
-        if pending is None
-        else pending
-    )
-    print(prompt, end="", flush=True)
-    return reader.line(
-        waiting=True,
-        pending=lambda: pending(run_dir),
-        ready=ready,
-        chunk=chunk,
-        pause=time.sleep if pause is None else pause,
-        interval=poll_seconds,
-    )
+    sys.stdin = _InputProxy(_current)
+    try:
+        return input(prompt)
+    finally:
+        sys.stdin = stream
