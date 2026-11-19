@@ -524,7 +524,7 @@ def _checkpoint_summary(state: Any, workspace: Path) -> tuple[str, dict[str, Any
         "status_label": status_label.label(state["status"]),
         "phase": state.get("phase"),
         "next_stage": state.get("next_stage"),
-        "next_stage_label": _stage_label(state),
+        "next_stage_label": _stage_label(cast("RunState", state)),
         "task_id": _run_task_id(cast("RunState", state)),
         "checkpoint_version": version,
         "title": title(state["task"]),
