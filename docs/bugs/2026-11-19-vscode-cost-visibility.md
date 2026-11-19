@@ -72,5 +72,23 @@ preflights returned positive dollar receipts. VS Code showed those provider amou
 separately from the dated GLM token estimate while Planner ran. The first Planner
 attempt reached this test's 240-second deadline; its missing cost stays explicit,
 and the core retained the attempt and automatically retried the same model under
-its bounded timeout-recovery policy. The final reviewed-plan outcome and exact-head
-CI are still required before merge.
+its bounded timeout-recovery policy. The independent Plan Reviewer then returned
+feedback; later revisions hit the same short deadline. At the total-time boundary
+the operator raised the total from 900 to 1500 seconds through VS Code, then
+requested a public boundary pause and saved 600 seconds per stage and 2100 seconds
+total through the public CLI. The paused view has no per-stage time control. Model
+routes, reasoning, the planning-call cap and the uncapped test-cost setting stayed
+unchanged. The next revision lost its provider stream and bounded recovery ended
+without a takeable continuation. This run is blocked, not a successful plan result;
+no private-state repair or unbounded retry was used.
+
+The final actual editor state showed `$0.768+` and `631k+ tokens`, explained the
+known subtotal, and distinguished provider-reported `$0.432` from the dated
+`$0.335` estimate. Two attempts remained explicitly unpriced. These are accounting
+observations, not a final bill. All failed attempts remain in evidence. Redacted
+terminal bundle manifest:
+`5ad23c3ab2aa9a42af99cd7461c66254c21672ffc0ee95b935967a569830a0d9`.
+
+PR #3846's required CI passed at `35e8ea28f19caee053021e800cb011ada3501f53`.
+A successful reviewed-plan follow-up on the combined readable-plan candidate and
+green CI on the final head remain required before merge.
