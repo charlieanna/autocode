@@ -56,6 +56,52 @@ class ReadTargetTests(unittest.TestCase):
         with mock.patch.object(workspace_links.Path, "home", return_value=self.shared / "lib"):
             self.assertEqual([], workspace_links.read_targets(self.workspace))
 
+    def test_a_file_reached_through_the_projects_own_link_is_a_workspace_file_by_the_path_written(self):
+        # 2026-11-19: Requirements cited the task's config/rates.json, a tracked link to a shared file, and the
+        # citation check refused it as "not a file in the workspace".
+        self.link("config/rates.json", self.shared / "discount.py")
+        self.link("vendor", self.shared / "lib")
+        (self.shared / "lib" / "util.py").write_text("x = 2\n")
+        self.link("config/.env", self.shared / ".env")
+        self.link("gone.py", self.shared / "missing.py")
+        subprocess.run(["git", "init", "-q", str(self.workspace)], check=True)
+        linked = workspace_links.linked_file(self.workspace)
+        absolute = (self.workspace / "config" / "rates.json").as_posix()
+        for name, expected in (
+            ("config/rates.json", "config/rates.json"),
+            ("./config/rates.json", "config/rates.json"),
+            (absolute, "config/rates.json"),
+            ("vendor/util.py", "vendor/util.py"),
+            ("config/.env", None),  # a secret stays refused
+            ("gone.py", None),
+            ("vendor", None),  # a directory is not a file
+            ("src/inside.py", None),  # not reached through a link out: the caller's own check decides
+            ("../shared/discount.py", None),
+            ((self.shared / "discount.py").as_posix(), None),  # outside, spelled as where the link leads
+            ("", None),
+        ):
+            with self.subTest(name=name):
+                self.assertEqual(expected, linked(name))
+
+    def test_a_link_git_does_not_list_reaches_nothing(self):
+        self.link("build/rates.json", self.shared / "discount.py")
+        (self.workspace / ".gitignore").write_text("build/\n")
+        subprocess.run(["git", "init", "-q", str(self.workspace)], check=True)
+        self.assertIsNone(workspace_links.linked_file(self.workspace)("build/rates.json"))
+
+    def test_a_machine_resolution_may_cite_a_linked_file_and_still_not_one_outside(self):
+        import autocode_planning_clarification as clarification
+
+        self.link("config/rates.json", self.shared / "discount.py")
+        subprocess.run(["git", "init", "-q", str(self.workspace)], check=True)
+        state = {"workspace": str(self.workspace)}
+        checked = []
+        clarification.check_resolution_refs(state, ["config/rates.json:1"], lambda *args: checked.append(args[1]))
+        self.assertEqual([["config/rates.json:1"]], checked)
+        for ref in ("../shared/discount.py", "config/missing.json"):
+            with self.subTest(ref=ref), self.assertRaisesRegex(ValueError, "not a file in the workspace"):
+                clarification.check_resolution_refs(state, [ref], lambda *args: None)
+
 
 if __name__ == "__main__":
     unittest.main()

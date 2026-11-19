@@ -42,9 +42,11 @@ if TYPE_CHECKING:
 try:
     from . import autocode_util as util
     from . import autocode_workspace_inventory as workspace_inventory
+    from . import autocode_workspace_links as workspace_links
 except ImportError:
     import autocode_util as util
     import autocode_workspace_inventory as workspace_inventory
+    import autocode_workspace_links as workspace_links
 
 # Planning stages whose reads stage=None accepts: the default flow and the v2 flow.
 PLANNING_STAGES = (
@@ -173,11 +175,15 @@ def split_ref(root, ref: str):
 
 def cited_file(root, path, field, ref):
     """The workspace file a citation names, or ValueError: it must exist inside the workspace and must not
-    be one the runner or a tool owns or generates."""
+    be one the runner or a tool owns or generates. A file the project reaches through its own link out of
+    the workspace counts, by the path it is cited as (``workspace_links.linked_file``)."""
     root = Path(root).resolve()
     target = (root / path).resolve()
     if not target.is_relative_to(root) or not target.is_file():
-        raise ValueError(f"{field} entry {ref} is not a file in the workspace")
+        linked = workspace_links.linked_file(root)(path)
+        if linked is None:
+            raise ValueError(f"{field} entry {ref} is not a file in the workspace")
+        target = root / linked
     if target.suffix == ".pyc" or any(
         part in workspace_inventory.RUNNER_OWNED_PARTS for part in target.relative_to(root).parts
     ):
@@ -244,9 +250,10 @@ def read_targets(raw, workspace) -> list[str]:
     text = raw.decode(errors="replace") if isinstance(raw, bytes) else str(raw)
     root = Path(workspace).resolve()
     found: dict[str, None] = {}
+    linked = workspace_links.linked_file(root)
 
     def add(name):
-        relative = _workspace_file(root, name)
+        relative = _workspace_file(root, name, linked)
         if relative is not None:
             found.setdefault(relative, None)
 
@@ -265,7 +272,11 @@ def read_targets(raw, workspace) -> list[str]:
             kind = item.get("type")
             if kind == "command_execution" and type(item.get("exit_code")) is int:
                 _shell(
-                    item.get("command"), item.get("aggregated_output"), add, None if item["exit_code"] == 0 else root
+                    item.get("command"),
+                    item.get("aggregated_output"),
+                    add,
+                    None if item["exit_code"] == 0 else root,
+                    linked,
                 )
             elif kind == "tool_call" and item.get("name") in NATIVE_READ_TOOLS and item.get("status") == "completed":
                 shown = item.get("display_input")
@@ -287,24 +298,24 @@ def read_targets(raw, workspace) -> list[str]:
                             add(hit)
             elif part.get("tool") in SHELL_TOOLS and status == "completed" and _shell_exit(part_state) is not None:
                 failed = root if _shell_exit(part_state) != 0 else None
-                _shell(arguments.get("command"), part_state.get("output"), add, failed)
+                _shell(arguments.get("command"), part_state.get("output"), add, failed, linked)
     return list(found)
 
 
-def _shell(command, output, add, failed=None):
+def _shell(command, output, add, failed=None, linked=None):
     """Credit a command's reads; ``failed`` (the workspace root) credits a named file only if its text was shown."""
     if isinstance(command, str):
         for token in _tokens(command, 0):
-            if failed is None or isinstance(output, str) and _shown(failed, token, output):
+            if failed is None or isinstance(output, str) and _shown(failed, token, output, linked):
                 add(token)
     if isinstance(output, str) and failed is None:  # a failed build or test also prints path:LINE: errors
         for hit in _OUTPUT_HIT.findall(output):
             add(hit)
 
 
-def _shown(root: Path, name, output: str) -> bool:
+def _shown(root: Path, name, output: str, linked=None) -> bool:
     """Whether the whole, non-blank text of the workspace file ``name`` appears in ``output`` as whole lines."""
-    relative = _workspace_file(root, name)
+    relative = _workspace_file(root, name, linked)
     if relative is None:
         return False
     try:
@@ -345,14 +356,16 @@ def _shell_exit(part_state):
     return code if type(code) is int else None
 
 
-def _workspace_file(root: Path, name) -> str | None:
+def _workspace_file(root: Path, name, linked=None) -> str | None:
+    """The workspace-relative name of a file a stage named, or None; ``linked`` is the
+    ``workspace_links.linked_file`` test for a file reached through the project's own link out."""
     if not isinstance(name, str) or not name.strip() or "\x00" in name or len(name) > 4096:
         return None
     path = Path(name.strip())
     try:
         target = (path if path.is_absolute() else root / path).resolve()
         if not target.is_relative_to(root) or not target.is_file():
-            return None
+            return linked(name) if linked is not None else None
     except (OSError, RuntimeError, ValueError):
         return None
     return _relative(root, target)
