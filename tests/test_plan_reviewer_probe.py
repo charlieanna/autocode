@@ -1,6 +1,7 @@
 """The Plan Reviewer probe: its planted flaws, its grader and its runs through the task-run interface (#3630)."""
 
 import copy
+import importlib.util
 import os
 import shutil
 import sys
@@ -11,6 +12,7 @@ from unittest.mock import patch
 
 import autocode_measured_routes as measured_routes
 import autocode_model_probe as model_probe
+import autocode_plan_file as plan_file
 import autocode_plan_reviewer_probe as reviewer_probe
 import autocode_route_selector as route_selector
 import autocode_taskrun as taskrun
@@ -237,6 +239,52 @@ class RunReviewerProbeTests(unittest.TestCase):
         self.assertEqual(["P4", "P5"], [request for request, *_ in calls])
         self.assertEqual("the probe reached its $3.00 cap", outcome["stopped"])
         self.assertEqual([], outcome["results"], "a full pass cut off is not recorded")
+
+
+class ExportedPlanFormatTests(unittest.TestCase):
+    def test_the_packaged_probe_reads_the_same_public_contract(self):
+        # Load this checkout as a package, independently of any older editable
+        # autocode_cli installation. The script and installed CLI use both paths.
+        package_name = "autocode_probe_reader_test"
+        spec = importlib.util.spec_from_file_location(
+            package_name, HERE / "__init__.py", submodule_search_locations=[str(HERE)]
+        )
+        package = importlib.util.module_from_spec(spec)
+        with patch.dict(sys.modules, {package_name: package}):
+            spec.loader.exec_module(package)
+            probe = importlib.import_module(package_name + ".autocode_model_probe")
+            original = {"intended_outcome": "Keep tests/__init__.py", "technical_approach": ["One function"]}
+            exported = plan_file.export(original, revision=3, approved=False)
+            self.assertEqual(package_name, probe.plan_file.__package__)
+            self.assertEqual(original, probe._front_matter(exported)["contract"])
+            self.assertEqual(plan_file.goal_hash(original), probe._front_matter(exported)["goal_hash"])
+
+    def test_probe_reads_and_rewrites_both_public_plan_formats(self):
+        original = {"intended_outcome": "Keep literal tests/__init__.py", "technical_approach": ["One function"]}
+        for version in sorted({1, 2, plan_file.FORMAT}):
+            with self.subTest(version=version), tempfile.TemporaryDirectory(prefix="reviewer-plan-format-") as parent:
+                front = {
+                    "autocode_plan": version,
+                    "goal_hash": plan_file.goal_hash(original),
+                    "revision": 3,
+                    "approval_status": "not approved",
+                    "contract": original,
+                }
+                exported = plan_file.document(front)
+                self.assertEqual(front, model_probe._front_matter(exported))
+                changed = {**original, "technical_approach": ["A deliberately different approach"]}
+                path = model_probe._plan_file(
+                    Path(parent), front, changed, (sys.executable, str(HERE / "autocode.py")), {}
+                )
+                parsed = plan_file.read(path.read_text())
+                self.assertEqual(version, parsed.format)
+                self.assertEqual(changed, parsed.body)
+                self.assertEqual(front["goal_hash"], parsed.exported_hash)
+                self.assertIsNone(parsed.stale_line)
+
+    def test_unreadable_export_is_reported_as_a_taskrun_error(self):
+        with self.assertRaisesRegex(taskrun.TaskRunError, "exported plan file"):
+            model_probe._front_matter("# No canonical contract")
 
 
 class ThroughTheCliTests(unittest.TestCase):

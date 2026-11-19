@@ -173,7 +173,7 @@ def body(record: dict, entry: dict) -> str:
             "",
             "Text that looked like a credential is masked as `[REDACTED]` in this file, so its goal hash differs "
             f"from the run's plan (`{entry['run_goal_hash']}`). The run refuses the file while it holds the mask: "
-            "restore those values in the front matter, or reword that text, before it is loaded.",
+            "restore those values in the canonical JSON, or reword that text, before it is loaded.",
         ]
     return (
         "\n".join(
@@ -182,10 +182,10 @@ def body(record: dict, entry: dict) -> str:
                 "",
                 "## Reviewing it",
                 "",
-                "The JSON front matter between the two `---` lines is the plan; the text under it is generated from "
-                f"it. To change the plan, edit the front matter, run `autocode plan --render {path}` and commit the "
+                "The canonical JSON is the plan; its overview and detailed text are generated from "
+                f"it. To change the plan, edit the JSON, run `autocode plan --render {path}` and commit the "
                 f"regenerated file. `autocode plan --check {path}` prints the new goal hash, and exits 2 while the "
-                "text and the front matter disagree.",
+                "text and the canonical JSON disagree.",
                 "",
                 "Merging this pull request approves nothing. Once it is merged, whoever holds the run loads the "
                 f"merged file into it with `autocode --goal-file {path}`, which checks it as it checks a planner's "

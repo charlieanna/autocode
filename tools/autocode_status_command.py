@@ -191,6 +191,7 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         if state["status"] == "TASK_COMPLETE"
         else None
     )
+    completed_without_building = runner.jobs.built_nothing(state)
     if completion_current:
         try:
             launch_inputs.guard(state, workspace, run_dir)
@@ -373,11 +374,15 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
     )
     # A finished run whose verification no longer covers the current checkout names
     # a re-verification action: resume re-checks completion against the source on disk.
-    if completion_current is False and not (stale or stale_check):
+    if completion_current is False and not (stale or stale_check or completed_without_building):
         public_view["next_command"] = ["--workspace", str(workspace), "--run-dir", str(run_dir), "--resume-paused"]
     # The run in one sentence and its exact next action (#2049); `--summary` prints only this.
     public_view["summary"] = status_summary.project(
-        public_view, stale=stale or stale_check, completion_current=completion_current, next_action=next_action
+        public_view,
+        stale=stale or stale_check,
+        completion_current=completion_current,
+        next_action=next_action,
+        completed_without_building=completed_without_building,
     )
     public_view["chat"]["progress"] = chat_progress.project(
         state, public_view, finished=bool(active_finished), stopped=bool(next_action)

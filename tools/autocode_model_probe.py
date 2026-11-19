@@ -40,6 +40,7 @@ try:
     from . import autocode_builder_probe as builder_probe
     from . import autocode_check_probe as check_probe
     from . import autocode_measured_routes as measured_routes
+    from . import autocode_plan_file as plan_file
     from . import autocode_plan_reviewer_probe as reviewer_probe
     from . import autocode_planner_probe as planner_probe
     from . import autocode_prices as prices
@@ -51,6 +52,7 @@ except ImportError:
     import autocode_builder_probe as builder_probe
     import autocode_check_probe as check_probe
     import autocode_measured_routes as measured_routes
+    import autocode_plan_file as plan_file
     import autocode_plan_reviewer_probe as reviewer_probe
     import autocode_planner_probe as planner_probe
     import autocode_prices as prices
@@ -915,13 +917,18 @@ def _planner_flags(planner, checker, requirements, cap_usd):
 
 
 def _front_matter(text):
-    """A plan file's front matter (``autocode plan --export``): the JSON between its ``---`` lines."""
-    if not text.startswith("---\n"):
-        raise taskrun.TaskRunError("the exported plan file has no front matter")
-    front = json.loads(text[4:].partition("\n---\n")[0])
-    if not isinstance(front, dict) or not isinstance(front.get("contract"), dict):
-        raise taskrun.TaskRunError("the exported plan file holds no plan")
-    return front
+    """The public exported contract, read by its shared pure format reader, never private run state."""
+    try:
+        plan = plan_file.read(text)
+    except ValueError as error:
+        raise taskrun.TaskRunError(f"the exported plan file cannot be read: {error}") from None
+    return {
+        "autocode_plan": plan.format,
+        "goal_hash": plan.exported_hash,
+        "revision": plan.revision,
+        "approval_status": plan.approval_status,
+        "contract": plan.body,
+    }
 
 
 def _plan_file(parent, front, contract, command, env):
@@ -932,8 +939,7 @@ def _plan_file(parent, front, contract, command, env):
     folder = Path(parent) / "plans"
     folder.mkdir(exist_ok=True)
     path = folder / f"plan-{uuid.uuid4().hex}.md"
-    text = json.dumps({**front, "contract": contract}, indent=2, ensure_ascii=False)
-    path.write_text(f"---\n{text}\n---\n", encoding="utf-8")
+    path.write_text(plan_file.document({**front, "contract": contract}), encoding="utf-8")
     rendered = subprocess.run(
         [*command, "plan", "--render", str(path)],
         env={**os.environ, **(env or {})},

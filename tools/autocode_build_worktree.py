@@ -52,6 +52,7 @@ try:
     from . import autocode_controller_owner as controller_owner
     from . import autocode_coordination_store as coordination_store
     from . import autocode_package_writes as package_writes
+    from . import autocode_plan_only as plan_only
     from . import autocode_registry as registry
     from . import autocode_run_destination as run_destination
     from . import autocode_run_status as run_status
@@ -66,6 +67,7 @@ except ImportError:
     import autocode_controller_owner as controller_owner
     import autocode_coordination_store as coordination_store
     import autocode_package_writes as package_writes
+    import autocode_plan_only as plan_only
     import autocode_registry as registry
     import autocode_run_destination as run_destination
     import autocode_run_status as run_status
@@ -320,14 +322,15 @@ def notice(state: RunState) -> str | None:
         return None
     origin = (record.get("moved_from") or {}).get("workspace") or "your folder"
     branch = record.get("branch") or "its own branch"
-    work = "plan and build" if "after_events" in record else "build"
+    planning_only = plan_only.enabled(state)
+    work = "prepare this plan" if planning_only else "plan and build this" if "after_events" in record else "build this"
     whose, start = (
         ("your branch", f"the last commit on {branch}")
         if record.get("existing_branch")
         else ("its own branch", "your last commit")
     )
     text = (
-        f"I {work} this on {whose}, {branch}, in a separate copy of {origin}, so your folder and "
+        f"I {work} on {whose}, {branch}, in a separate copy of {origin}, so your folder and "
         f"other chats there are not changed while I work. It starts from {start}; uncommitted "
         "changes and ignored files (such as installed dependencies or local settings) are not part of it."
     )
@@ -335,4 +338,8 @@ def notice(state: RunState) -> str | None:
     if left:
         named = ", ".join(left[:NAMED]) + (f" and {len(left) - NAMED} more" if len(left) > NAMED else "")
         text += f" Not included from your folder: {named}."
-    return text + " When it is done, review and merge the branch; I never merge it myself."
+    return text + (
+        " This is a plan-only chat: accepting the reviewed plan ends it without building or changing project files."
+        if planning_only
+        else " When it is done, review and merge the branch; I never merge it myself."
+    )

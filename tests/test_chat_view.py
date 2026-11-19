@@ -1009,6 +1009,29 @@ class ChatViewTests(unittest.TestCase):
             "The requested task is complete.", self.project(in_place, "done", True)["messages"][-1]["text"]
         )
 
+    def test_an_accepted_plan_returns_its_approach_without_claiming_code_delivery(self):
+        state = {
+            "status": "TASK_COMPLETE",
+            "task": "Plan a greeting",
+            "settings": {"plan_only": True},
+            "goal_contract": {
+                "approval_status": "approved",
+                "revision": 3,
+                "body": {"intended_outcome": "A greeting", "technical_approach": ["Keep tests/__init__.py"]},
+            },
+            "task_branch": "autocode/planned-greeting",
+            "project_workspace": "/project",
+            "workspace": "/project/.autocode/worktrees/greeting",
+        }
+        text = self.project(state, "done", True)["messages"][-1]["text"]
+        self.assertIn("Nothing was built or changed", text)
+        self.assertIn("Proposed approach", text)
+        self.assertIn(r"tests/\_\_init\_\_\.py", text)
+        self.assertNotIn("Delivered on branch", text)
+        self.assertNotIn("Merge that branch", text)
+        self.assertIn("This overview is condensed.", text)
+        self.assertNotIn("full plan below", text)
+
     def test_a_hi_in_a_folder_outside_git_hears_nothing_about_folders(self):
         """Typing "hi" in a folder outside Git was answered with a paragraph about a private project and
         its path: nothing is written until a plan is approved, so nothing about folders is said before."""

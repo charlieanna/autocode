@@ -6,8 +6,9 @@ decides nothing and names no action of its own: ``next_command`` is the view's o
 ``next_command``. Raw detail (``status``, ``needs``, ``stop_reason``) stays in the full
 payload.
 
-Only a run whose completion is verified against the current checkout reads ``done``.
-A finished run whose evidence no longer matches the checkout, or cannot be checked,
+Built work reads ``done`` only when completion is verified against the current checkout.
+An accepted plan or a discussion answer has no built-code evidence and reads ``done``
+under the core job classification. A finished build whose evidence no longer matches the checkout, or cannot be checked,
 reads ``stopped``, as does a run whose saved status says it is running while nothing
 supervises the retained attempt: neither is presented as delivered or as progress.
 """
@@ -59,11 +60,14 @@ def _plain_asked(asked: object, raw_reason: object, recovery: dict) -> str:
     return asked
 
 
-def project(view: dict, *, stale: bool = False, completion_current=None, next_action=None) -> dict:
+def project(
+    view: dict, *, stale: bool = False, completion_current=None, next_action=None, completed_without_building=False
+) -> dict:
     """``view`` is the public status view with its ``progress``; ``stale`` is True when the saved
     status says running but no supervised result exists; ``completion_current`` is the completion
     gate's verdict on the current checkout (None when not checked); ``next_action`` is the status
-    payload's own instruction for a stale checkpoint."""
+    payload's own instruction for a stale checkpoint. ``completed_without_building`` comes from the
+    core's job classification, never from display text or a model's completion claim."""
     status = str(view.get("status") or "")
     need = view.get("needs") or {}
     kind = need.get("kind") if isinstance(need, dict) else None
@@ -81,7 +85,13 @@ def project(view: dict, *, stale: bool = False, completion_current=None, next_ac
         sentence = _sentence(_plain(next_action)) or "The run stopped without saving a result."
         sentence = f"The run is not progressing: nothing supervises its retained attempt. {sentence}"
     elif view.get("done"):
-        if completion_current is True:
+        if completed_without_building:
+            state, sentence, command = (
+                DONE,
+                _sentence(progress.get("headline") or "Response complete") + " Nothing was built or changed.",
+                None,
+            )
+        elif completion_current is True:
             state, sentence, command = DONE, "Complete, and verified against the current checkout.", None
         else:
             state = STOPPED

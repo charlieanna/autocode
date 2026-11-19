@@ -11,6 +11,48 @@ from tests.test_plan_file import body
 
 
 class PlanOverviewTests(unittest.TestCase):
+    def test_scope_counts_use_singular_and_plural_without_predicting_effort(self):
+        for count, expected in (
+            (0, "0 stages; 0 acceptance criteria"),
+            (1, "1 stage; 1 acceptance criterion"),
+            (2, "2 stages; 2 acceptance criteria"),
+        ):
+            with self.subTest(count=count):
+                original = {"milestones": [{"objective": "Work"}] * count, "acceptance_criteria": [{}] * count}
+                self.assertIn(expected, plan_file.summary_markdown(original, revision=1, status="not approved"))
+
+    def test_format_two_keeps_its_original_bytes_after_scope_wording_improves(self):
+        import hashlib
+
+        original = body()
+        exported = plan_file.document(
+            {
+                "autocode_plan": 2,
+                "goal_hash": util.digest(original),
+                "revision": 3,
+                "approval_status": "approved",
+                "contract": original,
+            }
+        )
+        self.assertEqual(
+            "acd471aad48f0fbefa4b1463e9ef603fb73852d430c8f4a5a91743a08314a54d",
+            hashlib.sha256(exported.encode()).hexdigest(),
+        )
+        self.assertEqual(2, plan_file.read(exported).format)
+        self.assertEqual(exported, plan_file.rendered(exported))
+        single = {"milestones": [{"objective": "Work"}], "acceptance_criteria": [{}]}
+        legacy = plan_file.document(
+            {
+                "autocode_plan": 2,
+                "goal_hash": util.digest(single),
+                "revision": 1,
+                "approval_status": "not approved",
+                "contract": single,
+            }
+        )
+        self.assertIn("1 stages; 1 acceptance criteria", legacy)
+        self.assertEqual(legacy, plan_file.rendered(legacy))
+
     def test_export_leads_with_the_approach_before_contract_and_acceptance_evidence(self):
         for count in (1, 100):
             original = body()
@@ -94,7 +136,7 @@ class PlanOverviewTests(unittest.TestCase):
         self.assertIsNotNone(plan_file.read(edited).stale_line)
         rendered = plan_file.rendered(edited)
         parsed = plan_file.read(rendered)
-        self.assertEqual(2, parsed.format)
+        self.assertEqual(plan_file.FORMAT, parsed.format)
         self.assertIsNone(parsed.stale_line)
         self.assertNotEqual(parsed.goal_hash, parsed.exported_hash)
         lead = rendered.split("<details>", 1)[0]
@@ -123,7 +165,7 @@ class PlanOverviewTests(unittest.TestCase):
         for before, after, reason in (
             ('"revision": 1,', '"revision": 1, "revision": 2,', "more than once"),
             ('"revision": 1,', '"revision": NaN,', "not a JSON number"),
-            ('"autocode_plan": 2,', '"autocode_plan": 99,', "reads plan formats"),
+            (f'"autocode_plan": {plan_file.FORMAT},', '"autocode_plan": 99,', "reads plan formats"),
             ('"contract": {', '"contract": [', "not valid JSON"),
             ("````json", "````yaml", "fenced JSON"),
             ("\n````\n", "\nmissing-fence\n", "no closing fence"),
@@ -142,6 +184,31 @@ class PlanOverviewTests(unittest.TestCase):
         compact = exported[:start] + json.dumps(front, ensure_ascii=False) + exported[start + length :]
         self.assertIsNone(plan_file.read(compact).stale_line)
         self.assertEqual(exported, plan_file.rendered(compact))
+
+    def test_envelope_must_match_declared_format_and_have_a_json_opener(self):
+        exported = plan_file.export(body(), revision=1, approved=False)
+        with self.assertRaisesRegex(ValueError, "later formats have an overview"):
+            plan_file.read(exported.replace(f'"autocode_plan": {plan_file.FORMAT}', '"autocode_plan": 1', 1))
+        legacy = plan_file.document(
+            {
+                "autocode_plan": 1,
+                "goal_hash": util.digest(body()),
+                "revision": 1,
+                "approval_status": "not approved",
+                "contract": body(),
+            }
+        )
+        with self.assertRaisesRegex(ValueError, "later formats have an overview"):
+            plan_file.read(legacy.replace('"autocode_plan": 1', '"autocode_plan": 2', 1))
+        with self.assertRaisesRegex(ValueError, "fenced JSON"):
+            plan_file.read("# Plan\n" + plan_file.CONTRACT_MARKER)
+
+    def test_legacy_flow_supplies_work_stages_when_milestones_are_absent(self):
+        summary = plan_file.summary_markdown(
+            {"end_to_end_flow": ["Read input", "Write output"]}, revision=1, status="not approved"
+        )
+        self.assertIn("1. Read input\n2. Write output", summary)
+        self.assertIn("2 stages", summary)
 
 
 if __name__ == "__main__":
