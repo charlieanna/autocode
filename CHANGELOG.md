@@ -17,6 +17,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **Plan review no longer asks you about hang guards or tests the plan leaves alone.** The rule against timing-based tests was applied to a deadlock fix's generous thread-join bounds, which only turn a hang into a failure, and to the project's existing tests, so the Planner asked the person twice to choose between the rule and the plan. A hang guard and an unchanged existing test are now outside the rule, and restating a timed criterion without the time is a proof correction AutoCode makes itself.
+
 - **A slow host no longer pauses a run at a model-free setup check.** When Kilo's catalog or policy check, or the sandbox's start check, only ran out of time, the run paused for the person to resume, though no model was launched and the same check answered on the resume. The run now waits and runs the launch again, three times at most for one stage, and records each wait.
 
 - **A run that ran out of automatic recoveries no longer tells you a command to type**: its recorded end quoted the last timeout's operator advice ("change it with autocode resume --max-idle-seconds N"). The end you read now names the cause in words; the full cause stays in the run's evidence.
