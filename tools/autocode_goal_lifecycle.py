@@ -764,11 +764,23 @@ def answer_lines(answers) -> list[str]:
     return lines
 
 
+def _no_contract_header(state: RunState, fallback: str) -> str:
+    """Name the stage that works on the plan next, not Requirements, once Requirements is done.
+
+    After the person confirmed the Requirements summary the run's next stage is the Planner, yet the
+    header still told them to resume to interview with Requirements (live VS Code test, 2026-11-18)."""
+    stage = state.get("next_stage")
+    queued = human.current(state) or human.internal_questions(state)
+    if queued or not isinstance(stage, str) or not stage or stage == "requirements_gather":
+        return fallback
+    return f"No contract yet; the {roles.screen_name(stage, state)} works on it next."
+
+
 def _render_no_contract(state: RunState) -> str:
     public = human.current(state)
     if roles.planning_flow(state) == "v2":
         questions = public["questions"] if public else human.internal_questions(state)
-        lines = ["No contract yet; resume with Requirements."]
+        lines = [_no_contract_header(state, "No contract yet; resume with Requirements.")]
         for question in questions:
             if not public:
                 lines.append("  Unissued proposal (not an actionable question):")
@@ -778,7 +790,7 @@ def _render_no_contract(state: RunState) -> str:
             # by `--resolver-token -`, so no printed line carries the value (#2958).
             lines.append(f"Resolver request ID: {public['request_id']}")
         return "\n".join(lines)
-    header = "No contract yet; resume to interview with the Requirements Gatherer."
+    header = _no_contract_header(state, "No contract yet; resume to interview with the Requirements Gatherer.")
     if not public or not public.get("questions"):
         return header
     lines = [header]
