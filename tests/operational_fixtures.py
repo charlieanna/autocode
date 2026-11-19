@@ -39,6 +39,23 @@ def assert_view_blocked(test, view, pause):
     test.assertNotIn("--", view["stop_reason"] or "")
 
 
+def assert_view_ended(test, view, cause_words):
+    """The public view of a run AutoCode ended itself (#3798): stopped with a recorded reason, nothing asked.
+
+    A spent automatic recovery allowance is closed with a recorded outcome, never left for a person.
+    The reason a person reads names the cause in words and no command to type.
+    """
+    test.assertFalse(view["done"])
+    test.assertEqual("stopped", view["recovery"]["category"], view["recovery"])
+    test.assertIsNone(view["needs"])
+    test.assertIsNone(view["next_command"])
+    test.assertIsNone(view["chat"]["input"])
+    test.assertIn("AutoCode could not finish this task", view["stop_reason"] or "")
+    test.assertIn(cause_words, view["stop_reason"])
+    test.assertNotIn("--", view["stop_reason"])
+    test.assertNotIn("autocode resume", view["stop_reason"])
+
+
 def kept_cause(run_dir):
     """The whole cause of a blocked stop, kept in its runner-owned receipt (#3739).
 

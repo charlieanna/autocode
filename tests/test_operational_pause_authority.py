@@ -32,10 +32,11 @@ import autocode_pause_authority as pause_authority
 import autocode_resolver_human as human
 import autocode_resolver_runtime as resolver_runtime
 import autocode_run_view as run_view
+import autocode_stop as stop
 import autocode_support as support
 
 from . import test_subprocess
-from .operational_fixtures import save_legacy_checkpoint
+from .operational_fixtures import assert_view_ended, save_legacy_checkpoint
 
 # Every pause AutoResolver publishes an operational_exhaustion request for.
 STATUSES = (
@@ -447,17 +448,24 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
         self.assertIsNone(human.current(self.saved()), "machinery is not asked again")
         self.assert_blocked()
 
-    def test_a_pause_queued_over_an_unanswered_request_leaves_its_own_recovery_usable(self):
-        # Before, the plain invocation left no request to answer and --grant-recovery was refused
-        # ("requires a run paused for exhausted timeout recovery"); only an unrelated settings write moved it.
+    def test_a_pause_queued_over_a_spent_recovery_allowance_ends_the_run_at_resume(self):
+        # Before #3798 the resume after the queued pause held the run for a person's --grant-recovery.
+        # A spent allowance is AutoCode's to close: the resume records the run's end and asks nothing.
         self.checkpoint("PAUSED_TIMEOUT_RECOVERY", lambda state: state.update(SPENT_TIMEOUT_RECOVERIES))
         self.submit_pause()
         self.assert_held(self.invoke(), "PAUSED_TIMEOUT_RECOVERY", settled=False)
         self.assertEqual("PAUSED_INTERVENTION", self.view()["status"], "the queued pause is applied")
-        self.assert_held(self.invoke("--resume-paused"), "PAUSED_TIMEOUT_RECOVERY")
-        self.assertIsNone(human.current(self.saved()), "the scoped grant needs no machinery question")
-        self.assert_blocked()
-        self.assert_resumes(self.invoke("--resume-paused", "--grant-recovery", "1", env=STOP_AT_TESTER))
+        code, stages, output = self.invoke("--resume-paused")
+        self.assertEqual((2, []), (code, stages), output)
+        outcome = stop.outcome(self.saved())
+        self.assertEqual("could_not_finish", outcome["result"], output)
+        self.assertEqual("PAUSED_TIMEOUT_RECOVERY", outcome["evidence"]["pause_status"])
+        self.assertIsNone(human.current(self.saved()), "the end needs no machinery question")
+        assert_view_ended(self, self.view(), "idle watchdog")
+        # The operator's flag is still parsed, but an ended run launches nothing.
+        code, stages, output = self.invoke("--resume-paused", "--grant-recovery", "1", env=STOP_AT_TESTER)
+        self.assertEqual([], stages, output)
+        self.assertEqual(outcome, stop.outcome(self.saved()))
 
     # Every pause status, in-process.
     def test_no_unrelated_limit_releases_any_operational_pause(self):
@@ -664,15 +672,8 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
             (status, ("--resume-paused", *flag), None, answered)
             for (status, flag), answered in itertools.product(ACKNOWLEDGING.items(), (False, True))
         ]
-        # A grant checks the answered request it names (an unanswered one is stale while input is queued).
-        cases.append(
-            (
-                "PAUSED_TIMEOUT_RECOVERY",
-                ("--resume-paused", "--grant-recovery", "1"),
-                lambda state: state.update(SPENT_TIMEOUT_RECOVERIES),
-                True,
-            )
-        )
+        # A spent recovery allowance is not among them: AutoCode ends that run itself (#3798), which
+        # test_a_pause_queued_over_a_spent_recovery_allowance_ends_the_run_at_resume covers.
         for status, command, edit, answered in cases:
             with self.subTest(status=status, command=command, answered=answered):
                 state = self.checkpoint(status, edit, legacy=answered)

@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_person_text as person_text
     from . import autocode_recovery_accounting as accounting
     from . import autocode_recovery_context as recovery_context
     from . import autocode_recovery_limits as recovery_limits
@@ -34,6 +35,7 @@ try:
     from . import autocode_startup_timeout_view as startup_view
     from . import autocode_stop as stop
 except ImportError:
+    import autocode_person_text as person_text
     import autocode_recovery_accounting as accounting
     import autocode_recovery_context as recovery_context
     import autocode_recovery_limits as recovery_limits
@@ -99,9 +101,12 @@ def conclude(state: RunState, *, at: str, cause: str | None = None, superseded_r
     investigations = [
         copy.deepcopy(row) for row in state.get("stuck_investigations") or [] if row.get("status") == STATUS
     ]
+    # The reason is read by a person: a cause that also told an operator what to type (a timeout's
+    # "change it with autocode resume --max-idle-seconds N") keeps only its words; evidence keeps it whole.
+    shown = person_text.for_person(last) or recovery_context.UNKNOWN_CAUSE
     reason = (
         f"Automatic recovery could not get past a repeated stage failure: {used} of {maximum} automatic "
-        f"recoveries used ({timeouts} consecutive timeouts). Last cause: {last}"
+        f"recoveries used ({timeouts} consecutive timeouts). Last cause: {shown}"
     )
     evidence: dict[str, Any] = {
         "pause_status": STATUS,

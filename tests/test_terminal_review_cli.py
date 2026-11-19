@@ -109,6 +109,11 @@ class TerminalReviewCLITests(unittest.TestCase):
         source.write_text(source.read_text() + "\n# Changed after the artifact was offered for review.\n")
         for answers in ("approve\n", "reject\nThe greeting needs revision.\n"):
             with self.subTest(answers=answers):
-                result = self.review(answers=answers, expected=2)
-                self.assertTrue(result.stderr.strip(), result.stdout)
+                # Since #3819 the status read reconciles the changed source first, so the review is no
+                # longer offered: nothing is asked, decided or saved.
+                result = self.review(answers=answers)
+                self.assertIn("No criteria are awaiting human review", result.stdout)
+                self.assertNotIn("Approve, reject, or skip?", result.stdout)
+                self.assertNotIn("Approved C1", result.stdout)
+                self.assertNotIn("Rejected C1", result.stdout)
                 self.assertEqual(before, self.receipt())
