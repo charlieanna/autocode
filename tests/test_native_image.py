@@ -516,8 +516,13 @@ class NativeImageConfigTests(unittest.TestCase):
             runner.regression.complete.assert_called_once_with(
                 self.state, self.snapshot["revision"], require_changed_code=False
             )
+            sealed_input = runner.native_image.NativeImagePreparation.call_args.kwargs["prompt"]
         self.assertEqual([packet.context()["launch_sha256"]], observed)
         self.native.context.factory.prepare_launch.assert_called_once()
+        # The shared policy must be present before the native image seals its
+        # prompt. Adding it later would invalidate that image's launch binding.
+        self.assertIn("RESPONSE LANGUAGE", sealed_input)
+        self.assertTrue(sealed_input.startswith(self.prompt.partition("\nCURRENT HANDOFF DATA\n")[0]))
 
     def original_image_protection(self, context, environment, boundary):
         owner = protection.NativeProtection.__new__(protection.NativeProtection)

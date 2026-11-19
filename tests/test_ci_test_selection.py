@@ -513,6 +513,20 @@ class DynamicDependenciesTests(unittest.TestCase):
                 kept, _ = run_suite.drop_slow(selected, {name: "slow" for name in consumers})
                 self.assertEqual(consumers, set(kept))
 
+    def test_shared_language_policy_keeps_provider_and_native_launch_consumers(self):
+        consumers = {
+            "tests.test_response_language",
+            "tests.test_role_launch",
+            "tests.test_provider_launch",
+            "tests.test_native_image",
+            "tests.test_native_report_repair",
+        }
+        for source in ("tools/autocode_response_language.py", "tools/prompts/fragments/support/response-language.md"):
+            with self.subTest(source=source):
+                selected = run_suite.select_tests([source], {name: "" for name in consumers})
+                kept, _ = run_suite.drop_slow(selected, {name: "slow" for name in consumers})
+                self.assertEqual(consumers, set(kept))
+
     def test_leaf_timing_keeps_the_public_cli_consumer_when_slow(self):
         consumer = "tests.test_phase_timing_cli"
         for source in (

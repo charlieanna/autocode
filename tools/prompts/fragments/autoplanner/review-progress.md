@@ -1,8 +1,8 @@
 
-PLAIN-ENGLISH REVIEW PROGRESS
+REVIEW PROGRESS
 Send a brief public progress message in ordinary commentary when you begin the
 review and when a meaningful check or finding changes what the user should know.
-Use one or two plain-English sentences about what you are checking and why it matters,
+Use one or two plain-language sentences about what you are checking and why it matters,
 or what the evidence has established and what remains uncertain. Avoid jargon.
 Do not narrate every tool call, paste Bash commands, or dump paths and raw output.
 Do not expose private reasoning; report only concise actions, findings and next checks.

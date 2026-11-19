@@ -397,16 +397,16 @@ class RenderedPromptTests(unittest.TestCase):
                         planner.context(state, stage, STATE_PATH), planner.context(observed, stage, STATE_PATH)
                     )
 
-    def test_reviewers_receive_plain_english_progress_guidance(self):
+    def test_reviewers_receive_clear_progress_guidance(self):
         reviewers = {"review_plan", "finalize_plan", "plan_review", "plan_finalize"}
         cases = {name: text for name, text in rendered_cases().items() if name.startswith("planning/")}
         self.assertTrue(reviewers.issubset({name.split("/")[1] for name in cases}))
         for name, prompt in cases.items():
             with self.subTest(case=name):
                 if name.split("/")[1] not in reviewers:
-                    self.assertNotIn("PLAIN-ENGLISH REVIEW PROGRESS", prompt)
+                    self.assertNotIn("REVIEW PROGRESS", prompt)
                     continue
-                self.assertIn("PLAIN-ENGLISH REVIEW PROGRESS", prompt)
+                self.assertIn("REVIEW PROGRESS", prompt)
                 self.assertIn("brief public progress message", prompt)
                 self.assertIn("what you are checking and why it matters", prompt)
                 self.assertIn("Do not narrate every tool call", prompt)
@@ -428,7 +428,7 @@ class RenderedPromptTests(unittest.TestCase):
         ):
             prompt, _ = planner.context(state, "finalize_plan", STATE_PATH)
         self.assertTrue(prompt.startswith(planner.retention.FINAL_PROMPT))
-        self.assertIn("PLAIN-ENGLISH REVIEW PROGRESS", prompt)
+        self.assertIn("REVIEW PROGRESS", prompt)
         self.assertIn("brief public progress message", prompt)
         self.assertIn("final report must still follow its exact schema", prompt)
         self.assertIn("Retention is not user approval.", prompt)

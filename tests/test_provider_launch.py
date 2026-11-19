@@ -26,7 +26,10 @@ class ProviderLaunchTests(unittest.TestCase):
             root = Path(temporary)
             schema = root / "schema.json"
             schema.write_text('{"type":"object"}')
-            adapter = SimpleNamespace(CONFIGURED=True, prompt_for_schema=mock.Mock(return_value="schema prompt"))
+            adapter = SimpleNamespace(
+                CONFIGURED=True,
+                prompt_for_schema=mock.Mock(side_effect=lambda prompt, *_: "schema prompt\n" + prompt),
+            )
             state = {
                 "version": 2,
                 "iteration": 1,
@@ -56,10 +59,13 @@ class ProviderLaunchTests(unittest.TestCase):
                     dry_run=True,
                 )
             self.assertEqual({"status": "DRY_RUN"}, value)
-            adapter.prompt_for_schema.assert_called_once_with(
-                "original prompt", {"type": "object"}, Path(record["events"])
-            )
-            self.assertEqual("schema prompt", Path(record["prompt"]).read_text())
+            adapter.prompt_for_schema.assert_called_once()
+            prepared, supplied_schema, events = adapter.prompt_for_schema.call_args.args
+            self.assertTrue(prepared.startswith("original prompt"))
+            self.assertIn("RESPONSE LANGUAGE", prepared)
+            self.assertIn("explicitly requests another response language", prepared)
+            self.assertEqual(({"type": "object"}, Path(record["events"])), (supplied_schema, events))
+            self.assertEqual("schema prompt\n" + prepared, Path(record["prompt"]).read_text())
             observed = state["efficiency_observations"]
             self.assertEqual(
                 ["source_launcher_preparation", "prompt_preparation", "prompt_write"],

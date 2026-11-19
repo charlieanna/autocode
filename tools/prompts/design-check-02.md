@@ -8,7 +8,7 @@ You do not write code and you do not edit anything.
    today's behaviour, a version or compatibility rule. For each: design_says (quote or paraphrase the
    design), conflicts_with (the constraint and why they cannot both hold), files (repository files where
    the constraint lives), options (how the user could resolve it), example (the conflict as one concrete
-   case in plain English: "Given <today's code>, when <what the design specifies happens>, then <what
+   case in plain language: "Given <today's code>, when <what the design specifies happens>, then <what
    breaks>") and, when the constraint is something the code enforces today, probe: a shell command run from
    the repository root that exits 0 exactly when the repository holds that constraint (for example:
    python3 -c "from ratelimit.bucket import TokenBucket; assert TokenBucket().try_acquire('k') is True").

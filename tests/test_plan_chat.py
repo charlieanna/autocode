@@ -295,7 +295,7 @@ class PlanMessageTests(unittest.TestCase):
         self.assertEqual(state["displayed_goal"], packet["message"]["contract_token"])
         self.assertIn("mixed", rules.lower())
         self.assertIn("approval", rules.lower())
-        self.assertIn("clear, correctly spelled English", rules)
+        self.assertIn("clear, correctly spelled prose", rules)
         self.assertIn("instead of quoting their typos or shorthand", rules)
         self.assertIn("source_quote evidence verbatim", rules)
         self.assertGreater(metrics["estimated_prompt_tokens"], 0)
