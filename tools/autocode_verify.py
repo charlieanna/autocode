@@ -95,6 +95,7 @@ try:
     from . import autocode_verify_judgment as judgment
     from . import autocode_verify_result as verify_result
     from . import autocode_vitest_tests as vitest_tests
+    from . import autocode_workspace_links as workspace_links
     from .autocode_invocation_environment import without_call_markers
     from .autocode_suite_health import suite_health
     from .autocode_test_framework import Framework
@@ -146,6 +147,7 @@ except ImportError:
     import autocode_verify_judgment as judgment
     import autocode_verify_result as verify_result
     import autocode_vitest_tests as vitest_tests
+    import autocode_workspace_links as workspace_links
     from autocode_invocation_environment import without_call_markers
     from autocode_suite_health import suite_health
     from autocode_test_framework import Framework
@@ -945,6 +947,7 @@ def make_tree(
                 target.symlink_to(os.readlink(source))
             elif source.is_file():
                 shutil.copy2(source, target)
+        workspace_links.carry(repo, destination)
         link_dependencies(dependencies_from, destination)
         if ignored_inputs is None:
             copy_vendored_dependencies(dependencies_from, destination)

@@ -3881,6 +3881,40 @@ class VerifyCase(unittest.TestCase):
         self.addCleanup(verify.remove_tree, project.root, tree)
         self.assertEqual("now a file\n", (tree / "data").read_text())
 
+    def test_a_link_out_of_the_project_leads_to_the_same_file_from_the_scratch_tree(self):
+        # P4 live run, 2026-11-19: config/rates.json is a tracked link to ../../shared/rates.json. Copied as
+        # written into a scratch tree at another depth it led nowhere, so the project's own unchanged tests
+        # failed there and the Tester could not prove the approved plan.
+        project = self.project(
+            {
+                "test_rates.py": "import json\nimport unittest\n\n\nclass Rates(unittest.TestCase):\n"
+                "    def test_reads_rates(self):\n"
+                "        with open('config/rates.json') as f:\n"
+                "            self.assertEqual({'USD': 2}, json.load(f))\n"
+            }
+        )
+        shared = project.root.parent / "shared"
+        shared.mkdir()
+        (shared / "rates.json").write_text('{"USD": 2}\n')
+        (project.root / "config").mkdir()
+        (project.root / "config" / "rates.json").symlink_to(Path("..") / ".." / "shared" / "rates.json")
+        git(project.root, "add", "-A")
+        git(project.root, "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-qm", "link")
+        base = git(project.root, "rev-parse", "HEAD")
+        project.write({"test_rates.py": (project.root / "test_rates.py").read_text() + "\n# changed\n"})
+        changes = verify.changed_files(project.root, base)
+        tree = verify.make_tree(project.root, base, project.evidence / "deeper" / "tree", project.root, changes)
+        self.addCleanup(verify.remove_tree, project.root, tree)
+        self.assertEqual('{"USD": 2}\n', (tree / "config" / "rates.json").read_text())
+        self.assertEqual("M test_rates.py", git(tree, "status", "--porcelain"))  # Git still sees only the change
+        ran = subprocess.run(
+            [sys.executable, "-m", "unittest", "test_rates"], cwd=tree, capture_output=True, text=True, check=False
+        )
+        self.assertEqual(0, ran.returncode, ran.stderr)
+        self.assertEqual(
+            Path("..") / ".." / "shared" / "rates.json", Path(os.readlink(project.root / "config" / "rates.json"))
+        )
+
     @unittest.skipUnless(verify._python_can_import(sys.executable, "pytest"), "pytest is not installed")
     def test_deselecting_a_test_through_config_is_not_a_fix(self):
         """Review r2: no product change, only `addopts = --deselect`."""
