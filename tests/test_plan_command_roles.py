@@ -753,7 +753,9 @@ class ObservedTestsProofTests(unittest.TestCase):
     def test_a_file_the_command_loads_and_nothing_uses_is_taken_with_the_tests_and_proves_nothing(self):
         # A settings file passes for a test by what the command does. Taken with the tests, it has to
         # make the command fail on the original code, which it does not.
-        seed = {**CHECKS, "settings.sh": "PAGE_SIZE=5\n", "checks/pager.sh": ". ./settings.sh\n" + CHECK}
+        # A sourced file's syntax error is not fatal to every shell. The fixture must propagate
+        # that failure, or the unloadable-file probe correctly observes no failing check.
+        seed = {**CHECKS, "settings.sh": "PAGE_SIZE=5\n", "checks/pager.sh": "set -e\n. ./settings.sh\n" + CHECK}
         proof, _ = self.prove({"pager.sh": FIXED, "settings.sh": "PAGE_SIZE=10\n"}, seed)
         self.assertEqual(("FAIL", [ALSO_PASS]), (proof["verdict"], proof["failures"]))
         self.assertEqual(["settings.sh"], list(proof["plan_command_roles"]["tests"]))
