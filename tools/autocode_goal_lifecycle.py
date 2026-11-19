@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 try:
     from . import autocode_assumption_ledger as assumption_ledger
     from . import autocode_component_plan as component_plan
+    from . import autocode_plan_defects as plan_defects
     from . import autocode_roles as roles
     from . import autocode_source_scope as source_scope
     from . import autocode_stop_kinds as stop_kinds
@@ -23,6 +24,7 @@ try:
 except ImportError:
     import autocode_assumption_ledger as assumption_ledger
     import autocode_component_plan as component_plan
+    import autocode_plan_defects as plan_defects
     import autocode_roles as roles
     import autocode_source_scope as source_scope
     import autocode_stop_kinds as stop_kinds
@@ -489,8 +491,11 @@ def install_draft(state: RunState, body, *, origin, allow_legacy=False, changes=
     joint = state.get("settings", {}).get("joint_planning")
     if not queue_human:
         return
-    remaining = technical_questions.settle(state, questions, token(contract))
-    if len(remaining) != len(questions):
+    # A question about the plan's own contradiction or unexecutable criterion is the Planner's to
+    # correct (#3818); a technical default with read evidence is AutoCode's own (#3603).
+    remaining = plan_defects.settle(state, questions, body, token(contract))
+    remaining = technical_questions.settle(state, remaining, token(contract))
+    if remaining != questions:
         contract["body"]["open_blocking_questions"] = copy.deepcopy(remaining)
         contract["hash"] = s.digest({k: contract[k] for k in ("task_id", "revision", "body")})
         questions = remaining

@@ -292,7 +292,9 @@ def _validate_body(body: Any) -> bool:
         and isinstance(row["proposed_default"], str)
         and (
             "kind" not in row
-            or (isinstance(row["kind"], str) and row["kind"] in {"discoverable", "inferable", "decision"})
+            or (
+                isinstance(row["kind"], str) and row["kind"] in {"discoverable", "inferable", "decision", "plan_defect"}
+            )
         )
         and ("category" not in row or (isinstance(row["category"], str) and row["category"] in ASSUMPTION_CATEGORIES))
         and ("delegable" not in row or isinstance(row["delegable"], bool))

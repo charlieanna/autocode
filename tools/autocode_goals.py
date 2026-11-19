@@ -112,7 +112,8 @@ QUESTION = obj({"id": STRING, "question": STRING, "why": STRING, "options": STRI
 # The categories and who may infer each are the assumption ledger's (autocode_assumption_ledger).
 ASSUMPTION_CATEGORIES = assumption_ledger.ASSUMPTION_CATEGORIES
 NON_INFERABLE_CATEGORIES = assumption_ledger.NON_INFERABLE_CATEGORIES
-QUESTION["properties"]["kind"] = {"type": "string", "enum": ["discoverable", "inferable", "decision"]}
+# "plan_defect": the plan contradicts itself or a criterion cannot run; the Planner corrects it (#3818, plan_defects).
+QUESTION["properties"]["kind"] = {"type": "string", "enum": ["discoverable", "inferable", "decision", "plan_defect"]}
 QUESTION["properties"]["category"] = {"type": "string", "enum": list(ASSUMPTION_CATEGORIES)}
 QUESTION["properties"]["delegable"] = {"type": "boolean"}
 # Optional evidence for a technical question's default: a workspace citation the stage read. Only a

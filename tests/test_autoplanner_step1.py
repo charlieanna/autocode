@@ -26,7 +26,9 @@ class QuestionSchemaTests(unittest.TestCase):
         self.assertIn("kind", goals.QUESTION["properties"])
         self.assertIn("category", goals.QUESTION["properties"])
         self.assertIn("delegable", goals.QUESTION["properties"])
-        self.assertEqual(["discoverable", "inferable", "decision"], goals.QUESTION["properties"]["kind"]["enum"])
+        self.assertEqual(
+            ["discoverable", "inferable", "decision", "plan_defect"], goals.QUESTION["properties"]["kind"]["enum"]
+        )
 
     def test_assumption_evidence_fields_are_optional_and_five_questions_fit(self):
         # #3603: a technical default names the code it rests on; a Planner assumption names its category.

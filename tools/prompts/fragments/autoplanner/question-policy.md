@@ -14,6 +14,12 @@ behavior is category="behavior", never "technical". Tests, proof shape and comma
 question: cite the code instead.
 Where the report has machine_resolutions and access_blockers, use [] unless
 investigation_request is present.
+A defect in the plan itself is never the person's choice: two of its parts contradict each
+other, or a criterion cannot be carried out as written. Correct the plan if you can. If you
+cannot correct it in this report, ask it with kind="plan_defect" and name the acceptance
+criterion or milestone ids it is about in the question or why. AutoCode then has the Planner
+correct those parts instead of asking the person. A choice between behaviors the person must
+make stays kind="decision".
 
 INTERNAL TECHNICAL DECISIONS belong to AutoCode. Resolve implementation choices,
 complete test fixtures and exact invocation details yourself while preserving the

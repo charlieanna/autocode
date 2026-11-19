@@ -872,6 +872,16 @@ requested outcome, behavior, cost, permissions or side effects still require a h
 unresolved facts and rejected assumptions. A repeated identical technical question goes to report
 repair instead of another planning loop. Non-joint runs keep their existing question path.
 
+A question about the plan's own defect is not the person's either, in joint planning or not (#3818,
+`tools/autocode_plan_defects.py`): when two parts of the plan contradict each other or a criterion
+cannot be carried out as written, a planning stage asks it with `kind=plan_defect` and names the
+plan's criterion or milestone ids in its question or why. When a named id is in the plan, AutoCode
+records its own correction request (a `technical_decision` receipt with `settled_as=plan_defect`,
+the `plan_parts` it named and the reason) and the Planner corrects those parts, keeping every
+requested outcome; plan review and the person's plan approval follow as usual. One that names no
+part of the plan, concerns a rejected assumption, or follows another settled plan defect before the
+person has answered anything reaches the person as an ordinary decision, with that reason in its why.
+
 `handoff_conversation(expected_revision=..., expected_plan_token=...)` records the
 reviewed current draft's handoff to that same run. It does not approve the plan or
 start a second task. Read the current plan and use the separate `approve_plan()`
