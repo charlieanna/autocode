@@ -11,7 +11,11 @@ whose file tools run in its own process and judge the written path needs the lin
 and untracked but not ignored), or every entry when the workspace is not a git checkout.
 ``read_targets`` gives what such links lead to, so a kernel-contained stage may read, never write,
 the files the project itself depends on (owner decision 2026-11-17: under the macOS sandbox a
-project whose code is a link out of it could not load its own tests). Imports only the secret-name
+project whose code is a link out of it could not load its own tests). ``linked_file`` is the same
+answer for a path as a stage writes it: a file the project reaches through one of those links is a
+workspace file a stage may read and cite by that path (2026-11-19: Requirements cited the task's own
+``config/rates.json``, a tracked link to a shared file, and the citation check refused it as "not a
+file in the workspace", costing a repair and an Investigator call). Imports only the secret-name
 rule from AutoCode.
 """
 
@@ -91,6 +95,64 @@ def read_targets(workspace) -> list[Path]:
             continue
         found.append(target)
     return sorted(set(found))
+
+
+def linked_file(workspace):
+    """A test for a path as written: its workspace-relative POSIX name when it reaches a readable file
+    through one of the workspace's own links out of it (``outside``), else None.
+
+    ``name`` is relative to the workspace or absolute below it. The link may be the file itself or a
+    directory above it. The file it reaches must be one ``read_targets`` grants, so a secret or the home
+    directory stays refused. The workspace's links are observed once, at the first call.
+    """
+    root = Path(workspace).resolve()
+    links: list[tuple[frozenset[str], list[Path]]] = []
+
+    def known():
+        if not links:
+            links.append((frozenset(name for name, _directory in outside(root)), read_targets(root)))
+        return links[0]
+
+    def check(name) -> str | None:
+        relative = _below(root, name)
+        if relative is None:
+            return None
+        names, targets = known()
+        parts = relative.parts
+        if not any("/".join(parts[:end]) in names for end in range(1, len(parts) + 1)):
+            return None
+        try:
+            target = (root / relative).resolve()
+        except (OSError, RuntimeError):
+            return None
+        if not target.is_file() or secret_path(target.as_posix()):
+            return None
+        if not any(target == granted or target.is_relative_to(granted) for granted in targets):
+            return None
+        return relative.as_posix()
+
+    return check
+
+
+def _below(root: Path, name) -> Path | None:
+    """``name`` relative to ``root`` as written, without following links; None outside it."""
+    if not isinstance(name, (str, Path)) or not str(name).strip() or "\0" in str(name):
+        return None
+    path = Path(str(name).strip())
+    if path.is_absolute():
+        parts = path.parts
+        for end in range(len(parts), 0, -1):  # /tmp/p spells /private/tmp/p on macOS
+            try:
+                if Path(*parts[:end]).resolve() == root:
+                    path = Path(*parts[end:]) if end < len(parts) else Path()
+                    break
+            except (OSError, RuntimeError):
+                return None
+        else:
+            return None
+    if not path.parts or ".." in path.parts:
+        return None
+    return path
 
 
 def patterns(workspace, name: str, directory: bool) -> list[str]:

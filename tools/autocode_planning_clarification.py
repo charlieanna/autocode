@@ -21,9 +21,11 @@ from pathlib import Path
 try:
     from . import autocode_goals as goals
     from . import autocode_util as util
+    from . import autocode_workspace_links as workspace_links
 except ImportError:
     import autocode_goals as goals
     import autocode_util as util
+    import autocode_workspace_links as workspace_links
 
 # Only a technical fact, or one with no policy weight, can be read from the
 # workspace. Cost, quota, permission, side-effect and requested-outcome choices
@@ -42,9 +44,11 @@ def check_resolution_refs(state: RunState, refs, check_code_refs):
         raise ValueError("A machine resolution needs an inspectable workspace")
     if not refs:
         raise ValueError("A machine resolution must cite the workspace source it was read from")
+    linked = workspace_links.linked_file(root)
     for ref in refs:
-        target = (root / str(ref).partition(":")[0]).resolve()
-        if not target.is_relative_to(root.resolve()) or not target.is_file():
+        name = str(ref).partition(":")[0]
+        target = (root / name).resolve()
+        if (not target.is_relative_to(root.resolve()) or not target.is_file()) and linked(name) is None:
             raise ValueError(f"machine_resolutions source_refs entry {ref} is not a file in the workspace")
     check_code_refs(state, refs, "machine_resolutions.source_refs")
 

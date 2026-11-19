@@ -1166,7 +1166,9 @@ workspace, outside `.git` and `.autocode`, judged on the resolved path, so a lin
 leads out of the workspace cannot carry a write out of it (#3770). What such a link leads to is
 readable, never writable, so a project whose code is a link out of it still loads its own tests
 (owner decision 2026-11-17; `autocode_workspace_links.read_targets`): only links git lists, and
-never the home directory, `/` or a secret by name such as `.env`. Only a run that
+never the home directory, `/` or a secret by name such as `.env`. The same files are workspace files
+a stage reads and cites by their path in the workspace (`linked_file`), so a plan may cite a shared
+`config/rates.json` the project links to. Only a run that
 accepted uncontained tools gives a writer Kilo's file tools instead; they are denied any
 workspace link that leads outside it (#3767), and `external_directory: "deny"` is a native
 tool policy, not a filesystem sandbox for bash. Use explicit Kilo permission restrictions

@@ -17,6 +17,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A stage may cite a file the project reaches through its own link out of the workspace, such as a shared `config/rates.json`, by its path in the workspace: the citation and read checks now take the same answer as the sandbox (`autocode_workspace_links.linked_file`), where they had refused it as "not a file in the workspace" and sent the report to a repair and an Investigator call.
+
 - **A cost cap now holds while a stage runs.** The cap was checked only between stages, so one stage could run well past it: a run capped at $6 paused at $8.30 after its Builder alone cost about $2.40. The running stage's spend so far is now checked every 15 seconds; once the run reaches the cap the stage is stopped as Stop now stops it, its partial work is kept, and raising the cap runs it again.
 
 - **After you confirm the Requirements summary, the run names the Planner as next.** It printed "No contract yet; resume to interview with the Requirements Gatherer" though Requirements was done and the Planner was the next stage. It now names the stage that works on the plan next, and keeps the Requirements wording while questions wait for an answer.

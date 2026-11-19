@@ -151,6 +151,49 @@ class CodeCitationTests(Workspace):
         self.assertIn("names no workspace file", verify(None))
         self.assertTrue(verify("README.md").startswith("convention_ref entry README.md"))
 
+    def test_a_file_the_project_links_to_from_outside_is_read_and_cited_by_its_workspace_path(self):
+        # 2026-11-19 (P4 live run): Requirements cited the task's config/rates.json, a tracked link to a file
+        # shared with other services, and the check refused it as "not a file in the workspace"; the report
+        # took a repair and an Investigator call, and every later planning stage would have hit the same wall.
+        import subprocess
+
+        shared = self.root / "shared"
+        shared.mkdir()
+        (shared / "rates.json").write_text('{"USD": 2}\n')
+        (shared / ".env").write_text("TOKEN=withheld\n")
+        (self.workspace / "config").mkdir()
+        (self.workspace / "config" / "rates.json").symlink_to(Path("..") / ".." / "shared" / "rates.json")
+        (self.workspace / "config" / ".env").symlink_to(shared / ".env")
+        subprocess.run(["git", "init", "-q", str(self.workspace)], check=True)
+        verify = lambda ref: citations.verify_citation(self.state, "requirements_gather", ref, field="source_refs")
+        self.assertIn("never read", verify("config/rates.json:1"))
+        absolute = (self.workspace / "config" / "rates.json").as_posix()
+        for rows in (
+            [opencode_tool("o1", "read", filePath=absolute)],
+            [claude_tool("c1", "Read", file_path=absolute)],
+            [codex_command("x1", "cat config/rates.json", '{"USD": 2}\n')],
+            [codex_command("x2", "cat config/rates.json missing.py", '{"USD": 2}\ncat: missing.py: No such file\n', 1)],
+        ):
+            with self.subTest(rows=rows):
+                self.state["stages"].clear()
+                self.record(rows)
+                self.assertEqual(
+                    frozenset({"config/rates.json"}), citations.read_paths(self.state, "requirements_gather")
+                )
+                self.assertIsNone(verify("config/rates.json:1"))
+                self.assertIn("past the end", verify("config/rates.json:2"))
+                citations.require(
+                    self.state,
+                    ["config/rates.json:1"],
+                    "source_refs",
+                    planning_unit=autoplanner,
+                    stage="requirements_gather",
+                )
+        self.state["stages"].clear()
+        self.record([codex_command("x3", "cat config/.env", "TOKEN=withheld\n")])
+        self.assertIn("not a file in the workspace", verify("config/.env"))
+        self.assertIn("not a file in the workspace", verify("../shared/rates.json"))
+
     def test_greenfield_has_nothing_to_read_and_passes(self):
         empty = self.root / "empty"
         empty.mkdir()
@@ -342,8 +385,10 @@ class RequirementsAcceptanceWiringTests(Workspace):
                 "autocode_project_kinds",
                 "autocode_prompts",
                 "autocode_run_state",
+                "autocode_source_privacy",
                 "autocode_util",
                 "autocode_workspace_inventory",
+                "autocode_workspace_links",
             },
             reachable(import_graph(), ["autocode_code_citations"]),
             "lower-layer modules (assumption ledger, requirements review) import code_citations without a cycle",
