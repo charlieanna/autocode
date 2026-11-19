@@ -25,6 +25,7 @@ try:
     from . import autocode_brief_obligations as brief_obligations
     from . import autocode_interaction_timing as interaction_timing
     from . import autocode_internal_failure_view as operational_block
+    from . import autocode_plan_only as plan_only
     from . import autocode_scope_pause as scope_pause
     from . import autocode_stop as stop
 except ImportError:
@@ -32,6 +33,7 @@ except ImportError:
     import autocode_brief_obligations as brief_obligations
     import autocode_interaction_timing as interaction_timing
     import autocode_internal_failure_view as operational_block
+    import autocode_plan_only as plan_only
     import autocode_scope_pause as scope_pause
     import autocode_stop as stop
 
@@ -1561,7 +1563,7 @@ def needs(state: RunState, *, stale_report_repair=False, human_projection=None) 
     if status == "AWAITING_GOAL_APPROVAL":
         # The approval token is saved when the CLI displays the plan; until then, relaunch to display it.
         return (
-            {"kind": "approve_plan", "token": state["displayed_goal"]}
+            plan_only.describe_approval(state, {"kind": "approve_plan", "token": state["displayed_goal"]})
             if state.get("displayed_goal")
             else {"kind": "continue"}
         )

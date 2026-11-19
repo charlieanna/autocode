@@ -19,6 +19,7 @@ try:
     from . import autocode_cost as cost
     from . import autocode_design_check_job as design_check_job
     from . import autocode_design_intake as design_intake
+    from . import autocode_plan_only as plan_only
     from . import autocode_prompts as prompts
     from . import autocode_requirements_answer as requirements_answer
     from . import autocode_resolve_repair_job as resolve_repair_job
@@ -29,6 +30,7 @@ except ImportError:
     import autocode_cost as cost
     import autocode_design_check_job as design_check_job
     import autocode_design_intake as design_intake
+    import autocode_plan_only as plan_only
     import autocode_prompts as prompts
     import autocode_requirements_answer as requirements_answer
     import autocode_resolve_repair_job as resolve_repair_job
@@ -57,8 +59,17 @@ COUNTEREXAMPLE_STAGES = PROBING_STAGES
 def ended_in(state: RunState):
     """The job that ended this run, or None when it ended in the build pipeline.
 
-    A discussion Requirements answered itself ends there too, rendered by autocode_requirements_answer."""
-    return next((job for job in (*JOBS, requirements_answer) if job.owns(state)), None)
+    A discussion Requirements answered itself ends there too, rendered by autocode_requirements_answer, and a
+    plan-only run ends at its accepted plan, rendered by autocode_plan_only."""
+    return next((job for job in (*JOBS, requirements_answer, plan_only) if job.owns(state)), None)
+
+
+def built_nothing(state: RunState) -> bool:
+    """Whether this run ended without building: a discussion Requirements answered, or an accepted plan.
+
+    Such a run has no built code, so the completion checks of a build (changed-code evidence, independent
+    validation) never applied to it and cannot go stale (autocode.recheck_completion)."""
+    return ended_in(state) in (requirements_answer, plan_only)
 
 
 def render(state: RunState, fallback) -> str:

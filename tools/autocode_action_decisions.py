@@ -42,6 +42,7 @@ try:
     from . import autocode_package_writes as package_writes
     from . import autocode_pause_authority as pause_authority
     from . import autocode_pause_command as pause_command
+    from . import autocode_plan_only as plan_only
     from . import autocode_planning as planning
     from . import autocode_planning_artifacts as planning_artifacts
     from . import autocode_requirements_chat as requirements_chat
@@ -73,6 +74,7 @@ except ImportError:
     import autocode_package_writes as package_writes
     import autocode_pause_authority as pause_authority
     import autocode_pause_command as pause_command
+    import autocode_plan_only as plan_only
     import autocode_planning as planning
     import autocode_planning_artifacts as planning_artifacts
     import autocode_requirements_chat as requirements_chat
@@ -439,6 +441,7 @@ def apply_user_action(runner, args, parser, state: RunState, state_path, run_dir
             if not changeset_barrier.held_approval(candidate):
                 getattr(runner, "approve_goal", lifecycle.approve)(candidate, args.approve_goal)
             changeset_barrier.approve(candidate, args.approve_goal, getattr(args, "changeset_token", None))
+            plan_only.accept(candidate)  # a plan-only run ends at the plan it accepted; nothing is built
         for criterion in args.approve_review:
             goals.approve_review(
                 candidate,

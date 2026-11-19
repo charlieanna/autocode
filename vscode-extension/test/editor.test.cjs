@@ -1948,6 +1948,25 @@ test('chat approval uses the displayed plan token and advances only when the cor
   assert.equal(ui.document.querySelector('#send-message').disabled, true, 'a later person-only stop is not bypassed');
 });
 
+test('a plan-only approval is named by the core and takes the same displayed-token approval', async (t) => {
+  const approval = approvalView();
+  approval.pause_category = 'your_decision';
+  approval.needs = { ...approval.needs, plan_only: true, label: 'Accept plan',
+    effect: 'Ends this chat with the reviewed plan as its result. Nothing is built or changed.' };
+  const ui = await openChat(t, approval);
+  assert.equal(ui.document.querySelector('#take-action').textContent, 'Accept plan');
+  assert.ok(ui.document.querySelector('#app').textContent.includes('Nothing is built or changed.'));
+  const launch = t.mock.method(cli, 'stream', async (_options, args) => {
+    if (args.includes('--approve-goal')) ui.setView({ status: 'TASK_COMPLETE', done: true, needs: null });
+    return ok;
+  });
+  ui.document.querySelector('#take-action').click();
+  await flush(); await flush();
+  const [, approveArgs, approveEnv] = launch.mock.calls[0].arguments;
+  assert.ok(approveArgs.includes('--approve-goal'));
+  assert.equal(approveEnv.AUTOCODE_APPROVE_GOAL_TOKEN, 'r1:abc');
+});
+
 for (const [label, boundary] of [
   ['completion', { status: 'TASK_COMPLETE', done: true, needs: { kind: 'done' } }],
   ['a working Completion Reviewer', workingView()],

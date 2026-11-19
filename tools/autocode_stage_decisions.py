@@ -28,10 +28,12 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_plan_only as plan_only
     from . import autocode_roles as roles
     from . import autocode_stage_activity as stage_activity
     from . import autocode_stage_policy as stage_policy
 except ImportError:
+    import autocode_plan_only as plan_only
     import autocode_roles as roles
     import autocode_stage_activity as stage_activity
     import autocode_stage_policy as stage_policy
@@ -99,6 +101,9 @@ def _skips(state: RunState) -> list[tuple[str, str, str, tuple[str, ...]]]:
     if state.get("status") == "TASK_COMPLETE" and answer.get("answered_by") == ANSWERED_BY:
         reason = "Requirements answered the question from the code, and nothing was to be written"
         found.extend((ANSWERED_BY, stage, reason, (ANSWERED_BY,)) for stage in NOT_PLANNED)
+    if plan_only.owns(state):
+        reason = "a plan-only run: you accepted the reviewed plan, and nothing was to be built"
+        found.extend(("finalize_plan", stage, reason, (APPROVAL,)) for stage in plan_only.NOT_BUILT)
     for decision in (stage_policy.view(state) or {}).get("decisions") or []:
         if isinstance(decision, dict) and decision.get("decision") == "omitted" and decision.get("stage"):
             kept = tuple(str(item) for item in decision.get("covered_by") or [])
