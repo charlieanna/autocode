@@ -43,7 +43,7 @@ DELIVERY_NOTICE = "project-delivered"
 def response(state: RunState) -> str:
     """The completed turn's saved result, without reading report files or logs."""
     if plan_only.owns(state):
-        contract = state["goal_contract"]
+        contract = state.get("goal_contract") or {}
         return "Plan accepted. Nothing was built or changed.\n\n" + plan_file.summary_markdown(
             contract.get("body") or {}, revision=contract["revision"], status="approved"
         )

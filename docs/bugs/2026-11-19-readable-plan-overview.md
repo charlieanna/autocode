@@ -39,6 +39,7 @@ checks pass 31 (these batches overlap). Extension typecheck/build pass, with 749
 tests passing and 22 opt-in skips. Six offline issue Action checks pass when the
 Action and its reader both use the candidate package; mixing the older root
 editable installation with the candidate reader reproduced a refused checkpoint.
+Repository-wide Ruff lint/format checks and Mypy pass (959 source files).
 The macOS capture containment editable-install refusal and temporary-directory
 alias assertions reproduce on clean master. A separate shell-observation fixture
 failure was corrected in [PR #3863](https://github.com/charlieanna/autocode/pull/3863)
