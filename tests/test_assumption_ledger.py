@@ -127,6 +127,12 @@ class RequirementsStopRenderTests(unittest.TestCase):
 
         fallback = "No contract yet; resume to interview with the Requirements Gatherer."
         self.assertEqual(fallback, lifecycle.render({"status": "WAITING_FOR_USER", "settings": {}}))
+        # Once the person confirmed the Requirements summary, the Planner is next: the header names it
+        # rather than sending the person back to Requirements (live VS Code test, 2026-11-18).
+        self.assertEqual(
+            "No contract yet; the Planner works on it next.",
+            lifecycle.render({"status": "RUNNING", "next_stage": "draft_plan", "settings": {}}),
+        )
 
         question = {
             "id": "Q1",
