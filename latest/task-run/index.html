@@ -1812,7 +1812,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/2fb54f75bde7d54cc51b9e88b6476308ff6ee3dd/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/15d07a2973a115997606d111a9408f202a9e42e0/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -3105,7 +3105,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/2fb54f75bde7d54cc51b9e88b6476308ff6ee3dd/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/15d07a2973a115997606d111a9408f202a9e42e0/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3945,7 +3945,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/2fb54f75bde7d54cc51b9e88b6476308ff6ee3dd/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/15d07a2973a115997606d111a9408f202a9e42e0/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
@@ -4229,13 +4229,19 @@ its wording may change, so programs read the fields beside it:</p>
 <p><code>displayed_plan</code> is an optional structured approval projection: <code>revision</code>, <code>hash</code>,
 <code>token</code>, <code>acceptance_criteria</code>, <code>constraints</code> and <code>permission_boundaries</code>. It appears
 only when the last displayed token matches the current sealed contract. It also includes required
+<code>review_summary_markdown</code>, a bounded overview derived from that same body: proposed approach,
+work stages, scope counts, boundaries, remaining decisions and approval status. Duration and
+execution cost are explicitly unestimated because the canonical contract records no such estimate.
+This overview adds no model call, new recommendation or approval authority. The complete
 <code>review_markdown</code>: core-generated readable material terms of that same canonical body,
 including outcome/user, deliverables, behaviors, failure cases, approach, decisions,
 criteria and verification, milestone dependencies/paths, first task, exact-output
 examples and local commit intent. It omits file front matter, approval tokens and
 opaque runner records. This display text is never parsed as action authority;
 structured fields and the exact token remain authoritative. The VS Code approval
-card and Run details display the same complete content before approval; a missing,
+card and Run details show the overview first with the complete content in an expandable
+<strong>Full plan and acceptance criteria</strong> section before approval. Older cores with complete
+<code>review_markdown</code> but no summary keep the full text visible. A missing,
 empty or malformed review blocks approval with the existing client-gap explanation.
 Saved legacy bodies are rendered from their available terms without changing their
 identity; older cores lacking this field must be updated before the new editor can

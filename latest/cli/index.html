@@ -2354,7 +2354,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/2fb54f75bde7d54cc51b9e88b6476308ff6ee3dd/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/15d07a2973a115997606d111a9408f202a9e42e0/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2561,7 +2561,7 @@ See <a href="../task-run/#worktrees-for-clients">Worktrees for clients</a>.</p>
 </tr>
 <tr>
 <td><code>autocode plan --export PATH [--run-dir RUN] [--json]</code> / <code>autocode plan --check PATH [--json]</code> / <code>autocode plan --render PATH [--json]</code></td>
-<td>Write a saved run's current plan (shown for approval or approved) as a Markdown file to review in a pull request: a front matter holding the contract body exactly, its goal hash (the SHA-256 of the body) and the revision it came from, then the plan as text generated from it. Never the approval token; credential-shaped text is masked as in <code>bundle</code>, and the export then says the file's goal hash differs from the run's. <code>--check</code> reads such a file and prints its goal hash, and exits 2 when the file cannot be read or its text no longer matches its front matter. <code>--render</code> regenerates that text after the front matter was edited. Reads the checkpoint like <code>events</code>: no run lock, nothing recorded, nothing launched; only the named file is written. <code>--json</code> formats results or error endings as structured JSON. See <a href="../workflow/#reviewing-a-plan-in-a-pull-request">Reviewing a plan in a pull request</a>.</td>
+<td>Write a saved run's current plan (shown for approval or approved) as a Markdown file to review in a pull request: a concise overview first, then expandable canonical JSON holding the contract body exactly, its goal hash (the SHA-256 of the body), revision and approval status, and the complete generated plan. New exports use format 2; legacy format 1 front-matter files remain readable and keep their original rendering. Never the approval token; credential-shaped text is masked as in <code>bundle</code>, and the export then says the file's goal hash differs from the run's. <code>--check</code> reads such a file and prints its goal hash, and exits 2 when the file cannot be read or its generated text no longer matches its canonical contract. <code>--render</code> regenerates both reading paths after the canonical JSON was edited. Reads the checkpoint like <code>events</code>: no run lock, nothing recorded, nothing launched; only the named file is written. <code>--json</code> formats results or error endings as structured JSON. See <a href="../workflow/#reviewing-a-plan-in-a-pull-request">Reviewing a plan in a pull request</a>.</td>
 </tr>
 <tr>
 <td><code>autocode wait [--run-dir RUN] [--timeout S]</code></td>
@@ -2606,7 +2606,7 @@ they do not represent charges.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/2fb54f75bde7d54cc51b9e88b6476308ff6ee3dd/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/15d07a2973a115997606d111a9408f202a9e42e0/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -2950,7 +2950,7 @@ not approve a plan or start a model.</p>
 </tr>
 <tr>
 <td><code>--goal-file PATH</code></td>
-<td>Load a plan file (<code>autocode plan --export</code>, reviewed and edited in a pull request) into a saved run as its next draft revision, as <code>--edit-goal</code> loads a body; the plan then goes through ordinary approval (in joint planning the Plan Reviewer reviews it first). Refused with the run left as it was when the file cannot be read, its text no longer matches its front matter, it still holds text the export masked as credential-shaped, its runner records are not the run's, or a planner's draft of it would be sent back: a literal the request states that the plan drops (with the message the planner gets), a Go test the request names that no criterion proves by that name, <code>git status</code> in a check, or a command the shell cannot parse. The approval stop then names the file and its goal hash and says whether the plan to approve is still the plan loaded from it, and the completed run's evidence report (and the PR body built from it) cites the file, its goal hash and the approved plan's. Refused at an operational pause unless it offers feedback (an exhausted plan-review budget, a validation-only stop). It does not start a new run. See <a href="../workflow/#reviewing-a-plan-in-a-pull-request">Reviewing a plan in a pull request</a>.</td>
+<td>Load a plan file (<code>autocode plan --export</code>, reviewed and edited in a pull request) into a saved run as its next draft revision, as <code>--edit-goal</code> loads a body; the plan then goes through ordinary approval (in joint planning the Plan Reviewer reviews it first). Refused with the run left as it was when the file cannot be read, its generated text no longer matches its canonical contract, it still holds text the export masked as credential-shaped, its runner records are not the run's, or a planner's draft of it would be sent back: a literal the request states that the plan drops (with the message the planner gets), a Go test the request names that no criterion proves by that name, <code>git status</code> in a check, or a command the shell cannot parse. The approval stop then names the file and its goal hash and says whether the plan to approve is still the plan loaded from it, and the completed run's evidence report (and the PR body built from it) cites the file, its goal hash and the approved plan's. Refused at an operational pause unless it offers feedback (an exhausted plan-review budget, a validation-only stop). It does not start a new run. See <a href="../workflow/#reviewing-a-plan-in-a-pull-request">Reviewing a plan in a pull request</a>.</td>
 </tr>
 <tr>
 <td><code>--approve-review C1 --review-token '…'</code></td>
@@ -3246,7 +3246,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/2fb54f75bde7d54cc51b9e88b6476308ff6ee3dd/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/15d07a2973a115997606d111a9408f202a9e42e0/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -3795,7 +3795,7 @@ also accepts <code>-h</code> / <code>--help</code>.</p>
 <tr>
 <td><code>autocode plan</code></td>
 <td><code>--export</code>, <code>--check</code>, <code>--render</code>, <code>--workspace</code>, <code>--run-dir</code>, <code>--json</code></td>
-<td>Exactly one of: write the run's plan to this file, read a plan file and print its goal hash, regenerate a plan file's text from its front matter. With <code>--export</code>, the project whose saved run to export and the run itself (otherwise the workspace's only run). <code>--json</code> outputs structured JSON payloads.</td>
+<td>Exactly one of: write the run's plan to this file, read a plan file and print its goal hash, regenerate a plan file's text from its canonical contract. With <code>--export</code>, the project whose saved run to export and the run itself (otherwise the workspace's only run). <code>--json</code> outputs structured JSON payloads.</td>
 </tr>
 <tr>
 <td><code>autocode wait</code></td>
@@ -4340,7 +4340,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/2fb54f75bde7d54cc51b9e88b6476308ff6ee3dd/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/15d07a2973a115997606d111a9408f202a9e42e0/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,
