@@ -2632,8 +2632,28 @@ from <code>tools/autocode_mutants.py</code>).</p>
   left: with fast proving tests one that never returns cannot spend the budget,
   but with slow ones it can use the rest of it. No mutant starts with less than
   60 seconds left; those, and a mutant the budget cut short, are <code>not_run</code>.</li>
-<li><strong>Which proofs.</strong> Python <code>unittest</code> and <code>pytest</code> only for now. A Go, <code>node:test</code>
-  or Vitest proof gets a note and no run.</li>
+<li><strong>Which proofs.</strong> Python <code>unittest</code> and <code>pytest</code> proofs, as above. Go,
+  <code>node:test</code>, Vitest, Jest and Mocha proofs are mutated too (#3817,
+  <code>tools/autocode_text_mutants.py</code>): with no parser for those languages, a
+  scanner marks which bytes are code, not a string, comment, template literal or
+  regular expression, and eight operators match only code on a changed <code>.go</code>,
+  <code>.js</code>, <code>.mjs</code>, <code>.cjs</code>, <code>.jsx</code>, <code>.ts</code>, <code>.mts</code>, <code>.cts</code> or <code>.tsx</code> line: negate a
+  one-line <code>if</code> condition; swap a spaced bound (<code>&lt;</code> and <code>&lt;=</code>, <code>&gt;</code> and <code>&gt;=</code>),
+  equality (<code>==</code> and <code>!=</code>, <code>===</code> and <code>!==</code>), logic (<code>&amp;&amp;</code> and <code>||</code>) or arithmetic
+  operator (<code>+</code> and <code>-</code>, not beside a string); flip <code>true</code> and <code>false</code>; return
+  <code>undefined</code> (JavaScript) or <code>nil</code> for a returned name (Go); and blank a call made
+  as a statement on its own line. Spaces on both sides keep generics, shifts,
+  arrows and Go's <code>&lt;-</code> out. Nothing compiles a mutant beforehand: one that does
+  not build or load reports no complete result for its selected tests and ends
+  <code>not_run</code>, never <code>killed</code>. These runners select tests by a name pattern, so the
+  parent and siblings of a selected Go subtest, or another test the pattern
+  matches, may run too; only the selected tests are judged, and a run where only
+  such another test failed proves nothing. They are not narrowed per mutant and
+  do not stop at the first failure. Any other runner's record says so in
+  <code>unavailable</code> (<code>no_mutation_source</code>, or <code>runner_cannot_select</code> when the command
+  cannot name the proving tests), and its unresolved lines go to the Investigator
+  from the first round, not to the Builder, which no change could help
+  (<code>builder_skipped</code> in the repair record).</li>
 </ul>
 <p>A mutant that makes a proving test fail is <code>killed</code>. One that every proving test
 still passes has <code>survived</code>, and is reported beside each due test case whose
