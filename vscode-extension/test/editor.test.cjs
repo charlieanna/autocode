@@ -148,34 +148,18 @@ for (const surface of ['chat', 'Run details']) {
 }
 
 for (const surface of ['chat', 'Run details']) {
-  test(`finite recovery grant in ${surface} is blank, bounded and explicitly confirmed`, async (t) => {
+  test(`a recovery grant an older core offered in ${surface} is not shown or launched`, async (t) => {
     host.config.set('confirmPersonOnly', false);
     const ownController = new RunController(host.log);
-    const value = recoveryGrantView();
-    value.needs.confirmation_required = false; // A display hint cannot waive numeric authority.
-    const ui = surface === 'chat' ? await openChat(t, value, run, { controller: ownController }) : await openPanel(t, value, undefined, ownController);
-    const field = ui.document.querySelector('[data-question="grant_recovery"]');
-    const take = () => ui.document.querySelector('#take-action');
-    assert.equal(field.value, ''); assert.equal(take().disabled, true);
-    for (const text of ['Automatic recovery allowance: 3', 'Counted recoveries used: 3', 'Enter 1 to 3 more']) assert.ok(ui.document.body.textContent.includes(text), text);
-    for (const value of ['0', '4', '1.5', '1e2', '9007199254740992']) {
-      field.value = value; field.dispatchEvent(new ui.window.Event('input')); assert.equal(take().disabled, true);
+    const ui = surface === 'chat' ? await openChat(t, recoveryGrantView(), run, { controller: ownController }) : await openPanel(t, recoveryGrantView(), undefined, ownController);
+    assert.equal(ui.document.querySelector('[data-question="grant_recovery"]'), null);
+    for (const text of ['Grant and continue', 'Automatic recovery allowance', 'authorize more recoveries']) {
+      assert.ok(!ui.document.body.textContent.includes(text), text);
     }
-    field.value = '1'; field.dispatchEvent(new ui.window.Event('input'));
-    assert.equal(take().disabled, false);
     const launch = t.mock.method(cli, 'stream', async () => ok);
-    const confirm = t.mock.method(host.vscode.window, 'showWarningMessage', async () => undefined);
-    take().click(); await flush(); assert.equal(launch.mock.callCount(), 0);
-    const [title, options, button] = confirm.mock.calls[0].arguments;
-    assert.ok(title.includes('1 more automatic recovery')); assert.equal(button, 'Grant and continue');
-    for (const text of ['up to that many more times', 'Other saved limits', 'does not approve a plan']) assert.ok(options.detail.includes(text), text);
-    confirm.mock.mockImplementation(async () => button);
-    take().click(); await flush(); assert.equal(launch.mock.callCount(), 1);
-    const [, args, env] = launch.mock.calls[0].arguments;
-    assert.deepEqual(args, ['--resume-paused', '--grant-recovery', '1', '--expected-recovery-token', '-', '--workspace', run.workspace, '--run-dir', run.runDir]);
-    assert.deepEqual(env, { AUTOCODE_EXPECTED_RECOVERY_TOKEN: 'recovery:current' });
-    ui.setView(recoveryGrantView('recovery:new'));
-    take().click(); await flush(); assert.equal(launch.mock.callCount(), 1);
+    const take = ui.document.querySelector('#take-action');
+    if (take && !take.disabled) { take.click(); await flush(); }
+    assert.ok(launch.mock.calls.every((call) => !call.arguments[1].includes('--grant-recovery')), 'no grant is ever launched');
   });
 }
 
@@ -343,9 +327,7 @@ for (const surface of ['chat', 'Run details']) {
     });
   }
 
-  test(`a WAITING_FOR_USER operational exhaustion with separate grant_recovery in ${surface} renders and launches Grant and continue`, async (t) => {
-    host.config.set('confirmPersonOnly', false);
-    const ownController = new RunController(host.log);
+  test(`a WAITING_FOR_USER operational exhaustion with a separate grant_recovery from an older core in ${surface} offers no grant`, async (t) => {
     const grantCmd = `AUTOCODE_EXPECTED_RECOVERY_TOKEN=recovery:op autocode --workspace ${run.workspace} --run-dir ${run.runDir} --resume-paused --grant-recovery N --expected-recovery-token -`;
     const replyCmd = `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --resolver-request req-1 --resolver-token - --resolver-response provide_information --resolver-message MESSAGE`;
     const view = {
@@ -358,25 +340,10 @@ for (const surface of ['chat', 'Run details']) {
       next_command: replyCmd.replace('MESSAGE', '"WHAT CHANGED"'),
       chat: { context: 'chat-1', messages: [], input: { kind: 'resolver_response', label: 'Send recovery reply', next_command: replyCmd } },
     };
-    const ui = surface === 'chat' ? await openChat(t, view, run, { controller: ownController }) : await openPanel(t, view, undefined, ownController);
-    const field = ui.document.querySelector('[data-question="raise:grant_recovery"]');
-    const raise = ui.document.querySelector('#raise-bound');
-    assert.ok(field, 'separate grant_recovery field renders beside operational reply');
-    assert.ok(ui.document.body.textContent.includes('Or authorize more recoveries instead: Additional recoveries'));
-    assert.equal(raise.textContent.trim(), 'Grant and continue');
-    field.value = '1'; field.dispatchEvent(new ui.window.Event('input'));
-    assert.equal(raise.disabled, false);
-    const launch = t.mock.method(cli, 'stream', async () => ok);
-    const confirm = t.mock.method(host.vscode.window, 'showWarningMessage', async (_title, _opts, button) => button);
-    raise.click(); await flush();
-    const [title, options, button] = confirm.mock.calls[0].arguments;
-    assert.equal(title, 'Allow 1 more automatic recovery and continue?');
-    assert.equal(button, 'Grant and continue');
-    assert.ok(options.detail.includes('up to that many more times'), options.detail);
-    assert.equal(launch.mock.callCount(), 1);
-    const [, args, env] = launch.mock.calls[0].arguments;
-    assert.deepEqual(args, ['--resume-paused', '--grant-recovery', '1', '--expected-recovery-token', '-', '--workspace', run.workspace, '--run-dir', run.runDir]);
-    assert.deepEqual(env, { AUTOCODE_EXPECTED_RECOVERY_TOKEN: 'recovery:op' });
+    const ui = surface === 'chat' ? await openChat(t, view) : await openPanel(t, view);
+    assert.equal(ui.document.querySelector('[data-question="raise:grant_recovery"]'), null);
+    assert.equal(ui.document.querySelector('#raise-bound'), null);
+    assert.ok(!ui.document.body.textContent.includes('authorize more recoveries'));
   });
 
   test(`a malformed separate raise in ${surface} is not offered`, async (t) => {

@@ -418,21 +418,8 @@ def _raised_bound(needs) -> str | None:
     rows = needs.get("command_inputs")
     if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
         return None
-    if rows[0].get("id") == "grant_recovery":
-        return None
     label = rows[0].get("label")
     return label.split(" (")[0].lower() if isinstance(label, str) and label else None
-
-
-def _grant_offered(needs) -> bool:
-    """Whether ``needs`` carries the explicit ``grant_recovery`` recovery-slot offer."""
-    rows = (needs or {}).get("command_inputs")
-    return (
-        isinstance(rows, list)
-        and len(rows) == 1
-        and isinstance(rows[0], dict)
-        and rows[0].get("id") == "grant_recovery"
-    )
 
 
 def _asked(needs, state: RunState | None = None):
@@ -448,8 +435,6 @@ def _asked(needs, state: RunState | None = None):
             # Words for a person, never a flag (#2607); a limit is raised, not explained away.
             if bound := _raised_bound(needs):
                 return f"raise the {bound} to continue, or leave the run paused"
-            if _grant_offered(needs):
-                return "send AutoResolver corrective information, or authorize additional recoveries"
             return "send AutoResolver corrective information"
         questions = needs.get("questions") or []
         if len(questions) == 1 and isinstance(questions[0], dict) and questions[0].get("id") == "requirements_review":
@@ -470,8 +455,6 @@ def _asked(needs, state: RunState | None = None):
         if needs.get("edit_required"):
             feedback = " or give feedback on it" if needs.get("feedback_action") else ""
             return f"correct the plan{feedback}; fresh approval needed"
-        if _grant_offered(needs) and needs.get("action", "").endswith(" N"):
-            return "authorize additional recoveries to continue"
         if (bound := _raised_bound(needs)) and needs.get("action", "").endswith(" N"):
             return f"raise the {bound} to continue"
         if str(needs.get("action") or "").startswith("--feedback"):
