@@ -166,6 +166,8 @@ class RunViewTests(unittest.TestCase):
                 "needs",
                 "phase",
                 "next_stage",
+                "next_stage_label",
+                "status_label",
                 "iteration",
                 "stop_reason",
                 "runner_check",

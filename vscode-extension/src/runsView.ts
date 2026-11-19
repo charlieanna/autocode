@@ -3,7 +3,7 @@
 import * as vscode from "vscode";
 import type { RunController } from "./controller";
 import { activity, byLatest, recentRuns, relativeTime } from "./core/recent";
-import type { RegistryRun } from "./core/view";
+import { stageWords, statusWords, type RegistryRun } from "./core/view";
 
 export interface WorkspaceNode {
   readonly kind: "workspace";
@@ -44,10 +44,8 @@ export class RunItem extends vscode.TreeItem {
         project !== run.workspace ? `- worktree: \`${run.workspace}\`` : "",
         `- run: \`${run.runDir}\``,
         run.updatedAt ? `- last active: ${new Date(run.updatedAt).toLocaleString()} (${relativeTime(run, now)})` : "",
-        `- status: ${run.status ?? "unknown"}`,
-        `- phase: ${run.phase ?? "unknown"}`,
-        `- next stage: ${run.nextStage ?? "unknown"}`,
-        `- availability: ${run.availability}`,
+        run.availability === "available" ? `- status: ${statusWords(run.status, run.statusLabel)}` : "",
+        nextStageText(run) ? `- next stage: ${nextStageText(run)}` : "",
         run.archived ? "- archived: yes" : "",
         run.diagnostic ? `- ${run.diagnostic}` : "",
       ]
@@ -243,7 +241,7 @@ function placeholder(error: unknown): RunItem {
 function labelFor(run: RegistryRun): string {
   if (run.availability === "available" && run.title) return trim(run.title, 60);
   if (run.availability === "available" || run.availability === "message") {
-    const identity = run.status ?? run.availability;
+    const identity = run.availability === "available" ? statusWords(run.status, run.statusLabel) : "Message";
     const short = run.runDir.split("/").filter(Boolean).slice(-1)[0] ?? "";
     return short ? trim(short, 46) : identity;
   }
@@ -256,9 +254,16 @@ function describe(run: RegistryRun, recent: boolean, now: number, exactTime = fa
   const timestamp = activity(run);
   const when = exactTime && timestamp !== null ? new Date(timestamp).toLocaleString() : relativeTime(run, now);
   // Under Recent the project tells chats apart; under a project the status does.
-  const stage = run.nextStage ? ` → ${run.nextStage}` : "";
-  const detail = recent ? basename(projectOf(run)) : `${run.status ?? "unknown"}${stage}`;
+  const next = nextStageText(run);
+  const stage = next ? ` → ${next}` : "";
+  const detail = recent ? basename(projectOf(run)) : `${statusWords(run.status, run.statusLabel)}${stage}`;
   return (when ? `${when} · ${detail}` : detail) + archived;
+}
+
+/** The next stage's job name, or nothing once the run is finished. */
+function nextStageText(run: RegistryRun): string | null {
+  if (/^(TASK_)?COMPLETED?$/.test(run.status ?? "")) return null;
+  return stageWords(run.nextStage, run.nextStageLabel);
 }
 
 function projectOf(run: RegistryRun): string {

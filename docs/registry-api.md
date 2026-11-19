@@ -48,8 +48,11 @@ Run records contain stable canonical-path-derived `id`, `workspace_id`, `workspa
 also include `project_workspace` on canonical rows (the owning project path when
 `workspace` is a task worktree under `<project>/.autocode/worktrees`, or `workspace` itself),
 so clients can group a project's chats together while acting on each run's `workspace`. Listings
-derive only a small current summary (`status`, `phase`, `next_stage`, `title`, `updated_at`) from
-a valid referenced checkpoint, under the run's `diagnostic` object. `title` is the first line of
+derive only a small current summary (`status`, `status_label`, `phase`, `next_stage`,
+`next_stage_label`, `title`, `updated_at`) from a valid referenced checkpoint, under the run's
+`diagnostic` object. `status_label` and `next_stage_label` are what a client shows a person in place
+of the codes: the status in a few words (`Paused for your decision`, `Working`, `Finished`, from
+`tools/autocode_status_label.py`) and the next stage's job name (`Planner`). `title` is the first line of
 the run's task, at most 80 characters, or null; `updated_at` is when the checkpoint was last
 written, in UTC as `YYYY-MM-DDTHH:MM:SSZ`, so a client can list the most recently used chats
 first.

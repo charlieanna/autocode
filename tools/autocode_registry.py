@@ -25,9 +25,13 @@ from typing import Any
 
 try:
     from . import autocode_repo_catalog as source_catalog
+    from . import autocode_roles as roles
+    from . import autocode_status_label as status_label
     from . import autocode_util as util
 except ImportError:
     import autocode_repo_catalog as source_catalog
+    import autocode_roles as roles
+    import autocode_status_label as status_label
     import autocode_util as util
 
 
@@ -496,6 +500,11 @@ def title(task: Any) -> str | None:
     return (first[: TITLE_LIMIT - 1] + "…" if len(first) > TITLE_LIMIT else first) or None
 
 
+def _stage_label(state: RunState) -> str | None:
+    stage = state.get("next_stage")
+    return roles.screen_name(stage, state) or None if isinstance(stage, str) else None
+
+
 def _checkpoint_summary(state: Any, workspace: Path) -> tuple[str, dict[str, Any]]:
     if not isinstance(state, dict):
         return "checkpoint_malformed", {"message": "Checkpoint must be an object"}
@@ -511,8 +520,11 @@ def _checkpoint_summary(state: Any, workspace: Path) -> tuple[str, dict[str, Any
         return "checkpoint_malformed", {"message": "Checkpoint workspace does not match its registered workspace"}
     return "available", {
         "status": state["status"],
+        # The status and next stage in a person's words: what a list of chats shows instead of the codes.
+        "status_label": status_label.label(state["status"]),
         "phase": state.get("phase"),
         "next_stage": state.get("next_stage"),
+        "next_stage_label": _stage_label(cast("RunState", state)),
         "task_id": _run_task_id(cast("RunState", state)),
         "checkpoint_version": version,
         "title": title(state["task"]),

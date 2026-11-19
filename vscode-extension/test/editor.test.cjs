@@ -1551,7 +1551,38 @@ test('the Runs list puts the most recently active chats on top under Recent', as
     const alpha = provider.getChildren(projects[0]);
     assert.deepEqual(alpha.map((row) => row.run.id), ['today', 'old']);
     assert.equal(alpha[0].id, 'today');
-    assert.equal(alpha[0].description, '1h ago · AWAITING_GOAL_APPROVAL');
+    assert.equal(alpha[0].description, '1h ago · Plan ready for your approval');
+  } finally {
+    now.mock.restore();
+    provider.dispose();
+  }
+});
+
+test('the Runs tree shows a chat\'s status and next stage in the core\'s words, never its codes', async () => {
+  const listed = [
+    { id: 'labelled', workspace: '/alpha', runDir: '/alpha/.autocode/runs/20261111-a', availability: 'available',
+      status: 'PAUSED_PLANNING_BUDGET', phase: 'PAUSED_OR_BLOCKED', nextStage: 'draft_plan',
+      statusLabel: 'Paused by AutoCode', nextStageLabel: 'Planner', title: 'Labelled chat', updatedAt: '2026-11-11T11:00:00Z' },
+    // An older core sends no labels: the tree still words the codes rather than showing them.
+    { id: 'older', workspace: '/alpha', runDir: '/alpha/.autocode/runs/20261111-b', availability: 'available',
+      status: 'PAUSED_PLANNING_BUDGET', phase: 'PAUSED_OR_BLOCKED', nextStage: 'draft_plan',
+      title: 'Older core chat', updatedAt: '2026-11-11T10:00:00Z' },
+  ];
+  const provider = new RunsProvider({ list: async () => ({ runs: listed, diagnostics: [] }) });
+  const now = mock.method(Date, 'now', () => Date.parse('2026-11-11T12:00:00Z'));
+  try {
+    await provider.refresh();
+    const [, alpha] = provider.getChildren();
+    const rows = provider.getChildren(alpha);
+    assert.deepEqual(rows.map((row) => row.description), ['1h ago · Paused by AutoCode → Planner', '2h ago · Paused → Draft plan']);
+    for (const row of rows) {
+      const shown = `${row.label} ${row.description} ${row.tooltip.value}`;
+      for (const code of ['PAUSED_PLANNING_BUDGET', 'PAUSED_OR_BLOCKED', 'draft_plan', 'phase:']) {
+        assert.ok(!shown.includes(code), `${row.run.id} shows ${code}: ${shown}`);
+      }
+    }
+    assert.ok(rows[0].tooltip.value.includes('- status: Paused by AutoCode'));
+    assert.ok(rows[0].tooltip.value.includes('- next stage: Planner'));
   } finally {
     now.mock.restore();
     provider.dispose();
@@ -4910,7 +4941,8 @@ for (const category of ['stopped', 'blocked', 'working', 'paused', 'done']) {
       const view = {
         status: terminal ? 'PAUSED_INTERVENTION' : category === 'done' ? 'DONE' : category === 'paused' ? 'PAUSED_TIME_LIMIT' : 'RUNNING',
         done: category === 'done', needs: terminal ? null : { kind: 'continue' }, next_command: null,
-        next_stage: 'requirements_gather', pause_category: 'your_decision', pause_category_label: 'Your decision',
+        next_stage: 'requirements_gather', next_stage_label: 'Requirements', status_label: 'Status words',
+        pause_category: 'your_decision', pause_category_label: 'Your decision',
         recovery: terminal ? { category, title: 'Retained outcome', what_happened: 'No continuation.',
           actions: [{ kind: 'inspect', label: 'Inspect saved work' }] } : null,
         usage: { accounting: { attempts: [{ job: 'Requirements', model: 'retained-failed-model',
@@ -4931,7 +4963,9 @@ for (const category of ['stopped', 'blocked', 'working', 'paused', 'done']) {
       assert.ok(!evidence().textContent.includes('exit 1'));
       if (surface === 'Run details') {
         const meta = ui.document.querySelector('.meta').textContent;
-        assert.equal(meta.includes('next: requirements_gather'), ['working', 'paused'].includes(category));
+        assert.equal(meta.includes('next: Requirements'), ['working', 'paused'].includes(category));
+        assert.ok(meta.startsWith('Status words'), meta);
+        for (const code of [view.status, 'requirements_gather']) assert.ok(!meta.includes(code), `${code} in ${meta}`);
         assert.equal(meta.includes('pause: Your decision'), category === 'paused');
       }
       if (terminal) {

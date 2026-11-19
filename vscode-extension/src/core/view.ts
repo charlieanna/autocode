@@ -10,6 +10,8 @@
  */
 
 import { personReason } from "./details";
+import { sentenceCase } from "./status-words";
+export { stageWords, statusWords } from "./status-words";
 import { usageDisplay, type BudgetCost, type ModelRoute, type Usage } from "./telemetry";
 
 export interface Needs {
@@ -247,6 +249,10 @@ export interface StatusView {
   done: boolean;
   phase?: string | null;
   next_stage?: string | null;
+  /** `next_stage` as the job name a person sees ("Planner"); absent from an older core. */
+  next_stage_label?: string | null;
+  /** `status` in a person's words ("Paused for your decision"); absent from an older core. */
+  status_label?: string | null;
   iteration?: number | null;
   turn?: number | null;
   workflow?: string | null;
@@ -440,6 +446,9 @@ export interface RegistryRun {
   status?: string | null;
   phase?: string | null;
   nextStage?: string | null;
+  /** The core's words for `status` and `nextStage`: what the Runs list shows instead of the codes. */
+  statusLabel?: string | null;
+  nextStageLabel?: string | null;
   /** The first line of the run's task: how a person recognizes the chat. */
   title?: string | null;
   /** When the run last wrote its checkpoint, as UTC ISO-8601 (`docs/registry-api.md`). */
@@ -490,6 +499,8 @@ export function readRegistryList(raw: string): RegistryList {
         status: firstString(record.status, nested.status),
         phase: firstString(record.phase, nested.phase),
         nextStage: firstString(record.next_stage, nested.next_stage),
+        statusLabel: firstString(record.status_label, nested.status_label),
+        nextStageLabel: firstString(record.next_stage_label, nested.next_stage_label),
         title: firstString(record.title, nested.title),
         updatedAt: firstString(record.updated_at, nested.updated_at),
         diagnostic: nestedString(record.diagnostic, "message"),
@@ -607,7 +618,7 @@ export function pauseLabel(view: StatusView): string | null {
   // Normal user checkpoints (for example, plan approval) can also carry a
   // pause category. Only stopped runs should be presented as unable to continue.
   if (!view.status.startsWith("PAUSED") || !view.pause_category) return null;
-  return view.pause_category_label || view.pause_category;
+  return view.pause_category_label || sentenceCase(view.pause_category);
 }
 
 /**

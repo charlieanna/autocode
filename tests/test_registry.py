@@ -248,6 +248,17 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual("checkpoint_malformed", stale["availability"])
         self.assertNotIn("updated_at", stale["diagnostic"])
 
+    def test_listing_names_the_status_and_next_stage_in_a_persons_words(self):
+        workspace, run, state = self.fixture("workspace")
+        state.update({"status": "PAUSED_PLANNING_BUDGET", "phase": "PAUSED_OR_BLOCKED", "next_stage": "draft_plan"})
+        (run / "state.json").write_text(json.dumps(state))
+        registry.register_run(workspace, run, state)
+        summary = registry.listing()["runs"][0]["diagnostic"]
+        self.assertEqual("PAUSED_PLANNING_BUDGET", summary["status"], "the raw status stays for clients that act on it")
+        self.assertEqual("Paused by AutoCode", summary["status_label"])
+        self.assertEqual("Planner", summary["next_stage_label"])
+        self.assertNotIn("_", summary["status_label"] + summary["next_stage_label"])
+
     def test_forget_deleted_rechecks_run_recreated_while_waiting_for_registry_lock(self):
         workspace, run, state = self.fixture("workspace")
         registry.register_run(workspace, run, state)
