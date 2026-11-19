@@ -141,6 +141,8 @@ SETUP_CHECK_SECONDS = 60.0
 class SetupCheckTimeout(subprocess.SubprocessError):
     """A model-free setup check ran out of time twice. Nothing says the setup itself is broken."""
 
+    MODEL_FREE_TIMEOUT = True  # the run waits and asks again (autocode_setup_check_retry)
+
 
 def setup_check(argv, *, what, timeout, **options):
     """Run one model-free setup check, and once more when it only ran out of time.
