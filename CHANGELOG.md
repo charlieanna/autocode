@@ -19,6 +19,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - **After you confirm the Requirements summary, the run names the Planner as next.** It printed "No contract yet; resume to interview with the Requirements Gatherer" though Requirements was done and the Planner was the next stage. It now names the stage that works on the plan next, and keeps the Requirements wording while questions wait for an answer.
 
+- **A source-roots stop is no longer offered as "readable again"**: when discovery under the configured source roots could not see every checkout, the status view still offered to continue because the task's own folder was readable, and continuing stopped at the same place. The offer now rechecks discovery too, so the stop shows what to fix instead of a continue that cannot work.
+
 - **Plan review no longer asks you about hang guards or tests the plan leaves alone.** The rule against timing-based tests was applied to a deadlock fix's generous thread-join bounds, which only turn a hang into a failure, and to the project's existing tests, so the Planner asked the person twice to choose between the rule and the plan. A hang guard and an unchanged existing test are now outside the rule, and restating a timed criterion without the time is a proof correction AutoCode makes itself.
 
 - **A slow host no longer pauses a run at a model-free setup check.** When Kilo's catalog or policy check, or the sandbox's start check, only ran out of time, the run paused for the person to resume, though no model was launched and the same check answered on the resume. The run now waits and runs the launch again, three times at most for one stage, and records each wait.
