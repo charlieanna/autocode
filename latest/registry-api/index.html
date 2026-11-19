@@ -1966,7 +1966,7 @@
 
 
 <h1 id="registry-apis">Registry APIs<a class="headerlink" href="#registry-apis" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/dd92c212e24c7f22e24c994c93393324e2bee843/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/e14bf7a59b223dfa180d507e12541cf81816e8e2/README.md">← Back to README</a></p>
 <p>Autocode automatically records every real new run and ordinary resumed run before a
 provider can start. The registry is a small per-user pointer index, not a copy of
 <code>state.json</code>, logs, prompts, credentials, or provider configuration. It is stored at
@@ -2006,8 +2006,11 @@ Run records contain stable canonical-path-derived <code>id</code>, <code>workspa
 also include <code>project_workspace</code> on canonical rows (the owning project path when
 <code>workspace</code> is a task worktree under <code>&lt;project&gt;/.autocode/worktrees</code>, or <code>workspace</code> itself),
 so clients can group a project's chats together while acting on each run's <code>workspace</code>. Listings
-derive only a small current summary (<code>status</code>, <code>phase</code>, <code>next_stage</code>, <code>title</code>, <code>updated_at</code>) from
-a valid referenced checkpoint, under the run's <code>diagnostic</code> object. <code>title</code> is the first line of
+derive only a small current summary (<code>status</code>, <code>status_label</code>, <code>phase</code>, <code>next_stage</code>,
+<code>next_stage_label</code>, <code>title</code>, <code>updated_at</code>) from a valid referenced checkpoint, under the run's
+<code>diagnostic</code> object. <code>status_label</code> and <code>next_stage_label</code> are what a client shows a person in place
+of the codes: the status in a few words (<code>Paused for your decision</code>, <code>Working</code>, <code>Finished</code>, from
+<code>tools/autocode_status_label.py</code>) and the next stage's job name (<code>Planner</code>). <code>title</code> is the first line of
 the run's task, at most 80 characters, or null; <code>updated_at</code> is when the checkpoint was last
 written, in UTC as <code>YYYY-MM-DDTHH:MM:SSZ</code>, so a client can list the most recently used chats
 first.</p>
