@@ -179,6 +179,7 @@ START_FLAGS = (
     "--tester-provider",
     "--sol-reasoning-effort",
     "--tester-reasoning-effort",
+    "--plan-only",  # a planning-flow switch: the run ends at the plan the person accepts
     "--spec-first",
     "--status",
     "--summary",
