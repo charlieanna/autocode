@@ -2354,7 +2354,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/b8dbd8a4f2ebbea99e4d00487c044bf4653d0481/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/c42aaa3915e9418a7890b643e87a42a82185877b/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2561,7 +2561,7 @@ See <a href="../task-run/#worktrees-for-clients">Worktrees for clients</a>.</p>
 </tr>
 <tr>
 <td><code>autocode plan --export PATH [--run-dir RUN] [--json]</code> / <code>autocode plan --check PATH [--json]</code> / <code>autocode plan --render PATH [--json]</code></td>
-<td>Write a saved run's current plan (shown for approval or approved) as a Markdown file to review in a pull request: a concise overview first, then expandable canonical JSON holding the contract body exactly, its goal hash (the SHA-256 of the body), revision and approval status, and the complete generated plan. New exports use format 2; legacy format 1 front-matter files remain readable and keep their original rendering. Never the approval token; credential-shaped text is masked as in <code>bundle</code>, and the export then says the file's goal hash differs from the run's. <code>--check</code> reads such a file and prints its goal hash, and exits 2 when the file cannot be read or its generated text no longer matches its canonical contract. <code>--render</code> regenerates both reading paths after the canonical JSON was edited. Reads the checkpoint like <code>events</code>: no run lock, nothing recorded, nothing launched; only the named file is written. <code>--json</code> formats results or error endings as structured JSON. See <a href="../workflow/#reviewing-a-plan-in-a-pull-request">Reviewing a plan in a pull request</a>.</td>
+<td>Write a saved run's current plan (shown for approval or approved) as a Markdown file to review in a pull request: a concise overview first, then expandable canonical JSON holding the contract body exactly, its goal hash (the SHA-256 of the body), revision and approval status, and the complete generated plan. New exports use format 3; formats 1 and 2 remain readable and keep their original rendering. Never the approval token; credential-shaped text is masked as in <code>bundle</code>, and the export then says the file's goal hash differs from the run's. <code>--check</code> reads such a file and prints its goal hash, and exits 2 when the file cannot be read or its generated text no longer matches its canonical contract. <code>--render</code> regenerates both reading paths after the canonical JSON was edited. Reads the checkpoint like <code>events</code>: no run lock, nothing recorded, nothing launched; only the named file is written. <code>--json</code> formats results or error endings as structured JSON. See <a href="../workflow/#reviewing-a-plan-in-a-pull-request">Reviewing a plan in a pull request</a>.</td>
 </tr>
 <tr>
 <td><code>autocode wait [--run-dir RUN] [--timeout S]</code></td>
@@ -2606,7 +2606,7 @@ they do not represent charges.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/b8dbd8a4f2ebbea99e4d00487c044bf4653d0481/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/c42aaa3915e9418a7890b643e87a42a82185877b/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -3246,7 +3246,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/b8dbd8a4f2ebbea99e4d00487c044bf4653d0481/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/c42aaa3915e9418a7890b643e87a42a82185877b/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -4340,7 +4340,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/b8dbd8a4f2ebbea99e4d00487c044bf4653d0481/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/c42aaa3915e9418a7890b643e87a42a82185877b/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,
