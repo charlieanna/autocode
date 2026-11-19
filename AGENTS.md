@@ -556,14 +556,14 @@ interfaces or direct consumers. Add the architecture check when changing
 imports or module boundaries. A focused CLI regression may also supply the
 fake-provider evidence for that path.
 
-Choose a host that supports the check. macOS can edit source and run static,
-pure or mocked checks that avoid supervised provider launches. CLI and scenario
-tests that launch a supervised fake provider require the same supported Linux
-boundary as real task-stage providers; `--fake` removes model traffic, not host
-admission. Run those focused checks in a supported Linux checkout or use the
-existing Ubuntu CI evidence for the exact revision. A refusal or an unrun Linux
-check stays unverified. See [test host requirements](docs/testing.md#host-requirements-for-tests)
-for setup and the distinction between local and Linux evidence.
+Choose a host that supports the check. macOS supports static, pure and mocked
+checks, and supervised fake or live task-stage runs under portable supervision.
+`--fake` removes model traffic, not the host's supervision requirements. Tests
+that assert the Linux kernel session boundary require a supported Linux checkout
+or existing Ubuntu CI evidence for the exact revision; macOS portable supervision
+does not verify that boundary. A refused, skipped or unrun check stays unverified.
+See [test host requirements](docs/testing.md#host-requirements-for-tests) for setup
+and the distinction between macOS portable and Linux kernel-boundary evidence.
 
 Do not make the complete changed-test gate, full unit suite or entire fake
 catalog prerequisites for a localized fix. Broaden only when a failure or a
@@ -607,10 +607,11 @@ run the ones your change touches.
   an activated venv. CI calls `.venv/bin/python` without activating it, so put
   `Path(sys.executable).parent` on the fixture's `PATH` or call `sys.executable`.
 - **A module that skips or diverges on macOS is unverified locally.** Several gate
-  modules skip with "supervised provider requires supported Linux", and others
-  resolve `/var` to `/private/var` there. Run them in a supported Linux checkout
-  or cite the existing Ubuntu CI evidence for the revision; never conclude from a
-  macOS result alone.
+  tests require the Linux kernel session boundary; others resolve `/var` to
+  `/private/var` there. Run affected checks on their required host or cite the
+  existing Ubuntu CI evidence for the revision. macOS supports portable fake and
+  live stage runs, but a skipped check or divergent path does not verify the
+  behavior that check was meant to exercise.
 - **A failure already on master** is fixed in its own small pull request, not
   folded into a feature branch. Two feature branches fixing the same master
   failure conflict with each other as soon as one merges.
