@@ -17,6 +17,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **A Go, node:test, Vitest, Jest or Mocha change of ordinary size can finish.** The changed-line mutation check ran only Python tests, so every changed line of such a change needed its own hand-written Tester reason, and the Builder was sent back twice for a gap no change of its could close: one Go run spent three hours and $13 after a passing proof. Those runners' proofs now get mutants of their changed lines, judged by the selected tests, under the same rules as Python. A runner that still has none (Cargo, RSpec and others) sends its lines to the Investigator at once and records why (#3817).
+
 - A project whose tracked link leads out of it, such as `config/rates.json -> ../../shared/rates.json`, now passes its own tests in the runner's copies: the scratch trees of the regression proof and acceptance tests, and a native check's copy, point such a link at the file it leads to, where they had kept the relative spelling that leads nowhere from a copy at another depth and the Tester could not prove the approved plan.
 
 - A stage may cite a file the project reaches through its own link out of the workspace, such as a shared `config/rates.json`, by its path in the workspace: the citation and read checks now take the same answer as the sandbox (`autocode_workspace_links.linked_file`), where they had refused it as "not a file in the workspace" and sent the report to a repair and an Investigator call.

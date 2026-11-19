@@ -691,8 +691,28 @@ from `tools/autocode_mutants.py`).
   left: with fast proving tests one that never returns cannot spend the budget,
   but with slow ones it can use the rest of it. No mutant starts with less than
   60 seconds left; those, and a mutant the budget cut short, are `not_run`.
-- **Which proofs.** Python `unittest` and `pytest` only for now. A Go, `node:test`
-  or Vitest proof gets a note and no run.
+- **Which proofs.** Python `unittest` and `pytest` proofs, as above. Go,
+  `node:test`, Vitest, Jest and Mocha proofs are mutated too (#3817,
+  `tools/autocode_text_mutants.py`): with no parser for those languages, a
+  scanner marks which bytes are code, not a string, comment, template literal or
+  regular expression, and eight operators match only code on a changed `.go`,
+  `.js`, `.mjs`, `.cjs`, `.jsx`, `.ts`, `.mts`, `.cts` or `.tsx` line: negate a
+  one-line `if` condition; swap a spaced bound (`<` and `<=`, `>` and `>=`),
+  equality (`==` and `!=`, `===` and `!==`), logic (`&&` and `||`) or arithmetic
+  operator (`+` and `-`, not beside a string); flip `true` and `false`; return
+  `undefined` (JavaScript) or `nil` for a returned name (Go); and blank a call made
+  as a statement on its own line. Spaces on both sides keep generics, shifts,
+  arrows and Go's `<-` out. Nothing compiles a mutant beforehand: one that does
+  not build or load reports no complete result for its selected tests and ends
+  `not_run`, never `killed`. These runners select tests by a name pattern, so the
+  parent and siblings of a selected Go subtest, or another test the pattern
+  matches, may run too; only the selected tests are judged, and a run where only
+  such another test failed proves nothing. They are not narrowed per mutant and
+  do not stop at the first failure. Any other runner's record says so in
+  `unavailable` (`no_mutation_source`, or `runner_cannot_select` when the command
+  cannot name the proving tests), and its unresolved lines go to the Investigator
+  from the first round, not to the Builder, which no change could help
+  (`builder_skipped` in the repair record).
 
 A mutant that makes a proving test fail is `killed`. One that every proving test
 still passes has `survived`, and is reported beside each due test case whose
