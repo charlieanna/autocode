@@ -21,6 +21,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **Planning no longer asks you to approve a fix to its own plan.** When the plan contradicted itself, or held a test that could not run as written (a nine-byte HTTP/2 PING payload where the protocol takes eight), the Planner or Plan Reviewer asked you whether to correct it, with only one real answer, and an unattended run stopped there. Such a question now names the plan's criteria or milestones it is about, AutoCode records a correction request for the Planner, and you see the corrected plan for approval as usual (#3818).
+
 - **A Go, node:test, Vitest, Jest or Mocha change of ordinary size can finish.** The changed-line mutation check ran only Python tests, so every changed line of such a change needed its own hand-written Tester reason, and the Builder was sent back twice for a gap no change of its could close: one Go run spent three hours and $13 after a passing proof. Those runners' proofs now get mutants of their changed lines, judged by the selected tests, under the same rules as Python. A runner that still has none (Cargo, RSpec and others) sends its lines to the Investigator at once and records why (#3817).
 
 - A project whose tracked link leads out of it, such as `config/rates.json -> ../../shared/rates.json`, now passes its own tests in the runner's copies: the scratch trees of the regression proof and acceptance tests, and a native check's copy, point such a link at the file it leads to, where they had kept the relative spelling that leads nowhere from a copy at another depth and the Tester could not prove the approved plan.
