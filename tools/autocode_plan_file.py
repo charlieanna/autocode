@@ -1,14 +1,14 @@
 """A run's plan as a file a team can review in a pull request (#720).
 
-``autocode plan --export PATH`` writes the current contract of a saved run as Markdown with a front
-matter. The front matter is the plan: the contract body verbatim (criteria and how each is verified,
+``autocode plan --export PATH`` writes a concise overview followed by expandable contract and audit
+evidence. The contract JSON is the plan: the contract body verbatim (criteria and how each is verified,
 the ``test:``/``guard:`` names they cite, the brief's exact-output examples, milestones, limitations,
-runner records), the goal hash and where it was exported from. The text under it is generated from
-the front matter so a reviewer can read the plan; edit the front matter, then regenerate the text
+runner records), the goal hash and where it was exported from. The overview and full review are generated
+from the contract so a reviewer can read it; edit the contract JSON, then regenerate the text
 (``autocode plan --render``).
 
-The front matter is JSON between two ``---`` lines. JSON is YAML 1.2, so a YAML front-matter reader
-reads it, and AutoCode reads and writes it without a YAML library (its only dependency is psutil).
+Format 2 holds that JSON in a fenced code block after ``CONTRACT_MARKER``. Format 1 files, whose JSON
+front matter precedes all prose, remain readable and re-render with their original format and bytes.
 Keys, in order:
 
 - ``autocode_plan``: the file format, ``FORMAT``.
@@ -23,10 +23,10 @@ gives the body exactly as exported, so the goal hash survives the round trip. Th
 written: a file meant for a pull request must not carry what approves a plan in a run.
 
 A plan file is text that leaves the run directory, so credential-shaped text in the contract is masked
-with the shared policy (``autocode_util.redact``, #712) before it is written. The front matter's
+with the shared policy (``autocode_util.redact``, #712) before it is written. The exported
 ``goal_hash`` stays the run's, so such a file reads as differing from the plan it was exported from.
 
-``read()`` names, rather than ignores, text that no longer matches its front matter, so what reviewers
+``read()`` names, rather than ignores, text that no longer matches its canonical contract, so what reviewers
 read is what the file says. A change to ``render()`` that changes the text of an existing plan needs a
 new ``FORMAT``, or files exported before it would read as stale.
 
@@ -44,8 +44,9 @@ try:
 except ImportError:
     import autocode_util as util
 
-FORMAT = 1
+FORMAT = 2
 FENCE = "---"
+CONTRACT_MARKER = "<!-- autocode-plan-contract -->"
 KEYS = ("autocode_plan", "goal_hash", "revision", "approval_status", "contract")
 HASH = re.compile(r"[0-9a-f]{64}")
 # The body's list sections in reading order, with the heading each is shown under.
@@ -88,6 +89,7 @@ class PlanFile:
     # The first line of the file (1-based) where the text differs from what its front matter renders,
     # or None when the text is current.
     stale_line: int | None
+    format: int = 1
 
     @property
     def goal_hash(self) -> str:
@@ -129,40 +131,89 @@ def masked(value, secret_values=()):
 
 
 def document(front: dict) -> str:
-    """The front matter, then the text generated from it."""
+    """The versioned review document; legacy documents retain their exact rendering."""
     matter = json.dumps(front, indent=2, ensure_ascii=False)
-    return f"{FENCE}\n{matter}\n{FENCE}\n" + render(
-        front["contract"], exported_hash=front["goal_hash"], revision=front["revision"], status=front["approval_status"]
+    prefix, opening, closing, suffix = _layout(front)
+    return f"{prefix}{opening}\n{matter}\n{closing}\n{suffix}"
+
+
+def _layout(front: dict) -> tuple[str, str, str, str]:
+    body, revision, status = front["contract"], front["revision"], front["approval_status"]
+    if front["autocode_plan"] == 1:
+        return "", FENCE, FENCE, render(body, exported_hash=front["goal_hash"], revision=revision, status=status)
+    current = goal_hash(body)
+    changed = current != front["goal_hash"]
+    overview = summary_markdown(body, revision=revision, status="not approved" if changed else status)
+    if changed:
+        overview += (
+            "\n\nThis content differs from the exported revision; its approval does not apply to this edited plan."
+        )
+    prefix = (
+        "# Plan\n\n"
+        + overview
+        + "\n\n<details>\n<summary>Full contract and audit evidence</summary>\n\n"
+        + CONTRACT_MARKER
+        + "\n"
     )
+    # Canonical strings can themselves contain code fences or HTML. A longer fence keeps the
+    # complete JSON inert in a Markdown preview; its strings never become envelope delimiters.
+    matter = json.dumps(front, indent=2, ensure_ascii=False)
+    fence = "`" * max(3, max((len(run) for run in re.findall(r"`+", matter)), default=0) + 1)
+    suffix = (
+        "\n## Full plan\n\n"
+        + review_markdown(body)
+        + "\n\n## Export details\n\n"
+        + f"Goal hash {_code(current)}; exported from plan revision {revision} ({status})"
+        + (f" with goal hash {_code(front['goal_hash'])}; this plan differs from it" if changed else "")
+        + ".\n\nThe contract JSON above is authoritative; this overview and full plan are generated from it. "
+        "After editing the JSON, run `autocode plan --render FILE`; use `autocode plan --check FILE` "
+        "to check that all displayed text matches. Exporting or editing this file does not approve a plan "
+        "in AutoCode.\n\n</details>\n"
+    )
+    return prefix, fence + "json", fence, suffix
 
 
 def read(text: str) -> PlanFile:
-    """Read a plan file; ValueError names what is wrong with one AutoCode cannot read."""
+    """Read either plan-file format; ValueError names what AutoCode cannot read."""
     lines = text.removeprefix("\ufeff").replace("\r\n", "\n").split("\n")
-    if lines[0].rstrip() != FENCE:
-        raise ValueError(
-            "A plan file starts with its front matter: a `---` line, the plan as JSON, then another `---` line"
-        )
-    end = next((index for index in range(1, len(lines)) if lines[index].rstrip() == FENCE), None)
+    legacy = lines[0].rstrip() == FENCE
+    if legacy:
+        start, closing = 0, FENCE
+    else:
+        try:
+            start = lines.index(CONTRACT_MARKER) + 1
+        except ValueError:
+            raise ValueError(
+                "A plan file starts with a readable overview and canonical contract block, or legacy `---` front matter"
+            ) from None
+        opening = lines[start].rstrip() if start < len(lines) else ""
+        if not re.fullmatch(r"`{3,}json", opening):
+            raise ValueError("The canonical contract must be a fenced JSON block after its marker")
+        closing = opening.removesuffix("json")
+    end = next((index for index in range(start + 1, len(lines)) if lines[index].rstrip() == closing), None)
     if end is None:
-        raise ValueError("The front matter has no closing `---` line")
+        raise ValueError(
+            "The front matter has no closing `---` line" if legacy else "The contract JSON has no closing fence"
+        )
     try:
-        front = json.loads("\n".join(lines[1:end]), object_pairs_hook=_unique, parse_constant=_constant)
+        front = json.loads("\n".join(lines[start + 1 : end]), object_pairs_hook=_unique, parse_constant=_constant)
     except json.JSONDecodeError as error:
         raise ValueError(
-            f"The front matter is not valid JSON at line {error.lineno + 1}: {error.msg}. AutoCode writes and reads "
-            "it as JSON (which YAML readers also accept): keep its quotes, commas and brackets"
+            f"The front matter is not valid JSON at line {error.lineno + start + 1}: {error.msg}. "
+            "Keep its quotes, commas and brackets"
         ) from None
     front = _front(front)
-    expected = render(
-        front["contract"], exported_hash=front["goal_hash"], revision=front["revision"], status=front["approval_status"]
-    ).split("\n")
+    if (front["autocode_plan"] == 1) != legacy:
+        raise ValueError("Plan format 1 starts with front matter; format 2 has an overview and marked JSON block")
+    prefix, _, _, suffix = _layout(front)
+    stale = _difference(lines[:start], prefix.split("\n")[:-1], offset=1)
     return PlanFile(
         body=front["contract"],
         exported_hash=front["goal_hash"],
         revision=front["revision"],
         approval_status=front["approval_status"],
-        stale_line=_difference(lines[end + 1 :], expected, offset=end + 2),
+        stale_line=stale or _difference(lines[end + 1 :], suffix.split("\n"), offset=end + 2),
+        format=front["autocode_plan"],
     )
 
 
@@ -171,7 +222,7 @@ def rendered(text: str) -> str:
     plan = read(text)
     return document(
         {
-            "autocode_plan": FORMAT,
+            "autocode_plan": plan.format,
             "goal_hash": plan.exported_hash,
             "revision": plan.revision,
             "approval_status": plan.approval_status,
@@ -195,9 +246,9 @@ def _constant(name):
 def _front(front) -> dict:
     if not isinstance(front, dict):
         raise ValueError("The front matter must be one JSON object")
-    if front.get("autocode_plan") != FORMAT:
+    if front.get("autocode_plan") not in (1, FORMAT):
         raise ValueError(
-            f"This file is plan format {front.get('autocode_plan')!r}; this AutoCode reads plan format {FORMAT}"
+            f"This file is plan format {front.get('autocode_plan')!r}; this AutoCode reads plan formats 1 and {FORMAT}"
         )
     unknown = sorted(set(front) - set(KEYS))
     missing = [key for key in KEYS if key not in front]
@@ -311,12 +362,73 @@ def render(body: dict, *, exported_hash: str, revision: int, status: str) -> str
     return util.redact("\n".join(out))
 
 
+def summary_markdown(body: dict, *, revision: int, status: str) -> str:
+    """A bounded reading lead from canonical facts, never a second model-authored plan.
+
+    The contract has no duration or execution-price estimate. Counts describe scope, not an
+    invented estimate; no missing model output or provider receipt is interpreted as zero cost.
+    The complete terms remain in review_markdown and the canonical export.
+    """
+    body = masked(body)
+
+    def brief(value, limit=200):
+        text = " ".join(str(value).split())
+        return _review_text(text if len(text) <= limit else text[:limit].rstrip() + "…")
+
+    def rows(heading, values, *, maximum=3, limit=200, ordered=False, empty=None):
+        out = [f"## {heading}", ""]
+        out += [
+            (f"{index + 1}. " if ordered else "- ") + brief(value, limit)
+            for index, value in enumerate(values[:maximum])
+        ]
+        if len(values) > maximum:
+            out += [f"… {len(values) - maximum} more in the full plan."]
+        if not values and empty:
+            out += [empty]
+        return out + [""]
+
+    out = [f"Plan revision {revision} · {status}", ""]
+    if body.get("intended_outcome"):
+        out += [brief(body["intended_outcome"], 280), ""]
+    approach = body.get("technical_approach") or []
+    out += rows("Proposed approach", approach, empty="No technical approach recorded; see the full contract.")
+    milestones = body.get("milestones") or []
+    stages = [row.get("objective", "") for row in milestones] or body.get("end_to_end_flow") or []
+    out += rows("Work stages", stages, maximum=4, limit=160, ordered=True, empty="No work stages recorded.")
+    out += [
+        "## Effort and cost",
+        "",
+        f"Planned scope: {len(stages)} stages; {len(body.get('acceptance_criteria') or [])} acceptance criteria. "
+        "Duration and execution cost are not estimated. Model calls and retries affect actual usage.",
+        "",
+    ]
+    qualifications = (
+        ["Constraint: " + str(value) for value in (body.get("constraints") or [])[:1]]
+        + ["Out of scope: " + str(value) for value in (body.get("scope_exclusions") or [])[:1]]
+        + ["Assumption: " + str(row.get("text", "")) for row in (body.get("accepted_assumptions") or [])[:1]]
+    )
+    if qualifications:
+        out += rows("Boundaries and uncertainty", qualifications, limit=160)
+    questions = [row.get("question", "") for row in body.get("open_blocking_questions") or []]
+    out += rows(
+        "Decisions before approval",
+        questions,
+        maximum=2,
+        limit=160,
+        empty="No blocking questions recorded in the plan.",
+    )
+    out += [
+        "This overview is condensed. The full plan below contains all terms, acceptance criteria and source evidence."
+    ]
+    return util.redact("\n".join(out)).strip()
+
+
 def review_markdown(body: dict) -> str:
     """Material terms of a canonical plan for a person reviewing it, without file/runner metadata.
 
     The caller supplies the sealed body under its existing display-token guard. This text is display
     only: clients retain the structured approval fields and never infer authority from Markdown.
-    File exports keep their existing FORMAT and rendering, including their provenance instructions.
+    Legacy file exports keep their original rendering, including their provenance instructions.
     """
     body = masked(body)
     out = []

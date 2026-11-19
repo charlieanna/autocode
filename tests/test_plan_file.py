@@ -93,8 +93,23 @@ def body() -> dict:
 
 
 def text_of(exported: str) -> list[str]:
-    """The lines under the front matter."""
-    return exported.split("\n---\n", 1)[1].split("\n")
+    """The full review after the canonical JSON, with literal Markdown escapes decoded."""
+    start = exported.index("\n{\n") + 1
+    _, length = json.JSONDecoder().raw_decode(exported[start:])
+    text = exported[start + length :].split("\n", 2)[2]
+    return re.sub(r"\\([\\`*{}\[\]()#+.!_>~|<>-])", r"\1", text).split("\n")
+
+
+def legacy_export(original: dict, *, revision: int, approved: bool) -> str:
+    return plan_file.document(
+        {
+            "autocode_plan": 1,
+            "goal_hash": util.digest(original),
+            "revision": revision,
+            "approval_status": "approved" if approved else "not approved",
+            "contract": original,
+        }
+    )
 
 
 class PlanFileTests(unittest.TestCase):
@@ -186,8 +201,9 @@ class PlanFileTests(unittest.TestCase):
         self.assertEqual(2, text.count(r"tests/\_\_init\_\_\.py"))
 
     def test_file_format_one_export_bytes_stay_unchanged_by_ui_review_rendering(self):
-        exported = plan_file.export(body(), revision=3, approved=True)
-        self.assertEqual(1, plan_file.FORMAT)
+        exported = legacy_export(body(), revision=3, approved=True)
+        self.assertEqual(1, plan_file.read(exported).format)
+        self.assertEqual(exported, plan_file.rendered(exported))
         self.assertEqual(
             "89034db831d247d6702b8d91112f853e8ac3385a0f968d60ecfb7bcba0af4fbf",
             hashlib.sha256(exported.encode()).hexdigest(),
@@ -206,7 +222,7 @@ class PlanFileTests(unittest.TestCase):
         contract = {"task_id": "4f1c-task", "revision": 3, "body": body()}
         contract["hash"] = util.digest(contract)
         exported = plan_file.export(contract["body"], revision=3, approved=False)
-        front = json.loads(exported.split("\n---\n", 1)[0].removeprefix("---\n"))
+        front, _ = json.JSONDecoder().raw_decode(exported[exported.index("\n{\n") + 1 :])
         self.assertEqual(list(plan_file.KEYS), list(front))
         self.assertEqual("not approved", front["approval_status"])
         self.assertNotIn(contract["hash"], exported)
@@ -217,13 +233,13 @@ class PlanFileTests(unittest.TestCase):
         for expected in (
             "Verified by: `test: test_window_ends_after_the_30th_store_day`",
             "Verified by: `guard: test_totals_unchanged`",
-            "- `refund.py list` prints `ID AMOUNT [open|done]`",
+            "- `refund.py list` prints `ID AMOUNT [open|done]` one per line",
             "- After: M1",
             "- May change: `shop/receipt.py`",
             "A person reviews the result before the run completes.",
-            "- Assumed (user_answer, answer Q1): Store time is UTC+2",
+            "- Assumed (from your answer): Store time is UTC+2",
             "## Out of scope",
-            "Kept exactly as the run holds them: `brief_acceptance`, `risk_acceptance`, `source_trace`.",
+            "## Export details",
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected, lines)
@@ -253,7 +269,7 @@ class PlanFileTests(unittest.TestCase):
         self.assertEqual(stale.exported_hash, plan.exported_hash)
         self.assertEqual(["Currency conversion and taxes"], plan.body["scope_exclusions"])
         self.assertIn(
-            f"; plan revision 2 (approved) was exported with goal hash `{plan.exported_hash}`, and this plan differs",
+            f"exported from plan revision 2 (approved) with goal hash `{plan.exported_hash}`; this plan differs",
             regenerated,
         )
         self.assertIn("- Currency conversion and taxes", text_of(regenerated))
@@ -287,10 +303,10 @@ class PlanFileTests(unittest.TestCase):
         self.assertIsNone(plan_file.read("\ufeff" + reformatted + "\r\n\r\n").stale_line)
 
     def test_a_file_autocode_cannot_read_is_refused_with_the_reason(self):
-        exported = plan_file.export(body(), revision=1, approved=False)
+        exported = legacy_export(body(), revision=1, approved=False)
         front, text = exported.split("\n---\n", 1)
         cases = {
-            "starts with its front matter": "# Plan\n" + exported,
+            "starts with a readable overview": "# Plan\n" + exported,
             "no closing `---` line": front,
             "not valid JSON at line 4": front.replace('"goal_hash"', "goal_hash", 1) + "\n---\n" + text,
             "names revision more than once": front.replace('"revision": 1,', '"revision": 1,\n  "revision": 2,')
@@ -298,7 +314,7 @@ class PlanFileTests(unittest.TestCase):
             + text,
             "not a JSON number": front.replace('"revision": 1', '"revision": NaN') + "\n---\n" + text,
             "unknown: reviewer": front.replace("{", '{\n  "reviewer": "ana",', 1) + "\n---\n" + text,
-            "reads plan format 1": front.replace('"autocode_plan": 1', '"autocode_plan": 2') + "\n---\n" + text,
+            "reads plan formats 1 and 2": front.replace('"autocode_plan": 1', '"autocode_plan": 99') + "\n---\n" + text,
             "64-character SHA-256": front.replace(util.digest(body()), "abc") + "\n---\n" + text,
             "must be one JSON object": "---\n[]\n---\n",
             "contract.acceptance_criteria must be a list of objects": front.replace(

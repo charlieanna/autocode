@@ -90,5 +90,7 @@ terminal bundle manifest:
 `5ad23c3ab2aa9a42af99cd7461c66254c21672ffc0ee95b935967a569830a0d9`.
 
 PR #3846's required CI passed at `35e8ea28f19caee053021e800cb011ada3501f53`.
-A successful reviewed-plan follow-up on the combined readable-plan candidate and
-green CI on the final head remain required before merge.
+A concurrent session merged it as `2139fc9786fa094edc6b081e405d0b1ac46016c4`
+before the planned successful follow-up was observed. Cost display was verified;
+the successful reviewed-plan follow-up remains pending with #3833. This distinction
+is also recorded in the merged PR's verification description.

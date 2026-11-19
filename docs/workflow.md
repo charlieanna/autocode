@@ -1301,12 +1301,17 @@ autocode plan --export plans/refunds.md        # or: --run-dir RUN when the proj
 autocode plan --check plans/refunds.md         # prints its goal hash; exits 2 if the file cannot be read
 ```
 
-The file starts with a front matter between two `---` lines. It is the plan: the contract
+The file starts with a concise overview: proposed approach, work stages, scope, uncertainty,
+remaining decisions and approval status. Duration and execution cost are marked unestimated;
+scope counts are not a prediction of time or spend. Expand **Full contract and audit evidence**
+to read the canonical JSON and complete source-linked plan. In source view the overview also
+comes first. The fenced JSON block is the plan: the contract
 body exactly as the run holds it (each criterion with how it is verified and the `test:` or
 `guard:` name it cites, the request's exact-output examples, milestones, what is out of scope,
 the runner's records), its goal hash, and the plan revision it came from and whether that was
-approved. The front matter is JSON, which YAML front-matter readers also accept. The text under
-it is generated from the front matter so reviewers can read the plan.
+approved. Both reading paths are generated from it. New exports use plan-file format 2;
+format 1 files, with JSON front matter between `---` lines, remain readable and re-render
+in their original format without changing their existing text.
 
 The goal hash is the SHA-256 of the contract body: what the plan says, whatever run or revision
 holds it. A plan read back from the file has the same goal hash as the run's. The scenario runner
@@ -1317,9 +1322,9 @@ committing it approves nothing. Text that looks like a credential is masked befo
 written, with the same policy as `autocode bundle`; the export then says that the file's goal hash
 differs from the run's.
 
-A reviewer edits the front matter, then runs `autocode plan --render FILE` to regenerate the text.
+A reviewer edits the canonical JSON, then runs `autocode plan --render FILE` to regenerate both reading paths.
 `--check` then prints the new goal hash and the one it was exported as. It exits 2 when the text no
-longer matches the front matter, for example when only the prose was edited, and names the line.
+longer matches the contract, for example when only the overview or detailed prose was edited, and names the line.
 It checks the file, not the plan: whether a run accepts the plan is decided in that run.
 
 Once the pull request is merged, load the file into the run that drafted the plan:

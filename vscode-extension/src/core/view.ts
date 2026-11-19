@@ -169,6 +169,7 @@ export interface DisplayedPlan {
   revision?: number;
   hash?: string;
   token?: string;
+  review_summary_markdown?: string;
   review_markdown?: string;
   acceptance_criteria?: AcceptanceCriterion[];
   constraints?: string[];

@@ -462,6 +462,7 @@ class RunViewTests(unittest.TestCase):
                 "hash",
                 "token",
                 "review_markdown",
+                "review_summary_markdown",
                 "acceptance_criteria",
                 "constraints",
                 "permission_boundaries",

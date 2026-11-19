@@ -120,7 +120,7 @@ class GoalFileCliTests(unittest.TestCase):
         stale = driver.root / "stale.md"
         stale.write_text(exported.replace('"Python standard library only', '"Python 3 standard library only'))
         self.assertNotEqual(exported, stale.read_text())
-        self.assert_refused(driver, stale, f"{stale}: the text under the front matter no longer matches it (line ")
+        self.assert_refused(driver, stale, f"{stale}: the generated plan text no longer matches its contract (line ")
 
         def method(text):
             return lambda body: body["acceptance_criteria"][0].update(verification_method=text)
