@@ -24,10 +24,12 @@ try:
     from . import autocode_job_provider_retry as provider_retry
     from . import autocode_quota_route as quota_route
     from . import autocode_stop as stop
+    from . import autocode_stop_kinds as stop_kinds
 except ImportError:
     import autocode_job_provider_retry as provider_retry
     import autocode_quota_route as quota_route
     import autocode_stop as stop
+    import autocode_stop_kinds as stop_kinds
 
 # Stops that AutoCode settles: the provider stops it retries once, and a denial a retry would repeat.
 SETTLED_KINDS = provider_retry.KINDS | {"external_directory"}
@@ -64,7 +66,7 @@ def end_cause(state: RunState) -> str | None:
         # Without the original source identity no exact retry can be checked, whoever stopped the job
         # and whatever model question it carries, so nothing is left for a person to decide.
         return "no_source_identity"
-    if state.get("status") != "PAUSED_JOB_FAILURE" or kind == "person":
+    if state.get("status") != "PAUSED_JOB_FAILURE" or stop_kinds.unfailed(kind):
         return None
     if failure.get("route") or failure.get("unrestored"):
         return None

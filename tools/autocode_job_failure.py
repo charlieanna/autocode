@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_context_window as context_window
+    from . import autocode_cost as cost
     from . import autocode_investigation_workspace as investigation_workspace
     from . import autocode_job_deadline as job_deadline
     from . import autocode_job_end as job_end
@@ -43,9 +44,11 @@ try:
     from . import autocode_source_scope as scope
     from . import autocode_stall_recovery as stall_recovery
     from . import autocode_stop as stop
+    from . import autocode_stop_kinds as stop_kinds
     from . import autocode_util as util
 except ImportError:
     import autocode_context_window as context_window
+    import autocode_cost as cost
     import autocode_investigation_workspace as investigation_workspace
     import autocode_job_deadline as job_deadline
     import autocode_job_end as job_end
@@ -61,6 +64,7 @@ except ImportError:
     import autocode_source_scope as scope
     import autocode_stall_recovery as stall_recovery
     import autocode_stop as stop
+    import autocode_stop_kinds as stop_kinds
     import autocode_util as util
 
 RETRY_ACTION = "--resume-paused --retry-failed-stage --job-retry-token TOKEN"
@@ -136,7 +140,8 @@ def _reason(runtime, record, error):
         if setup := (record.get("context") or {}).get("investigation_setup"):
             # The deadline counted the workspace copy too: say so, or the model gets the blame (#2606).
             reason += "; " + investigation_workspace.setup_note(setup)
-        kind = "person" if record.get("timed_out") is True and record.get("timeout_kind") == "person" else "timeout"
+        stopped = record.get("timeout_kind") if record.get("timed_out") is True else None
+        kind = stopped if stop_kinds.unfailed(stopped) else "timeout"
         return kind, role + ": " + reason
     path = Path(record.get("events", ""))
     raw = path.read_text(errors="replace") if path.is_file() else ""
@@ -300,7 +305,7 @@ def recover(runtime, state: RunState, run_dir, workspace, error=None, *, abandon
         # a limit) stays first. The generic exit fallback has no error to name on this path.
         reason = note if kind == "exit" else reason + ("" if reason.endswith(".") else ".") + " " + note
     retention_error = None
-    if kind == "person" and not abandoned:
+    if stop_kinds.unfailed(kind) and not abandoned:
         try:
             source.retain_stopped(workspace, record)
         except (OSError, ValueError, KeyError, TypeError) as error:
@@ -328,7 +333,7 @@ def recover(runtime, state: RunState, run_dir, workspace, error=None, *, abandon
     captured = record.get("job_source") or {}
     source_paths = captured.get("source_paths", scope.paths(state))
     source_identity = captured.get("before_identity")
-    if not source_identity and not (record.get("changed_files") or []) and kind != "person":
+    if not source_identity and not (record.get("changed_files") or []) and not stop_kinds.unfailed(kind):
         # Crashed before capturing its source binding, changed nothing: anchor the
         # retry gate on the live workspace identity so an exact retry stays possible
         # (authorize still refuses if the workspace changes before the retry).
@@ -393,7 +398,7 @@ def recover(runtime, state: RunState, run_dir, workspace, error=None, *, abandon
                 recovery["instruction"] = stall_recovery.INSTRUCTION
     state["recovery_context"] = recovery
     if (
-        kind == "person"
+        stop_kinds.unfailed(kind)
         and not abandoned
         and not restoration["unrestored"]
         and source.matches_original(workspace, source_identity, source_paths=source_paths)
@@ -406,10 +411,24 @@ def recover(runtime, state: RunState, run_dir, workspace, error=None, *, abandon
             "they are not accepted tests or passing evidence. Keep the approved plan, model, effort and limits."
         )
         supersede(state)
-        run_status.pause(state, stop.STOP_STATUS, stop.STOPPED_NOW_REASON, next_stage=stage, pending_questions=[])
+        if kind == "person":
+            run_status.pause(state, stop.STOP_STATUS, stop.STOPPED_NOW_REASON, next_stage=stage, pending_questions=[])
+        else:
+            # The person's cost cap was reached while the job ran (autocode_cost_watch): the run holds where the
+            # boundary check would have held it, and raising the cap runs the same job again.
+            limit = cost.cap(state.get("settings")) or 0
+            run_status.pause(
+                state,
+                "PAUSED_COST_LIMIT",
+                f"Spend so far {cost.usd(cost.spent(state))} reached the {cost.usd(limit)} cost cap while the "
+                f"{roles.screen_name(stage)} ran; its partial work is kept",
+                next_stage=stage,
+                pending_questions=[],
+            )
         state.pop("user_request", None)
         runtime.write_json(Path(run_dir) / "state.json", state)
-        stop.consume(state, run_dir, workspace, write_json=runtime.write_json, now=runtime.now)
+        if kind == "person":
+            stop.consume(state, run_dir, workspace, write_json=runtime.write_json, now=runtime.now)
         for artifact in originals:
             artifact.unlink(missing_ok=True)
         return True
@@ -455,7 +474,7 @@ def recover(runtime, state: RunState, run_dir, workspace, error=None, *, abandon
         )
         if not abandoned:
             route_recovery.recover_job(runtime, launch, state, run_dir, workspace, reroute=reroute)
-    if not abandoned and kind != "person" and quota_route.job_pause_current(state):
+    if not abandoned and not stop_kinds.unfailed(kind) and quota_route.job_pause_current(state):
         conclude(state)
     runtime.write_json(Path(run_dir) / "state.json", state)
     if kind == "person" and not abandoned and not retention_error:

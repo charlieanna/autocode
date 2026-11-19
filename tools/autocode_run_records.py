@@ -41,6 +41,7 @@ try:
     from . import autocode_roles as roles
     from . import autocode_run_status as run_status
     from . import autocode_saved_names as saved_names
+    from . import autocode_stop_kinds as stop_kinds
     from . import autocode_support as support
     from . import autocode_util as util
     from . import autocode_worker_quota as worker_quota
@@ -66,6 +67,7 @@ except ImportError:
     import autocode_roles as roles
     import autocode_run_status as run_status
     import autocode_saved_names as saved_names
+    import autocode_stop_kinds as stop_kinds
     import autocode_support as support
     import autocode_util as util
     import autocode_worker_quota as worker_quota
@@ -727,9 +729,10 @@ def timeout_recovery_route(state: RunState, record):
         return stage, "DISCOVERING"
     if stage == "plan_task":
         return stage, "READY_TO_EXECUTE"
-    if record.get("timeout_kind") == "person":
+    if stop_kinds.unfailed(record.get("timeout_kind")):
         # The person ended a step that had not failed (#3263), and the stop told them resume runs it
         # again (#3334): a stopped Builder continues building rather than going to the Completion Reviewer.
+        # A step stopped at the person's cost cap runs again the same way once the cap is raised.
         return stage, "EXECUTING"
     # Final-audit-only runs keep the Builder in charge of implementation. Other routing
     # modes retain the established Plan Reviewer recovery review before another writer.

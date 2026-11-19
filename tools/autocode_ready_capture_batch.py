@@ -22,11 +22,13 @@ try:
     from . import autocode_contract_identity as contracts
     from . import autocode_regression_state as regression_state
     from . import autocode_stall_recovery as stall_recovery
+    from . import autocode_stop_kinds as stop_kinds
     from . import autocode_util as util
 except ImportError:
     import autocode_contract_identity as contracts
     import autocode_regression_state as regression_state
     import autocode_stall_recovery as stall_recovery
+    import autocode_stop_kinds as stop_kinds
     import autocode_util as util
 
 # The plan is data, never shell/Python source. Keep the tool call copyable without
@@ -394,7 +396,7 @@ def _collect_stage_timeouts(
             or row.get("runner_owned")
             or row.get("report_only")
             or not row.get("timed_out")
-            or row.get("timeout_kind") == "person"
+            or stop_kinds.unfailed(row.get("timeout_kind"))
             or stall_recovery.attempt_revision(row) != source_revision
         ):
             continue

@@ -1078,8 +1078,15 @@ caps what a run may spend, in USD. A run has no cap unless you set one, and `0` 
 - **When it pauses.** The cap is checked at every stage boundary, right after the active-time limit,
   before anything launches. Once the spend reaches the cap the run stops with `PAUSED_COST_LIMIT`, in
   the *your decision* category, and AutoResolver publishes the usual operational request naming the
-  spend and the cap. Stages already running finish first, so a run can end above its cap by a stage it
-  could not price (below), or by one parallel batch: workers are charged when the parent accounts their batch.
+  spend and the cap. A run can still end above its cap by a stage it could not price (below), or by one
+  parallel batch: workers are charged when the parent accounts their batch.
+- **While a stage runs.** Every 15 seconds the stage supervisor adds the running stage's usage so far,
+  read from its own event file and priced as a finished stage is, to the spend before it. Once the total
+  reaches the cap the stage is stopped as Stop now stops it: its partial work and logs are kept, it is not
+  counted as a failure or an automatic recovery, the chat says it was stopped at your cost cap, and the run
+  pauses `PAUSED_COST_LIMIT`. Raising the cap runs the same stage again from its partial work. Before this, a
+  run capped at $6 paused at $8.30 because its Builder alone cost about $2.40 (live VS Code test,
+  2026-11-18). An unpriced stage cannot trip the cap here either.
 - **Before an attempt the run can price.** Every attempt of a job that already ran in this run is priced
   before it launches: the job's last attempt's recorded tokens at the saved route's rate. If the spend so far
   plus that projection would pass the cap, the run stops with `PAUSED_COST_LIMIT` before the attempt starts,
