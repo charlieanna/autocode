@@ -36,6 +36,11 @@ It never launches a model on its own, cannot approve a plan it has not
 displayed, and keeps issued tokens in the child's environment rather than on the
 command line.
 
+The cost meter keeps known token counts visible even when dollar cost is unavailable.
+`+` marks a partial known subtotal. Focus or hover the meter, or expand the run overview's
+**Show details**, for missing-cost reasons and the separate provider-reported and estimated
+amounts. These figures are not a provider invoice.
+
 Status and other metadata reads have a UI deadline (30 seconds, or 60 seconds
 for model/placement lists and connection checks). A missed deadline shows the read as unavailable
 and disables actions that need a fresh view. The extension keeps the configured

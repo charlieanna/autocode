@@ -124,7 +124,7 @@ test("stage costs distinguish unreported, partial, running and genuinely zero sp
         attempt("tester", "Tester"),
       ] } },
     });
-    assert.deepEqual(pipelineSteps(shown).map((row) => row.cost), ["", "$1.25+", "$0"]);
+    assert.deepEqual(pipelineSteps(shown).map((row) => row.cost), ["Unavailable", "$1.25+", "$0"]);
   }
   for (const running of [0, 0.12]) {
     const shown = working({ cost: { running_usd: running } });
@@ -144,7 +144,7 @@ test("pipeline-only costs honor completeness, including zero and old cores", () 
   ];
   assert.deepEqual(costs.map((extra) => pipelineSteps(view({
     pipeline: [step("planner", "Planner", "ran", extra)],
-  }))[0]!.cost), ["", "$0", "$0+", "$1.25+", "$1.25", "", "$1.25"]);
+  }))[0]!.cost), ["Unavailable", "$0", "$0+", "$1.25+", "$1.25", "", "$1.25"]);
 });
 
 test("the spend footer marks incomplete totals as a floor", () => {
@@ -578,7 +578,9 @@ test("cost and usage restate the core's accounting, tokens, time and attempts as
   assert.deepEqual(usage?.lines, [
     "Accounted so far: $0.05 (1 running)",
     "  Running stage so far: $0.12",
-    "  Price-table estimate: $0.05 (prices as of 2026-11-09)",
+    "Partial cost: the displayed amount is the known subtotal; some usage is unpriced or still in progress.",
+    "Price-table estimate: $0.05 (prices as of 2026-11-09)",
+    "Estimates and provider reports are not an invoice.",
     "  Spending cap: $5.00",
     "  On your subscription: $0.17 as API-equivalent pricing, not an invoice",
     "Tokens",
@@ -596,7 +598,6 @@ test("cost and usage restate the core's accounting, tokens, time and attempts as
     "    claude-opus-5-5 · high · anthropic",
     "    One level above your medium: the draft touches sensitive paths",
     "    Tokens: input 28,000 known, output 1,200 known",
-    "Estimates and provider reports are not an invoice.",
   ]);
   const routes = section(runHeader(working(), STARTED), "routes");
   assert.deepEqual(routes?.lines, [
@@ -614,7 +615,7 @@ test("cost and usage restate the core's accounting, tokens, time and attempts as
   // Beside the dated price-table estimate it would be a second, different price for the same tokens.
   const priced = section(runHeader(view({ cost: { spent_usd: 0.41, estimated_usd: 0.41, complete: true },
     usage: { accounting: { cost: { historical_estimated_usd: { value: 0.38, known: 0.38, complete: true, known_items: 6 } } } } }), STARTED), "usage");
-  assert.ok(priced?.lines.includes("  Price-table estimate: $0.41"), priced?.lines.join("\n"));
+  assert.ok(priced?.lines.includes("Price-table estimate: $0.41"), priced?.lines.join("\n"));
   assert.ok(!priced?.lines.some((line) => line.includes("Historical")), priced?.lines.join("\n"));
   // The cap line says only what `cost` says: an older core without it claims neither a cap nor none.
   const cap = (cost?: Record<string, unknown>) => section(runHeader(view({ ...(cost ? { cost } : {}), usage: { tokens: 10 } }), STARTED), "usage")

@@ -16,6 +16,7 @@
 
 import { duration, money as stageMoney, runTotal, stages as meterStages, tokens as stageTokens, totalText, type StageRow } from "./meter";
 import { statusWords } from "./status-words";
+import { costExplanation } from "./cost";
 
 type Row = Record<string, unknown>;
 
@@ -189,6 +190,8 @@ function stepOf(label: string, state: StepState, row: Row, use: JobUse | undefin
   const complete = use ? use.costComplete : row.spent_complete !== false;
   if (spent !== null && (spent > 0 || use || typeof row.spent_complete === "boolean")) {
     step.cost = `${stageMoney(spent)}${complete ? "" : "+"}`;
+  } else if (use || row.spent_complete === false && (state === "ran" || state === "working")) {
+    step.cost = "Unavailable";
   }
   // A stage that ran again after succeeding (a second plan-review round) is not a retry, and a report
   // repair only rewrote a rejected report: it is never another run of the stage.
@@ -277,7 +280,7 @@ function stageTotal(view: Row): StageTotal | null {
   const seconds = executionSeconds(view);
   const total = runTotal(view);
   if (seconds === null && !total) return null;
-  const cost = total?.spentUsd === null || !total ? "" : `${stageMoney(total.spentUsd)}${total.costComplete ? "" : "+"}`;
+  const cost = !total ? "" : `${stageMoney(total.spentUsd)}${total.spentUsd !== null && !total.costComplete ? "+" : ""}`;
   const used = total?.tokens ? `${stageTokens(total.tokens)}${total.tokensComplete ? "" : "+"}` : "";
   return { time: seconds === null ? "" : duration(seconds), tokens: used, cost };
 }
@@ -597,18 +600,18 @@ function usageSection(view: Row): DetailSection | null {
   const accounting = mapping(usage.accounting);
   if (!Object.keys(cost).length && !Object.keys(usage).length) return null;
   const gaps = accountingGaps(view);
-  const complete = cost.complete === true && isNumber(cost.spent_usd) && !gaps.length;
+  const complete = cost.complete === true && isNumber(cost.spent_usd);
   const accounted = isNumber(cost.spent_usd) ? stageMoney(cost.spent_usd) : "unknown";
   const lines = [`Accounted ${complete ? "total" : "so far"}: ${accounted}${complete ? "" : ` (${gaps.join(", ") || "coverage unknown"})`}`];
   if (isNumber(cost.running_usd) && cost.running_usd > 0) lines.push(`  Running stage so far: ${stageMoney(cost.running_usd)}`);
-  if (isNumber(cost.estimated_usd)) lines.push(`  Price-table estimate: ${stageMoney(cost.estimated_usd)}${text(cost.prices_as_of) ? ` (prices as of ${text(cost.prices_as_of)})` : ""}`);
-  const reported = mapping(accounting.cost).reported_usd ?? cost.reported_usd;
+  if (Object.keys(cost).length) lines.push(...costExplanation(view).split("\n"));
+  const reported = mapping(accounting.cost).reported_usd;
   const reportedText = quantity(reported, true);
-  if (reportedText !== "unknown" && reportedText !== "$0 known") lines.push(`  Provider-reported: ${reportedText}`);
+  if (!isNumber(cost.reported_usd) && reportedText !== "unknown" && reportedText !== "$0" && reportedText !== "$0 known") lines.push(`  Provider-reported: ${reportedText}`);
   // The core's comparison at its own frozen rates, shown only by an older core with no dated
   // price-table estimate: beside that estimate it is a second, different price for the same tokens.
   const historical = quantity(mapping(accounting.cost).historical_estimated_usd, true);
-  if (!isNumber(cost.estimated_usd) && historical !== "unknown" && historical !== "$0 known") {
+  if (!isNumber(cost.estimated_usd) && historical !== "unknown" && historical !== "$0" && historical !== "$0 known") {
     lines.push(`  Historical comparison estimate: ${historical}`);
   }
   if (isNumber(cost.inherited_usd)) lines.push(`  Carried over from a restored step: ${stageMoney(cost.inherited_usd)}`);
@@ -649,7 +652,7 @@ function usageSection(view: Row): DetailSection | null {
       lines.push("  Some attempts' usage may be unreported.");
     }
   }
-  lines.push("Estimates and provider reports are not an invoice.");
+  if (!Object.keys(cost).length) lines.push("Estimates and provider reports are not an invoice.");
   // The same total as the toolbar's cost line: accounted spend with the running stage's so far.
   const summary = totalText(runTotal(view)) || `${accounted}${complete ? "" : "+"}`;
   return { id: "usage", title: "Cost and usage", summary, lines };

@@ -15,6 +15,7 @@ import { markdown, type TextNode } from "./chat-markdown";
 import { chatStyles, installChatBehavior } from "./upstream/kilo-chat";
 import { finishSummary, runTotal, totalText, type FinishSummary } from "./core/meter";
 import { runHeader, personReason, type RunHeader } from "./core/details";
+import { costExplanation } from "./core/cost";
 
 export interface Decision {
   questionId: string;
@@ -124,12 +125,14 @@ export interface PanelState {
 /** The run's cost line the chat shows; each stage's row is the run header's. */
 export interface MeterState {
   total: string;
+  explanation: string;
 }
 
 /** The meter for one status view: display only, every figure the core's own. */
 export function meterOf(view: StatusView): MeterState {
   return {
     total: totalText(runTotal(view)),
+    explanation: costExplanation(view),
   };
 }
 
@@ -825,8 +828,9 @@ const DETAIL_STYLES = `
 const METER_STYLES = `
   .chat-toolbar { flex-wrap: nowrap; }
   .chat-toolbar button.icon { flex: none; }
-  #run-cost { flex: 1 1 auto; align-self: center; font-size: .75rem; opacity: .85; white-space: nowrap;
-              overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  #run-cost { flex: 1 1 auto; align-self: center; font-size: .75rem; opacity: .85; white-space: normal;
+              overflow-wrap: anywhere; min-width: 0; }
+  #run-cost:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
   #chat-setup { flex: 0 1 auto; min-height: 0; max-height: 50vh; overflow-y: auto; }
   #chat-models { margin: 0 6px 6px; border: 1px solid var(--vscode-panel-border); border-radius: 6px;
                  padding: 4px 8px; font-size: .75rem; }
@@ -1363,7 +1367,7 @@ function renderFinish(state) {
     fact('Changed', files.length + (files.length === 1 ? ' file: ' : ' files: ') + shown, 'files');
   }
   if (finish.seconds !== null) fact('Stage time', formatDuration(finish.seconds));
-  if (state.meter && state.meter.total) fact('Cost', state.meter.total);
+  if (state.meter && state.meter.total) fact('Cost', state.meter.total.replace(/^Cost /, ''));
   if (facts.childNodes.length) body.appendChild(facts);
   const actions = el('div', 'actions');
   if (state.allChanges) {
@@ -1571,15 +1575,16 @@ function renderDetailSections(host, sections) {
 function renderMeter(data) {
   const meter = data.state && data.state.meter;
   const cost = document.getElementById('run-cost');
-  const costKey = JSON.stringify([meter && meter.total, data.session]);
+  const costKey = JSON.stringify([meter, data.session]);
   if (cost && cost.dataset.content !== costKey) {
     cost.dataset.content = costKey;
     cost.textContent = '';
-    // The run's own cost and tokens stay visible; the session total lives in the tooltip, because
-    // at sidebar width the longer line ellipsized mid-token ("93M+ tokens · all …").
+    // Cost and tokens may wrap at sidebar width; keep both visible and the session in the tooltip.
     if (meter && meter.total) cost.appendChild(el('span', null, meter.total));
-    cost.title = [meter && meter.total ? 'This run: ' + meter.total : '', data.session ? 'All open chats: ' + data.session : '']
-      .filter(Boolean).join(' · ');
+    cost.title = [meter && meter.total ? 'This run: ' + meter.total : '', meter && meter.explanation,
+      data.session ? 'All open chats: ' + data.session + ' (+ means a partial known subtotal)' : ''].filter(Boolean).join('\\n');
+    cost.setAttribute('aria-label', cost.title || 'Run cost');
+    cost.tabIndex = meter && meter.total ? 0 : -1;
   }
 }
 

@@ -190,7 +190,7 @@ test("a chat not read yet makes the session total a floor", () => {
 });
 
 test("small amounts and counts read briefly", () => {
-  assert.deepEqual([0, 0.0004, 0.00206, 1.25, null].map(money), ["$0", "<$0.001", "$0.00206", "$1.25", "$?"]);
+  assert.deepEqual([0, 0.0004, 0.00206, 1.25, null].map(money), ["$0", "<$0.001", "$0.00206", "$1.25", "Cost unavailable"]);
   assert.deepEqual([0.2, 0.254, 0.5].map(money), ["$0.20", "$0.254", "$0.50"], "below a dollar still shows cents");
   assert.deepEqual([950, 1234, 184_000, 3_400_000].map(tokens), ["950", "1.2k", "184k", "3.4M"]);
   assert.deepEqual([9, 245, 3725].map(duration), ["9s", "4m05s", "1h02m"]);
