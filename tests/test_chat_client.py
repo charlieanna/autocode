@@ -240,7 +240,7 @@ class NamedActionTests(unittest.TestCase):
         with self.assertRaisesRegex(actions.ClientGap, "does not supply"):
             actions.fill(view, command, {"GOAL_FILE": "x.json"})
 
-    def test_a_number_is_typed_only_into_the_recovery_offer_the_core_advertises(self):
+    def test_a_recovery_grant_row_from_an_older_core_is_not_a_number_to_type(self):
         row = {
             "id": "grant_recovery",
             "kind": "integer",
@@ -260,15 +260,11 @@ class NamedActionTests(unittest.TestCase):
             "next_command": f"AUTOCODE_EXPECTED_RECOVERY_TOKEN=rt autocode {PLACE} --resume-paused --grant-recovery N "
             "--expected-recovery-token -",
         }
+        # No status view offers --grant-recovery since #3798; a row naming it from an older core is refused.
         command = actions.named(view, WORKSPACE, RUN)
-        self.assertIsNone(actions.unsupplied(view, command))
-        self.assertEqual(["integer"], [row.kind for row in actions.decisions(view, command)])
-        self.assertEqual("2", actions.fill(view, command, {"grant_recovery": "2"}).argv[2])
-        with self.assertRaisesRegex(actions.ClientGap, "from 1 to 3"):
-            actions.fill(view, command, {"grant_recovery": "4"})
-        stale = {**view, "recovery": {"token": "other"}}
-        with self.assertRaisesRegex(actions.ClientGap, "stale numeric"):
-            actions.decisions(stale, actions.named(stale, WORKSPACE, RUN))
+        with self.assertRaisesRegex(actions.ClientGap, "Unsupported or stale numeric"):
+            actions.decisions(view, command)
+        self.assertNotIn("--grant-recovery", actions.INTEGER_INPUTS)
 
     def test_a_message_goes_through_the_offered_input_and_only_for_the_conversation_read(self):
         view = answer_view()
@@ -1225,7 +1221,7 @@ class ConversationTests(unittest.TestCase):
             },
         }
 
-    def test_operational_recovery_exhaustion_accepts_prose_or_grant_and_explains_confirm(self):
+    def test_operational_recovery_exhaustion_accepts_prose_and_never_a_grant(self):
         # Prose reply sends provide_information rather than refusing as a bound limit.
         prose = ScriptedChat(self._operational_recovery_exhaustion_view(), DONE, replies=["check port 8080"])
         self.assertEqual(0, prose.converse())
@@ -1246,22 +1242,11 @@ class ConversationTests(unittest.TestCase):
             prose.taken,
         )
 
-        # Numeric reply grants recoveries via the separate grant command.
-        granted = ScriptedChat(self._operational_recovery_exhaustion_view(), DONE, replies=["1"])
-        self.assertEqual(0, granted.converse())
-        self.assertIn("Or type a number, 1 to 3, to authorize additional recoveries and continue.", granted.text())
-        self.assertEqual(
-            [["--resume-paused", "--grant-recovery", "1", "--expected-recovery-token", "-"]], granted.taken
-        )
-
-        # Held/paused confirm copy says automatic recovery was exhausted rather than "Additional recoveries limit".
-        held = ScriptedChat(self._operational_recovery_exhaustion_view("RESOLVER_PENDING"), DONE, replies=["1", "y"])
-        self.assertEqual(0, held.converse())
-        held_out = held.text()
-        self.assertIn("Additional recoveries (1 to 3): ", held_out)
-        self.assertIn("AutoCode stopped: automatic recovery was exhausted.", held_out)
-        self.assertNotIn("Additional recoveries limit", held_out)
-        self.assertEqual([["--resume-paused", "--grant-recovery", "1", "--expected-recovery-token", "-"]], held.taken)
+        # A separate grant row from an older core is never offered: a number is sent as a reply, never a grant.
+        numeric = ScriptedChat(self._operational_recovery_exhaustion_view(), DONE, replies=["1"])
+        numeric.converse()
+        self.assertNotIn("authorize additional recoveries", numeric.text())
+        self.assertFalse(any("--grant-recovery" in argv for argv in numeric.taken))
 
     def test_authenticated_internal_block_does_not_offer_an_operator_action_as_a_person_prompt(self):
         view = self._operational_recovery_exhaustion_view()

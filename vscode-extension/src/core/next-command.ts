@@ -150,7 +150,6 @@ const INTEGER_INPUTS: Record<string, [string, string, "used" | "elapsed", boolea
   "--no-progress-limit": ["no_progress_limit", "Unchanged implementation batches allowed", "used", false],
   "--max-planning-calls": ["max_planning_calls", "Planning model calls since your last answer or feedback", "used", false],
   "--planning-review-call-limit": ["planning_review_call_limit", "Total plan-review calls", "used", false],
-  "--grant-recovery": ["grant_recovery", "Additional recoveries", "used", false],
 };
 
 function count(value: unknown, fractional: boolean): value is number {
@@ -169,11 +168,9 @@ export function checkInput(view: StatusView, input: IntegerCommandInput | undefi
   const wholeCurrent = fractional && input.flag !== "--max-seconds";
   const bounded = Number.isSafeInteger(input.minimum) && Number.isSafeInteger(input.maximum)
     && input.minimum >= 1 && input.minimum <= input.maximum;
-  const limits = input.flag === "--grant-recovery"
-    ? bounded && Number.isSafeInteger(used) && (used as number) >= 1 && input.minimum === 1 && input.maximum === used
-    : bounded && count(used, fractional) && count(current, wholeCurrent)
-      && input.maximum === Number.MAX_SAFE_INTEGER
-      && input.minimum === Math.floor(Math.max(current, used)) + 1;
+  const limits = bounded && count(used, fractional) && count(current, wholeCurrent)
+    && input.maximum === Number.MAX_SAFE_INTEGER
+    && input.minimum === Math.floor(Math.max(current, used)) + 1;
   const prefix = input.arg_index === 2 ? ["--resume-paused"] : [];
   const indexes = input.flag === "--planning-review-call-limit" ? [1, 2] : [2];
   const token = view.recovery?.token;

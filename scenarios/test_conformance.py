@@ -188,7 +188,8 @@ class ClientDecisionTests(unittest.TestCase):
                     public["needs"], words, command_inputs={"planning_review_call_limit": "4"}, view=public, env={}
                 )
 
-    def test_finite_recovery_grant_binds_only_explicit_replenishment(self):
+    def test_a_recovery_grant_an_older_core_offered_is_never_filled(self):
+        # No status view offers --grant-recovery (#3798); a client refuses one rather than fill it.
         public = view(
             "resume",
             "AUTOCODE_EXPECTED_RECOVERY_TOKEN=current autocode --resume-paused --grant-recovery N --expected-recovery-token -",
@@ -209,20 +210,11 @@ class ClientDecisionTests(unittest.TestCase):
             }
         ]
         words, env, _ = self.client.named_command(public)
-        for invalid in (None, "", "0", "4", "1.5", "1e2", "9" * 5000):
-            with self.subTest(invalid=str(invalid)[:20]), self.assertRaises(ConformanceGap):
+        for value in ("1", "3"):
+            with self.subTest(value=value), self.assertRaises(ConformanceGap):
                 self.client.decide(
-                    public["needs"], words, command_inputs={"grant_recovery": invalid}, view=public, env=env
+                    public["needs"], words, command_inputs={"grant_recovery": value}, view=public, env=env
                 )
-        result = self.client.decide(
-            public["needs"], words, command_inputs={"grant_recovery": "1"}, view=public, env=env
-        )
-        self.assertEqual(["--resume-paused", "--grant-recovery", "1", "--expected-recovery-token", "-"], result)
-        for key, value in (("used", True), ("used", 10**1000), ("maximum", 4), ("minimum", 0), ("current", 3.5)):
-            bad = copy.deepcopy(public)
-            bad["needs"]["command_inputs"][0][key] = value
-            with self.subTest(key=key), self.assertRaises(ConformanceGap):
-                self.client.decide(bad["needs"], words, command_inputs={"grant_recovery": "1"}, view=bad, env=env)
 
     def test_typed_total_rejects_changed_metadata_token_and_other_commands(self):
         public = self.time_offer()
