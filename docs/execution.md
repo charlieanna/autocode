@@ -1748,6 +1748,13 @@ or `bwrap --version`). The status view's `tool_containment_backend` repeats both
 the latest contained launch, with its stage and iteration (see
 [Task-run interface](task-run.md#status-view)).
 
+A model-free setup check that only runs out of time (Kilo's catalog or policy check, or the
+sandbox's own start check, after its own second attempt) says nothing about the setup: the host
+was slow. Before that launch's pause stands, the run waits 30, 60 and then 120 seconds and runs
+the stage's launch again, three times at most for one stage, and records each wait with its reason
+in the run's `setup_check_retries`. An answer from the check (a refusal, a nonzero exit, a denied
+permission) is never retried this way, and a pause the person requested stops the waiting.
+
 A new run, and every resume, first checks that this boundary can exist here: macOS
 with `/usr/bin/sandbox-exec`, or Linux with `/usr/bin/bwrap` able to create its
 namespaces (one `bwrap` probe; a kernel or AppArmor policy that denies unprivileged

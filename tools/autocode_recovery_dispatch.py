@@ -26,6 +26,7 @@ try:
     from . import autocode_provider_recovery as provider_recovery
     from . import autocode_resolver_recovery as resolver_recovery
     from . import autocode_route_recovery as route_recovery
+    from . import autocode_setup_check_retry as setup_check_retry
     from . import autocode_verification_failure_recovery as verification_failure_recovery
 except ImportError:
     import autocode_job_failure as job_failure
@@ -35,6 +36,7 @@ except ImportError:
     import autocode_provider_recovery as provider_recovery
     import autocode_resolver_recovery as resolver_recovery
     import autocode_route_recovery as route_recovery
+    import autocode_setup_check_retry as setup_check_retry
     import autocode_verification_failure_recovery as verification_failure_recovery
 
 
@@ -60,6 +62,9 @@ RECOVERY_CHAIN = (
     ("verification_preparation", _runtime_first(verification_failure_recovery, "recover")),
     ("job_failure", _runtime_first(job_failure, "recover")),
     ("network", _runtime_first(network_retry, "recover")),
+    # A launch whose model-free setup check only ran out of time on a slow host waits and runs again,
+    # a bounded number of times, before its pause asks anyone to resume (live VS Code test, 2026-11-18).
+    ("setup_check_timeout", _runtime_first(setup_check_retry, "recover")),
     ("startup", _runtime_first(provider_recovery, "recover_startup")),
     ("truncated_review", _on_runtime("automatically_recover_truncated_review")),
     # An attempt that spent its whole output limit on reasoning runs again one level lower on the same

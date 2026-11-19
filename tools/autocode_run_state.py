@@ -293,6 +293,7 @@ KEYS: frozenset[str] = frozenset(
         "session_rotations",
         "sessions",
         "settings",
+        "setup_check_retries",
         "source_log",
         "source_revision",
         "source_snapshot",
@@ -464,6 +465,9 @@ class RunState(TypedDict, total=False):
     # the completion summary). Not user_events: every AutoResolver request binds those, and the deferred-approval
     # bound counts them as the person's input.
     pause_acknowledgements: list
+    # Waits before a model-free setup check that only ran out of time runs again (one row per retry):
+    # autocode_setup_check_retry alone writes and reads it, to bound consecutive retries for a stage.
+    setup_check_retries: list
 
     # --- orchestration / progressive ---
     orchestration_batch: dict | None  # a parallel Builder batch

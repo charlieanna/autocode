@@ -14,9 +14,13 @@ _observer = ContextVar("kilo_setup_observer", default=None)
 class KiloProbeTimeout(RuntimeError):
     """Setup exhausted its bound before any model request was launched."""
 
+    MODEL_FREE_TIMEOUT = True  # the run waits and asks again (autocode_setup_check_retry)
+
 
 class KiloProbeIncomplete(RuntimeError):
     """Every attempt's answer ended before it was whole; no model request was launched (#3078)."""
+
+    MODEL_FREE_TIMEOUT = True  # an answer cut off under load is the same slow host
 
 
 def observer():
