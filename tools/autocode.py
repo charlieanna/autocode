@@ -1241,8 +1241,9 @@ def repeated_failure_resume_guard(state: RunState, workspace, *, authorization=N
 
 
 def reconcile_active(state: RunState, run_dir, workspace):
-    # An owned unfinished overlap pass (#3233) reconciles before the missing-active-stage return.
-    requirements_overlap.Controller.resume(state, run_dir, sys.modules[__name__])
+    # A saved run's unfinished Requirements background pass (#3233) settles before the
+    # missing-active-stage return; no new run starts one.
+    requirements_overlap.resume(state, run_dir, sys.modules[__name__])
     regression.before_review(state, None, workspace, run_dir)
     record = state.get("active_stage")
     if not record:
@@ -1577,7 +1578,6 @@ def chat_checkpoint(state: RunState, run_dir=None, *, persist=None, native=None)
     """Collect discovery answers and goal approval in a single terminal conversation."""
     speaker = "Resolver"  # the job's screen name (autocode_roles)
     save = persist or write_json
-    overlap = requirements_overlap.Controller.wired(sys.modules[__name__], now=now)
     if native is not None and (state.get("user_request") or {}).get("kind") == "human_review":
         raise support.Paused("PAUSED_VISUAL_EVIDENCE", "Native image/human artifact review requires later scopes")
     if (notice := action_resolver.blocked_chat_notice(state)) is not None:
@@ -1627,105 +1627,87 @@ def chat_checkpoint(state: RunState, run_dir=None, *, persist=None, native=None)
 
     if state.get("discovery_summary") and state.get("phase") == "DISCOVERING":
         print(f"\n{speaker}: " + state["discovery_summary"])
-    background, literal = None, {}  # the overlap call (#3233) and the exact replies the person typed
-    try:
-        while state["status"] == "WAITING_FOR_USER":
-            published, notice = action_resolver.chat_request(state)
-            if not published:
-                print(notice)
-                return False
-            if published["scope"] in ("operational_exhaustion", "blocker"):
-                show_question()
-                return action_resolver.chat(
-                    sys.modules[__name__], state, run_dir, published, persist=persist, native=native
-                )
-            if cast(dict, state.get("user_request", {})).get("kind") == "human_review":
-                show_handoff()
-                for criterion in goals.missing_human_reviews(state):
-                    try:
-                        reply = (
-                            overlap_input.read(
-                                f"Approve artifact criterion {criterion} after reviewing its evidence? [y/N]: "
-                            )
-                            .strip()
-                            .lower()
+    while state["status"] == "WAITING_FOR_USER":
+        published, notice = action_resolver.chat_request(state)
+        if not published:
+            print(notice)
+            return False
+        if published["scope"] in ("operational_exhaustion", "blocker"):
+            show_question()
+            return action_resolver.chat(
+                sys.modules[__name__], state, run_dir, published, persist=persist, native=native
+            )
+        if cast(dict, state.get("user_request", {})).get("kind") == "human_review":
+            show_handoff()
+            for criterion in goals.missing_human_reviews(state):
+                try:
+                    reply = (
+                        overlap_input.read(
+                            f"Approve artifact criterion {criterion} after reviewing its evidence? [y/N]: "
                         )
-                    except (EOFError, KeyboardInterrupt):
-                        print("\nChat paused; remaining artifact reviews are pending.")
-                        return False
-                    if reply not in ("y", "yes"):
-                        print("Artifact review remains pending.")
-                        return False
-                    current = source_scope.snapshot(Path(state["workspace"]), state, base_snapshot=support.snapshot)
-                    review = lambda copied: goals.approve_review(copied, criterion, state["displayed_review"], current)
-                    if not action(review, resolver_human.current(state)):
-                        return False
-                return state["status"] == "RUNNING"
-            if not state.get("pending_questions"):
-                show_handoff()
-                return False
-            if background is None and native is None and run_dir is not None and published["scope"] == "clarification":
-                background = overlap.start(state, run_dir, save)
-            if state.get("user_request"):
-                print("Decision needed: " + json.dumps(state["user_request"], indent=2))
-            for question in list(state.get("pending_questions", [])):
-                published = resolver_human.current(state)
-                if not published or question["id"] not in {q["id"] for q in published["questions"]}:
-                    continue
-                show_question()
-                print(f"\n{speaker}: {question['question']}")
-                print(f"Why: {question['why']}")
-                for option in question.get("options", []):
-                    print(f"  - {option}")
-                default = question.get("proposed_default", "").strip()
-                if default:
-                    print(f"Suggested default: {default}")
-                waiting = background is not None  # the overlap call (#3233) may be reading while we ask
-                while True:
-                    try:
-                        typed = overlap_input.read("You (/default, /feedback TEXT, or /pause): ", run_dir, waiting)
-                        if typed is overlap_input.INTERVENED:
-                            return False  # the finally below settles the owned call; the queued action stays
-                        reply = typed.strip()
-                    except (EOFError, KeyboardInterrupt):
-                        print("\nChat paused; your prior answers are saved.")
-                        return False
-                    if reply == "/pause":
-                        return False
-                    if reply.startswith("/feedback ") and reply[len("/feedback ") :].strip():
-                        action(lambda candidate: goals.feedback(candidate, reply[len("/feedback ") :]))
-                        return True
-                    if reply == "/default" and default:
-                        literal[question["id"]] = default  # /default selects the offered default exactly
-                        action(
-                            lambda candidate: goals.answer(candidate, question["id"], "accept default", delegated=True),
-                            published,
-                        )
-                        break
-                    if reply:
-                        if reply.startswith("/"):
-                            print("Use /default, /feedback TEXT or /pause, or type your answer.")
-                            continue
-                        if published["scope"] == "permission":
-                            action(
-                                lambda candidate: goals.resolve_permission(candidate, question["id"], reply), published
-                            )
-                        elif refused := goals.answer_options.state_refusal(
-                            state, question, reply, feedback="/feedback TEXT", resolver_scope=published.get("scope")
-                        ):
-                            print(refused)
-                            continue
-                        else:
-                            action(lambda candidate: goals.answer(candidate, question["id"], reply), published)
-                            literal[question["id"]] = typed  # the exact typed reply, pre-canonicalization
-                        break
-                    print("Please enter an answer, or /default when a suggested default is available.")
-            if background is not None and not state.get("pending_questions"):
-                overlap.settle(background, state, run_dir, save, literal=literal)
-                background = None
-    finally:
-        if background is not None:
-            overlap.abandon(background, state, run_dir, save)
+                        .strip()
+                        .lower()
+                    )
+                except (EOFError, KeyboardInterrupt):
+                    print("\nChat paused; remaining artifact reviews are pending.")
+                    return False
+                if reply not in ("y", "yes"):
+                    print("Artifact review remains pending.")
+                    return False
+                current = source_scope.snapshot(Path(state["workspace"]), state, base_snapshot=support.snapshot)
+                review = lambda copied: goals.approve_review(copied, criterion, state["displayed_review"], current)
+                if not action(review, resolver_human.current(state)):
+                    return False
+            return state["status"] == "RUNNING"
+        if not state.get("pending_questions"):
+            show_handoff()
+            return False
+        if state.get("user_request"):
+            print("Decision needed: " + json.dumps(state["user_request"], indent=2))
+        for question in list(state.get("pending_questions", [])):
+            published = resolver_human.current(state)
+            if not published or question["id"] not in {q["id"] for q in published["questions"]}:
+                continue
+            show_question()
+            print(f"\n{speaker}: {question['question']}")
+            print(f"Why: {question['why']}")
+            for option in question.get("options", []):
+                print(f"  - {option}")
+            default = question.get("proposed_default", "").strip()
+            if default:
+                print(f"Suggested default: {default}")
+            while True:
+                try:
+                    reply = overlap_input.read("You (/default, /feedback TEXT, or /pause): ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    print("\nChat paused; your prior answers are saved.")
+                    return False
+                if reply == "/pause":
+                    return False
+                if reply.startswith("/feedback ") and reply[len("/feedback ") :].strip():
+                    action(lambda candidate: goals.feedback(candidate, reply[len("/feedback ") :]))
+                    return True
+                if reply == "/default" and default:
+                    action(
+                        lambda candidate: goals.answer(candidate, question["id"], "accept default", delegated=True),
+                        published,
+                    )
+                    break
+                if reply:
+                    if reply.startswith("/"):
+                        print("Use /default, /feedback TEXT or /pause, or type your answer.")
+                        continue
+                    if published["scope"] == "permission":
+                        action(lambda candidate: goals.resolve_permission(candidate, question["id"], reply), published)
+                    elif refused := goals.answer_options.state_refusal(
+                        state, question, reply, feedback="/feedback TEXT", resolver_scope=published.get("scope")
+                    ):
+                        print(refused)
+                        continue
+                    else:
+                        action(lambda candidate: goals.answer(candidate, question["id"], reply), published)
+                    break
+                print("Please enter an answer, or /default when a suggested default is available.")
     if state["status"] == "AWAITING_GOAL_APPROVAL":
         published = resolver_human.current(state)
         if not published or published["scope"] != "goal_approval":

@@ -651,15 +651,15 @@ class RunState(TypedDict, total=False):
     # Retired triage pass record (#2940, #3652): preserved for loading and replaying saved runs
     # whose first Requirements pass recorded {pass, outcome, questions, at}.
     requirements_triage: Any
-    # The chat reading-time overlap (#3233 part 1): chat_checkpoint writes the current background
-    # full-Requirements pass {at, status running|adopting|kept|discarded, reason, questions,
-    # assumed_answers_digest, attempt_nonce, speculative, record_output}; requirements_handoff._accept reads the
-    # adopting record to bind the kept report's assumed answers, and resume/lifecycle handling
-    # treats a persisted running record as discarded. The settled attempt's own stage row carries
-    # the final {speculative, outcome, reason} annotation beside its observed usage.
+    # The retired chat reading-time overlap (#3233 part 1, removed 2026-11-19): a run saved while
+    # its background full-Requirements pass ran holds {at, status running|adopting|kept|discarded,
+    # reason, questions, assumed_answers_digest, attempt_nonce, speculative, record_output}.
+    # requirements_overlap.recover, on resume, settles a persisted running record as discarded and
+    # accounts its attempt once; no new run writes one. The settled attempt's own stage row carries
+    # {speculative, outcome, reason} beside its observed usage.
     requirements_overlap: dict
-    # Earlier overlap records, appended by chat_checkpoint before replacing requirements_overlap;
-    # read as spend evidence for the passes a run started.
+    # Earlier overlap records of such a saved run; requirements_overlap.recover appends a
+    # cleanup-pending record here when it settles, and the records stay as spend evidence.
     requirements_overlap_history: list[dict]
     resolution_history: Any
     resolver: Any
