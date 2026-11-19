@@ -106,6 +106,17 @@ class SourceReconciliationTests(unittest.TestCase):
         self.assertNotIn("resume", view["recovery"]["what_happened"].lower())
         self.assertEqual(before, self.state)
 
+    def test_a_readable_workspace_under_blocked_source_discovery_is_not_offered_as_readable(self):
+        # Discovery under the shared source roots is the other cause of this stop; resuming while it still
+        # blocks stops at the same place again, so the view must not offer the continuation.
+        before = copy.deepcopy(self.state)
+        with patch("autocode_repo_catalog.blocking", return_value=[{"code": "symlink_escape", "path": "/r/link"}]):
+            view = self.view()
+        self.assertIsNone(view["needs"])
+        self.assertIsNone(view["next_command"])
+        self.assertEqual("blocked", view["recovery"]["category"])
+        self.assertEqual(before, self.state)
+
     def test_a_live_controller_reconciling_a_saved_failure_is_not_shown_as_blocked(self):
         for status in ("PAUSED_SOURCE_UNAVAILABLE", "PAUSED_TOOL_CONTAINMENT", "PAUSED_VERIFICATION_UNCERTAIN"):
             with self.subTest(status=status):

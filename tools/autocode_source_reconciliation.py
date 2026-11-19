@@ -14,11 +14,13 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_liveness as liveness
+    from . import autocode_repo_catalog as repo_catalog
     from . import autocode_source_scope as source_scope
     from . import autocode_stop as stop
     from . import autocode_util as util
 except ImportError:
     import autocode_liveness as liveness
+    import autocode_repo_catalog as repo_catalog
     import autocode_source_scope as source_scope
     import autocode_stop as stop
     import autocode_util as util
@@ -56,15 +58,28 @@ def offer(state: RunState, workspace, inspection, *, controller=None, stop_pendi
             or not all(fresh[role]["checked"] and fresh[role]["alive"] is False for role in liveness.ROLES)
         ):
             return None
-    try:
-        source_scope.snapshot(workspace, state)
-    except (util.Paused, OSError, ValueError, RuntimeError, TypeError):
+    if not readable(workspace, state):
         return None
     return {
         "kind": "continue",
         "action": "--resume-paused",
         "reason": "Source access is readable again. AutoCode will reconcile saved work under the existing limits.",
     }
+
+
+def readable(workspace, state: RunState) -> bool:
+    """Whether every source a run reads can be read now: its workspace and discovery under the configured roots.
+
+    PAUSED_SOURCE_UNAVAILABLE has both causes (a Git read of the workspace, and discovery that cannot see every
+    checkout under the shared source roots, autocode_catalog_context.DiscoveryIncomplete), so the offer observes
+    both rather than the one it was written for. Otherwise a discovery stop is offered as readable, and resume
+    stops at the same place again.
+    """
+    try:
+        source_scope.snapshot(workspace, state)
+        return not repo_catalog.blocking(repo_catalog.discover())
+    except (util.Paused, OSError, ValueError, RuntimeError, TypeError):
+        return False
 
 
 def prepare(runner, state: RunState, workspace):
