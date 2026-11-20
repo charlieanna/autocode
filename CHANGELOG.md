@@ -15,6 +15,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - **Send now in the VS Code chat**: a message typed while a stage runs was read only after that stage finished, which could be a long Builder, and Stop now plus a message left the run paused for a Resume that said it "runs it again". Beside Send, Send now ends the running step (its partial work and logs are kept, as Stop now keeps them) and Requirements answers the message at once, with no pause. A question returns to the ended step; a change goes back through the plan, so the Builder never acts on the message before a new plan is approved (`intervention submit --kind message --now`, offered as `chat.input.now_command`, #3259).
 
+- **The VS Code extension is tested in a real Extension Host** (#3860): `npm run test:host` starts VS Code with the extension and checks two offline workflows a person would see, a status read held past its deadline while a draft waits in the composer, and a Planner the provider rejects with HTTP 401. CI's extension job runs it on every extension change, so these no longer depend on someone driving an editor by hand.
+
 ### Removed
 
 - **AutoCode no longer guesses your answer while you read its question** (#3233): a terminal chat paused on Requirements' questions used to start the next Requirements pass in the background, assuming each question's suggested default, and keep it when your answers matched (#3580). It now waits for your answer, as VS Code already did. A run saved while such a pass was running still resumes; that pass's report is never used and its spend stays in the run's usage.

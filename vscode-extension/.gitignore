@@ -3,3 +3,4 @@ out/
 out-test/
 *.vsix
 /LICENSE
+.vscode-test/

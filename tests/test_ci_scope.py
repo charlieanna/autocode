@@ -49,6 +49,7 @@ class ScopeTests(unittest.TestCase):
             "tools/autocode_roles.py",
             "tools/autocode_usage.py",
             "tools/autocode_progress_view.py",
+            "tests/provider_auth_fixture.py",
         ):
             self.assertIn("extension", self.enabled(path))
 
