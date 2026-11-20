@@ -1615,3 +1615,29 @@ class ProcessCleanupReapTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BootEndedTests(unittest.TestCase):
+    """A host restart is observed from start times since boot, never from the wall clock."""
+
+    def test_processes_that_started_later_in_their_boot_than_this_boot_has_lasted_are_gone(self):
+        saved = [{"pid": 101, "birth_identity": 8105.55}, {"pid": 102, "birth_identity": 8120.07}]
+        with patch.object(processes.sys, "platform", "linux"):
+            self.assertTrue(processes.boot_ended(saved, uptime=150.0))
+            self.assertFalse(processes.boot_ended(saved, uptime=9000.0))
+            # One process this boot could still hold keeps the whole attempt unproven.
+            self.assertFalse(processes.boot_ended([*saved, {"pid": 103, "birth_identity": 90.0}], uptime=150.0))
+
+    def test_unknown_or_wall_clock_identities_prove_nothing(self):
+        with patch.object(processes.sys, "platform", "linux"):
+            for saved in ([], [None], [{"pid": 1}], [{"pid": 1, "birth_identity": 1795145960.55}]):
+                with self.subTest(saved=saved):
+                    self.assertFalse(processes.boot_ended(saved, uptime=1.0))
+        with patch.object(processes.sys, "platform", "darwin"):
+            self.assertFalse(processes.boot_ended([{"pid": 1, "birth_identity": 8105.55}], uptime=1.0))
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "start times since boot are a Linux identity")
+    def test_this_process_did_not_start_in_an_earlier_boot(self):
+        row = processes.process_table({os.getpid()})[os.getpid()]
+        self.assertFalse(processes.boot_ended([processes.identity(row)]))
+        self.assertTrue(processes.boot_ended([{**processes.identity(row), "birth_identity": 1e8}]))

@@ -73,7 +73,9 @@ def proof(state: RunState, workspace, inspection):
         and inspection.get("family_cleanup") is True
         and isinstance(backup, dict)
     )
-    if not (keeper_clean or family_clean) or not all(
+    # A host restart ends the attempt with every process it started, whatever its receipt last said.
+    host_restarted = isinstance(inspection, dict) and inspection.get("boot_ended") is True
+    if not (keeper_clean or family_clean or host_restarted) or not all(
         fresh[role]["checked"] and fresh[role]["alive"] is False for role in liveness.ROLES
     ):
         return None
@@ -93,6 +95,8 @@ def proof(state: RunState, workspace, inspection):
             }
             if family_clean
             else {"kind": "supervisor", "receipt": supervision["receipt"]}
+            if keeper_clean
+            else {"kind": "host_restart", "receipt": supervision["receipt"]}
         )
         return {"source": current, "launch_binding": binding, "receipt": receipt, "cleanup": cleanup}
     except (KeyError, OSError, ValueError, TypeError, util.Paused):
