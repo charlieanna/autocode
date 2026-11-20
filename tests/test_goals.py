@@ -10,13 +10,17 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import autocode as runner
+import autocode_command_supervision as command_supervision
 import autocode_completion as completion_gate
+import autocode_early_baseline as early_baseline
 import autocode_goal_lifecycle as lifecycle
 import autocode_goals as g
 import autocode_interventions as interventions
@@ -2150,6 +2154,43 @@ class GoalTests(unittest.TestCase):
         self.assertEqual(raw_events, Path(events).read_text())
         self.assertEqual("# retained partial work\n", (self.root / "partial.py").read_text())
         self.assertEqual(8, self.state["active_seconds"])
+
+    def test_every_exit_from_the_build_loop_ends_the_early_baseline(self):
+        # #3859: a pause left the background base suite running in this process, still writing
+        # under the run directory, and the fixture's temporary directory could not be removed.
+        self.approve()
+        head = subprocess.run(["git", "-C", str(self.root), "rev-parse", "HEAD"], capture_output=True, text=True)
+        self.state["base_commit"] = head.stdout.strip()
+        baseline = copy.deepcopy(self.state)
+        exits = {
+            "pause": lambda: s.Paused("PAUSED_TEST_LAUNCH", "Offline stage admission verified"),
+            "loop exit": lambda: runner.orchestrator.LoopExit(2),
+        }
+        for name, stop in exits.items():
+            with self.subTest(exit=name):
+                self.state = copy.deepcopy(baseline)
+                started = threading.Event()
+
+                def slow_baseline(workspace, base, run_dir, **kwargs):
+                    # Polls the cancellation the way a supervised command does.
+                    cancellation = command_supervision.CANCELLATION.get()
+                    started.set()
+                    deadline = time.monotonic() + 30
+                    while time.monotonic() < deadline:
+                        if cancellation is not None and (request := cancellation()):
+                            raise command_supervision.CheckCancelled(request)
+                        time.sleep(0.02)
+                    raise AssertionError("the early baseline was never stopped")
+
+                def stopped_while_it_runs(**kwargs):
+                    self.assertTrue(started.wait(30), "the early baseline did not start")
+                    raise stop()
+
+                with patch.object(early_baseline.verify, "baseline", side_effect=slow_baseline):
+                    self.assertEqual(2, self.invoke(role=stopped_while_it_runs))
+                running = [t for t in threading.enumerate() if t.name == "autocode-early-baseline" and t.is_alive()]
+                self.assertEqual([], running)
+                self.assertNotIn("active_runner_check", self.state)
 
     def test_saved_token_pause_can_resume_without_a_new_spending_allowance(self):
         self.approve()

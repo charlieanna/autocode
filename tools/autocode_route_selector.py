@@ -68,7 +68,7 @@ ACCOUNT_LABELS = {
     "zhipuai-coding-plan": "the Zhipu AI Coding Plan",
     "xiaomi-token-plan-sgp": "the Xiaomi Token Plan",
     "alibaba-token-plan": "the Alibaba Token Plan",
-    "openai": "the ChatGPT login",
+    "openai": "the OpenAI login (ChatGPT or an API key)",
     "anthropic": "the Anthropic (Claude) login",
     "kilo": "Kilo Gateway credits",
 }

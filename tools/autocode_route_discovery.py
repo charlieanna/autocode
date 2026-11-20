@@ -37,9 +37,9 @@ except ImportError:
     import autocode_route_levels as route_levels
 
 try:
-    from providers import env_prep, opencode
+    from providers import auth_routes, env_prep, opencode
 except ImportError:
-    from .providers import env_prep, opencode
+    from .providers import auth_routes, env_prep, opencode
 
 # OpenCode login name -> (model prefixes it serves, billing). OpenAI's billing follows
 # its mode: oauth is the ChatGPT subscription, api is a per-token key.
@@ -154,7 +154,7 @@ def _from_command_provider(provider, workspace, env, inventory=None):
         "accounts": [
             {
                 "name": route["name"],
-                "mode": route["expect"],
+                "mode": route["mode"],
                 "billing": route.get("billing"),
                 "prefixes": [route["models"]],
             }
@@ -181,9 +181,14 @@ def connected_accounts(provider, workspace=None, *, runner=None):
 
 
 def _connected_routes(table, summary):
-    return [
-        route for route in table["routes"] if route["expect"] in re.findall(route["pattern"], summary, re.MULTILINE)
-    ]
+    """The declared routes whose login the summary shows in an accepted mode, each with the
+    ``mode`` it shows and the ``billing`` that mode has (``providers.auth_routes``)."""
+    connected = []
+    for route in table["routes"]:
+        mode = auth_routes.connected(route, summary)
+        if mode is not None:
+            connected.append(dict(route, mode=mode, billing=auth_routes.billing(route, mode)))
+    return connected
 
 
 def _from_opencode(workspace, env, inventory=None):
@@ -198,7 +203,7 @@ def _from_opencode(workspace, env, inventory=None):
             continue
         prefixes, billing = declared
         if billing == "by-mode":
-            billing = {"oauth": "subscription", "api": "pay per token"}.get(mode)
+            billing = auth_routes.OPENAI_BILLING.get(mode)
         routes.extend({"models": prefix, "name": name, "billing": billing} for prefix in prefixes.split())
     # The free tier needs no login, so it is a route every listing serves.
     routes.append({"models": OPENCODE_FREE_PREFIX, "name": OPENCODE_FREE_ACCOUNT, "billing": "pay per token"})
