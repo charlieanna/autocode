@@ -85,6 +85,27 @@ jobs:
       - name: Package the distributable
         run: npm run package -- --out /tmp/autocode.vsix
         working-directory: vscode-extension
+      # A real VS Code Extension Host, driven offline (#3860): the extension runs this
+      # checkout's CLI on a scripted Planner HTTP 401 run, with no model and no person.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Prepare the CLI for the Extension Host suite
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q bubblewrap xvfb
+          python3 -m venv .venv
+          .venv/bin/python -m pip install -e '.[test]'
+      - name: Test held status reads and a blocked Planner in the Extension Host
+        run: xvfb-run -a npm run test:host
+        working-directory: vscode-extension
+      - name: Keep the Extension Host's last screen
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-host-screen
+          path: vscode-extension/.vscode-test/host-last.png
+          if-no-files-found: ignore
 
   suite:
     needs: scope
