@@ -31,6 +31,9 @@ runner rejects one from such an engine). Otherwise give the entire exact command
 receipt, and the runner attaches the event ID and exit code of that command's latest completed run in this stage,
 so never read your event log for them. Cite a listed check in criterion, end-to-end and milestone evidence_refs
 as check:<its position from 1>.
+In criterion evidence_refs, an event reference counts only when it is the event the runner attached to a listed
+check, which you cannot see, so a criterion cites that check as check:<n>; a bare event: in criterion evidence is
+always refused. Checks themselves keep the bare event: evidence_ref described above.
 For criterion and end-to-end evidence from image/MCP calls or retained earlier
 stages, cite the exact existing artifact path (including the owning JSONL log),
 not a foreign or non-command event: ID. These artifacts still require independent
