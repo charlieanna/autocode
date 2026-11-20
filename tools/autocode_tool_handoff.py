@@ -109,10 +109,16 @@ def with_report_check_command(prompt: str, spec_path: Path | str) -> str:
     if "report_check_command" in data:
         return prompt
     data["report_check_command"] = report_check_command(spec_path)
+    # The one place every stage learns how to feed report-check (#3875). A pipe needs no file, so it
+    # runs in any read-only shell; a here-document or here-string can need a temporary file the
+    # stage's shell cannot create (docs/bugs/read-only-shell-input.md).
     note = (
         "\nBefore emitting your final JSON report, if shell access is enabled for this stage, "
         "you may validate candidate JSON via stdin (writing no workspace files) with "
-        "`report_check_command` from CURRENT HANDOFF DATA.\n"
+        "`report_check_command` from CURRENT HANDOFF DATA. Pipe the JSON in, as "
+        "printf '%s' '<candidate JSON>' | <report_check_command>, writing each ' inside the JSON "
+        "as '\\''. Do not use a here-document (<<) or here-string (<<<): the shell backs them with "
+        "a temporary file, which a read-only stage's shell may be unable to create.\n"
     )
     if not instructions.endswith("\n"):
         note = "\n" + note
