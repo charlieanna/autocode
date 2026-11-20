@@ -37,13 +37,43 @@ and 240 idle seconds, with `--max-cost-usd 0`. Its English request combined
 Unicode names with exact greeting strings. Requirements, two automatic report
 repairs and the canonical plan retained English and the exact Unicode literals.
 GPT-6 Sol independently approved the plan. The operating agent reviewed its full
-terms and approved revision 2 under owner delegation, token
-`r2:0bd40f7b0108bc56a34b87d117bffd3a89b8f6b326816d63ba3d1757d0431d72`;
+terms and approved revision 2 under owner delegation, with canonical body hash
+`0bd40f7b0108bc56a34b87d117bffd3a89b8f6b326816d63ba3d1757d0431d72`;
 the review Markdown hashes to
 `2d15a63cc090f14b4212bb94b01de1880341e8cf1138a538070f7845a24a74b0`.
-This records the planning checkpoint, not a claim that execution or final editor
-verification passed. Subsequent run outcomes and exact-head CI are recorded in
-PR #3909's maintained verification evidence.
+The run reached `TASK_COMPLETE` with `completion_current=true` and current
+authenticated evidence: all four criteria passed, three tests failed before and
+passed after the change, three checks replayed cleanly and the changed production
+line's mutant was killed. The diff changes only the final punctuation in
+`greet.py` and the three unittest cases in `tests/test_greet.py`. The independent
+Tester checked nine name variants, including Unicode and whitespace. Builder,
+Tester and Completion Reviewer evidence retained English. One Builder report
+repair settled missing evidence references without repeating implementation.
+
+The exact-plan approval used the public TaskRun interface after Mac screen/input
+access stopped working. Once access returned, the actual VS Code window showed
+the completed result, 4/4 criteria, two changed files, independent stage outcomes
+and the retained automatic recovery history. This was an agent review under the
+owner's delegation, not a claim of personal owner approval.
+
+The run took 8m58s of execution and recorded $0.941506 ($0.630651 reported plus
+$0.310855 estimated), with no unpriced stages; this is not an invoice. Its redacted
+support bundle has manifest
+`31444eec854ddeefaccdaa13b665982aea3086835da257f73aab564f09e40313`.
+The shared prompt identity is
+`0d7b684702480c50fda9249e057687826378c484f9ca1e8b38b85b3f4575f697`.
+PR #3909 records exact-head CI and qualification limits; this one bounded flow
+does not claim an all-model or all-language reliability sweep.
+
+The PR was merged at `2105daae27` while CI was still running. Its coverage
+advisory subsequently reported 15/16 changed statements executed, with the
+packaged launch import as the one gap. The packaged regression now launches
+through the packaged preparation module and asserts it uses the packaged
+language policy, so a silent fallback to flat imports cannot mask a broken
+installed entry. Standard-library tracing confirms that import executes.
+This test and evidence update changes no runtime or prompt bytes and needs no
+repeat paid run. The scenario prerequisite failure and post-merge master
+corrections remain tracked in the maintained PR verification evidence.
 
 The affected local selection passed 58 modules but exceeded an operator-set
 300-second deadline on the repair module. That module passed all 122 tests on
