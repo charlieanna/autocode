@@ -1361,13 +1361,14 @@ class ActivityRuntimeTests(unittest.TestCase):
         )
         self.state["settings"]["budget_origins"] = {"idle_timeout_seconds": "runner_default"}
         report = {"contract": test_goals.body(), "summary": "Drafted the greeting plan"}
+        # The startup guard may stop the child before its Python code runs.
+        # The test advances the reply phase after observing that first timeout.
+        ready = self.run / "provider-retry-ready"
         script = f"""
             import json, sys, time
             from pathlib import Path
             sys.stdin.read()
-            launched = Path(__file__).with_name('launched')
-            if not launched.exists():
-                launched.write_text('the first launch never answers')
+            if not Path({str(ready)!r}).exists():
                 time.sleep(30)
             time.sleep(1)
             print(json.dumps({{'type': 'thread.started', 'thread_id': 'offline-slow-start'}}), flush=True)
@@ -1404,6 +1405,7 @@ class ActivityRuntimeTests(unittest.TestCase):
                 runner.automatically_recover_timed_out_stage(self.state, self.run, self.root, caught.exception)
             )
             self.assertEqual("draft_plan", self.state["next_stage"])
+            ready.write_text("the test observed the first timeout; the retry may answer")
             value, record = planner()
         self.assertFalse(record["timed_out"])
         self.assertGreaterEqual(record["duration_seconds"], 1)
@@ -1428,13 +1430,13 @@ class ActivityRuntimeTests(unittest.TestCase):
             "untested_behavior": ["Invalid input"],
             "recommended_checks": ["The Validator executes valid and invalid CLI cases"],
         }
+        # The first child need not execute for this retry fixture to advance.
+        ready = self.run / "provider-retry-ready"
         script = f"""
             import json, sys, time
             from pathlib import Path
             sys.stdin.read()
-            launched = Path(__file__).with_name('launched')
-            if not launched.exists():
-                launched.write_text('the first launch never answers')
+            if not Path({str(ready)!r}).exists():
                 time.sleep(30)
             time.sleep(1)
             print(json.dumps({{'type': 'thread.started', 'thread_id': 'offline-slow-builder'}}), flush=True)
@@ -1456,6 +1458,7 @@ class ActivityRuntimeTests(unittest.TestCase):
             )
             self.assertEqual(source, (self.root / "greet.py").read_bytes())
             self.assertEqual("builder", self.state["next_stage"])
+            ready.write_text("the test observed the first timeout; the retry may answer")
             value, record = self.real_terra()
         self.assertFalse(record["timed_out"])
         self.assertGreaterEqual(record["duration_seconds"], 1)
