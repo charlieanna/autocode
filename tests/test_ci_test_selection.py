@@ -26,6 +26,18 @@ class AccessTransportConsumerTests(unittest.TestCase):
                 kept, _ = run_suite.drop_slow(selected, dict.fromkeys(consumers, "slow"))
                 self.assertEqual(consumers, set(kept))
 
+    def test_report_check_keeps_each_wire_protocol_and_retained_plan_consumer_when_slow(self):
+        consumers = {
+            "tests.test_report_check",
+            "tests.test_report_check_conversations",
+            "tests.test_report_check_retention",
+        }
+        selected = run_suite.select_tests(
+            ["tools/autocode_report_check.py"], {**dict.fromkeys(consumers, ""), "tests.test_unrelated": ""}
+        )
+        kept, _ = run_suite.drop_slow(selected, dict.fromkeys(consumers, "30s"))
+        self.assertEqual(consumers, set(kept))
+
     def test_stage_activity_keeps_public_display_and_existing_cli_consumers_when_slow(self):
         consumers = {
             "tests.test_retained_attempt_display",

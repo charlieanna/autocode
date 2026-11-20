@@ -721,7 +721,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tools/prompts/fragments/output-policy/", ("tests.test_autocode_output_policy",)),
     ("tools/prompts/fragments/protected-oracles/", ("tests.test_autocode_protected_oracles",)),
     ("tools/prompts/fragments/package-scope/", ("tests.test_package_writes",)),
-    ("tools/autocode_report_check.py", ("tests.test_report_check",)),
+    (
+        "tools/autocode_report_check.py",
+        ("tests.test_report_check", "tests.test_report_check_conversations", "tests.test_report_check_retention"),
+    ),
     ("docs/efficiency-targets.json", ("tests.test_usage_outcome_report",)),
     *(
         (path, ("tests.test_stage_access",))
