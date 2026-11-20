@@ -1119,6 +1119,7 @@ def prepare(
     parent.mkdir(exist_ok=True)
     control = parent / ("tool-containment-" + uuid.uuid4().hex)
     control.mkdir(mode=0o700)
+    shell_runtime = tool_shell.install_alias(shell_runtime, control)
     scratch = control / "scratch"
     scratch.mkdir(mode=0o700)
     if allow_write:
@@ -1978,7 +1979,7 @@ def verify(boundary):
             or not scratch.is_dir()
         ):
             raise ValueError("Unexpected containment authority layout")
-        if "shell_runtime" in boundary and not tool_shell.unchanged(boundary["shell_runtime"]):
+        if "shell_runtime" in boundary and not tool_shell.unchanged(boundary["shell_runtime"], control=control):
             raise ValueError("Contained Bash runtime changed")
         if any(key.startswith("loopback_") for key in boundary):
             raise ValueError("Unsupported loopback capability in containment manifest")

@@ -39,14 +39,39 @@ def runtime() -> dict:
     }
 
 
-def unchanged(runtime: dict) -> bool:
+def install_alias(runtime: dict, control: Path) -> dict:
+    """Expose only Bash ahead of the selected tools, in their protected control area."""
+    directory = control / "shell-bin"
+    directory.mkdir(mode=0o700)
+    alias = directory / "bash"
+    alias.symlink_to(runtime["path"])
+    return {**runtime, "alias": str(alias)}
+
+
+def unchanged(runtime: dict, *, control: Path | None = None) -> bool:
     if not isinstance(runtime, dict) or not all(isinstance(runtime.get(key), str) for key in ("path", "sha256")):
         return False
-    return hashlib.sha256(Path(runtime["path"]).read_bytes()).hexdigest() == runtime["sha256"]
+    try:
+        if hashlib.sha256(Path(runtime["path"]).read_bytes()).hexdigest() != runtime["sha256"]:
+            return False
+        if "alias" not in runtime:
+            return True  # Retained boundaries created before the private alias.
+        if not isinstance(runtime["alias"], str):
+            return False
+        alias = Path(runtime["alias"])
+        return (
+            (control is None or alias == control / "shell-bin/bash")
+            and not alias.parent.is_symlink()
+            and set(alias.parent.iterdir()) == {alias}
+            and alias.is_symlink()
+            and alias.readlink() == Path(runtime["path"])
+        )
+    except (OSError, ValueError):
+        return False
 
 
 def search_path(runtime: dict, path: str) -> str:
-    return str(Path(runtime["path"]).parent) + os.pathsep + path
+    return str(Path(runtime["alias"]).parent) + os.pathsep + path
 
 
 def environment(runtime, scratch, control_name, original, verification):

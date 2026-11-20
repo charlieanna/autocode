@@ -15,8 +15,9 @@ The model's report text was unrelated to this shell limitation.
 
 Native tool preparation now selects the fixed Homebrew Bash installation on
 macOS, with its observed loader dependencies granted read-only. The recorded
-runtime digest is checked again before launch. Its directory leads the tool
-PATH for nested Bash calls; arbitrary project/PATH shell wrappers remain
+runtime digest is checked again before launch. A protected directory exposing
+only a pinned Bash alias leads the tool PATH for nested Bash calls; every other
+tool keeps its original resolution order. Arbitrary project/PATH shell wrappers remain
 unqualified. Linux keeps its native Bash. The tool environment and its owned
 temporary directory stay scrubbed; no source-write or system-temp authority is
 added. The former shell environment construction moves into one focused module.
@@ -55,3 +56,13 @@ Homebrew Bash 5.3.20. This verifies real model-issued input, alongside the nativ
 32 KiB/literal/nested-input regression; it is not a sweep of every model or of
 user scripts that explicitly select another interpreter. The run's redacted
 bundle manifest is `97f13c2e300a31d23e1ce0e884cbed93599a07fc10ead006bf91cfcb462fa4f5`.
+
+The first Ubuntu CI attempt caught a shared PATH defect in the candidate:
+prepending the interpreter's parent directory also moved system Python and Git
+ahead of the selected virtualenv and version manager on merged-/usr hosts.
+The correction exposes only Bash through the protected alias directory; it
+does not branch on a platform or command name. A regression fails before the
+correction for Python, Git, Node and an arbitrary custom tool. Before dispatch,
+the alias must still name the pinned binary, remain under this control area,
+and contain no additional PATH commands. Kernel checks also deny adding a
+command to that directory. The failed CI attempt remains retained on the PR.

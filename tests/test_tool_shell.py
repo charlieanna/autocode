@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -67,13 +68,13 @@ class ToolShellTests(unittest.TestCase):
             "OPENAI_API_KEY": "never-copy",
             "AUTOCODE_CAPTURE_CONTEXT": json.dumps(context),
         }
-        runtime = {"path": str(self.binary)}
+        runtime = {"path": str(self.binary), "alias": str(self.root / "shell-bin/bash")}
         verification = {"manifest": "copy.json", "sha256": "copy-hash"}
         safe = shell.environment(runtime, scratch, "control", original, verification)
         for name in ("HOME", "TMPDIR", "TMP", "TEMP"):
             self.assertEqual(str(scratch), safe[name])
         self.assertEqual(str(self.binary), safe["SHELL"])
-        self.assertEqual(str(self.binary.parent) + os.pathsep + original["PATH"], safe["PATH"])
+        self.assertEqual(str(self.root / "shell-bin") + os.pathsep + original["PATH"], safe["PATH"])
         self.assertEqual("copy.json", safe["AUTOCODE_VERIFICATION_COPY"])
         self.assertEqual("copy-hash", safe["AUTOCODE_VERIFICATION_COPY_SHA256"])
         self.assertEqual(context, json.loads(safe["AUTOCODE_CAPTURE_CONTEXT"]))
@@ -84,6 +85,53 @@ class ToolShellTests(unittest.TestCase):
         for malformed in ("[]", "{}", '{"attempt":1}'):
             with self.subTest(malformed=malformed), self.assertRaises(ValueError):
                 shell.environment(runtime, scratch, "control", {"AUTOCODE_CAPTURE_CONTEXT": malformed}, None)
+
+    def test_selecting_bash_preserves_every_other_tools_path_precedence(self):
+        selected = self.root / "selected/bin"
+        selected.mkdir(parents=True)
+        alias = self.root / "control/shell-bin/bash"
+        alias.parent.mkdir(parents=True)
+        self.binary.chmod(0o700)
+        alias.symlink_to(self.binary)
+        for name in ("python3", "git", "node", "custom-tool"):
+            for directory in (self.binary.parent, selected):
+                tool = directory / name
+                tool.write_text("controlled executable")
+                tool.chmod(0o700)
+        runtime = {"path": str(self.binary), "alias": str(alias)}
+        original = {"PATH": str(selected) + os.pathsep + str(self.binary.parent)}
+        safe = shell.environment(runtime, alias.parent.parent / "scratch", "control", original, None)
+        for name in ("python3", "git", "node", "custom-tool"):
+            with self.subTest(tool=name):
+                self.assertEqual(str(selected / name), shutil.which(name, path=safe["PATH"]))
+        self.assertEqual(str(alias), shutil.which("bash", path=safe["PATH"]))
+
+    def test_private_alias_identity_refuses_retargeting_and_extra_path_commands(self):
+        control = self.root / "control"
+        control.mkdir()
+        runtime = shell.install_alias(
+            {"path": str(self.binary), "sha256": hashlib.sha256(self.binary.read_bytes()).hexdigest()}, control
+        )
+        alias = Path(runtime["alias"])
+        self.assertTrue(shell.unchanged(runtime, control=control))
+        self.assertFalse(shell.unchanged(runtime, control=self.root / "foreign"))
+        self.assertFalse(shell.unchanged({**runtime, "alias": None}))
+        extra = alias.parent / "python3"
+        extra.write_text("not an authorized PATH entry")
+        self.assertFalse(shell.unchanged(runtime, control=control))
+        extra.unlink()
+        moved = self.root / "moved-bin"
+        alias.parent.rename(moved)
+        alias.parent.symlink_to(moved, target_is_directory=True)
+        self.assertFalse(shell.unchanged(runtime, control=control))
+        alias.parent.unlink()
+        moved.rename(alias.parent)
+        alias.unlink()
+        alias.symlink_to(self.root / "foreign-bash")
+        self.assertFalse(shell.unchanged(runtime, control=control))
+        alias.unlink()
+        alias.parent.rmdir()
+        self.assertFalse(shell.unchanged(runtime, control=control))
 
 
 if __name__ == "__main__":

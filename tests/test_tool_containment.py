@@ -1822,6 +1822,10 @@ class KernelTests(unittest.TestCase):
             nested = self.run_shell("bash -c '/bin/cat <<<nested'", reader)
             self.assertEqual(0, nested.returncode, nested.stderr)
             self.assertEqual("nested\n", nested.stdout)
+            selected_bash = self.run_shell("command -v bash", reader)
+            self.assertEqual(reader["shell_runtime"]["alias"], selected_bash.stdout.strip())
+            poison = Path(reader["shell_runtime"]["alias"]).parent / "path-poison"
+            self.assert_denied(": > " + shlex.quote(str(poison)), reader)
             self.assert_denied(": > source.py", reader)
         self.assertEqual(self.before, {p: hashlib.sha256(p.read_bytes()).hexdigest() for p in self.before})
 
@@ -2080,6 +2084,7 @@ class KernelTests(unittest.TestCase):
         containment.verify(boundary)
         for key, value in (
             ("shell_runtime", {**boundary["shell_runtime"], "sha256": "0" * 64}),
+            ("shell_runtime", {**boundary["shell_runtime"], "alias": str(Path(boundary["scratch"]) / "bash")}),
             ("shell_runtime", None),
             ("loopback_checks", ["claimed network permission"]),
             ("loopback_checks", []),
