@@ -2000,7 +2000,7 @@
 
 
 <h1 id="github-issues-to-pull-requests">GitHub issues to pull requests<a class="headerlink" href="#github-issues-to-pull-requests" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/b9686e7dd0946997db7da755580181ca8edcd52c/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/8a6f46b5254b84bca5602ea0a6136b712d789b69/README.md">← Back to README</a></p>
 <p><code>autocode issue</code> takes a GitHub issue, runs AutoCode on it in a branch of its
 own, and turns the finished run into a pull request whose body carries the
 run's evidence. It sits on top of the <a href="../task-run/">task-run interface</a> and
@@ -2015,14 +2015,14 @@ built (<a href="#reviewing-the-plan-in-a-pull-request">below</a>).</p>
 <p>Run these from inside a clone of the repository whose issue you want resolved.
 Its dependencies must be installed there, and the <code>origin</code> remote must point
 at GitHub.</p>
-<pre><code class="language-sh">autocode issue brief #812                      # the brief AutoCode would get; no side effects
-autocode issue start #812 -- --engine codex --test-command &quot;uv run pytest&quot;
+<pre><code class="language-sh">autocode issue brief 812                       # the brief AutoCode would get; no side effects
+autocode issue start 812 -- --engine codex --test-command &quot;uv run pytest&quot;
 autocode --show-goal --workspace WT --run-dir RUN
 autocode --approve-goal TOKEN --workspace WT --run-dir RUN
-autocode issue continue #812                   # repeat after each answer or approval
-autocode issue status #812                     # where it stands and the next command, at any time
-autocode issue pr #812                         # commit the change and write the PR body; no push
-autocode issue pr #812 --open                  # push the branch and open a draft pull request
+autocode issue continue 812                    # repeat after each answer or approval
+autocode issue status 812                      # where it stands and the next command, at any time
+autocode issue pr 812                          # commit the change and write the PR body; no push
+autocode issue pr 812 --open                   # push the branch and open a draft pull request
 </code></pre>
 <p><code>start</code> and <code>status</code> print <code>WT</code>, <code>RUN</code> and <code>TOKEN</code> for you, with every command
 filled in.</p>
@@ -2034,8 +2034,10 @@ CI), and <code>--chat</code> asks for the chat even when the output is not a ter
 run also appears among the project's own chats (<code>autocode runs</code>, the terminal
 chat's <code>/runs</code>), under its worktree.</p>
 <ul>
-<li><strong>ISSUE</strong> can be a URL, <code>OWNER/REPO#N</code>, or <code>#N</code> for the repository behind
-  <code>--remote</code> (default <code>origin</code>).</li>
+<li><strong>ISSUE</strong> can be a URL, <code>OWNER/REPO#N</code>, or the number <code>N</code> for the repository
+  behind <code>--remote</code> (default <code>origin</code>). In a shell, quote a <code>#N</code> (<code>'#812'</code>): an
+  unquoted word starting with <code>#</code> begins a comment, and the shell drops it and
+  everything after it.</li>
 <li><strong>AutoCode options</strong> go after <code>--</code> on <code>start</code>. That covers the engine, the
   models, and <code>--test-command</code>. They are saved and reused by <code>continue</code>.
   Without them, the run reads the project settings committed in
@@ -2108,8 +2110,8 @@ gate is evidence for review, not proof of correctness.</p>
 <p>On a team, what will be built is worth reviewing before AutoCode builds it. When
 <code>start</code> or <code>continue</code> stops with the plan waiting for approval, put it in a pull
 request instead of approving it at once:</p>
-<pre><code class="language-sh">autocode issue plan #812                       # commit the plan as plans/issue-812.md on its own branch; no push
-autocode issue plan #812 --open                # push that branch and open a draft pull request
+<pre><code class="language-sh">autocode issue plan 812                        # commit the plan as plans/issue-812.md on its own branch; no push
+autocode issue plan 812 --open                 # push that branch and open a draft pull request
 </code></pre>
 <ul>
 <li><strong>What it commits.</strong> The plan is exported as <code>autocode plan --export</code> writes
@@ -2140,7 +2142,7 @@ describes. Merging it approves nothing. Once <code>plan --open</code> has opened
 issue's run, to run once it is merged and pulled into your checkout; loading and
 approving stay with you:</p>
 <pre><code class="language-sh">autocode --goal-file /path/to/project/plans/issue-812.md --workspace WT --run-dir RUN
-autocode issue continue #812                   # in joint planning the Plan Reviewer reviews the loaded plan first
+autocode issue continue 812                    # in joint planning the Plan Reviewer reviews the loaded plan first
 autocode --approve-goal TOKEN --workspace WT --run-dir RUN
 </code></pre>
 <p>The approval stop names the file and its goal hash. The merged file goes back
@@ -2169,8 +2171,8 @@ that holds the merged file, so it shows only what changed since.</p>
 <li><strong>GitHub Enterprise:</strong> set <code>AUTOCODE_GITHUB_API=https://HOST/api/v3</code>.</li>
 </ul>
 <h2 id="label-triggered-action-example">Label-triggered Action example<a class="headerlink" href="#label-triggered-action-example" title="Permanent link">&para;</a></h2>
-<p><a href="https://github.com/charlieanna/autocode/blob/b9686e7dd0946997db7da755580181ca8edcd52c/examples/github-issue/issue.yml">The example workflow</a> and
-<a href="https://github.com/charlieanna/autocode/blob/b9686e7dd0946997db7da755580181ca8edcd52c/examples/github-issue/issue_action.py">its handler</a> use the same issue CLI
+<p><a href="https://github.com/charlieanna/autocode/blob/8a6f46b5254b84bca5602ea0a6136b712d789b69/examples/github-issue/issue.yml">The example workflow</a> and
+<a href="https://github.com/charlieanna/autocode/blob/8a6f46b5254b84bca5602ea0a6136b712d789b69/examples/github-issue/issue_action.py">its handler</a> use the same issue CLI
 and public task-run interface. Applying the configured label starts a run and
 posts its current status with exact human commands. Applying it again
 reattaches to the same issue worktree and run, without advancing it or approving
