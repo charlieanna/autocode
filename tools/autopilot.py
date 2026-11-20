@@ -841,7 +841,7 @@ def apply_review_result(runtime, state: RunState, stage, value, record, workspac
             state.get("resolve_repair_history"),
             "tester",
             record.get("source_revision"),
-            cast(dict, state.get("goal_contract") or {}).get("hash"),
+            (state.get("goal_contract") or {}).get("hash"),
         )
         approved = verification_plan.approved_commands(state, progressive_context=replay_context)
         validation["tester_probes"] = tester_probes.admit(value, approved, rerun_used=rerun or not modern)
