@@ -20,6 +20,7 @@ from unittest import mock
 
 import autocode_acceptance_tests as acceptance
 import autocode_dispatch as dispatch
+import autocode_plan_file as plan_file
 import autocode_taskrun as taskrun
 from autocode_stray_writes import StrayWrites
 
@@ -1867,9 +1868,7 @@ class AcceptanceTestsCliTests(unittest.TestCase):
                 if revised:
                     exported = self.root / ("reapproval-" + str(len(approvals)) + ".md")
                     run.export_plan(exported)
-                    lines = exported.read_text().splitlines()
-                    end = next(i for i in range(1, len(lines)) if lines[i] == "---")
-                    rows = json.loads("\n".join(lines[1:end]))["contract"]["acceptance_criteria"]
+                    rows = plan_file.read(exported.read_text()).body["acceptance_criteria"]
                     semantic = lambda row: {k: v for k, v in row.items() if k != "sources"}
                     self.assertEqual([semantic(row) for row in original_rows], [semantic(row) for row in rows])
                     self.assertEqual(1, len(approvals), "no guard-correction approval may be introduced")

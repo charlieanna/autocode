@@ -359,6 +359,14 @@ class AccessTransportConsumerTests(unittest.TestCase):
                 kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
                 self.assertEqual([consumer], list(kept))
 
+    def test_plan_export_keeps_public_reapproval_checks_when_slow(self):
+        consumer = "tests.test_acceptance_tests"
+        for source in ("tools/autocode_plan_file.py", "tools/autocode_plan_command.py"):
+            with self.subTest(source=source):
+                selected = run_suite.select_tests([source], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
+
     def test_command_cancellation_keeps_the_public_stop_and_ownership_regressions_when_slow(self):
         consumers = {"tests.test_stop_now_runner_check_cli", "tests.test_runner_check_cancellation"}
         for path in (
