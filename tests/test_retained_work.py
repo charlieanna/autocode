@@ -13,6 +13,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import autocode_builder_failure as builder_failure
+import autocode_resolver_recovery as resolver_recovery
 import autocode_retained_work as retained_work
 import autocode_util as util
 
@@ -314,7 +315,7 @@ class OwnRepairSourceTests(unittest.TestCase):
         ]
 
     def own(self, stages, files, head="h", bound="r0"):
-        return retained_work.own_repair_source(stages, self.PACKET, bound, {"head": head, "files": files})
+        return retained_work.own_recovery_source(stages, bound, {"head": head, "files": files})
 
     def test_the_rejected_attempts_retained_edit_and_the_runners_cleanup_are_its_own_work(self):
         retained = {**self.BOUND, "tests/test_stock.py": "t1"}
@@ -354,16 +355,49 @@ class OwnRepairSourceTests(unittest.TestCase):
             with self.subTest(head=head):
                 self.assertFalse(self.own(moved, retained, head))
 
-    def test_missing_evidence_or_another_packet_proves_nothing(self):
+    def test_missing_evidence_or_another_starting_source_proves_nothing(self):
         retained = {**self.BOUND, "tests/test_stock.py": "t1"}
         self.assertFalse(self.own([], retained))
         self.assertFalse(self.own(self.rejected(), retained, bound="another-revision"))
-        other = [self.attempt("other", (self.BOUND, "r0"), (retained, "r1"), packet={"path": "other.json"})]
+        # An attempt that started from some other source is not in the chain from the bound one.
+        other = [self.attempt("other", (self.BOUND, "r9"), (retained, "r1"))]
         self.assertFalse(self.own(other, retained))
         stages = self.rejected()
         Path(stages[-1]["after_ref"]).unlink()
         self.assertFalse(self.own(stages, retained))
-        self.assertFalse(retained_work.own_repair_source(self.rejected(), None, "r0", {"head": "h", "files": retained}))
+
+    def test_the_runners_own_rounds_after_the_packet_and_a_timed_out_retry_are_its_own_work(self):
+        """Live run 2026-11-20 (#3874 group): a repair Builder admitted under a packet, then the runner's
+        own changed-code rework rounds, which carry no packet (#2815), then one that hit the 3600 s stage
+        wall with partial edits. Its retry asked whether the tree was this packet's latest attempt's, saw
+        the later rounds' work, and paused PAUSED_STALE_HANDOFF for a person to resume, which refused again."""
+        first = {**self.BOUND, "stock.py": "s1"}
+        second = {**first, "tests/test_stock.py": "t1"}
+        partial = {**second, "stock.py": "s3", "tests/test_new.py": "n1"}
+        stages = [
+            self.attempt("builder-01", (self.BOUND, "r0"), (first, "r1")),
+            {**self.attempt("builder-02", (first, "r1"), (second, "r2")), "recovery_novelty": None},
+            {
+                **self.attempt("builder-03", (second, "r2"), (partial, "r3")),
+                "recovery_novelty": None,
+                "timed_out": True,
+            },
+        ]
+        self.assertTrue(self.own(stages, partial))
+        # A person's edit on top of that work is still somebody else's change.
+        self.assertFalse(self.own(stages, {**partial, "README.md": "d1"}))
+
+        # The packet's Builder dispatch binds the packet's revision for that tree, and the current one
+        # for a person's edit, which admission then refuses as a stale handoff.
+        packet = {"binding": {"source_revision": "r0"}}
+        for files, revision, bound in ((partial, "r3", "r0"), ({**partial, "README.md": "d1"}, "r4", "r4")):
+            current = {"head": "h", "files": files, "revision": revision}
+            with (
+                self.subTest(revision=revision),
+                patch.object(resolver_recovery.source_scope, "snapshot", return_value=current),
+            ):
+                state = {"stages": stages}
+                self.assertEqual(bound, resolver_recovery._source_revision(state, "builder", self.PACKET, packet, "ws"))
 
 
 if __name__ == "__main__":
