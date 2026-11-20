@@ -21,6 +21,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **`autocode probe` now holds the cost cap you set, exactly** (#3855, #3856, #3857): a reply with no price on record used to cost nothing, so a capped probe could launch every request and report $0.00. It is now counted at the whole allowance its run was given, and the summary says spend is uncertain. `--max-cost-usd` refuses NaN, infinity and non-positive values as a regular run does, each run's cap is rounded down to the cent, and no run starts with less than $0.01 left. A probe the cap cuts off keeps the model's earlier complete measurement and records the short attempt separately.
+
 - **Go changes are no longer held for mutants that never ran.** Go answered a mutant's tests from its test cache when a test built and ran the package's own command, so the unmutated pass was reported for each mutant; and a mutant that did not compile stayed `not_run`, so its line could never be shown tested or given a reason. Each Go mutant now runs uncached, a mutant that does not build is left out as no mutation site, and the scripted scenario Tester gives its reasons only to lines with no mutant (#3817 follow-up).
 
 - **Planning no longer asks you to approve a fix to its own plan.** When the plan contradicted itself, or held a test that could not run as written (a nine-byte HTTP/2 PING payload where the protocol takes eight), the Planner or Plan Reviewer asked you whether to correct it, with only one real answer, and an unattended run stopped there. Such a question now names the plan's criteria or milestones it is about, AutoCode records a correction request for the Planner, and you see the corrected plan for approval as usual (#3818).
