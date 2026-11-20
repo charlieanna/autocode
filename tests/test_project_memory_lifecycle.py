@@ -10,7 +10,7 @@ import unittest
 from contextlib import redirect_stderr
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import autocode_activity_log as activity_log
 import autocode_checkpoints as checkpoints
@@ -21,6 +21,7 @@ import autocode_goal_lifecycle as goals_lifecycle
 import autocode_goals as goals
 import autocode_project_memory as store
 import autocode_project_memory_lifecycle as memory
+import autocode_requirements_handoff as requirements_handoff
 import autocode_run_setup as run_setup
 import autocode_run_view as run_view
 import autocode_source_log as source_log
@@ -223,17 +224,61 @@ class ProjectMemoryLifecycleTests(unittest.TestCase):
                 )
 
     def test_requirements_history_can_tag_an_exact_old_question_but_not_a_task_or_unknown_id(self):
+        # Superseded by AC1 (#3897): a task or unknown tag is dropped and recorded, not a rejected report.
         asked = question()
         self.state["requirements_history"] = [{"report": {"open_questions": [asked]}}]
         memory.capture(self.state, {"open_questions": [], "project_conventions": [asked["id"]]})
+        self.assertEqual([asked], self.state["project_memory"]["tagged_questions"])
+        for tags in (["task:0"], ["invented"]):
+            with self.subTest(tags=tags):
+                memory.capture(self.state, {"open_questions": [], "project_conventions": tags})
+                self.assertEqual([asked], self.state["project_memory"]["tagged_questions"])
+        self.assertEqual(
+            [{"tag": tag, "reason": "names no question Requirements asked"} for tag in ("task:0", "invented")],
+            self.state["project_memory"]["discarded_tags"],
+        )
         issue(self.state, asked)
         answer(self.state, asked)
-        self.assertEqual(1, len(self.observed()["conventions"]))
+        self.assertEqual(
+            [{"question": asked["question"], "answer": "Use the existing logger."}], self.observed()["conventions"]
+        )
         frozen = copy.deepcopy(self.state["project_memory"])
-        for tags in (["task:0"], ["invented"], [{"question": "model prose"}]):
-            with self.subTest(tags=tags), self.assertRaises(ValueError):
-                memory.capture(self.state, {"open_questions": [], "project_conventions": tags})
+        with self.assertRaises(ValueError):
+            memory.capture(self.state, {"open_questions": [], "project_conventions": [{"question": "model prose"}]})
         self.assertEqual(frozen, self.state["project_memory"])
+
+    def test_ac1_unbound_tags_are_dropped_and_recorded(self):
+        keys = set(self.state)
+        memory.capture(self.state, {"open_questions": [], "project_conventions": ["task:0", "invented"]})
+        self.assertEqual([], self.state["project_memory"]["tagged_questions"])
+        self.assertEqual(
+            [
+                {"tag": "task:0", "reason": "names no question Requirements asked"},
+                {"tag": "invented", "reason": "names no question Requirements asked"},
+            ],
+            self.state["project_memory"]["discarded_tags"],
+        )
+        self.assertEqual(keys, set(self.state))
+
+    def test_discarded_tags_are_recorded_once_and_only_when_a_tag_is_discarded(self):
+        asked = self.capture()
+        self.assertNotIn("discarded_tags", self.state["project_memory"])
+        for tags in (["invented", "invented"], ["invented", asked["id"]]):
+            memory.capture(self.state, {"open_questions": [], "project_conventions": tags})
+        self.assertEqual(
+            [{"tag": "invented", "reason": "names no question Requirements asked"}],
+            self.state["project_memory"]["discarded_tags"],
+        )
+        self.assertEqual([asked], self.state["project_memory"]["tagged_questions"])
+
+    def test_ac4_malformed_conventions_are_still_rejected(self):
+        for value in ("Q1", [{"question": "model prose"}], [1]):
+            with self.subTest(value=value):
+                frozen = copy.deepcopy(self.state["project_memory"])
+                with self.assertRaises(ValueError) as raised:
+                    memory.capture(self.state, {"open_questions": [], "project_conventions": value})
+                self.assertEqual("project_conventions must contain Requirements question IDs", str(raised.exception))
+                self.assertEqual(frozen, self.state["project_memory"])
 
     def test_unsafe_and_oversized_exact_human_answers_are_omitted_without_rewriting(self):
         for text in (
@@ -644,6 +689,66 @@ class ProjectMemoryLifecycleTests(unittest.TestCase):
             status.persist(self.path, self.state)
         self.assertEqual(["evidence", "memory"], calls)
         self.assertEqual("written", util.read(self.path)["project_memory"]["publication"]["status"])
+
+
+class RequirementsAcceptanceTests(unittest.TestCase):
+    """A ready Requirements report with unbindable tags advances with no repair or model call (#3897)."""
+
+    def setUp(self):
+        self.state = {"task": "Build a greeting CLI", "settings": {}, "stages": []}
+        memory.install(self.state, {"status": "absent", "record": None, "sha256": None, "note": ""})
+
+    def report(self, tags):
+        return {
+            "summary": "Requirements for a local greeting CLI",
+            "intended_outcome": "Greet by name",
+            "ready": True,
+            "required_behaviors": ["prints Hello, NAME"],
+            "constraints": [],
+            "acceptance_tests": ["greet.py Ada prints Hello, Ada"],
+            "source_refs": [],
+            "proposed_assumptions": [],
+            "open_questions": [],
+            "requirements": [],
+            "ignored_statements": [],
+            "conflicts": [],
+            "project_conventions": tags,
+        }
+
+    def accept(self, tags):
+        queued = []
+        requirements_handoff.accept(
+            self.state,
+            self.report(tags),
+            {"output": None},
+            check_code_refs=Mock(),
+            queue=lambda *args, **kwargs: queued.append((args, kwargs)),
+        )
+        return queued
+
+    def test_ac2_empty_question_report_with_unknown_tags_advances(self):
+        queued = self.accept(["invented"])
+        self.assertEqual("draft_plan", self.state["next_stage"])
+        self.assertEqual("PLANNING", self.state["phase"])
+        self.assertNotIn("pending_report_repair", self.state)
+        self.assertEqual([], queued)
+        self.assertEqual(
+            [{"tag": "invented", "reason": "names no question Requirements asked"}],
+            self.state["project_memory"]["discarded_tags"],
+        )
+
+    def test_ac3_mixed_valid_and_unknown_tags_advance(self):
+        asked = {**question(), "id": "Q1"}
+        self.state["requirements_history"] = [{"report": {"open_questions": [asked]}}]
+        queued = self.accept(["Q1", "invented"])
+        self.assertEqual("draft_plan", self.state["next_stage"])
+        self.assertNotIn("pending_report_repair", self.state)
+        self.assertEqual([], queued)
+        self.assertEqual([asked], self.state["project_memory"]["tagged_questions"])
+        self.assertEqual(
+            [{"tag": "invented", "reason": "names no question Requirements asked"}],
+            self.state["project_memory"]["discarded_tags"],
+        )
 
 
 if __name__ == "__main__":

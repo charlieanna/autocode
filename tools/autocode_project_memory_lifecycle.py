@@ -37,6 +37,7 @@ except ImportError:
 KEY = "project_memory"
 REUSABLE_CATEGORIES = frozenset({"technical", "behavior", "other"})
 MAX_QUESTIONS = 128
+UNBOUND_TAG = "names no question Requirements asked"
 
 
 def _mapping(value):
@@ -95,6 +96,8 @@ def capture(state: RunState, report) -> None:
 
     A tag is model data. Publication still needs the exact issued clarification,
     saved human answer event and live source hash. Legacy runs import nothing.
+    A tag naming no question Requirements asked binds nothing: it is dropped and
+    recorded in ``discarded_tags`` with its reason, and the report is accepted (#3897).
     """
     memory = state.get(KEY)
     if not isinstance(memory, dict):
@@ -108,8 +111,11 @@ def capture(state: RunState, report) -> None:
         known.extend(_questions(item.get("report")))
     known.extend(_questions(report))
     known = list({util.digest(question): question for question in known}.values())[-MAX_QUESTIONS:]
-    if set(tags) - {question.get("id") for question in known}:
-        raise ValueError("project_conventions names a question Requirements did not ask")
+    asked = {question.get("id") for question in known}
+    discarded = [{"tag": tag, "reason": UNBOUND_TAG} for tag in tags if tag not in asked]
+    if discarded:
+        rows = [*_rows(memory.get("discarded_tags")), *discarded]
+        memory["discarded_tags"] = list({util.digest(row): row for row in rows}.values())[-MAX_QUESTIONS:]
     tagged = [*_rows(memory.get("tagged_questions")), *(question for question in known if question.get("id") in tags)]
     memory["questions"] = known
     memory["tagged_questions"] = list({util.digest(question): question for question in tagged}.values())[

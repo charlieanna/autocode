@@ -184,6 +184,29 @@ def matches(saved, current):
     )
 
 
+def boot_ended(saved, uptime=None) -> bool:
+    """Whether every saved process started in an earlier boot of this host, so none of it can be alive.
+
+    On Linux a birth identity is the process's start time in seconds since boot. A process that started
+    later in its boot than this boot has existed belongs to an earlier boot. That ended it and every
+    descendant, whatever the wall clock did. Unknown or wall-clock identities (macOS, receipts from before
+    #1117) prove nothing, and an earlier boot that ended before this one's uptime caught up is not claimed.
+    """
+    if not sys.platform.startswith("linux"):
+        return False
+    rows = [row for row in saved or [] if isinstance(row, dict)]
+    born = [row.get("birth_identity") for row in rows]
+    starts = [float(value) for value in born if isinstance(value, (int, float)) and not isinstance(value, bool)]
+    if not rows or len(starts) != len(born) or not all(0 < value < EPOCH_SECONDS for value in starts):
+        return False
+    if uptime is None:
+        try:
+            uptime = time.clock_gettime(time.CLOCK_BOOTTIME)
+        except (AttributeError, OSError):
+            return False
+    return all(value > uptime for value in starts)
+
+
 def live_processes(saved, table=None):
     table = process_table({p["pid"] for p in saved}) if table is None else table
     return [

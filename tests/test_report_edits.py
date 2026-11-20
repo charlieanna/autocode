@@ -292,7 +292,7 @@ class ReportEditsTests(unittest.TestCase):
                 "conflicts",
             ),
             ("unknown", {**correct, "invented": True}, "unexpected fields"),
-            ("missing", {"acceptance_criteria": []}, "each approved criterion"),
+            ("missing", {"acceptance_criteria": []}, "missing approved criterion IDs: C1; expected order: C1"),
             ("scalar", "not a report", "object"),
         ):
             with self.subTest(label=label):

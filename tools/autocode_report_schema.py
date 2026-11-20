@@ -116,6 +116,34 @@ def review_generation_schema(schema, state: RunState, stage):
 COMPLETION_STAGES = {"review_completion"}
 
 
+def _criterion_row_problem(rows, expected):
+    """The first mismatch between a review's criterion rows and the approved IDs, or "" (#3873).
+
+    One problem is named per rejection, so the report repair is told what to correct:
+    a malformed list or row, unknown IDs, repeated IDs, missing IDs, then the first
+    row out of order.
+    """
+    if not isinstance(rows, list):
+        return "Review report acceptance_criteria must be a list of criterion rows"
+    for number, row in enumerate(rows, 1):
+        if not isinstance(row, dict) or not isinstance(row.get("id"), str):
+            return f"Review report acceptance_criteria row {number} is not an object with a string id"
+    ids = [row["id"] for row in rows]
+    unknown = [ident for ident in dict.fromkeys(ids) if ident not in expected]
+    if unknown:
+        return "Review report names unknown criterion IDs: " + ", ".join(unknown)
+    repeated = [ident for ident in dict.fromkeys(ids) if ids.count(ident) > expected.count(ident)]
+    if repeated:
+        return "Review report repeats criterion IDs: " + ", ".join(repeated)
+    missing = [ident for ident in dict.fromkeys(expected) if ids.count(ident) < expected.count(ident)]
+    if missing:
+        return "Review report is missing approved criterion IDs: " + ", ".join(missing)
+    for number, (ident, approved) in enumerate(zip(ids, expected, strict=False), 1):
+        if ident != approved:
+            return f"Review report row {number} has criterion ID {ident} where {approved} belongs"
+    return ""
+
+
 def review_validation_schema(schema, state: RunState | None, record, value):
     """Validate one report shape and its full ordered IDs before report repair ends.
 
@@ -138,12 +166,10 @@ def review_validation_schema(schema, state: RunState | None, record, value):
     if stage not in COMPLETION_STAGES or not criteria or "acceptance_criteria" not in schema.get("properties", {}):
         return schema
     rows = value.get("acceptance_criteria")
-    if (
-        not isinstance(rows, list)
-        or not all(isinstance(row, dict) for row in rows)
-        or [row.get("id") for row in rows] != [row["id"] for row in criteria]
-    ):
-        raise ValueError("Review report must contain each approved criterion ID once, in order")
+    expected = [row["id"] for row in criteria]
+    problem = _criterion_row_problem(rows, expected)
+    if problem:
+        raise ValueError(problem + "; expected order: " + ", ".join(expected))
     has_text = ["criterion" in row for row in rows]
     if any(has_text) and not all(has_text):
         raise ValueError("Review report mixes ID-only and legacy criterion rows")

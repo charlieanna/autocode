@@ -2868,3 +2868,20 @@ class SampleCadenceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HostRestartObservationTests(unittest.TestCase):
+    @unittest.skipUnless(sys.platform.startswith("linux"), "start times since boot are a Linux identity")
+    def test_observe_reports_an_attempt_launched_in_an_earlier_boot(self):
+        earlier = {
+            role: {"pid": 2**22 - offset, "started": "earlier boot", "birth_identity": 5e8 + offset}
+            for offset, role in enumerate(("owner", "keeper", "provider"))
+        }
+        observed = supervision.observe({"schema": 1, "nonce": "a" * 32, "receipt": "/missing", **earlier})
+        self.assertIs(True, observed["boot_ended"])
+        self.assertFalse(any(observed[role]["alive"] for role in earlier))
+        mine = processes.identity(processes.process_table({os.getpid()})[os.getpid()])
+        current = {**earlier, "owner": mine}
+        self.assertNotIn(
+            "boot_ended", supervision.observe({"schema": 1, "nonce": "a" * 32, "receipt": "/missing", **current})
+        )
