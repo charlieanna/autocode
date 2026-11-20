@@ -85,6 +85,22 @@ _CHECK_REF_RE = re.compile(r"\bcheck:(\d+)\b")
 _EVIDENCE_JSON_RE = re.compile(r"(?<![A-Za-z0-9_./-])(?:\./)?(\.autocode/evidence/[A-Za-z0-9_./-]+\.json)\b")
 
 
+def _conversation_schema(schema: dict[str, Any]) -> bool:
+    """A saved-message reply is a different report contract from its role's report.
+
+    Read the actual identity-bound wire schema, including routed variants. A
+    full Requirements report may also have assistant_reply; that alone does
+    not make it a conversation. No provider-specific schema annotation is needed.
+    """
+    properties, required = schema.get("properties") or {}, schema.get("required") or []
+    return (
+        schema.get("type") == "object"
+        and schema.get("additionalProperties") is False
+        and all(key in properties and key in required for key in ("message_id", "intent", "assistant_reply"))
+        and any(key in properties and key in required for key in ("gate_token", "contract_token"))
+    )
+
+
 def build_spec(
     *,
     stage: str,
@@ -99,7 +115,7 @@ def build_spec(
         "workspace": str(workspace),
         "schema": schema,
     }
-    if state is None:
+    if state is None or _conversation_schema(schema):
         return spec
     if stage in acceptance_test_repair.ALL_STAGES:
         spec["covered_acceptance_cases"] = sorted(acceptance_tests.covered(state))
@@ -362,6 +378,11 @@ def check_report(raw_text: str, *, spec: dict[str, Any]) -> list[str]:
             return [str(exc)]
     if not isinstance(data, dict):
         return ["Report JSON must be an object"]
+    if isinstance(schema, dict) and _conversation_schema(schema):
+        # Schema validation above still checks the exact offered fields and
+        # identity enums. The conversation owner checks its current binding
+        # and restores the checkpoint; full-stage evidence is not its payload.
+        return []
     errors: list[str] = []
     workspace_raw = str(spec.get("workspace") or "")
     workspace = Path(workspace_raw) if workspace_raw else Path()

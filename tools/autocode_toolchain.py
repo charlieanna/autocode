@@ -17,10 +17,12 @@ try:
     from . import autocode_elf_dependencies as elf
     from . import autocode_macho_dependencies as macho
     from . import autocode_python_entrypoints as python_entrypoints
+    from . import autocode_tool_shell as tool_shell
 except ImportError:
     import autocode_elf_dependencies as elf
     import autocode_macho_dependencies as macho
     import autocode_python_entrypoints as python_entrypoints
+    import autocode_tool_shell as tool_shell
 
 
 def _binary_dependencies(tool):
@@ -129,10 +131,13 @@ def discover(workspace, commands, environment):
             continue
         if family in ("sh", "bash"):
             # Approvals may use the documented shell negative-control form.
-            # Only the fixed native system shells qualify, never a PATH shim
+            # Only the fixed native shells qualify, never a PATH shim
             # or project script with a shell's name. Probes run in containment.
             # A merged-/usr Linux resolves /bin/<shell> into /usr/bin; the same file qualifies.
-            if tool != (Path("/bin") / family).resolve():
+            approved = {(Path("/bin") / family).resolve()}
+            if family == "bash":
+                approved.add(tool_shell.executable())
+            if tool not in approved:
                 raise RuntimeError(f"Contained toolchain discovery requires the native system shell: {name}")
             paths.update(_binary_dependencies(tool))
             probes.append(shlex.join([str(original), "-c", ":"]))

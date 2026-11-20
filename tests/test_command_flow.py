@@ -171,6 +171,39 @@ class ConfigToolFlow(unittest.TestCase):
         )
         self.assertEqual("Autocode project baseline", baseline.stdout.strip())
 
+    def requirements_answer_flow(self, *, answer="CLI", unattended=False):
+        self.configure_fixture(track_invocations=True)
+        result = self.launch(
+            *(["--no-chat", "--skip-requirements"] if unattended else ["--chat"]),
+            "Build a greeting tool",
+            answers="" if unattended else answer + "\n",
+        )
+        self.assertEqual(2, result.returncode, result.stdout + result.stderr)
+        run = next((self.project / ".autocode/runs").iterdir())
+        status = self.launch("--run-dir", str(run), "--status", "--json")
+        self.assertEqual(0, status.returncode, status.stdout + status.stderr)
+        view = json.loads(status.stdout)["view"]
+        self.assertEqual("approve_plan", view["needs"]["kind"], view.get("needs"))
+        self.assertEqual("build", view["workflow"])
+        calls = (run / "invocations.txt").read_text().splitlines()
+        self.assertEqual(2, calls.count("requirements_gather"), calls)
+        self.assertLess(calls.index("requirements_gather", 1), calls.index("draft_plan"), calls)
+        self.assertNotIn("builder", calls)
+        self.assertFalse((self.project / "greet.py").exists(), "answering does not approve implementation")
+
+    def test_inline_answer_refreshes_requirements_before_planning(self):
+        self.requirements_answer_flow()
+
+    def test_inline_default_refreshes_requirements_before_planning(self):
+        self.requirements_answer_flow(answer="/default")
+
+    def test_packaged_inline_answer_refreshes_requirements_before_planning(self):
+        self.entry = [sys.executable, "-m", "autocode_cli.autocode"]
+        self.requirements_answer_flow()
+
+    def test_delegated_defaults_refresh_requirements_before_planning(self):
+        self.requirements_answer_flow(unattended=True)
+
     def test_a_chat_in_a_folder_that_is_not_a_repository_names_the_project_it_moved_into(self):
         self.configure_fixture()
         selected = self.root / "no-repository"
