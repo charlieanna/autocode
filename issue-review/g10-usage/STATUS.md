@@ -5,4 +5,4 @@ The starting handoff file was unavailable in the branch tree and project workspa
 - Focused tests passed on the branch: 102 tests across concurrent user stores, preflight, route identity and usage grouping.
 - Two route-grouping regressions fail on master `73e7e284e` and pass on this branch.
 - Ruff check and format check passed for `tools/ tests/ scenarios/`. Mypy passed for all changed runtime modules.
-- A process-supervised focused and architecture run is in progress, followed by PR and `ci-required` verification.
+- The process-supervised focused and architecture run passed 120 tests. PR #3968 is open and awaiting `ci-required`.
