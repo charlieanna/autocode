@@ -274,6 +274,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "tools/prompts/fragments/goals/job-type-policy.md",
         ("tests.test_planning_scope_discipline",),
     ),
+    ("tools/autocode_acceptance_policy.py", ("tests.test_planning_scope_discipline",)),
     ("tools/autocode_legacy_process.py", ("tests.test_json_status_observer_cli",)),
     (
         "tools/autocode_saved_names.py",
