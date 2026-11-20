@@ -15,6 +15,7 @@ try:
     from . import autocode_output_filter as filters
     from . import autocode_output_store as store
     from . import autocode_receipts as receipts
+    from . import autocode_run_identity as run_identity
     from .autocode_output import representation
     from .autocode_util import atomic_json
 except ImportError:
@@ -23,6 +24,7 @@ except ImportError:
     import autocode_output_filter as filters
     import autocode_output_store as store
     import autocode_receipts as receipts
+    import autocode_run_identity as run_identity
     from autocode_output import representation
     from autocode_util import atomic_json
 
@@ -85,10 +87,21 @@ def cli(argv=None, *, formatter=filters.compact_output):
             parser.error("invalid runner capture context")
     cwd = Path.cwd().resolve()
     project = project_evidence_root(args.output, cwd)
-    path = (project.parent / args.output).resolve() if project else args.output.resolve()
+    addressed = (project.parent / args.output) if project else Path(os.path.abspath(args.output))
+    path = addressed.resolve()
     roots = [*evidence_roots(cwd), *([project] if project else [])]
     if not any(path.is_relative_to(root) for root in roots):
         parser.error("evidence output must be under this project's .autocode directory")
+    # #3892: an output aimed inside .autocode/runs/<id>/ where <id> is not an existing run would
+    # create a run-shaped directory no run owns and run the command before anything notices. The
+    # addressed id is read from the path before symlink resolution, so a runs/<alias> symlink to a
+    # real run is refused too; the resolved path is checked as well, so an alias reached the other
+    # way around cannot smuggle an output into a run-shaped directory either.
+    refusal = run_identity.output_refusal(addressed, roots, capture_context) or run_identity.output_refusal(
+        path, roots, capture_context
+    )
+    if refusal:
+        parser.error(refusal)
     path.parent.mkdir(parents=True, exist_ok=True)
     raw = path.with_suffix(".log")
     if raw == path:
