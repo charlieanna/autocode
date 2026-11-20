@@ -108,7 +108,9 @@ def prepare(root: Path, *, install_jdk: bool = False) -> dict:
     result = subprocess.run(command, cwd=prime, env=environment, capture_output=True, text=True, timeout=300)
     (root / "setup.log").write_text(result.stdout + result.stderr)
     if result.returncode:
-        raise RuntimeError(f"Pinned Maven setup exited {result.returncode}; see {root / 'setup.log'}")
+        raise RuntimeError(
+            f"Pinned Maven setup exited {result.returncode}; see {root / 'setup.log'}\n" + result.stdout + result.stderr
+        )
     metadata = {
         "bin": str(bindir),
         "java_home": str(java),

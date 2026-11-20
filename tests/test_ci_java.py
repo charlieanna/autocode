@@ -10,10 +10,12 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import ci_java
 import ci_test_selection
+
+from scenarios.harness import java_toolchain
 
 
 class JavaAdmissionTests(unittest.TestCase):
@@ -95,6 +97,9 @@ class JavaAdmissionTests(unittest.TestCase):
 class WorkflowAdmissionTests(unittest.TestCase):
     def test_workflow_edits_select_the_installed_toolchain_contract(self):
         self.assertIn("tests.test_ci_java", ci_test_selection.dependencies(".github/workflows/tests.yml"))
+
+    def test_scenario_toolchain_edits_select_the_setup_diagnostic_contract(self):
+        self.assertIn("tests.test_ci_java", ci_test_selection.dependencies("scenarios/harness/java_toolchain.py"))
 
     @unittest.skipIf(os.name == "nt", "The Ubuntu Java admission step runs POSIX tools")
     def test_workflow_executes_installed_tools_and_publishes_their_validated_versions(self):
@@ -184,3 +189,30 @@ class WorkflowAdmissionTests(unittest.TestCase):
                 self.assertIn("CalledProcessError", result.stderr)
                 self.assertFalse(env_file.exists())
                 self.assertFalse(path_file.exists())
+
+
+class ScenarioToolchainTests(unittest.TestCase):
+    def test_failed_maven_setup_keeps_its_output_in_the_error_and_log(self):
+        for stdout, stderr in (("[ERROR] dependency resolution failed\n", ""), ("", "compiler setup failed\n")):
+            with self.subTest(stdout=stdout, stderr=stderr), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                (root / f"apache-maven-{java_toolchain.MAVEN}/bin").mkdir(parents=True)
+                (root / f"apache-maven-{java_toolchain.MAVEN}/bin/mvn").touch()
+                java = root / "jdk"
+                (java / "bin").mkdir(parents=True)
+                run = Mock(
+                    side_effect=[
+                        subprocess.CompletedProcess([], 0, "javac 17.0.16\n", ""),
+                        subprocess.CompletedProcess([], 7, stdout, stderr),
+                    ]
+                )
+                with (
+                    patch.dict(os.environ, {"JAVA_HOME": str(java)}),
+                    patch.object(java_toolchain.subprocess, "run", run),
+                    self.assertRaises(RuntimeError) as error,
+                ):
+                    java_toolchain.prepare(root)
+                self.assertIn("Pinned Maven setup exited 7", str(error.exception))
+                self.assertIn((stdout + stderr).strip(), str(error.exception))
+                self.assertEqual(stdout + stderr, (root / "setup.log").read_text())
+                self.assertFalse((root / "toolchain.json").exists(), "a failed setup never publishes success")
