@@ -388,12 +388,7 @@ class VisualProfileTests(unittest.TestCase):
                     self.assertFalse(visual.completion_allowed(self.state, current_snapshot=snapshot))
                     self.assertFalse(Path(context["audit_path"]).exists())
 
-    def test_real_production_worker_preserves_activity_and_image_order_at_dispatch(self):
-        if os.uname().sysname != "Darwin" or not Path("/usr/bin/sandbox-exec").is_file():
-            self.skipTest("Production read-only containment requires real macOS Seatbelt")
-        # The owned executable only implements version/debug and a launch probe.
-        # The actual adapter, worker builder, kernel policy and visual authority
-        # run unchanged. This is not native SDK or model/image acceptance proof.
+    def production_client(self):
         script = r"""
 import hashlib, json, os, pathlib, subprocess, sys
 args = sys.argv[1:]
@@ -402,7 +397,7 @@ if args == ['--version']:
 elif args[:2] == ['debug', 'agent']:
     config = json.loads(os.environ['OPENCODE_CONFIG_CONTENT'])
     permission = config['agent'][args[2]]['permission']
-    rules = [] if 'bash' in permission else [
+    rules = [
         {'permission': 'bash', 'pattern': '*', 'action': 'allow'}]
     for name, value in permission.items():
         for pattern, action in (value.items() if isinstance(value, dict) else [('*', value)]):
@@ -433,6 +428,44 @@ else:
 """
         self.executable.write_text("#!" + sys.executable + "\n" + script)
         self.executable.chmod(0o700)
+
+    def test_owned_client_keeps_native_defaults_before_explicit_shell_restrictions(self):
+        import fnmatch
+
+        self.production_client()
+        cases = (
+            ({}, {"echo hello": "allow"}),
+            ({"bash": {"git push *": "deny"}}, {"echo hello": "allow", "git push origin": "deny"}),
+            ({"bash": {"*": "deny", "echo safe": "allow"}}, {"echo safe": "allow", "echo other": "deny"}),
+            ({"bash": {"echo *": "ask"}}, {"echo hello": "ask", "git status": "allow"}),
+            ({"*": "deny", "bash": {"echo safe": "allow"}}, {"echo safe": "allow", "git status": "deny"}),
+        )
+        for permission, expected in cases:
+            with self.subTest(permission=permission):
+                config = {"agent": {"fixture": {"permission": permission}}}
+                result = subprocess.run(
+                    [sys.executable, str(self.executable), "debug", "agent", "fixture"],
+                    env={**os.environ, "OPENCODE_CONFIG_CONTENT": json.dumps(config)},
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=True,
+                )
+                rules = json.loads(result.stdout)["permission"]
+                for command, wanted in expected.items():
+                    effective = None
+                    for rule in rules:
+                        if rule["permission"] in ("bash", "*") and fnmatch.fnmatchcase(command, rule["pattern"]):
+                            effective = rule["action"]
+                    self.assertEqual(wanted, effective, (command, rules))
+
+    def test_real_production_worker_preserves_activity_and_image_order_at_dispatch(self):
+        if os.uname().sysname != "Darwin" or not Path("/usr/bin/sandbox-exec").is_file():
+            self.skipTest("Production read-only containment requires real macOS Seatbelt")
+        # The owned executable only implements version/debug and a launch probe.
+        # The actual adapter, worker builder, kernel policy and visual authority
+        # run unchanged. This is not native SDK or model/image acceptance proof.
+        self.production_client()
         clean = {
             "PATH": str(self.executable.parent) + ":/usr/bin:/bin",
             "HOME": str(self.root / ".autocode" / "production-home"),
