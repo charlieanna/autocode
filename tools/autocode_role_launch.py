@@ -45,6 +45,7 @@ try:
     from . import autocode_report_check as report_check
     from . import autocode_resolver_recovery as resolver_recovery
     from . import autocode_resolver_runtime as resolver_runtime
+    from . import autocode_response_language as response_language
     from . import autocode_reviewer_fallback as reviewer_fallback
     from . import autocode_source_diff as source_diff
     from . import autocode_source_scope as source_scope
@@ -82,6 +83,7 @@ except ImportError:
     import autocode_report_check as report_check
     import autocode_resolver_recovery as resolver_recovery
     import autocode_resolver_runtime as resolver_runtime
+    import autocode_response_language as response_language
     import autocode_reviewer_fallback as reviewer_fallback
     import autocode_source_diff as source_diff
     import autocode_source_scope as source_scope
@@ -110,7 +112,8 @@ def prepare_schema_and_report_check(
     native,
     save,
 ):
-    """Bind per-stage schemas and stage a public report-check spec in planning/ for live launches."""
+    """Prepare shared instructions and schemas before provider-specific prompt sealing."""
+    prompt = response_language.apply(prompt)
     if not report_only and original_stage in ("tester", "review_completion", "review_checkpoint", "resolve"):
         bound_schema = support.review_generation_schema(support.read(schema), state, original_stage)
         schema = base.with_suffix(".schema.json")

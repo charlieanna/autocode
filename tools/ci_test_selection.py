@@ -138,6 +138,22 @@ SCENARIO_SELECTION_INPUTS = {
 # Prefixes deliberately include resource fragments, whose callers generally do
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    *(
+        (
+            path,
+            (
+                "tests.test_response_language",
+                "tests.test_role_launch",
+                "tests.test_provider_launch",
+                "tests.test_native_image",
+                "tests.test_native_report_repair",
+            ),
+        )
+        for path in (
+            "tools/autocode_response_language.py",
+            "tools/prompts/fragments/support/response-language.md",
+        )
+    ),
     ("tests/operational_fixtures.py", OPERATIONAL_CONSUMERS),
     (
         "tools/ci_tested_source.py",

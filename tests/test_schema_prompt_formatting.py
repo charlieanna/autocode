@@ -243,7 +243,7 @@ class RequirementsPromptModeTests(unittest.TestCase):
         packet = json.loads(rendered.split("\nCURRENT HANDOFF DATA\n", 1)[1])
         self.assertEqual(self.task, packet["task"])
         instruction = rendered.split("\nCURRENT HANDOFF DATA\n", 1)[0]
-        self.assertEqual(1, instruction.count("clear, correctly spelled English"))
+        self.assertEqual(1, instruction.count("clear, correctly spelled prose"))
         self.assertIn("instead of quoting their typos or shorthand", instruction)
         self.assertIn("literal values, scope, negation", instruction)
         self.assertIn("source_quote evidence verbatim", instruction)

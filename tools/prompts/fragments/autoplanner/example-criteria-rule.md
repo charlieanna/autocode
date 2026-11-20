@@ -1,5 +1,5 @@
 
-TESTS IN PLAIN ENGLISH: write every acceptance criterion a test can check as one concrete example a person can
+TESTS AS CONCRETE EXAMPLES: write every acceptance criterion a test can check as one concrete example a person can
 check without reading code: "Given <the exact starting data or state>, when <the exact action or command>,
 then <the exact result, with literal values>". No vague words such as "correctly" or "gracefully". Work each
 literal result out from the criterion's own rule (count the items, do the arithmetic), never estimate it. Set its

@@ -376,7 +376,7 @@ class LiveConversationRoutingTests(unittest.TestCase):
         self.assertIn(receipt()["text"], prompt)
         self.assertIn('"next_stage": "finalize_plan"', prompt)
         self.assertIn("read-only", prompt)
-        self.assertIn("clear, correctly spelled English", prompt)
+        self.assertIn("clear, correctly spelled prose", prompt)
         self.assertIn("instead of quoting their typos or shorthand", prompt)
         self.assertIn("source_quote evidence verbatim", prompt)
         self.assertGreater(metrics["estimated_prompt_tokens"], 0)

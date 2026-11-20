@@ -1745,7 +1745,10 @@ class RepairTests(unittest.TestCase):
         self.state["settings"]["engine"] = "opencode"
         self.queue()
         initial = copy.deepcopy(self.state)
-        prompt = self.repair_request()["prompt"]
+        # Put all shared launch instructions just below the cap, so provider
+        # schema decoration crosses it. The final guard must still refuse
+        # before launching, with every instruction counted.
+        prompt = runner.role_launch.response_language.apply(self.repair_request()["prompt"])
         self.state = copy.deepcopy(initial)
         padding = runner.REPAIR_HANDOFF_BYTES - len(prompt.encode("utf-8")) - 1
         self.state["acceptance_criteria"][0]["criterion"] += "x" * padding
@@ -1765,6 +1768,7 @@ class RepairTests(unittest.TestCase):
         schema_prompt.assert_called_once()
         args = schema_prompt.call_args.args
         self.assertEqual(runner.REPAIR_HANDOFF_BYTES - 1, len(args[0].encode("utf-8")))
+        self.assertIn(runner.role_launch.response_language.RULE, args[0])
         self.assertGreater(len(decorate(*args).encode("utf-8")), runner.REPAIR_HANDOFF_BYTES)
         launch.assert_not_called()
         self.assertFalse(Path(args[2]).with_suffix(".prompt.md").exists())
