@@ -30,10 +30,25 @@ policy reaches provider adaptation before prompt sealing. Packaged imports load
 the same resource. The 58 changed golden renderings were compared against master
 and contained only the seven intended language-wording substitutions.
 
-Live verification is in progress in the isolated VS Code project
-`language-fixture`, run `20261119-155028-vscode-5789d5`, using the saved Kilo
-GLM-5.3 and independent GPT-6 routes. Limits are 5,400 active seconds, 900 seconds
-per stage and 240 idle seconds, with `--max-cost-usd 0`. The task combines English
-instructions with Unicode names and exact output strings. Requirements has
-produced an English reply with those literals intact. Plan approval, execution,
-independent verification and a final editor inspection are still required.
+The bounded live task in the isolated VS Code project `language-fixture`, run
+`20261119-155028-vscode-5789d5`, used the saved Kilo GLM-5.3 and independent
+GPT-6 routes. It was configured for 5,400 active seconds, 900 seconds per stage
+and 240 idle seconds, with `--max-cost-usd 0`. Its English request combined
+Unicode names with exact greeting strings. Requirements, two automatic report
+repairs and the canonical plan retained English and the exact Unicode literals.
+GPT-6 Sol independently approved the plan. The operating agent reviewed its full
+terms and approved revision 2 under owner delegation, token
+`r2:0bd40f7b0108bc56a34b87d117bffd3a89b8f6b326816d63ba3d1757d0431d72`;
+the review Markdown hashes to
+`2d15a63cc090f14b4212bb94b01de1880341e8cf1138a538070f7845a24a74b0`.
+This records the planning checkpoint, not a claim that execution or final editor
+verification passed. Subsequent run outcomes and exact-head CI are recorded in
+PR #3909's maintained verification evidence.
+
+The affected local selection passed 58 modules but exceeded an operator-set
+300-second deadline on the repair module. That module passed all 122 tests on
+master in 340 seconds; the candidate exposed one boundary fixture that omitted
+the new shared guidance from its size calculation. Counting that guidance in
+the fixture keeps the exact 256 KiB production cap and the refusal-before-launch
+assertions intact. All 113 repair unit tests pass after that fixture correction;
+the nine public CLI checks passed in the earlier full-module run.
