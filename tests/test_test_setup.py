@@ -263,6 +263,11 @@ def base_results(*, failed=(), unloaded=(), setup=None, complete=True):
 class SharedSetupAnswerTests(unittest.TestCase):
     """One answer for "is this base failure a setup error that cannot count as evidence" (#3926)."""
 
+    def test_new_behavior_does_not_count_an_unrelated_missing_dependency_as_a_behavioral_failure(self):
+        reason = "The test could not import its dependency on base: No module named 'external_dependency'"
+        results = base_results(failed=[SELECTED], setup={SELECTED: reason})
+        self.assertEqual({SELECTED: reason}, test_setup.not_evidence(results, new_behavior=True))
+
     def test_a_bug_fix_excludes_setup_errors_and_new_behavior_excludes_none(self):
         reason = "The test could not import its dependency on base: cannot import name 'dumps_version'"
         results = base_results(failed=[SELECTED], setup={SELECTED: reason})
