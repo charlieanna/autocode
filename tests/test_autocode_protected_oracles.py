@@ -549,6 +549,7 @@ class UndeterminedReplayTests(unittest.TestCase):
             "timed_out": False,
             "results": None,
             "results_expected": True,
+            "results_file_written": False,
             "tail": "collecting\n/usr/bin/python3: No module named pytest\n",
         }
         for name, receipts, outcome in (

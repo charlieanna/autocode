@@ -212,11 +212,13 @@ def per_test_results(
 def _pytest_abort(receipt, internal) -> dict | None:
     """``{"exit_code", "diagnostic"}`` when a pytest session aborted, else None (#3895).
 
-    pytest exits 3 on an internal error and 4 on a usage error (a missing test file); it may also report an
-    abort as its synthetic ``pytest::internal`` testcase. The tests that finished before the abort keep their
-    outcomes, but the session is incomplete. An exit-2 collection interruption keeps its collection errors."""
+    pytest exits 3 on an internal error; it may also report an abort as its synthetic ``pytest::internal``
+    testcase. The tests that finished before the abort keep their outcomes, but the session is incomplete. An
+    exit-2 collection interruption keeps its collection errors. Exit 4 (a usage error, such as a selected test
+    path that does not exist) ran no test and is not an abort: a base where a new test file or component does
+    not exist yet reports it, and it has no passing test to preserve."""
     exit_code = (receipt or {}).get("exit_code")
-    if internal is None and exit_code not in (3, 4):
+    if internal is None and exit_code != 3:
         return None
     text = ""
     if internal is not None:

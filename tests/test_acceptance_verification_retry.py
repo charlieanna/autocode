@@ -404,6 +404,7 @@ class AcceptanceVerificationRetryTests(unittest.TestCase):
             "timed_out": False,
             "results": None,
             "results_expected": True,
+            "results_file_written": False,
             "tail": "/usr/bin/python3: No module named pytest",
         }
 

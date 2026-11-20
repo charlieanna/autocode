@@ -9,6 +9,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import autocode_check_outcome as check_outcome
 import autocode_test_framework as test_framework
 import autocode_test_results as test_results
 import autocode_verify_judgment as judgment
@@ -159,7 +160,7 @@ class IncompleteCheckOutcomeTests(unittest.TestCase):
         self.assertEqual(3, results["aborted"]["exit_code"])
         self.assertIn("RuntimeError: plugin crashed", results["aborted"]["diagnostic"])
 
-    def test_ac8_pytest_usage_error_exit_4_is_incomplete(self):
+    def test_ac8_pytest_usage_error_exit_4_is_not_an_aborted_session(self):
         log = self.root / "pytest.log"
         log.write_text("collecting ...\nERROR: file or directory not found: tests/test_missing.py\n")
         receipt = {
@@ -169,10 +170,53 @@ class IncompleteCheckOutcomeTests(unittest.TestCase):
             "tail": "ERROR: file or directory not found: tests/test_missing.py",
         }
         results = self.parse(EMPTY_XML, receipt)
-        self.assertIs(False, results["complete"])
+        # A usage error ran no test: it is not an aborted session. A base where a new test file or
+        # component does not exist yet reports exactly this, and has no passing test to preserve.
         self.assertEqual(0, results["total"])
-        self.assertEqual(4, results["aborted"]["exit_code"])
-        self.assertIn("file or directory not found: tests/test_missing.py", results["aborted"]["diagnostic"])
+        self.assertNotIn("aborted", results)
+
+    def test_a_started_runner_that_cannot_load_a_test_module_failed(self):
+        """unittest exits 1 on an import-time error and names no results file: its test is defective, and
+        the existing test-correction path follows (#3877). Only a runner told to write a results file that
+        wrote none did not start."""
+        load_failure = {
+            "exit_code": 1,
+            "timed_out": False,
+            "results": None,
+            "results_expected": True,
+            "tail": "unittest.case.SkipTest: product disabled",
+        }
+        self.assertEqual(check_outcome.FAILED, check_outcome.classify(load_failure)["outcome"])
+        wrote = {**load_failure, "results_file_written": True}
+        self.assertEqual(check_outcome.FAILED, check_outcome.classify(wrote)["outcome"])
+        none = {**load_failure, "results_file_written": False}
+        self.assertEqual(check_outcome.RUNNER_NOT_STARTED, check_outcome.classify(none)["reason"])
+
+    def test_a_real_runner_that_cannot_start_writes_no_results_file(self):
+        """The receipt records whether the results file the command was told to write exists, so a
+        pytest that cannot be imported reads as not started, and one that started does not."""
+        import subprocess
+        import sys
+
+        import autocode_verify as verify
+
+        (self.root / "tests").mkdir()
+        (self.root / "tests" / "test_a.py").write_text("def test_one():\n    assert True\n")
+        bare = self.root / "bare"
+        subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(bare)], check=True)
+        cases = [(str(bare / "bin" / "python"), check_outcome.UNDETERMINED, False)]
+        if subprocess.run([sys.executable, "-c", "import pytest"], capture_output=True).returncode == 0:
+            cases.append((sys.executable, check_outcome.PASSED, True))
+        for python, outcome, written in cases:
+            with self.subTest(python=python):
+                command = f"{python} -m pytest -q tests"
+                evidence = self.root / ("evidence-" + str(written))
+                evidence.mkdir()
+                receipt = verify.run_suite(
+                    verify.Framework("pytest", command), command, self.root, evidence, "suite", timeout=120
+                )
+                self.assertIs(written, receipt["results_file_written"])
+                self.assertEqual(outcome, check_outcome.classify(receipt)["outcome"])
 
     def test_ac9_aborted_base_reports_incomplete_preservation_evidence(self):
         aborted = {"exit_code": 3, "timed_out": False, "tail": "INTERNALERROR> RuntimeError: plugin crashed"}
@@ -390,6 +434,7 @@ class IncompleteCheckOutcomeTests(unittest.TestCase):
             "timed_out": False,
             "results": None,
             "results_expected": True,
+            "results_file_written": False,
             "tail": "Traceback\n/usr/bin/python3: No module named pytest\n",
         }
         unsupervised = {

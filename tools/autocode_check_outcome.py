@@ -7,8 +7,9 @@ a product or test defect, so AutoCode gave a wrong verdict or sent paid work to 
 acceptance-test recovery read this one classification instead of each keeping a predicate of its own.
 
 It decides only from what the receipt shows: the ``timed_out`` flag, ``exit_code``, ``error``, supervision
-completeness (autocode_command_receipt.completed), ``results_expected``, the per-test results and the
-parser's ``aborted`` marker. It never keys on a runner or a language. An undetermined outcome never passes:
+completeness (autocode_command_receipt.completed), ``results_expected``, whether the results file the
+command was told to write exists (``results_file_written``), the per-test results and the parser's
+``aborted`` marker. It never keys on a runner or a language. An undetermined outcome never passes:
 it only stops being reported as a product or test failure.
 """
 
@@ -112,7 +113,14 @@ def classify(receipt) -> dict:
             f": {diagnostic}" if diagnostic else ""
         )
         return _result(UNDETERMINED, SESSION_ABORTED, detail, recorded)
-    if results is None and receipt.get("results_expected") and exit_code not in (0, None):
+    if (
+        results is None
+        and receipt.get("results_expected")
+        and receipt.get("results_file_written") is False
+        and exit_code not in (0, None)
+    ):
+        # Only a runner told to write a results file, that wrote none, did not start. A runner that started and
+        # could not load a test module (unittest exits 1 on an import-time error) failed: its test is defective.
         line = _last_line(receipt.get("tail"))
         detail = f"could not start its test runner (exit {exit_code})" + (f": {line}" if line else "")
         return _result(UNDETERMINED, RUNNER_NOT_STARTED, detail)
