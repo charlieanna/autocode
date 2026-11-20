@@ -843,6 +843,10 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tools/autocode_plan_file.py", "tools/autocode_run_view.py"),
         ("tests.test_plan_review_cli", "tests.test_plan_overview"),
     ),
+    (
+        ("tools/autocode_plan_file.py", "tools/autocode_plan_command.py"),
+        ("tests.test_acceptance_tests",),
+    ),
     (("tools/autocode_visual_protection.py",), ("tests.test_native_rework_transport",)),
     (
         (
