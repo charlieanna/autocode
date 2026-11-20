@@ -29,6 +29,7 @@ from pathlib import Path
 
 try:
     from . import autocode_captured_process as captured
+    from . import autocode_context as handoff_context
     from . import autocode_native_conformance as native_conformance
     from . import autocode_person_text as person_text
     from . import autocode_tool_shell as tool_shell
@@ -37,6 +38,7 @@ try:
     from .autocode_source_privacy import SECRET_NAME
 except ImportError:
     import autocode_captured_process as captured
+    import autocode_context as handoff_context
     import autocode_native_conformance as native_conformance
     import autocode_person_text as person_text
     import autocode_tool_shell as tool_shell
@@ -486,7 +488,9 @@ def private_run_reads(workspace, run_dir):
     Unreadable, in this order: the workspace's whole run store (``.autocode/runs``: this run's
     state, events and receipts, and every sibling run, whatever its name), then each PRIVATE_STORES
     directory that exists now. Only this run's ``planning/`` directory, the immutable predecessor
-    artifacts and deltas the planner is handed, is read back in. A readable path is only an
+    artifacts and deltas the planner is handed, and its context artifacts directory, where the
+    handoff keeps whole what it sends only in summary and names by path for the stage to read
+    (autocode_context.archive_directory, #3907), are read back in. A readable path is only an
     exception to this denial, never a grant: the rest of ``.autocode`` (project settings, retained
     design inputs, capture bundles, the shared evidence and output areas, launches' control
     directories) and the workspace keep their ordinary read-only authority.
@@ -515,7 +519,7 @@ def private_run_reads(workspace, run_dir):
     return {
         "run_dir": str(run),
         "denied": [str(path) for path in (store, *stores)],
-        "readable": [str(_path(run / "planning"))],
+        "readable": [str(_path(run / "planning")), str(_path(handoff_context.archive_directory(run)))],
     }
 
 

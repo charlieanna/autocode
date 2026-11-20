@@ -176,6 +176,8 @@ def select(paths: list[str], *, full: bool = False) -> dict[str, bool]:
             "tools/autocode_roles.py",
             "tools/autocode_usage.py",
             "tools/autocode_progress_view.py",
+            # The Extension Host suite's offline run (#3860).
+            "tests/provider_auth_fixture.py",
         ):
             selected["extension"] = True
         if path.startswith(("tools/autocode_visual", "tools/autocode_image", "tests/test_visual", "tests/test_image")):

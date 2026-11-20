@@ -9,6 +9,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 
 /** What a CLI call returned. Mirrors the fields `TaskRun` keeps for a caller. */
 export interface CliResult {
@@ -113,6 +114,82 @@ export const STATUS_TIMEOUT_MS = 30_000;
 /** A stage list lists the backend's models: seconds on OpenCode. After this the read fails and says so. */
 export const STAGES_TIMEOUT_MS = 60_000;
 
+/** A public read that takes longer than this writes its phases to the read log (#3849). */
+export const READ_SLOW_MS = 5000;
+
+/** Where slow and deadline-missing reads write their phases: the extension's output channel. */
+export interface ReadLog {
+  appendLine(line: string): void;
+}
+
+let readLog: ReadLog | undefined;
+
+/** Set (or, with undefined, clear) the log that slow reads write their phases to. */
+export function setReadLog(sink: ReadLog | undefined): void {
+  readLog = sink;
+}
+
+/**
+ * When each phase of one public read happened, in Date.now() milliseconds.
+ *
+ * A slow read is diagnosable only by which phase took the time: the process start, the
+ * core's first byte, its exit, or the pipes closing after it (#3849).
+ */
+class ReadPhases {
+  private readonly started = Date.now();
+  private spawned?: number;
+  private firstOutput?: number;
+  private exited?: number;
+  private closed?: number;
+  private delivered?: number;
+  private missed?: number;
+  private reported = false;
+
+  constructor(private readonly args: string[]) {}
+
+  spawn(): void { this.spawned = Date.now(); }
+  output(): void { this.firstOutput ??= Date.now(); }
+  exit(): void { this.exited ??= Date.now(); }
+
+  /** The pipes closed: a reader that missed its deadline is collected now, so say how it ended. */
+  close(): void {
+    this.closed ??= Date.now();
+    this.collected();
+  }
+
+  /** The read's result reached its caller; a slow one writes its phases. */
+  deliver(): void {
+    this.delivered = Date.now();
+    if (this.delivered - this.started > READ_SLOW_MS) {
+      this.write(`AutoCode read slow (${this.delivered - this.started}ms)`);
+    }
+  }
+
+  /** The deadline passed with the reader still running: write the phases so far. */
+  miss(timeoutMs: number): void {
+    this.missed = timeoutMs;
+    this.write(`AutoCode read missed its ${timeoutMs}ms deadline`);
+  }
+
+  /** A reader that missed its deadline has ended: write its full phases once. */
+  collected(): void {
+    if (this.missed === undefined || this.reported) return;
+    this.reported = true;
+    this.write(`AutoCode read that missed its ${this.missed}ms deadline ended`);
+  }
+
+  private write(headline: string): void {
+    const at = (time: number | undefined): string => (time === undefined ? "-" : `${time - this.started}ms`);
+    const line = `${headline}: ${this.args.join(" ")} | spawned ${at(this.spawned)}, first output ${at(this.firstOutput)}, `
+      + `exited ${at(this.exited)}, closed ${at(this.closed)}, delivered ${at(this.delivered)}`;
+    try {
+      readLog?.appendLine(line);
+    } catch {
+      // A diagnostic sink that fails must not fail the read it describes.
+    }
+  }
+}
+
 /** Each call is a new process that re-hashes the whole workspace; the warm host (#1707) keeps that off the poll loop. */
 function launchEnv(explicit: Record<string, string>): NodeJS.ProcessEnv {
   const merged: NodeJS.ProcessEnv = { ...process.env, ...explicit };
@@ -146,6 +223,8 @@ function execute(
 ): Promise<CliResult> {
   const { file, args: argv } = buildArgv(options, args);
   return new Promise((resolve, reject) => {
+    // Every public read records its phases; a slow or deadline-missing one writes them (#3849).
+    const phases = read ? new ReadPhases(args) : undefined;
     let child: ChildProcessWithoutNullStreams;
     try {
       child = spawn(file, argv, {
@@ -158,9 +237,13 @@ function execute(
       reject(error);
       return;
     }
+    phases?.spawn();
     if (read) read.child = child;
     let stdout = "";
     let stderr = "";
+    // One decoder per stream keeps a multi-byte character split across two reads whole (#3854).
+    const stdoutText = new StringDecoder("utf8");
+    const stderrText = new StringDecoder("utf8");
     let settled = false;
     let grace: NodeJS.Timeout | undefined;
     let timer: NodeJS.Timeout | undefined;
@@ -169,6 +252,14 @@ function execute(
       settled = true;
       if (grace) clearTimeout(grace);
       if (timer) clearTimeout(timer);
+      // An incomplete sequence at the very end decodes as it always did, as one replacement character.
+      const outRest = stdoutText.end();
+      const errRest = stderrText.end();
+      stdout += outRest;
+      stderr += errRest;
+      if (outRest) onOutput?.(outRest);
+      if (errRest) onOutput?.(errRest);
+      phases?.deliver();
       resolve({ code, stdout, stderr, rejected: isRejection(code, stderr) });
     };
     if (timeoutMs && timeoutMs > 0) {
@@ -178,6 +269,7 @@ function execute(
         if (grace) clearTimeout(grace);
         if (read) {
           read.error = new ReadDeadlineExceeded(timeoutMs, read.collected, read.child !== undefined);
+          phases?.miss(timeoutMs);
           reject(read.error);
         } else {
           child.kill("SIGKILL");
@@ -186,14 +278,18 @@ function execute(
       }, timeoutMs);
     }
     child.stdout.on("data", (chunk: Buffer) => {
+      phases?.output();
       if (settled) return;
-      stdout += chunk.toString();
-      onOutput?.(chunk.toString());
+      const text = stdoutText.write(chunk);
+      stdout += text;
+      if (text) onOutput?.(text);
     });
     child.stderr.on("data", (chunk: Buffer) => {
+      phases?.output();
       if (settled) return;
-      stderr += chunk.toString();
-      onOutput?.(chunk.toString());
+      const text = stderrText.write(chunk);
+      stderr += text;
+      if (text) onOutput?.(text);
     });
     child.on("error", (error: NodeJS.ErrnoException) => {
       if (read && child.pid === undefined) read.release();
@@ -207,11 +303,24 @@ function execute(
     // A controller that exits at a pause boundary may leave a provider child
     // holding stdio open; the action is over when the process is gone (#1556).
     child.on("exit", (code) => {
+      phases?.exit();
       read?.release();
-      if (settled) return;
+      if (settled) {
+        // A reader that missed its deadline and exited is collected even if its pipes stay open.
+        if (phases && read?.error) grace = setTimeout(() => phases.collected(), exitGraceMs);
+        return;
+      }
+      // The child ended before its deadline, so the deadline no longer applies: its result is
+      // known, and only the pipe grace or the close decides when it is delivered (#3850).
+      if (timer) clearTimeout(timer);
       grace = setTimeout(() => finish(code), exitGraceMs);
     });
-    child.on("close", (code) => { read?.release(); finish(code); });
+    child.on("close", (code) => {
+      if (settled && grace) clearTimeout(grace);
+      phases?.close();
+      read?.release();
+      finish(code);
+    });
   });
 }
 

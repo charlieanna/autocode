@@ -141,6 +141,7 @@ class RecoveryHistoryTests(unittest.TestCase):
         self.assertTrue(repaired["handled"])
         self.assertFalse(resolved["handled"])
         self.assertIn("It took 2 tries. AutoCode accepted the rewritten report.", repaired["action"])
+        self.assertIsNone(repaired["problem"])  # saved before each rejection was kept (#3831)
         self.assertEqual(
             "Changed lines have no test that fails when they break, and no checked reason: resolver.go lines 48, 56-58, 77.",
             sent_back["problem"],
@@ -609,6 +610,29 @@ class InvestigationOutcomeTests(unittest.TestCase):
         first, second = investigated(run)
         self.assertEqual(RECHECKED, first["action"])
         self.assertEqual(TRIED_AGAIN, second["action"])
+
+
+class ReportRepairReasonTests(unittest.TestCase):
+    """Why a stage's report was rewritten, each rejection in order (#3831)."""
+
+    def repaired(self, rejections):
+        row = copy.deepcopy(state()["report_repair_history"][0])
+        row["repair"] = {"stage": "review_plan_report_repair", "original_stage": "review_plan"}
+        row["rejections"] = rejections
+        (entry,) = [r for r in history.project({"report_repair_history": [row]}) if r["kind"] == "report_repaired"]
+        return entry
+
+    def test_one_rejection_is_the_problem(self):
+        entry = self.repaired(["Plan review concern 2 cites criterion C9, which the plan does not define."])
+        self.assertEqual("Plan Reviewer rewrote its report", entry["headline"])
+        self.assertEqual("Plan review concern 2 cites criterion C9, which the plan does not define.", entry["problem"])
+
+    def test_each_rejection_is_named_in_order_and_a_long_first_does_not_hide_the_second(self):
+        first = "Plan review concern 2 cites criterion C9, which the plan does not define. " + "Detail. " * 80
+        entry = self.repaired([first, "The rewritten review names no verdict."])
+        self.assertTrue(entry["problem"].startswith("Its report: Plan review concern 2 cites criterion C9"))
+        self.assertTrue(entry["problem"].endswith("Rewrite 1: The rewritten review names no verdict."))
+        self.assertLessEqual(len(entry["problem"]), history.TEXT)
 
 
 if __name__ == "__main__":

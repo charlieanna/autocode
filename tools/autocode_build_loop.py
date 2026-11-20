@@ -567,6 +567,8 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
                 queue=getattr(runner, "native_calls", None) is None,
             )
     except runner.orchestrator.LoopExit as stopped:
+        # The early baseline lives only in this process: stop it at every exit from the loop (#3859).
+        early_baseline.reconcile_at_boundary(state, run_dir, persist=lambda *saved: runner.write_json(*saved))
         return stopped.code
     except support.Paused as error:
         early_baseline.reconcile_at_boundary(state, run_dir, persist=runner.write_json)

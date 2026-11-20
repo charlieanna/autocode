@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import contextlib
+import os
 import shlex
+import threading
 import time
 import unittest
 from pathlib import Path
 from unittest import mock
 
+import autocode_command_supervision as command_supervision
 import autocode_early_baseline as early_baseline
 import autocode_regression as regression
 import autocode_util as util
@@ -276,7 +280,10 @@ class EarlyBaselineTests(unittest.TestCase):
         self.assertEqual(2, len(calls), "Timed-out early baseline must not be reused as passing evidence")
         self.assertEqual("passing", result["health"])
 
-    def test_reconcile_at_boundary_clears_active_runner_check(self):
+    def test_reconcile_at_boundary_stops_the_running_command_and_its_thread(self):
+        # #3859: the pause boundary only marked the check stopped. Its thread and command kept
+        # writing into the run directory after the run paused, and a test's temporary directory
+        # cleanup then failed with "Directory not empty". The boundary now ends both.
         project = Project({"app.py": "x = 1\n", "test_app.py": "import unittest\n"})
         self.addCleanup(project.close)
         run_dir = project.root / ".autocode" / "run"
@@ -288,20 +295,43 @@ class EarlyBaselineTests(unittest.TestCase):
                 "regression": {"test_command": self.command},
             },
         }
+        started = threading.Event()
 
-        def hanging_baseline(workspace, base, run_dir, **kwargs):
-            time.sleep(10.0)
+        def long_suite(workspace, base, run_dir, **kwargs):
+            # The real base suite runs through command supervision; a long one must stop at the boundary.
+            log = Path(run_dir) / "baseline" / "suite-on-base.log"
+            with mock.patch.object(command_supervision.supervision, "launch_command", launch(started)):
+                command_supervision.run("sleep 60", workspace, log, timeout=120, env=dict(os.environ))
             return self._receipt(base, run_dir)
 
-        with mock.patch.object(verify, "baseline", side_effect=hanging_baseline):
+        with mock.patch.object(verify, "baseline", side_effect=long_suite):
             handle = early_baseline.maybe_start(state, project.root, run_dir)
             self.assertIsNotNone(handle)
             self.assertIn("active_runner_check", state)
+            self.assertTrue(started.wait(30), "the supervised command never started")
 
-            # Pause boundary hit
+            began = time.monotonic()
             early_baseline.reconcile_at_boundary(state, run_dir)
-            self.assertTrue(handle.stopped)
-            self.assertNotIn("active_runner_check", state)
+
+        self.assertTrue(handle.stopped)
+        self.assertFalse(handle.is_alive(), "the early baseline thread outlived the pause boundary")
+        self.assertLess(time.monotonic() - began, 30)
+        self.assertIsInstance(handle.error, command_supervision.CheckCancelled)
+        self.assertIsNone(handle.result)
+        self.assertNotIn("active_runner_check", state)
+
+
+def launch(started):
+    """Wrap command supervision's launch so the test knows the command is running."""
+    original = command_supervision.supervision.launch_command
+
+    @contextlib.contextmanager
+    def wrapped(*args, **kwargs):
+        with original(*args, **kwargs) as process:
+            started.set()
+            yield process
+
+    return wrapped
 
 
 if __name__ == "__main__":

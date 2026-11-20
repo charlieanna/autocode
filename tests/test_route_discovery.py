@@ -467,13 +467,33 @@ class KiloDiscoveryTests(unittest.TestCase):
             self.assertIsNone(candidate["levels"])
 
     def test_a_login_in_the_wrong_mode_does_not_serve_its_route(self):
-        listing = kilo_listing(auth=KILO_AUTH_LISTING.replace("●  OpenAI oauth", "●  OpenAI api"))
+        listing = kilo_listing(auth=KILO_AUTH_LISTING.replace("●  Kilo Gateway oauth", "●  Kilo Gateway api"))
         with mock.patch.object(command.env_prep, "preflight_run", listing):
             found = discovery.discover(self.provider)
         models = {candidate["model"] for candidate in found["candidates"]}
-        # The route declares oauth; an api-mode login is a different connection, and
+        # The Gateway route declares oauth; an api-mode login is a different connection, and
         # check_subscription_routes would refuse it, so discovery does not offer it.
-        self.assertNotIn("openai/gpt-6-sol", models)
+        self.assertNotIn("kilo/deepseek/deepseek-v4.1-flash", models)
+        self.assertNotIn("Kilo Gateway", {account["name"] for account in found["accounts"]})
+
+    def test_an_openai_api_key_in_kilo_serves_openai_models_billed_per_token(self):
+        # The owner asked for OpenAI models through an API key too, not only a ChatGPT login (2026-11-20).
+        for mode, billing in (("oauth", "subscription"), ("api", "pay per token")):
+            listing = kilo_listing(auth=KILO_AUTH_LISTING.replace("●  OpenAI oauth", "●  OpenAI " + mode))
+            with self.subTest(mode=mode), mock.patch.object(command.env_prep, "preflight_run", listing):
+                found = discovery.discover(self.provider)
+                models = {candidate["model"]: candidate for candidate in found["candidates"]}
+                self.assertEqual(billing, models["openai/gpt-6-sol"]["billing"])
+                self.assertEqual("OpenAI", models["openai/gpt-6-sol"]["account"])
+                accounts = {account["name"]: account for account in found["accounts"]}
+                self.assertEqual(
+                    {"name": "OpenAI", "mode": mode, "billing": billing, "prefixes": ["openai/"]}, accounts["OpenAI"]
+                )
+        # Two OpenAI logins in different modes leave which one Kilo bills unknown: not offered.
+        both = kilo_listing(auth=KILO_AUTH_LISTING.replace("●  OpenAI oauth", "●  OpenAI oauth\n●  OpenAI api"))
+        with mock.patch.object(command.env_prep, "preflight_run", both):
+            found = discovery.discover(self.provider)
+        self.assertNotIn("openai/gpt-6-sol", {candidate["model"] for candidate in found["candidates"]})
 
     def test_a_listing_that_overruns_its_bound_once_is_asked_again(self):
         # #3313: under load `kilo auth list` exited 0 at 15.3 s against a 15 s bound and `kilo models`
@@ -671,6 +691,32 @@ class VariantOmissionTests(unittest.TestCase):
             command._validate_auth(
                 {"command": ["x"], "routes": [{"models": "a/", "pattern": "(a)", "expect": "api", "billing": "free"}]}
             )
+        for expect, billing in (
+            ([], None),
+            (["api", "api"], None),
+            (["api", ""], None),
+            (["api"], {"oauth": "subscription"}),
+            (["api"], {"api": "free"}),
+            ("api", {"oauth": "pay per token"}),
+        ):
+            route = {"models": "a/", "pattern": "(a)", "expect": expect}
+            if billing is not None:
+                route["billing"] = billing
+            with self.subTest(expect=expect, billing=billing), self.assertRaisesRegex(ValueError, "expect|billing"):
+                command._validate_auth({"command": ["x"], "routes": [route]})
+        command._validate_auth(
+            {
+                "command": ["x"],
+                "routes": [
+                    {
+                        "models": "a/",
+                        "pattern": "(a)",
+                        "expect": ["oauth", "api"],
+                        "billing": {"oauth": "subscription", "api": "pay per token"},
+                    }
+                ],
+            }
+        )
 
 
 if __name__ == "__main__":
