@@ -6,5 +6,7 @@ The branch began at `6519d439a`. The previously referenced handoff was not prese
 
 - `ruff check tools/ tests/ scenarios/` and `ruff format --check tools/ tests/ scenarios/` passed.
 - `mypy tools/` passed.
-- Focused Python tests and the VS Code extension suite are running. The sandboxed Python attempt was unable to enumerate processes. It is being repeated outside the sandbox.
-- Verify regression tests against current master, review scope against each issue, open a PR and follow required CI through merge.
+- Dedicated claim tests passed (13 tests). The VS Code extension suite passed (751 passed, 22 skipped). Two targeted regression tests failed by assertion on master `73e7e284e1` and passed on this branch.
+- The broader Python run is still in progress. The sandboxed attempt could not enumerate processes and was repeated outside the sandbox.
+- Draft PR #3971 is open and CI is running.
+- The current commit does not implement the collection and baseline-execution claims in #3939 and #3940. These remain open and need work. Review all issue scope and the exact diff before merge.
