@@ -22,7 +22,9 @@ whether they answer within the latency limit, then cost, then level and id. A mo
 it has run every request and passed at least ``QUALIFY_SHARE`` of them.
 
 File state written here: ``{"schema_version": 1, "roles": {role: {"probe": version, "results":
-[{"model", "effort", "tool", "account", "date", "grades": [grade], "summary": summary}]}}}``.
+[{"model", "effort", "tool", "account", "date", "grades": [grade], "summary": summary}], "partial":
+[the same, for attempts a budget stop cut off]}}}``; ``"partial"`` is left out when there is none, and
+selection, ranking and ``entries`` read ``"results"`` only.
 """
 
 from __future__ import annotations
@@ -98,23 +100,39 @@ def load(file=None) -> dict:
     return document
 
 
-def record(role, results, *, file=None) -> dict:
-    """Merge ``results`` into ``role``'s record, replacing any result for the same model and level."""
+def record(role, results, *, partial=(), file=None) -> dict:
+    """Merge ``results`` into ``role``'s record, replacing any result for the same model and level.
+
+    ``partial`` holds attempts a budget stop cut off (``autocode_probe_budget.Budget.cut_off``). They
+    are kept in the role's own ``"partial"`` list, the latest per model and level, and never touch
+    ``"results"``, so a recheck the cap interrupted cannot replace a complete measurement.
+    """
     if role not in PROBES:
         raise ValueError(f"no probe is defined for {role!r}")
-    for result in results:
+    for result in (*results, *partial):
         _check_result(result)
     document = load(file)
     version = PROBES[role][0]
     saved = document["roles"].get(role) if isinstance(document["roles"].get(role), dict) else {}
-    kept = saved.get("results") if saved.get("probe") == version else []
-    replaced = {_key(result) for result in results}
-    merged = [result for result in kept or () if _key(result) not in replaced] + list(results)
-    document["roles"][role] = {"probe": version, "results": sorted(merged, key=_key)}
+    current = saved.get("probe") == version
+    entry = {
+        "probe": version,
+        "results": _merged(saved.get("results") if current else (), results),
+    }
+    attempts = _merged(saved.get("partial") if current else (), partial)
+    if attempts:
+        entry["partial"] = attempts
+    document["roles"][role] = entry
     target = Path(file or path())
     target.parent.mkdir(parents=True, exist_ok=True)
     util.atomic_json(target, document)
     return document
+
+
+def _merged(kept, new):
+    """``kept`` with each entry for a model and level in ``new`` replaced by the new one, sorted."""
+    replaced = {_key(item) for item in new}
+    return sorted([item for item in kept or () if _key(item) not in replaced] + list(new), key=_key)
 
 
 def result(model, effort, grades, *, tool=None, account=None, date=None) -> dict:

@@ -30,8 +30,10 @@ import json
 import sys
 
 try:
+    from . import autocode_configure as configure
     from . import autocode_model_probe as model_probe
 except ImportError:
+    import autocode_configure as configure
     import autocode_model_probe as model_probe
 
 STAGES = tuple(model_probe.STAGES)
@@ -61,7 +63,7 @@ def parser():
     )
     result.add_argument(
         "--max-cost-usd",
-        type=float,
+        type=_probe_cap,
         help="run the probe, spending at most this much in USD; without it the probe only shows its estimate",
     )
     result.add_argument(
@@ -151,9 +153,6 @@ def cli(argv) -> int:
     if args.max_cost_usd is None:
         _print({"estimate": estimate, "ran": False}, args.json, _estimate_text(estimate))
         return 0
-    if args.max_cost_usd <= 0:
-        print("autocode probe: --max-cost-usd must be more than 0", file=sys.stderr)
-        return 2
     options = []
     if args.provider:
         options += ["--provider", args.provider]
@@ -175,6 +174,15 @@ def cli(argv) -> int:
         )
     _print({"estimate": estimate, "ran": True, **outcome}, args.json, _outcome_text(outcome))
     return 0
+
+
+def _probe_cap(text):
+    """`--max-cost-usd` for a probe: the regular run's finite rule (``autocode_configure.cost_cap``), and more
+    than 0, since a probe always runs under a cap."""
+    value = configure.cost_cap(text)
+    if value <= 0:
+        raise argparse.ArgumentTypeError("must be more than 0")
+    return value
 
 
 def _route(pair):
@@ -200,9 +208,16 @@ def _estimate_text(estimate):
 
 
 def _outcome_text(outcome):
-    lines = [f"Spent ${outcome['spent_usd']:.2f}."]
-    if outcome["unpriced_replies"]:
-        lines.append(f"{outcome['unpriced_replies']} replies had no price on record and are not counted.")
+    unpriced = outcome.get("unpriced_replies") or 0
+    if outcome.get("spend_uncertain") or unpriced:
+        lines = [f"Spent at most ${outcome['spent_usd']:.2f}; spend is uncertain."]
+        lines.append(
+            "1 reply had no price on record and was counted at its whole allowance."
+            if unpriced == 1
+            else f"{unpriced} replies had no price on record and were counted at their whole allowance."
+        )
+    else:
+        lines = [f"Spent ${outcome['spent_usd']:.2f}."]
     for row in outcome["ranking"]:
         mark = "qualified" if row["qualified"] else "not qualified"
         lines.append(f"  {row['model']} at {row['effort'] or 'its default level'}: {mark}, {row['reason']}")
@@ -211,6 +226,12 @@ def _outcome_text(outcome):
     for row in outcome["unmeasured"]:
         reason = f" ({row['reason']})" if row.get("reason") else ""
         lines.append(f"  not measured: {row['model']} at {row['effort'] or 'its default level'}{reason}")
+    for row in outcome.get("partial") or ():
+        total = (row.get("summary") or {}).get("total")
+        lines.append(
+            f"  partial attempt kept apart: {row['model']} at {row.get('effort') or 'its default level'}, "
+            f"{total} request{'' if total == 1 else 's'} before the stop; its earlier result, if any, is kept"
+        )
     for row in outcome.get("skipped") or ():
         lines.append(f"  request {row['request']} skipped: its plan never reached approval ({row.get('run_status')})")
     if outcome["results"]:
