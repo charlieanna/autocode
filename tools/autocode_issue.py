@@ -9,7 +9,7 @@
     autocode issue pr ISSUE [--open]      commit the finished run's change and write the PR body;
                                           --open also pushes the branch and opens a draft PR
 
-ISSUE is an issue URL, OWNER/REPO#N, or #N for the project's own GitHub remote.
+ISSUE is an issue URL, OWNER/REPO#N, or N (a quoted '#N') for the project's own GitHub remote.
 OPTS are AutoCode options (engine, models, --test-command), saved and reused.
 
 A layer over the task-run interface (docs/task-run.md): it drives runs only
@@ -633,7 +633,7 @@ def parser() -> argparse.ArgumentParser:
 
     def command(name, handler, help_text):
         sub = commands.add_parser(name, help=help_text)
-        sub.add_argument("issue", help="issue URL, OWNER/REPO#N, or #N")
+        sub.add_argument("issue", help="issue URL, OWNER/REPO#N, or N for the project's remote")
         sub.add_argument("--project", help="the Git checkout to work in (default: the current directory's)")
         sub.add_argument("--remote", default="origin", help="the remote to infer the repository from and push to")
         sub.set_defaults(handler=handler)

@@ -128,22 +128,123 @@ test('close-only collection releases a read, without pretending that timeout kil
   complete(rows[1]); await fresh;
 });
 
-test('the read deadline stays strict when an exited child leaves inherited pipes open', async (t) => {
+// Replaces "the read deadline stays strict when an exited child leaves inherited pipes open" (#3850):
+// a child that exited before its deadline has a known result, delivered at close or grace end.
+test('test_ac23_exit_then_close_after_deadline_resolves_at_close', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const rows = children(t);
-  const result = read(options, ['--status', 'exited'], {}, 100).catch((error) => error);
+  const watch = (promise) => {
+    const state = { outcome: 'pending' };
+    state.done = promise.then((value) => { state.outcome = 'resolved'; return value; },
+      (error) => { state.outcome = 'rejected'; throw error; });
+    return state;
+  };
+
+  const result = watch(cli.invokeRead(options, ['--status', 'exited'], {}, 100));
   t.mock.timers.tick(99);
   rows[0].stdout.emit('data', Buffer.from('{}'));
   rows[0].emit('exit', 0);
   t.mock.timers.tick(1); await flush();
-  const timeout = await result;
-  assert.equal(timeout.name, 'ReadDeadlineExceeded', 'pipe grace cannot extend the read deadline');
-  assert.doesNotMatch(timeout.message, /Waiting for its reader/, 'the configured child is already collected');
-  await timeout.collected;
+  assert.equal(result.outcome, 'pending', 'at the deadline an exited read has neither resolved nor rejected');
+  t.mock.timers.tick(50);
+  rows[0].emit('close', 0); await flush();
+  const value = await result.done;
+  assert.equal(value.code, 0);
+  assert.equal(value.stdout, '{}', 'the close delivers the output, long before the grace alone would end at 2099 ms');
   assert.deepEqual(rows[0].kills, []);
-  const fresh = read(options, ['--status', 'exited'], {}, 100);
-  assert.equal(rows.length, 2, 'known child collection already released this admission');
+  const fresh = cli.invokeRead(options, ['--status', 'exited'], {}, 100);
+  assert.equal(rows.length, 2, 'the exited reader no longer holds admission');
   complete(rows[1]); await fresh;
+
+  const action = watch(cli.invoke(options, ['--resume-paused'], {}, 100));
+  t.mock.timers.tick(99);
+  rows[2].stdout.emit('data', Buffer.from('{}'));
+  rows[2].emit('exit', 0);
+  t.mock.timers.tick(1); await flush();
+  assert.equal(action.outcome, 'pending', 'at the deadline an exited action has neither resolved nor rejected');
+  t.mock.timers.tick(50);
+  rows[2].emit('close', 0); await flush();
+  const done = await action.done;
+  assert.deepEqual({ code: done.code, stdout: done.stdout, rejected: done.rejected }, { code: 0, stdout: '{}', rejected: false });
+  assert.deepEqual(rows[2].kills, [], 'an action that exited is never killed');
+});
+
+// A real Node child that writes its JSON and exits 0 while a grandchild inherits and holds its pipes.
+function pipeHolder(t) {
+  const childProcess = require('node:child_process');
+  const spawn = childProcess.spawn;
+  const rows = [];
+  t.mock.method(childProcess, 'spawn', (...args) => {
+    const child = spawn(...args);
+    child.holder = '';
+    child.stderr.on('data', (chunk) => { child.holder += chunk; });
+    child.exited = new Promise((resolve) => child.once('exit', resolve));
+    child.wrote = new Promise((resolve) => child.stdout.once('data', resolve));
+    child.signals = t.mock.method(child, 'kill', () => true);
+    rows.push(child);
+    return child;
+  });
+  // The grandchild ends itself after 10 s at the latest; the test ends it as soon as it is done.
+  t.after(() => {
+    for (const child of rows) {
+      const pid = Number(child.holder);
+      if (pid > 0) { try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ } }
+      child.stdout.destroy(); child.stderr.destroy();
+    }
+  });
+  const script = [
+    "const { spawn } = require('node:child_process');",
+    "const holder = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 10000)'], { stdio: ['ignore', 'inherit', 'inherit'] });",
+    'holder.unref();',
+    'process.stderr.write(String(holder.pid));',
+    "process.stdout.write('{\"ok\":true}');",
+  ].join('\n');
+  return { rows, launch: { command: process.execPath, prefix: ['-e', script] } };
+}
+
+test('test_ac3_read_exit_before_deadline_resolves', { timeout: 10000 }, async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { rows, launch } = pipeHolder(t);
+  let outcome = 'pending';
+  const result = cli.invokeRead(launch, [], {}, 1000)
+    .then((value) => { outcome = 'resolved'; return value; }, (error) => { outcome = 'rejected'; return error; });
+  await Promise.all([rows[0].exited, rows[0].wrote]);
+  t.mock.timers.tick(1000); await flush();
+  assert.equal(outcome, 'pending', 'no ReadDeadlineExceeded for a reader that already exited');
+  t.mock.timers.tick(cli.EXIT_GRACE_MS); await flush();
+  const value = await result;
+  assert.equal(outcome, 'resolved', String(value && value.message));
+  assert.equal(value.code, 0);
+  assert.equal(value.stdout, '{"ok":true}');
+  assert.equal(rows[0].signals.mock.callCount(), 0, 'kill is never called on an exited reader');
+});
+
+test('test_ac4_action_exit_before_deadline_resolves', { timeout: 10000 }, async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { rows, launch } = pipeHolder(t);
+  let outcome = 'pending';
+  const result = cli.invoke(launch, [], {}, 1000)
+    .then((value) => { outcome = 'resolved'; return value; }, (error) => { outcome = 'rejected'; return error; });
+  await Promise.all([rows[0].exited, rows[0].wrote]);
+  t.mock.timers.tick(1000); await flush();
+  assert.equal(outcome, 'pending', 'no ActionDeadlineExceeded for an action that already exited');
+  t.mock.timers.tick(cli.EXIT_GRACE_MS); await flush();
+  const value = await result;
+  assert.equal(outcome, 'resolved', String(value && value.message));
+  assert.doesNotMatch(String(value.message ?? ''), /stopped, so its result is unknown/);
+  assert.deepEqual({ code: value.code, stdout: value.stdout, rejected: value.rejected }, { code: 0, stdout: '{"ok":true}', rejected: false });
+  assert.equal(rows[0].signals.mock.callCount(), 0, 'a known successful action is never killed');
+});
+
+test('test_ac5_running_action_at_deadline_is_killed', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const rows = children(t);
+  const result = cli.invoke(options, ['--resume-paused'], {}, 100).catch((error) => error);
+  t.mock.timers.tick(100); await flush();
+  const error = await result;
+  assert.equal(error.name, 'ActionDeadlineExceeded');
+  assert.equal(error.message, 'AutoCode did not finish within 1s and was stopped, so its result is unknown.');
+  assert.deepEqual(rows[0].kills, ['SIGKILL']);
 });
 
 test('no stdout or stderr callback leaks after timeout or successful settlement', async (t) => {
