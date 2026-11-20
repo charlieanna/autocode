@@ -14,13 +14,13 @@ import autocode_tool_handoff as handoff
 
 
 class ResponseLanguageLaunchTests(unittest.TestCase):
-    def prepared(self, prompt, *, stage="draft_plan", report_only=False, native=None):
+    def prepared(self, prompt, *, stage="draft_plan", report_only=False, native=None, launcher=launch):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             schema = root / "schema.json"
             schema.write_text('{"type":"object"}')
-            with patch.object(launch.support, "review_generation_schema", side_effect=lambda value, *_: value):
-                returned_schema, prepared = launch.prepare_schema_and_report_check(
+            with patch.object(launcher.support, "review_generation_schema", side_effect=lambda value, *_: value):
+                returned_schema, prepared = launcher.prepare_schema_and_report_check(
                     {"settings": {}},
                     stage,
                     root,
@@ -105,6 +105,9 @@ class ResponseLanguageLaunchTests(unittest.TestCase):
         package.__path__ = [str(Path(launch.__file__).parent)]
         with patch.dict(sys.modules, {package_name: package}):
             packaged = importlib.import_module(package_name + ".autocode_response_language")
+            packaged_launch = importlib.import_module(package_name + ".autocode_role_launch")
+            self.assertIs(packaged, packaged_launch.response_language)
             original = "Keep the exact literal café."
             self.assertEqual(self.prepared(original), packaged.apply(original))
+            self.assertEqual(self.prepared(original), self.prepared(original, launcher=packaged_launch))
             self.assertIn("RESPONSE LANGUAGE", packaged.apply(original))
