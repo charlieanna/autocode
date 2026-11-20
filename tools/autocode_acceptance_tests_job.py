@@ -60,6 +60,7 @@ try:
     from . import autocode_acceptance_reference as reference
     from . import autocode_acceptance_tests as acceptance
     from . import autocode_acceptance_verification_retry as verification_retry
+    from . import autocode_check_outcome as check_outcome
     from . import autocode_go_test_prerequisites as go_prerequisites
     from . import autocode_handoff_dedup as handoff
     from . import autocode_project_kinds as project_kinds
@@ -76,6 +77,7 @@ except ImportError:
     import autocode_acceptance_reference as reference
     import autocode_acceptance_tests as acceptance
     import autocode_acceptance_verification_retry as verification_retry
+    import autocode_check_outcome as check_outcome
     import autocode_go_test_prerequisites as go_prerequisites
     import autocode_handoff_dedup as handoff
     import autocode_project_kinds as project_kinds
@@ -148,6 +150,16 @@ class TestsNeedRewriting(ExecutionEvidenceRequired):
 
 class ReferenceEvidenceRequired(ExecutionEvidenceRequired):
     """The original-reference execution is unresolved, not a new person decision."""
+
+
+class RunnerDidNotStart(ExecutionEvidenceRequired):
+    """The acceptance test command could not start (autocode_check_outcome RUNNER_NOT_STARTED, #3877): no test
+    ran, so the written tests were not judged. The finished writer and its tests are kept, and a resume re-runs
+    the checks without another writer or planner call. ``run`` is the failed command's receipt."""
+
+    def __init__(self, message: str, run: dict):
+        super().__init__(message)
+        self.run = run
 
 
 def _case(case: dict, inherited=False) -> dict:
@@ -392,6 +404,9 @@ def _verdicts(
         )
     results = run.get("results")
     if results is None:
+        outcome = check_outcome.classify(run)
+        if outcome["reason"] == check_outcome.RUNNER_NOT_STARTED:
+            raise RunnerDidNotStart(check_outcome.describe("The acceptance test command", outcome), run)
         if run.get("exit_code") not in (0, None):
             # A failed command that printed no events is a command failure, not missing tests (#3091).
             excerpt = _output_excerpt(run)
@@ -609,6 +624,32 @@ def _not_run(case: dict, file: str, source: str, run: dict, results: dict) -> st
     )
 
 
+def _runner_not_started(state: RunState, value: dict, record: dict, workspace, error: RunnerDidNotStart) -> None:
+    """Keep the finished writer, its tests and the failed command's receipt, and pause on the execution problem.
+
+    A runner that never started is not a defect in the written tests (#3877), so this is no test-correction or
+    plan question: the retained retry (autocode_acceptance_verification_retry) re-runs the checks on the next
+    explicit resume without another writer or planner call, and still needs the normal per-case proof."""
+    run = error.run
+    receipt = {
+        "command": run.get("command") or "",
+        "exit_code": run.get("exit_code"),
+        "output": run.get("output"),
+        "tail": str(run.get("tail") or "")[-2000:],
+    }
+    verification_retry.retain(
+        state, value, record, workspace, error, kind=verification_retry.RUNNER_NOT_STARTED, receipt=receipt
+    )
+    run_status.pause(
+        state,
+        PAUSE,
+        f"The runner could not establish the approved pre-build proof: {error}. The test command did not start on "
+        "this host, so the written tests were kept and not judged. Correct the environment; --resume-paused re-runs "
+        "the checks without another Tester or Planner call.",
+        next_stage=STAGE,
+    )
+
+
 def apply(
     state: RunState,
     value: dict,
@@ -670,6 +711,8 @@ def apply(
                 "host-bound untestable cases in cannot_write); unchanged files do not repair them."
             )
         run = (run_tests or (lambda tests: {"error": "no test runner was given"}))(files)
+        if check_outcome.classify(run)["reason"] != check_outcome.RUNNER_NOT_STARTED:
+            verification_retry.runner_started(state)
         inherited = provenance.inherited_cases(state, reports=value["tests"], workspace=workspace)
         selected = reference.passing(cases, value["tests"], run, inherited)
         if selected and run_reference is not None:
@@ -699,6 +742,9 @@ def apply(
             )
         verdicts = _verdicts(state, cases, value, workspace, run, inherited=inherited, retained=retained)
     except ExecutionEvidenceRequired as error:
+        if isinstance(error, RunnerDidNotStart):
+            _runner_not_started(state, value, record, workspace, error)
+            return
         if isinstance(error, TestsNeedRewriting):
             if _rewrite(state, error, record):
                 return

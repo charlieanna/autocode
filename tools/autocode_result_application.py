@@ -31,8 +31,9 @@ except ImportError:
 def raise_if_not_rejected(error):
     """Keep an ownership hold or a completion boundary outside ordinary rejection and archival.
 
-    The runner sets a completion-gate pause's attempt aside first (autocode_run_records.set_aside_at_completion_gate,
-    #1851); a worker that already reconciled through the runner only re-raises.
+    The runner sets a boundary pause's attempt aside first (autocode_run_records.set_aside_at_completion_gate:
+    the completion gate, #1851, or a check that could not establish a result, #3874); a worker that already
+    reconciled through the runner only re-raises.
     """
     operational_block.raise_if_blocked(error)
     if isinstance(error, receipts.OwnershipUncertain) or boundary_pause(error) or source_unavailable(error):

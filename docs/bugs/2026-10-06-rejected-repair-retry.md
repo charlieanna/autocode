@@ -39,9 +39,11 @@ once more, could not be admitted, so its paid diagnosis bought nothing (compare
 
 ## Fix
 
-- `autocode_retained_work.own_repair_source` checks the tree file by file. Each
+- `autocode_retained_work.own_recovery_source` (originally `own_repair_source`, which
+  asked only about this packet's attempts; merged into one definition 2026-11-20 so the
+  runner's own packet-less rework rounds count too) checks the tree file by file. Each
   file must hold its bound content (the first such attempt's before-snapshot, at
-  the bound revision) or what this packet's latest Builder attempt left (its
+  the bound revision) or what the latest Builder attempt in that chain left (its
   after-snapshot), and HEAD must be the one both snapshots recorded.
   `autocode_resolver_recovery` then binds a Builder dispatch, and an operator's
   `--retry-failed-stage` of its hold, at the packet's revision. Other content (a

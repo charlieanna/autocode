@@ -178,6 +178,7 @@ def accept(runtime, owner, run_dir, workspace, value, repair_record, *, revalida
                 "original_output": pending["original"]["output"],
                 "repair": repair_record,
                 "output_hash": output_hash,
+                "rejections": list(pending.get("rejections") or filter(None, [pending.get("original_error")])),
                 "attempts": pending["attempts"],
                 "result": "revalidated" if revalidate else "accepted",
                 "at": runtime.now(),

@@ -10,12 +10,14 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_check_outcome as check_outcome
     from . import autocode_contract_identity as contracts
     from . import autocode_python_tests as python_tests
     from . import autocode_run_status as run_status
     from . import autocode_util as util
     from . import autocode_verification_plan as plan
 except ImportError:
+    import autocode_check_outcome as check_outcome
     import autocode_contract_identity as contracts
     import autocode_python_tests as python_tests
     import autocode_run_status as run_status
@@ -36,6 +38,15 @@ class OriginalGateFailure(plan.PlannedCheckFailure):
     def __init__(self, message, receipt=None):
         super().__init__(message)
         self.receipt = receipt
+
+
+class OriginalGateUndetermined(check_outcome.CheckUndetermined):
+    """A half of the original gate could not establish a result (#3874): it timed out, aborted, never started
+    or left an incomplete supervision receipt. Completion stays blocked (PAUSED_VERIFICATION_UNCERTAIN) and no
+    product edit is directed; the finished reviewing attempt is set aside so a resume runs the check again.
+
+    ``receipt`` is the replay's result, with both halves' receipts; ``outcome`` names each undetermined half's
+    reason and detail."""
 
 
 def completed_gate_repair(state: RunState):

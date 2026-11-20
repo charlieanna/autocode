@@ -88,3 +88,49 @@ not reproduce the outliers. Its hot output used native files rather than the
 original live host journal and pipes, so it is normal-path evidence, not proof
 that the latency disappeared. The reader lifecycle fix, parser fix and usage
 fix must not be presented as having eliminated every slow read.
+
+## Follow-up for #3849, 2026-11-20
+
+The 65.043 s status and 72.040 s registry reads above remain unexplained. This
+follow-up makes the next one diagnosable and measures the read path under load.
+
+**Read phases are now logged.** Every public read (`invokeRead`) records when its
+process was spawned, when its first output byte arrived, when it exited, when its
+pipes closed and when its result was delivered. A read that takes longer than
+`READ_SLOW_MS` (5 s), or misses its deadline, writes those phases as one line to
+the extension's AutoCode output channel. A deadline-missing read writes a second
+line when its reader finally ends. A long gap between spawn and first output points
+at the Core's own work. A gap between exit and close points at a child holding the
+pipes. A gap between close and delivery points at the extension host.
+
+**Measured here.** A Linux cloud container with 4 CPUs, this branch's compiled
+`cli.js`, and the master CLI (`python tools/autocode.py`) with
+`AUTOCODE_SOURCE_HOST=0`, reading a saved run in this checkout. Each read went through
+`invokeRead` with the default 30 s deadline, five reads of each kind. Phases are
+milliseconds from spawn.
+
+| Load | Read | First output | Exited | Closed | Delivered |
+| --- | --- | --- | --- | --- | --- |
+| none | `--status` (1.78 MB JSON) | 721–849 | 953–1232 | 953–1232 | 953–1232 |
+| none | `registry list --json` | 682–887 | 762–959 | 763–959 | 763–959 |
+| 8 busy loops on 4 CPUs | `--status` | 1888–2049 | 2451–2677 | 2451–2677 | 2451–2677 |
+| 8 busy loops on 4 CPUs | `registry list --json` | 1805–2282 | 1945–2526 | 1945–2527 | 1945–2527 |
+
+What this rules out, for these conditions: CPU contention alone scales a read by
+about 2.5 times, not by a minute. Pipe transport is not involved, because close
+followed exit within 1 ms in every read. Delivery is not involved either, because
+the result reached the caller within 1 ms of close. Most of each read happens before
+the Core's first byte, which is the Core's own work.
+
+What is still open: the outliers came from a Docker/native reader under an offline
+editor qualification, with a live host journal and pipes and an active run writing
+events. Those conditions are not reproduced here. The cause of the minute is not
+established, and this follow-up does not claim the latency is resolved. The next
+outlier in an editor now writes its phases to the AutoCode output channel, which is
+the evidence the earlier trace lacked.
+
+Two related defects in the same read path are fixed alongside (#3850). A CLI that
+exited before its deadline, while a grandchild held its pipes open, used to be
+reported as a deadline error. Its result is now delivered when the pipe grace ends
+or the pipes close. Reads and actions still running at the deadline keep the
+behavior described above.

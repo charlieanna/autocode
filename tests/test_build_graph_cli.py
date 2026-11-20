@@ -145,6 +145,11 @@ class JoinedGraphCLI(unittest.TestCase):
         self.assertEqual(2, len(repairs))
         self.assertEqual(repairs[0]["error"], repairs[1]["original_error"])
         self.assertNotEqual(repairs[0]["error"], repairs[1]["error"])
+        # The status view says why each report was rejected, the original and the rejected rewrite (#3831).
+        (repaired,) = [row for row in status["view"]["recoveries"] if row["kind"] == "report_repaired"]
+        self.assertRegex(repaired["problem"], r"^Its report: Changed-code reasons cite unauthenticated evidence")
+        self.assertRegex(repaired["problem"], r" Rewrite 1: Agent did not produce valid JSON")
+        self.assertLessEqual(len(repaired["problem"]), 400)
         self.assertFalse(status["completion_current"])
 
     def test_changed_line_citation_repair_uses_enclosing_proof_without_new_builder(self):

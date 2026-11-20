@@ -445,9 +445,13 @@ def boundary_pause(error) -> bool:
     still lacks evidence, so recording that report as a failed output would hide the
     gate's reason behind an Investigator (#1851). The runner sets the attempt aside
     under the gate's own status instead (autocode_run_records.set_aside_at_completion_gate).
+    A pause whose class sets ``sets_attempt_aside`` (autocode_check_outcome.CheckUndetermined: a
+    check that could not establish a result) is the same kind of boundary.
     Output-shaped pauses such as PAUSED_ASSIGNMENT_SCOPE stay ordinary rejections.
     """
-    return isinstance(error, Paused) and error.status == "PAUSED_COMPLETION_GATE"
+    return isinstance(error, Paused) and (
+        error.status == "PAUSED_COMPLETION_GATE" or getattr(type(error), "sets_attempt_aside", False) is True
+    )
 
 
 class MissingModule:

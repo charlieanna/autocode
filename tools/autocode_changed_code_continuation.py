@@ -104,16 +104,23 @@ def defer_review(state: RunState, previous):
     )
 
 
-def continue_proof(state: RunState, workspace, run_dir, proof, framework, inputs, current_identity):
-    """Called only after the parent proof's full reuse checks succeeded, or it just completed.
+def continue_proof(state: RunState, workspace, run_dir, proof, framework, inputs, current_identity, *, fresh=False):
+    """Called only after the parent proof's full reuse checks succeeded, or it just completed (``fresh``).
 
     Recheck its artifact/captures here before every window. The parent's exact
     source, contract, commands, runtime and dependency identity remain required.
+
+    A proof this invocation just made continues even when its runtime identity is not reusable across
+    invocations (a global interpreter, a Node or JUnit runner): nothing outside the run changed the
+    runtime between its last check and the next window, and each window still compares the identity
+    it was measured with. Without that, a study larger than one window could never finish on such a
+    runtime, every unrun line stayed without evidence, and the run paused for a person (#3950).
+    A saved proof from an earlier invocation still needs a reusable identity.
     """
     if proof.get("verdict") != verify.PASS or not pending(proof):
         return proof
     context = proof.get("execution_context") or {}
-    if not (context.get("identity") or {}).get("reuse_supported"):
+    if not fresh and not (context.get("identity") or {}).get("reuse_supported"):
         return proof
     deadline = time.monotonic() + allowance(state)
     with runner_check.track(

@@ -26,6 +26,9 @@ try:
     from . import (
         autocode_check_refs as check_refs,
     )
+    from . import (
+        autocode_code_citations as code_citations,
+    )
     from . import autocode_plan_retention as retention
     from . import autocode_plan_revision_reference as revision_reference
     from . import (
@@ -41,6 +44,9 @@ try:
         autocode_requirement_quotes as requirement_quotes,
     )
     from . import (
+        autocode_requirements_faults as requirements_faults,
+    )
+    from . import (
         autocode_requirements_report as requirements_report,
     )
     from . import (
@@ -54,12 +60,14 @@ except ImportError:
     import autocode_acceptance_tests as acceptance_tests
     import autocode_brief_obligations as brief_obligations
     import autocode_check_refs as check_refs
+    import autocode_code_citations as code_citations
     import autocode_plan_retention as retention
     import autocode_plan_revision_reference as revision_reference
     import autocode_planning_graph as planning_graph
     import autocode_requirement_coverage as requirement_coverage
     import autocode_requirement_cues as requirement_cues
     import autocode_requirement_quotes as requirement_quotes
+    import autocode_requirements_faults as requirements_faults
     import autocode_requirements_report as requirements_report
     import autocode_source_trace as source_trace
     import autocode_util as util
@@ -114,6 +122,7 @@ def build_spec(
     if stage == "requirements_gather":
         spec["source_texts"] = requirement_cues.source_texts(state)
         spec["coverage_checklist"] = requirement_cues.coverage_checklist(state)
+        spec[requirements_faults.SPEC_KEY] = requirements_faults.context(state)
     elif stage in _PLANNING_STAGES:
         spec["sources"] = brief_obligations.sources(state)
         spec["active_source_ids"] = [row["id"] for row in source_trace._turn_scoped(state, spec["sources"])]
@@ -141,26 +150,24 @@ def _check_requirements_gather(data: dict[str, Any], spec: dict[str, Any], error
     rows = data.get("requirements") or []
     if not isinstance(rows, list):
         return
-    verified_quotes: list[str] = []
-    bad_rows: list[dict[str, Any]] = []
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        raw_quote = str(row.get("source_quote") or "")
-        resolved = requirement_quotes.resolve_checklist_id(raw_quote, checklist) if checklist else raw_quote
-        if sources:
-            grounded = requirement_quotes.ground(resolved, sources)
-            if grounded is None:
-                bad_rows.append(row)
-            else:
-                verified_quotes.append(grounded)
-        else:
-            verified_quotes.append(resolved)
-    if bad_rows and sources:
-        reason = requirement_quotes.unsupported(bad_rows, sources, inherited=False)
-        if reason:
-            errors.append(reason)
-    if checklist and not bad_rows:
+    context = spec.get(requirements_faults.SPEC_KEY)
+    if isinstance(context, dict):
+        # Admission's own decisions (#3865): audit refs, cited files and lines, quotes. The workspace-only
+        # citation check demands no read evidence, and a pinned catalog/... ref is left to admission.
+        errors.extend(
+            requirements_faults.faults(
+                data,
+                context,
+                cite=lambda ref, field: code_citations.citation_problem(context.get("workspace") or "", ref, field),
+                catalog_ok=lambda ref: True,
+            )
+        )
+    elif sources:  # an older spec carries only the quote inputs
+        errors.extend(requirement_quotes.problems(rows, sources, checklist, inherited=False))
+    if not (sources and checklist):
+        return
+    verified_quotes, bad_rows = requirement_quotes.grounded(rows, sources, checklist)
+    if not bad_rows:
         ignored = [str(item) for item in (data.get("ignored_statements") or [])]
         missing = requirement_coverage.missing_sentences(checklist, verified_quotes, ignored)
         if missing:
@@ -326,6 +333,15 @@ def _check_validator(data: dict[str, Any], workspace: Path, errors: list[str]) -
                 errors.append(message)
 
 
+def _check_evidence_binding(stage: str, data: dict[str, Any], errors: list[str]) -> None:
+    """The final evidence-binding gate's decision and message (autopilot.apply_review_result, #3891), for the
+    criterion event citations decidable before the runner binds the checks. That gate reads the Tester's
+    report and a review_checkpoint's ``validation``."""
+    target = data.get("validation") if stage == "review_checkpoint" else data if stage == "tester" else None
+    if isinstance(target, dict):
+        errors.extend(check_refs.unbound_message(*row) for row in check_refs.public_unbound_events(target))
+
+
 def _check_investigate_stuck(data: dict[str, Any], errors: list[str]) -> None:
     if not str(data.get("diagnosis") or "").strip():
         errors.append("An investigation must say what it found")
@@ -387,6 +403,7 @@ def check_report(raw_text: str, *, spec: dict[str, Any]) -> list[str]:
         _check_planning(stage, data, spec, errors)
     elif stage in _VALIDATOR_STAGES or stage == "review_plan":
         _check_validator(data, workspace, errors)
+        _check_evidence_binding(stage, data, errors)
     elif stage == "investigate_stuck":
         _check_investigate_stuck(data, errors)
     return errors

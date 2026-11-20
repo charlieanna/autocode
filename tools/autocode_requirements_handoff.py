@@ -32,11 +32,11 @@ try:
     from . import autocode_project_memory_lifecycle as project_memory
     from . import autocode_requirements_answer as requirements_answer
     from . import autocode_requirements_chat as requirements_chat
+    from . import autocode_requirements_faults as requirements_faults
     from . import autocode_requirements_observations as requirements_observations
     from . import autocode_requirements_review as requirements_review
     from . import autocode_requirements_triage as requirements_triage
     from . import autocode_run_status as run_status
-    from . import autocode_source_log as source_log
     from . import autocode_technical_questions as technical_questions
     from . import autocode_util as util
     from . import autocode_workflows as workflows
@@ -48,11 +48,11 @@ except ImportError:
     import autocode_project_memory_lifecycle as project_memory
     import autocode_requirements_answer as requirements_answer
     import autocode_requirements_chat as requirements_chat
+    import autocode_requirements_faults as requirements_faults
     import autocode_requirements_observations as requirements_observations
     import autocode_requirements_review as requirements_review
     import autocode_requirements_triage as requirements_triage
     import autocode_run_status as run_status
-    import autocode_source_log as source_log
     import autocode_technical_questions as technical_questions
     import autocode_util as util
     import autocode_workflows as workflows
@@ -134,18 +134,9 @@ def _accept(state: RunState, value: dict, record: dict, *, check_code_refs, queu
     if previous:
         state.setdefault("requirements_history", []).append(copy.deepcopy(previous))
     goals.check_requirement_handoff(state, value)
-    input_refs = {
-        "task",
-        *state.get("answers", {}),
-        *(row["id"] for row in source_log.linked_issue_records(state)),
-        *(row["id"] for row in source_log.linked_design_records(state)),
-    }
-    input_refs.update(event["id"] for event in state.get("user_events", []) if event.get("id"))
-    # External design/spec references may accompany local inspection evidence;
-    # they are not filesystem paths and do not satisfy the source-inspection gate.
-    local_refs = [
-        ref for ref in value["source_refs"] if ref not in input_refs and not ref.startswith(("https://", "http://"))
-    ]
+    input_refs = requirements_faults.input_refs(state)
+    # The one filter report-check and a rejection's fault list also use (autocode_requirements_faults).
+    local_refs = requirements_faults.cited_source_refs(value["source_refs"], input_refs)
     catalog_refs = [ref for ref in local_refs if ref.startswith("catalog/")]
     invalid_catalog_refs = [ref for ref in catalog_refs if not source_catalog.evidence(state, ref)]
     if invalid_catalog_refs:
@@ -154,7 +145,7 @@ def _accept(state: RunState, value: dict, record: dict, *, check_code_refs, queu
             + ", ".join(invalid_catalog_refs)
             + ". Correct these citations against the pinned sources. Retain valid inspected references."
         )
-    local_refs = [ref for ref in local_refs if ref not in catalog_refs]
+    local_refs = requirements_faults.local_source_refs(value["source_refs"], input_refs)
     # User requirements and constraints can be retained while asking what the
     # outcome means. Until there are behaviors or acceptance tests, that intent
     # clarification needs no unrelated source citation. A complete handoff and
