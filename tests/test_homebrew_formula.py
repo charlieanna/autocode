@@ -42,6 +42,10 @@ class FormulaTests(unittest.TestCase):
         self.assertIn('bin.install_symlink libexec/"bin/autocode"', text)
         self.assertNotIn(".whl", text)
 
+    def test_mac_installs_the_bash_runtime_needed_for_contained_shell_input(self):
+        text = brew.formula("0.8.0", PYPROJECT, PYPI.__getitem__)
+        self.assertIn('on_macos do\n    depends_on "bash"\n  end', text)
+
     def test_refuses_a_version_pyproject_does_not_name(self):
         with self.assertRaisesRegex(SystemExit, "not 0.9.0"):
             brew.formula("0.9.0", PYPROJECT, PYPI.__getitem__)

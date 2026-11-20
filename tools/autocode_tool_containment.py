@@ -31,6 +31,7 @@ try:
     from . import autocode_captured_process as captured
     from . import autocode_native_conformance as native_conformance
     from . import autocode_person_text as person_text
+    from . import autocode_tool_shell as tool_shell
     from . import autocode_util as util
     from .autocode_process import interruption_handler
     from .autocode_source_privacy import SECRET_NAME
@@ -38,6 +39,7 @@ except ImportError:
     import autocode_captured_process as captured
     import autocode_native_conformance as native_conformance
     import autocode_person_text as person_text
+    import autocode_tool_shell as tool_shell
     import autocode_util as util
     from autocode_process import interruption_handler
     from autocode_source_privacy import SECRET_NAME
@@ -178,9 +180,11 @@ def _tool_version(executable, environment, workspace):
 
 
 def _start_check(shell, root):
-    """The contained shell runs ``exit 0``: the sandbox starts and its profile parses."""
+    """The boundary starts and supports literal, large and nested shell input."""
     what = "The contained shell's start check"
-    return setup_check([str(shell), "-c", "exit 0"], what=what, cwd=root, capture_output=True, text=True, timeout=10)
+    return setup_check(
+        [str(shell), "-c", tool_shell.input_probe()], what=what, cwd=root, capture_output=True, text=True, timeout=10
+    )
 
 
 DENIAL_CHANGED = "Private run-state read denial changed; no provider launched"
@@ -1097,6 +1101,8 @@ def prepare(
             "Strict native tool containment requires macOS sandbox-exec or Linux bubblewrap; no provider launched"
         )
     root = _path(workspace)
+    shell_runtime = tool_shell.runtime()
+    read_roots = [*read_roots, *shell_runtime["read_roots"]]
     footprint = writer_footprint(root, write_paths) if write_paths is not None else None
     if footprint is not None and not allow_write:
         raise ValueError("Read-only stages cannot receive a writer footprint")
@@ -1113,6 +1119,7 @@ def prepare(
     parent.mkdir(exist_ok=True)
     control = parent / ("tool-containment-" + uuid.uuid4().hex)
     control.mkdir(mode=0o700)
+    shell_runtime = tool_shell.install_alias(shell_runtime, control)
     scratch = control / "scratch"
     scratch.mkdir(mode=0o700)
     if allow_write:
@@ -1175,45 +1182,14 @@ def prepare(
     npm_user, npm_global = scratch / "npm-user.conf", scratch / "npm-global.conf"
     npm_user.write_text("")
     npm_global.write_text("")
-    safe = {
-        "GIT_CONFIG_NOSYSTEM": "1",
-        "GIT_CONFIG_GLOBAL": "/dev/null",
-        "GIT_OPTIONAL_LOCKS": "0",
-        "OPENSSL_CONF": "/dev/null",
-        "NPM_CONFIG_USERCONFIG": str(npm_user),
-        "NPM_CONFIG_GLOBALCONFIG": str(npm_global),
-        "PATH": env.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin"),
-        "HOME": str(scratch),
-        "TMPDIR": str(scratch),
-        "TMP": str(scratch),
-        "TEMP": str(scratch),
-        "SHELL": "/bin/bash",
-        "BASH_ENV": "/dev/null",
-        "ENV": "/dev/null",
-        "PYTHONDONTWRITEBYTECODE": "1",
-        "PYTHONNOUSERSITE": "1",
-        "CI": "1",
-        "LANG": "en_US.UTF-8",
-        "AUTOCODE_TOOL_CONTAINMENT_ID": control.name,
-        "AUTOCODE_OUTPUT_STORE": str(scratch / "output-store"),
-    }
-    if verification:
-        safe["AUTOCODE_VERIFICATION_COPY"] = verification["manifest"]
-        safe["AUTOCODE_VERIFICATION_COPY_SHA256"] = verification["sha256"]
-    if env.get("AUTOCODE_CAPTURE_CONTEXT"):
-        context = json.loads(env["AUTOCODE_CAPTURE_CONTEXT"])
-        if not isinstance(context, dict) or not all(
-            isinstance(context.get(key), str) for key in ("attempt", "nonce", "source_revision")
-        ):
-            raise ValueError("Invalid runner capture context for tool containment")
-        safe["AUTOCODE_CAPTURE_CONTEXT"] = json.dumps(context)
+    safe = tool_shell.environment(shell_runtime, scratch, control.name, env, verification)
     sandbox = [SANDBOX_EXEC, "-f", str(profile)] if host == SEATBELT else [BWRAP, "--args", "3"]
     argv = [
         "/usr/bin/env",
         "-i",
         *(key + "=" + value for key, value in safe.items()),
         *sandbox,
-        "/bin/bash",
+        shell_runtime["path"],
         "--noprofile",
         "--norc",
     ]
@@ -1237,7 +1213,9 @@ def prepare(
     probe = _start_check(shell, root)
     if probe.returncode:
         raise RuntimeError(
-            f"Strict native tool sandbox is unavailable (exit {probe.returncode}): " + probe.stderr.strip()
+            f"Strict native tool shell input check failed (exit {probe.returncode}): "
+            + probe.stderr.strip()
+            + ("; macOS needs Homebrew Bash (brew install bash)" if host == SEATBELT else "")
         )
     return {
         **(
@@ -1257,6 +1235,7 @@ def prepare(
         "scratch": str(scratch),
         "allow_write": allow_write,
         "tools": ["bash"],
+        "shell_runtime": shell_runtime,
         **(
             {"write_paths": footprint, "writer_path_kinds": kinds, "writer_policy_inputs": policy_inputs}
             if footprint is not None
@@ -2000,6 +1979,8 @@ def verify(boundary):
             or not scratch.is_dir()
         ):
             raise ValueError("Unexpected containment authority layout")
+        if "shell_runtime" in boundary and not tool_shell.unchanged(boundary["shell_runtime"], control=control):
+            raise ValueError("Contained Bash runtime changed")
         if any(key.startswith("loopback_") for key in boundary):
             raise ValueError("Unsupported loopback capability in containment manifest")
         for name in ("profile", "shell", "conformance"):

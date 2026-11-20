@@ -70,7 +70,7 @@ class SetupCheckTests(unittest.TestCase):
         probes = []
 
         def slow_once(argv, **options):
-            if list(argv[1:]) == ["-c", "exit 0"]:
+            if Path(argv[0]).name == "shell" and argv[1] == "-c":
                 probes.append(options["timeout"])
                 if len(probes) == 1:
                     raise subprocess.TimeoutExpired(argv, options["timeout"])

@@ -393,6 +393,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Install the contained Bash runtime
+        run: brew install bash
       - name: Install package and runtime dependencies
         run: |
           python3 -m venv .venv
