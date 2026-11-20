@@ -1233,7 +1233,7 @@ and records what AutoCode itself did, one JSON object per event:
 | --- | --- |
 | `invocation` | Program, flag names (never values), and caller: `unattended` through `autocode unattended`, otherwise `direct`. Written by any command that saves the run. |
 | `transition` | Status, phase, next stage, iteration, task ID, which of those changed, and the runner's stop reason (up to 500 characters) when the status changed. |
-| `stage_started` / `stage_finished` | Stage, role, route role, iteration, engine, model, task ID, times, duration, exit code, timeout, rejection, number of changed files, token counts. |
+| `stage_started` / `stage_finished` | Stage, role, route role, iteration, engine, model, task ID, times, duration, exit code, timeout, rejection, number of changed files, token counts. `stage_finished` also has `outcome` and `outcome_reason` (below). |
 | `findings` | Counts by status and severity. |
 | `plan_revision` / `plan_approval` / `human_review` | Brief revision numbers, approval status, and criterion IDs reviewed by a person. |
 | `builders` / `stages_rewound` | Parallel Builder milestone statuses; a shortened stage history. |
@@ -1243,6 +1243,24 @@ text, file names, code, diffs or model output. Those stay in `state.json` and th
 per-stage artifacts. Nothing is trimmed, unlike `progress_messages` in
 `state.json`. Only saves that change the run add lines, so read-only commands such
 as `--status` add none. A failure to append never fails the checkpoint.
+
+Each stage attempt gets one `stage_finished`, written when its outcome is first
+known (`autocode_attempt_ledger.journal` decides; repeated saves, a new process
+and recovery do not repeat it):
+
+- A saved stage row is announced when it is appended, `outcome` `completed` or
+  `rejected`, except a model access probe: admitted, or finished while its
+  provider cleanup is unverified, it has no event until it settles, then `outcome`
+  is its recorded status (for example `PAUSED_PROVIDER_UNCERTAIN`) with its own
+  finish time, duration, model and exit code.
+- A read-only review that stopped cleanly but whose result was set aside because
+  the source changed under it is announced once the run stops, with `outcome`
+  `unaccepted` and `outcome_reason` the core's recorded reason (up to 500
+  characters). Any other retained attempt (interrupted, held for cleanup, paused
+  before its report was read) is announced only through its saved row.
+
+`outcome_reason` is null otherwise. The log names attempts by short digests, never
+by their file paths.
 
 `autocode unattended --analyze` summarizes the log (calls by caller, stages, stops,
 operator decisions) and `--out` copies it. Runs saved before this log existed have

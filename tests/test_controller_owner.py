@@ -124,6 +124,38 @@ class OwnerInspectionTests(unittest.TestCase):
             self.assertNotIn("requirements_gather", reason)
             self.assertNotIn("exit code 0", reason)
 
+    def test_exit_reason_is_bounded_and_a_ready_handoff_names_itself(self):
+        self.state["stop_reason"] = "An earlier stop, no longer current"
+        self.persist(self.run_dir / "state.json", self.state)
+        with util.run_lock(self.run_dir), owners.Owner(self.state, self.run_dir, self.persist) as owner:
+            owner.result(0, ready=True)
+        self.assertEqual(
+            "Saved user action or unit handoff is ready to advance", util.read(self.run_dir / owners.FILE)["reason"]
+        )
+        with util.run_lock(self.run_dir), owners.Owner(self.state, self.run_dir, self.persist) as owner:
+            owner.result(2, ready=True, reason="checkout held " + "x" * 600)
+        receipt = util.read(self.run_dir / owners.FILE)
+        self.assertEqual(("ready", 500), (receipt["disposition"], len(receipt["reason"])))
+        self.assertTrue(receipt["reason"].startswith("checkout held x"))
+        event = json.loads((self.run_dir / "activity.jsonl").read_text().splitlines()[-1])
+        self.assertEqual(("controller_exit", receipt["reason"]), (event["event"], event["reason"]))
+
+    def test_ac2_ready_row_keeps_running_and_its_continue(self):
+        """A deliberate ready handoff keeps the inventory row RUNNING and Ready to continue (#2332, #3287)."""
+        import autocode_run_view as run_view
+        import autocode_runs_command as runs
+
+        (self.workspace / ".git").mkdir()
+        with util.run_lock(self.run_dir), owners.Owner(self.state, self.run_dir, self.persist) as owner:
+            owner.result(0, ready=True)
+        saved = util.read(self.run_dir / "state.json")
+        expected = run_view.action(saved, run_dir=self.run_dir, workspace=self.workspace)["next_command"]
+        row = next(item for item in runs.rows(self.workspace) if item["name"] == "one")
+        self.assertEqual("RUNNING", row["status"])
+        self.assertEqual((runs.NEEDS, True), (row["bucket"], row["ready_to_continue"]))
+        self.assertEqual(expected, row["next_command"])
+        self.assertNotIn("--resume-paused", row["next_command"])
+
     def test_reused_pid_never_establishes_a_live_controller(self):
         with util.run_lock(self.run_dir), owners.Owner(self.state, self.run_dir, self.persist) as owner:
             owner.result(0, ready=True)
