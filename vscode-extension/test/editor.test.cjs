@@ -7891,6 +7891,43 @@ test('a finished run with no follow-up offer says so instead of pointing at an a
   assert.equal(ui.document.getElementById('send-hint').textContent, 'This run is finished. Start a new chat with +.');
 });
 
+test('chat-wide changes remain clearly scoped after a read-only follow-up or plan result', async (t) => {
+  const done = meteredView({
+    status: 'TASK_COMPLETE', done: true, completion_current: true, needs: { kind: 'done' }, liveness: null,
+    progress: { headline: 'Complete', requirements: { checked: 4, failed: 0, unchecked: 0, awaiting_review: 0 } },
+    code_checkpoints: { all_changes: { id: 'all_changes', label: 'Show all changes',
+      next_command: ['checkpoint', '--workspace', run.workspace, '--run-dir', run.runDir, '--all'] } },
+  });
+  done.usage.accounting.attempts = done.usage.accounting.attempts.map((row) => ({ ...row, active: false }));
+  t.mock.method(controller, 'allChanges', async () => ({ since: 'start',
+    changed_files: ['greet.py', 'tests/test_greet.py'], patch: '+saved greeting', truncated: false }));
+  const ui = await openChat(t, done);
+  assert.match(ui.document.querySelector('#finish-summary .files').textContent, /2 files/);
+  const buildCard = ui.document.getElementById('finish-summary');
+  assert.match(buildCard.textContent, /Requirements4 of 4 checked/);
+  assert.doesNotMatch(buildCard.querySelector('.finish-totals').textContent, /Requirements/);
+  for (const headline of ['Complete. Nothing was built or changed.', 'Plan accepted']) {
+    await ui.poll({ ...done, completion_current: false, progress: { ...done.progress, headline } });
+    const card = ui.document.getElementById('finish-summary');
+    assert.match(card.textContent, new RegExp(headline.replaceAll('.', '\\.')));
+    const totals = card.querySelector('.finish-totals');
+    assert.ok(totals, 'cumulative changes, time and cost need their own explicit scope');
+    assert.equal(totals.getAttribute('role'), 'group');
+    assert.equal(totals.getAttribute('aria-label'), 'Across this chat');
+    assert.match(totals.textContent, /Across this chat/);
+    const files = totals.querySelector('.files');
+    assert.equal(files.textContent, '2 files: greet.py, tests/test_greet.py');
+    assert.match(totals.textContent, /Stage time/);
+    assert.match(totals.textContent, /Cost/);
+    assert.doesNotMatch(totals.textContent, /Requirements/, 'current-result checks are separate from cumulative totals');
+    assert.doesNotMatch(card.textContent, /Requirements4 of 4/, 'the read-only result inherits no implementation verdict');
+    assert.equal(ui.document.getElementById('finish-show-changes').disabled, false);
+  }
+  ui.document.getElementById('finish-show-changes').click();
+  await flush(); await flush();
+  assert.match(ui.document.getElementById('app').textContent, /saved greeting/);
+});
+
 test('a saved chat whose status is still being read says it is opening, not a new chat with an action', async (t) => {
   const ui = await openChat(t, null, false);
   let answer;

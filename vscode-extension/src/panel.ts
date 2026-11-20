@@ -1363,9 +1363,14 @@ function renderFinish(state) {
   card.appendChild(el('div', 'speaker', 'AutoCode · finished'));
   const body = el('div', 'message-content');
   body.appendChild(el('div', 'result', '✓ ' + finish.headline));
+  if (finish.requirements) {
+    const checked = el('div', 'facts');
+    checked.appendChild(el('span', null, 'Requirements'));
+    checked.appendChild(el('span', null, finish.requirements.checked + ' of ' + finish.requirements.total + ' checked'));
+    body.appendChild(checked);
+  }
   const facts = el('div', 'facts');
   const fact = (label, value, cls) => { facts.appendChild(el('span', null, label)); facts.appendChild(el('span', cls || null, value)); };
-  if (finish.requirements) fact('Requirements', finish.requirements.checked + ' of ' + finish.requirements.total + ' checked');
   const files = allChangesCompare && allChangesCompare.comparison && Array.isArray(allChangesCompare.comparison.changed_files)
     ? allChangesCompare.comparison.changed_files : [];
   if (files.length) {
@@ -1374,7 +1379,14 @@ function renderFinish(state) {
   }
   if (finish.seconds !== null) fact('Stage time', formatDuration(finish.seconds));
   if (state.meter && state.meter.total) fact('Cost', state.meter.total.replace(/^Cost /, ''));
-  if (facts.childNodes.length) body.appendChild(facts);
+  if (facts.childNodes.length) {
+    const totals = el('div', 'finish-totals');
+    totals.setAttribute('role', 'group');
+    totals.setAttribute('aria-label', 'Across this chat');
+    totals.appendChild(el('div', 'why', 'Across this chat'));
+    totals.appendChild(facts);
+    body.appendChild(totals);
+  }
   const actions = el('div', 'actions');
   if (state.allChanges) {
     const show = el('button', null, 'Show changes');
