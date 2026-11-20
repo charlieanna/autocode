@@ -5,6 +5,18 @@ import json
 from pathlib import Path
 
 HISTORY_FIELDS = ("brief_feedback", "saved_answers")
+# The run's directory of context artifacts: the parts of a stage's handoff too large to send inline
+# (autocode_field_budget, the settled history), kept whole and content-addressed. A handoff names its
+# artifact by path and tells the stage to read it, so every stage's shell must be able to read this
+# directory, readonly planning shells included (#3907, autocode_tool_containment.private_run_reads).
+ARCHIVE_DIRECTORY = "context"
+
+
+def archive_directory(run_dir) -> Path:
+    """Where the run at ``run_dir`` keeps the context artifacts its handoffs name."""
+    return Path(run_dir) / ARCHIVE_DIRECTORY
+
+
 ARTIFACT_INSTRUCTION = (
     "Full material is preserved here. Retrieve relevant fields before relying on their evidence. "
     "This index does not change requirements or authorize skipping checks."
@@ -94,7 +106,7 @@ def compact_with_metrics(base, state_path, *, stage=None):
             else:
                 result.pop(key, None)
         if moved:
-            archive = Path(state_path).parent / "context" / (util.digest(moved) + ".json")
+            archive = archive_directory(Path(state_path).parent) / (util.digest(moved) + ".json")
             if not archive.exists():
                 util.atomic_json(archive, moved)
             elif util.read(archive) != moved:

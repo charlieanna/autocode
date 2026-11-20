@@ -60,6 +60,64 @@ class PlanningScopeDisciplineTests(unittest.TestCase):
             ci_test_selection.dependencies("tools/prompts/fragments/goals/job-type-policy.md"),
         )
 
+    def acceptance_stage_instructions(self):
+        instructions = {}
+        for stage in ("requirements_gather", "draft_plan", "revise_plan", "review_plan", "finalize_plan"):
+            state = fixed_state()
+            with (
+                patch.object(catalog_context, "context", return_value=None),
+                patch.object(planner, "workspace_inventory", return_value={"files": ["history.py"]}),
+                patch.object(planner.artifacts, "verify_predecessor", return_value=None),
+            ):
+                prompt, _ = planner.context(state, stage, STATE_PATH)
+            instructions[stage] = " ".join(prompt.split("\nCURRENT HANDOFF DATA\n", 1)[0].split())
+        return instructions
+
+    def test_ac1_acceptance_stages_render_discriminating_policy(self):
+        phrases = (
+            "DISCRIMINATING CRITERIA",
+            "what the original code does with the same input",
+            "a check the original code fails, including on negative paths",
+            "unknown command, usage error, missing function, ImportError",
+            "removed while everything else stays",
+            "run as installed, isolated from the source tree",
+            "default discovery observed as the default collection",
+            "the input boundary the parser applies",
+            "call existing APIs as they work on the current code",
+            "take each worked-example operand from the record the rule applies to",
+            "reconcile the public contract with any broader helper the approach reuses",
+            "a distinguishing example",
+            "keep the confirmation summary consistent with the requirement rows",
+            "do not prescribe a per-item pass over a whole collection for a bulk operation when one pass serves,"
+            " unless the request requires it",
+        )
+        instructions = self.acceptance_stage_instructions()
+        self.assertEqual(5, len(instructions))
+        for stage, instruction in instructions.items():
+            for phrase in phrases:
+                with self.subTest(stage=stage, phrase=phrase):
+                    self.assertIn(phrase, instruction)
+
+    def test_ac2_plan_reviewer_blocks_criterion_a_baseline_passes(self):
+        blocking = "raise a blocking concern naming the baseline or broken variant that passes it"
+        operand = "taking each operand from the record the rule applies to"
+        instructions = self.acceptance_stage_instructions()
+        for stage, instruction in instructions.items():
+            with self.subTest(stage=stage):
+                if stage in ("review_plan", "finalize_plan"):
+                    self.assertIn(blocking, instruction)
+                    self.assertIn(operand, instruction)
+                else:
+                    self.assertNotIn(blocking, instruction)
+                    self.assertNotIn(operand, instruction)
+        self.assertIn(operand, " ".join(planner.EXAMPLE_CHECK_RULE.split()))
+
+    def test_ac3_acceptance_policy_selects_rendered_prompt_regression(self):
+        self.assertIn(
+            "tests.test_planning_scope_discipline",
+            ci_test_selection.dependencies("tools/autocode_acceptance_policy.py"),
+        )
+
     def test_blocking_questions_require_a_connection_to_the_requested_defect(self):
         for stage in planner.PROMPTS:
             for adaptive in (False, True):
