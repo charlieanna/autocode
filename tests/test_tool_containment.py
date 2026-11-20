@@ -16,6 +16,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import autocode_context as handoff_context
 import autocode_tool_containment as containment
 import autocode_toolchain as toolchain
 import autocode_workspace_links as workspace_links
@@ -125,11 +126,12 @@ class PolicyTests(unittest.TestCase):
             scratch.mkdir(parents=True)
             reads = containment.private_run_reads(root, runs / "own")
             # No private store exists here, so the run store is the only denial.
-            self.assertEqual(
-                {"run_dir": str(runs / "own"), "denied": [str(runs)], "readable": [str(runs / "own/planning")]}, reads
-            )
+            # Readable again: its planning/ artifacts and the context artifacts its handoff names (#3907).
+            readable = [str(runs / "own/planning"), str(runs / "own/context")]
+            self.assertEqual({"run_dir": str(runs / "own"), "denied": [str(runs)], "readable": readable}, reads)
             rule = (
-                f'(deny file-read* (require-all (subpath "{runs}") (require-not (subpath "{runs / "own/planning"}"))))'
+                f'(deny file-read* (require-all (subpath "{runs}") (require-not (subpath "{readable[0]}"))'
+                f' (require-not (subpath "{readable[1]}"))))'
             )
             ordinary = containment._render_policy(root, scratch).splitlines()
             profile = containment._render_policy(root, scratch, private_reads=reads)
@@ -325,7 +327,7 @@ class PolicyTests(unittest.TestCase):
             reads = containment.private_run_reads(root, runs / "own")
             self.assertEqual(listed, sorted(private.iterdir()))
             self.assertEqual([str(path) for path in (runs, *stores)], reads["denied"])
-            self.assertEqual([str(runs / "own/planning")], reads["readable"])
+            self.assertEqual([str(runs / "own/planning"), str(runs / "own/context")], reads["readable"])
             for path in needed:
                 with self.subTest(readable=path.name):
                     denied = [d for d in reads["denied"] if path.is_relative_to(d)]
@@ -2290,7 +2292,15 @@ class KernelTests(unittest.TestCase):
         runs, private, artifact = self.planning_run_store()
         areas, needed = self.private_areas()
         private = {**private, **areas}
-        before = {path: path.read_bytes() for path in [*private, *needed, artifact]}
+        # #3907: the Plan Reviewer's handoff summarizes the long author rules and names the context
+        # artifact that holds them whole; the planning shell must be able to read what it names.
+        rules = {f"rule-{n}": f"Rule {n}: audit every criterion.\n" + "detail " * 400 for n in range(5)}
+        packet, moved = handoff_context.compact(
+            {"stage": "review_plan", "contract_author_rules": rules}, self.run_dir / "state.json"
+        )
+        self.assertEqual(["contract_author_rules"], moved)
+        archive = Path(packet["context_artifact"]["path"])
+        before = {path: path.read_bytes() for path in [*private, *needed, artifact, archive]}
         boundary = self.native_planning_boundary()
         scratch = Path(boundary["scratch"])
         for number, path in enumerate(private):
@@ -2331,10 +2341,13 @@ class KernelTests(unittest.TestCase):
         read = self.run_shell(shlex.join(["cat", str(artifact)]), boundary)
         self.assertEqual((0, '{"predecessor":"approved plan"}\n'), (read.returncode, read.stdout), read.stderr)
         self.assertIn("plan-1.json", self.run_shell(shlex.join(["ls", str(artifact.parent)]), boundary).stdout)
+        read = self.run_shell("python -c " + shlex.quote(f"print(open({str(archive)!r}).read())"), boundary)
+        self.assertEqual(0, read.returncode, read.stderr)
+        self.assertEqual(rules, json.loads(read.stdout)["contract_author_rules"])
         copy = scratch / "verification" / "source.py"
         self.assertEqual("VALUE = 42\n", self.run_shell(shlex.join(["cat", str(copy)]), boundary).stdout)
         self.assertEqual(0, self.run_shell(": > " + shlex.quote(str(scratch / "note")), boundary).returncode)
-        for path in (self.run_dir / "state.json", artifact, runs / "planted-run", *areas, *needed):
+        for path in (self.run_dir / "state.json", artifact, archive, runs / "planted-run", *areas, *needed):
             self.assert_denied(": > " + shlex.quote(str(path)), boundary)
         self.assertEqual(before, {path: path.read_bytes() for path in before})
         self.assertFalse((runs / "planted-run").exists())
@@ -2343,12 +2356,12 @@ class KernelTests(unittest.TestCase):
         reads = {
             "run_dir": str(self.run_dir),
             "denied": [str(path) for path in (runs, *stores)],
-            "readable": [str(artifact.parent)],
+            "readable": [str(artifact.parent), str(archive.parent)],
         }
         self.assertEqual(reads, boundary["private_reads"])
         proof = json.loads(Path(boundary["conformance"]).read_text())["private_reads"]
         self.assertEqual(
-            {**reads, "listed": [str(artifact.parent)], "exit": 0}, {k: proof[k] for k in (*reads, "listed", "exit")}
+            {**reads, "listed": reads["readable"], "exit": 0}, {k: proof[k] for k in (*reads, "listed", "exit")}
         )
         sentinel = Path(boundary["profile"]).parent.name + "-private-read-sentinel"
         self.assertEqual(
