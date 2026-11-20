@@ -225,6 +225,73 @@ class ConsistentSampleTests(unittest.TestCase):
                 self.assertEqual("draft_plan", shown["next_stage"])
                 self.assertEqual("Q1", shown["needs"]["questions"][0]["id"])
 
+    def test_c4_gathered_requirements_ready_for_review(self):
+        """#3864: at Approve understanding and prepare plan, two runs (4 requirements and 6 acceptance tests,
+        5 and 7) read "no requirements yet" while the view published the gathered Requirements record."""
+
+        def gathered(requirements, tests, **changes):
+            report = {
+                "intended_outcome": "Format durations",
+                "requirements": [
+                    {"id": f"R{n}", "text": f"Requirement {n}", "source_quote": f"quote {n}"}
+                    for n in range(1, requirements + 1)
+                ],
+                "acceptance_tests": [f"Example {n}" for n in range(1, tests + 1)],
+            }
+            return {
+                **state_at("draft_plan"),
+                "status": "WAITING_FOR_USER",
+                "settings": {"spec_first": True},
+                "requirements_handoff": {"output": "iterations/001/requirements-01.json", "report": report},
+                "pending_questions": [{"id": "requirements-review-0123456789abcdef", "question": "Does this match?"}],
+                **changes,
+            }
+
+        def shown(saved):
+            with tempfile.TemporaryDirectory() as tmp:
+                run = Path(tmp).resolve() / "run"
+                run.mkdir()
+                (run / "state.json").write_text(json.dumps(saved))
+                return self.render(
+                    saved,
+                    run,
+                    lambda *_args, **_kwargs: {
+                        "kind": "boundary",
+                        "reason": "fixture",
+                        "receipt": None,
+                        "checked": True,
+                        "alive": False,
+                    },
+                )
+
+        view = shown(gathered(4, 6))
+        self.assertEqual("answer", view["needs"]["kind"])
+        self.assertEqual(
+            (4, 6), (len(view["requirements"]["requirements"]), len(view["requirements"]["acceptance_tests"]))
+        )
+        self.assertEqual("4 gathered requirements ready for review", view["progress"]["requirements"]["label"])
+        self.assertEqual(
+            "Waiting for you · no task list yet · 4 gathered requirements ready for review · 0 open problems · "
+            "1 question to answer",
+            view["progress"]["line"],
+        )
+        self.assertEqual(0, view["progress"]["requirements"]["total"], "Implementation criteria are still counted")
+        self.assertEqual(
+            "5 gathered requirements ready for review", shown(gathered(5, 7))["progress"]["requirements"]["label"]
+        )
+        self.assertEqual(
+            "1 gathered requirement ready for review", shown(gathered(1, 1))["progress"]["requirements"]["label"]
+        )
+        # Only the Requirements review gate reads ready for review: a Planner question is not that review.
+        planner_question = gathered(4, 6, pending_questions=[{"id": "Q1", "question": "Which history entries?"}])
+        self.assertEqual(
+            "4 gathered requirements, no plan yet", shown(planner_question)["progress"]["requirements"]["label"]
+        )
+        # Approved, the Planner drafts: nothing waits for review, and no plan is there yet.
+        drafting = shown(gathered(4, 6, status="RUNNING", pending_questions=[]))
+        self.assertEqual("continue", drafting["needs"]["kind"])
+        self.assertEqual("4 gathered requirements, no plan yet", drafting["progress"]["requirements"]["label"])
+
     def test_a_checkpoint_that_keeps_changing_is_bounded(self):
         import autocode_status_command as command
 

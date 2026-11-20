@@ -2266,7 +2266,10 @@ its wording may change, so programs read the fields beside it:
   grants no action; the current `needs` and `next_command` still decide that.
 - `headline`: `Complete`, `Waiting for you`, `Paused`, `Waiting for another run`,
   `<job> working` (`Tester writing tests first` while the Tester writes the approved
-  tests before the Builder starts), `<job> finished` (its report is saved but not applied yet),
+  tests before the Builder starts; the same stage reads `Tester strengthening tests (round 1 of 2)`
+  while it strengthens tests of code the Builder already wrote, and `Tester repairing tests (round 1 of 2)`
+  while it repairs a protected test a review sent back, repair first when both are pending, from the same
+  record and round the `recoveries` list shows, #3924), `<job> finished` (its report is saved but not applied yet),
   `<job> finished · Next: <job>` when the run already knows the job after that
   finished one (#1711), `<job> attempt ended` (an ended or accounted attempt
   still held for reconciliation, without asserting a successful report or confirmed cleanup),
@@ -2293,7 +2296,11 @@ its wording may change, so programs read the fields beside it:
   person has accepted yet); `reviewed` (a person's review receipt is valid for the
   current validation); `unchecked` otherwise, never `checked`. Each state has a
   count. Results under another contract, or with no contract hash under a contract,
-  do not count. The view does not read the workspace.
+  do not count. The view does not read the workspace. Before a plan has criteria,
+  `label` counts the requirements in the published Requirements record (the view's
+  `requirements`, #3864): `4 gathered requirements ready for review` while the
+  Requirements review question waits for the person, otherwise
+  `4 gathered requirements, no plan yet`; `total` still counts only the plan's criteria.
 - `problems`: `open` counts the open findings (`items`: `id`, `finding`, `source`,
   `severity`, `blocking`) plus, for a code or design review and a design-conflict
   stop, the findings that job saved instead (`reports`: `kind`, `blocking`,

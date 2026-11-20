@@ -84,6 +84,60 @@ _RESOLVER_ACTIONS = {
 
 
 _RETRIED = "again itself"  # autocode_rejection_retry: AutoCode ran the stage again itself
+# The stage the independent Tester writes, strengthens and repairs acceptance tests in
+# (autocode_acceptance_tests_job.STAGE; kept literal to avoid importing a workflow job).
+TEST_WRITER_STAGE = "write_acceptance_tests"
+
+
+def _round(row: dict, action: str) -> tuple[int | None, int | None]:
+    """The round a recovery record names, out of the rounds its gate allows, when it sent ``action`` work;
+    (None, None) for a record of another action or one saved before rounds were recorded."""
+    number, limit = row.get("round"), row.get("round_limit")
+    if row.get("action") == action and type(number) is int and type(limit) is int and 0 < number <= limit:
+        return number, limit
+    return None, None
+
+
+def rounds(number: int | None, limit: int | None) -> str:
+    """`` (round 1 of 2)``, or nothing when the record names no round."""
+    return f" (round {number} of {limit})" if number is not None and limit is not None else ""
+
+
+def test_writer_purpose(state: RunState) -> dict[str, Any] | None:
+    """Why the independent Tester is (or will next be) dispatched to ``write_acceptance_tests``.
+
+    The same stage writes the approved tests before the Builder starts, strengthens tests of code the
+    Builder already wrote (the changed-code gate's ``changed_code_rework`` record, #3924), and repairs a
+    protected test a review found wrong (``acceptance_tests.test_repairs``, #3350). The pending pins the
+    runner sets when it routes the stage (autocode_acceptance_tests.route) tell them apart; the round
+    comes from the same record the recoveries list shows. A repair takes precedence over strengthening
+    when both are pending: the runner writes its next action last. None for a tests-first dispatch.
+    """
+    record = state.get("acceptance_tests")
+    record = record if isinstance(record, dict) else {}
+    if record.get("pending_test_repair"):
+        rows = [row for row in record.get("test_repairs") or [] if isinstance(row, dict)]
+        number, limit = next(
+            (_round(row, "writer") for row in reversed(rows) if row.get("action") == "writer"), (None, None)
+        )
+        return {"kind": "repair", "round": number, "round_limit": limit}
+    if record.get("pending_evidence_repair"):
+        rows = [
+            row
+            for row in state.get("regression_proofs") or []
+            if isinstance(row, dict) and row.get("kind") == "changed_code_rework"
+        ]
+        number, limit = next(
+            (_round(row, "builder") for row in reversed(rows) if _strengthening(row)),
+            (None, None),
+        )
+        return {"kind": "strengthening", "round": number, "round_limit": limit}
+    return None
+
+
+def _strengthening(row: dict) -> bool:
+    """A changed-code gate record that sent the selected tests to the independent Tester, not the Builder."""
+    return row.get("test_owner") == TEST_WRITER_STAGE and row.get("action") == "builder"
 
 
 def project(state: RunState) -> list[dict[str, Any]]:
@@ -338,7 +392,7 @@ def _sent_back(state: RunState):
                 action="AutoCode requested review and reassignment within the approved plan before another Builder attempt.",
             )
             continue
-        writer = row.get("test_owner") == "write_acceptance_tests" and row.get("action") == "builder"
+        writer = _strengthening(row)
         if writer:
             action, by = "AutoCode sent the selected tests to the independent Tester for stronger assertions.", "Tester"
         elif row.get("action") == "investigator" and row.get("builder_skipped"):
@@ -356,18 +410,13 @@ def _sent_back(state: RunState):
             action, by = "AutoCode sent the Builder back to test these lines or give a reason.", "Builder"
         # The round the record names, out of the rounds the gate allows (autocode_changed_code_rework);
         # a record saved before rounds were recorded has none.
-        number, limit = row.get("round"), row.get("round_limit")
-        rounds = (
-            f" (round {number} of {limit})"
-            if row.get("action") == "builder" and type(number) is int and type(limit) is int and 0 < number <= limit
-            else ""
-        )
+        suffix = rounds(*_round(row, "builder"))
         yield _entry(
             "sent_back",
             row.get("at"),
-            "write_acceptance_tests" if writer else "builder",
+            TEST_WRITER_STAGE if writer else "builder",
             state,
-            headline=("Independent test strengthening" if writer else "Builder sent back for untested lines") + rounds,
+            headline=("Independent test strengthening" if writer else "Builder sent back for untested lines") + suffix,
             problem=problem,
             action=action,
             by=by,
@@ -391,12 +440,7 @@ def _acceptance_test_repairs(state: RunState):
             if parts
             else "A protected acceptance test contradicted its approved case or failed on a test fixture bug."
         )
-        number, limit = row.get("round"), row.get("round_limit")
-        rounds = (
-            f" (round {number} of {limit})"
-            if row.get("action") == "writer" and type(number) is int and type(limit) is int and 0 < number <= limit
-            else ""
-        )
+        suffix = rounds(*_round(row, "writer"))
         exhausted = row.get("action") == "exhausted"
         action = (
             "Protected acceptance-test repairs reached their limit, so AutoCode paused for investigation."
@@ -406,12 +450,12 @@ def _acceptance_test_repairs(state: RunState):
         yield _entry(
             "acceptance_test_repair",
             row.get("at"),
-            "write_acceptance_tests",
+            TEST_WRITER_STAGE,
             state,
             headline=(
                 "Protected acceptance-test repair limit reached" if exhausted else "Independent acceptance-test repair"
             )
-            + rounds,
+            + suffix,
             problem=problem,
             action=action,
             by="AutoCode" if exhausted else "Tester",

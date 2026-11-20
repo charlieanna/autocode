@@ -371,6 +371,8 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         continuing=controller_owner.continuing(state, owner),
         internal_failure=operational_block.presentation(state, include_hold=True),
         liveness=public_view["liveness"],
+        # The published Requirements record, so the label and the view read one record (#3864).
+        gathered=public_view.get("requirements"),
     )
     # A finished run whose verification no longer covers the current checkout names
     # a re-verification action: resume re-checks completion against the source on disk.

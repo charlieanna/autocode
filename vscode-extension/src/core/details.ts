@@ -50,6 +50,8 @@ export interface PipelineStep {
   why: string;
   /** The stage launched and its newest attempt failed, and it is not running again now: it gets no tick. */
   stopped: boolean;
+  /** Where the job's newest attempt falls among the run's attempts in time order; -1 before it launched. */
+  newest: number;
 }
 
 /** The stage table's last row: the run's working time, tokens and accounted spend, as the core totals them. */
@@ -124,8 +126,10 @@ interface JobUse {
   model: string; level: string; seconds: number | null; tokens: number; tokensComplete: boolean; spent: number | null;
   costComplete: boolean;
   attempts: number; failed: number; repairs: number; why: string; active: boolean;
-  /** The job's newest stage row ended on a failed attempt (the meter's `failed` state). */
+  /** The job's newest attempt, across all its stages, failed (the meter's `failed` state of that stage). */
   lastFailed: boolean;
+  /** Where the job's newest attempt falls among all of the run's attempts in time order (the meter's `newest`). */
+  newest: number;
 }
 
 function jobUse(view: Row, now: number): Map<string, JobUse> {
@@ -133,10 +137,13 @@ function jobUse(view: Row, now: number): Map<string, JobUse> {
   for (const row of meterStages(view, now) as StageRow[]) {
     const seen = used.get(row.job);
     const add = (a: number | null, b: number | null) => (a === null ? b : b === null ? a : a + b);
+    // Rows come in the order each stage first ran; the stage holding the job's newest attempt decides
+    // its outcome and route, so a draft after a revision is not hidden behind the revision (#3853).
+    const latest = !seen || row.newest > seen.newest ? row : null;
     used.set(row.job, {
       // The newest attempt's route: the model a job that has no saved route actually launched on.
-      model: row.model || seen?.model || "",
-      level: row.level || seen?.level || "",
+      model: (latest ? row.model || seen?.model : seen?.model || row.model) || "",
+      level: (latest ? row.level || seen?.level : seen?.level || row.level) || "",
       seconds: add(seen?.seconds ?? null, row.seconds),
       tokens: (seen?.tokens ?? 0) + row.tokens,
       tokensComplete: (seen?.tokensComplete ?? true) && row.tokensComplete,
@@ -145,10 +152,10 @@ function jobUse(view: Row, now: number): Map<string, JobUse> {
       attempts: (seen?.attempts ?? 0) + row.attempts,
       failed: (seen?.failed ?? 0) + row.failedAttempts,
       repairs: (seen?.repairs ?? 0) + row.repairs,
-      why: row.why || seen?.why || "",
+      why: (latest ? row.why || seen?.why : seen?.why || row.why) || "",
       active: Boolean(seen?.active) || row.state === "working" || row.state === "retrying",
-      // Rows come in the order each stage first ran, so a job's later stage (a revised plan) decides.
-      lastFailed: row.state === "failed",
+      lastFailed: latest ? row.state === "failed" : Boolean(seen?.lastFailed),
+      newest: latest ? row.newest : seen!.newest,
     });
   }
   return used;
@@ -178,6 +185,7 @@ function stepOf(label: string, state: StepState, row: Row, use: JobUse | undefin
     model: shortModel(model), level, route: [model, level].filter(Boolean).join(" "),
     time: "", tokens: "", cost: "", attempts: use?.attempts ?? 0, failed: use?.failed ?? 0, repairs: use?.repairs ?? 0, runs: "", why: "",
     stopped: state === "ran" && Boolean(use?.lastFailed),
+    newest: use?.newest ?? -1,
   };
   if (step.stopped) step.mark = STOPPED_MARK;
   if (state === "skipped") {
@@ -253,10 +261,13 @@ function pipelineSection(view: Row, steps: PipelineStep[]): DetailSection | null
   const next = steps.find((step) => step.state === "next");
   const ran = steps.filter((step) => step.state === "ran").length;
   const stopped = steps.filter((step) => step.stopped);
+  // The stage responsible for the stop is the stopped one whose failed attempt is the newest, not the
+  // last in pipeline order: a Builder that fails after a Tester failure stopped the run (#3853).
+  const stoppedAt = stopped.reduce<PipelineStep | null>((found, step) => (!found || step.newest > found.newest ? step : found), null);
   // A stopped run names where it stopped; "7 of 7 ran" with ticks read as a finished, passing run.
   const summary = working ? `${working.label} working`
     : next ? `${next.label} next`
-    : stopped.length && view.done !== true ? `Stopped at ${stopped[stopped.length - 1]!.label}`
+    : stoppedAt && view.done !== true ? `Stopped at ${stoppedAt.label}`
     : `${ran} of ${steps.length} ran` + (stopped.length ? `, ${stopped.length} stopped on a failed attempt` : "");
   const lines: string[] = [];
   for (const step of steps) {

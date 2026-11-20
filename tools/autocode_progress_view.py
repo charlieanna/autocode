@@ -27,12 +27,14 @@ try:
     from . import autocode_attempt_ledger as attempt_ledger
     from . import autocode_person_text as person_text
     from . import autocode_plan_only as plan_only
+    from . import autocode_recovery_history as recovery_history
     from . import autocode_run_status as run_status
     from . import autocode_stage_activity as stage_activity
 except ImportError:
     import autocode_attempt_ledger as attempt_ledger
     import autocode_person_text as person_text
     import autocode_plan_only as plan_only
+    import autocode_recovery_history as recovery_history
     import autocode_run_status as run_status
     import autocode_stage_activity as stage_activity
 
@@ -59,9 +61,15 @@ STOP_CLAIM = "stopped without saving a report"
 # runs again, so naming the next one ("Next: Builder") read as work still to come.
 ENDED = "Stopped: AutoCode could not finish this task"
 # The stage in which the Tester writes the approved tests before the Builder starts
-# (autocode_acceptance_tests_job.STAGE; kept literal to avoid importing a workflow job).
+# (autocode_acceptance_tests_job.STAGE, named in recovery_history to avoid importing a workflow job).
 # "Tester working" there read as a Tester checking finished work while no task was done yet.
-TESTS_FIRST_STAGE = "write_acceptance_tests"
+TESTS_FIRST_STAGE = recovery_history.TEST_WRITER_STAGE
+# What the same stage does when it runs after the Builder or a review (recovery_history.test_writer_purpose):
+# "writing tests first" there read as a restart while the Tester strengthened finished work (#3924).
+TEST_WRITER_PURPOSE = {"strengthening": "strengthening tests", "repair": "repairing tests"}
+# The id prefix of the Requirements review gate question (autocode_requirements_review.PREFIX; kept
+# literal so the progress view reads the published record it is given, not the review module).
+REQUIREMENTS_REVIEW_PREFIX = "requirements-review-"
 
 
 def claims_a_stop(headline) -> bool:
@@ -95,6 +103,7 @@ def progress(
     continuing: bool = False,
     internal_failure=None,
     liveness=None,
+    gathered: dict | None = None,
 ) -> dict:
     """The progress projection of one run.
 
@@ -112,6 +121,8 @@ def progress(
               raised limit is being applied, so the stop no longer waits for the person
     liveness  the same fresh classified stage observation as the public view; an open accounting
               slot or a saved timestamp alone never establishes working activity
+    gathered  the status view's published Requirements record (`requirements`), so a run with no plan
+              yet names the requirements it gathered instead of "no requirements yet" (#3864)
     """
     status = state.get("status", "")
     done = status in COMPLETE
@@ -128,6 +139,9 @@ def progress(
     if earlier:
         tasks["label"] = "no task list yet for this request"
         requirements["label"] = "no requirements yet for this request"
+    elif not requirements["items"] and (label := _gathered_label(gathered, needs)):
+        # Requirements gathered, no implementation criteria yet: `total` still counts criteria (0).
+        requirements["label"] = label
     problems = _problems(state, _rows(state.get("turns")))
     kind = (needs or {}).get("kind")
     asked = _asked(needs, state)
@@ -167,8 +181,16 @@ def progress(
         # Its recorded end is not a saved successful report or confirmed cleanup.
         headline = f"{stage} attempt ended"
     elif stage and working:
-        writing_first = working.get("stage") == TESTS_FIRST_STAGE
-        headline = f"{stage} writing tests first" if writing_first else f"{stage} working"
+        headline = f"{stage} working"
+        if working.get("stage") == TESTS_FIRST_STAGE:
+            # One stage, three purposes; the recovery record that dispatched it says which (#3924).
+            purpose = recovery_history.test_writer_purpose(state)
+            headline = (
+                f"{stage} {TEST_WRITER_PURPOSE[purpose['kind']]}"
+                + recovery_history.rounds(purpose["round"], purpose["round_limit"])
+                if purpose
+                else f"{stage} writing tests first"
+            )
     elif stage and open_record:
         headline = f"{stage}: activity could not be confirmed."
     elif (check := _mapping(state.get("active_runner_check"))).get("summary"):
@@ -343,6 +365,24 @@ def _requirements(state: RunState, contract, body, reviewed, legacy):
         "label": label,
         "items": items,
     }
+
+
+def _gathered_label(gathered, needs) -> str | None:
+    """The published Requirements record's count while no plan has criteria, or None when it has none.
+
+    Ready for review only while the Requirements review gate question waits for the person (#3864):
+    before it is asked, or after it is approved while the Planner drafts or asks its own question,
+    the requirements are gathered but no plan has been made from them yet."""
+    count = len(_rows(_mapping(gathered).get("requirements")))
+    if not count:
+        return None
+    needs = _mapping(needs)
+    asked = needs.get("kind") == "answer" and any(
+        str(question.get("id") or "").startswith(REQUIREMENTS_REVIEW_PREFIX)
+        for question in _rows(needs.get("questions"))
+    )
+    noun = _count(count, "gathered requirement")
+    return f"{noun} ready for review" if asked else f"{noun}, no plan yet"
 
 
 def _rebuilt_since(state: RunState, validation):
