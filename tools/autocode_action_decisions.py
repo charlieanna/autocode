@@ -46,7 +46,6 @@ try:
     from . import autocode_planning as planning
     from . import autocode_planning_artifacts as planning_artifacts
     from . import autocode_requirements_chat as requirements_chat
-    from . import autocode_requirements_review as requirements_review
     from . import autocode_resolver_human as resolver_human
     from . import autocode_review_rejection as review_rejection
     from . import autocode_run_finder as run_finder
@@ -78,7 +77,6 @@ except ImportError:
     import autocode_planning as planning
     import autocode_planning_artifacts as planning_artifacts
     import autocode_requirements_chat as requirements_chat
-    import autocode_requirements_review as requirements_review
     import autocode_resolver_human as resolver_human
     import autocode_review_rejection as review_rejection
     import autocode_run_finder as run_finder
@@ -401,8 +399,7 @@ def apply_user_action(runner, args, parser, state: RunState, state_path, run_dir
             goals.answer(candidate, question, "accept default", delegated=True)
         if args.delegate_all:
             goals.delegate_all(candidate, args.review_token)
-        requirements_review.after_answers(candidate, queue=resolver_human.queue)
-        requirements_chat.start_after_approval(candidate)
+        requirements_chat.after_answers(candidate, queue=resolver_human.queue)
         for assumption_id in args.reject_assumption:
             goals.reject_assumption(candidate, assumption_id, args.review_token)
         if args.feedback is not None:

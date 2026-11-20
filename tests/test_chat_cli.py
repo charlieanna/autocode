@@ -50,6 +50,45 @@ class ChatCliTests(unittest.TestCase):
             "PYTHONDONTWRITEBYTECODE": "1",
         }
 
+    def inline_opener_reply(self, *, feedback=False):
+        run_dir = self.workspace / ".autocode/runs/inline-opener"
+        reply = ("/feedback " if feedback else "") + BRIEF
+        result = subprocess.run(
+            [
+                *taskrun.AUTOCODE,
+                "hi",
+                *FIXTURE_OPTIONS,
+                "--spec-first",
+                "--chat",
+                "--in-place",
+                "--max-cost-usd",
+                "0",
+                "--workspace",
+                str(self.workspace),
+                "--new-run-dir",
+                str(run_dir),
+            ],
+            input=reply + "\n",
+            env={**os.environ, **self.env},
+            text=True,
+            capture_output=True,
+            timeout=180,
+        )
+        self.assertEqual(2, result.returncode, result.stdout + result.stderr)
+        view = taskrun.TaskRun(self.workspace, run_dir, env=self.env, timeout=60).status()
+        self.assertEqual(BRIEF, view["task"])
+        self.assertEqual("answer", view["needs"]["kind"], view.get("needs"))
+        self.assertTrue(view["needs"]["questions"][-1]["id"].startswith("requirements-review-"))
+        self.assertIsNone(view.get("displayed_plan"), "the new request still needs Requirements confirmation")
+        self.assertEqual(["hi", BRIEF], [row["text"] for row in view["chat"]["messages"] if row["role"] == "user"])
+        self.assertFalse((self.workspace / "greet.py").exists())
+
+    def test_inline_opener_answer_becomes_the_task_and_preserves_the_conversation(self):
+        self.inline_opener_reply()
+
+    def test_inline_opener_feedback_becomes_the_task_and_preserves_the_conversation(self):
+        self.inline_opener_reply(feedback=True)
+
     def test_source_inventory_refusal_retains_the_report_and_resumes_without_another_provider_call(self):
         root = self.workspace.parent
         marker = root / "inventory-refusal"

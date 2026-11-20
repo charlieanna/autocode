@@ -741,6 +741,20 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
         (
+            "tools/autocode.py",
+            "tools/autocode_action_decisions.py",
+            "tools/autocode_requirements_chat.py",
+            "tools/autocode_skip_requirements.py",
+        ),
+        (
+            "tests.test_chat_cli",
+            "tests.test_command_flow",
+            "tests.test_skip_requirements",
+            "tests.test_requirements_review",
+        ),
+    ),
+    (
+        (
             "tools/autocode_issue.py",
             "tools/autocode_multicomponent.py",
             "tools/autocode_demo.py",

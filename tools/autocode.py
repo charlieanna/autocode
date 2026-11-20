@@ -34,6 +34,7 @@ try:
     from . import autocode_planning_recovery_policy as planning_recovery_policy
     from . import autocode_prompt_bound as prompt_bound
     from . import autocode_prompts as prompts
+    from . import autocode_requirements_chat as requirements_chat
     from . import autocode_route_advisory as route_advisory
     from .autocode_model_inventory import InvocationInventory
 except ImportError:
@@ -45,6 +46,7 @@ except ImportError:
     import autocode_planning_recovery_policy as planning_recovery_policy
     import autocode_prompt_bound as prompt_bound
     import autocode_prompts as prompts
+    import autocode_requirements_chat as requirements_chat
     import autocode_route_advisory as route_advisory
     from autocode_model_inventory import InvocationInventory  # noqa: F401 - compatibility API supplied to invocation helpers
 
@@ -1602,6 +1604,9 @@ def chat_checkpoint(state: RunState, run_dir=None, *, persist=None, native=None)
                 raise
         if not approval_provenance.decide(callback, state, candidate, sys.argv[1:]):  # who approved (#722)
             return False  # the run's require-approver refused this checkout's Git identity: nothing changed
+        if published and published["scope"] == "clarification":
+            requirements_chat.after_answers(candidate, queue=resolver_human.queue)
+        requirements_chat.adopt_reply(candidate)
         if published:
             finish_human_action(candidate, published)
         normalize_human_boundary(candidate, run_dir)

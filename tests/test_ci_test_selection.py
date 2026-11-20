@@ -8,6 +8,24 @@ import run_suite
 
 
 class AccessTransportConsumerTests(unittest.TestCase):
+    def test_answer_ingresses_keep_the_requirements_lifecycle_consumers_when_slow(self):
+        consumers = {
+            "tests.test_chat_cli",
+            "tests.test_command_flow",
+            "tests.test_skip_requirements",
+            "tests.test_requirements_review",
+        }
+        for source in (
+            "tools/autocode.py",
+            "tools/autocode_action_decisions.py",
+            "tools/autocode_requirements_chat.py",
+            "tools/autocode_skip_requirements.py",
+        ):
+            with self.subTest(source=source):
+                selected = run_suite.select_tests([source], dict.fromkeys(consumers, ""))
+                kept, _ = run_suite.drop_slow(selected, dict.fromkeys(consumers, "slow"))
+                self.assertEqual(consumers, set(kept))
+
     def test_stage_activity_keeps_public_display_and_existing_cli_consumers_when_slow(self):
         consumers = {
             "tests.test_retained_attempt_display",
