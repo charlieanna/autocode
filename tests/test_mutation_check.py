@@ -276,7 +276,7 @@ class RunnerTests(unittest.TestCase):
 
     def test_nothing_runs_without_a_supported_proof_whose_tests_can_be_selected(self):
         cases = {
-            "cargo": ({"framework": "cargo", "command": "cargo test"}, "this proof ran cargo", "no_mutation_source"),
+            "maven": ({"framework": "junit", "command": "mvn test"}, "this proof ran junit", "no_mutation_source"),
             "shell": (
                 {"command": COMMAND + " | tee log"},
                 "cannot select the proving tests alone",

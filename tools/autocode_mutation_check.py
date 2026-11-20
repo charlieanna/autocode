@@ -10,8 +10,8 @@ a test that asserts something, but not enough, gets past.
 Report only: nothing here changes the verdict, the failures, the unverified reasons or the proof's
 receipts, and no mutant run is one of the proof's ``checks``. One deadline, ``BUDGET_SECONDS``,
 covers the unmutated run and every mutant: the same limit as one check replay. Python unittest and
-pytest proofs are mutated through the AST (autocode_mutants); Go, node:test, Vitest, Jest and Mocha
-proofs through tokens (autocode_text_mutants, #3817). Any other runner's record says so in
+pytest proofs are mutated through the AST (autocode_mutants); Go, node:test, Vitest, Jest, Mocha,
+Cargo and RSpec proofs through tokens (autocode_text_mutants, #3817). Any other runner's record says so in
 ``unavailable``. Imports nothing from the runner; the caller owns the scratch tree and runs the
 commands.
 """
@@ -61,7 +61,12 @@ PYTHON_FRAMEWORKS = ("unittest", "pytest")
 # Runners whose proving tests autocode_proof_stability.narrow can select by name, and the language of the
 # sources their mutants are made from (#3817). Their selection is a name pattern, so a reference or mutant
 # run may report tests beside the selected ones (autocode_mutation_results.selected).
-TEXT_FRAMEWORKS = {"go": "go", "node": "js", "vitest": "js", "jest": "js", "mocha": "js"}
+TEXT_FRAMEWORKS = {"go": "go", "node": "js", "vitest": "js", "jest": "js", "mocha": "js", "cargo": "rs", "rspec": "rb"}
+# Runners whose build decides a source is unchanged by its modification time alone: Cargo rebuilds a crate
+# only when a source is newer than its last build. A mutant given an older time than that build (as each
+# Python mutant is, for its bytecode cache) would run the binary built before it, unmutated, and survive
+# whatever the tests assert. Each of their versions is given a time later than the one before instead.
+FORWARD_TIME = frozenset({"cargo"})
 FRAMEWORKS = PYTHON_FRAMEWORKS + tuple(TEXT_FRAMEWORKS)
 # Why a proof's runner can produce no mutation evidence at all. No Builder change closes such a gap, so
 # the changed-line repair route reads it (autocode_changed_code_rework.route).
@@ -87,7 +92,8 @@ def record(note=None, files=(), *, collected=False, unavailable=None) -> dict:
 def unsupported(framework_name) -> dict:
     """The record of a proof whose runner has no mutation source, saying which runner it was."""
     return record(
-        "the mutation check runs Python unittest and pytest, Go, node:test, Vitest, Jest and Mocha proofs; "
+        "the mutation check runs Python unittest and pytest, Go, node:test, Vitest, Jest, Mocha, Cargo and "
+        "RSpec proofs; "
         "this proof ran " + (framework_name or "no named-test runner"),
         unavailable=NO_SOURCE,
     )
@@ -137,6 +143,11 @@ def _uncached(command, cache) -> str:
         return command
     uncached = shlex.join([*invocation.prefix, invocation.executable, "test", "-count=1", *invocation.arguments])
     return package_scope.command(found[0], uncached) if found else uncached
+
+
+def _later(target) -> int:
+    """A modification time a whole second after both the clock and ``target``'s current time (FORWARD_TIME)."""
+    return max(time.time_ns(), target.stat().st_mtime_ns) + 1_000_000_000
 
 
 def _did_not_build(receipt) -> bool:
@@ -199,7 +210,7 @@ def collect(
     ``files`` is the changed product code as ``(path, status)``; ``diff_text(files)`` is their
     zero-context diff against the base; ``run(command, label, timeout)`` runs a command in ``tree``
     and returns its receipt with per-test results. Each mutated file gets its exact bytes and
-    modification time back after its mutant runs, whatever happens, and an error becomes the record's
+    modification time back after its mutant runs (a FORWARD_TIME runner's a later one), whatever happens, and an error becomes the record's
     note (a file's own, when only that file could not be read or mutated) instead of reaching the
     proof. The proving command is narrowed to the proving tests; when the runner cannot narrow it,
     nothing runs (the whole suite is never the fallback).
@@ -317,6 +328,7 @@ def _collect(
         if python
         else tuple(suffix for suffix, kind in text_mutants.LANGUAGES.items() if kind == TEXT_FRAMEWORKS[framework_name])
     )
+    forward = framework_name in FORWARD_TIME
     root = Path(tree).resolve()
     rows, planned = [], []
     for path, status in files:
@@ -483,7 +495,10 @@ def _collect(
             target.write_bytes(mutants.apply(source, mutant))
             # Each version its own whole second, so a cached compile keyed by modification time and size
             # (a test's own Python, started with a minimal environment, -E or -I) is never reused.
-            os.utime(target, ns=(times.st_atime_ns, times.st_mtime_ns - number * 1_000_000_000))
+            os.utime(
+                target,
+                ns=(times.st_atime_ns, _later(target) if forward else times.st_mtime_ns - number * 1_000_000_000),
+            )
             receipt = run(prepare(active_command, cache), label, limit)
         except command_receipt.OwnershipUncertain:
             ownership_uncertain = strict
@@ -491,7 +506,8 @@ def _collect(
         finally:
             if not ownership_uncertain:
                 target.write_bytes(source)
-                os.utime(target, ns=(times.st_atime_ns, times.st_mtime_ns))
+                # A forward-time runner's next build must see the restored source as newer than the mutant's.
+                os.utime(target, ns=(times.st_atime_ns, _later(target) if forward else times.st_mtime_ns))
         if not python and _did_not_build(receipt):
             # The text mutator's edit was not a program (Go's "declared and not used" when a dropped call
             # was a name's only use): no test ran, so the site is not a mutation of the product (#3817).

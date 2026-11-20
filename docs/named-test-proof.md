@@ -695,7 +695,7 @@ from `tools/autocode_mutants.py`).
   but with slow ones it can use the rest of it. No mutant starts with less than
   60 seconds left; those, and a mutant the budget cut short, are `not_run`.
 - **Which proofs.** Python `unittest` and `pytest` proofs, as above. Go,
-  `node:test`, Vitest, Jest and Mocha proofs are mutated too (#3817,
+  `node:test`, Vitest, Jest, Mocha, Cargo and RSpec proofs are mutated too (#3817,
   `tools/autocode_text_mutants.py`): with no parser for those languages, a
   scanner marks which bytes are code, not a string, comment, template literal or
   regular expression, and eight operators match only code on a changed `.go`,
@@ -710,6 +710,19 @@ from `tools/autocode_mutants.py`).
   name's only use) is no mutant at all, so it is left out with a file note and its
   line needs a reason like any line without a site; one that does not load reports
   no complete result for its selected tests and ends `not_run`, never `killed`.
+  Changed `.rs` and `.rb` lines get the same operators. Rust's scanner also skips
+  raw strings (`r#"…"#`), character literals and nested block comments, keeps a
+  lifetime as code, leaves an empty closure's `||` and a declaring line (`fn`,
+  `impl`, `where`) alone, and returns `Default::default()`; a Rust call is blanked
+  only when it ends with `;`. Ruby's skips `#` comments, `=begin` blocks, each
+  `#{…}` interpolation inside its string, heredoc bodies and percent literals
+  (`%w[…]`), returns `nil`, negates `if`, `elsif` and `unless`, and never swaps
+  `===`, Ruby's case equality. A Cargo proof is narrowed with `-- --exact` and
+  each test's harness path, an RSpec proof with one `--example` per full
+  description. Cargo rebuilds a crate only when a source is newer than its last
+  build, so each Cargo mutant and each restored source is given a modification
+  time later than the one before, never an older one: a backdated mutant ran the
+  unmutated build and survived whatever its tests asserted.
   Go runs every mutant with `-count=1`: its test cache answered a test that builds
   and runs the package's command with the unmutated pass. These runners select tests by a name pattern, so the
   parent and siblings of a selected Go subtest, or another test the pattern
@@ -717,9 +730,13 @@ from `tools/autocode_mutants.py`).
   such another test failed proves nothing. They are not narrowed per mutant and
   do not stop at the first failure. Any other runner's record says so in
   `unavailable` (`no_mutation_source`, or `runner_cannot_select` when the command
-  cannot name the proving tests), and its unresolved lines go to the Investigator
-  from the first round, not to the Builder, which no change could help
-  (`builder_skipped` in the repair record).
+  cannot name the proving tests). A line with no mutation outcome, because its
+  runner has no mutation source or the line has no mutation site, is settled only
+  by the Tester's reason, so no Builder change can help it. When every open line
+  is such a line and the Tester asked for no test, the lines go to the Investigator
+  from the first round, not to the Builder (`builder_skipped` in the repair
+  record). When only some are, the Builder is told which lines it can settle and
+  which wait for the Tester's reasons.
 
 A mutant that makes a proving test fail is `killed`. One that every proving test
 still passes has `survived`, and is reported beside each due test case whose

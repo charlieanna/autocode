@@ -21,14 +21,14 @@ Its dependencies must be installed there, and the `origin` remote must point
 at GitHub.
 
 ```sh
-autocode issue brief #812                      # the brief AutoCode would get; no side effects
-autocode issue start #812 -- --engine codex --test-command "uv run pytest"
+autocode issue brief 812                       # the brief AutoCode would get; no side effects
+autocode issue start 812 -- --engine codex --test-command "uv run pytest"
 autocode --show-goal --workspace WT --run-dir RUN
 autocode --approve-goal TOKEN --workspace WT --run-dir RUN
-autocode issue continue #812                   # repeat after each answer or approval
-autocode issue status #812                     # where it stands and the next command, at any time
-autocode issue pr #812                         # commit the change and write the PR body; no push
-autocode issue pr #812 --open                  # push the branch and open a draft pull request
+autocode issue continue 812                    # repeat after each answer or approval
+autocode issue status 812                      # where it stands and the next command, at any time
+autocode issue pr 812                          # commit the change and write the PR body; no push
+autocode issue pr 812 --open                   # push the branch and open a draft pull request
 ```
 
 `start` and `status` print `WT`, `RUN` and `TOKEN` for you, with every command
@@ -42,8 +42,10 @@ CI), and `--chat` asks for the chat even when the output is not a terminal. The
 run also appears among the project's own chats (`autocode runs`, the terminal
 chat's `/runs`), under its worktree.
 
-- **ISSUE** can be a URL, `OWNER/REPO#N`, or `#N` for the repository behind
-  `--remote` (default `origin`).
+- **ISSUE** can be a URL, `OWNER/REPO#N`, or the number `N` for the repository
+  behind `--remote` (default `origin`). In a shell, quote a `#N` (`'#812'`): an
+  unquoted word starting with `#` begins a comment, and the shell drops it and
+  everything after it.
 - **AutoCode options** go after `--` on `start`. That covers the engine, the
   models, and `--test-command`. They are saved and reused by `continue`.
   Without them, the run reads the project settings committed in
@@ -96,8 +98,8 @@ On a team, what will be built is worth reviewing before AutoCode builds it. When
 request instead of approving it at once:
 
 ```sh
-autocode issue plan #812                       # commit the plan as plans/issue-812.md on its own branch; no push
-autocode issue plan #812 --open                # push that branch and open a draft pull request
+autocode issue plan 812                        # commit the plan as plans/issue-812.md on its own branch; no push
+autocode issue plan 812 --open                 # push that branch and open a draft pull request
 ```
 
 - **What it commits.** The plan is exported as `autocode plan --export` writes
@@ -130,7 +132,7 @@ approving stay with you:
 
 ```sh
 autocode --goal-file /path/to/project/plans/issue-812.md --workspace WT --run-dir RUN
-autocode issue continue #812                   # in joint planning the Plan Reviewer reviews the loaded plan first
+autocode issue continue 812                    # in joint planning the Plan Reviewer reviews the loaded plan first
 autocode --approve-goal TOKEN --workspace WT --run-dir RUN
 ```
 

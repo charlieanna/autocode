@@ -343,8 +343,8 @@ def _sent_back(state: RunState):
             action, by = "AutoCode sent the selected tests to the independent Tester for stronger assertions.", "Tester"
         elif row.get("action") == "investigator" and row.get("builder_skipped"):
             action, by = (
-                "No Builder change can give these lines mutation evidence for this test runner, "
-                "so AutoCode called the Investigator.",
+                "No Builder change can give these lines mutation evidence (their test runner has no "
+                "mutation source, or they have no mutation site), so AutoCode called the Investigator.",
                 "Investigator",
             )
         elif row.get("action") == "investigator":
