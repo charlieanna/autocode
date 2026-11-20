@@ -120,16 +120,16 @@
     "sha256": "892afacc8cdabae153db33ba139e84ca3c7bc857f931ea48b802a8b2079a9173"
   },
   "full-repair/requirements_gather": {
-    "bytes": 15460,
-    "sha256": "a13d50f4e0a2de7330ba392df1a03a5a10f912f7381317e74d39c5b12245a26a"
+    "bytes": 8848,
+    "sha256": "b3f072f915c8bd172356d9eab75f557c481157e10e6e7f2a5ad10a870c10f6d1"
   },
   "full-repair/review_completion": {
     "bytes": 7287,
     "sha256": "54ccec8f563d69c831798d64bca727ad4c5a5d3ec9f60dfe7da963911f5c899f"
   },
   "full-repair/review_plan": {
-    "bytes": 18915,
-    "sha256": "2b4ba7a9ed2ad7150fd9c4fc40004355e6d2ae6bdfe1ae88811215fdc040d803"
+    "bytes": 12303,
+    "sha256": "1fecfefaec95cfb4c284093816bdd425a00bd20888fad9e0d431acd2aa037dd1"
   },
   "full-repair/revise_plan": {
     "bytes": 25591,

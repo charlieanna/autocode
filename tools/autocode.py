@@ -1061,7 +1061,8 @@ def _execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
         + (report_repair_context.instruction(original["stage"]) if original["stage"] == "finalize_plan" else "")
         + (
             goals.DECISION_PROVENANCE + goals.CONTRACT_REFERENCES
-            if original["stage"] == "draft_plan" or planning.is_planning(state, original["stage"])
+            if (original["stage"] == "draft_plan" or planning.is_planning(state, original["stage"]))
+            and "contract" in repair_schema.get("properties", {})
             else ""
         )
         + jobs.repair_rules(original["stage"])
