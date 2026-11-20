@@ -109,9 +109,7 @@ class AcceptReviewedSourceTests(unittest.TestCase):
         contract = copy.deepcopy(self.state["goal_contract"])
         settings = copy.deepcopy(self.state["settings"])
         proof = copy.deepcopy(self.state["regression_proof"])
-        with patch.object(
-            accepted.source_scope, "snapshot", return_value={"revision": "s2", "files": {}, "head": "h"}
-        ):
+        with patch.object(accepted.source_scope, "snapshot", return_value={"revision": "s2", "files": {}, "head": "h"}):
             self.assertEqual(COMMAND_VIEW, run_view.needs(self.state)["action"])
         event = self.accept()
         self.assertEqual("s2", self.request["source_revision"])
@@ -165,9 +163,7 @@ class AcceptReviewedSourceTests(unittest.TestCase):
         self.assertNotIn("action", run_view.needs(self.state))
 
     def test_source_offer_and_admission_agree_on_all_saved_bindings(self):
-        with patch.object(
-            accepted.source_scope, "snapshot", return_value={"revision": "s2", "files": {}, "head": "h"}
-        ):
+        with patch.object(accepted.source_scope, "snapshot", return_value={"revision": "s2", "files": {}, "head": "h"}):
             original = copy.deepcopy(self.state)
             self.assertEqual(accepted.COMMAND, accepted.resume_action(self.state))
             self.assertEqual(original, self.state)
