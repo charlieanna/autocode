@@ -536,11 +536,10 @@ def _interrupted_reviews(state: RunState):
                 problem="The controller stopped before the attempt finished.",
                 action="AutoCode confirmed cleanup and unchanged inputs, retained the attempt and its usage, and scheduled a fresh attempt under the saved model and limits.",
                 by="AutoCode",
-                detail=(
-                    "The enclosing capture confirmed that its entire process family stopped."
-                    if event.get("cleanup_kind") == "capture_family"
-                    else None
-                ),
+                detail={
+                    "capture_family": "The enclosing capture confirmed that its entire process family stopped.",
+                    "host_restart": "The machine restarted after the attempt began, which ended all of its processes.",
+                }.get(str(event.get("cleanup_kind"))),
                 handled=False,
             )
 
