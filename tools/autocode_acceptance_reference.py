@@ -23,6 +23,7 @@ try:
     from . import autocode_source_scope as source_scope
     from . import autocode_test_cases as test_cases
     from . import autocode_test_role_inventory as role_inventory
+    from . import autocode_test_setup as test_setup
     from . import autocode_util as util
     from . import autocode_verification_commands as commands
     from . import autocode_verification_schedule as schedule
@@ -38,10 +39,17 @@ except ImportError:
     import autocode_source_scope as source_scope
     import autocode_test_cases as test_cases
     import autocode_test_role_inventory as role_inventory
+    import autocode_test_setup as test_setup
     import autocode_util as util
     import autocode_verification_commands as commands
     import autocode_verification_schedule as schedule
     import autocode_verify as verify
+
+
+NOT_LOADED = (
+    "The test file could not load on the original code; on new behavior a test that cannot import the project's "
+    "own not-yet-existing name fails there, the same as that import inside the test body"
+)
 
 
 def passing(cases, rows, run, inherited):
@@ -67,8 +75,12 @@ def candidate_problem(run):
     return ""
 
 
-def collect(state: RunState, workspace, run_dir, out, selected, files, command=None):
-    """Run exactly the observed cases on original product code plus today's tests."""
+def collect(state: RunState, workspace, run_dir, out, selected, files, command=None, *, new_behavior=False):
+    """Run exactly the observed cases on original product code plus today's tests.
+
+    ``new_behavior`` is whether the approved task adds behavior rather than fixing a bug. Which original-code
+    failures are setup errors that cannot count as evidence is autocode_test_setup's one answer for it
+    (``not_evidence``, ``unloaded_failures``); without it the strict bug-fix rule applies."""
     workspace, out = Path(workspace), Path(out)
     tree = out / "tree"
     uncertain = False
@@ -124,15 +136,27 @@ def collect(state: RunState, workspace, run_dir, out, selected, files, command=N
             after_inputs.identity if after_inputs else None
         ):
             raise ValueError("source or launch inputs changed during original-reference check")
-        if receipt.get("error") or receipt.get("timed_out") or not schedule.complete_results(receipt):
+        results = receipt.get("results")
+        # On new behavior a selected test whose file cannot load on the original code (it imports the project's
+        # own not-yet-existing name at module level) fails there; the run is otherwise judged complete as usual.
+        unloaded = (
+            test_setup.unloaded_failures(
+                results, files, selected_ids, new_behavior=new_behavior, directory=getattr(framework, "directory", None)
+            )
+            if isinstance(results, dict)
+            else None
+        )
+        loaded = (
+            {**receipt, "results": {**results, "uncollected": [], "collection_errors": []}} if unloaded else receipt
+        )
+        if receipt.get("error") or receipt.get("timed_out") or not schedule.complete_results(loaded):
             raise ValueError("original-reference execution did not produce complete named results")
         if not schedule.intact(receipt, root=out):
             raise ValueError("original-reference output capture is incomplete")
-        results = receipt["results"]
-        passed, failed = set(results["passed"]), set(results["failed"])
+        passed, failed = set(results["passed"]), set(results["failed"]) | set(unloaded or ())
         if set(results["skipped"]) & set(selected_ids) or not set(selected_ids) <= passed | failed:
             raise ValueError("original-reference cases were skipped or not executed")
-        if set(results.get("setup_errors") or {}) & set(selected_ids):
+        if set(test_setup.not_evidence(results, new_behavior=new_behavior)) & set(selected_ids):
             raise ValueError("selected original-reference tests failed during test setup")
         verdicts = {}
         for cid, names in selected.items():
@@ -150,6 +174,8 @@ def collect(state: RunState, workspace, run_dir, out, selected, files, command=N
             "test_files": {path: util.file_hash(workspace / path) for path in files},
             "receipt": receipt,
             "verdicts": verdicts,
+            # The decision and its reason stay in the evidence beside the run that showed it.
+            **({"not_loaded_on_original": {"tests": unloaded, "reason": NOT_LOADED}} if unloaded else {}),
         }
     except command_receipt.OwnershipUncertain:
         uncertain = True

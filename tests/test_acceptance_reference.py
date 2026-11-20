@@ -127,13 +127,107 @@ class AcceptanceReferenceTests(unittest.TestCase):
         self.assertEqual(1, receipt["results"]["total"])
         self.assertEqual(["tests.test_feature.Feature.test_ac1_answer"], receipt["results"]["failed"])
 
-    def test_reference_import_failure_does_not_establish_behavioral_failure(self):
+    def module_level_new_name(self):
+        """The candidate adds new_answer; the test file imports it at module level, so it cannot load on the
+        original code."""
         (self.workspace / "app.py").write_text("def new_answer():\n    return 42\n")
         test = self.workspace / "tests/test_feature.py"
         test.write_text(test.read_text().replace("from app import answer", "from app import new_answer as answer"))
-        self.apply().assert_not_called()
+
+    def in_body_new_export(self):
+        """The original release has semver.py without dumps_version; the candidate adds it, and the test imports
+        it inside the test body."""
+        (self.workspace / "semver.py").write_text(
+            "def loads_version(text):\n    return tuple(int(part) for part in text.split('.'))\n"
+        )
+        self.git("add", "semver.py")
+        self.git("commit", "-qm", "semver without dumps_version")
+        self.state["base_commit"] = self.git("rev-parse", "HEAD").strip()
+        (self.workspace / "semver.py").write_text(
+            (self.workspace / "semver.py").read_text()
+            + "def dumps_version(parts):\n    return '.'.join(str(part) for part in parts)\n"
+        )
+        (self.workspace / "tests/test_feature.py").write_text(
+            "import unittest\n"
+            "class Feature(unittest.TestCase):\n"
+            "    def test_ac1_answer(self):\n"
+            "        from semver import dumps_version\n"
+            "        self.assertEqual(dumps_version((1, 2, 3)), '1.2.3')\n"
+        )
+
+    def bugfix(self):
+        self.state["goal_contract"]["body"]["task_kind"] = "bugfix"
+
+    def assert_refused(self, sent):
+        sent.assert_not_called()
         self.assertEqual("PAUSED_ACCEPTANCE_TESTS", self.state["status"])
+        self.assertNotEqual("builder", self.state["next_stage"])
         self.assertFalse(acceptance.receipts(self.state))
+
+    def assert_reaches_builder(self, sent):
+        sent.assert_not_called()
+        self.assertEqual("RUNNING", self.state["status"], self.state.get("stop_reason"))
+        self.assertEqual("builder", self.state["next_stage"])
+        receipt = next(iter(acceptance.receipts(self.state).values()))
+        self.assertEqual("passes candidate; fails original reference", receipt["results"]["AC1"])
+        return receipt["original_reference"]
+
+    def test_ac6_new_behavior_in_body_public_import_is_a_base_failure(self):
+        self.in_body_new_export()
+        reference = self.assert_reaches_builder(self.apply())
+        self.assertEqual(["tests.test_feature.Feature.test_ac1_answer"], reference["receipt"]["results"]["failed"])
+
+    def test_ac7_bugfix_in_body_import_is_still_a_setup_error(self):
+        self.in_body_new_export()
+        self.bugfix()
+        self.assert_refused(self.apply())
+
+    def test_ac11_new_behavior_module_level_import_is_a_base_failure(self):
+        self.module_level_new_name()
+        reference = self.assert_reaches_builder(self.apply())
+        self.assertEqual({"AC1": "fails"}, reference["verdicts"])
+        self.assertEqual(["tests.test_feature.Feature.test_ac1_answer"], reference["not_loaded_on_original"]["tests"])
+
+    def test_ac28_bugfix_module_level_import_is_still_refused(self):
+        self.module_level_new_name()
+        self.bugfix()
+        self.assert_refused(self.apply())
+
+    def test_ac29_build_task_incomplete_reference_is_still_refused(self):
+        actual = reference.verify.run_suite
+        other = "unittest.loader._FailedTest.test_other"
+        for fault in ("timeout", "incomplete", "capture", "unnamed file"):
+            with self.subTest(fault=fault):
+                self.setUp()
+                if fault == "unnamed file":
+                    self.module_level_new_name()
+
+                def corrupt(*args, fault=fault, **kwargs):
+                    result = actual(*args, **kwargs)
+                    if args[4] != "original-reference":
+                        return result
+                    results = result["results"]
+                    if fault == "timeout":
+                        result["timed_out"] = True
+                    elif fault == "incomplete":
+                        results["complete"] = False
+                    elif fault == "capture":
+                        Path(result["output"]).write_text("tampered")
+                    else:
+                        for key in ("failed", "collection_errors", "uncollected"):
+                            results[key] = sorted({*results[key], other})
+                        results["total"] += 1
+                    return result
+
+                with patch.object(reference.verify, "run_suite", side_effect=corrupt):
+                    self.assert_refused(self.apply())
+
+    def test_ac30_pytest_module_level_import_is_a_base_failure(self):
+        self.module_level_new_name()
+        self.state["settings"]["regression"] = {"test_command": f"{sys.executable} -m pytest tests/test_feature.py"}
+        reference = self.assert_reaches_builder(self.apply())
+        self.assertEqual({"AC1": ["tests.test_feature.Feature::test_ac1_answer"]}, reference["selected"])
+        self.assertEqual(["::tests.test_feature"], reference["receipt"]["results"]["uncollected"])
 
     def test_reference_skip_does_not_establish_behavioral_failure(self):
         test = self.workspace / "tests/test_feature.py"

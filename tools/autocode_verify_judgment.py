@@ -173,7 +173,7 @@ def judge_regression(
         if not base.get("complete"):
             unverified.append("Per-test results on the base code were incomplete")
             return
-        setup_errors = base.get("setup_errors", {}) if not new_behavior else {}
+        setup_errors = test_setup.not_evidence(base, new_behavior=new_behavior)
         ran_and_failed = set(base["failed"]) - set(base["collection_errors"]) - set(setup_errors)
         if setup_errors:
             notes.append(test_setup.proof_note(setup_errors))

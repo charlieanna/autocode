@@ -613,6 +613,41 @@ class BoundedScopeTests(unittest.TestCase):
         self.assertEqual("changed_and_named", chosen_draft["selection_scope"])
         self.assertNotIn("tests/test_ctrl_flow.py", chosen_draft["tests"])
 
+    def test_every_tier_runs_the_files_defining_the_approved_plans_named_tests(self):
+        # A live self-build named guards in test files no changed product was named after; the narrowest
+        # tier left them out and the proof failed each guard as "no test named ...".
+        sources = {
+            "pkg/leaf.py": "def val(): return 1\n",
+            "tests/test_leaf.py": "import unittest\nimport pkg.leaf\ndef test_x(): pass\n",
+            "tests/test_guarded.py": "import unittest\nclass G(unittest.TestCase):\n def test_ac2_still_works(self): pass\n",
+            "tests/test_other.py": "import unittest\nclass O(unittest.TestCase):\n def test_unrelated(self): pass\n",
+        }
+        project = Project(sources)
+        self.addCleanup(project.close)
+        project.write({"pkg/leaf.py": "def val(): return 2\n"})
+        changes = {"pkg/leaf.py": "modified"}
+        roles = role_inventory.from_git(project.root, project.base, verify.is_test_path, changes=changes)
+        framework = verify.Framework("pytest", "python -m pytest -q", python="python")
+        methods = ["test: test_ac1_new_value", "guard: test_ac2_still_works"]
+        tiers = focused_suite.candidates_from_git(
+            framework, project.root, project.base, changes, roles, goal_contract=self.approved_contract(methods)
+        )
+        self.assertTrue(tiers)
+        for tier in tiers:
+            with self.subTest(scope=tier["selection_scope"]):
+                self.assertIn("tests/test_guarded.py", tier["tests"])
+                self.assertNotIn("tests/test_other.py", tier["tests"])
+        # A draft plan's names select nothing.
+        draft = focused_suite.candidates_from_git(
+            framework,
+            project.root,
+            project.base,
+            changes,
+            roles,
+            goal_contract=self.approved_contract(methods, status="draft"),
+        )
+        self.assertFalse(any("tests/test_guarded.py" in tier["tests"] for tier in draft))
+
     def test_timed_out_approved_tier_steps_down_once_to_changed_and_named_and_caches_timeouts(self):
         project = Project(
             {

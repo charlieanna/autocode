@@ -12,6 +12,11 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+try:
+    from . import autocode_unloadable_tests as unloadable_tests
+except ImportError:
+    import autocode_unloadable_tests as unloadable_tests
+
 UNITTEST_FAILURE = re.compile(r"^(?:FAIL|ERROR): (\S+) \(([\w.-]+)\).*$", re.M)
 PYTHON_FRAME = re.compile(r'^\s*File "([^"\n]+)", line \d+, in ([^\n]+)$', re.M)
 PYTEST_FRAME = re.compile(r"^([^\n]+\.py):\d+:(?: in ([^\n]+))?[^\n]*$", re.M)
@@ -70,6 +75,55 @@ def setup_error(traceback, tree, is_test_path):
     if kinds[-1] == "test" and len(imports) == 1:
         return "The test could not import its dependency on base: " + imports[0]
     return None
+
+
+def not_evidence(results, *, new_behavior) -> dict[str, str]:
+    """The base failures that are setup errors and cannot count as evidence: test id -> reason (#3926).
+
+    This is the one answer the regression proof's judgment (autocode_verify_judgment), the acceptance
+    reference (autocode_acceptance_reference.collect) and a repair's flip (autocode_first_suite.repaired_by_flip,
+    always the bug-fix rule) read. ``results`` are the per-test results of a run on the original code.
+
+    For a bug fix the #299 rule stays: a test that could not prepare its mock or import its dependency on base
+    (``setup_error``) never ran the application code, so it is not reproduction. For new behavior a test that
+    failed on base, including at an import of the project's own not-yet-existing name, is a base failure: the
+    missing name is the behavior under test, so nothing is excluded.
+
+    Three other readers of ``setup_errors`` stay off this answer, because they make a different decision:
+    autocode_mutation_results and autocode_review_attribution treat any setup error as a run that did not
+    complete (no mutant was observed, no attribution can be read), whatever the task, and
+    autocode_review_proof only records the setup errors it finds for the reviewers to read.
+    """
+    if new_behavior:
+        return {}
+    errors = (results or {}).get("setup_errors") if isinstance(results, dict) else None
+    return dict(errors) if isinstance(errors, dict) else {}
+
+
+def unloaded_failures(results, tests, selected, *, new_behavior, directory=None) -> list[str] | None:
+    """The ``selected`` test ids that count as failing on base because their test file did not load there.
+
+    ``results`` are the per-test results of a run on the original code and ``tests`` the reported test files
+    (repository paths). For new behavior, a test file that cannot load on the original code because it imports
+    the project's own not-yet-existing name at module level fails there, the same as that import inside the test
+    body (``not_evidence``): its selected tests are the ones autocode_unloadable_tests.named places in a reported
+    file the not-loaded ids name exactly (autocode_unloadable_tests.files). For a bug fix none count: a test that
+    cannot load on base is not reproduction.
+
+    Returns ``[]`` when nothing failed to load, and None when the run cannot establish this: a not-loaded id
+    names no reported file (or more than one), or the results are incomplete with no not-loaded id to explain it.
+    """
+    results = results if isinstance(results, dict) else {}
+    identities = unloadable_tests.unloaded({"results": results})
+    if not identities:
+        return [] if results.get("complete") is True else None
+    left_out = unloadable_tests.files(identities, list(tests), directory)
+    if left_out is None:
+        return None
+    if not new_behavior:
+        return []
+    named = unloadable_tests.named(sorted(set(selected)), list(tests), directory)
+    return sorted(test for test, (path, _name) in named.items() if path in left_out)
 
 
 def proof_note(errors):

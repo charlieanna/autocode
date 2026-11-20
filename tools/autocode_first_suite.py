@@ -11,6 +11,7 @@ try:
     from . import autocode_changed_tests as changed_tests
     from . import autocode_project_inventory as project_inventory
     from . import autocode_project_kinds as project_kinds
+    from . import autocode_test_setup as test_setup
     from . import autocode_test_support as test_support
     from . import autocode_util as util
     from . import autocode_verification_schedule as schedule
@@ -18,6 +19,7 @@ except ImportError:
     import autocode_changed_tests as changed_tests
     import autocode_project_inventory as project_inventory
     import autocode_project_kinds as project_kinds
+    import autocode_test_setup as test_setup
     import autocode_test_support as test_support
     import autocode_util as util
     import autocode_verification_schedule as schedule
@@ -631,10 +633,11 @@ def repaired_by_flip(base_suite, on_base_with_tests, on_candidate):
     if not (base.get("complete") and candidate.get("complete")):
         return []
     base_results = ((base_suite or {}).get("receipt") or {}).get("results") or {}
+    # A repair's flip is evidence of a bug fixed, so it reads the shared setup-error answer's bug-fix rule.
     ran_and_failed = (
         set(base.get("failed") or [])
         - set(base.get("collection_errors") or [])
-        - set((base.get("setup_errors") or {}).keys())
+        - set(test_setup.not_evidence(base, new_behavior=False))
     )
     return sorted(set(base_results.get("failed") or []) & ran_and_failed & set(candidate.get("passed") or []))
 
