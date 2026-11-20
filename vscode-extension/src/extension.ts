@@ -18,11 +18,15 @@ import { runStages, StagesPanel } from "./stages";
 import { StageListCache } from "./core/stage-cache";
 import { continueChoice } from "./core/view";
 import { readSettings, spendTarget } from "./settings";
+import { setReadLog } from "./core/cli";
 
 type RunTarget = RunRef | RunItem;
 
 export function activate(context: vscode.ExtensionContext): void {
   const log = vscode.window.createOutputChannel("AutoCode", { log: true });
+  // Slow and deadline-missing public reads write their phases here (#3849); no other UI shows them.
+  setReadLog(log);
+  context.subscriptions.push({ dispose: () => setReadLog(undefined) });
   const controller = new RunController(log);
   const runs = new RunsProvider(controller);
   const connections = new ConnectionsPanel(context.workspaceState);
