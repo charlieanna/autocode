@@ -196,14 +196,15 @@ def boot_ended(saved, uptime=None) -> bool:
         return False
     rows = [row for row in saved or [] if isinstance(row, dict)]
     born = [row.get("birth_identity") for row in rows]
-    if not rows or any(type(value) not in (int, float) or not 0 < value < EPOCH_SECONDS for value in born):
+    starts = [float(value) for value in born if isinstance(value, (int, float)) and not isinstance(value, bool)]
+    if not rows or len(starts) != len(born) or not all(0 < value < EPOCH_SECONDS for value in starts):
         return False
     if uptime is None:
         try:
             uptime = time.clock_gettime(time.CLOCK_BOOTTIME)
         except (AttributeError, OSError):
             return False
-    return all(value > uptime for value in born)
+    return all(value > uptime for value in starts)
 
 
 def live_processes(saved, table=None):

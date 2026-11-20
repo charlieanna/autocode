@@ -539,7 +539,7 @@ def _interrupted_reviews(state: RunState):
                 detail={
                     "capture_family": "The enclosing capture confirmed that its entire process family stopped.",
                     "host_restart": "The machine restarted after the attempt began, which ended all of its processes.",
-                }.get(event.get("cleanup_kind")),
+                }.get(str(event.get("cleanup_kind"))),
                 handled=False,
             )
 
