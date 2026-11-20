@@ -165,10 +165,39 @@ def ground_cited(quote, sources, state: RunState):
     (#3344). Citing the sentence's id removes the copying. The resolved text is grounded exactly as a
     typed quote is, so nothing ungrounded is ever saved, and the checklist is built only for an
     id-shaped quote, which leaves the typed path as cheap as it was."""
+    return _ground_cited(quote, sources, lambda: coverage_checklist(state))
+
+
+def _ground_cited(quote, sources, checklist):
+    """``ground_cited`` with the checklist supplied by ``checklist()``, called only for an id-shaped quote."""
     text = str(quote or "").strip()
     if CHECKLIST_ID.match(text) is None:
         return ground(quote, sources)
-    return ground(resolve_checklist_id(text, coverage_checklist(state)), sources)
+    return ground(resolve_checklist_id(text, checklist()), sources)
+
+
+def grounded(rows, sources, checklist) -> tuple[list[str], list[dict]]:
+    """(the source text each grounded requirement quotes, the requirement rows no source holds).
+
+    The same per-row decision as ``ground_cited``, with the checklist given rather than built from the
+    run state, so `autocode report-check` decides a quote exactly as admission does (#3865)."""
+    quotes: list[str] = []
+    bad: list[dict] = []
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict) or "id" not in row:
+            continue
+        quote = _ground_cited(row.get("source_quote", ""), sources, lambda: checklist)
+        if quote is None:
+            bad.append(row)
+        else:
+            quotes.append(quote)
+    return quotes, bad
+
+
+def problems(rows, sources, checklist, *, inherited: bool) -> list[str]:
+    """The quote rejection admission gives these requirement rows (``unsupported``), as a list of errors."""
+    bad = grounded(rows, sources, checklist)[1]
+    return [unsupported(bad, sources, inherited=inherited)] if bad else []
 
 
 def closest(quote, sources) -> str | None:

@@ -751,11 +751,7 @@ def apply_review_result(runtime, state: RunState, stage, value, record, workspac
         | {r for r in cited if check_refs.runner_receipt(workspace, r)},
     )
     if unbound:
-        criterion, ref = unbound[0]
-        raise ValueError(
-            f"Criterion {criterion} cites evidence the runner did not verify ({ref!r}): cite check:<n> "
-            "naming a listed check, runner-written evidence under .autocode/, or verified design evidence"
-        )
+        raise ValueError(check_refs.unbound_message(*unbound[0]))
     refs = [c["evidence_ref"] for c in value["checks"]]
     for check in value["checks"]:
         if not check["evidence_ref"].startswith("event:"):

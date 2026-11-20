@@ -4,6 +4,7 @@ from __future__ import annotations
 
 try:
     from .. import autocode_ambiguity_audit as ambiguity_audit
+    from .. import autocode_catalog_context as source_catalog
     from .. import autocode_code_citations as code_citations
     from .. import autocode_gate_chat as gate_chat
     from .. import autocode_packet_events as packet_events
@@ -13,9 +14,12 @@ try:
     from .. import autocode_planning_recovery_policy as planning_recovery_policy
     from .. import autocode_planning_time as planning_time
     from .. import autocode_prompts as prompts
+    from .. import autocode_requirements_faults as requirements_faults
     from .. import autocode_requirements_observations as requirements_observations
+    from .. import autocode_requirements_triage as requirements_triage
 except ImportError:
     import autocode_ambiguity_audit as ambiguity_audit
+    import autocode_catalog_context as source_catalog
     import autocode_code_citations as code_citations
     import autocode_gate_chat as gate_chat
     import autocode_packet_events as packet_events
@@ -25,7 +29,9 @@ except ImportError:
     import autocode_planning_recovery_policy as planning_recovery_policy
     import autocode_planning_time as planning_time
     import autocode_prompts as prompts
+    import autocode_requirements_faults as requirements_faults
     import autocode_requirements_observations as requirements_observations
+    import autocode_requirements_triage as requirements_triage
 
 
 import copy
@@ -2000,21 +2006,57 @@ def accept_handoff(state: RunState, stage, value, record, check_code_refs, accep
     """Run Requirements' audit and read-authenticated citation checks, scope deferral and handoff acceptance
     with ``record`` visible to ``code_citations`` before ``save_record`` appends the attempt to ``stages``."""
     with code_citations.applying(record):
-        checked_refs = requirements_checks(state, stage, value, check_code_refs, record)
-        value, deferred = planning_scope.prepare_handoff(
-            state,
-            stage,
-            value,
-            record,
-            investigation_stages=INVESTIGATION_STAGES,
-            check_code_refs=checked_refs,
+        # The report as the model wrote it: the checks below normalize it (quotes, scope) while they run.
+        snapshot = copy.deepcopy(value) if stage == "requirements_gather" else None
+        try:
+            checked_refs = requirements_checks(state, stage, value, check_code_refs, record)
+            value, deferred = planning_scope.prepare_handoff(
+                state,
+                stage,
+                value,
+                record,
+                investigation_stages=INVESTIGATION_STAGES,
+                check_code_refs=checked_refs,
+            )
+            if deferred:
+                return value, True
+            if stage == "requirements_gather":
+                accept_requirements(state, value, record, check_code_refs=checked_refs, queue=queue)
+                return value, True
+            return value, False
+        except ValueError as error:
+            # Only a plain rejection gains the report's other faults: ExecutionEvidenceRequired keeps its type
+            # and message, so the stage reruns with its tools instead of starting a report-only repair.
+            extra = [] if snapshot is None or type(error) is not ValueError else other_faults(state, record, snapshot)
+            extra = [fault for fault in dict.fromkeys(extra) if fault not in str(error)]
+            if not extra:
+                raise
+            raise ValueError("; ".join([str(error), *extra])) from error
+
+
+def other_faults(state: RunState, record, report) -> list[str]:
+    """Every decidable fault of a rejected Requirements report (autocode_requirements_faults), so one rejection
+    names them all instead of one per repair round (#3866). Citations are held to what the stage read when it
+    read files, as its source_refs check is. Adds nothing for a triage answer, which is checked as one, or when
+    the list cannot be computed: the original rejection then stands alone, exactly as before."""
+    stage = "requirements_gather"
+    try:
+        if requirements_triage.due(state) and requirements_triage.is_answer(report):
+            return []
+        cite = None
+        if code_citations.stage_evidenced(state, stage, record) and code_citations.read_paths(state, stage):
+
+            def cite(ref, field):
+                return code_citations.verify_citation(state, stage, ref, field=field)
+
+        return requirements_faults.faults(
+            report,
+            requirements_faults.context(state),
+            cite=cite,
+            catalog_ok=lambda ref: bool(source_catalog.evidence(state, ref)),
         )
-        if deferred:
-            return value, True
-        if stage == "requirements_gather":
-            accept_requirements(state, value, record, check_code_refs=checked_refs, queue=queue)
-            return value, True
-        return value, False
+    except Exception:
+        return []
 
 
 def rerun_requirements(state: RunState, value):

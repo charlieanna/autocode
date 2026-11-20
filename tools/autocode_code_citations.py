@@ -73,6 +73,8 @@ SHOWN_READS = 24
 _OUTPUT_HIT = re.compile(r"^(?:\./)?([^\s:]+):\d+[:-]", re.MULTILINE)
 _GREP_BLOCK = re.compile(r"^(?:\./)?([^\s:]+):\r?\n\s+Line \d+:", re.MULTILINE)
 _LINES = re.compile(r"(\d+)(?:-(\d+))?(?:\s+.*)?", re.DOTALL)
+# ``require`` has always refused a line citation whose explanation spans lines; it keeps that syntax.
+_REQUIRE_LINES = re.compile(r"(\d+)(?:-(\d+))?(?:\s+.*)?")
 _APPLYING: contextvars.ContextVar[dict | None] = contextvars.ContextVar("applying_stage_record", default=None)
 
 
@@ -101,7 +103,9 @@ def stage_evidenced(state: RunState, stage, record=None) -> bool:
 
 
 def require(state: RunState, refs, field="code_refs", *, planning_unit, stage=None):
-    """Every ref names an existing workspace file and in-bounds lines; with ``stage``, one it read."""
+    """Every ref names an existing workspace file and in-bounds lines; with ``stage``, one it read.
+
+    Every bad citation is named in one rejection (#3866): stopping at the first cost a repair per fault."""
     if not state.get("workspace"):
         return
     root = Path(state.get("workspace") or "")
@@ -112,22 +116,12 @@ def require(state: RunState, refs, field="code_refs", *, planning_unit, stage=No
         return
     if not refs:
         raise ValueError(f"Report must cite existing source in {field}")
-    cited = []
-    for ref in refs:
-        raw, line_text = planning_unit.split_code_ref(root, str(ref))
-        target = planning_unit.cited_file(root, raw, field, ref)
-        if line_text:
-            citation = re.fullmatch(r"(\d+)(?:-(\d+))?(?:\s+.*)?", line_text)
-            if not citation:
-                raise ValueError(f"{field} entry {ref} has no line number")
-            line = int(citation[1])
-            end = int(citation[2] or citation[1])
-            count = len(target.read_text(errors="replace").splitlines())
-            if line < 1 or end < line or end > max(count, 1):
-                raise ValueError(f"{field} entry {ref} points past the end of the file ({count} lines)")
-        cited.append((ref, _relative(root.resolve(), target)))
+    found = [(ref, *required_citation(root, ref, field)) for ref in refs]
+    problems = [problem for _ref, problem, _target in found if problem is not None]
+    if problems:
+        raise ValueError("; ".join(problems))
     if stage is not None:
-        _require_read(state, stage, field, cited)
+        _require_read(state, stage, field, [(ref, _relative(root.resolve(), target)) for ref, _, target in found])
 
 
 def _require_read(state: RunState, stage, field, cited):
@@ -205,26 +199,50 @@ def verify_citation(state: RunState, stage, ref, *, field="citation") -> str | N
     if not isinstance(ref, str) or not ref.strip():
         return f"{field} entry {ref!r} names no workspace file"
     root = Path(state["workspace"]).resolve()
-    try:
-        raw, line_text = split_ref(root, ref)
-        target = cited_file(root, raw, field, ref)
-    except (ValueError, OSError) as error:
-        return str(error)
-    if line_text:
-        citation = _LINES.fullmatch(line_text)
-        if not citation:
-            return f"{field} entry {ref} has no line number"
-        line, end = int(citation[1]), int(citation[2] or citation[1])
-        try:
-            count = len(target.read_text(errors="replace").splitlines())
-        except OSError as error:
-            return f"{field} entry {ref} cannot be read: {error}"
-        if line < 1 or end < line or end > max(count, 1):
-            return f"{field} entry {ref} points past the end of the file ({count} lines)"
+    problem, target = _citation(root, ref, field, _LINES)
+    if problem is not None:
+        return problem
     relative = _relative(root, target)
     if relative not in read_paths(state, stage):
         return f"{field} entry {ref} cites {relative}, which this stage never read"
     return None
+
+
+def citation_problem(root, ref: str, field: str) -> str | None:
+    """Why ``ref`` names no existing workspace file or in-bounds lines of one, or None. Never raises.
+
+    The workspace-only part of a citation check, decidable without the stage's events: `autocode
+    report-check` and admission ask it the same question (#3865); whether the stage read the file
+    stays with ``verify_citation`` and ``require``."""
+    return _citation(Path(root).resolve(), ref, field, _LINES)[0]
+
+
+def required_citation(root, ref, field: str) -> tuple[str | None, Path | None]:
+    """(problem, None) or (None, the cited file) for one ``require`` citation, with ``require``'s own line
+    syntax, which refuses an explanation spanning lines. Never raises. ``require`` and the fault list that
+    report-check and admission share (``autocode_requirements_faults``) ask it about ``source_refs`` (#3865)."""
+    return _citation(Path(root).resolve(), str(ref), field, _REQUIRE_LINES)
+
+
+def _citation(root: Path, ref: str, field: str, lines: re.Pattern) -> tuple[str | None, Path | None]:
+    """(problem, None) for a bad citation, else (None, the cited file); ``lines`` is the caller's line syntax."""
+    try:
+        raw, line_text = split_ref(root, ref)
+        target = cited_file(root, raw, field, ref)
+    except (ValueError, OSError) as error:
+        return str(error), None
+    if line_text:
+        citation = lines.fullmatch(line_text)
+        if not citation:
+            return f"{field} entry {ref} has no line number", None
+        line, end = int(citation[1]), int(citation[2] or citation[1])
+        try:
+            count = len(target.read_text(errors="replace").splitlines())
+        except OSError as error:
+            return f"{field} entry {ref} cannot be read: {error}", None
+        if line < 1 or end < line or end > max(count, 1):
+            return f"{field} entry {ref} points past the end of the file ({count} lines)", None
+    return None, target
 
 
 def read_paths(state: RunState, stage) -> frozenset[str]:

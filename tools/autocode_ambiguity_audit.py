@@ -69,18 +69,18 @@ def source_ids(state: RunState, report: dict) -> set[str]:
     return {value for value in ids if isinstance(value, str) and value}
 
 
-def _valid_source(state: RunState, sources: set[str], ref: str) -> bool:
-    return ref in sources or (ref.startswith("catalog/") and bool(source_catalog.evidence(state, ref)))
+def _text(value) -> bool:
+    return isinstance(value, str) and bool(value)
 
 
-def _code_hint(state: RunState, refs: list[str]) -> str:
+def _code_hint(cite, refs: list[str]) -> str:
     """Name refs that are code this stage read, so a repair changes the status rather than the evidence.
 
     The status and its refs disagree, not the evidence: a live Requirements report (2026-11-16) marked
     file citations ``specified_in_source``, and both repairs deleted entries instead of relabeling them."""
-    if code_citations.greenfield(state):
+    if cite is None:
         return ""
-    code = [ref for ref in refs if code_citations.verify_citation(state, STAGE, ref) is None]
+    code = [ref for ref in refs if cite(ref, "citation") is None]
     if not code:
         return ""
     return (
@@ -91,62 +91,82 @@ def _code_hint(state: RunState, refs: list[str]) -> str:
 
 def validate(state: RunState, report: dict) -> None:
     """Raise ValueError naming every dimension whose status its refs do not support."""
+    found = problems(
+        report,
+        sources=source_ids(state, {}),
+        cite=None
+        if code_citations.greenfield(state)
+        else lambda ref, field: code_citations.verify_citation(state, STAGE, ref, field=field),
+        catalog_ok=lambda ref: bool(source_catalog.evidence(state, ref)),
+    )
+    if found:
+        raise ValueError("; ".join(found))
+
+
+def problems(report: dict, *, sources, cite, catalog_ok) -> list[str]:
+    """Every dimension whose status its refs do not support; the one answer admission and report-check give.
+
+    ``sources`` are the ids a ``specified_in_source`` dimension may cite (the report's requirement ids are
+    added here); ``cite(ref, field)`` is why a ``repo_convention`` ref is not a valid citation, or None, and
+    is None itself when the workspace has nothing to read; ``catalog_ok(ref)`` says whether a pinned
+    ``catalog/...`` ref is verified. Pure: the callers bind those to what they can decide (#3865)."""
     audit = report.get(FIELD)
     if audit is None:
-        return
+        return []
     if not isinstance(audit, dict) or set(audit) != set(DIMENSIONS):
-        raise ValueError(f"{FIELD} must state exactly these dimensions: {', '.join(DIMENSIONS)}")
+        return [f"{FIELD} must state exactly these dimensions: {', '.join(DIMENSIONS)}"]
     questions = {
         row["id"]: row for row in report.get("open_questions") or [] if isinstance(row, dict) and row.get("id")
     }
-    sources = source_ids(state, report)
-    problems: list[str] = []
+    sources = set(sources) | {
+        row["id"] for row in report.get("requirements") or [] if isinstance(row, dict) and _text(row.get("id"))
+    }
+
+    def valid_source(ref: str) -> bool:
+        return ref in sources or (ref.startswith("catalog/") and bool(catalog_ok(ref)))
+
+    found: list[str] = []
     named: set[str] = set()
     for dimension in DIMENSIONS:
         entry = audit[dimension] if isinstance(audit[dimension], dict) else {}
         status, refs = entry.get("status"), [ref for ref in entry.get("refs") or [] if isinstance(ref, str)]
         label = f"{FIELD}.{dimension}"
         if status not in STATUSES:
-            problems.append(f"{label} has no status from {', '.join(STATUSES)}")
+            found.append(f"{label} has no status from {', '.join(STATUSES)}")
         elif status == "not_applicable":
             continue
         elif not refs:
-            problems.append(f"{label} is {status} but cites nothing")
+            found.append(f"{label} is {status} but cites nothing")
         elif status == "open_question":
             missing = [ref for ref in refs if ref not in questions]
             named.update(ref for ref in refs if ref in questions)
             if missing:
-                problems.append(f"{label} names {', '.join(missing)}, which are not open_questions ids in this report")
+                found.append(f"{label} names {', '.join(missing)}, which are not open_questions ids in this report")
         elif status == "specified_in_source":
-            missing = [ref for ref in refs if not _valid_source(state, sources, ref)]
+            missing = [ref for ref in refs if not valid_source(ref)]
             if missing:
-                problems.append(
+                found.append(
                     f"{label} cites {', '.join(missing)}: cite a requirement id of this report, a source_inventory "
-                    "or pinned catalog/... id, task, or a saved answer or user event id" + _code_hint(state, missing)
+                    "or pinned catalog/... id, task, or a saved answer or user event id" + _code_hint(cite, missing)
                 )
-        else:
-            reasons = [
-                reason
-                for ref in refs
-                if (reason := code_citations.verify_citation(state, STAGE, ref, field=label)) is not None
-            ]
-            sourced = [ref for ref in refs if _valid_source(state, sources, ref)]
+        elif cite is not None:
+            reasons = [reason for ref in refs if (reason := cite(ref, label)) is not None]
+            sourced = [ref for ref in refs if valid_source(ref)]
             if reasons and sourced:
                 reasons[-1] += (
                     f" ({', '.join(sourced)} {'is a source id' if len(sourced) == 1 else 'are source ids'}, "
                     "which a specified_in_source dimension cites; repo_convention cites only path[:line] of code "
                     "this stage read)"
                 )
-            problems.extend(reasons)
+            found.extend(reasons)
     unnamed = [
         question_id
         for question_id, row in questions.items()
         if row.get("kind") == "decision" and row.get("category") != "technical" and question_id not in named
     ]
     if unnamed:
-        problems.append(
+        found.append(
             f"open_questions {', '.join(unnamed)} ask the person to decide, but no {FIELD} dimension is "
             "open_question naming them"
         )
-    if problems:
-        raise ValueError("; ".join(problems))
+    return found

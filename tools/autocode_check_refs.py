@@ -133,6 +133,43 @@ def unbound_refs(report: dict, allowed) -> list[tuple[str, str]]:
     ]
 
 
+def unbound_message(criterion, ref) -> str:
+    """The refusal of a criterion citing ``ref``, which the runner did not verify: one text for the final
+    gate (autopilot.apply_review_result) and `autocode report-check`."""
+    return (
+        f"Criterion {criterion} cites evidence the runner did not verify ({ref!r}): cite check:<n> "
+        "naming a listed check, runner-written evidence under .autocode/, or verified design evidence"
+    )
+
+
+def public_unbound_events(report: dict) -> list[tuple[str, str]]:
+    """Criterion event citations ``unbound_refs`` refuses whatever the runner attaches: (criterion id, ref).
+
+    Decided before the runner binds the checks, from the report alone (#3891). A listed check's own
+    ``event:<id>`` and an in-range ``check:<n>`` are bound. A bare ``event:`` in a criterion is never bound:
+    the runner swaps a bare check's for the ID of the run it attaches, which the stage cannot see. So a
+    concrete ``event:<id>`` no check names is decidable only while no listed check is a bare ``event:``.
+    Prose and file citations are not decided here (a runner receipt can make one count)."""
+    raw = report.get("checks")
+    checks = raw if isinstance(raw, list) else []
+    listed = {check.get("evidence_ref") for check in checks if isinstance(check, dict)}
+    bare_check = "event:" in listed
+
+    def named_check(ref) -> bool:  # as ``resolve`` reads check:<n>
+        match = REFERENCE.fullmatch(ref.strip())
+        return bool(match) and 1 <= int(match[1]) <= len(checks) and isinstance(checks[int(match[1]) - 1], dict)
+
+    rows = [row for row in report.get("criterion_results") or [] if isinstance(row, dict) and "id" in row]
+    allowed = (listed - {"event:"}) | {
+        ref for row in rows for ref in row.get("evidence_refs") or [] if isinstance(ref, str) and named_check(ref)
+    }
+    return [
+        (criterion, ref)
+        for criterion, ref in unbound_refs({"criterion_results": rows}, allowed)
+        if ref == "event:" or (ref.startswith("event:") and not bare_check)
+    ]
+
+
 def resolve(report: dict) -> dict:
     """Swap check:<n> evidence references for the n-th check's evidence_ref, in place; returns the report."""
     checks = report.get("checks") or []
