@@ -20,6 +20,7 @@ try:
     from . import autocode_changed_code_proof as proof_policy
     from . import autocode_changed_code_review as review
     from . import autocode_changed_code_rework as rework
+    from . import autocode_claim_evidence as claim_evidence
     from . import autocode_report_repair_queue as report_repair_queue
     from . import autocode_util as util
 except ImportError:
@@ -28,6 +29,7 @@ except ImportError:
     import autocode_changed_code_proof as proof_policy
     import autocode_changed_code_review as review
     import autocode_changed_code_rework as rework
+    import autocode_claim_evidence as claim_evidence
     import autocode_report_repair_queue as report_repair_queue
     import autocode_util as util
 
@@ -78,6 +80,9 @@ def preflight(state: RunState, validation, record, *, passing_claim):
         citation = review.proof_reference(state.get("regression_proof") or {}, record.get("source_revision"))
         choice = f" Cite {citation['current_proof_reference']} for the current enclosing proof." if citation else ""
         problems.append(f"Changed-code reasons cite unauthenticated evidence: {json.dumps(unknown)}.{choice}")
+    if record.get("role") != "builder":
+        # A Tester claim its cited observation cannot establish (#3947): the judgment `autocode report-check` gives.
+        problems += claim_evidence.tester_problems(state, validation, record)
     if problems:
         raise ValueError("\n\n".join(problems))
 

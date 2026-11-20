@@ -9086,6 +9086,69 @@ test('structured Requirements & Assumptions card renders assumptions, rationale,
   assert.ok(args.includes('requirements-review-r1=Change A1: exit 1 on missing name to match legacy script'));
 });
 
+test('test_ac3_assumption_label_follows_standing', async (t) => {
+  host.config.set('confirmPersonOnly', false);
+  t.after(() => host.config.delete('confirmPersonOnly'));
+  const assumption = (id, confirmed, standing) => ({
+    id, text: `Assumption ${id}`, category: 'technical', convention_ref: '', rationale: '', confirmed,
+    ...(standing === undefined ? {} : { standing }),
+  });
+  const view = (assumptions) => ({
+    status: 'WAITING_FOR_USER',
+    done: false,
+    needs: {
+      kind: 'answer',
+      resolver_token: 'review:tok',
+      questions: [{ id: 'requirements-review-r1', question: understanding, options: [], proposed_default: 'plan', allow_custom: true }],
+    },
+    next_command: `autocode --answer requirements-review-r1=ANSWER --resolver-token - --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    requirements: {
+      handoff_ref: 'ref123456789',
+      intended_outcome: 'Greet by name',
+      requirements: [],
+      proposed_assumptions: assumptions,
+      acceptance_tests: [],
+      conflicts: [],
+    },
+    chat: {
+      phase: 'requirements',
+      context: 'review-ctx',
+      input: { kind: 'feedback', label: 'Send reply', next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --feedback MESSAGE` },
+      messages: [{ id: 'requirements-question-r1', role: 'assistant', text: understanding }],
+      review: { question_id: 'requirements-review-r1', answer: 'plan', label: 'Approve understanding and prepare plan', summary: understanding },
+    },
+  });
+  const labels = async (assumptions) => {
+    const ui = await openChat(t, view(assumptions), run, { controller: new RunController(host.log) });
+    const rows = [...ui.document.querySelectorAll('#app .requirements-card .assumption-row')];
+    return Object.fromEntries(rows.map((row) => {
+      const head = row.querySelector('.assumption-head');
+      const spans = [...head.querySelectorAll('span.state')];
+      return [spans[0].textContent, { label: spans[spans.length - 1].textContent, text: row.textContent }];
+    }));
+  };
+  const shown = await labels([
+    assumption('A1', true, 'confirmed_by_person'),
+    assumption('A2', true, 'convention_not_approved'),
+    assumption('A3', true, 'approved_with_understanding'),
+    assumption('A4', true, 'skipped_review'),
+    assumption('A5', false, 'needs_confirmation'),
+    // Rows from an older core carry no standing: the label of today stays.
+    assumption('A6', true),
+    assumption('A7', false),
+  ]);
+  assert.equal(shown.A1.label, 'confirmed by you');
+  assert.equal(shown.A2.label, 'project convention, not yet approved');
+  assert.equal(shown.A3.label, 'approved with your understanding');
+  assert.equal(shown.A4.label, 'review skipped');
+  assert.equal(shown.A5.label, 'needs confirmation');
+  assert.ok(!shown.A2.text.includes('confirmed'), 'an inferred convention never reads as confirmed');
+  assert.ok(!shown.A3.text.includes('confirmed by you'));
+  assert.ok(!shown.A4.text.includes('confirmed by you'));
+  assert.equal(shown.A6.label, 'confirmed');
+  assert.equal(shown.A7.label, 'needs confirmation');
+});
+
 function recordedStageEvidence(context, path) {
   const working = context === 'working';
   const done = context === 'done';

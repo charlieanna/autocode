@@ -1141,14 +1141,19 @@
               "type": "array",
               "items": {
                 "type": "object",
-                "required": ["id", "text", "category", "convention_ref", "rationale", "confirmed"],
+                "required": ["id", "text", "category", "convention_ref", "rationale", "confirmed", "standing"],
                 "properties": {
                   "id": {"type": "string"},
                   "text": {"type": "string"},
                   "category": {"type": "string"},
                   "convention_ref": {"type": "string"},
                   "rationale": {"type": "string"},
-                  "confirmed": {"type": "boolean"}
+                  "confirmed": {"type": "boolean"},
+                  "standing": {
+                    "type": "string",
+                    "enum": ["needs_confirmation", "convention_not_approved", "confirmed_by_person", "approved_with_understanding", "skipped_review"],
+                    "description": "Where `confirmed` comes from (#3898): needs_confirmation (the person must still confirm it), convention_not_approved (a project convention AutoCode inferred, not yet approved), confirmed_by_person (the person was asked about it and approved), approved_with_understanding (approved with the whole understanding without being asked about individually, or confirmed before this field was recorded) or skipped_review (an unattended run took every default). Read from the saved confirmation, never re-derived after approval."
+                  }
                 }
               }
             },

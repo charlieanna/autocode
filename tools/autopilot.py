@@ -32,6 +32,7 @@ try:
     from . import autocode_changed_code_rework as changed_code_rework
     from . import autocode_check_refs as check_refs
     from . import autocode_check_replay as check_replay
+    from . import autocode_claim_evidence as claim_evidence
     from . import autocode_completion as completion_gate
     from . import autocode_completion_result as completion_result
     from . import autocode_decision_routes as decision_routes
@@ -87,6 +88,7 @@ except ImportError:
     import autocode_changed_code_rework as changed_code_rework
     import autocode_check_refs as check_refs
     import autocode_check_replay as check_replay
+    import autocode_claim_evidence as claim_evidence
     import autocode_completion as completion_gate
     import autocode_completion_result as completion_result
     import autocode_decision_routes as decision_routes
@@ -1150,9 +1152,7 @@ def _apply_result(runtime, state: RunState, stage, value, record, workspace, run
                 state, record, source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
             )
         goals.execution_guard(state, value)
-        for entry in value.get("deferred_backlog", []):
-            if entry not in state.setdefault("deferred_backlog", []):
-                state["deferred_backlog"].append(entry)
+        claim_evidence.admit(state, stage, value, record, workspace, run_dir)  # refuses a contradicted claim
         decision_routes.validate_decision(state, stage, value)
         if value["user_request"]["kind"] != "none" and decision_routes.user_request(
             runtime,

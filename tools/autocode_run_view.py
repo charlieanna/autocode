@@ -216,6 +216,7 @@ def requirements_view(state: RunState) -> dict | None:
         row.get("id") for row in requirements_review.unconfirmed_assumptions(state) if isinstance(row, dict)
     }
     skip_confirmed = (handoff.get("confirmed_assumptions") or {}).get("source") == requirements_review.CONFIRMED_BY_SKIP
+    standing = requirements_review.assumption_standing(state)
     proposed_assumptions = []
     for raw in report.get("proposed_assumptions") or []:
         try:
@@ -232,6 +233,8 @@ def requirements_view(state: RunState) -> dict | None:
                 "convention_ref": row["convention_ref"],
                 "rationale": row["rationale"],
                 "confirmed": bool(skip_confirmed or row["id"] in confirmed_ids or row["id"] not in unconfirmed_ids),
+                # Where `confirmed` comes from (#3898): the person, an inferred convention, a whole approval or a skip.
+                "standing": standing.get(row["id"], requirements_review.NEEDS_CONFIRMATION),
             }
         )
     requirements = [

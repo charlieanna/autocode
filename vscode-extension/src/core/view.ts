@@ -88,7 +88,16 @@ export interface ProposedAssumption {
   convention_ref: string;
   rationale: string;
   confirmed: boolean;
+  /** Where `confirmed` comes from (#3898); absent from an older core. */
+  standing?: AssumptionStanding;
 }
+
+export type AssumptionStanding =
+  | 'needs_confirmation'
+  | 'convention_not_approved'
+  | 'confirmed_by_person'
+  | 'approved_with_understanding'
+  | 'skipped_review';
 
 export type RequirementConflict = string | { requirement_ids: string[]; description: string };
 
