@@ -32,6 +32,7 @@ import uuid
 from pathlib import Path, PurePosixPath
 
 try:
+    from . import autocode_check_outcome as check_outcome
     from . import autocode_command_receipt as command_receipt
     from . import autocode_package_scope as package_scope
     from . import autocode_plan_command_roles as plan_roles
@@ -51,6 +52,7 @@ try:
     from . import autocode_util as util
     from .autocode_protected_paths import identity, path_in
 except ImportError:
+    import autocode_check_outcome as check_outcome
     import autocode_command_receipt as command_receipt
     import autocode_package_scope as package_scope
     import autocode_plan_command_roles as plan_roles
@@ -446,11 +448,25 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=N
             if links:
                 overlays["links"] = links
             result["original"] = run("original", **overlays)
-        if _failed(result["candidate"]) or _failed(result["original"]):
+        # One reading of each half (autocode_check_outcome): a genuine failure of either half wins; a half
+        # that could not establish a result keeps completion blocked without directing a product edit.
+        outcomes = {half: check_outcome.classify(result[half]) for half in ("candidate", "original")}
+        if any(outcome["outcome"] == check_outcome.FAILED for outcome in outcomes.values()):
             result["verdict"] = "FAIL"
+        elif undetermined := {
+            half: {"reason": outcome["reason"], "detail": outcome["detail"]}
+            for half, outcome in outcomes.items()
+            if outcome["outcome"] == check_outcome.UNDETERMINED
+        }:
+            result["verdict"] = "NOT_VERIFIED"
+            result["undetermined"] = undetermined
         if support:
             result["test_support"] = support
-        if replaced and not _failed(result["candidate"]) and command_receipt.completed(result["original"]):
+        if (
+            replaced
+            and outcomes["candidate"]["outcome"] == check_outcome.PASSED
+            and command_receipt.completed(result["original"])
+        ):
             # The approved plan replaces these original tests (#2748): only their failures are accepted.
             excused = superseded_tests.excused(result["original"], replaced, changed)
             if excused:
@@ -464,6 +480,17 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=N
     util.atomic_json(receipt, result)
     result["receipt"] = str(receipt)
     result["receipt_sha256"] = util.file_hash(receipt)
+    if result["verdict"] == "NOT_VERIFIED" and result.get("undetermined") and not result.get("error"):
+        reasons = "; ".join(
+            check_outcome.describe(f"the {half} half", outcome) for half, outcome in result["undetermined"].items()
+        )
+        raise commands.OriginalGateUndetermined(
+            f"The protected-test check could not establish a result: {reasons}. No result was accepted and "
+            "completion stays blocked. The finished Tester answer was set aside; --resume-paused runs the Tester "
+            f"again, which re-runs this check. Receipt: {receipt}",
+            outcome=result["undetermined"],
+            receipt=result,
+        )
     if result["verdict"] != "PASS":
         tail = (result.get("original") or {}).get("tail", "")[-500:]
         failing = ((result.get("original") or {}).get("results") or {}).get("failed") or []
@@ -489,18 +516,6 @@ def _plan_suite(state: RunState, record):
     )
     # Where no rule knows the plan's command, the one the proof saw run the project's existing tests.
     return chosen["suite"] if chosen else plan_roles.suite(state, state.get("goal_contract"))
-
-
-def _failed(row):
-    if isinstance(row, dict) and row.get("suites"):
-        return any(_failed(run) for run in row["suites"])
-    return (
-        not isinstance(row, dict)
-        or row.get("exit_code") != 0
-        or bool(row.get("error"))
-        or bool(row.get("timed_out"))
-        or not command_receipt.completed(row)
-    )
 
 
 def _listed(replaced, changed):

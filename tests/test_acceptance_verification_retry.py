@@ -397,6 +397,215 @@ class AcceptanceVerificationRetryTests(unittest.TestCase):
         Path(self.record["events"]).write_text("tampered")
         self.assertFalse(retry.retain_legacy(self.state, self.workspace))
 
+    def not_started(self):
+        return {
+            "command": "python3 -m pytest tests/test_feature.py",
+            "exit_code": 1,
+            "timed_out": False,
+            "results": None,
+            "results_expected": True,
+            "tail": "/usr/bin/python3: No module named pytest",
+        }
+
+    def first_runner_not_started_pause(self):
+        """The writer's finished report meets a test command that never started; returns the test file bytes."""
+        self.candidate.side_effect = [
+            self.not_started(),
+            self.not_started(),
+            {
+                "exit_code": 1,
+                "timed_out": False,
+                "results_expected": True,
+                "results": {
+                    "passed": [],
+                    "failed": ["tests.test_feature.Feature.test_answer"],
+                    "skipped": [],
+                    "total": 1,
+                    "complete": True,
+                },
+                "tail": "AssertionError",
+            },
+        ]
+        written = (self.workspace / "tests/test_feature.py").read_bytes()
+        self.apply(acceptance.STAGE, self.state, self.value, self.record, self.workspace)
+        return written
+
+    def assert_runner_not_started_pause(self, written):
+        self.assertEqual("PAUSED_ACCEPTANCE_TESTS", self.state["status"])
+        self.assertEqual(acceptance.STAGE, self.state["next_stage"])
+        reason = self.state["stop_reason"]
+        self.assertIn("No module named pytest", reason)
+        self.assertNotIn("correct the tests and execute a fresh proof, or use --feedback to revise the plan", reason)
+        self.assertNotIn("--feedback", reason)
+        pending = (self.state.get(acceptance.KEY) or {}).get(retry.KEY)
+        self.assertIsNotNone(pending, "the finished writer's report is kept for a runner-only retry")
+        self.assertEqual(self.value, pending["value"])
+        latest = pending["failures"][-1]
+        self.assertEqual(1, latest["exit_code"])
+        self.assertIn("No module named pytest", latest["tail"])
+        self.assertEqual(written, (self.workspace / "tests/test_feature.py").read_bytes())
+        self.assertFalse(acceptance.receipts(self.state))
+        self.runtime.run_role.assert_not_called()
+
+    def test_ac11_runner_that_never_started_keeps_writer_and_retries_without_model(self):
+        written = self.first_runner_not_started_pause()
+        self.assert_runner_not_started_pause(written)
+        # Resumed while the runner still cannot start: the same pause again, with no model call.
+        self.state["status"] = "RUNNING"
+        self.dispatch()
+        self.assert_runner_not_started_pause(written)
+        self.assertEqual(2, len(self.state[acceptance.KEY][retry.KEY]["failures"]))
+        # Resumed once the environment is corrected: the normal per-case proof decides.
+        self.state["status"] = "RUNNING"
+        self.dispatch()
+        receipts = list(acceptance.receipts(self.state).values())
+        self.assertEqual(1, len(receipts))
+        self.assertEqual({"AC1": "fails"}, receipts[0]["results"])
+        self.assertEqual("builder", self.state["next_stage"])
+        self.assertEqual(3, self.candidate.call_count)
+        self.assertEqual(0, self.reference.call_count)
+        self.runtime.run_role.assert_not_called()
+        self.assertEqual(1, len(self.state["stages"]))
+        self.assertNotIn(retry.KEY, self.state[acceptance.KEY])
+
+    def test_ac12_started_runner_reporting_skipped_test_goes_back_to_writer(self):
+        self.candidate.return_value = {
+            "exit_code": 0,
+            "timed_out": False,
+            "results_expected": True,
+            "results": {
+                "passed": [],
+                "failed": [],
+                "skipped": ["tests.test_feature.Feature.test_answer"],
+                "total": 1,
+                "complete": True,
+            },
+            "tail": "skipped",
+        }
+        self.apply(acceptance.STAGE, self.state, self.value, self.record, self.workspace)
+        self.assertEqual("RUNNING", self.state["status"])
+        self.assertEqual(acceptance.STAGE, self.state["next_stage"])
+        self.assertEqual(1, len(self.state[acceptance.KEY]["rewrites"]))
+        self.assertNotIn(retry.KEY, self.state[acceptance.KEY])
+
+    def test_ac19_runner_not_started_pause_texts_name_the_execution_problem(self):
+        import autocode_recovery_view as recovery_view
+        import autocode_stop_explanations as stop_explanations
+
+        self.first_runner_not_started_pause()
+        happened = recovery_view.project(self.state)["what_happened"]
+        self.assertIn("test command could not start", happened)
+        self.assertNotIn("did not behave on today's code", happened)
+        explained = stop_explanations.explain("PAUSED_ACCEPTANCE_TESTS", stop_reason=self.state["stop_reason"])
+        self.assertIn("could not start", explained["what_it_means"])
+        other = copy.deepcopy(self.state)
+        (other.get(acceptance.KEY) or {}).pop(retry.KEY, None)
+        other["stop_reason"] = "The runner could not establish the approved pre-build proof: AC1 already passes"
+        self.assertIn(
+            "the Tester's tests did not behave on today's code", recovery_view.project(other)["what_happened"]
+        )
+
+    def test_runner_that_cannot_start_on_an_ordinary_retry_is_retried_on_each_resume(self):
+        import autocode_recovery_view as recovery_view
+
+        # An ordinary retained retry (the original reference was missing) whose re-run meets a test command
+        # that cannot start: each resume re-runs the checks without a model call until the runner starts.
+        self.start_retry()
+        self.candidate.side_effect = [self.not_started(), self.not_started(), self.result]
+        self.reference.side_effect = None
+        self.reference.return_value = {"verdicts": {"AC1": "fails"}}
+        written = (self.workspace / "tests/test_feature.py").read_bytes()
+        for attempt in (1, 2):
+            with self.subTest(attempt=attempt):
+                self.state["status"] = "RUNNING"
+                try:
+                    self.dispatch()
+                except util.Paused as error:
+                    self.fail(f"A runner that could not start was not retried: {error.status}: {error}")
+                self.assert_runner_not_started_pause(written)
+                pending = self.state[acceptance.KEY][retry.KEY]
+                self.assertEqual("runner_not_started", pending["kind"])
+                self.assertEqual(attempt + 1, len(pending["failures"]))
+                happened = recovery_view.project(self.state)["what_happened"]
+                self.assertIn("test command could not start", happened)
+                self.assertNotIn("did not behave on today's code", happened)
+        # Resumed once the environment is corrected: the normal per-case proof decides.
+        self.state["status"] = "RUNNING"
+        self.dispatch()
+        receipts = list(acceptance.receipts(self.state).values())
+        self.assertEqual(1, len(receipts))
+        self.assertEqual({"AC1": "passes candidate; fails original reference"}, receipts[0]["results"])
+        self.assertEqual("builder", self.state["next_stage"])
+        self.assertNotIn(retry.KEY, self.state[acceptance.KEY])
+        self.assertEqual(4, self.candidate.call_count)
+        self.assertEqual(2, self.reference.call_count)
+        self.assertEqual(1, len(self.state["stages"]))
+        self.runtime.run_role.assert_not_called()
+
+    def test_runner_that_started_after_not_starting_keeps_the_retry_bound(self):
+        # Once the runner starts, a repeated ordinary verification failure ends in the existing bounded path
+        # after at most one further runner-only re-check, with no model call.
+        self.start_retry()
+        self.candidate.side_effect = [self.not_started(), self.result, self.result, self.result]
+        self.reference.side_effect = None
+        self.reference.return_value = {"error": "original-reference execution missing"}
+        self.state["status"] = "RUNNING"
+        self.dispatch()
+        self.assertEqual("PAUSED_ACCEPTANCE_TESTS", self.state["status"])
+        # The runner starts: the runner-not-started retry is archived and one ordinary re-check is queued.
+        self.state["status"] = "RUNNING"
+        self.dispatch()
+        self.assertEqual("RUNNING", self.state["status"])
+        self.assertNotIn("kind", self.state[acceptance.KEY][retry.KEY])
+        for _ in range(2):
+            with self.assertRaises(util.Paused) as stopped:
+                self.dispatch()
+            self.assertEqual("PAUSED_INVALID_OUTPUT", stopped.exception.status)
+        self.assertEqual(4, self.candidate.call_count)
+        self.assertFalse(acceptance.receipts(self.state))
+        self.runtime.run_role.assert_not_called()
+
+    def test_runner_that_starts_on_resume_and_reports_a_skipped_test_goes_back_to_writer(self):
+        log = str(self.run / "pytest.log")
+        skipped = {
+            "exit_code": 0,
+            "timed_out": False,
+            "results_expected": True,
+            "results": {
+                "passed": [],
+                "failed": [],
+                "skipped": ["tests.test_feature.Feature.test_answer"],
+                "total": 1,
+                "complete": True,
+            },
+            "tail": "skipped",
+        }
+        self.candidate.side_effect = [{**self.not_started(), "output": log}, skipped]
+        self.apply(acceptance.STAGE, self.state, self.value, self.record, self.workspace)
+        self.assertEqual(
+            "The runner could not establish the approved pre-build proof: The acceptance test command could not "
+            "start its test runner (exit 1): /usr/bin/python3: No module named pytest. The test command did not "
+            "start on this host, so the written tests were kept and not judged. Correct the environment; "
+            "--resume-paused re-runs the checks without another Tester or Planner call.",
+            self.state["stop_reason"],
+        )
+        pending = self.state[acceptance.KEY][retry.KEY]
+        self.assertEqual(retry.RUNNER_NOT_STARTED, pending["kind"])
+        latest = pending["failures"][-1]
+        self.assertEqual(retry.RUNNER_NOT_STARTED, latest["kind"])
+        self.assertEqual("python3 -m pytest tests/test_feature.py", latest["command"])
+        self.assertEqual(log, latest["output"])
+        # Resumed: the runner now starts and reports the written test skipped, a defect in the tests, so the
+        # retained retry is archived and the existing test-correction path sends the tests back to the writer.
+        self.state["status"] = "RUNNING"
+        self.dispatch()
+        self.assertEqual("RUNNING", self.state["status"])
+        self.assertEqual(acceptance.STAGE, self.state["next_stage"])
+        self.assertEqual(1, len(self.state[acceptance.KEY]["rewrites"]))
+        self.assertNotIn(retry.KEY, self.state[acceptance.KEY])
+        self.assertEqual(2, self.candidate.call_count)
+        self.runtime.run_role.assert_not_called()
+
     def test_saved_pause_names_resume_and_explains_retained_verification(self):
         self.state.update(status="PAUSED_ACCEPTANCE_TESTS", stop_reason="original-reference execution missing")
         need = run_view.needs(self.state)

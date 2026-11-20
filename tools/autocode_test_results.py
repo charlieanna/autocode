@@ -151,6 +151,7 @@ def per_test_results(
         return go_results(Path(output).read_text(errors="replace")) if output and Path(output).is_file() else None
     passed, failed, skipped, collection = set(), set(), set(), set()
     setup_errors = {}
+    aborted = None
     roles = getattr(framework, "test_roles", None)
     is_test = (lambda path: roles.role(path) == "test") if roles else is_test_path
     if framework.name == "pytest":
@@ -160,8 +161,13 @@ def per_test_results(
             result_tree = ET.parse(xml_path)
         except ET.ParseError:
             return None
+        internal = None
         for test, case in python_tests.pytest_case_names(result_tree.iter("testcase"), tree):
             problem = case.find("failure") if case.find("failure") is not None else case.find("error")
+            if case.get("classname") == "pytest" and case.get("name") == "internal":
+                # pytest's synthetic INTERNALERROR testcase: the session aborted, no test ran here (#3895).
+                internal = problem if problem is not None else case
+                continue
             if problem is not None:
                 failed.add(test)
                 reason = test_setup.setup_error(problem.text or "", tree, is_test)
@@ -177,6 +183,9 @@ def per_test_results(
         # with two different outcomes stays a duplicate id, never a complete result.
         total = len(passed | failed | skipped)
         complete = True
+        aborted = _pytest_abort(receipt, internal)
+        if aborted:
+            complete = False
     else:
         text = Path(receipt["output"]).read_text(errors="replace")
         return unittest_results(
@@ -195,4 +204,31 @@ def per_test_results(
     }
     if setup_errors:
         results["setup_errors"] = setup_errors
+    if aborted:
+        results["aborted"] = aborted
     return results
+
+
+def _pytest_abort(receipt, internal) -> dict | None:
+    """``{"exit_code", "diagnostic"}`` when a pytest session aborted, else None (#3895).
+
+    pytest exits 3 on an internal error and 4 on a usage error (a missing test file); it may also report an
+    abort as its synthetic ``pytest::internal`` testcase. The tests that finished before the abort keep their
+    outcomes, but the session is incomplete. An exit-2 collection interruption keeps its collection errors."""
+    exit_code = (receipt or {}).get("exit_code")
+    if internal is None and exit_code not in (3, 4):
+        return None
+    text = ""
+    if internal is not None:
+        text = "\n".join(part for part in (internal.get("message"), internal.text) if part)
+    if not _last_line(text):
+        text = (receipt or {}).get("tail") or ""
+    if not _last_line(text) and (output := (receipt or {}).get("output")) and Path(output).is_file():
+        text = Path(output).read_text(errors="replace")[-4000:]
+    line = _last_line(text)
+    return {"exit_code": exit_code, "diagnostic": line.removeprefix("INTERNALERROR>").strip()}
+
+
+def _last_line(text) -> str:
+    lines = [line.strip() for line in str(text or "").splitlines() if line.strip()]
+    return lines[-1][:500] if lines else ""

@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
+import autocode_contract_identity as identity
 import autocode_protected_oracles as guard
 import autocode_verify as verify
 
@@ -342,6 +343,413 @@ class OriginalOracleTests(unittest.TestCase):
         self.state = {"settings": {}}
         self.configure(SimpleNamespace(run_dir=self.run))
         self.assertNotIn("protected_tests", self.state["settings"])
+
+
+class UndeterminedReplayTests(unittest.TestCase):
+    """A replay half that could not establish a result blocks completion without directing a repair (#3874).
+
+    ``scratch_run`` is a fake: no command, provider or model runs; each half returns the receipt a case gives.
+    """
+
+    REPAIR = "Repair the implementation; a modified assertion is not proof."
+    HOME = "cd sub && python3 -m unittest -v test_sub.py"
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.project = Path(temp.name).resolve() / "project"
+        (self.project / "sub").mkdir(parents=True)
+        (self.project / "layout.py").write_text("def height():\n    return 20\n")
+        (self.project / "test_layout.py").write_text(ORIGINAL)
+        (self.project / "sub/test_sub.py").write_text(
+            "import unittest\nclass Sub(unittest.TestCase):\n    def test_sub(self):\n        self.assertTrue(True)\n"
+        )
+        git = ["git", "-C", str(self.project), "-c", "user.name=Fixture", "-c", "user.email=f@example.test"]
+        subprocess.run(["git", "init", "-q", str(self.project)], check=True)
+        subprocess.run([*git, "add", "."], check=True)
+        subprocess.run([*git, "commit", "-qm", "original"], check=True)
+        self.run_dir = self.project / ".autocode/runs/protected"
+        self.out = self.run_dir / "replays"
+        command = shlex.join([sys.executable, "-B", "-m", "unittest", "discover", "-v"])
+        self.state = {"settings": {}}
+        guard.reconcile(
+            self.state,
+            self.state["settings"],
+            SimpleNamespace(run_dir=None),
+            self.project,
+            self.run_dir,
+            is_test_path=verify.is_test_path,
+            discover_command=lambda: command,
+        )
+        self.assertEqual({"test_layout.py", "sub/test_sub.py"}, set(self.state["settings"]["protected_tests"]["files"]))
+        (self.project / "test_layout.py").write_text(
+            ORIGINAL + "\n    def test_positive(self):\n        self.assertGreater(height(), 0)\n"
+        )
+        (self.project / "layout.py").write_text("def height():\n    return 40\n")
+        self.calls = []
+
+    @staticmethod
+    def passing():
+        return {
+            "exit_code": 0,
+            "timed_out": False,
+            "results_expected": True,
+            "results": {
+                "passed": ["test_layout.LayoutTests.test_height"],
+                "failed": [],
+                "skipped": [],
+                "total": 1,
+                "complete": True,
+            },
+            "tail": "OK",
+        }
+
+    @staticmethod
+    def timed_out():
+        return {"exit_code": None, "timed_out": True, "duration_seconds": 10, "results": None, "results_expected": True}
+
+    @staticmethod
+    def failing():
+        return {
+            "exit_code": 1,
+            "timed_out": False,
+            "results_expected": True,
+            "results": {
+                "passed": [],
+                "failed": ["test_layout.LayoutTests.test_height"],
+                "skipped": [],
+                "total": 1,
+                "complete": True,
+            },
+            "tail": "AssertionError: 20 != 40",
+        }
+
+    def scratch_run(self, receipts):
+        """A fake scratch run: ``receipts`` maps (half, part index) to a receipt; every other run passes."""
+
+        def run(workspace, folder, *, command, timeout, **overlays):
+            half = "original" if "files" in overlays else "candidate"
+            index = 1 if command == self.HOME else 0
+            self.calls.append((half, index, command))
+            return copy.deepcopy(receipts.get((half, index)) or self.passing())
+
+        return run
+
+    def replay(self, receipts):
+        """The exception the replay raises (None when it returns) and the receipt.json it wrote."""
+        try:
+            guard.replay(self.state, self.project, self.out, self.scratch_run(receipts), timeout=10)
+            error = None
+        except Exception as raised:  # noqa: BLE001 - the case asserts which exception it is
+            error = raised
+        written = list(self.out.glob("protected-tests/*/receipt.json"))
+        self.assertEqual(1, len(written))
+        return error, written[0]
+
+    def two_parts(self):
+        (self.project / "sub/test_sub.py").write_text(
+            "import unittest\nclass Sub(unittest.TestCase):\n    def test_sub(self):\n        self.assertEqual(1, 1)\n"
+        )
+        self.state["test_homes"] = {
+            "version": 1,
+            "files": {
+                "sub/test_sub.py": {
+                    "project": "sub",
+                    "from": "",
+                    "moved": True,
+                    "command": self.HOME,
+                    "suite": "cd sub && python3 -m unittest discover -v",
+                }
+            },
+        }
+
+    def assert_undetermined(self, error, receipt, phrase):
+        self.assertIsInstance(error, guard.util.Paused, error)
+        self.assertNotIsInstance(error, ValueError)
+        self.assertEqual("PAUSED_VERIFICATION_UNCERTAIN", error.status)
+        self.assertIn(phrase, str(error))
+        self.assertNotIn(self.REPAIR, str(error))
+        saved = json.loads(receipt.read_text())
+        self.assertEqual("NOT_VERIFIED", saved["verdict"])
+        self.assertEqual("NOT_VERIFIED", error.receipt["verdict"])
+        for half in ("candidate", "original"):
+            self.assertIsInstance(saved[half], dict)
+            self.assertEqual(saved[half], error.receipt[half])
+        self.state["validation"] = {
+            "check_replay": {
+                "protected_tests": error.receipt,
+                "verdict": "PASS",
+                "source_revision": error.receipt["source_revision"],
+            }
+        }
+        self.assertFalse(guard.ready(self.state, error.receipt["source_revision"]))
+
+    def test_ac4_protected_replay_undetermined_half_blocks_without_repair_direction(self):
+        incomplete = {
+            **self.passing(),
+            "supervision": {"receipt": "/missing/supervision.json"},
+            "supervision_sha256": "0" * 64,
+            "supervision_errors": ["keeper exited before collection"],
+        }
+        for name, receipts, phrase in (
+            ("original timed out", {("original", 0): self.timed_out()}, "the original half timed out"),
+            ("candidate timed out", {("candidate", 0): self.timed_out()}, "the candidate half timed out"),
+            (
+                "candidate supervision incomplete",
+                {("candidate", 0): incomplete},
+                "the candidate half's supervision receipt is incomplete: keeper exited before collection",
+            ),
+        ):
+            with self.subTest(name):
+                for old in self.out.glob("protected-tests/*/receipt.json"):
+                    old.unlink()
+                error, receipt = self.replay(receipts)
+                self.assert_undetermined(error, receipt, phrase)
+
+    def test_replay_names_an_interrupted_or_unproven_supervision_receipt(self):
+        supervised = {
+            **self.passing(),
+            "supervision": {"receipt": "/missing/supervision.json"},
+            "supervision_sha256": "0" * 64,
+            "supervision_errors": [],
+        }
+        for name, receipt, detail in (
+            (
+                "interrupted",
+                {**supervised, "interrupted": True},
+                "supervision receipt is incomplete: the run was interrupted",
+            ),
+            ("unproven", supervised, "supervision receipt does not show a completed, cleaned-up run"),
+        ):
+            with self.subTest(name):
+                for old in self.out.glob("protected-tests/*/receipt.json"):
+                    old.unlink()
+                error, written = self.replay({("original", 0): receipt})
+                self.assert_undetermined(error, written, f"the original half's {detail}")
+                self.assertEqual({"original": {"reason": "incomplete_receipt", "detail": detail}}, error.outcome)
+
+    def test_replay_records_why_each_half_could_not_establish_a_result(self):
+        aborted = {
+            "exit_code": 3,
+            "timed_out": False,
+            "results_expected": True,
+            "results": {
+                "passed": ["test_layout.LayoutTests.test_height"],
+                "failed": [],
+                "skipped": [],
+                "total": 1,
+                "complete": False,
+                "aborted": {"exit_code": 3, "diagnostic": "RuntimeError: plugin crashed"},
+            },
+            "tail": "INTERNALERROR> RuntimeError: plugin crashed",
+        }
+        not_started = {
+            "command": "python3 -m pytest test_layout.py",
+            "exit_code": 1,
+            "timed_out": False,
+            "results": None,
+            "results_expected": True,
+            "tail": "collecting\n/usr/bin/python3: No module named pytest\n",
+        }
+        for name, receipts, outcome in (
+            (
+                "timeout",
+                {("original", 0): self.timed_out()},
+                {"original": {"reason": "timeout", "detail": "timed out after 10 s"}},
+            ),
+            (
+                "session aborted",
+                {("original", 0): aborted},
+                {
+                    "original": {
+                        "reason": "session_aborted",
+                        "detail": "aborted its test session (exit 3): RuntimeError: plugin crashed",
+                    }
+                },
+            ),
+            (
+                "runner not started",
+                {("candidate", 0): not_started},
+                {
+                    "candidate": {
+                        "reason": "runner_not_started",
+                        "detail": "could not start its test runner (exit 1): /usr/bin/python3: No module named pytest",
+                    }
+                },
+            ),
+            (
+                "both halves",
+                {("candidate", 0): self.timed_out(), ("original", 0): aborted},
+                {
+                    "candidate": {"reason": "timeout", "detail": "timed out after 10 s"},
+                    "original": {
+                        "reason": "session_aborted",
+                        "detail": "aborted its test session (exit 3): RuntimeError: plugin crashed",
+                    },
+                },
+            ),
+        ):
+            with self.subTest(name):
+                for old in self.out.glob("protected-tests/*/receipt.json"):
+                    old.unlink()
+                error, written = self.replay(receipts)
+                half = next(iter(outcome))
+                self.assert_undetermined(error, written, f"the {half} half {outcome[half]['detail']}")
+                self.assertEqual(outcome, error.outcome)
+                self.assertEqual(outcome, json.loads(written.read_text())["undetermined"])
+
+    def test_ac5_completed_original_failure_still_directs_repair(self):
+        error, receipt = self.replay({("original", 0): self.failing()})
+        self.assertIsInstance(error, guard.commands.OriginalGateFailure)
+        self.assertIsInstance(error, ValueError)
+        self.assertIn("Protected tests changed and the original gate did not pass", str(error))
+        self.assertIn(self.REPAIR, str(error))
+        self.assertIn("Failing original tests: test_layout.LayoutTests.test_height", str(error))
+        self.assertEqual("FAIL", json.loads(receipt.read_text())["verdict"])
+
+    def test_a_completed_half_with_a_legacy_error_string_still_fails(self):
+        # A completed exit-0 receipt that carries an error (zero tests reported, a scratch copy that could not
+        # be made) keeps today's failure handling: it is a FAIL with the repair direction, not a pause.
+        for half in ("candidate", "original"):
+            with self.subTest(half):
+                for old in self.out.glob("protected-tests/*/receipt.json"):
+                    old.unlink()
+                error, receipt = self.replay({(half, 0): {**self.passing(), "error": "no tests were reported"}})
+                self.assertIsInstance(error, guard.commands.OriginalGateFailure)
+                self.assertNotIsInstance(error, guard.util.Paused)
+                self.assertIn(self.REPAIR, str(error))
+                self.assertEqual("FAIL", json.loads(receipt.read_text())["verdict"])
+
+    def approve_replacing_test_height(self):
+        """An approved plan whose AC1 replaces the original test_height (#2748): only its failure is excused."""
+        criterion = {
+            "id": "AC1",
+            "criterion": "the layout is taller",
+            "verification_method": "test: test_positive",
+            "supersedes": [{"file": "test_layout.py", "test": "test_height"}],
+        }
+        contract = {
+            "task_id": "T1",
+            "revision": 1,
+            "body": {"open_blocking_questions": [], "acceptance_criteria": [criterion]},
+        }
+        contract["hash"] = guard.util.digest(contract)
+        approval = {"kind": "goal_approval", "actor": "user_cli", "token": identity.token(contract)}
+        contract.update(approval_status="approved", approval_event=approval)
+        self.state.update(goal_contract=contract, user_events=[approval])
+
+    def test_a_replaced_original_failure_is_excused_only_when_the_candidate_half_passes(self):
+        self.approve_replacing_test_height()
+        error, receipt = self.replay({("original", 0): self.failing()})
+        self.assertIsNone(error)
+        saved = json.loads(receipt.read_text())
+        self.assertEqual("PASS", saved["verdict"])
+        self.assertEqual(["test_layout.LayoutTests.test_height"], saved["superseded"]["excused_failures"])
+        receipt.unlink()
+        # The candidate half genuinely fails another test: the replaced failure of the original half excuses nothing.
+        candidate = self.failing()
+        candidate["results"]["failed"] = ["test_layout.LayoutTests.test_positive"]
+        error, receipt = self.replay({("candidate", 0): candidate, ("original", 0): self.failing()})
+        self.assertIsInstance(error, guard.commands.OriginalGateFailure)
+        self.assertIn(self.REPAIR, str(error))
+        saved = json.loads(receipt.read_text())
+        self.assertEqual("FAIL", saved["verdict"])
+        self.assertNotIn("superseded", saved)
+
+    def test_a_replaced_original_failure_in_an_incomplete_supervision_receipt_is_not_excused(self):
+        self.approve_replacing_test_height()
+        original = {
+            **self.failing(),
+            "supervision": {"receipt": "/missing/supervision.json"},
+            "supervision_sha256": "0" * 64,
+            "supervision_errors": ["keeper exited before collection"],
+        }
+        error, receipt = self.replay({("original", 0): original})
+        self.assert_undetermined(
+            error, receipt, "the original half's supervision receipt is incomplete: keeper exited before collection"
+        )
+        self.assertNotIn("superseded", json.loads(receipt.read_text()))
+
+    def test_ac16_two_part_replay_genuine_failure_wins_over_timed_out_part(self):
+        self.two_parts()
+        error, receipt = self.replay({("candidate", 1): self.timed_out()})
+        self.assertEqual(4, len(self.calls), self.calls)  # two parts per half
+        self.assertIsInstance(error, guard.util.Paused, error)
+        self.assertEqual("PAUSED_VERIFICATION_UNCERTAIN", error.status)
+        self.assertIn("the candidate half timed out", str(error))
+        self.assertNotIn(self.REPAIR, str(error))
+        self.assertEqual("NOT_VERIFIED", json.loads(receipt.read_text())["verdict"])
+        receipt.unlink()
+        self.calls.clear()
+        error, receipt = self.replay({("original", 0): self.failing(), ("original", 1): self.timed_out()})
+        self.assertEqual(4, len(self.calls), self.calls)
+        self.assertIsInstance(error, guard.commands.OriginalGateFailure)
+        self.assertIn(self.REPAIR, str(error))
+        self.assertEqual("FAIL", json.loads(receipt.read_text())["verdict"])
+
+    def test_ac17_undetermined_replay_pause_is_not_a_rejected_tester_answer(self):
+        import autocode_repair_triage as repair_triage
+        import autocode_result_application as result_application
+        import autocode_stop_explanations as stop_explanations
+
+        error, _receipt = self.replay({("original", 0): self.timed_out()})
+        self.assertIsNotNone(error)
+        try:
+            result_application.raise_if_not_rejected(error)
+            raised = None
+        except Exception as again:  # noqa: BLE001 - the case asserts it is the same exception
+            raised = again
+        self.assertIs(error, raised)
+        self.assertNotEqual("tests_failed", repair_triage.classify_rejection(self.state, {}, error))
+        explained = stop_explanations.explain("PAUSED_VERIFICATION_UNCERTAIN", stop_reason=str(error))
+        self.assertIn("could not establish a result", explained["what_it_means"])
+
+    def test_ac18_undetermined_replay_sets_finished_tester_aside_so_resume_runs_it_again(self):
+        import autocode_run_records as run_records
+        import autocode_run_view as run_view
+        import autocode_runner_check as runner_check
+
+        error, receipt = self.replay({("original", 0): self.timed_out()})
+        self.assertIsNotNone(error)
+        output = self.run_dir / "iterations/003/tester-01.json"
+        output.parent.mkdir(parents=True)
+        output.write_text(json.dumps({"verdict": "PASS"}))
+        record = {
+            "stage": "tester",
+            "iteration": 3,
+            "output": str(output),
+            "exit_code": 0,
+            "accounted": True,
+            "finished_at": "2026-11-20T05:00:00+00:00",
+        }
+        self.state.update(status="RUNNING", next_stage="tester", active_stage=record, stages=[])
+
+        def persist(path, value):
+            guard.util.atomic_json(path, value)
+
+        try:
+            run_records.set_aside_at_completion_gate(self.state, self.run_dir, record, error, persist=persist)
+            raised = None
+        except Exception as again:  # noqa: BLE001 - the case asserts it is the same exception
+            raised = again
+        self.assertIs(error, raised)
+        self.assertNotIn("active_stage", self.state)
+        self.assertEqual("PAUSED_VERIFICATION_UNCERTAIN", self.state["status"])
+        self.assertEqual(str(error), self.state["stop_reason"])
+        self.assertIn("the original half timed out", self.state["stop_reason"])
+        self.assertIn("--resume-paused runs the Tester again", self.state["stop_reason"])
+        self.assertNotIn("Repair the implementation", self.state["stop_reason"])
+        last = self.state["stages"][-1]
+        self.assertEqual(("tester", 3), (last["stage"], last["iteration"]))
+        self.assertIn("archived-tester-01-", last["output"])
+        self.assertTrue(Path(last["output"]).is_file())
+        self.assertNotIn("failure_history", self.state)
+        self.assertTrue(receipt.is_file())
+        need = run_view.needs(self.state) or {}
+        self.assertNotIn("abandon_stage", need)
+        if "action" in need:
+            self.assertEqual("--resume-paused", need["action"])
+        runner_check.recover_interrupted(self.state, self.run_dir, persist)
 
 
 class HandoffBoundTests(unittest.TestCase):
