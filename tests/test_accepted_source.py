@@ -109,6 +109,10 @@ class AcceptReviewedSourceTests(unittest.TestCase):
         contract = copy.deepcopy(self.state["goal_contract"])
         settings = copy.deepcopy(self.state["settings"])
         proof = copy.deepcopy(self.state["regression_proof"])
+        with patch.object(
+            accepted.source_scope, "snapshot", return_value={"revision": "s2", "files": {}, "head": "h"}
+        ):
+            self.assertEqual(COMMAND_VIEW, run_view.needs(self.state)["action"])
         event = self.accept()
         self.assertEqual("s2", self.request["source_revision"])
         self.assertNotIn("recovery_packet", self.request)
@@ -121,17 +125,6 @@ class AcceptReviewedSourceTests(unittest.TestCase):
         self.assertEqual(contract, self.state["goal_contract"])
         self.assertEqual(settings, self.state["settings"])
         self.assertEqual(proof, self.state["regression_proof"])
-        self.assertEqual(
-            COMMAND_VIEW,
-            run_view.needs(
-                {
-                    **self.state,
-                    "status": "PAUSED_STALE_HANDOFF",
-                    "stop_reason": "Repair diagnosis needs the current reviewed source and task",
-                    "resolution_request": {"source_revision": "s1"},
-                }
-            )["action"],
-        )
 
     def test_a_settings_change_is_refused_and_the_request_stays_bound(self):
         before = copy.deepcopy(self.state)
@@ -170,6 +163,38 @@ class AcceptReviewedSourceTests(unittest.TestCase):
         self.state["stop_reason"] = "Repair evidence changed; review again before resolving"
         self.assertIsNone(accepted.resume_action(self.state))
         self.assertNotIn("action", run_view.needs(self.state))
+
+    def test_source_offer_and_admission_agree_on_all_saved_bindings(self):
+        with patch.object(
+            accepted.source_scope, "snapshot", return_value={"revision": "s2", "files": {}, "head": "h"}
+        ):
+            original = copy.deepcopy(self.state)
+            self.assertEqual(accepted.COMMAND, accepted.resume_action(self.state))
+            self.assertEqual(original, self.state)
+            for change in ("settings", "task", "contract", "scope", "evidence", "diagnosis"):
+                with self.subTest(change=change):
+                    state = copy.deepcopy(original)
+                    if change == "settings":
+                        state["settings"]["roles"]["builder"]["model_pinned"] = False
+                    elif change == "task":
+                        state["current_task"]["id"] = "other"
+                    elif change == "contract":
+                        state["goal_contract"]["hash"] = "other"
+                    elif change == "scope":
+                        state["current_task"]["acceptance_criteria"] = ["C2"]
+                    elif change == "evidence":
+                        state["resolution_request"]["evidence_hashes"][str(self.output)] = "other"
+                    else:
+                        state["resolution_request"]["diagnosis_output"] = "already-reviewed"
+                    self.assertIsNone(accepted.resume_action(state))
+                    with self.assertRaises(ValueError):
+                        accepted.accept_reviewed_source(state, self.root)
+            with patch.object(
+                accepted.source_scope, "snapshot", return_value={"revision": "s1", "files": {}, "head": "h"}
+            ):
+                self.assertIsNone(accepted.resume_action(original))
+                with self.assertRaises(ValueError):
+                    accepted.accept_reviewed_source(original, self.root)
 
 
 COMMAND_VIEW = "--resume-paused --accept-source-edit"

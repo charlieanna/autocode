@@ -15,11 +15,12 @@ This branch is a snapshot of an AutoCode run. Claude usage ran out partway, so t
 
 ## In progress, not yet accepted
 - **M2 (#3869):** record the controller's full intervention capability at setup (`tools/autocode_run_setup.py`, `tests/test_pause_offer.py`, `tests/test_stop_now_runner_check_cli.py`). The Builder has run; the Tester had not checked it yet.
+- **M3 source-edit offer (#3880):** the public offer now reads the same admission checks as the action. Added controls for source, settings, task, contract, scope, evidence and an existing diagnosis. The focused `tests.test_accepted_source.AcceptReviewedSourceTests` passes locally. The named wider suite is running with process enumeration enabled.
 
 ## Left
 - **M3 (#3880 and the #3954 view case):**
   - Record failed recovery-packet checks by name as `stale_checks`.
-  - Offer `--accept-source-edit` only when `accept_reviewed_source` would accept.
+  - Complete independent review and integration verification of the shared source-edit admission.
   - Show an answered blocker with no resume that only re-pauses, and add `needs.resume_unavailable` to the schema.
   - Criteria: AC8 to AC19, AC21, AC23 to AC25.
 - **M4:** abandon, retry_job, retry_report, retry_builder (serial and parallel member) and retry_failed_stage each read their executor's admission (AC26 to AC32).
