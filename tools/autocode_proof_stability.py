@@ -6,7 +6,7 @@ counts whenever that single run passes. This module decides which tests to repea
 to run only them, and which disagreed with themselves. A test that does not agree with
 itself is ``unstable`` and does not count. The rest of the suite still runs once.
 
-Imports the test-name matcher, the Python command parser and the package command form only. The
+Imports the test-name matcher, the Python, Cargo and RSpec command parsers and the package command form only. The
 caller owns the scratch trees and the suite runner.
 """
 
@@ -17,12 +17,16 @@ import re
 import shlex
 
 try:
+    from . import autocode_cargo_tests as cargo_tests
     from . import autocode_package_scope as package_scope
     from . import autocode_python_tests as python_tests
+    from . import autocode_rspec_tests as rspec_tests
     from . import autocode_test_cases as test_cases
 except ImportError:
+    import autocode_cargo_tests as cargo_tests
     import autocode_package_scope as package_scope
     import autocode_python_tests as python_tests
+    import autocode_rspec_tests as rspec_tests
     import autocode_test_cases as test_cases
 
 REPEATS = 3
@@ -228,7 +232,86 @@ def narrow(framework_name, command, test_ids, *, directory=None) -> str | None:
         return "node --test --test-name-pattern " + shlex.quote(pattern) + " " + command[len("node --test ") :]
     if framework_name in ("vitest", "jest", "mocha"):
         return _narrow_js(framework_name, command, test_ids)
+    if framework_name == "cargo":
+        return _narrow_cargo(command, test_ids)
+    if framework_name == "rspec":
+        return _narrow_rspec(command, test_ids)
     return None
+
+
+# Cargo options that take the next word as their value, so that word is not a test-name filter.
+_CARGO_VALUES = frozenset(
+    {
+        "-p",
+        "--package",
+        "--exclude",
+        "-F",
+        "--features",
+        "--target",
+        "--target-dir",
+        "--manifest-path",
+        "--test",
+        "--bench",
+        "--bin",
+        "--example",
+        "-j",
+        "--jobs",
+        "--profile",
+        "--color",
+        "--config",
+        "-Z",
+        "--lockfile-path",
+    }
+)
+_HARNESS_VALUES = frozenset({"--test-threads", "--skip", "--color", "-Z", "--shuffle-seed"})
+
+
+def _positional(words, values) -> bool:
+    """Whether ``words`` hold a word that is no option and no option's value: a test-name filter."""
+    index = 0
+    while index < len(words):
+        word = words[index]
+        if word in values:
+            index += 2
+            continue
+        if not word.startswith("-"):
+            return True
+        index += 1
+    return False
+
+
+def _narrow_cargo(command: str, test_ids: list[str]) -> str | None:
+    """``cargo test`` with each proving test's exact harness path (``FILE::module::name`` gives
+    ``module::name``). A filter applies to every test binary, so a test of the same path in another
+    binary may run too; it is not judged (autocode_mutation_results.selected)."""
+    words = cargo_tests.command_words(command)
+    if not words:
+        return None
+    split = words.index("--") if "--" in words else len(words)
+    start = words.index("cargo") + 2
+    cargo, harness = words[start:split], words[split + 1 :]
+    if _positional(cargo, _CARGO_VALUES) or "--exact" in harness or _positional(harness, _HARNESS_VALUES):
+        return None
+    names = sorted({test.partition("::")[2] for test in test_ids if "::" in test})
+    if not names or any(not name or name.startswith("[") for name in names):
+        return None
+    return shlex.join([*words[:split], "--", *harness, "--exact", *names])
+
+
+def _narrow_rspec(command: str, test_ids: list[str]) -> str | None:
+    """``rspec`` with one ``--example`` per proving test's full description (``FILE::DESCRIPTION``).
+    RSpec matches a description as a substring, so another example containing it may run too; it is
+    not judged (autocode_mutation_results.selected)."""
+    words = rspec_tests.command_words(command)
+    if not words or any(
+        word in ("-e", "--example", "-E", "--example-matches") or word.startswith(("--example=", "--example-matches="))
+        for word in words
+    ):
+        return None
+    names = sorted({test.partition("::")[2] for test in test_ids if "::" in test})
+    if not names or any(not name.strip() or name.startswith("[") for name in names):
+        return None
+    return shlex.join([*words, *(part for name in names for part in ("--example", name))])
 
 
 _JS_REGEX_META = re.compile(r"([.*+?^${}()|[\]\\])")
