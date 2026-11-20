@@ -778,6 +778,7 @@ def _apply_repair_report(
             "original_output": pending["original"]["output"],
             "repair": repair_record,
             "output_hash": output_hash,
+            "rejections": list(pending.get("rejections") or filter(None, [pending.get("original_error")])),
             "attempts": pending.get("attempts", 0),
             "result": "accepted",
             "at": now_fn(),

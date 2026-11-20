@@ -105,6 +105,24 @@ class ClientPolicyTests(unittest.TestCase):
                 self.assertFalse(isolation._verification_inputs_denied(weakened, boundary))
         self.assertTrue(isolation._verification_inputs_denied(text, boundary))
 
+    def test_the_run_denial_leaves_the_handoffs_context_artifacts_readable(self):
+        # #3907: a reviewer's handoff names a context artifact in its run and tells it to read it;
+        # the client policy denies the rest of .autocode, sibling runs and this run's state included.
+        lines = self.policy(self.boundary()).splitlines()
+        run = self.target.parent
+        denials = [line for line in lines if line.startswith('(deny file-read* (require-all (subpath "')]
+        self.assertEqual(1, len(denials))
+        self.assertTrue(
+            denials[0].startswith('(deny file-read* (require-all (subpath "' + str(self.root / ".autocode"))
+        )
+        exceptions = ['(require-not (subpath "' + str(path) + '"))' for path in (self.target, self.control)]
+        self.assertIn('(require-not (subpath "' + str(run / "context") + '"))', denials[0])
+        for exception in exceptions:
+            self.assertIn(exception, denials[0])
+        # Nothing else in the run, nor the run itself, is excepted.
+        self.assertEqual(3, denials[0].count("(require-not"))
+        self.assertNotIn('(subpath "' + str(run) + '"))', denials[0])
+
     def test_a_manifest_with_another_seal_is_refused(self):
         boundary = self.boundary(seal="unknown")
         with self.assertRaisesRegex(ValueError, "verification copy seal changed"):

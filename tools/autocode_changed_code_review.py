@@ -303,11 +303,25 @@ def undecided_gaps(assessment, decisions, offered_schema, stage):
     return [row for identity, row in gaps.items() if identity in offered and identity not in decided]
 
 
+def tester_only(row) -> bool:
+    """True for an open line no Builder test can mark tested: it has no mutation outcome.
+
+    Whether its runner made no mutants at all or the line has no mutation site, nothing a test adds
+    gives it behavioral evidence; only an independently checked reason settles it. The Tester's
+    report repair (tester_only_gaps) and the changed-line repair route (autocode_changed_code_rework)
+    read this one answer (#3817).
+    """
+    return not row.get("mutation_outcomes")
+
+
+def open_gaps(assessment):
+    """Every current reason_required obligation, in proof order."""
+    return list(_gaps(assessment).values())
+
+
 def tester_only_gaps(assessment, decisions, offered_schema, stage):
     """Offered gaps with no mutation site, which another Builder test cannot close."""
-    return [
-        row for row in undecided_gaps(assessment, decisions, offered_schema, stage) if not row.get("mutation_outcomes")
-    ]
+    return [row for row in undecided_gaps(assessment, decisions, offered_schema, stage) if tester_only(row)]
 
 
 def bind(assessment, decisions, record, *, offered_schema, verified_refs):

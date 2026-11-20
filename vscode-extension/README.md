@@ -67,6 +67,18 @@ polling while typing, model selection, Markdown, and composer/scroll behavior.
 These tests launch no providers. They do not qualify the actual VS Code host or a
 live model route. Full release qualification remains incomplete.
 
+`xvfb-run -a npm run test:host` (after `npm run build`) starts an actual VS Code
+Extension Host with this extension and drives it through Playwright, with no model
+and no person at the window (#3860). The extension runs this checkout's CLI
+(`AUTOCODE_HOST_PYTHON`, default the repository's `.venv`) on a scripted run whose
+Planner the provider rejects with HTTP 401 (`tests/provider_auth_fixture.py`). One
+test checks the failed Planner stage, the blocked chat, the Models chip's reason and
+the single recorded Planner attempt in Run details. The other holds a status read
+past the 30-second deadline with a draft in the composer, refreshes, and checks the
+unavailable state, one outstanding reader, the kept draft and recovery on a fresh
+read. It downloads the pinned VS Code into `.vscode-test` unless
+`AUTOCODE_VSCODE_EXECUTABLE` names one. CI runs it in the extension job.
+
 Current editor and live results: [qualification record](https://github.com/charlieanna/autocode/blob/master/docs/bugs/2026-10-16-vscode-chat-qualification.md).
 
 Create a distributable with `npm run package`. This builds the bundled runtime

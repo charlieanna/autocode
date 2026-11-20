@@ -274,6 +274,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "tools/prompts/fragments/goals/job-type-policy.md",
         ("tests.test_planning_scope_discipline",),
     ),
+    ("tools/autocode_acceptance_policy.py", ("tests.test_planning_scope_discipline",)),
     ("tools/autocode_legacy_process.py", ("tests.test_json_status_observer_cli",)),
     (
         "tools/autocode_saved_names.py",
@@ -501,6 +502,9 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("tests.test_coordination_tui_e2e", "tests.test_planning_scope_cli", "tests.test_coordination_gate_cli"),
     ),
     ("docs/schemas/status-view.schema.json", ("tests.test_json_contract", "tests.test_plan_review_cli")),
+    ("docs/", ("tests.test_doc_examples",)),
+    ("examples/", ("tests.test_doc_examples",)),
+    ("README.md", ("tests.test_doc_examples",)),
     ("scenarios/catalog/greenfield-todo-cli/reference/", ("tests.test_brief_cli",)),
     ("scenarios/catalog/review-clean-pr/", ("tests.test_review_clean_fixture",)),
     ("scenarios/catalog/local-compose-two-services/", ("tests.test_local_compose_scenario",)),
