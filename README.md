@@ -12,7 +12,7 @@ Start with these five guides: [install AutoCode](docs/install.md),
 [run your first task](docs/workflow.md),
 [understand a pause](docs/cli.md#understanding-a-stop),
 [read completion evidence](docs/execution.md#completion-gate), and
-[review a pull request](docs/issues.md#reviewing-a-pull-request).
+[review the plan in a pull request](docs/issues.md#reviewing-the-plan-in-a-pull-request).
 The site has search, deeper guides and a version selector; `latest` follows master.
 
 ## Install and start
