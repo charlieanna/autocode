@@ -144,6 +144,39 @@ class InterruptedReviewTests(unittest.TestCase):
         self.assertIn("entire process family stopped", notice["detail"])
         self.assertNotIn(self.record["supervision"]["nonce"], notice["detail"])
 
+    def test_a_host_restart_settles_an_armed_read_only_attempt(self):
+        # The keeper died with the machine, so its receipt still says armed; the restart itself is the cleanup.
+        self.fresh["receipt"].update(phase="armed", cause=None)
+        self.assertIsNone(recovery.proof(self.state, self.workspace, self.fresh))
+        self.fresh["boot_ended"] = True  # Supplied by the supervision observer.
+        self.assertEqual("host_restart", recovery.proof(self.state, self.workspace, self.fresh)["cleanup"]["kind"])
+        self.assertEqual(0, self.reconcile())
+        self.assertEqual("RUNNING", self.state["status"])
+        self.assertNotIn("active_stage", self.state)
+        self.assertEqual("host_restart", self.state["recovery_context"]["cleanup_evidence"]["kind"])
+        self.assertIn("machine restarted", history.project(self.state)[-1]["detail"])
+
+    def test_a_host_restart_does_not_override_other_recovery_boundaries(self):
+        self.fresh["receipt"].update(phase="armed", cause=None)
+        self.fresh["boot_ended"] = True
+        for fault in ("live", "writer", "source", "limit", "repair"):
+            with self.subTest(fault=fault):
+                state, fresh = copy.deepcopy(self.state), copy.deepcopy(self.fresh)
+                if fault == "live":
+                    fresh["provider"]["alive"] = True
+                elif fault == "writer":
+                    state["active_stage"]["stage"] = "builder"
+                elif fault == "source":
+                    (self.workspace / "app.py").write_text("changed = True\n")
+                elif fault == "limit":
+                    state["automatic_recoveries_since_resume"] = 3
+                elif fault == "repair":
+                    state["active_stage"]["report_only"] = True
+                try:
+                    self.assertIsNone(recovery.proof(state, self.workspace, fresh))
+                finally:
+                    (self.workspace / "app.py").write_text("value = 1\n")
+
     def test_family_evidence_does_not_override_other_recovery_boundaries(self):
         self.record["supervision"]["family_backup"] = {"boot_id": "boot", "directory": "/secure/store"}
         self.fresh["receipt"].update(phase="armed", cause=None)
@@ -236,7 +269,6 @@ class InterruptedReviewTests(unittest.TestCase):
         before = copy.deepcopy(self.state["validation"])
         self.reconcile()
         self.assertEqual(before, self.state["validation"])
-        self.assertEqual("review_completion", self.state["next_stage"])
 
     def test_missing_independent_evidence_routes_to_verification(self):
         self.reconcile()

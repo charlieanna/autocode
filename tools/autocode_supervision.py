@@ -299,6 +299,10 @@ def observe(metadata):
         result["family_cleanup"] = True
         if diagnostic == ("open", "not_found"):
             result["family_receipt_missing"] = True
+    launched = [metadata.get(key) for key in ("owner", "keeper", "provider")] if isinstance(metadata, dict) else []
+    if processes.boot_ended(launched):
+        # The host restarted since the attempt launched: it and every process it started are gone.
+        result["boot_ended"] = True
     for key in ("owner", "keeper", "provider"):
         saved = metadata.get(key) if isinstance(metadata, dict) else None
         if not isinstance(saved, dict) or "birth_identity" not in saved:
