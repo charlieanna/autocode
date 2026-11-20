@@ -833,7 +833,7 @@ def _render_policy(
     reads = {scratch, *(Path(p).resolve() for p in SYSTEM_READ_ROOTS)}
     if read_workspace:
         reads.add(root)
-    extra_reads = {_path(p) for p in read_roots}
+    extra_reads = {_read_root(p) for p in read_roots}
     reads.update(extra_reads)
     if any(p == Path("/") or p == Path.home() for p in reads):
         raise ValueError("Tool containment refuses an unscoped read root")

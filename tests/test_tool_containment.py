@@ -35,6 +35,26 @@ DENIED = {
 
 
 class PolicyTests(unittest.TestCase):
+    def test_read_roots_resolve_aliases_without_adding_write_or_unscoped_authority(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            workspace, runtime = root / "project", root / "runtime"
+            workspace.mkdir()
+            runtime.mkdir()
+            alias = root / "current"
+            alias.symlink_to(runtime, target_is_directory=True)
+            scratch = workspace / ".autocode/stage/scratch"
+            profile = containment.policy(workspace, scratch, read_roots=[alias])
+            self.assertIn('(subpath "' + str(runtime) + '")', profile)
+            self.assertNotIn('(subpath "' + str(alias) + '")', profile)
+            self.assertNotIn('(allow file-write* (subpath "' + str(runtime) + '")', profile)
+            alias.unlink()
+            alias.symlink_to(Path.home(), target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, "unscoped read root"):
+                containment.policy(workspace, scratch, read_roots=[alias])
+            with self.assertRaisesRegex(ValueError, "symlinked authority"):
+                containment.policy(workspace, alias / "scratch")
+
     def test_unicode_authority_paths_are_literal_with_quotes_and_backslashes_escaped(self):
         root = Path('/workspace/josé-用户-"quoted"-\\path')
         protected = root / "保護.txt"

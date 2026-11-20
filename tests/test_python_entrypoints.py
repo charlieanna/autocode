@@ -22,6 +22,10 @@ class PytestLauncherTests(unittest.TestCase):
                         r"    sys.argv[0] = re.sub(r'(-script\.pyw|\.exe)?$', '', sys.argv[0])" + "\n",
                     ),
                     ("import sys", '    if sys.argv[0].endswith(".exe"):\n        sys.argv[0] = sys.argv[0][:-4]\n'),
+                    ("import sys", '    sys.argv[0] = sys.argv[0].removesuffix(".exe")\n'),
+                    ("import sys", '    sys.argv[0] = sys.argv[0].removeprefix("x-").removesuffix(".exe")\n'),
+                    ("import sys", '    if sys.argv[0].startswith("x-"):\n        sys.argv[0] = sys.argv[0][2:]\n'),
+                    ("import sys", '    sys.argv[0] = sys.argv[0].strip().rstrip("-")\n'),
                 ):
                     with self.subTest(module=module, bootstrap=bootstrap):
                         launcher.write_text(
@@ -29,6 +33,28 @@ class PytestLauncherTests(unittest.TestCase):
                             f'if __name__ == "__main__":\n{bootstrap}    sys.exit({entry}())\n'
                         )
                         self.assertEqual(python, entrypoints.pytest_interpreter(launcher))
+
+    def test_only_nonexpanding_cleanup_of_program_name_is_accepted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            launcher = root / "pytest"
+            for cleanup in (
+                'sys.argv[1] = sys.argv[0].removesuffix(".exe")',
+                'sys.argv[0] = sys.argv[0].removesuffix(open("secret").read())',
+                'sys.argv[0] = sys.argv[0].replace("x", "many")',
+                "sys.argv[0] = sys.argv[0].removesuffix()",
+                "sys.argv[0] = sys.argv[0][::0]",
+                'sys.argv[0] = sys.argv[0].strip(chars="x")',
+                'sys.argv[0] = re.sub(".*", "replacement", sys.argv[0])',
+                'if sys.argv[0].endswith(".exe"):\n        sys.argv[0] = open("secret").read()',
+            ):
+                with self.subTest(cleanup=cleanup):
+                    launcher.write_text(
+                        f"#!{root}/python3\nimport sys\nfrom pytest import console_main\n"
+                        f"if __name__ == '__main__':\n    {cleanup}\n    sys.exit(console_main())\n"
+                    )
+                    with self.assertRaisesRegex(RuntimeError, "Cannot qualify"):
+                        entrypoints.pytest_interpreter(launcher)
 
     def test_modified_launcher_is_refused_without_execution(self):
         with tempfile.TemporaryDirectory() as directory:
