@@ -1077,7 +1077,7 @@
             "type": "string"
           },
           "builder_skipped": {
-            "description": "Why the Investigator took the lines in the first round: the proof's runner produces no mutation evidence, which no Builder change could close (#3817).",
+            "description": "Why the Investigator took the lines in the first round: every open line has no mutation outcome (the proof's runner produces no mutation evidence, or the line has no mutation site) and the Tester asked for no test, so no Builder change could close them (#3817).",
             "type": "string"
           },
           "source_revision": {
