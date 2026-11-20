@@ -76,7 +76,7 @@ class EarlyBaselineHandle:
         self.result: dict[str, Any] | None = None
         self.path: str | None = None
         self.sha256: str | None = None
-        self.error: Exception | None = None
+        self.error: BaseException | None = None
         self.timed_out = False
         self.thread: threading.Thread | None = None
         self.stopped = False
