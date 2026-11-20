@@ -1148,6 +1148,10 @@ def run_suite(framework, command, tree, evidence_dir, label, *, timeout, native_
     )
     receipt["results"] = per_test_results(framework, receipt, xml, tree=root)
     receipt["results_expected"] = expects_results(framework, command, root, scripts=scripts)
+    if str(xml) in actual:
+        # The command was told to write its per-test results here; a runner that never started writes none
+        # (autocode_check_outcome RUNNER_NOT_STARTED). A runner that parses its own output names no file.
+        receipt["results_file_written"] = xml.is_file()
     if native_execution is not None:
         native_execution.retain_results(receipt)
     return receipt

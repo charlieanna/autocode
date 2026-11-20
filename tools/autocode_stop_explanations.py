@@ -261,10 +261,12 @@ TABLE: dict[str, tuple[str, str]] = {
     ),
     "PAUSED_ACCEPTANCE_TESTS": (
         "Before any building, the Tester found an approved case already works on today's code, cannot be tested "
-        "directly in this host environment, or cannot be run by the configured test suite.",
+        "directly in this host environment, or cannot be run by the configured test suite, or its test command "
+        "could not start on this host (the stop reason names which).",
         "--feedback revises the plan (for example to scope or mock a host-bound case); the Tester runs again on the "
         "newly approved plan. When the stop reason names a suite that cannot run the files, --resume-paused with a "
-        "corrected --test-command reruns the proof.",
+        "corrected --test-command reruns the proof. When the stop reason names a test command that could not "
+        "start, correct the environment; --resume-paused reruns the checks without another Tester call.",
     ),
     "PAUSED_COMPLETION_REVIEW": (
         "The Completion Reviewer asked for a decision before the run can end.",
@@ -350,7 +352,8 @@ TABLE: dict[str, tuple[str, str]] = {
         "--resume-paused retries the stage.",
     ),
     "PAUSED_VERIFICATION_UNCERTAIN": (
-        "Command cleanup is unverified; a new launch stays blocked until it is.",
+        "A verification check could not establish a result, or command cleanup is unverified; the stop reason "
+        "names which. No result was accepted and a new launch stays blocked.",
         "--resume-paused re-checks; the uncertain attempt is set aside.",
     ),
     "PAUSED_VERIFICATION_PREPARATION": (

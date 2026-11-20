@@ -2,6 +2,11 @@
 
 The acceptance_tests record owns the pending report, its pins and spent retries.
 No receipt, model call, usage reset or plan authority is supplied here.
+
+A retry whose ``kind`` is RUNNER_NOT_STARTED (#3877: the test command could not start, so the
+written tests were never judged) runs again on each explicit resume instead of stopping at LIMIT:
+it makes no model call, and once its runner starts it is archived (``runner_started``) and the
+ordinary verdict paths, with the normal per-case proof, decide.
 """
 
 from __future__ import annotations
@@ -36,6 +41,7 @@ except ImportError:
 
 KEY = "verification_retry"
 LIMIT = 1
+RUNNER_NOT_STARTED = "runner_not_started"
 ARTIFACTS = ("output", "events", "schema", "before_ref", "after_ref")
 
 
@@ -54,12 +60,19 @@ def _record_current(state: RunState, record, workspace):
     )
 
 
-def retain(state: RunState, value, record, workspace, reason):
-    """Queue one fresh local verification; never replenish a saved allowance."""
+def retain(state: RunState, value, record, workspace, reason, *, kind=None, receipt=None):
+    """Queue one fresh local verification; never replenish a saved allowance.
+
+    ``kind`` (RUNNER_NOT_STARTED) is kept on the record, also on one already pending, so a re-run whose
+    test command could not start is retried on the next resume; ``receipt`` (the failed command's command,
+    exit code, output and tail) is kept in its failure entry."""
     saved = state.setdefault(acceptance.KEY, {})
     pending = saved.get(KEY)
+    failure = {"at": util.now(), "reason": str(reason), **({"kind": kind} if kind else {}), **(receipt or {})}
     if pending:
-        pending.setdefault("failures", []).append({"at": util.now(), "reason": str(reason)})
+        pending.setdefault("failures", []).append(failure)
+        if kind == RUNNER_NOT_STARTED:
+            pending["kind"] = kind
         return False
     try:
         if not _record_current(state, record, workspace) or value != util.read(record["output"]):
@@ -72,7 +85,8 @@ def retain(state: RunState, value, record, workspace, reason):
         "value": copy.deepcopy(value),
         "pins": pins,
         "attempts": 0,
-        "failures": [{"at": util.now(), "reason": str(reason)}],
+        "failures": [failure],
+        **({"kind": kind} if kind else {}),
     }
     run_status.running(state, "EXECUTING", next_stage=acceptance.STAGE)
     return True
@@ -117,6 +131,12 @@ def finish(state: RunState):
         saved.setdefault("verification_retries", []).append(pending)
 
 
+def runner_started(state: RunState):
+    """A runner-not-started retry whose test command now started is archived; the ordinary paths continue."""
+    if ((state.get(acceptance.KEY) or {}).get(KEY) or {}).get("kind") == RUNNER_NOT_STARTED:
+        finish(state)
+
+
 def _diagnosed_retry(state: RunState, pending):
     advice = state.get("stuck_investigation") or {}
     granted = advice.get("identity")
@@ -151,7 +171,9 @@ def dispatch(runtime, state: RunState, stage, workspace, run_dir, *, apply):
         attempts = pending.get("attempts")
         if type(attempts) is not int or attempts < 0:
             raise ValueError("The saved acceptance verification retry count is invalid")
-        diagnosis = _diagnosed_retry(state, pending) if attempts >= LIMIT else None
+        # A runner that never started is retried on each explicit resume, without a model call.
+        exhausted = attempts >= LIMIT and pending.get("kind") != RUNNER_NOT_STARTED
+        diagnosis = _diagnosed_retry(state, pending) if exhausted else None
         if (
             set(pending["pins"]) != {record[key] for key in ARTIFACTS}
             or not _record_current(state, record, workspace)
@@ -165,11 +187,11 @@ def dispatch(runtime, state: RunState, stage, workspace, run_dir, *, apply):
         passing_ids = {row.get("case_id") for row in passing if isinstance(row, dict)}
         inherited = (
             provenance.inherited_cases(state, reports=value.get("tests"), workspace=workspace)
-            if attempts >= LIMIT and not diagnosis and not pending.get("provenance_retry") and passing_ids
+            if exhausted and not diagnosis and not pending.get("provenance_retry") and passing_ids
             else set()
         )
         provenance_retry = bool(passing_ids and len(passing_ids) == len(passing) and passing_ids <= inherited)
-        if attempts >= LIMIT and not diagnosis and not provenance_retry:
+        if exhausted and not diagnosis and not provenance_retry:
             raise ValueError("The bounded acceptance verification retry is exhausted")
         pending["attempts"] += 1
         if diagnosis:
