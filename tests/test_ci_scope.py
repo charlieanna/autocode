@@ -21,6 +21,11 @@ class ScopeTests(unittest.TestCase):
     def enabled(self, *paths):
         return {job for job, enabled in ci_scope.select(list(paths)).items() if enabled}
 
+    def test_shell_runtime_changes_keep_both_native_kernel_jobs(self):
+        for path in ("tools/autocode_tool_shell.py", "tests/test_tool_shell.py"):
+            with self.subTest(path=path):
+                self.assertTrue({"suite", "macos", "linux"} <= self.enabled(path))
+
     def test_prompt_fix_uses_python_and_installed_resources_without_unrelated_heavy_jobs(self):
         self.assertEqual(
             {"suite", "wheel", "docs"},

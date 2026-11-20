@@ -19,6 +19,13 @@ is needed to install Claude Code, Codex, OpenCode or Kilo with npm. API keys go 
 OpenCode or Kilo; the built-in
 [API-key connection](providers.md#autocode-direct-connections-issue-1493) is retired.
 
+On macOS, OpenCode and Kilo's contained tool commands also need Homebrew Bash
+(`brew install bash`). The AutoCode Homebrew formula installs it as a dependency.
+The system Bash 3.2 ignores `TMPDIR` for heredocs; the read-only tool boundary
+therefore cannot use it for ordinary multiline input. AutoCode uses the fixed
+Homebrew installation and checks small, large and nested input inside the
+unchanged boundary before launching a model.
+
 **1. Install AutoCode.**
 
 ```sh

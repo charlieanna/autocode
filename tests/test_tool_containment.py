@@ -1803,6 +1803,28 @@ class KernelTests(unittest.TestCase):
         self.assertNotEqual(0, result.returncode, (command, result.stdout, result.stderr))
         self.assertRegex(result.stderr, DENIED)
 
+    def test_readonly_shell_keeps_literal_and_large_stdin_in_its_own_temporary_area(self):
+        run = self.workspace / ".autocode/runs/input-probe"
+        (run / "planning").mkdir(parents=True)
+        for private in (False, True):
+            reader = containment.prepare(
+                self.workspace,
+                read_roots=self.roots,
+                environment=self.env,
+                private_run=run if private else None,
+            )
+            for payload in ("'$HOME' \\ tests/__init__.py 李雷", "x" * 32768):
+                with self.subTest(private=private, size=len(payload)):
+                    command = "/bin/pwd\n/bin/cat <<'AUTOCODE_INPUT'\n" + payload + "\nAUTOCODE_INPUT\n"
+                    result = self.run_shell(command, reader)
+                    self.assertEqual(0, result.returncode, result.stderr)
+                    self.assertEqual(str(self.workspace) + "\n" + payload + "\n", result.stdout)
+            nested = self.run_shell("bash -c '/bin/cat <<<nested'", reader)
+            self.assertEqual(0, nested.returncode, nested.stderr)
+            self.assertEqual("nested\n", nested.stdout)
+            self.assert_denied(": > source.py", reader)
+        self.assertEqual(self.before, {p: hashlib.sha256(p.read_bytes()).hexdigest() for p in self.before})
+
     def test_external_and_readonly_writes_are_kernel_denied(self):
         escape = self.home / "outside-created"
         commands = [
@@ -2057,6 +2079,8 @@ class KernelTests(unittest.TestCase):
             boundary[name + "_sha256"] = hashlib.sha256(Path(boundary[name]).read_bytes()).hexdigest()
         containment.verify(boundary)
         for key, value in (
+            ("shell_runtime", {**boundary["shell_runtime"], "sha256": "0" * 64}),
+            ("shell_runtime", None),
             ("loopback_checks", ["claimed network permission"]),
             ("loopback_checks", []),
             ("loopback_authority", None),
