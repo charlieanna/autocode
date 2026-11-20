@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_command_supervision as command_supervision
     from . import autocode_follow_up as follow_up
     from . import autocode_launch_inputs as launch_inputs
     from . import autocode_package_scope as package_scope
@@ -32,6 +33,7 @@ try:
     from . import autocode_verification_schedule as schedule
     from . import autocode_verify as verify
 except ImportError:
+    import autocode_command_supervision as command_supervision
     import autocode_follow_up as follow_up
     import autocode_launch_inputs as launch_inputs
     import autocode_package_scope as package_scope
@@ -42,6 +44,8 @@ except ImportError:
     import autocode_verify as verify
 
 STAGE = "regression_baseline"
+# How long a pause boundary waits for a stopped check to end its command and leave the run directory.
+STOP_WAIT_SECONDS = 60.0
 
 
 class EarlyBaselineHandle:
@@ -270,6 +274,8 @@ def maybe_start(
             persist()
 
         def _worker() -> None:
+            # A thread starts in an empty context, so the cancellation is set here, in the worker's own.
+            command_supervision.CANCELLATION.set(lambda: {"kind": "pause_boundary"} if handle.stopped else None)
             try:
                 result = verify.baseline(
                     workspace,
@@ -290,7 +296,7 @@ def maybe_start(
                 handle.path = str(path)
                 handle.sha256 = util.file_hash(path)
                 handle.timed_out = bool(result.get("receipt", {}).get("timed_out"))
-            except Exception as err:
+            except (Exception, command_supervision.CheckCancelled) as err:
                 handle.error = err
             finally:
                 handle.completed.set()
@@ -432,12 +438,19 @@ def get_or_join(
 
 
 def reconcile_at_boundary(state: RunState, run_dir: Path | str, *, persist: Any = None) -> None:
-    """Reconcile in-flight early baseline at a pause or interruption boundary."""
+    """Stop an in-flight early baseline at a pause or interruption boundary.
+
+    The check's command is cancelled and its thread joined (bounded), so nothing keeps writing
+    into the run directory after the run has paused (#3859): the next resume starts it afresh.
+    """
     run_dir_key = str(Path(run_dir).resolve())
     with _LOCK:
         handle = _ACTIVE_HANDLES.pop(run_dir_key, None)
         if handle and handle.is_alive():
             handle.stopped = True
+    if handle is not None:
+        handle.join(timeout=STOP_WAIT_SECONDS)
+    with _LOCK:
         check = state.get("active_runner_check")
         if isinstance(check, dict) and check.get("stage") == STAGE:
             state.pop("active_runner_check", None)
