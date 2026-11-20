@@ -348,15 +348,15 @@ def diagnosis_current(state: RunState, request, revision):
 
 def _source_revision(state: RunState, stage, pointer, packet, workspace):
     """The source revision a dispatch is bound at: the current one, or for a Builder the packet's own
-    when every file holds its bound content or what this packet's latest Builder attempt left, at an
-    unmoved HEAD (retained_work.own_repair_source says exactly what it admits). Anything else binds
-    the current revision, so other content, such as a person's new edit or a further change after
-    the last attempt, remains a stale handoff."""
+    when every file holds its bound content or what the run's own Builder attempts since it left, at
+    an unmoved HEAD (retained_work.own_recovery_source says exactly what it admits, and the relaunch
+    boundary asks the same question). Anything else binds the current revision, so other content,
+    such as a person's new edit or a further change after the last attempt, remains a stale handoff."""
     current, bound = source_scope.snapshot(workspace, state), packet["binding"]["source_revision"]
     if (
         stage == "builder"
         and current["revision"] != bound
-        and retained.own_repair_source(state.get("stages", []), pointer, bound, current)
+        and retained.own_recovery_source(state.get("stages", []), bound, current)
     ):
         return bound
     return current["revision"]
