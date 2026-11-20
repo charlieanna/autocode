@@ -89,6 +89,12 @@ def review_generation_schema(schema, state: RunState, stage):
     if stage not in ("tester", "review_completion", "review_checkpoint"):
         return result
     props = result.get("properties", {})
+    row = props.get("criterion_results", {}).get("items", {}).get("properties")
+    if stage == "tester" and isinstance(row, dict):
+        # The Tester's recorded reason a PASS criterion has no probe of its own (autocode_tester_probes).
+        # Optional, so saved reports stay valid; the role schema, and with it the Builder self-assessment
+        # and review_checkpoint schemas, never offers it.
+        row["probe_reason"] = {"type": "string"}
     contract = state.get("goal_contract") or {}
     for field, value in (
         ("contract_hash", contract.get("hash")),
