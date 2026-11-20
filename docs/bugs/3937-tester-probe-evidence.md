@@ -44,16 +44,26 @@ required commands, so the Tester's independence added nothing the Builder's own 
 
 ## Rejection rate (AGENTS.md architecture rule 8)
 
-**Saved live Tester responses: none available.** The repository tracks no saved Tester
-`.response.txt` or event record: in `git ls-files`, the only JSON files naming `criterion_results` are
-the report schemas (`tools/autocode-schemas/sol-report.schema.json` and its `v2` copy), and the other
-tracked files naming it are scripts that write scripted reports (`test-scenarios/*.sh`,
-`vscode-extension/test/live-walk.test.cjs`), not saved answers. The only run under this checkout's
-`.autocode/runs/` is the run that made this change, which had reached no Tester stage. So no rate against
-live Tester answers can be stated; the five issues' own reports are the live evidence that such PASS
-reports occur.
+**Saved live Tester responses: 130 rejected of 140.** The project's survey archive holds 236 saved
+Tester reports (`iterations/NNN/validator-NN.json`, with each run's `state.json`) from live runs on
+2026-11-13 to 2026-11-15, before this change. Each was passed to `autocode_tester_probes.admit` with
+the approved required commands `verification_plan.approved_commands(state, progressive_context=...)`
+derives from its own run state. 175 had verdict PASS; 35 of those had no approved required command (the
+gate cannot refuse them: every cited passing check is the Tester's own) and 140 had at least one. Of the
+140, **130 would be refused** (129 as `ProbeEvidenceRequired`, one Tester rerun; 1 as a report-only
+repair because it listed an uncited probe) and 10 are accepted. The refusals are genuine, not
+misclassified respellings: a typical one (`p6-python-behavior`) lists the one approved command
+`python3 -m unittest discover -s tests -t .` and cites it, alone, for all four criteria.
 
-**What was measured instead: every Tester report the existing admission tests admit.** A wrapper around
+That rate is the defect the five issues report, measured: Testers written to the old prompt almost
+never ran a probe of their own. It is also the cost the gate would add if the new prompt paragraph did
+not change that behavior: one extra Tester launch per refused report, then the bounded report-only
+repair. The prompt paragraph and `autocode report-check` (which the Tester runs before finishing) are
+there so a Tester catches it inside its own launch; the rate on answers to the new prompt is not
+measured here, since this change ran no live model, and should be read from `autocode usage report`
+rejection reasons once runs use it.
+
+**Also measured: every Tester report the existing admission tests admit.** A wrapper around
 `autocode_tester_probes.admit` (kept with the run's evidence, not committed) records, for each Tester
 report the runner admits while the named test modules run, its verdict, the approved required commands of
 its state, and the gate's decision on the report as written and on a copy with every `probe_reason`
