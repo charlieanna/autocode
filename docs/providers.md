@@ -176,7 +176,7 @@ apply an independent profile: Requirements keeps that profile's default unless
 model unless `--requirements-model` explicitly changes it.
 Override execution roles with `--task-planner-model`, `--builder-model`,
 `--tester-model`, or `--completion-model` using a provider/model ID from `opencode models`, including
-`openai/…` with an OpenCode ChatGPT OAuth connection. Saved runs retain their original role
+`openai/…` with an OpenCode OpenAI connection (a ChatGPT login or an OpenAI API key). Saved runs retain their original role
 engines and sessions; no existing run is migrated by a dashboard selection.
 If an account offers only one model, `--single-model MODEL` assigns it to all
 roles and permits same-model verification. The roles still run in separate
@@ -988,7 +988,8 @@ cannot run tests that listen on 127.0.0.1; AutoCode's own runner checks still ca
 Isolated live Linux fixtures also need the backend's cached helpers to execute;
 follow the [Kilo cache execution preflight](testing.md#executable-helpers-in-live-kilo-fixtures)
 before admitting a task or model call.
-Its default routes use ChatGPT OAuth for `openai/...`, Zhipu AI Coding Plan for
+Its default routes use Kilo's OpenAI login for `openai/...` (a ChatGPT login, billed
+to the subscription, or an OpenAI API key, billed per token), Zhipu AI Coding Plan for
 `zhipuai-coding-plan/...`, and Alibaba Token Plan for `alibaba-token-plan/...`.
 Optional `zai-coding-plan/...` and `kilo/...` routes require their separate
 Z.AI Coding Plan `api` and Kilo Gateway `oauth` logins. Check `kilo models` and
@@ -1020,8 +1021,9 @@ forbid_env = ["OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL"]
 
 [[auth.routes]]
 models = "openai/"
+billing = { oauth = "subscription", api = "pay per token" }
 pattern = "^\\s*[●•]\\s+OpenAI\\s+(\\S+)\\s*$"
-expect = "oauth"
+expect = ["oauth", "api"]
 
 [[auth.routes]]
 models = "alibaba-token-plan/"
@@ -1059,12 +1061,16 @@ subscription. The `[auth]` table above runs `kilo auth list` before a role on an
 
 | Model prefix | Kilo login | Required mode |
 | --- | --- | --- |
-| `openai/` | OpenAI | `oauth` |
+| `openai/` | OpenAI | `oauth` (ChatGPT) or `api` (an OpenAI API key) |
 | `alibaba-token-plan/` | Alibaba Token Plan | `api` |
 | `zai-coding-plan/` | Z.AI Coding Plan | `api` |
 | `zhipuai-coding-plan/` | Zhipu AI Coding Plan | `api` |
 | `kilo/` | Kilo Gateway | `oauth` |
 
+A route may accept more than one mode: `expect = ["oauth", "api"]` lists them, and a
+`billing` table gives each mode's billing, so discovery and stage choices show an OpenAI API
+key as pay per token and a ChatGPT login as the subscription. The listing must show the login
+in one accepted mode; two rows in different modes leave the billed login unknown and refuse.
 Each coding plan uses its separate login; a gateway login does not satisfy a
 coding-plan route. A missing `Kilo Gateway oauth` row refuses Gateway calls.
 For these routes the check also refuses a set
