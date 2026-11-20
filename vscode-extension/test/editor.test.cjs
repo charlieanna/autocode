@@ -5472,7 +5472,7 @@ for (const outcome of ['success', 'failure']) {
     ui.document.querySelector('#take-action').click();
     await flush(); await flush();
     assert.equal(launch.mock.callCount(), 1, 'the existing command is still pending');
-    assert.equal(button().disabled, true, 'busy controls must not silently accept a click');
+    assert.equal(button().disabled, false, 'a display-only read stays available while the command is pending (#3871)');
     finish(); await flush(); await flush();
     assert.equal(button().disabled, false, 'the named action returns when the command settles');
     button().click();
@@ -5481,6 +5481,87 @@ for (const outcome of ['success', 'failure']) {
     assert.ok(ui.document.querySelector('#app').textContent.includes('This run has not changed any files.'));
   });
 }
+
+// #3871: the whole-run diff is a display-only read, served while the tab waits for another command.
+test('test_ac8_all_changes_served_while_tab_busy', async (t) => {
+  const ui = await openChat(t, checkpointView());
+  let finish;
+  const launch = t.mock.method(cli, 'stream', () => new Promise((resolve) => { finish = () => resolve(ok); }));
+  t.after(() => finish?.());
+  const calls = [];
+  t.mock.method(cli, 'invoke', async (_settings, argv) => {
+    calls.push(argv);
+    return { ...ok, stdout: JSON.stringify({ changed_files: ['app.txt'], patch: '+hello' }) };
+  });
+  ui.document.querySelector('#take-action').click();
+  await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 1, 'the chat command is still pending');
+  const button = ui.document.querySelector('#all-changes-show');
+  assert.equal(button.disabled, false, 'the named read is available while the tab is busy');
+  button.click();
+  await flush(); await flush();
+  assert.deepEqual(calls, [ALL_CHANGES], 'served while the chat command is still pending');
+  const text = ui.document.querySelector('#app').textContent;
+  assert.match(text, /1 file\(s\) changed in this run/);
+  assert.ok(text.includes('+hello'));
+});
+
+test('test_ac9_other_actions_stay_disabled_while_busy', async (t) => {
+  const ui = await openChat(t, checkpointView());
+  let finish;
+  const launch = t.mock.method(cli, 'stream', () => new Promise((resolve) => { finish = () => resolve(ok); }));
+  t.after(() => finish?.());
+  ui.document.querySelector('#take-action').click();
+  await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 1, 'the chat command is still pending');
+  assert.equal(ui.document.querySelector('#take-action').disabled, true, 'busy controls must not silently accept a click');
+});
+
+// #3945: a diff that ends before the run's current files says so, in the Changes section and on the card.
+const NOT_INCLUDED = 'Ends at saved code cp-1; changes made after it are not included.';
+
+test('test_ac10_all_changes_shows_its_not_included_note', async (t) => {
+  const reply = { changed_files: ['app.txt'], patch: '+hello', complete: false, note: NOT_INCLUDED };
+  const ui = await openChat(t, checkpointView());
+  t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify(reply) }));
+  ui.document.querySelector('#all-changes-show').click();
+  await flush(); await flush();
+  const section = ui.document.querySelector('#all-changes').nextElementSibling;
+  assert.ok(section.textContent.includes(NOT_INCLUDED), 'the Changes section names what it leaves out');
+  const done = meteredView({
+    status: 'TASK_COMPLETE', done: true, needs: { kind: 'done' }, liveness: null,
+    progress: { headline: 'Complete', requirements: { checked: 1, failed: 0, unchecked: 0, awaiting_review: 0 } },
+    code_checkpoints: { all_changes: { id: 'all_changes', label: 'Show all changes', next_command: ALL_CHANGES } },
+  });
+  done.usage.accounting.attempts = done.usage.accounting.attempts.map((row) => ({ ...row, active: false }));
+  await ui.poll(done); await flush(); await flush();
+  const card = ui.document.getElementById('finish-summary');
+  assert.ok(card, 'the closing card is drawn');
+  assert.ok(card.textContent.includes(NOT_INCLUDED), 'the result card names what the diff leaves out');
+});
+
+test('test_ac11_result_card_count_follows_kept_code', async (t) => {
+  const done = meteredView({
+    status: 'TASK_COMPLETE', done: true, needs: { kind: 'done' }, liveness: null,
+    progress: { headline: 'Complete', requirements: { checked: 1, failed: 0, unchecked: 0, awaiting_review: 0 } },
+    code_checkpoints: {
+      all_changes: { id: 'all_changes', label: 'Show all changes', next_command: ALL_CHANGES },
+      kept: { id: 'kept-1', source_revision: 'r1', commit: 'c1', available: true },
+    },
+  });
+  done.usage.accounting.attempts = done.usage.accounting.attempts.map((row) => ({ ...row, active: false }));
+  let files = ['app.txt', 'README.md'];
+  t.mock.method(controller, 'allChanges', async () => ({ since: 'start', changed_files: files, patch: '+kept', truncated: false }));
+  const ui = await openChat(t, done);
+  await flush(); await flush();
+  assert.equal(ui.document.querySelector('#finish-summary .files').textContent, '2 files: app.txt, README.md');
+  files = ['README.md', 'app.txt', 'docs/guide.md', 'link', 'new file.txt', 'run.sh'];
+  await ui.poll({ ...done, code_checkpoints: { ...done.code_checkpoints,
+    kept: { id: 'kept-2', source_revision: 'r2', commit: 'c2', available: true } } });
+  await flush(); await flush();
+  assert.equal(ui.document.querySelector('#finish-summary .files').textContent,
+    '6 files: README.md, app.txt, docs/guide.md, link, new file.txt, run.sh');
+});
 
 test('an all-changes action the view did not name exactly is refused without a CLI call', async (t) => {
   const view = checkpointView();

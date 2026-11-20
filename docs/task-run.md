@@ -3089,13 +3089,35 @@ that step's id) or, for the first step, the commit it was saved on (`since` is `
 run's own scope), and never the files on disk. It carries no token and restores nothing. A finished
 run's newest step still matches the files, so `compare` shows nothing there, but `step` shows its change.
 
-Once the run has an available step, `code_checkpoints.all_changes` (otherwise null) names the run's
-whole change in the same shape, `autocode checkpoint --all`. It is display only: it prints `{since,
-until, changed_files, patch, truncated}`, the newest saved step's code (`until` is its id) against the
-commit the first step was saved on (`since` is `"start"`), limited to the run's own scope, and never
-the files on disk. A file one step added and a later one removed is not listed. It carries no token
-and restores nothing. This is the diff the VS Code client shows a person; it does not offer the rows'
-`compare`, `step` or `restore` (owner decision 2026-11-13).
+Once the run has an available step or available kept code, `code_checkpoints.all_changes` (otherwise
+null) names the run's whole change in the same shape, `autocode checkpoint --all`. It is display only:
+it prints `{since, until, changed_files, patch, truncated, complete, note}`, the run's newest kept code
+(`until` is its id) against the commit the run started from (`since` is `"start"`), limited to the
+run's own scope, and never the files on disk. A file one step added and a later one removed is not
+listed; a file the run's kept work removed stays listed as removed. It carries no token and restores
+nothing. This is the diff the VS Code client shows a person; it does not offer the rows' `compare`,
+`step` or `restore` (owner decision 2026-11-13).
+
+The newest kept code is everything the run keeps, whichever stage kept it (#3945, #3933): a Builder
+retry after a timeout, tests the Tester retained, a combined review, the acceptance-test writer or an
+edit accepted at a pause. Such work saves no new step, so at each durable save with no stage, runner
+check or batch active and an approved plan, AutoCode compares the run's source with the end of its saved
+code and, when they differ, saves the source as kept code, like a step: a Git commit, a hash-pinned
+receipt in the run's `code-checkpoints` directory and a ref under `refs/autocode/code-checkpoints/`.
+`checkpoint --all` ends there, or at the newest saved step when that is newer. For a completed run
+(`TASK_COMPLETE` or `COMPLETE`) it ends at the run's delivery, the kept code when it completed; edits
+made after that are not part of it, and a follow-up records its own delivery when it completes.
+
+`complete` is true when the run's files now equal the saved code the diff ends at. When they do not
+(a stage is still writing, a person edited after the run completed, or kept code could not be saved),
+`note` says so: `"Ends at saved code UNTIL; changes made after it are not included."`, followed by
+`" The newest kept code could not be saved: REASON"` when the newest capture failed. `note` is null
+when `complete` is true.
+
+`code_checkpoints.kept` (null before any is recorded) names that kept code: `{id, source_revision,
+commit, at, available, reason}`. Its `id` is a kept capture's (`kept-…`) or, when the run's source is a
+saved step itself, that step's id. `available` false means the newest kept code could not be saved,
+and `reason` says why. A client reads the diff again when it changes.
 
 While a Builder step runs, `code_checkpoints.working` (otherwise null) names one more action in the
 same shape, `autocode checkpoint --working`. It is display only: it prints `{since, changed_files,

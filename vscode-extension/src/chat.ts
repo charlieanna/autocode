@@ -1077,11 +1077,12 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     }
   }
 
-  /** The run's whole change: a read of saved code, offered once the view names it. */
+  /** The run's whole change: a read of saved code, offered once the view names it. A display-only
+   * read, so it is served while the tab waits for another command too (#3871). */
   private async allChanges(message: ChatMessage): Promise<void> {
     const tab = this.active;
     const run = tab.run;
-    if (!run || message.runKey !== tab.key || this.busy.has(tab.key)) return;
+    if (!run || message.runKey !== tab.key) return;
     const key = tab.key;
     try {
       const comparison = await this.controller.allChanges(run);

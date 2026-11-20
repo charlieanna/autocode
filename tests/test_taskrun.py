@@ -276,6 +276,15 @@ class RunViewTests(unittest.TestCase):
         )["scope"]["external_parts"][0]
         self.assertEqual({"target", "work", "source_quote", "evidence"}, set(external_part))
 
+    def test_ac7_status_view_names_kept_code(self):
+        # The field inventory of the code_checkpoints object: `kept` is the newest kept code (#3945).
+        view = run_view.view({"status": "RUNNING"})
+        self.assertEqual(
+            {"version", "blocked_reason", "rows", "working", "all_changes", "kept", "continuation", "restores"},
+            set(view["code_checkpoints"]),
+        )
+        self.assertIsNone(view["code_checkpoints"]["kept"])
+
     def test_accounting_attempt_inventory_names_execution_identity(self):
         shown = run_view.view(
             {

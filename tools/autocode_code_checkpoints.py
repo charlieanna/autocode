@@ -1,7 +1,8 @@
 """Immutable, source-bound code checkpoints owned by the runner.
 
 Writes only ``code_checkpoints`` (an append-only source receipt list, read by the
-status view and checkpoint CLI). A checkpoint is a Git object, not a claim of
+status view and checkpoint CLI) and ``kept_code`` (the run's newest kept code beyond
+its saved steps, where ``checkpoint --all`` ends). A checkpoint is a Git object, not a claim of
 acceptance. The real index, HEAD and working files are never changed. Metadata
 from older runs cannot be upgraded into missing source snapshots.
 """
@@ -296,7 +297,16 @@ def _integrated_batch(state: RunState, task, implementation):
 
 
 def update(state: RunState, run_dir):
-    """Called only from the runner's durable writer after an applied Builder step or batch integration."""
+    """Called from the runner's durable writer at every save (``autocode_status.persist``).
+
+    It records an applied Builder step or batch integration as a saved step, then the run's newest
+    kept code beyond it (``_record_kept``), whichever stage kept it."""
+    _record_step(state, run_dir)
+    _record_kept(state, run_dir)
+
+
+def _record_step(state: RunState, run_dir):
+    """A saved step: an applied Builder step or batch integration, one row per implementation revision."""
     implementation = state.get("implementation") or {}
     task = state.get("current_task") or {}
     if (
@@ -410,6 +420,165 @@ def update(state: RunState, run_dir):
         }
 
 
+COMPLETE_STATUSES = ("TASK_COMPLETE", "COMPLETE")
+
+
+def _receipt_source(record, run_dir):
+    """The saved source of a step or kept capture, read from its hash-pinned receipt in this run."""
+    path = Path(record["receipt"])
+    if path.is_symlink() or not path.is_file() or not path.resolve().is_relative_to(Path(run_dir).resolve()):
+        raise ValueError("Saved code receipt must be a regular file inside its run directory")
+    if util.file_hash(path) != record["receipt_sha256"]:
+        raise ValueError("The saved code checkpoint receipt changed")
+    return util.read(path)["source"]
+
+
+def kept_end(state: RunState):
+    """Where the run's saved code ends: a kept capture made after the newest available step, else that step.
+
+    Returns (kind, record) with kind "kept", "step" or "start" (no saved code yet, record None). A marker
+    names a step, so the step itself is the end. The checkpoint CLI reads the same answer."""
+    rows = [row for row in state.get("code_checkpoints") or [] if row.get("available")]
+    newest = rows[-1]["id"] if rows else None
+    kept = state.get("kept_code") or {}
+    if kept.get("available") and not kept.get("marker") and kept.get("after") == newest:
+        return "kept", kept
+    return ("step", rows[-1]) if rows else ("start", None)
+
+
+def _record_kept(state: RunState, run_dir):
+    """Capture the code the run keeps beyond its newest saved step (#3945, #3933).
+
+    Any stage can keep work without saving a step: a Builder retry, Tester-retained tests, a combined
+    review, the acceptance-test writer, an edit accepted at a pause. Every durable save calls this, so
+    the whole-run diff (``checkpoint --all``) reflects what the run keeps, whichever stage kept it. Only
+    a settled run is captured: never while a stage, runner check or batch is active, or before the plan
+    is approved. Paths the kept work removed are carried forward while they stay absent, so a later end
+    still lists them. A completed run fixes its delivery at its first complete save; a save outside a
+    complete status releases it, so a follow-up records its own. A failed capture is recorded with its
+    reason and never fails the save.
+    """
+    kept = state.get("kept_code")
+    complete = state.get("status") in COMPLETE_STATUSES
+    if kept and kept.get("final"):
+        if complete:
+            return  # The delivered code stays as the run completed it; later edits are not part of it.
+        kept["final"] = False
+    if any(state.get(key) for key in ("active_stage", "active_runner_check", "orchestration_batch")) or not approved(
+        state
+    ):
+        return
+    rows = [row for row in state.get("code_checkpoints") or [] if row.get("available")]
+    if not state.get("workspace") or (not rows and not (state.get("implementation") or {}).get("source_revision")):
+        return
+    newest = rows[-1] if rows else None
+    run_dir = Path(run_dir).resolve()
+    workspace = state["workspace"]
+    revision = None
+    try:
+        source = source_scope.snapshot(workspace, state)
+        revision = source["revision"]
+        kind, end = kept_end(state)
+        if rows:
+            start = _receipt_source(rows[0], run_dir)["head"]
+        else:
+            start = (kept or {}).get("start") or source["head"]
+        if kind == "start":
+            # Only the run's source inventory: tracked names it leaves out (.vscode/) are never a change.
+            end_files = {
+                name: value for name, value in tree_files(workspace, start).items() if not util.inventory_excluded(name)
+            }
+        else:
+            end_files = content_files(_receipt_source(end, run_dir))
+        files = content_files(source)
+        removed = sorted(
+            {name for name in (kept or {}).get("removed") or [] if name not in files}
+            | {name for name, value in source["files"].items() if value == "deleted"}
+            | {name for name in end_files if name not in files}
+        )
+        common = {
+            "start": start,
+            "after": newest["id"] if newest else None,
+            "removed": removed,
+            "final": complete,
+            "at": util.now(),
+            "reason": None,
+        }
+        if files != end_files:
+            state["kept_code"] = {**common, **_capture_kept(state, run_dir, source, common)}
+        elif kind == "kept":
+            if complete:
+                end["final"] = True
+        elif kind == "step" and (complete or (kept and (not kept.get("marker") or kept.get("id") != newest["id"]))):
+            # The source is the newest step itself: name it, so the carried removals and a completed
+            # delivery end there rather than at an older capture.
+            state["kept_code"] = {
+                **common,
+                "id": newest["id"],
+                "source_revision": newest.get("source_revision"),
+                "commit": newest.get("commit"),
+                "available": True,
+                "marker": True,
+            }
+    except (OSError, ValueError, RuntimeError, KeyError, subprocess.SubprocessError) as error:
+        # Saving the run must not fail because kept code cannot be read or stored (an unreadable
+        # source pauses through its own check); the gap is recorded and `checkpoint --all` names it.
+        state["kept_code"] = {
+            "id": "kept-" + util.digest([str(run_dir), revision])[:24],
+            "source_revision": revision,
+            "commit": None,
+            "at": util.now(),
+            "available": False,
+            "reason": str(error),
+            "start": (kept or {}).get("start"),
+            "after": newest["id"] if newest else None,
+            "removed": list((kept or {}).get("removed") or []),
+            "final": False,
+        }
+
+
+def _capture_kept(state: RunState, run_dir, source, common):
+    """Save the kept source as a Git commit with a hash-pinned receipt and a ref, like a saved step."""
+    ident = "kept-" + util.digest([str(run_dir), source["revision"]])[:24]
+    directory = run_dir / "code-checkpoints"
+    if directory.is_symlink():
+        raise ValueError("Checkpoint storage must not be a symlink")
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / (ident + ".json")
+    if path.exists():
+        saved = util.read(path)
+        if saved.get("id") != ident or saved.get("source") != source:
+            raise ValueError("An existing kept code receipt conflicts with this source")
+        commit = saved["commit"]
+    else:
+        commit = capture_tree(state["workspace"], source, directory)
+        util.atomic_json(
+            path,
+            {
+                "id": ident,
+                "kind": "kept",
+                "commit": commit,
+                "source": source,
+                "start": common["start"],
+                "after": common["after"],
+                "removed": common["removed"],
+                "run_dir": str(run_dir),
+                "workspace": state["workspace"],
+                "at": common["at"],
+            },
+        )
+    ref = "refs/autocode/code-checkpoints/" + util.digest(str(run_dir))[:20] + "/" + ident
+    git(state["workspace"], "update-ref", ref, commit)
+    return {
+        "id": ident,
+        "source_revision": source["revision"],
+        "commit": commit,
+        "available": True,
+        "receipt": str(path),
+        "receipt_sha256": util.file_hash(path),
+    }
+
+
 def blocked_reason(state: RunState):
     if state.get("status") == "TASK_COMPLETE":
         # Nothing runs, so "pause first" would be advice the person cannot follow (#1643).
@@ -512,10 +681,12 @@ def working_action(state: RunState, *, run_dir=None, workspace=None):
 
 
 def all_changes_action(state: RunState, *, run_dir=None, workspace=None):
-    """The display-only `checkpoint --all` action: the run's whole change, named once a step is saved.
+    """The display-only `checkpoint --all` action: the run's whole change, named once a step or kept code
+    is saved.
 
     This is what a person reads: the result, not each step (owner decision 2026-11-13)."""
-    if not any(row.get("available") for row in state.get("code_checkpoints") or []):
+    kept = state.get("kept_code") or {}
+    if not any(row.get("available") for row in state.get("code_checkpoints") or []) and not kept.get("available"):
         return None
     return {
         "id": "all_changes",
@@ -563,6 +734,15 @@ def project(state: RunState, *, run_dir=None, workspace=None):
         "rows": rows,
         "working": working_action(state, run_dir=run_dir, workspace=workspace),
         "all_changes": all_changes_action(state, run_dir=run_dir, workspace=workspace),
+        # The newest kept code the whole-run diff ends at, or why it could not be saved (#3945).
+        "kept": (
+            {
+                key: deepcopy(state["kept_code"].get(key))
+                for key in ("id", "source_revision", "commit", "at", "available", "reason")
+            }
+            if state.get("kept_code")
+            else None
+        ),
         "continuation": deepcopy(state.get("checkpoint_continuation")),
         "restores": deepcopy(state.get("checkpoint_restores", [])),
     }

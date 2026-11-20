@@ -488,7 +488,25 @@
                 }
             }
         },
-        "code_checkpoints": {"type": ["object", "null"]},
+        "code_checkpoints": {
+          "type": ["object", "null"],
+          "required": ["kept"],
+          "properties": {
+            "kept": {
+              "type": ["object", "null"],
+              "description": "The run's newest kept code beyond its saved steps, where all_changes ends (#3945): a capture any stage's retained work made, or the saved step the source equals; for a completed run, its delivery. available false names why the newest kept code could not be saved (reason). Null before any is recorded. Older clients ignore this additive field.",
+              "required": ["id", "source_revision", "commit", "at", "available", "reason"],
+              "properties": {
+                "id": {"type": "string"},
+                "source_revision": {"type": ["string", "null"]},
+                "commit": {"type": ["string", "null"]},
+                "at": {"type": ["string", "null"]},
+                "available": {"type": "boolean"},
+                "reason": {"type": ["string", "null"]}
+              }
+            }
+          }
+        },
         "runner": {"type": ["object", "null"]},
         "runner_check": {"type": ["object", "null"]},
         "dependency": {"type": ["object", "null"]},
