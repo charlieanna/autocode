@@ -54,7 +54,7 @@ class MutationContinuationCliTests(unittest.TestCase):
                 return collect(*args, **kwargs)
             mutation.collect_selected_tests = sliced
 
-            def one_window(state, workspace, run_dir, proof, framework, inputs, current_identity):
+            def one_window(state, workspace, run_dir, proof, framework, inputs, current_identity, *, fresh=False):
                 if proof.get("verdict") != "PASS" or not continuation.pending(proof):
                     return proof
                 original = util.read(proof["path"])

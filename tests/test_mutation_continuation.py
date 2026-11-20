@@ -136,7 +136,7 @@ class ProofTests(unittest.TestCase):
         fixtures.ProofTests.setUp(self)
         self.state["settings"]["regression"] = {"python": isolated_python(self)}
 
-    def partial(self):
+    def partial(self, allowance=0):
         original = mutation.collect_selected_tests
 
         def sliced(*args, **kwargs):
@@ -156,11 +156,50 @@ class ProofTests(unittest.TestCase):
         patcher = mock.patch.object(mutation, "collect_selected_tests", side_effect=sliced)
         patcher.start()
         self.addCleanup(patcher.stop)
-        with mock.patch.object(continuation, "allowance", return_value=0):
+        with mock.patch.object(continuation, "allowance", return_value=allowance):
             proof = regression.prove(self.state, self.root, self.run_dir)
         self.assertEqual(verify.PASS, proof["verdict"], proof.get("failures", []) + proof.get("unverified", []))
-        self.assertGreater(continuation.pending(proof), 0)
+        if not allowance:
+            self.assertGreater(continuation.pending(proof), 0)
         return proof
+
+    def test_a_fresh_study_on_a_runtime_that_cannot_be_reused_finishes_in_the_same_invocation(self):
+        """Live run 2026-11-20: the project's tests ran on the system python3, so the proof's identity was
+        fresh_execution_only. Its 181-site study stopped at the 900 s window with 107 sites unrun, nothing
+        continued it, the unrun lines kept no evidence and the run paused for a person."""
+        identity = verify.execution_identity
+
+        def fresh_only(*args, **kwargs):
+            return {**identity(*args, **kwargs), "reuse_supported": False, "cache_policy": "fresh_execution_only"}
+
+        with mock.patch.object(verify, "execution_identity", side_effect=fresh_only):
+            final = self.partial(allowance=3600)
+        self.assertFalse(final["execution_context"]["identity"]["reuse_supported"])
+        self.assertEqual(0, continuation.pending(final))
+        self.assertIn("mutation_continuation", final)
+        self.assertEqual(0, sum(self.state["stages"][-1]["metrics"]["provider_tokens"].values()))
+        # A saved proof from an earlier invocation is still not continued on such an identity.
+        saved = {**final, "mutation_check": copy.deepcopy(self.partial_study(final))}
+        with mock.patch.object(continuation, "_window", side_effect=AssertionError("saved proof continued")):
+            self.assertIs(
+                saved,
+                continuation.continue_proof(
+                    self.state,
+                    self.root,
+                    self.run_dir,
+                    saved,
+                    None,
+                    None,
+                    lambda: saved["execution_context"]["identity"],
+                ),
+            )
+
+    @staticmethod
+    def partial_study(proof):
+        study = copy.deepcopy(proof["mutation_check"])
+        row = study["files"][0]["mutants"][-1]
+        row.update(outcome="not_run", evidence=[])
+        return study
 
     def test_cached_partial_proof_finishes_remaining_sites_without_repeating_functional_checks(self):
         first = self.partial()
