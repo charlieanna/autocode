@@ -121,7 +121,12 @@ def require(state: RunState, refs, field="code_refs", *, planning_unit, stage=No
     if problems:
         raise ValueError("; ".join(problems))
     if stage is not None:
-        _require_read(state, stage, field, [(ref, _relative(root.resolve(), target)) for ref, _, target in found])
+        _require_read(
+            state,
+            stage,
+            field,
+            [(ref, _relative(root.resolve(), target)) for ref, _, target in found if target is not None],
+        )
 
 
 def _require_read(state: RunState, stage, field, cited):
@@ -200,7 +205,7 @@ def verify_citation(state: RunState, stage, ref, *, field="citation") -> str | N
         return f"{field} entry {ref!r} names no workspace file"
     root = Path(state["workspace"]).resolve()
     problem, target = _citation(root, ref, field, _LINES)
-    if problem is not None:
+    if problem is not None or target is None:
         return problem
     relative = _relative(root, target)
     if relative not in read_paths(state, stage):

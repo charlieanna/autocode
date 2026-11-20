@@ -157,7 +157,9 @@ def public_unbound_events(report: dict) -> list[tuple[str, str]]:
 
     def named_check(ref) -> bool:  # as ``resolve`` reads check:<n>
         match = REFERENCE.fullmatch(ref.strip())
-        return bool(match) and 1 <= int(match[1]) <= len(checks) and isinstance(checks[int(match[1]) - 1], dict)
+        if match is None:
+            return False
+        return 1 <= int(match[1]) <= len(checks) and isinstance(checks[int(match[1]) - 1], dict)
 
     rows = [row for row in report.get("criterion_results") or [] if isinstance(row, dict) and "id" in row]
     allowed = (listed - {"event:"}) | {
