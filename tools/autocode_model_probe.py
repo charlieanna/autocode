@@ -14,9 +14,11 @@ it with ``autocode_requirements_probe.grade``:
 - the time, tool calls, tokens and report repairs come from the Requirements attempts in
   ``view.usage.accounting``, and the cost from ``view.run_metrics``.
 
-Each run gets the probe's remaining money as its own ``--max-cost-usd``, so the probe never spends
-past the cap the person approved. A model runs the three quick requests first, and the other six
-only when it passes them (#3630 step 3). The results are recorded with
+Each run gets the probe's remaining money, rounded down to the cent, as its own ``--max-cost-usd``,
+so the probe never spends past the cap the person approved; ``autocode_probe_budget`` decides that
+allowance, what an unpriced reply is charged, and when a short measurement is only a partial
+attempt. A model runs the three quick requests first, and the other six only when it passes them
+(#3630 step 3). The results are recorded with
 ``autocode_measured_routes.record``, where selection and the quota fallback read them.
 
 This layer starts task runs and reads their status; it imports nothing from the runner.
@@ -44,6 +46,7 @@ try:
     from . import autocode_plan_reviewer_probe as reviewer_probe
     from . import autocode_planner_probe as planner_probe
     from . import autocode_prices as prices
+    from . import autocode_probe_budget as probe_budget
     from . import autocode_requirements_probe as requirements_probe
     from . import autocode_taskrun as taskrun
     from . import autocode_verifier_independence as independence
@@ -56,6 +59,7 @@ except ImportError:
     import autocode_plan_reviewer_probe as reviewer_probe
     import autocode_planner_probe as planner_probe
     import autocode_prices as prices
+    import autocode_probe_budget as probe_budget
     import autocode_requirements_probe as requirements_probe
     import autocode_taskrun as taskrun
     import autocode_verifier_independence as independence
@@ -244,7 +248,7 @@ def run_request(model, effort, request, *, options=(), env=None, command=taskrun
     if effort:
         flags += ["--requirements-reasoning-effort", effort]
     if cap_usd is not None:
-        flags += ["--max-cost-usd", f"{max(cap_usd, 0.01):.2f}"]
+        flags += ["--max-cost-usd", probe_budget.cap_argument(cap_usd)]
     with tempfile.TemporaryDirectory(prefix="autocode-probe-") as parent:
         workspace = prepare_workspace(parent)
         error = None
@@ -540,7 +544,7 @@ def _check_flags(stage, measured, cap_usd):
     for role in BUILDER_PINNED_ROLES + ("task_planner",):
         flags += ["--pin-model-role", role]
     if cap_usd is not None:
-        flags += ["--max-cost-usd", f"{max(cap_usd, 0.01):.2f}"]
+        flags += ["--max-cost-usd", probe_budget.cap_argument(cap_usd)]
     return flags, start
 
 
@@ -647,8 +651,9 @@ def run_reviewer_request(
     set as the Plan Reviewer and reviews the plan as written and with its flaw planted
     (``reviewer_probe.plant``). Each review is one advance under a planning call cap one above the
     calls made so far, so the run stops right after the review, before any revision, whatever the
-    verdict. Returns ``{"request", "source", "grades": {(model, level): grade}, "spent_usd"}``;
-    ``grades`` is empty when the plan never reached approval. ``source`` stands in for starting the
+    verdict. Returns ``{"request", "source", "grades": {(model, level): grade}, "spent_usd", "run_status"}``;
+    ``grades`` is empty when the plan never reached approval, and ``run_status`` is the run's last status,
+    so a review that paused at the run's cost cap ends the probe. ``source`` stands in for starting the
     run that writes the plan (``(workspace, request) -> (run, view)``) in tests.
     """
     request = reviewer_probe.BY_ID[request] if isinstance(request, str) else request
@@ -677,7 +682,13 @@ def run_reviewer_request(
         reached = ((view.get("needs") or {}).get("kind")) == "approve_plan"
         source = {"reached_approval": reached, "run_status": view.get("status"), "error": error}
         if run is None or not reached:
-            return {"request": request.id, "source": source, "grades": grades, "spent_usd": _spent(view)}
+            return {
+                "request": request.id,
+                "source": source,
+                "grades": grades,
+                "spent_usd": _spent(view),
+                "run_status": view.get("status"),
+            }
         exported = Path(parent) / "source-plan.md"
         run.export_plan(exported)
         front = _front_matter(exported.read_text(encoding="utf-8"))
@@ -713,8 +724,14 @@ def run_reviewer_request(
             graded["review_stages"] = [(reviews.get(variant) or {}).get("stage") for variant in ("sound", "flawed")]
             graded["error"] = failure_text
             grades[(model, level)] = graded
-        spent = _spent(run.status())
-    return {"request": request.id, "source": source, "grades": grades, "spent_usd": spent}
+        final = run.status()
+    return {
+        "request": request.id,
+        "source": source,
+        "grades": grades,
+        "spent_usd": _spent(final),
+        "run_status": final.get("status"),
+    }
 
 
 def run_reviewer_probe(
@@ -735,11 +752,12 @@ def run_reviewer_probe(
     reviewed by every candidate still in the probe; a candidate that fails a quick request reviews
     no more. A candidate of the Planner's family is not measured (verifier independence). A request
     whose plan never reached approval is listed in ``skipped``, and leaves every candidate short of
-    the full set, so none qualifies on that run. ``runner`` stands in for ``run_reviewer_request`` in
-    tests.
+    the full set, so none qualifies on that run. The probe's budget (``autocode_probe_budget``) gives
+    each request what remains and charges an unpriced one its whole allowance; when a budget stop ends
+    the probe, the candidates still reviewing are kept apart as ``partial`` attempts, which never
+    replace a recorded result. ``runner`` stands in for ``run_reviewer_request`` in tests.
     """
-    if not isinstance(cap_usd, (int, float)) or isinstance(cap_usd, bool) or cap_usd <= 0:
-        raise ValueError("the probe needs a positive cost cap in USD")
+    budget = probe_budget.Budget(cap_usd)
     runner = runner or run_reviewer_request
     eligible = [(model, level) for model, level in models if not independence.shares(planner[0], model)]
     unmeasured = [
@@ -748,16 +766,17 @@ def run_reviewer_probe(
         if (model, level) not in eligible
     ]
     grades: dict = {key: [] for key in eligible}
-    spent, unpriced, stopped, skipped = 0.0, 0, None, []
+    skipped: list = []
+    due: list = []  # the candidates still reviewing when a budget stop ended the probe
     for request in _order(reviewer_probe):
         active = [
             key for key in eligible if request.id in reviewer_probe.QUICK or reviewer_probe.passes_quick(grades[key])
         ]
         if not active:
             break
-        remaining = cap_usd - spent
-        if remaining <= 0:
-            stopped = f"the probe reached its ${cap_usd:.2f} cap"
+        allowance = budget.allowance()
+        if allowance is None:
+            due = active
             break
         outcome = runner(
             request,
@@ -767,35 +786,64 @@ def run_reviewer_probe(
             options=options,
             env=env,
             command=command,
-            cap_usd=remaining,
+            cap_usd=float(allowance),
         )
-        if isinstance(outcome.get("spent_usd"), (int, float)):
-            spent += outcome["spent_usd"]
-        else:
-            unpriced += 1
-        if not outcome["source"].get("reached_approval"):
-            skipped.append({"request": request.id, **outcome["source"]})
+        source = outcome["source"]
+        budget.charge(outcome.get("spent_usd"), allowance, outcome.get("run_status", source.get("run_status")))
+        if not source.get("reached_approval"):
+            skipped.append({"request": request.id, **source})
         for key, graded in outcome["grades"].items():
             grades[key].append(graded)
-    results = []
+        if budget.stopped:
+            due = active
+            break
+    results, partial = [], []
     for model, level in eligible:
-        graded = grades[(model, level)]
-        if stopped and len(graded) < len(reviewer_probe.REQUESTS) and reviewer_probe.passes_quick(graded):
-            unmeasured.append({"model": model, "effort": level})  # cut off in the middle of its full pass
-        elif graded:
-            results.append(measured_routes.result(model, level, graded))
-    if record and results:
-        measured_routes.record("plan_reviewer", results)
+        _sort_measurement(
+            model, level, grades[(model, level)], budget.cut_off((model, level) in due), results, partial, unmeasured
+        )
+    if record and (results or partial):
+        measured_routes.record("plan_reviewer", results, partial=partial)
     return {
         "stage": "plan_reviewer",
         "results": results,
         "ranking": measured_routes.rank(results, "plan_reviewer"),
-        "spent_usd": round(spent, 4),
-        "unpriced_replies": unpriced,
-        "stopped": stopped,
+        **budget.report(),
         "unmeasured": unmeasured,
+        "partial": partial,
         "skipped": skipped,
     }
+
+
+def _sort_measurement(model, level, grades, cut_off, results, partial, unmeasured):
+    """File one model's grades: a result, or, when a budget stop cut it off, a partial attempt kept apart."""
+    if cut_off:
+        unmeasured.append({"model": model, "effort": level})
+        if grades:
+            partial.append(measured_routes.result(model, level, grades))
+    elif grades:
+        results.append(measured_routes.result(model, level, grades))
+
+
+def _measure_model(probe, budget, run_one):
+    """Run one model's requests, the quick ones first, while the budget allows; ``run_one(request, cap_usd)``.
+
+    Returns ``(grades, due)``: ``due`` is True when a budget stop ended the probe before the model
+    finished its requests, including the request whose run paused at its own cost cap.
+    """
+    grades: list = []
+    for request in _order(probe):
+        if request.id not in probe.QUICK and not probe.passes_quick(grades):
+            return grades, False
+        allowance = budget.allowance()
+        if allowance is None:
+            return grades, True
+        graded = run_one(request, float(allowance))
+        grades.append(graded)
+        budget.charge(graded.get("run_cost_usd", graded.get("cost_usd")), allowance, graded.get("run_status"))
+        if budget.stopped:
+            return grades, True
+    return grades, False
 
 
 def run_probe(
@@ -816,13 +864,14 @@ def run_probe(
 
     ``runner`` stands in for ``run_request``, ``run_planner_request`` or ``run_builder_request`` in
     tests. A model that fails the quick pass is recorded with its quick grades only, so it does not
-    qualify. When the money runs out the probe stops and names the models it did not measure; their
-    earlier records, if any, are kept. A Planner or Builder candidate no checker may check is not
-    measured, and the result says why. A Builder probe needs ``planner``, the Planner that plans every
+    qualify. The probe's budget (``autocode_probe_budget``) gives each request what remains and charges
+    an unpriced reply its whole allowance. When the money runs out, or a run pauses at its own cost
+    cap, the probe stops and names the models it did not measure; the one it cut off is kept apart as
+    a ``partial`` attempt and their earlier records, if any, are kept. A Planner or Builder candidate
+    no checker may check is not measured, and the result says why. A Builder probe needs ``planner``, the Planner that plans every
     task, and ``checkers``, which review its plans and check the candidate's work.
     """
-    if not isinstance(cap_usd, (int, float)) or isinstance(cap_usd, bool) or cap_usd <= 0:
-        raise ValueError("the probe needs a positive cost cap in USD")
+    budget = probe_budget.Budget(cap_usd)
     probe = STAGES[stage]
     if stage == "planner" and not checkers:
         raise ValueError("the Planner probe needs at least one Plan Reviewer to check its plans")
@@ -834,15 +883,10 @@ def run_probe(
         "tester": run_check_request,
         "completion": run_check_request,
     }.get(stage, run_request)
-    spent = 0.0
-    unpriced = 0
-    results = []
-    stopped = None
-    unmeasured = []
+    results: list = []
+    partial: list = []
+    unmeasured: list = []
     for index, (model, level) in enumerate(models):
-        if stopped:
-            unmeasured.append({"model": model, "effort": level})
-            continue
         extra = {}
         if stage == "planner":
             checker = checker_for(model, checkers)
@@ -860,42 +904,26 @@ def run_probe(
             extra = {"checker": checker, "planner": planner, "requirements": requirements}
         if stage in CHECK_STAGES:
             extra = {"stage": stage}
-        grades = []
-        for request in _order(probe):
-            if request.id not in probe.QUICK and not probe.passes_quick(grades):
-                break
-            remaining = cap_usd - spent
-            if remaining <= 0:
-                stopped = f"the probe reached its ${cap_usd:.2f} cap"
-                break
-            graded = runner(
-                model, level, request, options=options, env=env, command=command, cap_usd=remaining, **extra
-            )
-            grades.append(graded)
-            cost = graded.get("run_cost_usd", graded.get("cost_usd"))
-            if isinstance(cost, (int, float)):
-                spent += cost
-            else:
-                unpriced += 1
-        if stopped and len(grades) < len(probe.REQUESTS) and probe.passes_quick(grades):
-            # Cut off in the middle of its full pass: an incomplete measurement is not recorded.
-            unmeasured.append({"model": model, "effort": level})
-            continue
-        if grades:
-            results.append(measured_routes.result(model, level, grades))
-        if stopped:
+        grades, due = _measure_model(
+            probe,
+            budget,
+            lambda request, allowance, model=model, level=level, extra=extra: runner(
+                model, level, request, options=options, env=env, command=command, cap_usd=allowance, **extra
+            ),
+        )
+        _sort_measurement(model, level, grades, budget.cut_off(due), results, partial, unmeasured)
+        if budget.stopped:
             unmeasured.extend({"model": m, "effort": e} for m, e in models[index + 1 :])
             break
-    if record and results:
-        measured_routes.record(stage, results)
+    if record and (results or partial):
+        measured_routes.record(stage, results, partial=partial)
     return {
         "stage": stage,
         "results": results,
         "ranking": measured_routes.rank(results, stage),
-        "spent_usd": round(spent, 4),
-        "unpriced_replies": unpriced,
-        "stopped": stopped,
+        **budget.report(),
         "unmeasured": unmeasured,
+        "partial": partial,
     }
 
 
@@ -912,7 +940,7 @@ def _planner_flags(planner, checker, requirements, cap_usd):
         if requirements[1]:
             flags += ["--requirements-reasoning-effort", requirements[1]]
     if cap_usd is not None:
-        flags += ["--max-cost-usd", f"{max(cap_usd, 0.01):.2f}"]
+        flags += ["--max-cost-usd", probe_budget.cap_argument(cap_usd)]
     return flags
 
 
