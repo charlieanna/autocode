@@ -1196,14 +1196,28 @@ class ActivityRuntimeTests(unittest.TestCase):
         self.assertEqual(2, test_goals.GoalTests.invoke(self, "--resume-paused", "--grant-recovery", "1", role=inspect))
         self.assertEqual([], calls, "a grant after the recorded end launches nothing")
 
-    def fake_provider(self, script):
+    @contextlib.contextmanager
+    def fake_provider(self, script, *, after_first_event=False):
         """Install a workspace-local offline executable, never the user's Codex."""
         directory = self.root / ".autocode" / "fixture-bin"
         directory.mkdir(parents=True, exist_ok=True)
         binary = directory / "codex"
         binary.write_text(f"#!{sys.executable}\n" + textwrap.dedent(script))
         binary.chmod(0o755)
-        return patch.dict(os.environ, {"PATH": str(directory) + os.pathsep + os.environ["PATH"]})
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(patch.dict(os.environ, {"PATH": str(directory) + os.pathsep + os.environ["PATH"]}))
+            if after_first_event:
+                # Mid-turn cases need a real first event before their short idle
+                # limit applies. Host startup is separately bounded; afterward
+                # the production monitor and supervisor keep the original limits.
+                active_limit = ActivityMonitor._active_idle_limit
+
+                def phase_limit(monitor, observed=None):
+                    started = monitor._first_event_observed if observed is None else observed
+                    return active_limit(monitor, observed) if started else 30
+
+                stack.enter_context(patch.object(ActivityMonitor, "_active_idle_limit", phase_limit))
+            yield
 
     def real_terra(self):
         schema = self.run / "fixture-terra.schema.json"
@@ -1226,7 +1240,7 @@ class ActivityRuntimeTests(unittest.TestCase):
     def test_real_quiet_tool_survives_idle_deadline_and_completed_writer_routes_sol(self):
         self.start_task()
         self.state["settings"]["limits"].update(
-            stage_timeout_seconds=4, idle_timeout_seconds=0.4, tool_timeout_seconds=2
+            stage_timeout_seconds=60, idle_timeout_seconds=0.4, tool_timeout_seconds=2
         )
         report = {
             **envelope(self.state),
@@ -1260,7 +1274,7 @@ class ActivityRuntimeTests(unittest.TestCase):
             Path(sys.argv[sys.argv.index('-o') + 1]).write_text(json.dumps(report))
             event({{'type': 'turn.completed', 'usage': {{'input_tokens': 1, 'output_tokens': 1}}}})
         """
-        with self.fake_provider(script), contextlib.redirect_stdout(io.StringIO()):
+        with self.fake_provider(script, after_first_event=True), contextlib.redirect_stdout(io.StringIO()):
             value, record = self.real_terra()
         self.assertGreaterEqual(record["duration_seconds"], 0.8)
         self.assertFalse(record["timed_out"])
@@ -1277,7 +1291,7 @@ class ActivityRuntimeTests(unittest.TestCase):
     def test_real_stalled_writer_preserves_partial_work_and_recovers_once_to_astra(self):
         self.start_task()
         self.state["settings"]["limits"].update(
-            stage_timeout_seconds=4, idle_timeout_seconds=0.4, tool_timeout_seconds=2
+            stage_timeout_seconds=60, idle_timeout_seconds=0.4, tool_timeout_seconds=2
         )
         script = """
             import json, sys, time
@@ -1288,7 +1302,7 @@ class ActivityRuntimeTests(unittest.TestCase):
             time.sleep(30)
         """
         with (
-            self.fake_provider(script),
+            self.fake_provider(script, after_first_event=True),
             contextlib.redirect_stdout(io.StringIO()),
             self.assertRaises(support.Paused) as caught,
         ):
@@ -1303,6 +1317,7 @@ class ActivityRuntimeTests(unittest.TestCase):
         self.assertEqual([], runner.processes.live_processes(record.get("processes", [])))
         source = self.root / "greet.py"
         original = source.read_bytes()
+        self.assertEqual(b"print('retained partial greeting')\n", original)
         self.assertTrue(runner.automatically_recover_timed_out_stage(self.state, self.run, self.root, caught.exception))
         self.assertFalse(
             runner.automatically_recover_timed_out_stage(self.state, self.run, self.root, caught.exception)
