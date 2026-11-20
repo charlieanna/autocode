@@ -2322,7 +2322,7 @@
 
 
 <h1 id="providers-and-adapters">Providers and adapters<a class="headerlink" href="#providers-and-adapters" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/898fe406fcc77fc36c46d5c319557a3fe478ff03/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/38e247b23279c3927b14a8487afb03ad04424cb5/README.md">← Back to README</a></p>
 <p>OpenCode is the default engine. Codex: <code>--engine codex</code>. Claude Code: <code>--engine claude</code>
 (<a href="#claude-code-provider">built in</a>). Any other tool registers with one TOML file.</p>
 <h2 id="you-do-not-need-to-choose-a-model">You do not need to choose a model<a class="headerlink" href="#you-do-not-need-to-choose-a-model" title="Permanent link">&para;</a></h2>
@@ -2466,7 +2466,7 @@ apply an independent profile: Requirements keeps that profile's default unless
 model unless <code>--requirements-model</code> explicitly changes it.
 Override execution roles with <code>--task-planner-model</code>, <code>--builder-model</code>,
 <code>--tester-model</code>, or <code>--completion-model</code> using a provider/model ID from <code>opencode models</code>, including
-<code>openai/…</code> with an OpenCode ChatGPT OAuth connection. Saved runs retain their original role
+<code>openai/…</code> with an OpenCode OpenAI connection (a ChatGPT login or an OpenAI API key). Saved runs retain their original role
 engines and sessions; no existing run is migrated by a dashboard selection.
 If an account offers only one model, <code>--single-model MODEL</code> assigns it to all
 roles and permits same-model verification. The roles still run in separate
@@ -2913,7 +2913,7 @@ ids. <code>components</code> takes <code>--provider claude</code> rather than <c
 <code>default_provider = "claude"</code> or the project's <code>engine = "claude"</code>. Claude Code loads <code>CLAUDE.md</code> files of the workspace and its ancestors, so keep a
 scenario's <code>--out</code> outside this repository. In a root cloud container, the CLI drops the two
 prohibited capabilities automatically; see <a href="#provider-process-ownership">provider process ownership</a>
-for the opt-out and failure behavior (<a href="https://github.com/charlieanna/autocode/blob/898fe406fcc77fc36c46d5c319557a3fe478ff03/examples/claude-provider/CLOUD-SESSION.md">cloud sessions</a>).</p>
+for the opt-out and failure behavior (<a href="https://github.com/charlieanna/autocode/blob/38e247b23279c3927b14a8487afb03ad04424cb5/examples/claude-provider/CLOUD-SESSION.md">cloud sessions</a>).</p>
 <h2 id="add-a-tool">Add a tool<a class="headerlink" href="#add-a-tool" title="Permanent link">&para;</a></h2>
 <p>OpenCode and Claude Code are built in. Any other tool registers with one TOML file, not a Python
 package. <code>--provider &lt;name&gt;</code> loads <code>~/.config/autocode/providers/&lt;name&gt;.toml</code> and,
@@ -3214,7 +3214,8 @@ cannot run tests that listen on 127.0.0.1; AutoCode's own runner checks still ca
 Isolated live Linux fixtures also need the backend's cached helpers to execute;
 follow the <a href="../testing/#executable-helpers-in-live-kilo-fixtures">Kilo cache execution preflight</a>
 before admitting a task or model call.
-Its default routes use ChatGPT OAuth for <code>openai/...</code>, Zhipu AI Coding Plan for
+Its default routes use Kilo's OpenAI login for <code>openai/...</code> (a ChatGPT login, billed
+to the subscription, or an OpenAI API key, billed per token), Zhipu AI Coding Plan for
 <code>zhipuai-coding-plan/...</code>, and Alibaba Token Plan for <code>alibaba-token-plan/...</code>.
 Optional <code>zai-coding-plan/...</code> and <code>kilo/...</code> routes require their separate
 Z.AI Coding Plan <code>api</code> and Kilo Gateway <code>oauth</code> logins. Check <code>kilo models</code> and
@@ -3244,8 +3245,9 @@ forbid_env = [&quot;OPENAI_API_KEY&quot;, &quot;CODEX_API_KEY&quot;, &quot;OPENA
 
 [[auth.routes]]
 models = &quot;openai/&quot;
+billing = { oauth = &quot;subscription&quot;, api = &quot;pay per token&quot; }
 pattern = &quot;^\\s*[●•]\\s+OpenAI\\s+(\\S+)\\s*$&quot;
-expect = &quot;oauth&quot;
+expect = [&quot;oauth&quot;, &quot;api&quot;]
 
 [[auth.routes]]
 models = &quot;alibaba-token-plan/&quot;
@@ -3291,7 +3293,7 @@ subscription. The <code>[auth]</code> table above runs <code>kilo auth list</cod
 <tr>
 <td><code>openai/</code></td>
 <td>OpenAI</td>
-<td><code>oauth</code></td>
+<td><code>oauth</code> (ChatGPT) or <code>api</code> (an OpenAI API key)</td>
 </tr>
 <tr>
 <td><code>alibaba-token-plan/</code></td>
@@ -3315,7 +3317,11 @@ subscription. The <code>[auth]</code> table above runs <code>kilo auth list</cod
 </tr>
 </tbody>
 </table>
-<p>Each coding plan uses its separate login; a gateway login does not satisfy a
+<p>A route may accept more than one mode: <code>expect = ["oauth", "api"]</code> lists them, and a
+<code>billing</code> table gives each mode's billing, so discovery and stage choices show an OpenAI API
+key as pay per token and a ChatGPT login as the subscription. The listing must show the login
+in one accepted mode; two rows in different modes leave the billed login unknown and refuse.
+Each coding plan uses its separate login; a gateway login does not satisfy a
 coding-plan route. A missing <code>Kilo Gateway oauth</code> row refuses Gateway calls.
 For these routes the check also refuses a set
 <code>OPENAI_API_KEY</code>, <code>CODEX_API_KEY</code>, or <code>OPENAI_BASE_URL</code>. When <code>[auth]</code> declares
@@ -3447,7 +3453,7 @@ dashboard; its model pickers list that tool's models.</p>
 <!-- BEGIN provider conformance matrix -->
 
 <p>Generated by <code>python tools/provider_matrix.py --write</code> from
-<a href="https://github.com/charlieanna/autocode/blob/898fe406fcc77fc36c46d5c319557a3fe478ff03/tools/provider-matrix.json">tools/provider-matrix.json</a>. Do not edit by hand.
+<a href="https://github.com/charlieanna/autocode/blob/38e247b23279c3927b14a8487afb03ad04424cb5/tools/provider-matrix.json">tools/provider-matrix.json</a>. Do not edit by hand.
 A version the offline conformance suite has not been run against is
 <code>untested</code> — never guess. Run the suite with
 <code>python tools/provider_conformance.py --fake</code> (no model calls).</p>
