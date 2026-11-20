@@ -647,7 +647,10 @@ from `tools/autocode_mutants.py`).
 - **How long.** Each window has a 900-second budget, the same limit as a check replay,
   covering its unmutated run and mutants. An incomplete current task proof continues
   its never-launched sites in further windows, within the saved stage allowance and
-  remaining run active time (#3524). The extra time is charged to the run. Each
+  remaining run active time (#3524). A proof the same invocation just made continues
+  this way even when its runtime cannot be reused across invocations (a global
+  interpreter, Node or JUnit), so a large study finishes there too (#3950); a saved
+  proof from an earlier invocation still needs a reusable runtime identity. The extra time is charged to the run. Each
   completed window publishes a new proof artifact and retains the old one, its
   captures and all attempted outcomes, including failures and timeouts. Continuation
   requires unchanged source bytes, exact sites, test selection, commands, contract,

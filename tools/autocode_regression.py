@@ -1141,6 +1141,7 @@ def _prove_once(state: RunState, workspace, run_dir, current, *, all_due=False):
             source_paths=source_scope.paths(state),
             ignored_inputs=inputs,
         ),
+        fresh=True,
     )
 
 
