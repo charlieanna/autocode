@@ -111,21 +111,23 @@ def record(role, results, *, partial=(), file=None) -> dict:
         raise ValueError(f"no probe is defined for {role!r}")
     for result in (*results, *partial):
         _check_result(result)
-    document = load(file)
-    version = PROBES[role][0]
-    saved = document["roles"].get(role) if isinstance(document["roles"].get(role), dict) else {}
-    current = saved.get("probe") == version
-    entry = {
-        "probe": version,
-        "results": _merged(saved.get("results") if current else (), results),
-    }
-    attempts = _merged(saved.get("partial") if current else (), partial)
-    if attempts:
-        entry["partial"] = attempts
-    document["roles"][role] = entry
     target = Path(file or path())
-    target.parent.mkdir(parents=True, exist_ok=True)
-    util.atomic_json(target, document)
+    # Two probes can finish together (two stages, or two models of one stage): each reads, merges and
+    # writes under the store lock, so the second merges into what the first wrote (#3858).
+    with util.store_lock(target):
+        document = load(target)
+        version = PROBES[role][0]
+        saved = document["roles"].get(role) if isinstance(document["roles"].get(role), dict) else {}
+        current = saved.get("probe") == version
+        entry = {
+            "probe": version,
+            "results": _merged(saved.get("results") if current else (), results),
+        }
+        attempts = _merged(saved.get("partial") if current else (), partial)
+        if attempts:
+            entry["partial"] = attempts
+        document["roles"][role] = entry
+        util.atomic_json(target, document)
     return document
 
 
