@@ -35,6 +35,26 @@ DENIED = {
 
 
 class PolicyTests(unittest.TestCase):
+    def test_read_roots_resolve_aliases_without_adding_write_or_unscoped_authority(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            workspace, runtime = root / "project", root / "runtime"
+            workspace.mkdir()
+            runtime.mkdir()
+            alias = root / "current"
+            alias.symlink_to(runtime, target_is_directory=True)
+            scratch = workspace / ".autocode/stage/scratch"
+            profile = containment.policy(workspace, scratch, read_roots=[alias])
+            self.assertIn('(subpath "' + str(runtime) + '")', profile)
+            self.assertNotIn('(subpath "' + str(alias) + '")', profile)
+            self.assertNotIn('(allow file-write* (subpath "' + str(runtime) + '")', profile)
+            alias.unlink()
+            alias.symlink_to(Path.home(), target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, "unscoped read root"):
+                containment.policy(workspace, scratch, read_roots=[alias])
+            with self.assertRaisesRegex(ValueError, "symlinked authority"):
+                containment.policy(workspace, alias / "scratch")
+
     def test_unicode_authority_paths_are_literal_with_quotes_and_backslashes_escaped(self):
         root = Path('/workspace/josé-用户-"quoted"-\\path')
         protected = root / "保護.txt"
@@ -1783,6 +1803,32 @@ class KernelTests(unittest.TestCase):
         self.assertNotEqual(0, result.returncode, (command, result.stdout, result.stderr))
         self.assertRegex(result.stderr, DENIED)
 
+    def test_readonly_shell_keeps_literal_and_large_stdin_in_its_own_temporary_area(self):
+        run = self.workspace / ".autocode/runs/input-probe"
+        (run / "planning").mkdir(parents=True)
+        for private in (False, True):
+            reader = containment.prepare(
+                self.workspace,
+                read_roots=self.roots,
+                environment=self.env,
+                private_run=run if private else None,
+            )
+            for payload in ("'$HOME' \\ tests/__init__.py 李雷", "x" * 32768):
+                with self.subTest(private=private, size=len(payload)):
+                    command = "/bin/pwd\n/bin/cat <<'AUTOCODE_INPUT'\n" + payload + "\nAUTOCODE_INPUT\n"
+                    result = self.run_shell(command, reader)
+                    self.assertEqual(0, result.returncode, result.stderr)
+                    self.assertEqual(str(self.workspace) + "\n" + payload + "\n", result.stdout)
+            nested = self.run_shell("bash -c '/bin/cat <<<nested'", reader)
+            self.assertEqual(0, nested.returncode, nested.stderr)
+            self.assertEqual("nested\n", nested.stdout)
+            selected_bash = self.run_shell("command -v bash", reader)
+            self.assertEqual(reader["shell_runtime"]["alias"], selected_bash.stdout.strip())
+            poison = Path(reader["shell_runtime"]["alias"]).parent / "path-poison"
+            self.assert_denied(": > " + shlex.quote(str(poison)), reader)
+            self.assert_denied(": > source.py", reader)
+        self.assertEqual(self.before, {p: hashlib.sha256(p.read_bytes()).hexdigest() for p in self.before})
+
     def test_external_and_readonly_writes_are_kernel_denied(self):
         escape = self.home / "outside-created"
         commands = [
@@ -2037,6 +2083,9 @@ class KernelTests(unittest.TestCase):
             boundary[name + "_sha256"] = hashlib.sha256(Path(boundary[name]).read_bytes()).hexdigest()
         containment.verify(boundary)
         for key, value in (
+            ("shell_runtime", {**boundary["shell_runtime"], "sha256": "0" * 64}),
+            ("shell_runtime", {**boundary["shell_runtime"], "alias": str(Path(boundary["scratch"]) / "bash")}),
+            ("shell_runtime", None),
             ("loopback_checks", ["claimed network permission"]),
             ("loopback_checks", []),
             ("loopback_authority", None),

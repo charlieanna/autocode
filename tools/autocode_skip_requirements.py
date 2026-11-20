@@ -31,11 +31,13 @@ try:
     from . import autocode_approval_provenance as approval_provenance
     from . import autocode_goal_lifecycle as lifecycle
     from . import autocode_goals as goals
+    from . import autocode_requirements_chat as requirements_chat
     from . import autocode_resolver_human as resolver_human
 except ImportError:
     import autocode_approval_provenance as approval_provenance
     import autocode_goal_lifecycle as lifecycle
     import autocode_goals as goals
+    import autocode_requirements_chat as requirements_chat
     import autocode_resolver_human as resolver_human
 
 DELEGATED = "skip_requirements"
@@ -128,6 +130,7 @@ def _delegate(runner, state: RunState, run_dir, published, *, persist, native) -
                 source=DELEGATED,
                 round=published["request_id"],
             )
+        requirements_chat.after_answers(candidate, queue=resolver_human.queue)
 
     if not _act(runner, state, run_dir, published, delegate, persist=persist, native=native):
         return False

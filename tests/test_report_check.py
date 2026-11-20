@@ -51,6 +51,7 @@ class ReportCheckUnitTests(unittest.TestCase):
         schema = _schema_obj(
             ["requirements", "ignored_statements"],
             {
+                "assistant_reply": {"type": "string"},
                 "requirements": {
                     "type": "array",
                     "items": _schema_obj(

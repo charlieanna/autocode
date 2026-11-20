@@ -98,6 +98,9 @@ class Autocode < Formula
   license "Apache-2.0"
 
   depends_on "{PYTHON}"
+  on_macos do
+    depends_on "bash"
+  end
 {blocks}
   def install
     venv = virtualenv_create(libexec, "python3.13")

@@ -109,6 +109,16 @@ def adopt_reply(state: RunState):
     return True
 
 
+def after_answers(state: RunState, *, queue) -> None:
+    """Apply the same Requirements transition after flag, inline and delegated answers.
+
+    Answers are new Requirements input. A confirmation starts only the exact
+    understanding it approved; neither path grants plan approval.
+    """
+    requirements_review.after_answers(state, queue=queue)
+    start_after_approval(state)
+
+
 def start_after_approval(state: RunState):
     """Once the person approves what Requirements understood, start the job it named, a build when it named none.
 

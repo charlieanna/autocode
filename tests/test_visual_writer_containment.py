@@ -150,12 +150,18 @@ class FootprintValidationTests(unittest.TestCase):
                     "tools",
                     "backend",
                     "backend_version",
+                    "shell_runtime",
                 },
                 set(boundary),
             )
             self.assertEqual("seatbelt", boundary["backend"])
             self.assertEqual(1, probe.call_count)
-            self.assertEqual([boundary["shell"], "-c", "exit 0"], probe.call_args.args[0])
+            command = probe.call_args.args[0]
+            self.assertEqual([boundary["shell"], "-c"], command[:2])
+            self.assertIn("AUTOCODE_SMALL", command[2])
+            self.assertIn("AUTOCODE_LARGE", command[2])
+            self.assertIn("<<<nested", command[2])
+            self.assertTrue(containment.tool_shell.unchanged(boundary["shell_runtime"]))
             self.assertNotIn("write_paths", boundary)
             self.assertNotIn("writer_path_kinds", boundary)
 
@@ -393,7 +399,7 @@ class FootprintValidationTests(unittest.TestCase):
                     calls.append(list(argv))
                     if argv[-1] == "--version":
                         return SimpleNamespace(returncode=0, stdout=containment.SUPPORTED_VERSION + "\n", stderr="")
-                    if argv[-2:] == ["-c", "exit 0"]:
+                    if len(argv) == 3 and Path(argv[0]).name == "shell" and argv[1] == "-c":
                         return SimpleNamespace(returncode=0, stdout="", stderr="")
                     response = {
                         "permission": [{"permission": "bash", "pattern": "*", "action": "allow"}],
