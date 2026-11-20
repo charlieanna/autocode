@@ -95,6 +95,71 @@ def fixed_state():
     }
 
 
+def fixed_host(stack):
+    """Hold host-dependent inputs fixed so only instruction bytes vary."""
+    stack.enter_context(patch.object(sys, "executable", "/prompt-fixture/python"))
+    # The shared source catalog is host state, not instruction text: a catalog
+    # configured on this machine must not change the reviewed prompt bytes.
+    stack.enter_context(patch.object(catalog_context, "context", return_value=None))
+    stack.enter_context(patch.object(stage_context.source_scope, "snapshot", return_value=SNAPSHOT))
+    stack.enter_context(patch.object(planner, "workspace_inventory", return_value={"files": ["greeting.py"]}))
+    stack.enter_context(patch.object(planner.artifacts, "verify_predecessor", return_value=None))
+    stack.enter_context(patch.object(goals, "execution_guard"))
+    stack.enter_context(patch.object(autoresolver, "guard"))
+    stack.enter_context(patch.object(autoresolver, "diagnosis_guard"))
+
+
+def repair_prompt(stage):
+    """The full report-repair prompt for ``stage``, saved with that stage's own report schema."""
+
+    class Captured(Exception):
+        pass
+
+    prompts = []
+
+    def capture(**kwargs):
+        prompts.append(kwargs["prompt"])
+        raise Captured
+
+    state = fixed_state()
+    state["next_stage"] = stage
+    schema = planner.schema_for(state, stage) if stage in planner.STAGES else {}
+    original = {
+        "role": "task_planner",
+        "stage": stage,
+        "schema": "/prompt-fixture/schema.json",
+        "source_revision": "fixed-revision",
+        "events": "/prompt-fixture/events.jsonl",
+    }
+    state["pending_report_repair"] = {
+        "original": original,
+        "attempts": 0,
+        "pins": {},
+        "contract_hash": None,
+        "error": "$: missing summary",
+    }
+    source = {
+        "path": "/prompt-fixture/report.json",
+        "sha256": "fixed-report",
+        "content": {"summary": "fixed draft"},
+    }
+    with ExitStack() as stack:
+        fixed_host(stack)
+        stack.enter_context(patch.object(cli.report_repair_queue, "repair_limit", return_value=5))
+        stack.enter_context(patch.object(cli, "stale_report_repair", return_value=False))
+        stack.enter_context(patch.object(cli.resolver_runtime, "boundary"))
+        stack.enter_context(patch.object(cli.format_correction, "execute", return_value=False))
+        stack.enter_context(patch.object(cli, "repair_report_source", return_value=source))
+        stack.enter_context(patch.object(cli.support, "read", return_value=schema))
+        stack.enter_context(patch.object(cli.support, "events", return_value=[]))
+        stack.enter_context(patch.object(cli, "write_json"))
+        stack.enter_context(patch.object(cli, "run_role", side_effect=capture))
+        with suppress(Captured):
+            cli.execute_report_repair(state, STATE_PATH.parent, Path(WORKSPACE))
+    (prompt,) = prompts
+    return prompt
+
+
 def rendered_cases():
     cases = {}
     schema_dir = Path(support.__file__).parent / "autocode-schemas"
@@ -110,16 +175,7 @@ def rendered_cases():
         cases[name] = text
 
     with ExitStack() as stack:
-        stack.enter_context(patch.object(sys, "executable", "/prompt-fixture/python"))
-        # The shared source catalog is host state, not instruction text: a catalog
-        # configured on this machine must not change the reviewed prompt bytes.
-        stack.enter_context(patch.object(catalog_context, "context", return_value=None))
-        stack.enter_context(patch.object(stage_context.source_scope, "snapshot", return_value=SNAPSHOT))
-        stack.enter_context(patch.object(planner, "workspace_inventory", return_value={"files": ["greeting.py"]}))
-        stack.enter_context(patch.object(planner.artifacts, "verify_predecessor", return_value=None))
-        stack.enter_context(patch.object(goals, "execution_guard"))
-        stack.enter_context(patch.object(autoresolver, "guard"))
-        stack.enter_context(patch.object(autoresolver, "diagnosis_guard"))
+        fixed_host(stack)
         for stage in support.STABLE:
             for version in (2, 3):
                 state = fixed_state()
@@ -289,49 +345,7 @@ def rendered_cases():
             "review_completion",
             "investigate_stuck",
         ):
-
-            class Captured(Exception):
-                pass
-
-            def capture(**kwargs):
-                add(f"full-repair/{stage}", kwargs["prompt"])
-                raise Captured
-
-            state = fixed_state()
-            state["next_stage"] = stage
-            schema = planner.schema_for(state, stage) if stage in planner.STAGES else {}
-            original = {
-                "role": "task_planner",
-                "stage": stage,
-                "schema": "/prompt-fixture/schema.json",
-                "source_revision": "fixed-revision",
-                "events": "/prompt-fixture/events.jsonl",
-            }
-            state["pending_report_repair"] = {
-                "original": original,
-                "attempts": 0,
-                "pins": {},
-                "contract_hash": None,
-                "error": "$: missing summary",
-            }
-            source = {
-                "path": "/prompt-fixture/report.json",
-                "sha256": "fixed-report",
-                "content": {"summary": "fixed draft"},
-            }
-            with (
-                patch.object(cli.report_repair_queue, "repair_limit", return_value=5),
-                patch.object(cli, "stale_report_repair", return_value=False),
-                patch.object(cli.resolver_runtime, "boundary"),
-                patch.object(cli.format_correction, "execute", return_value=False),
-                patch.object(cli, "repair_report_source", return_value=source),
-                patch.object(cli.support, "read", return_value=schema),
-                patch.object(cli.support, "events", return_value=[]),
-                patch.object(cli, "write_json"),
-                patch.object(cli, "run_role", side_effect=capture),
-            ):
-                with suppress(Captured):
-                    cli.execute_report_repair(state, STATE_PATH.parent, Path(WORKSPACE))
+            add(f"full-repair/{stage}", repair_prompt(stage))
         for stage in artifacts.FILE_SLUGS:
             add(f"scratch/{stage}", access.scratch_rule(stage))
         for review in ("automatic", "human"):
@@ -605,6 +619,25 @@ class RenderedPromptTests(unittest.TestCase):
             if name.startswith("planning/requirements_gather/"):
                 with self.subTest(case=name):
                     self.assertIn('Never also put that confirmation ("Is that correct?") in\nopen_questions', text)
+
+    def test_ac13_repair_prompts_without_contract_omit_authoring_rules(self):
+        """#3881: a Requirements (or concern-only Plan Reviewer) repair must not ask for contract fields."""
+        self.assertTrue(goals.DECISION_PROVENANCE.startswith("Decision provenance is mandatory for every contract"))
+        self.assertTrue(goals.CONTRACT_REFERENCES.startswith("Contract reference rules:"))
+        for stage in ("requirements_gather", "review_plan"):
+            with self.subTest(stage=stage):
+                self.assertNotIn("contract", planner.schema_for(fixed_state(), stage)["properties"])
+                prompt = repair_prompt(stage)
+                self.assertNotIn(goals.DECISION_PROVENANCE, prompt)
+                self.assertNotIn(goals.CONTRACT_REFERENCES, prompt)
+
+    def test_ac14_plan_authoring_repair_prompts_keep_contract_rules(self):
+        for stage in ("draft_plan", "revise_plan", "finalize_plan"):
+            with self.subTest(stage=stage):
+                self.assertIn("contract", planner.schema_for(fixed_state(), stage)["properties"])
+                prompt = repair_prompt(stage)
+                self.assertIn(goals.DECISION_PROVENANCE, prompt)
+                self.assertIn(goals.CONTRACT_REFERENCES, prompt)
 
     def test_every_fixed_stage_rendering_matches_its_reviewed_bytes(self):
         expected = json.loads(FIXTURES.read_text())

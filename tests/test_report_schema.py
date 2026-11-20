@@ -96,6 +96,57 @@ class ReviewReportSchemaTests(unittest.TestCase):
             with self.subTest(case=case), self.assertRaises(ValueError):
                 review_validation_schema(self.schema, self.state, {"stage": "review_completion"}, value)
 
+    def rejection(self, rows):
+        value = {**copy.deepcopy(self.report), "acceptance_criteria": rows}
+        with self.assertRaises(ValueError) as raised:
+            review_validation_schema(self.schema, self.state, {"stage": "review_completion"}, value)
+        return str(raised.exception)
+
+    def row(self, cid):
+        return {"id": cid, "status": "verified", "evidence": "event:check"}
+
+    def test_ac6_missing_criterion_ids_are_named(self):
+        self.assertEqual(
+            "Review report is missing approved criterion IDs: G2; expected order: G1, G2",
+            self.rejection([self.row("G1")]),
+        )
+
+    def test_ac7_duplicate_criterion_ids_are_named(self):
+        self.assertEqual(
+            "Review report repeats criterion IDs: G1; expected order: G1, G2",
+            self.rejection([self.row("G1"), self.row("G1")]),
+        )
+
+    def test_ac8_unknown_criterion_ids_are_named(self):
+        self.assertEqual(
+            "Review report names unknown criterion IDs: UNKNOWN; expected order: G1, G2",
+            self.rejection([self.row("UNKNOWN"), self.row("G2")]),
+        )
+
+    def test_ac9_first_out_of_order_row_is_named(self):
+        self.assertEqual(
+            "Review report row 1 has criterion ID G2 where G1 belongs; expected order: G1, G2",
+            self.rejection([self.row("G2"), self.row("G1")]),
+        )
+
+    def test_ac10_malformed_rows_are_named(self):
+        self.assertEqual(
+            "Review report acceptance_criteria row 1 is not an object with a string id; expected order: G1, G2",
+            self.rejection(["G1", self.row("G2")]),
+        )
+        self.assertEqual(
+            "Review report acceptance_criteria must be a list of criterion rows; expected order: G1, G2",
+            self.rejection("G1, G2"),
+        )
+
+    def test_rows_without_a_string_id_are_named_malformed(self):
+        for row in ({"status": "verified", "evidence": "event:check"}, {**self.row("G2"), "id": 2}):
+            with self.subTest(row=row):
+                self.assertEqual(
+                    "Review report acceptance_criteria row 2 is not an object with a string id; expected order: G1, G2",
+                    self.rejection([self.row("G1"), row]),
+                )
+
     def test_hydration_preserves_verdicts_evidence_and_inputs(self):
         before = copy.deepcopy(self.report)
         result = hydrate_review_report(self.report, self.state, {"stage": "review_completion"})
