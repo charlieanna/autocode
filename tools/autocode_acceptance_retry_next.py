@@ -126,7 +126,9 @@ def decide(state: RunState, workspace) -> dict | None:
         return _answer(RECHECK, attempts, granted, grant=None, provenance=False)
     if advice and advice["identity"] not in investigations:
         return _answer(RECHECK, attempts, granted + 1, grant=advice["identity"], provenance=False)
-    value = retry.get("value") if isinstance(retry.get("value"), dict) else {}
+    value = retry.get("value")
+    if not isinstance(value, dict):
+        value = {}
     passing = value.get("already_passing") or []
     passing_ids = {row.get("case_id") for row in passing if isinstance(row, dict)}
     if (
