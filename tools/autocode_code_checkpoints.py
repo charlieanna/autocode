@@ -509,7 +509,11 @@ def _record_kept(state: RunState, run_dir):
         elif kind == "kept":
             if complete:
                 end["final"] = True
-        elif kind == "step" and (complete or (kept and (not kept.get("marker") or kept.get("id") != newest["id"]))):
+        elif (
+            kind == "step"
+            and newest is not None
+            and (complete or (kept and (not kept.get("marker") or kept.get("id") != newest["id"])))
+        ):
             # The source is the newest step itself: name it, so the carried removals and a completed
             # delivery end there rather than at an older capture.
             state["kept_code"] = {
@@ -737,7 +741,7 @@ def project(state: RunState, *, run_dir=None, workspace=None):
         # The newest kept code the whole-run diff ends at, or why it could not be saved (#3945).
         "kept": (
             {
-                key: deepcopy(state["kept_code"].get(key))
+                key: deepcopy((state.get("kept_code") or {}).get(key))
                 for key in ("id", "source_revision", "commit", "at", "available", "reason")
             }
             if state.get("kept_code")

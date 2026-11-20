@@ -241,6 +241,8 @@ def all_changes(state: RunState, run_dir):
     first = receipt(state, run_dir, rows[0]["id"], current_plan=False) if rows else None
     if last is None:
         last = first if len(rows) == 1 else receipt(state, run_dir, rows[-1]["id"], current_plan=False)
+    if last is None:
+        raise ValueError("No code change has been saved yet")
     commit = first["source"]["head"] if first else last["start"]
     after = checkpoints.content_files(last["source"])
     # A file kept work removed is named by no saved step; its carried name lists it as removed.
