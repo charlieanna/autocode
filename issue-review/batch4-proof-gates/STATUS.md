@@ -14,8 +14,8 @@ what was independently observed during continuation.
 - Ruff check and format check passed locally. Mypy passed on 965 source files.
 - The three new `SharedSetupAnswerTests` pass on this branch and error on
   current master, which does not have the new shared setup-classification API.
-- Focused tests are running with normal process access. A sandboxed attempt
-  produced process-access errors, so its failures need the unrestricted result.
+- The focused command below passed 119 tests with normal process access.
+  A sandboxed attempt produced process-access errors.
 - The branch has not been reviewed for a PR or merged.
 
 Focused command in this checkout:
