@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_contract_identity as contract_identity
     from . import autocode_member_stop as member_stop
     from . import autocode_operational_disposition as disposition
     from . import autocode_operational_information as information
@@ -36,6 +37,7 @@ try:
     from . import autocode_util as util
     from .autocode_goals import RESOLVER_PROPOSAL_KEY, RESOLVER_REQUEST_KEY
 except ImportError:
+    import autocode_contract_identity as contract_identity
     import autocode_member_stop as member_stop
     import autocode_operational_disposition as disposition
     import autocode_operational_information as information
@@ -72,19 +74,7 @@ PUBLIC: Final = RESOLVER_REQUEST_KEY
 
 
 def _contract(state: RunState):
-    contract = state.get("goal_contract")
-    if not contract:
-        return None
-    expected = support.digest({key: contract[key] for key in ("task_id", "revision", "body")})
-    if contract.get("hash") != expected:
-        raise ValueError("Cannot authorize a question against an unsealed contract")
-    return {
-        "task_id": contract["task_id"],
-        "revision": contract["revision"],
-        "hash": contract["hash"],
-        "approval_status": contract.get("approval_status"),
-        "approval_event": copy.deepcopy(contract.get("approval_event")),
-    }
+    return contract_identity.approval_identity(state)
 
 
 def _binding(state: RunState):

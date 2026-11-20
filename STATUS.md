@@ -1,0 +1,42 @@
+# WIP handoff: #3852, #3880, #3869 (+ the view half of #3954)
+
+Remove this file before merging.
+
+This branch is a snapshot of an AutoCode run. Claude usage ran out partway, so the run was paused at a stage boundary for handoff. The run is `20261120-151156-…-273c2bd5`, in a cloud container on 2026-11-20.
+
+- Brief: `/mnt/project-files/issue-review/handoff/g4a/brief.md`.
+- Approved plan (r12): `/mnt/project-files/issue-review/handoff/g4a/plan.md`, also on the issues.
+- Shared cause: the status view decides each recovery offer with its own, shorter predicate instead of the executor's admission.
+
+## Done
+- **M1 is accepted by AutoCode** (fail-first proof, Tester and Completion Reviewer). It covers AC22, AC1, AC2, AC3 and AC20:
+  - `tests/test_offer_admission_agreement.py` and `docs/bugs/offer-admission-agreement.md` survey every named offer.
+  - #3852: the PAUSED_STAGE_ABANDONED resume offer and admission now share one contract-context predicate (`tools/autocode_operational_disposition.py`, `tools/autocode_operational_admission.py`, `tools/autocode_contract_identity.py`, `tools/autocode_resolver_human.py`).
+
+## In progress, not yet accepted
+- **M2 (#3869):** record the controller's full intervention capability at setup (`tools/autocode_run_setup.py`, `tests/test_pause_offer.py`, `tests/test_stop_now_runner_check_cli.py`). The Builder has run; the Tester had not checked it yet.
+
+## Left
+- **M3 (#3880 and the #3954 view case):**
+  - Record failed recovery-packet checks by name as `stale_checks`.
+  - Offer `--accept-source-edit` only when `accept_reviewed_source` would accept.
+  - Show an answered blocker with no resume that only re-pauses, and add `needs.resume_unavailable` to the schema.
+  - Criteria: AC8 to AC19, AC21, AC23 to AC25.
+- **M4:** abandon, retry_job, retry_report, retry_builder (serial and parallel member) and retry_failed_stage each read their executor's admission (AC26 to AC32).
+
+## To continue
+- **Same container, run intact.** Resume the run. If a stage hits the Claude quota, AutoCode pauses `PAUSED_BUDGET`. Switch that role's tool and model, then resume:
+
+  ```sh
+  autocode --run-dir RUN --workspace WS --answer route-ROLE=TOOL:MODEL --resolver-token -
+  autocode --run-dir RUN --workspace WS --resume-paused
+  ```
+
+  See `docs/models.md#when-a-roles-quota-runs-out`.
+- **Elsewhere.** Check out this branch. Finish M2 to M4 by hand or with another engine, following the plan's criteria, and run the plan's checks:
+
+  ```sh
+  python3 -m unittest tests.test_operational_disposition tests.test_pause_offer tests.test_accepted_source tests.test_stale_handoff_boundary tests.test_recovery_view tests.test_offer_admission_agreement tests.test_json_contract tests.test_taskrun
+  ```
+
+  Then run ruff, open the PR, and close the issues.

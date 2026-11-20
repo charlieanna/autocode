@@ -151,6 +151,19 @@ try:
 except ImportError:
     from .providers import env_prep
 
+# What this controller consumes from the intervention inbox, recorded at setup. It equals what the
+# controller's state writer (autocode_stop.state_writer) stamps on every write, so the view reads the same
+# capability from the first saved state of a resumed run as after its first ordinary write (#3869).
+CONTROLLER_CAPABILITY = {
+    "supported": True,
+    "version": interventions.INBOX_VERSION,
+    "supports_stop": True,
+    "supports_messages": True,
+    "supports_message_context": True,
+    "supports_stop_now": True,
+    "supports_message_now": True,
+}
+
 # Recovery actions that answer or act on the published operational request themselves; a settings change
 # that comes with one leaves that request for the action to check.
 OTHER_RECOVERY = (
@@ -944,7 +957,9 @@ def load_locked(runner, args, parser, state: RunState, state_path, run_dir, work
     state["settings"] = settings
     if args.run_dir and roles.planning_flow(settings) == "v2" and planning_artifacts.reconcile_orphans(state, run_dir):
         runner.write_json(state_path, state)
-    state["intervention_capability"] = {"supported": True, "version": interventions.INBOX_VERSION}
+    # The whole capability this controller consumes, so a resumed run's view offers Stop now before the
+    # controller's first state write through its own writer (#3869).
+    state["intervention_capability"] = dict(CONTROLLER_CAPABILITY)
     if state.get("version", 1) == 1:
         backup = run_dir / "state.pre-v2.json"
         if not backup.exists():
