@@ -173,13 +173,15 @@ def queue(state: RunState, record, error, *, completed: Callable[[], bool]) -> b
     return pending["attempts"] < effective_repair_limit(state, pending)
 
 
-def reset_for_resume(state: RunState, *, now):
+def reset_for_resume(state: RunState, *, now, actor="user_cli"):
     """Clear the bounded report-repair attempt count for an explicit resume.
 
     Mirrors resolver_runtime.reset_for_resume: the count is a current-cycle
     allowance an operator can renew after fixing the underlying cause, not a
     lifetime cap, but clearing it is recorded rather than silent, and the
     erased attempts fold into a lifetime total this function never resets.
+    ``actor`` records who renewed it: the person's resume, or the runner's own
+    report correction after a validator update (autocode_report_correction).
     """
     pending = state.get("pending_report_repair")
     if not isinstance(pending, dict):
@@ -192,7 +194,7 @@ def reset_for_resume(state: RunState, *, now):
     state.setdefault("user_events", []).append(
         {
             "kind": "report_repair_resume_epoch",
-            "actor": "user_cli",
+            "actor": actor,
             "at": now(),
             "cleared_attempts": prior,
             "lifetime_attempts": state["report_repair_lifetime_attempts"],
