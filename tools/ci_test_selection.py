@@ -1662,6 +1662,21 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tools/autocode_resolve_repair_job.py", "tools/autocode_stuck_job.py"),
         ("tests.test_failure_retry", "tests.test_milestone_checkpoints"),
     ),
+    (
+        # The retained acceptance retry's one answer (#3927) and the surfaces that read it; the CLI test
+        # reaches the build loop and the status command's progress line through the in-process CLI.
+        (
+            "tools/autocode_acceptance_retry_next.py",
+            "tools/autocode_build_loop.py",
+            "tools/autocode_status_command.py",
+            "tools/autocode_progress_view.py",
+        ),
+        (
+            "tests.test_acceptance_retry_resume_cli",
+            "tests.test_acceptance_verification_retry",
+            "tests.test_recovery_history",
+        ),
+    ),
 )
 
 SUITE_PATHS = (

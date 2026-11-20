@@ -124,7 +124,8 @@ class RecoveryHistoryTests(unittest.TestCase):
         self.assertEqual([], history.project({"history": [{"stage": "builder"}], "regression_proofs": []}))
 
     def test_each_recovery_says_which_stage_what_went_wrong_and_what_autocode_did_oldest_first(self):
-        rows = history.project(state())
+        # The Builder ran again after the Investigator finished, so the investigation says it tried again (#3927).
+        rows = history.project(state(stages=[{"stage": "builder", "started_at": "2026-11-02T05:42:10+00:00"}]))
         self.assertEqual(
             [
                 ("rejected", "Investigator", "Investigator answer rejected (2 times)"),
@@ -492,6 +493,122 @@ class RecoveryHistoryTests(unittest.TestCase):
             sorted(item["properties"]["kind"]["enum"]), sorted({row["kind"] for row in shown["recoveries"]})
         )
         self.assertEqual("boolean", item["properties"]["handled"]["type"])
+
+
+# The #3927 incident: the test writer finished at 02:26:03, the Investigator ran from 02:26:26 to 02:32:35.
+TESTER_IDENTITY = "write_acceptance_tests:PAUSED_INVALID_OUTPUT"
+RECHECKED = (
+    "AutoCode called the Investigator, which found the cause, and AutoCode re-checked the saved tests "
+    "without running the Tester again."
+)
+TRIED_AGAIN = "AutoCode called the Investigator, which found the cause, and the Tester tried again with its advice."
+NOT_RUN_YET = "AutoCode called the Investigator, which found the cause; the Tester has not run again yet."
+
+
+def tester_investigation(requested_at, finished_at, **keys):
+    return {
+        "identity": TESTER_IDENTITY,
+        "stage": "write_acceptance_tests",
+        "status": "PAUSED_INVALID_OUTPUT",
+        "reason": "Acceptance verification retry could not finish: original-reference execution missing",
+        "requested_at": requested_at,
+        "finished_at": finished_at,
+        "outcome": "retried",
+        "cause": "environment",
+        "diagnosis": "The saved test imports the public module at collection time.",
+        "guidance": "Keep the public import and move it into the test body",
+        **keys,
+    }
+
+
+def recheck_note(at):
+    return {
+        "at": at,
+        "stage": "write_acceptance_tests",
+        "reason": "Retrying local acceptance verification without another model call",
+        "output": "/run/iterations/001/acceptance-tests-01.json",
+        "attempt": 2,
+    }
+
+
+def incident(*, rechecked=True, archived=False, **keys):
+    """The saved run behind #3927, in its own records' shapes: no Tester attempt after the Investigator."""
+    retry = {"attempts": 2 if rechecked else 1, "investigations": [TESTER_IDENTITY] if rechecked else []}
+    run = {
+        "stuck_investigations": [tester_investigation("2026-11-20T02:26:26+00:00", "2026-11-20T02:32:35+00:00")],
+        "stages": [
+            {
+                "stage": "write_acceptance_tests",
+                "started_at": "2026-11-20T02:10:00+00:00",
+                "finished_at": "2026-11-20T02:26:03+00:00",
+            },
+            {
+                "stage": "investigate_stuck",
+                "started_at": "2026-11-20T02:26:26+00:00",
+                "finished_at": "2026-11-20T02:32:35+00:00",
+            },
+        ],
+        "acceptance_tests": {"verification_retries": [retry]} if archived else {"verification_retry": retry},
+    }
+    if rechecked:
+        run["reconciliation_notes"] = [recheck_note("2026-11-20T02:32:40+00:00")]
+    run.update(keys)
+    return run
+
+
+def investigated(run):
+    return [row for row in history.project(run) if row["kind"] == "investigated"]
+
+
+class InvestigationOutcomeTests(unittest.TestCase):
+    """An investigation's entry says what actually ran after the Investigator (#3927)."""
+
+    def test_ac10_investigation_history_says_saved_tests_rechecked(self):
+        for archived in (False, True):
+            with self.subTest(archived=archived):
+                (row,) = investigated(incident(archived=archived))
+                self.assertEqual(RECHECKED, row["action"])
+                self.assertNotIn("tried again with its advice", row["action"])
+
+    def test_ac11_investigation_history_says_stage_not_run_yet(self):
+        run = incident(rechecked=False)
+        self.assertNotIn("reconciliation_notes", run)
+        (row,) = investigated(run)
+        self.assertEqual(NOT_RUN_YET, row["action"])
+        # A re-check recorded before the Investigator finished is not one that ran after it.
+        (row,) = investigated(
+            incident(rechecked=False, reconciliation_notes=[recheck_note("2026-11-20T02:26:10+00:00")])
+        )
+        self.assertEqual(NOT_RUN_YET, row["action"])
+
+    def test_ac12_investigation_history_says_tried_again_after_later_attempt(self):
+        later = {"stage": "write_acceptance_tests", "started_at": "2026-11-20T02:33:00+00:00"}
+        base = incident(rechecked=False)
+        for run in (
+            {**base, "stages": [*base["stages"], later]},
+            {**base, "active_stage": {**later, "iteration": 2}},
+        ):
+            with self.subTest(active="active_stage" in run):
+                (row,) = investigated(run)
+                self.assertEqual(TRIED_AGAIN, row["action"])
+
+    def test_ac25_investigation_history_reads_only_its_own_window(self):
+        run = incident(
+            stuck_investigations=[
+                tester_investigation("2026-11-20T02:26:26+00:00", "2026-11-20T02:32:35+00:00"),
+                tester_investigation("2026-11-20T02:40:00+00:00", "2026-11-20T02:45:00+00:00", cause="stage_output"),
+            ],
+        )
+        run["stages"].append(
+            {
+                "stage": "write_acceptance_tests_report_repair",
+                "original_stage": "write_acceptance_tests",
+                "started_at": "2026-11-20T02:46:00+00:00",
+            }
+        )
+        first, second = investigated(run)
+        self.assertEqual(RECHECKED, first["action"])
+        self.assertEqual(TRIED_AGAIN, second["action"])
 
 
 if __name__ == "__main__":

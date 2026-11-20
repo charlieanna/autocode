@@ -395,9 +395,13 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
             )
         if stage == acceptance_tests.STAGE and (current.get(acceptance_tests.KEY) or {}).get(acceptance_retry.KEY):
             record_resume(runner, args, current, state_path)
-            return acceptance_retry.dispatch(
+            retained = acceptance_retry.dispatch(
                 runner, current, stage, workspace, run_dir, apply=autopilot.unit_module(stage).apply_job
             )
+            if retained is not None:
+                return retained
+            # Test-cause Investigator advice retired the retained report: the ordinary test-writing step runs
+            # with that guidance (the resume above is recorded once per invocation).
         request = autopilot.prepare_request(
             current,
             stage,

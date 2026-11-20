@@ -19,6 +19,7 @@ import autocode_chat_recoveries as recoveries
 import autocode_client_actions as actions
 import autocode_run_view as run_view
 
+import tests.test_acceptance_verification_retry as retained_retry
 from tests.terminal_screen import TerminalScreen, require_tmux
 from tests.test_agent_step import ask_one_question_once, fixture_workspace
 from tests.test_taskrun import BRIEF, FIXTURE_OPTIONS
@@ -1665,6 +1666,35 @@ class ConversationTests(unittest.TestCase):
         ):
             self.assertEqual(0, chat.cli(["--workspace", str(WORKSPACE), "--brief=-v should print more"]))
         self.assertEqual("-v should print more", start.call_args.args[1])
+
+
+class ExhaustedRecheckTests(unittest.TestCase):
+    """The terminal chat at the #3927 stop: no re-check of the saved tests is left, only what should change."""
+
+    def exhausted_view(self):
+        fixture = retained_retry.AcceptanceVerificationRetryTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        return fixture.exhausted()
+
+    def test_ac22_terminal_chat_offers_feedback_at_exhausted_recheck(self):
+        view = self.exhausted_view()
+        self.assertNotIn("Try the Tester step again", json.dumps(view))
+        typed = "Keep the public import and move it into the test body"
+        client = ScriptedChat(view, view, replies=[typed])
+        self.assertTrue(client.respond(view))
+        text = client.text()
+        self.assertIn(view["recovery"]["what_happened"], text)
+        self.assertIn("1 of 1 allowed times", text)
+        self.assertNotIn("Continue? [y/N]", text)
+        self.assertFalse(any("--resume-paused" in argv for argv in client.taken))
+        self.assertEqual([["--feedback", typed]], client.taken)
+
+        # Enter with no text: nothing is taken and the run stays paused.
+        quiet = ScriptedChat(view, replies=[""])
+        self.assertFalse(quiet.respond(view))
+        self.assertEqual([], quiet.taken)
+        self.assertNotIn("Continue? [y/N]", quiet.text())
 
 
 class HistoryTests(unittest.TestCase):

@@ -1642,6 +1642,32 @@ as its `investigated` entry. The field is display only: it names no action and g
 The terminal chat shows each new entry as a `Recovery ·` notice, the newest three in its side
 panel, and all of them under `/why`.
 
+An `investigated` entry whose Investigator advised a retry says what actually ran between that result
+and the next investigation of the same stage (#3927): a later or running attempt of the stage ("the
+Tester tried again with its advice"), a local re-check of a retained report without running the stage
+("AutoCode re-checked the saved tests without running the Tester again"), or nothing yet ("the Tester
+has not run again yet").
+
+### The Tester's retained report (`acceptance_verification_retry`)
+
+When the Tester's finished report is retained after its local verification failed, the next resume
+re-checks the saved tests without a model call. `view.acceptance_verification_retry` says what that
+resume does, from the one answer `autocode_acceptance_retry_next.decide` that dispatch, `needs`,
+`next_command`, the recovery card, the chat input and `progress` also read. It is null without a
+retained report, else `{next, rechecks, allowed}`:
+
+| `next` | The next resume |
+| --- | --- |
+| `recheck` | Runs the saved tests again without a new Tester attempt. The card's resume is labelled `Re-check the saved tests`; `progress.needs_you` is `resume to re-check the saved tests`. |
+| `tester` | In-force Investigator advice places the cause in the written tests or report (a recorded cause other than `environment`): the retained report is retired, its attempts and failures kept, and the ordinary Tester step runs with that guidance. One Investigator result retires at most one retained report. |
+| `exhausted` | Nothing is left to re-check. `needs` and `next_command` are null, the recovery card is `blocked` (`No re-check of the saved tests is left`) and says how often the saved tests were re-checked of how many allowed times, and `chat.input` keeps `Explain what should change`. |
+
+`rechecks` counts the local re-checks spent and `allowed` the re-checks this report may spend (one, one
+more per bound Investigator result with an `environment` cause or none, and the one authenticated
+provenance re-check); `allowed` is null for a test runner that never started, which is re-checked on
+each resume. The field is display only. A stale, changed or uncertain retained report never executes,
+is retired or grants acceptance, whatever this field says.
+
 ## Inspecting current verification
 
 `autocode --run-dir RUN --status --inspect-evidence` performs a read-only source

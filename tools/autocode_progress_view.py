@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_acceptance_retry_next as retry_next
     from . import autocode_attempt_ledger as attempt_ledger
     from . import autocode_person_text as person_text
     from . import autocode_plan_only as plan_only
@@ -31,6 +32,7 @@ try:
     from . import autocode_run_status as run_status
     from . import autocode_stage_activity as stage_activity
 except ImportError:
+    import autocode_acceptance_retry_next as retry_next
     import autocode_attempt_ledger as attempt_ledger
     import autocode_person_text as person_text
     import autocode_plan_only as plan_only
@@ -104,6 +106,7 @@ def progress(
     internal_failure=None,
     liveness=None,
     gathered: dict | None = None,
+    retained: dict | None = None,
 ) -> dict:
     """The progress projection of one run.
 
@@ -123,6 +126,8 @@ def progress(
               slot or a saved timestamp alone never establishes working activity
     gathered  the status view's published Requirements record (`requirements`), so a run with no plan
               yet names the requirements it gathered instead of "no requirements yet" (#3864)
+    retained  the status view's `acceptance_verification_retry` (autocode_acceptance_retry_next), so a resume
+              that only re-checks the Tester's saved tests, or a spent one, is named as what it is (#3927)
     """
     status = state.get("status", "")
     done = status in COMPLETE
@@ -145,6 +150,9 @@ def progress(
     problems = _problems(state, _rows(state.get("turns")))
     kind = (needs or {}).get("kind")
     asked = _asked(needs, state)
+    retained_next = _mapping(retained).get("next")
+    if kind == "resume" and retained_next == retry_next.RECHECK:
+        asked = "resume to re-check the saved tests"
     observed_continuation = False
     if internal_failure:
         headline = internal_failure["title"]
@@ -165,6 +173,9 @@ def progress(
         headline = f"{stage or 'The stage'} {STOP_CLAIM}"
         # A stale run's next action can be the command itself; the person reads only its words.
         asked = person_text.for_person(stopped) or "inspect the stopped stage, then resume"
+    elif retained_next == retry_next.EXHAUSTED and not needs and status == retry_next.PAUSE:
+        # No re-check of the saved tests is left and no resume is offered: never a misleading "Next: Tester".
+        headline, asked = "Paused", "explain what should change"
     elif kind in WAITING:
         headline = WAITING[kind]
     elif status == "AWAITING_GOAL_APPROVAL":

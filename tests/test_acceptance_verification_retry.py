@@ -19,7 +19,12 @@ import autocode_source_scope as source_scope
 import autocode_stuck_job as stuck
 import autocode_util as util
 
-from tests.test_stuck_job import state_for
+from tests.test_stuck_job import report, state_for
+
+# The #3927 incident's Investigator result for the Tester's rejected answer, and its advice.
+IDENTITY = "write_acceptance_tests:PAUSED_INVALID_OUTPUT"
+GUIDANCE = "Keep the public import and move it into the test body"
+EXHAUSTED_SENTENCE = "AutoCode re-checked the saved tests 1 of 1 allowed times without a new Tester attempt."
 
 
 class AcceptanceVerificationRetryTests(unittest.TestCase):
@@ -605,6 +610,242 @@ class AcceptanceVerificationRetryTests(unittest.TestCase):
         self.assertEqual(1, len(self.state[acceptance.KEY]["rewrites"]))
         self.assertNotIn(retry.KEY, self.state[acceptance.KEY])
         self.assertEqual(2, self.candidate.call_count)
+        self.runtime.run_role.assert_not_called()
+
+    # ---- #3927: what the next resume of a retained retry does, after the Investigator ----
+
+    def spend_recheck(self):
+        """The writer's report is retained and its one local re-check fails: attempts 1, 2 failures."""
+        self.reference.side_effect = None
+        self.reference.return_value = {"error": "original-reference execution missing"}
+        self.start_retry()
+        with self.assertRaises(util.Paused):
+            self.dispatch()
+        pending = self.state[acceptance.KEY][retry.KEY]
+        self.assertEqual((1, 2), (pending["attempts"], len(pending["failures"])))
+
+    def advise(self, requested_at, cause):
+        """An Investigator result as autocode_stuck_job records it: the history entry carries the cause and
+        requested_at; the in-force record has exactly the keys apply writes, with no requested_at."""
+        binding = retry.recovery_binding.binding(self.state, acceptance.STAGE)
+        self.state.setdefault("stuck_investigations", []).append(
+            {
+                "identity": IDENTITY,
+                "stage": acceptance.STAGE,
+                "status": "PAUSED_INVALID_OUTPUT",
+                "reason": "Acceptance verification retry could not finish: original-reference execution missing",
+                "requested_at": requested_at,
+                "outcome": "retried",
+                "trigger": "rejected_output",
+                "cause": cause,
+                "diagnosis": "The saved test imports the public module at collection time.",
+                "guidance": GUIDANCE,
+                "finished_at": requested_at.replace(":26:26", ":32:35").replace(":40:00", ":45:00"),
+                **binding,
+            }
+        )
+        self.state["stuck_investigation"] = {
+            "identity": IDENTITY,
+            "stage": acceptance.STAGE,
+            "status": "PAUSED_INVALID_OUTPUT",
+            **binding,
+            "guidance": GUIDANCE,
+            "diagnosis": "The saved test imports the public module at collection time.",
+            "example": "Given the saved test; when it is collected on the original; then the import fails",
+            "in_force": True,
+        }
+
+    def pause_at_tester(self):
+        self.state.update(
+            status="PAUSED_INVALID_OUTPUT",
+            next_stage=acceptance.STAGE,
+            stop_reason="Acceptance verification retry could not finish: original-reference execution missing",
+        )
+
+    def project(self):
+        return run_view.view(self.state, workspace=self.workspace, run_dir=self.run)
+
+    def exhausted(self):
+        """The #3927 state: saved at PAUSED_INVALID_OUTPUT after its one re-check failed, no in-force advice."""
+        self.spend_recheck()
+        self.pause_at_tester()
+        return self.project()
+
+    def test_ac1_test_cause_advice_retires_retained_retry(self):
+        self.spend_recheck()
+        self.advise("2026-11-20T02:26:26+00:00", "stage_output")
+        self.assertIsNone(self.dispatch())
+        self.assertEqual(2, self.reference.call_count, "re-reading the pinned report cannot edit the saved tests")
+        self.runtime.run_role.assert_not_called()
+        self.assertNotIn(retry.KEY, self.state[acceptance.KEY])
+        archived = self.state[acceptance.KEY]["verification_retries"][-1]
+        self.assertEqual(1, archived["attempts"])
+        self.assertEqual(2, len(archived["failures"]))
+        self.assertEqual({"identity": IDENTITY, "requested_at": "2026-11-20T02:26:26+00:00"}, archived["retired_by"])
+
+        # A newly retained retry under that same Investigator result spends its own re-check, then is exhausted.
+        self.start_retry()
+        with self.assertRaises(util.Paused):
+            self.dispatch()
+        self.assertEqual(1, self.state[acceptance.KEY][retry.KEY]["attempts"])
+        checks = self.reference.call_count
+        with self.assertRaises(util.Paused) as stopped:
+            self.assertIsNotNone(self.dispatch())
+        self.assertEqual("PAUSED_INVALID_OUTPUT", stopped.exception.status)
+        self.assertIn("The bounded acceptance verification retry is exhausted", str(stopped.exception))
+        self.assertEqual(checks, self.reference.call_count)
+
+        # A later Investigator result with the same identity string retires its own retained retry.
+        self.advise("2026-11-20T02:40:00+00:00", "stage_output")
+        self.assertIsNone(self.dispatch())
+        self.assertEqual(checks, self.reference.call_count)
+        self.assertNotIn(retry.KEY, self.state[acceptance.KEY])
+        archived = self.state[acceptance.KEY]["verification_retries"][-1]
+        self.assertEqual(1, archived["attempts"])
+        self.assertEqual("2026-11-20T02:40:00+00:00", archived["retired_by"]["requested_at"])
+        self.runtime.run_role.assert_not_called()
+
+    def test_ac2_environment_cause_keeps_single_local_recheck(self):
+        self.spend_recheck()
+        self.advise("2026-11-20T02:26:26+00:00", "environment")
+        with self.assertRaises(util.Paused) as stopped:
+            self.dispatch()
+        self.assertEqual("PAUSED_INVALID_OUTPUT", stopped.exception.status)
+        self.assertEqual(3, self.reference.call_count)
+        pending = self.state[acceptance.KEY][retry.KEY]
+        self.assertEqual(2, pending["attempts"])
+        self.assertEqual([IDENTITY], pending["investigations"])
+        self.runtime.run_role.assert_not_called()
+
+    def test_ac24_changed_report_with_test_cause_advice_pauses_without_retiring(self):
+        self.spend_recheck()
+        self.advise("2026-11-20T02:26:26+00:00", "stage_output")
+        output = Path(self.record["output"])
+        saved = output.read_bytes()
+        output.write_text("changed")
+        try:
+            with self.assertRaises(util.Paused) as stopped:
+                self.dispatch()
+        finally:
+            output.write_bytes(saved)
+        self.assertEqual("PAUSED_INVALID_OUTPUT", stopped.exception.status)
+        self.assertIn("Retained acceptance report, approved task or source changed", str(stopped.exception))
+        pending = self.state[acceptance.KEY][retry.KEY]
+        self.assertEqual(1, pending["attempts"])
+        self.assertFalse(self.state[acceptance.KEY].get("verification_retries"))
+        self.assertEqual(2, self.reference.call_count)
+        self.assertFalse(acceptance.receipts(self.state))
+        self.runtime.run_role.assert_not_called()
+
+    def test_ac5_exhausted_recheck_offers_no_resume(self):
+        shown = self.exhausted()
+        self.assertIsNone(shown["needs"])
+        self.assertIsNone(shown["next_command"])
+        card = shown["recovery"]
+        self.assertNotIn("resume", [row["kind"] for row in card["actions"]])
+        self.assertIn(EXHAUSTED_SENTENCE, card["what_happened"])
+        self.assertEqual({"next": "exhausted", "rechecks": 1, "allowed": 1}, shown.get("acceptance_verification_retry"))
+        self.assertNotIn("Try the Tester step again", json.dumps(shown))
+
+    def test_ac6_exhausted_recheck_keeps_feedback_box(self):
+        shown = self.exhausted()
+        self.assertEqual("feedback", shown["chat"]["input"]["kind"])
+        self.assertEqual("Explain what should change", shown["chat"]["input"]["label"])
+        feedback = [row for row in shown["recovery"]["actions"] if row["kind"] == "feedback"]
+        self.assertEqual(["Explain what should change"], [row["label"] for row in feedback])
+
+    def test_ac21_exhausted_recheck_is_a_blocked_outcome_with_feedback(self):
+        shown = self.exhausted()
+        self.assertIsNone(shown["needs"])
+        self.assertIsNone(shown["next_command"])
+        card = shown["recovery"]
+        self.assertEqual("blocked", card["category"])
+        self.assertEqual("No re-check of the saved tests is left", card["title"])
+        self.assertIn("1 of 1 allowed times", card["what_happened"])
+        self.assertEqual(card["what_happened"], shown["chat"]["notice"])
+        offer = shown["chat"]["input"]
+        self.assertEqual(("feedback", "Explain what should change"), (offer["kind"], offer["label"]))
+        self.assertIn("--feedback", offer["next_command"])
+
+    def test_ac7_pending_recheck_is_labelled_as_recheck(self):
+        self.reference.side_effect = None
+        self.reference.return_value = {"error": "original-reference execution missing"}
+        self.start_retry()
+        self.pause_at_tester()
+        shown = self.project()
+        resume = next(row for row in shown["recovery"]["actions"] if row["kind"] == "resume")
+        self.assertEqual("Re-check the saved tests", resume["label"])
+        self.assertIn("without a new Tester attempt", resume["effect"])
+        self.assertNotIn("checks its new answer", resume["effect"])
+        self.assertNotIn("Try the Tester step again", [row["label"] for row in shown["recovery"]["actions"]])
+        self.assertIn("--resume-paused", shown["next_command"])
+        self.assertEqual({"next": "recheck", "rechecks": 0, "allowed": 1}, shown.get("acceptance_verification_retry"))
+
+    def test_ac8_test_cause_advice_offers_fresh_tester_attempt(self):
+        self.spend_recheck()
+        self.advise("2026-11-20T02:26:26+00:00", "stage_output")
+        self.pause_at_tester()
+        shown = self.project()
+        self.assertEqual({"next": "tester", "rechecks": 1, "allowed": 1}, shown.get("acceptance_verification_retry"))
+        resume = next(row for row in shown["recovery"]["actions"] if row["kind"] == "resume")
+        self.assertEqual("Try the Tester step again", resume["label"])
+        self.assertIn("--resume-paused", shown["next_command"])
+        # Dispatch reads the same answer: the resume retires the retained report for a fresh Tester attempt.
+        self.assertIsNone(self.dispatch())
+        self.assertEqual(2, self.reference.call_count)
+        self.runtime.run_role.assert_not_called()
+
+    def test_ac26_in_loop_test_cause_advice_reaches_writer_launch(self):
+        self.state.update(
+            version=3, settings={**state_for(workspace=str(self.workspace))["settings"], "spec_first": True}
+        )
+        self.reference.side_effect = None
+        self.reference.return_value = {"error": "original-reference execution missing"}
+        self.start_retry()
+        dispatched, launches, checked = [], [], []
+
+        class ReachedWriterLaunch(Exception):
+            pass
+
+        def dispatch(state, stage):
+            dispatched.append(stage)
+            if stage == stuck.STAGE:
+                checked.append(self.reference.call_count)
+                # The real Investigator result: autocode_stuck_job.apply records it from a scripted report.
+                output = self.run / "investigator.json"
+                stuck.apply(
+                    state,
+                    report(cause="stage_output", guidance=GUIDANCE, evidence_refs=["tests/test_feature.py"]),
+                    {"output": str(output), "changed_files": []},
+                    self.workspace,
+                )
+                return {"stage": stage, "output": str(output)}
+            retained = self.dispatch()
+            if retained is None:  # the ordinary test-writing step: a model launch, with the guidance
+                launches.append(stuck.guidance(state, stage))
+                raise ReachedWriterLaunch
+            return retained
+
+        with self.assertRaises(ReachedWriterLaunch):
+            stuck.drive(
+                self.state,
+                dispatch,
+                active=lambda state: state["status"] == "RUNNING",
+                skip=object(),
+                paused=util.Paused,
+                investigate=True,
+            )
+        self.assertEqual([acceptance.STAGE, stuck.STAGE, acceptance.STAGE], dispatched)
+        self.assertEqual(1, len(launches))
+        self.assertIn(GUIDANCE, launches[0])
+        entry = self.state["stuck_investigations"][-1]
+        self.assertEqual((IDENTITY, "retried"), (entry["identity"], entry["outcome"]))
+        self.assertEqual(acceptance.STAGE, self.state["next_stage"])
+        self.assertNotIn(retry.KEY, self.state[acceptance.KEY])
+        archived = self.state[acceptance.KEY]["verification_retries"][-1]
+        self.assertEqual(1, archived["attempts"])
+        self.assertEqual(entry["requested_at"], archived["retired_by"]["requested_at"])
+        self.assertEqual(checked, [self.reference.call_count], "no original-reference check after the Investigator")
         self.runtime.run_role.assert_not_called()
 
     def test_saved_pause_names_resume_and_explains_retained_verification(self):

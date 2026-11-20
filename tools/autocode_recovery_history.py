@@ -17,17 +17,20 @@ from __future__ import annotations
 
 import hashlib
 import re
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_acceptance_retry_next as retry_next
     from . import autocode_python_test_roles as test_roles
     from . import autocode_rejection_classes as rejection_classes
     from . import autocode_roles as roles
     from . import autocode_util as util
 except ImportError:
+    import autocode_acceptance_retry_next as retry_next
     import autocode_python_test_roles as test_roles
     import autocode_rejection_classes as rejection_classes
     import autocode_roles as roles
@@ -480,11 +483,56 @@ def _retained_candidates(state: RunState):
         )
 
 
+def _time(value) -> datetime | None:
+    """A recorded ISO timestamp as a time, or None when it is missing or unreadable."""
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return moment if moment.tzinfo is not None else None
+
+
+def _stage_of(record: dict) -> str:
+    return str(record.get("original_stage") or record.get("stage") or "").removesuffix("_report_repair")
+
+
+def _ran_after(state: RunState, row: dict, until) -> str:
+    """What ran for the investigated stage between this Investigator result and ``until`` (the next
+    investigation of that stage): "stage" for a later or running attempt of it, "recheck" for a local
+    re-check of a retained report without running it (autocode_acceptance_retry_next), else ""."""
+    stage, start, end = row["stage"], _time(row.get("finished_at")), _time(until)
+    if start is None:
+        return ""
+
+    def within(value) -> bool:
+        moment = _time(value)
+        return moment is not None and moment >= start and (end is None or moment < end)
+
+    active = state.get("active_stage")
+    attempts = [*(state.get("stages") or []), *([active] if isinstance(active, dict) else [])]
+    if any(
+        isinstance(record, dict) and _stage_of(record) == stage and within(record.get("started_at"))
+        for record in attempts
+    ):
+        return "stage"
+    notes = state.get("reconciliation_notes")
+    if any(
+        isinstance(note, dict)
+        and note.get("stage") == stage
+        and note.get("reason") == retry_next.RECHECK_REASON
+        and within(note.get("at"))
+        for note in (notes if isinstance(notes, list) else [])
+    ):
+        return "recheck"
+    return ""
+
+
 def _investigations(state: RunState):
     """A stage that stopped converging, handed to the Investigator, and what it found."""
-    for row in state.get("stuck_investigations") or []:
-        if not isinstance(row, dict) or not row.get("stage"):
-            continue
+    rows = [row for row in state.get("stuck_investigations") or [] if isinstance(row, dict) and row.get("stage")]
+    for index, row in enumerate(rows):
         if row.get("outcome") == "candidate_retained":
             continue  # The handoff above explains why no Investigator was launched.
         job = roles.screen_name(row["stage"], state)
@@ -492,8 +540,18 @@ def _investigations(state: RunState):
         if not finished:
             action = "AutoCode called the Investigator to find out why."
         elif row.get("outcome") == "retried":
+            # Say what actually ran after the Investigator, up to the next investigation of the same stage (#3927).
+            until = next(
+                (later.get("requested_at") for later in rows[index + 1 :] if later["stage"] == row["stage"]), None
+            )
+            ran = _ran_after(state, row, until)
             action = (
                 f"AutoCode called the Investigator, which found the cause, and the {job} tried again with its advice."
+                if ran == "stage"
+                else "AutoCode called the Investigator, which found the cause, and AutoCode re-checked the saved tests "
+                f"without running the {job} again."
+                if ran == "recheck"
+                else f"AutoCode called the Investigator, which found the cause; the {job} has not run again yet."
             )
         else:
             action = "AutoCode called the Investigator to find out why."
