@@ -31,11 +31,10 @@ This branch is a snapshot of an AutoCode run. Claude usage ran out partway, so t
 
 ## Left
 - **M3 (#3880 and the #3954 view case):**
-  - Verify the saved stale check names reach the final evidence and update the offer survey.
-  - Complete independent review and integration verification of the shared source-edit admission.
-  - Finish integration verification of the answered-blocker view and update the offer survey.
+  - Complete independent review and integration verification of the shared source-edit admission and answered-blocker view. The failed check names and offer survey are recorded above.
   - Criteria: AC8 to AC19, AC21, AC23 to AC25.
-- **M4:** abandon, retry_job, retry_report, retry_builder (serial and parallel member) and retry_failed_stage each read their executor's admission (AC26 to AC32).
+- **M4:** the five offer families now use their executor's admission (AC26 to AC32); finish the combined branch verification and review.
+- Current master was merged after the other requested PRs landed. Run the handoff's combined focused suite, repository Ruff and mypy on this merged head, confirm CI and review its exact diff before marking the PR ready.
 
 ## To continue
 - **Same container, run intact.** Resume the run. If a stage hits the Claude quota, AutoCode pauses `PAUSED_BUDGET`. Switch that role's tool and model, then resume:
