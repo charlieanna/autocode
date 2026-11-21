@@ -1690,6 +1690,7 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
             "tests.test_acceptance_retry_resume_cli",
             "tests.test_acceptance_verification_retry",
             "tests.test_recovery_history",
+            "tests.test_status_observation",
         ),
     ),
 )

@@ -203,7 +203,8 @@ class AcceptanceVerificationRetryTests(unittest.TestCase):
             status_observation.captured, "run", side_effect=subprocess.TimeoutExpired("status-worker", 3)
         ) as run:
             view = run_view.view(self.state, workspace=self.workspace, run_dir=self.run)
-        self.assertEqual(status_observation.TIMEOUT, run.call_args.kwargs["timeout"])
+        self.assertGreater(run.call_args.kwargs["timeout"], status_observation.TIMEOUT - 1)
+        self.assertLessEqual(run.call_args.kwargs["timeout"], status_observation.TIMEOUT)
         self.assertEqual("blocked", view["acceptance_verification_retry"]["next"])
         self.assertIsNone(view["next_command"])
         # The original observation seam supplies a successful result without waiting.

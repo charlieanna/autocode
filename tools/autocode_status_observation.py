@@ -6,9 +6,12 @@ must independently revalidate under its normal lock before it can execute.
 
 from __future__ import annotations
 
+import contextvars
+import functools
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -26,15 +29,40 @@ except ImportError:
     import autocode_acceptance_tests as acceptance
     import autocode_captured_process as captured
 
-TIMEOUT = 3.0
+# The extension allows 30 seconds; leave room for the capture helper's eight-second
+# cleanup allowance and the rest of the status projection.
+TIMEOUT = 15.0
+_deadline = contextvars.ContextVar("autocode_status_observation_deadline", default=None)
 
 
-def _observe(operation, payload, *, timeout=TIMEOUT):
+def budgeted(function):
+    """Share one allowance through nested status and recovery projections."""
+
+    @functools.wraps(function)
+    def wrapper(*args, **kwargs):
+        if _deadline.get() is not None:
+            return function(*args, **kwargs)
+        token = _deadline.set(time.monotonic() + TIMEOUT)
+        try:
+            return function(*args, **kwargs)
+        finally:
+            _deadline.reset(token)
+
+    return wrapper
+
+
+def _observe(operation, payload, *, timeout=None):
     """Collect a worker result only after the owned process family is gone."""
+    deadline = _deadline.get()
+    remaining = TIMEOUT if deadline is None else deadline - time.monotonic()
+    if timeout is not None:
+        remaining = min(remaining, timeout)
+    if remaining <= 0:
+        raise subprocess.TimeoutExpired("status-worker", TIMEOUT)
     result = captured.run(
         [sys.executable, str(Path(__file__).resolve()), "--worker"],
         input=json.dumps({"operation": operation, "payload": payload}),
-        timeout=timeout,
+        timeout=remaining,
         check=True,
     )
     value = json.loads(result.stdout)
