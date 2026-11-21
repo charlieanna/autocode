@@ -425,7 +425,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "tools/prompts/fragments/stage-context/implementation-discrepancy.md",
         ("tests.test_implementation_discrepancy",),
     ),
+    ("tools/autocode_scratch_preparation.py", ("tests.test_scratch_copy_identity",)),
+    ("tools/autocode_source_snapshot.py", ("tests.test_scratch_copy_identity", "tests.test_scratch_link_binding")),
     ("tools/autocode_named_collection.py", ("tests.test_requirements_observations",)),
+    ("tools/autocode_suite_claim_replay.py", ("tests.test_requirements_observations",)),
     ("tools/autocode_test_examples.py", ("tests.test_builder_source_examples_cli",)),
     (
         "tools/prompts/fragments/test-examples/",
