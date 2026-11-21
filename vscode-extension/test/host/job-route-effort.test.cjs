@@ -46,7 +46,10 @@ test('real editor offers the bound quota model and effort decision', { timeout: 
     const temp = path.join(root, 'tmp');
     const actions = path.join(root, 'actions.jsonl');
     fs.mkdirSync(temp);
-    env = { ...process.env, HOME: path.join(root, 'home'), TMPDIR: temp };
+    // Keep the disposable CI runner's inherited home and credential configuration.
+    env = { ...process.env, TMPDIR: temp };
+    assert.equal(env.HOME, process.env.HOME);
+    assert.equal(env.CODEX_HOME, process.env.CODEX_HOME);
     for (const key of Object.keys(env)) {
       if (key === 'GIT_CONFIG_COUNT' || /^(GIT_CONFIG_KEY_|GIT_CONFIG_VALUE_|OPENAI_|ANTHROPIC_|KILO_API_|CODEX_API_|ZAI_API_)/.test(key)) delete env[key];
     }
@@ -54,7 +57,7 @@ test('real editor offers the bound quota model and effort decision', { timeout: 
     assert.equal(made.status, 0, `offline quota fixture: ${made.stderr}`);
     const fixture = JSON.parse(made.stdout);
     Object.assign(env, { AUTOCODE_ROUTE_HOST_ACTIONS: actions, AUTOCODE_HOME: fixture.registry, XDG_CONFIG_HOME: path.join(root, 'config'),
-      CODEX_HOME: path.join(root, 'codex-home'), JOB_RUNTIME: REPO, JOB_CALLS: fixture.calls,
+      JOB_RUNTIME: REPO, JOB_CALLS: fixture.calls,
       REFUSE_KIND: 'quota', REFUSE_MODEL: 'gpt-6-sol', JOB_MODE: 'exit42',
       PATH: [path.join(fixture.workspace, '.autocode/bin'), env.PATH].join(path.delimiter) });
     const userData = path.join(root, 'user-data');
