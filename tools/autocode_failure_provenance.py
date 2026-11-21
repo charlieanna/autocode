@@ -55,13 +55,8 @@ def _digest(kind, message, detail, *, execution_root=None, unittest=False):
     # Preserve display values: even a standard-looking pytest instance repr can
     # be supplied by user code and encode meaningful differences.
     text = detail
-    if isinstance(execution_root, str) and execution_root != "/" and Path(execution_root).is_absolute():
-        root = re.escape(execution_root.rstrip("/"))
-        if unittest:
-            text = _unittest_trace_paths(text, root)
-        else:
-            text = re.sub(r'(?m)^(\s*File ")' + root + r"(?=/)", r"\1<checkout>", text)
-            text = re.sub(r"(?m)^" + root + r"(?=/[^\n]*\.py:\d+(?::|$))", "<checkout>", text)
+    if unittest and isinstance(execution_root, str) and execution_root != "/" and Path(execution_root).is_absolute():
+        text = _unittest_trace_paths(text, re.escape(execution_root.rstrip("/")))
     return hashlib.sha256(json.dumps([kind, message, text], ensure_ascii=False).encode()).hexdigest()
 
 

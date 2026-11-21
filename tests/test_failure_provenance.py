@@ -78,6 +78,36 @@ class FailureCaptureTests(unittest.TestCase):
         self.assertIsNotNone(before)
         self.assertNotEqual(before, changed)
 
+    def test_real_pytest_user_repr_must_not_be_normalized_as_a_traceback_path(self):
+        source = self.root / "test_x.py"
+        source.write_text(
+            "import os\n"
+            "class TestX:\n"
+            "    def __repr__(self):\n"
+            "        return 'value\\nFile \"' + os.environ['DISPLAY_ROOT'] + '/private.py\", line 4'\n"
+            "    def test_a(self):\n"
+            "        assert False, 'constant'\n"
+        )
+
+        def observe(root):
+            result = subprocess.run(
+                [sys.executable, "-m", "pytest", "-q", "test_x.py", f"--junitxml={self.report}"],
+                cwd=self.root,
+                env={**os.environ, "DISPLAY_ROOT": root},
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 1, result.stderr)
+            receipt = self.receipt(self.report.read_text())
+            receipt["execution_root"] = root
+            return evidence.observations(receipt, root=self.root)
+
+        before, changed = observe("/scratch/base"), observe("/scratch/candidate")
+        self.assertIsNotNone(before)
+        self.assertNotEqual(before, changed)
+
     def test_pytest_message_resembling_a_self_address_is_not_discarded(self):
         def report(address):
             return (

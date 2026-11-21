@@ -18,6 +18,11 @@ that shape with meaningful different values. The regression failed on the
 previous branch, and the comparison now preserves the entire repr. This makes
 the original #3944 incident remain held until the same underlying cause can be
 authenticated; a matching outer error or test ID is insufficient.
+Real pytest also permits a multiline user repr to contain a traceback-looking
+`File` line. A second regression failed before removing global pytest and Go
+path normalization; their failure details now stay byte-exact rather than
+assuming such a line came from the runner. The independently parsed unittest
+traceback normalization remains restricted to frames before the exception.
 The original handoff file was absent from this checkout, so this status records
 what was independently observed during continuation.
 
