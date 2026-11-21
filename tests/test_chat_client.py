@@ -1677,18 +1677,18 @@ class ExhaustedRecheckTests(unittest.TestCase):
         self.addCleanup(fixture.doCleanups)
         return fixture.exhausted()
 
-    def test_ac22_terminal_chat_offers_feedback_at_exhausted_recheck(self):
+    def test_ac22_terminal_chat_reports_exhausted_recheck_without_machinery_feedback(self):
         view = self.exhausted_view()
         self.assertNotIn("Try the Tester step again", json.dumps(view))
         typed = "Keep the public import and move it into the test body"
         client = ScriptedChat(view, view, replies=[typed])
-        self.assertTrue(client.respond(view))
+        self.assertFalse(client.respond(view))
         text = client.text()
         self.assertIn(view["recovery"]["what_happened"], text)
         self.assertIn("1 of 1 allowed times", text)
         self.assertNotIn("Continue? [y/N]", text)
         self.assertFalse(any("--resume-paused" in argv for argv in client.taken))
-        self.assertEqual([["--feedback", typed]], client.taken)
+        self.assertEqual([], client.taken)
 
         # Enter with no text: nothing is taken and the run stays paused.
         quiet = ScriptedChat(view, replies=[""])
