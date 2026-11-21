@@ -72,6 +72,10 @@ tests for unaffected cases in the batch; in Python, import the existing module a
 rather than from module import new_symbol so original-reference execution observes a behavioral/attribute
 failure rather than an import setup error), or report genuinely host-bound untestable cases in cannot_write.
 Keep product code and the approved plan unchanged.
+A repair of kind="accepts_wrong_implementation" names a wrong implementation of the case (its reason) that the
+runner saw pass every test you wrote: add assertions or examples that this mistake would fail, for example
+values beyond the documented ones, the boundary, or the installed entry point, keeping every existing line.
+The runner checks the tests against that kind of mistake again after the change.
 
 If evidence_repair is present, these approved cases already have qualified tests, but the independent
 review found missing assertions. Strengthen the existing selected named tests while retaining their

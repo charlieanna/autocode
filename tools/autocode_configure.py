@@ -63,6 +63,7 @@ try:
     from . import autocode_verification_config as verification_config
     from . import autocode_verifier_independence as independence
     from . import autocode_workflows as workflows
+    from . import autocode_wrong_implementations as wrong_implementations
 except ImportError:
     import autocode_acceptance_tests as acceptance_tests
     import autocode_adaptive_planning as adaptive
@@ -102,6 +103,7 @@ except ImportError:
     import autocode_verification_config as verification_config
     import autocode_verifier_independence as independence
     import autocode_workflows as workflows
+    import autocode_wrong_implementations as wrong_implementations
 
 DEFAULT_ROLE_MODELS = {
     "task_planner": "gpt-5.6-sol",
@@ -506,8 +508,8 @@ def _refuse_new_run_flags(args, state: RunState, *, started, single_model):
 
 
 def _new_run_policy_settings(settings, args, joint: bool, v2: bool, *, task: str | None) -> None:
-    """The Requirements-flow policy settings a new run starts with: spec-first (opt-in) and the
-    retired triage flag compatibility setting (#3652). A resumed run keeps its saved settings instead."""
+    """The Requirements-flow policy settings a new run starts with: spec-first (opt-in), its optional
+    wrong-implementations study and the retired triage flag compatibility setting (#3652). A resumed run keeps its saved settings instead."""
     if getattr(args, "auto_select", None) is False:
         settings["auto_select_disabled"] = True
     if requirements_review.new_run_setting(getattr(args, "spec_first", None), joint, v2):
@@ -517,6 +519,7 @@ def _new_run_policy_settings(settings, args, joint: bool, v2: bool, *, task: str
     settings[requirements_triage.SETTING] = requirements_triage.new_run_setting(
         getattr(args, "requirements_triage", None), joint, v2, task=task
     )
+    wrong_implementations.configure_new_run(settings, args)  # needs spec-first, decided above (#3977)
 
 
 def _check_figma(args, *, manifest_input, figma_file, saved_figma, engine, started):
@@ -769,6 +772,8 @@ def _configure_saved(
         settings["orchestration"]["max_parallel"] = args.max_parallel_builders
     if acceptance_tests.resume_refused(settings, getattr(args, "blind_tests", None)):
         raise ValueError("Start a new run to change blind tests setting")
+    if wrong_implementations.resume_refused(settings, getattr(args, "wrong_implementations", None)):
+        raise ValueError("Start a new run to change the wrong implementations setting")
     settings = autopilot.stuck.configure(settings, args, investigator_tool(state.get("workspace")))
     settings = verification_config.configure_resume(state, settings, args)
     settings = operator_patch.configure_resume(state, settings, args)

@@ -40,6 +40,7 @@ ACTIVITIES = {
     "orchestrator": "Coordinating Builders",
     "investigate_stuck": "Investigating",
     "check_design": "Checking the design",
+    "write_wrong_implementations": "Writing wrong implementations",
 }
 ALIASES = {
     "planner": "planner",

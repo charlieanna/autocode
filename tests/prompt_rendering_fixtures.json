@@ -695,6 +695,10 @@
     "bytes": 300,
     "sha256": "40606db57cb1dfe868b45b1bcd1fdd17dbfd21e71389703c1fdaf2686e45962f"
   },
+  "scratch/write_wrong_implementations": {
+    "bytes": 305,
+    "sha256": "e70cf7e90c31fb32f0cb061d46a012ee1aeb4f8038737441768619a086128b46"
+  },
   "stuck/builder-failure": {
     "bytes": 5902,
     "sha256": "5dba301b27c774df8e1ce12ce36b178df3868c5cf6cdeb50a30fbc39359c2ad8"

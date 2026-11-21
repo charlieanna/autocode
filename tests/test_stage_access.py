@@ -46,6 +46,10 @@ class GuardsAgreeWithTheRules(unittest.TestCase):
         "write_acceptance_tests": lambda changed: jobs.acceptance_tests_job.apply(
             {}, {}, {"changed_files": changed}, "/repo"
         ),
+        # Changes nothing: the runner applies each variant's patch in scratch copies (#3977).
+        "write_wrong_implementations": lambda changed: jobs.wrong_implementations.apply(
+            {}, {"variants": []}, {"changed_files": changed}, "/repo"
+        ),
     }
 
     def outcome(self, stage, changed):
