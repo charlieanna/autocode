@@ -18,6 +18,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { after, before, test } = require('node:test');
+const { openHistoryRow } = require('./open-history.cjs');
 
 const EXTENSION = path.resolve(__dirname, '../..');
 const REPO = path.resolve(EXTENSION, '..');
@@ -135,8 +136,8 @@ before(async () => {
   // Opening History replaces the chat webview. A Playwright click waits on the
   // old frame after the handler succeeds and can time out even with the Runs
   // list visible. Dispatch the setup action, then wait for the actual run row.
-  await (await chat()).dispatchEvent('#history', 'click');
-  await win.locator('.monaco-list-row', { hasText: 'Bug report from the finance team' }).first().click();
+  const row = win.locator('.monaco-list-row', { hasText: 'Bug report from the finance team' }).first();
+  await openHistoryRow(row, chat, 'Bug report from the finance team');
   await until('the run in the chat', async () => (await chatText()).includes('rejected the saved credentials (HTTP 401)'));
 });
 
@@ -144,6 +145,24 @@ after(async () => {
   // The window as the suite left it, for a failed CI run's artifact.
   await win?.screenshot({ path: path.join(EXTENSION, '.vscode-test', 'host-last.png') }).catch(() => {});
   await app?.close().catch(() => {});
+  // Read-only diagnostic for #4012: identify the stock host, if it survives the editor.
+  // Never stop a service here: this fixture does not yet own a private socket.
+  if (fixture) {
+    const env = { ...process.env, ...fixture.env, HOME: path.join(root, 'home'), AUTOCODE_HOST_READS: log, AUTOCODE_HOST_HOLD: hold };
+    const check = spawnSync(fixture.cli[0], [...fixture.cli.slice(1), 'serve', '--status', '--json'],
+      { cwd: fixture.workspace, env, encoding: 'utf8', timeout: 15_000 });
+    if (check.status === 0) {
+      const host = JSON.parse(check.stdout);
+      let processIdentity = null;
+      if (host.running && Number.isInteger(host.pid)) {
+        const code = 'import json, psutil, sys; p=psutil.Process(int(sys.argv[1])); '
+          + 'print(json.dumps({"pid":p.pid,"started":p.create_time(),"argv0_1":p.cmdline()[:2]}))';
+        const info = spawnSync(fixture.cli[0], ['-c', code, String(host.pid)], { env, encoding: 'utf8', timeout: 15_000 });
+        if (info.status === 0) processIdentity = JSON.parse(info.stdout);
+      }
+      console.log('Stock warm-host diagnostic after editor close:', JSON.stringify({ host, processIdentity }));
+    } else console.log('Stock warm-host diagnostic unavailable:', check.stderr);
+  }
   fs.rmSync(root, { recursive: true, force: true, maxRetries: 3 });
 });
 
