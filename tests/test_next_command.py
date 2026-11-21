@@ -1,6 +1,7 @@
 """Per-pause-class resume advice that never suggests a rejected flag (#301)."""
 
 import unittest
+from unittest.mock import patch
 
 import autocode_recovery_limits as recovery_limits
 import autocode_run_actions as run_actions
@@ -61,10 +62,20 @@ class NextCommandTests(unittest.TestCase):
             with self.subTest(key=key):
                 state = {"status": "PAUSED_REPEATED_FAILURE", key: value, "run_dir": "rd", "workspace": "ws"}
                 self.assertIn("--retry-failed-stage", run_actions.next_command(state, None, "rd", "ws"))
-                self.assertIn(
-                    "--retry-failed-stage", run_view.action(state, run_dir="rd", workspace="ws")["next_command"]
-                )
-                self.assertNotIn("retry_unavailable", run_view.action(state, run_dir="rd", workspace="ws")["needs"])
+                # This synthetic state has no saved frontier. Exercise the projection separately
+                # for a verified frontier and for an unavailable one.
+                with patch.object(run_view.status_observation, "failure_retry", return_value={"allowed": True}):
+                    view = run_view.action(state, run_dir="rd", workspace="ws")
+                self.assertIn("--retry-failed-stage", view["next_command"])
+                self.assertNotIn("retry_unavailable", view["needs"])
+                with patch.object(
+                    run_view.status_observation,
+                    "failure_retry",
+                    return_value={"allowed": False, "reason": "No unchanged repeated failure"},
+                ):
+                    blocked = run_view.action(state, run_dir="rd", workspace="ws")
+                self.assertNotIn("--retry-failed-stage", blocked["next_command"])
+                self.assertIn("No unchanged", blocked["needs"]["retry_unavailable"])
 
     def test_the_advice_and_the_cli_gate_share_one_refusal(self):
         # One predicate for both, so the view cannot name a retry the CLI rejects (#1897).

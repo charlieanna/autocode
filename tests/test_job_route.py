@@ -236,6 +236,172 @@ class JobModelRouteTests(JobHarness):
         self.assertEqual(["gpt-6-sol", "gpt-6-luna"], self.models())
         self.assertEqual(ORIGINAL, (self.workspace / "calc.py").read_text())
 
+    def test_legacy_model_divergence_keeps_its_acceptable_model_question(self):
+        run = self.refused()
+        need = self.stopped(run)
+        checkpoint = run.run_dir / "state.json"
+        state = json.loads(checkpoint.read_text())
+        state["settings"]["roles"]["architect"]["model"] = "gpt-6-old"
+        # Free-form model answers remain possible when no advisory candidates were saved.
+        state["job_failure"]["route"].pop("candidates", None)
+        checkpoint.write_text(json.dumps(state))
+        (self.workspace / "calc.py").write_text(BROKEN)
+        self.assertEqual("recover_source", run.status()["needs"]["kind"])
+        (self.workspace / "calc.py").write_text(ORIGINAL)
+        unrelated = copy.deepcopy(state)
+        unrelated["settings"]["roles"]["builder"]["model"] = "gpt-6-foreign"
+        checkpoint.write_text(json.dumps(unrelated))
+        self.assertEqual("recover_source", run.status()["needs"]["kind"])
+        for mutate in (
+            lambda row: row["settings"]["roles"]["architect"].update(reasoning_effort="foreign"),
+            lambda row: row["settings"].update(transport_identity={"foreign": True}),
+        ):
+            altered = copy.deepcopy(state)
+            mutate(altered)
+            checkpoint.write_text(json.dumps(altered))
+            self.assertEqual("recover_source", run.status()["needs"]["kind"])
+        for key, value in (("id", "route-foreign"), ("category", "not-a-route")):
+            malformed = copy.deepcopy(state)
+            malformed["job_failure"]["route"][key] = value
+            checkpoint.write_text(json.dumps(malformed))
+            self.assertEqual("recover_source", run.status()["needs"]["kind"])
+        unsupported = copy.deepcopy(state)
+        unsupported["job_failure"].update(pause_status="PAUSED_INVALID_OUTPUT", kind="exit")
+        checkpoint.write_text(json.dumps(unsupported))
+        self.assertNotEqual("retry_job", run.status()["needs"]["kind"])
+        foreign = copy.deepcopy(state)
+        foreign["job_failure"]["route"]["route_role"] = "builder"
+        checkpoint.write_text(json.dumps(foreign))
+        self.assertEqual("recover_source", run.status()["needs"]["kind"])
+        checkpoint.write_text(json.dumps(state))
+        view = run.status()
+        self.assertEqual("retry_job", view["needs"]["kind"])
+        self.assertIn("--answer route-architect=MODEL", view["next_command"])
+        self.assertIn("model or reasoning level differs", view["needs"]["recovery_hint"])
+        self.assertNotIn("Restore that exact source", view["needs"]["recovery_hint"])
+        assigned = run.assign_model("architect", "gpt-6-luna")
+        self.assertEqual("gpt-6-luna", assigned["needs"]["route"]["current_model"])
+        self.assertNotEqual(need["job_retry_token"], assigned["needs"]["job_retry_token"])
+
+    def test_explicit_bound_effort_restores_a_drifted_route(self):
+        run = self.refused("quota")
+        need = self.stopped(run)
+        checkpoint = run.run_dir / "state.json"
+        saved = json.loads(checkpoint.read_text())
+        saved["settings"]["roles"]["architect"]["reasoning_effort"] = "high"
+        checkpoint.write_text(json.dumps(saved))
+        proc = self.cli(
+            run, "--answer", "route-architect=gpt-6-sol@medium", "--job-retry-token", need["job_retry_token"]
+        )
+        self.assertEqual(0, proc.returncode, proc.stderr)
+        after = json.loads(checkpoint.read_text())
+        self.assertEqual("medium", after["settings"]["roles"]["architect"]["reasoning_effort"])
+
+    def test_effort_drift_keeps_the_bound_model_and_effort_answer_reachable(self):
+        run = self.refused("quota")
+        original_need = self.stopped(run)
+        checkpoint = run.run_dir / "state.json"
+        saved = json.loads(checkpoint.read_text())
+        bound = saved["job_failure"]["configuration"]["roles"]["architect"]
+        self.assertEqual(("gpt-6-sol", "medium"), (bound["model"], bound["reasoning_effort"]))
+        saved["settings"]["roles"]["architect"]["reasoning_effort"] = "high"
+        saved["job_failure"]["route"].pop("candidates", None)
+        checkpoint.write_text(json.dumps(saved))
+        (self.workspace / "calc.py").write_text(BROKEN)
+        self.assertEqual("recover_source", run.status()["needs"]["kind"])
+        (self.workspace / "calc.py").write_text(ORIGINAL)
+        unrelated = copy.deepcopy(saved)
+        unrelated["settings"]["roles"]["builder"]["model"] = "gpt-6-foreign"
+        checkpoint.write_text(json.dumps(unrelated))
+        self.assertEqual("recover_source", run.status()["needs"]["kind"])
+        checkpoint.write_text(json.dumps(saved))
+        before, calls = checkpoint.read_bytes(), self.calls.read_text()
+        view = run.status()
+        self.assertEqual("retry_job", view["needs"]["kind"])
+        self.assertIn("--answer route-architect=MODEL", view["next_command"])
+        self.assertIn("Review the model and reasoning level", view["recovery"]["what_happened"])
+        self.assertIn("review the model and reasoning level", view["progress"]["needs_you"])
+        self.assertFalse(any(action.get("kind") == "retry_job" for action in view["recovery"]["actions"]))
+        self.assertIn("model or reasoning level differs", view["needs"]["recovery_hint"])
+        self.assertNotIn("Restore that exact source", view["needs"]["recovery_hint"])
+        self.assertEqual(before, checkpoint.read_bytes(), "status must not change the chosen route")
+        self.rejected(
+            run, "--answer", "route-architect=gpt-6-sol@medium", "--job-retry-token", "jr:wrong", message="token"
+        )
+        proc = self.cli(
+            run, "--answer", "route-architect=gpt-6-sol@medium", "--job-retry-token", original_need["job_retry_token"]
+        )
+        self.assertEqual(0, proc.returncode, proc.stderr)
+        after = json.loads(checkpoint.read_text())
+        self.assertEqual("medium", after["settings"]["roles"]["architect"]["reasoning_effort"])
+        self.assertNotEqual(original_need["job_retry_token"], after["job_failure"]["job_retry_token"])
+        self.assertEqual(calls, self.calls.read_text(), "answering must not start a model")
+
+    def test_effort_restoration_never_reoffers_the_refused_model(self):
+        run = self.refused("filter")
+        need = self.stopped(run)
+        checkpoint = run.run_dir / "state.json"
+        saved = json.loads(checkpoint.read_text())
+        saved["settings"]["roles"]["architect"]["reasoning_effort"] = "high"
+        saved["job_failure"]["route"].pop("candidates", None)
+        checkpoint.write_text(json.dumps(saved))
+        view = run.status()
+        self.assertEqual("retry_job", view["needs"]["kind"])
+        self.assertIn("--answer route-architect=MODEL", view["next_command"])
+        self.rejected(
+            run,
+            "--answer",
+            "route-architect=gpt-6-sol@medium",
+            "--job-retry-token",
+            need["job_retry_token"],
+            message="refused gpt-6-sol",
+        )
+        calls = self.calls.read_text()
+        proc = self.cli(
+            run, "--answer", "route-architect=gpt-6-luna@medium", "--job-retry-token", need["job_retry_token"]
+        )
+        self.assertEqual(0, proc.returncode, proc.stderr)
+        after = json.loads(checkpoint.read_text())
+        self.assertEqual("gpt-6-luna", after["settings"]["roles"]["architect"]["model"])
+        self.assertEqual("medium", after["settings"]["roles"]["architect"]["reasoning_effort"])
+        self.assertEqual(calls, self.calls.read_text())
+
+    def test_pending_intervention_prevents_effort_restoration_offer_and_answer(self):
+        run = self.refused("quota")
+        need = self.stopped(run)
+        checkpoint = run.run_dir / "state.json"
+        saved = json.loads(checkpoint.read_text())
+        saved["settings"]["roles"]["architect"]["reasoning_effort"] = "high"
+        saved["job_failure"]["route"].pop("candidates", None)
+        checkpoint.write_text(json.dumps(saved))
+        interventions.submit(self.workspace, run.run_dir, request_id="pause-effort", kind="pause", text="")
+        view = run.status()
+        self.assertNotIn("--answer route-architect", view.get("next_command") or "")
+        self.rejected(
+            run,
+            "--answer",
+            "route-architect=gpt-6-sol@medium",
+            "--job-retry-token",
+            need["job_retry_token"],
+            message="Apply the queued intervention before answering",
+        )
+
+    def test_effort_probe_does_not_bypass_opencode_model_listing(self):
+        run = self.refused("quota")
+        self.stopped(run)
+        saved = json.loads((run.run_dir / "state.json").read_text())
+        saved["settings"]["roles"]["architect"]["reasoning_effort"] = "high"
+        saved["job_failure"]["route"].pop("candidates", None)
+        with mock.patch.object(quota_route, "engine", return_value="opencode"):
+            self.assertFalse(
+                job_failure.retry_admission.route_is_repairable(
+                    saved,
+                    cross_check=runner.dispatch.enforce_cross_model_verification,
+                    failure_status=runner.support.failure_status,
+                    configured_tool=True,
+                )
+            )
+
     def test_a_model_flag_at_a_stopped_job_is_refused_with_the_job_advice(self):
         run = self.refused()
         need = self.stopped(run)
@@ -469,7 +635,10 @@ class JobModelRouteTests(JobHarness):
         self.assertEqual("architect", held["needs"]["route"]["role"])
 
         (self.workspace / "calc.py").write_text(BROKEN)
-        with self.assertRaisesRegex(TaskRunError, "Source changed"):
+        changed = run.status()
+        self.assertEqual("recover_source", changed["needs"]["kind"])
+        self.assertIsNone(changed["next_command"])
+        with self.assertRaisesRegex(TaskRunError, "needs recover_source"):
             run.assign_model("architect", "gpt-6-luna")
         (self.workspace / "calc.py").write_text(ORIGINAL)
         assigned = run.assign_model("architect", "gpt-6-luna")
@@ -835,6 +1004,7 @@ class JobWithoutModelQuestionTests(unittest.TestCase):
             self.answer(other, runner),
         )
 
+    @mock.patch.object(run_view.status_observation, "job_retry", new=lambda *_: {"allowed": True})
     def test_an_investigator_without_bound_attempt_evidence_keeps_only_its_exact_retry(self):
         state = unrouted_stop()
         view = run_view.view(state)
@@ -860,6 +1030,7 @@ class JobWithoutModelQuestionTests(unittest.TestCase):
         self.assertIn("once the quota resets, retry it unchanged with", self.answer(quota))
         self.assertIn("Retry it once the quota resets.", run_view.view(quota)["recovery"]["what_happened"])
 
+    @mock.patch.object(run_view.status_observation, "job_retry", new=lambda *_: {"allowed": True})
     def test_a_refusal_saved_before_jobs_took_a_model_says_so(self):
         state = unrouted_stop("check_design", pause_status=None)
         self.assertIn(

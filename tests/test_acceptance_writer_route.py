@@ -5,6 +5,7 @@ import json
 import subprocess
 import sys
 import unittest
+from unittest.mock import patch
 
 import autocode_job_failure as job_failure
 import autocode_quota_route as quota_route
@@ -40,6 +41,7 @@ class AcceptanceWriterProjectionTests(unittest.TestCase):
         )
         return state
 
+    @patch.object(run_view.status_observation, "job_retry", new=lambda *_: {"allowed": True})
     def test_saved_timeout_projects_exact_writer_question_without_mutating_evidence(self):
         state = self.state()
         before = copy.deepcopy(state)
@@ -79,6 +81,7 @@ class AcceptanceWriterProjectionTests(unittest.TestCase):
         state["job_failure"].update(kind="exit", pause_status="PAUSED_JOB_FAILURE")
         self.assertIsNone(quota_route.job_question(state), "do not invent a timeout from prose")
 
+    @patch.object(run_view.status_observation, "job_retry", new=lambda *_: {"allowed": True})
     def test_consumed_pause_preserves_the_authorized_writer_route_without_relaunching(self):
         state = self.state()
         failure = state["job_failure"]
