@@ -122,8 +122,28 @@ def intact(receipt, *, root=None):
             and output.is_file()
             and util.file_hash(output) == receipt["output_sha256"]
             and (receipt.get("results_format") != "junit" or junit_proof.report_intact(receipt, junit, root=root))
+            and ("results_capture" not in receipt or results_capture_intact(receipt, root=root))
         )
     except (OSError, KeyError, TypeError):
+        return False
+
+
+def results_capture_intact(receipt, *, root=None):
+    """Authenticate the runner's retained per-test output before reading its details."""
+    try:
+        capture = receipt["results_capture"]
+        path = Path(capture["path"])
+        output = Path(receipt["output"])
+        boundary = Path(root) if root is not None else output.parent
+        return bool(
+            path.parent == output.parent
+            and command_receipt.owned_relative(path, boundary)
+            and not path.is_symlink()
+            and path.is_file()
+            and path.stat().st_nlink == 1
+            and util.file_hash(path) == capture["sha256"]
+        )
+    except (OSError, KeyError, TypeError, ValueError):
         return False
 
 

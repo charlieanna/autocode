@@ -1152,6 +1152,13 @@ def run_suite(framework, command, tree, evidence_dir, label, *, timeout, native_
         # The command was told to write its per-test results here; a runner that never started writes none
         # (autocode_check_outcome RUNNER_NOT_STARTED). A runner that parses its own output names no file.
         receipt["results_file_written"] = xml.is_file()
+        if native_execution is None and receipt["results_file_written"]:
+            # Keep the runner's own per-test details available for later authenticated comparisons.
+            # A report that is not an ordinary sibling file cannot authorize such a comparison.
+            receipt["results_capture"] = {
+                "path": str(xml),
+                "sha256": util.file_hash(xml) if not xml.is_symlink() and xml.stat().st_nlink == 1 else None,
+            }
     if native_execution is not None:
         native_execution.retain_results(receipt)
     return receipt

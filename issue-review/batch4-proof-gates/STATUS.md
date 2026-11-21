@@ -18,12 +18,14 @@ what was independently observed during continuation.
   Pytest records JUnit results, while other runners have their own reporters.
   Their per-test failure details need a shared representation tied to the
   runner-owned capture. Missing or incomplete details must not count as equal.
-- The reported #3944 replay uses pytest. The normal runner currently retains
-  its JUnit XML but does not record its hash; `results_file_written` says only
-  that a file was written. Explicit JUnit mode has separate authenticated
-  capture. A common fix must bind pytest's result data too, before it can
-  rely on per-test details from that data. Old receipts without a trusted
-  capture must not be accepted as identical-failure evidence.
+- The reported #3944 replay uses pytest. Previously its runner retained JUnit
+  XML without a hash; `results_file_written` said only that a file was
+  written. The runner now pins ordinary per-test result files in the receipt
+  and the shared integrity check rejects tampering, removal or symlinks. A
+  new real-pytest regression fails on master `f1b67a7b0` and passes here.
+  This is a prerequisite only: replay still needs a shared per-test provenance
+  comparison, and old receipts without a trusted capture must not be accepted
+  as identical-failure evidence. Explicit JUnit mode has separate capture.
 - CI's unittest signature deliberately discards appended assertion messages;
   the same assertion with `database down` versus `authorization failed`
   therefore yields the same CI signature. Those are not demonstrated identical
