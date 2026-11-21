@@ -219,7 +219,7 @@ def prepare(
     )
     try:
         if review_source is not None:
-            review_proof.verify_source(tree, review_source)
+            _source_access(review_proof.verify_source, tree, review_source)
         copied = _source_access(source_snapshot.copied_files, tree, expected_files)
         visible = _source_access(source_snapshot.inventory, tree, paths=source_paths)
         after = _source_access(source_snapshot.snapshot, workspace, paths=source_paths)
