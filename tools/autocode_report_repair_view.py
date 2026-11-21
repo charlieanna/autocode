@@ -100,7 +100,15 @@ def project(state: RunState, *, stale=False, current_revision=None, source_unava
         or (current_revision is not None and source != current_revision)
         or (_object(pending.get("latest_rejected")).get("source_revision", source) != source)
     )
-    freshness = "unavailable" if source is None or source_unavailable else "stale" if changed else "recorded"
+    freshness = (
+        "unavailable"
+        if source is None or source_unavailable
+        else "stale"
+        if changed
+        else "unavailable"
+        if current_revision is None
+        else "recorded"
+    )
     active = _object(state.get("active_stage"))
     return {
         "stage": stage,

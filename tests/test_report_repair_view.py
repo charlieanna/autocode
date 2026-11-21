@@ -51,7 +51,7 @@ class ReportRepairViewTests(unittest.TestCase):
     def test_running_repair_exposes_both_categories_without_authorizing_an_action(self):
         state = self.state()
         before = copy.deepcopy(state)
-        shown = run_view.view(state)
+        shown = run_view.view(state, report_repair_revision="a" * 64)
         diagnostic = shown["report_repair"]
         self.assertEqual("tester", diagnostic["stage"])
         self.assertTrue(diagnostic["active"])
@@ -112,13 +112,18 @@ class ReportRepairViewTests(unittest.TestCase):
         state["current_task"] = {"id": "M1", "source_revision": "a" * 64}
         state["pending_report_repair"].update(contract_hash="b" * 64, latest_rejected={"source_revision": "a" * 64})
         state["pending_report_repair"]["original"]["task_id"] = "M1"
-        self.assertEqual("recorded", repair_view.project(state)["freshness"])
-        self.assertTrue(repair_view.project(state)["active"])
+        self.assertEqual("recorded", repair_view.project(state, current_revision="a" * 64)["freshness"])
+        self.assertTrue(repair_view.project(state, current_revision="a" * 64)["active"])
+
+    def test_no_current_observation_does_not_claim_a_repair_is_active(self):
+        shown = run_view.view(self.state())["report_repair"]
+        self.assertEqual("unavailable", shown["freshness"])
+        self.assertFalse(shown["active"])
 
     def test_assignment_source_is_not_the_report_candidate(self):
         state = self.state()
         state["current_task"] = {"source_revision": "b" * 64}
-        shown = repair_view.project(state)
+        shown = repair_view.project(state, current_revision="a" * 64)
         self.assertEqual("recorded", shown["freshness"])
         self.assertTrue(shown["active"])
 
