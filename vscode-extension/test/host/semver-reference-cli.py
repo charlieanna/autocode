@@ -12,9 +12,6 @@ import psutil
 
 CLI = Path(__file__).resolve().parents[3] / "tools/autocode.py"
 argv = sys.argv[1:]
-if "--status" in argv:
-    os.execv(sys.executable, [sys.executable, str(CLI), *argv])
-
 owners = Path(os.environ["AUTOCODE_SEMVER_OWNERS"])
 
 
@@ -28,6 +25,8 @@ def record_owner(process):
 
 
 record_owner(psutil.Process())
+if "--status" in argv:
+    os.execv(sys.executable, [sys.executable, str(CLI), *argv])
 child = subprocess.Popen([sys.executable, str(CLI), *argv], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 with contextlib.suppress(psutil.NoSuchProcess):
     record_owner(psutil.Process(child.pid))

@@ -45,6 +45,7 @@ test('real editor drives the scoped SemVer reference repair', {timeout: 1_200_00
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'autocode-semver-reference-host-'));
   const owners = path.join(root, 'owned-processes.jsonl');
   const actions = path.join(root, 'editor-actions.jsonl');
+  const readerLog = path.join(root, 'readers.log'); fs.writeFileSync(readerLog, '');
   const tempDir = path.join(root, 'tmp'); fs.mkdirSync(tempDir);
   const env = noCredentials(privateHostEnvironment({...process.env, TMPDIR: tempDir, AUTOCODE_SEMVER_OWNERS: owners, AUTOCODE_SEMVER_ACTIONS: actions}, path.join(root, 'run')));
   let fixture, app, win, editorPid, editorStarted, passed = false, failure, ownsWarmHost = false, phase = 'preparing fixture';
@@ -109,11 +110,21 @@ test('real editor drives the scoped SemVer reference repair', {timeout: 1_200_00
     await frame.locator('#take-action').click();
     phase = 'observing genuine reference rejection and test repair';
     const transitionsPath = path.join(root, 'run/writer-transitions.jsonl');
-    const repair = await until('the reference-repair handoff', () => {
-      if (!fs.existsSync(transitionsPath)) return null;
-      return fs.readFileSync(transitionsPath, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse)
-        .find((row) => row.file === 'broad-diagnostics-compatible.py' && row.feedback_seen);
+    const handoff = await until('the reference-repair handoff', () => {
+      if (fs.existsSync(transitionsPath)) {
+        const transition = fs.readFileSync(transitionsPath, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse)
+          .find((row) => row.file === 'broad-diagnostics-compatible.py' && row.feedback_seen);
+        if (transition) return {transition};
+      }
+      const view = status();
+      const kind = view.needs?.kind;
+      if (view.done || view.status?.startsWith('PAUSED_') || (kind && !['continue', 'approve_plan'].includes(kind))) {
+        return {unexpected: {status: view.status, needs: kind, reason: view.stop_reason}};
+      }
+      return null;
     }, 720_000);
+    assert.equal(handoff.unexpected, undefined, `run stopped before reference repair: ${JSON.stringify(handoff.unexpected)}`);
+    const repair = handoff.transition;
     assert.match(JSON.stringify(repair.runner_feedback), /original-reference runner classified/);
     assert.match(JSON.stringify(repair.runner_feedback), /test_ac6_package_exports/);
     const feedback = Array.isArray(repair.runner_feedback) ? repair.runner_feedback.join('\n') : String(repair.runner_feedback);
@@ -191,6 +202,15 @@ test('real editor drives the scoped SemVer reference repair', {timeout: 1_200_00
         previous = snapshot; assert.ok(pass < 3, 'owned process registry stopped changing');
       }
     }],
+        ['check unrecorded fixture readers', async () => {
+          if (!ownsWarmHost) return;
+          await until('no unrecorded Python process tied to the owned fixture', () => {
+            const found = spawnSync(python(), [path.join(REPO, 'tests/host_reader_cleanup.py'), readerLog, root],
+              {cwd: REPO, env, encoding: 'utf8', timeout: 15_000});
+            assert.equal(found.status, 0, found.stderr);
+            return JSON.parse(found.stdout).running.length === 0;
+          }, 15_000);
+        }],
       ], () => fs.rmSync(root, {recursive: true, force: true, maxRetries: 3}), failure || (!passed ? new Error('editor test did not complete') : undefined));
     } catch (error) {
       console.error(`Preserved SemVer editor fixture at ${root}`);
