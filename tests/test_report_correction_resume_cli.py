@@ -1005,7 +1005,12 @@ class ReportCorrectionResumeCLI(unittest.TestCase):
     def test_ac4_mismatched_pins_do_not_reuse_old_report(self):
         state = self.validator_update(self.exhausted())
         events = Path(state["pending_report_repair"]["original"]["events"])
-        events.write_bytes(events.read_bytes() + b"\n")
+        original_mode = events.stat().st_mode
+        events.chmod(original_mode | 0o200)
+        try:
+            events.write_bytes(events.read_bytes() + b"\n")
+        finally:
+            events.chmod(original_mode)
         self.valid.write_text("the fresh report is valid")
         rows, _ = self.resume()
         full = [index for index, row in enumerate(rows) if row == {"stage": "tester", "report_repair": False}]
