@@ -213,7 +213,10 @@ report-retry frontier, serial Builder lane and approval checks, and repeated-fai
 frontier are now shared with their executors. A refused serial Builder retry also
 removes the previously advertised `next_command`.
 
-- The stopped parallel batch member's `retry_builder` admission remains to be shared.
+Parallel Builder member cards also use the executor's approval, live-worker,
+saved-result and route admission. If a previously selected group is no longer
+admissible, the default next command is withheld while independently admissible
+member cards remain available.
 - The resume at a `PAUSED_REPEATED_FAILURE` with `retry_unavailable` ends in an operational block.
 - The newer-process `supports_stop_now` stamp (#3869, above).
 - Client documentation outside this run's permitted paths: the `docs/task-run.md` resume-need row
