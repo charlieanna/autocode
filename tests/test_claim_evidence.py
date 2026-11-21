@@ -10,6 +10,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -77,10 +78,17 @@ def write_capture(workspace, name, command, exit_code, **extra):
 
 def attest_capture(path):
     events = path.parent.parent / "claim-events.jsonl"
+    receipt = json.loads(path.read_text())
+    command = shlex.join(
+        [sys.executable, str(ROOT / "tools/autocode.py"), "capture", "--output", str(path), "--", *receipt["command"]]
+    )
     with events.open("a") as handle:
         handle.write(
             json.dumps(
-                {"type": "item.completed", "item": {"type": "command_execution", "aggregated_output": path.read_text()}}
+                {
+                    "type": "item.completed",
+                    "item": {"type": "command_execution", "command": command, "aggregated_output": path.read_text()},
+                }
             )
             + "\n"
         )
@@ -356,11 +364,29 @@ class CompareBaseCaptureTests(unittest.TestCase):
         result = self.capture(root, ".autocode/evidence/cmp.json")
         self.assertEqual(0, result.returncode, result.stderr)
         events = root / ".autocode/events.jsonl"
+        command = shlex.join(
+            [
+                sys.executable,
+                str(ROOT / "tools/autocode.py"),
+                "capture",
+                "--compare-base",
+                "HEAD",
+                "--output",
+                ".autocode/evidence/cmp.json",
+                "--",
+                sys.executable,
+                "check.py",
+            ]
+        )
         events.write_text(
             json.dumps(
                 {
                     "type": "item.completed",
-                    "item": {"type": "command_execution", "aggregated_output": result.stdout + result.stderr},
+                    "item": {
+                        "type": "command_execution",
+                        "command": command,
+                        "aggregated_output": result.stdout + result.stderr,
+                    },
                 }
             )
             + "\n"

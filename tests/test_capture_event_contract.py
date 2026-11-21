@@ -18,6 +18,94 @@ from providers.command import CommandProvider
 
 
 class CaptureEventContractTests(unittest.TestCase):
+    def test_reprinted_receipt_and_inert_capture_tokens_never_authenticate(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            path = root / ".autocode/evidence/check.json"
+            path.parent.mkdir(parents=True)
+            raw = path.with_suffix(".log")
+            raw.write_text("ok\n")
+            receipt = {
+                "command": ["python3", "-c", "print('ok')"],
+                "exit_code": 0,
+                "full_output": str(raw),
+                "full_output_sha256": hashlib.sha256(raw.read_bytes()).hexdigest(),
+            }
+            path.write_text(json.dumps(receipt))
+            events = root / "events.jsonl"
+            check = {"command": shlex.join(receipt["command"]), "exit_code": 0, "evidence_ref": str(path)}
+            direct = shlex.join(
+                [
+                    sys.executable,
+                    str(Path(support.__file__).parent / "autocode.py"),
+                    "capture",
+                    "--output",
+                    str(path),
+                    "--",
+                    *receipt["command"],
+                ]
+            )
+            for kind in ("command_execution", "tool_output"):
+                for command in (
+                    f"cat {shlex.quote(str(path))}",
+                    f"printf '%s' fake; : capture --output {shlex.quote(str(path))}",
+                    f"echo 'capture --output {path}'",
+                    f"printf '%s' fake # {direct}",
+                    f"{direct}; cat {shlex.quote(str(path))}",
+                    f"{direct} | cat {shlex.quote(str(path))}",
+                    f"{direct} | grep --regexp='.*' {shlex.quote(str(path))}",
+                    f"{direct} | grep -e'.*' {shlex.quote(str(path))}",
+                    f"{direct} | /tmp/grep '.*'",
+                    shlex.join(["/tmp/zsh", "-lc", direct]),
+                    f"./autocode capture --output {shlex.quote(str(path))} -- {shlex.join(receipt['command'])}",
+                    f"autocode capture --output {shlex.quote(str(path))} -- {shlex.join(receipt['command'])}",
+                    f"./python {shlex.quote(str(Path(support.__file__).parent / 'autocode.py'))} capture --output {shlex.quote(str(path))} -- {shlex.join(receipt['command'])}",
+                    f"python {shlex.quote(str(Path(support.__file__).parent / 'autocode.py'))} capture --output {shlex.quote(str(path))} -- {shlex.join(receipt['command'])}",
+                    f"/tmp/python {shlex.quote(str(Path(support.__file__).parent / 'autocode.py'))} capture --output {shlex.quote(str(path))} -- {shlex.join(receipt['command'])}",
+                    f"{shlex.quote(sys.executable)} /tmp/autocode.py capture --output {shlex.quote(str(path))} -- {shlex.join(receipt['command'])}",
+                    f"PATH=/tmp {direct}",
+                    f"$(printf echo) {direct}",
+                ):
+                    with self.subTest(kind=kind, command=command):
+                        events.write_text(
+                            json.dumps(
+                                {
+                                    "type": "item.completed",
+                                    "item": {
+                                        "type": kind,
+                                        "command": command,
+                                        "exit_code": 0,
+                                        "aggregated_output": path.read_text(),
+                                    },
+                                }
+                            )
+                            + "\n"
+                        )
+                        with self.assertRaisesRegex(ValueError, "No independently executed Validator tool event"):
+                            support.verify_checks([dict(check)], root, events)
+            for command in (
+                direct,
+                shlex.join(["/bin/zsh", "-lc", direct]),
+                shlex.join(["/bin/zsh", "-l", "-c", direct]),
+                f"cd {shlex.quote(str(root))} && {direct}",
+            ):
+                with self.subTest(command=command):
+                    events.write_text(
+                        json.dumps(
+                            {
+                                "type": "item.completed",
+                                "item": {
+                                    "type": "command_execution",
+                                    "command": command,
+                                    "exit_code": 0,
+                                    "aggregated_output": path.read_text(),
+                                },
+                            }
+                        )
+                        + "\n"
+                    )
+                    support.verify_checks([dict(check)], root, events)
+
     def test_large_capture_authenticates_from_either_end_of_native_display(self):
         with tempfile.TemporaryDirectory() as temporary:
             workspace = Path(temporary).resolve()
@@ -195,8 +283,17 @@ class CaptureEventContractTests(unittest.TestCase):
                             "state": {
                                 "status": "completed",
                                 "input": {
-                                    "command": "autocode capture --output .autocode/evidence/check.json -- "
-                                    + shlex.join(argv)
+                                    "command": shlex.join(
+                                        [
+                                            sys.executable,
+                                            str(Path(support.__file__).parent / "autocode.py"),
+                                            "capture",
+                                            "--output",
+                                            ".autocode/evidence/check.json",
+                                            "--",
+                                            *argv,
+                                        ]
+                                    )
                                 },
                                 "metadata": {"exit": 0},
                                 "output": output,
@@ -223,12 +320,12 @@ class CaptureEventContractTests(unittest.TestCase):
         capture = shlex.join([sys.executable, str(Path(support.__file__).parent / "autocode.py"), "capture"])
         argv = [sys.executable, "-c", "print('ok')"]
         filters = {
-            "tail": "| tail -c 200",
-            "merged-tail": "2>&1 | tail -c 200",
-            "grep": "| grep -o '\"exit_code\": [0-9]*'",
+            "tail": "| /usr/bin/tail -c 200",
+            "merged-tail": "2>&1 | /usr/bin/tail -c 200",
+            "grep": "| /usr/bin/grep -o '\"exit_code\": [0-9]*'",
             "discarded": ">/dev/null",
             # A merged line filter (live run 2026-11-02): the attestation line names "exit_code", so it is kept.
-            "merged-grep": "2>&1 | grep -E '\"exit_code\"|Tests ' | cut -c1-300",
+            "merged-grep": "2>&1 | /usr/bin/grep -E '\"exit_code\"|Tests ' | /usr/bin/cut -c1-300",
         }
         with tempfile.TemporaryDirectory() as temporary:
             workspace = Path(temporary).resolve()
