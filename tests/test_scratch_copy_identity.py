@@ -248,6 +248,33 @@ class ScratchCopyIdentityTests(unittest.TestCase):
                 self.run_copy()
         self.assertFalse(self.marker.exists())
 
+    def test_pinned_command_cannot_transiently_retarget_dependency_and_restore_it(self):
+        with (self.workspace / ".gitignore").open("a") as stream:
+            stream.write(".venv/\n")
+        environment = self.workspace / ".venv"
+        environment.mkdir()
+        (environment / "marker").write_text("authorized")
+        foreign = Path(self.project.temp.name) / "foreign"
+        foreign.mkdir()
+        (foreign / "marker").write_text("foreign")
+        pinned = source_snapshot.snapshot(self.workspace)["revision"]
+        script = (
+            "from pathlib import Path; p=Path('.venv'); old=p.readlink(); "
+            f"p.unlink(); p.symlink_to({str(foreign)!r}, target_is_directory=True); "
+            "print((p/'marker').read_text()); p.unlink(); p.symlink_to(old, target_is_directory=True)"
+        )
+        try:
+            receipt = verify.scratch_run(
+                self.workspace,
+                self.project.evidence,
+                command=shlex.join([sys.executable, "-c", script]),
+                timeout=30,
+                expected_source_revision=pinned,
+            )
+        except util.Paused:
+            return
+        self.assertNotEqual(0, receipt.get("exit_code"), "A pinned command read foreign dependency content")
+
     def test_pinned_copy_keeps_the_authorized_virtualenv_link(self):
         with (self.workspace / ".gitignore").open("a") as stream:
             stream.write(".venv/\n")

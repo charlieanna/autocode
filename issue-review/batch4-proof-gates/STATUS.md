@@ -11,7 +11,10 @@ The less-restrictive sticky-bit sealed copy protects existing source but permits
 new outputs. A real macOS Seatbelt control created and imported a new module
 under that boundary, so it cannot alone authenticate all executing source or
 the origin of an import. Its output is retained at
-`/var/folders/n2/dv1vdhq91fj3dzzffg704bjh0000gn/T/autocode-sealed-origin-control-ndj7cjrd/result.txt`.
+`/private/var/folders/n2/dv1vdhq91fj3dzzffg704bjh0000gn/T/autocode-sealed-origin-fixed-6cozpklc/result.json`.
+An earlier exploratory sandbox control used a noncanonical `/var` path and
+must not be treated as evidence; the corrected control independently confirms
+both the existing-file denial and creation/import of a new module.
 The pinned replay comparison also formerly normalized a pytest `self` repr
 based on its shape. Actual pytest confirmed user-defined `__repr__` can emit
 that shape with meaningful different values. The regression failed on the
@@ -23,6 +26,18 @@ Real pytest also permits a multiline user repr to contain a traceback-looking
 path normalization; their failure details now stay byte-exact rather than
 assuming such a line came from the runner. The independently parsed unittest
 traceback normalization remains restricted to frames before the exception.
+
+**Unfixed pinned dependency boundary:** the new transient-retarget regression
+fails on current master `6b803f17e` and this branch: a command can replace its
+generated `.venv` link, read a foreign dependency, and restore the original
+link before the before/after guard checks it. The test is deliberately kept
+failing in this draft until an owned execution boundary prevents or observes
+the whole change. A canonical macOS Seatbelt prototype denied link replacement,
+unlink, rename, chmod and parent rename while allowing normal sibling outputs
+and writes inside the dependency target. It does not authenticate dependency
+contents, guard unrelated host processes, or establish Linux support. Its
+results are at `/private/var/folders/n2/dv1vdhq91fj3dzzffg704bjh0000gn/T/autocode-dependency-attacks-_jwsg_zt/result.json`.
+Do not treat the prototype as a product fix or claim in-flight identity.
 The original handoff file was absent from this checkout, so this status records
 what was independently observed during continuation.
 
