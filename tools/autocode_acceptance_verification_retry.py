@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import copy
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -158,11 +158,12 @@ def _diagnosed_retry(state: RunState, pending):
 def _replacement_plan(state: RunState, pending):
     """A distinct, later approved plan can retire a previous plan's retained report."""
     current = state.get("goal_contract") or {}
+    task = state.get("current_task")
     record = pending.get("record") or {}
     if (
         not identity.approved(state)
-        or not isinstance(state.get("current_task"), dict)
-        or not state["current_task"].get("id")
+        or not isinstance(task, dict)
+        or not task.get("id")
         or any(state.get(key) for key in ("pending_questions", "user_request"))
         or record.get("stage") != acceptance.STAGE
         or not record.get("contract_hash")
@@ -212,7 +213,7 @@ def dispatch(runtime, state: RunState, stage, workspace, run_dir, *, apply):
                 {"kind": "acceptance_report_superseded", "actor": "runner", "at": util.now(), **replacement}
             )
             runtime.write_json(Path(run_dir) / "state.json", candidate)
-            state.clear()
+            cast(dict, state).clear()
             state.update(candidate)
             return None
         attempts = pending.get("attempts")
