@@ -37,6 +37,18 @@ class StatusObservationTests(unittest.TestCase):
         with patch.object(observation, "_observe", return_value={"revision": "fresh", "stale": True}):
             self.assertEqual({"revision": "fresh", "stale": True}, observation.report_repair({}, "/tmp/project"))
 
+    def test_uncertain_cleanup_blocks_later_observations_in_the_same_projection(self):
+        run = Mock(side_effect=observation.captured.ProcessError("cleanup unconfirmed"))
+
+        @observation.budgeted
+        def project():
+            self.assertIsNone(observation.source_snapshot({}, "/tmp/project"))
+            self.assertIsNone(observation.report_repair({}, "/tmp/project"))
+
+        with patch.object(observation.captured, "run", run):
+            project()
+        self.assertEqual(1, run.call_count)
+
     def test_evidence_worker_rereads_old_checkpoint_with_saved_name_migration(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

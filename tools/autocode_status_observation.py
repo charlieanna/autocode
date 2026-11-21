@@ -33,6 +33,7 @@ except ImportError:
 # cleanup allowance and the rest of the status projection.
 TIMEOUT = 15.0
 _deadline = contextvars.ContextVar("autocode_status_observation_deadline", default=None)
+_poisoned = contextvars.ContextVar("autocode_status_observation_uncertain_cleanup", default=False)
 
 
 def budgeted(function):
@@ -43,9 +44,11 @@ def budgeted(function):
         if _deadline.get() is not None:
             return function(*args, **kwargs)
         token = _deadline.set(time.monotonic() + TIMEOUT)
+        cleanup_token = _poisoned.set(False)
         try:
             return function(*args, **kwargs)
         finally:
+            _poisoned.reset(cleanup_token)
             _deadline.reset(token)
 
     return wrapper
@@ -54,17 +57,28 @@ def budgeted(function):
 def _observe(operation, payload, *, timeout=None):
     """Collect a worker result only after the owned process family is gone."""
     deadline = _deadline.get()
+    if _poisoned.get():
+        raise captured.ProcessError("An earlier status observation has uncertain process cleanup")
     remaining = TIMEOUT if deadline is None else deadline - time.monotonic()
     if timeout is not None:
         remaining = min(remaining, timeout)
     if remaining <= 0:
         raise subprocess.TimeoutExpired("status-worker", TIMEOUT)
-    result = captured.run(
-        [sys.executable, str(Path(__file__).with_name("autocode_status_observation_worker.py").resolve()), "--worker"],
-        input=json.dumps({"operation": operation, "payload": payload}),
-        timeout=remaining,
-        check=True,
-    )
+    try:
+        result = captured.run(
+            [
+                sys.executable,
+                str(Path(__file__).with_name("autocode_status_observation_worker.py").resolve()),
+                "--worker",
+            ],
+            input=json.dumps({"operation": operation, "payload": payload}),
+            timeout=remaining,
+            check=True,
+        )
+    except captured.ProcessError:
+        if deadline is not None:
+            _poisoned.set(True)
+        raise
     value = json.loads(result.stdout)
     if not isinstance(value, dict) or set(value) != {"result"}:
         raise ValueError("Invalid status observation")
