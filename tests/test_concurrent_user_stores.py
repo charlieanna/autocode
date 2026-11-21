@@ -126,6 +126,105 @@ class ConcurrentUserStoreTests(unittest.TestCase):
         self.assertNotIn("tester", saved.get("claude", {}))
         self.assertEqual({"model": "opencode/plain", "effort": None}, saved.get("opencode", {}).get("task_planner"))
 
+    def saved_meanwhile(self, other):
+        """Run ``other`` (another window's save) once, after the caller's discovery and before its locked write."""
+        real_lock, ran = util.store_lock, []
+
+        def lock(path):
+            if not ran:
+                ran.append(True)
+                other()
+            return real_lock(path)
+
+        return mock.patch.object(util, "store_lock", lock)
+
+    def test_a_choice_is_checked_against_the_models_another_window_allowed_meanwhile(self):
+        narrowed = ["zai-coding-plan/glm-5.3", "openai/gpt-6-sol"]
+        with self.saved_meanwhile(lambda: choices.allow("opencode", narrowed, **self.kw)):
+            with self.assertRaisesRegex(ValueError, "does not offer opencode/plain"):
+                choices.choose("opencode", {"task_planner": ("opencode/plain", choices.OWN_DEFAULT)}, **self.kw)
+        self.assertEqual(tuple(narrowed), choices.allowed("opencode", self.stages))
+        self.assertNotIn("task_planner", choices.load(self.stages).get("opencode", {}))
+
+    def test_a_choice_is_checked_against_the_stages_another_window_saved_meanwhile(self):
+        # A Sonnet Builder may run beside an Opus Tester, but not beside the Sonnet Tester saved meanwhile.
+        choices.save({"claude": {"tester": {"model": OPUS, "effort": "high"}}}, self.stages)
+        with self.saved_meanwhile(lambda: choices.choose("claude", {"tester": (SONNET, "high")}, **self.kw)):
+            with self.assertRaises(choices.CrossCheckError):
+                choices.choose("claude", {"builder": (SONNET, "high")}, **self.kw)
+        self.assertEqual({"claude": {"tester": {"model": SONNET, "effort": "high"}}}, choices.load(self.stages))
+
+    def test_a_saved_choice_returns_its_view_without_another_discovery(self):
+        calls = []
+
+        def discover(provider, workspace):
+            calls.append(provider)
+            return LISTING
+
+        kw = {**self.kw, "discover": discover}
+        allowed = ["zai-coding-plan/glm-5.3", "openai/gpt-6-sol", "opencode/plain"]
+        with self.saved_meanwhile(lambda: choices.allow("opencode", allowed, **kw)):
+            shown = choices.choose("opencode", {"task_planner": ("opencode/plain", choices.OWN_DEFAULT)}, **kw)
+        self.assertEqual(2, len(calls), "one discovery for the choice, one for the other window's list")
+        # The view shows the list saved meanwhile, read under the lock, not the one discovery saw.
+        self.assertEqual(allowed, shown["models"]["allowed"])
+        self.assertEqual(set(allowed), {option["model"] for option in shown["models"]["options"]})
+        [planner] = [stage for stage in shown["stages"] if stage["id"] == "task_planner"]
+        self.assertEqual({"model": "opencode/plain", "effort": None}, planner["chosen"])
+        self.assertEqual(allowed, [option["model"] for option in planner["options"]])
+
+    def test_resetting_a_backend_repairs_an_unreadable_file(self):
+        self.stages.parent.mkdir(parents=True)
+        self.stages.write_text("[claude\nbuilder = ", encoding="utf-8")
+        with self.assertRaises(ValueError):
+            choices.reset("claude", "builder", **self.kw)  # one stage's reset still refuses to touch it
+        choices.reset("claude", **self.kw)
+        self.assertEqual({}, choices.load(self.stages))
+        self.assertNotIn("[claude", self.stages.read_text(encoding="utf-8"))
+
+    def test_resetting_a_backends_last_stage_removes_its_table(self):
+        choices.save(
+            {
+                "claude": {"tester": {"model": OPUS, "effort": "high"}},
+                "opencode": {"task_planner": {"model": "opencode/plain", "effort": None}},
+            },
+            self.stages,
+        )
+        choices.reset("claude", "tester", **self.kw)
+        text = self.stages.read_text(encoding="utf-8")
+        self.assertNotIn("[claude]", text)
+        self.assertIn("[opencode]", text)
+        self.assertEqual({"opencode"}, set(choices.load(self.stages)))
+
+    def test_overlapping_allow_and_choose_keep_both(self):
+        # A choice already saved on the backend whose list changes is kept too.
+        choices.save({"opencode": {"task_planner": {"model": "opencode/plain", "effort": None}}}, self.stages)
+        allowed = ["zai-coding-plan/glm-5.3", "openai/gpt-6-sol", "opencode/plain"]
+        self.overlap(
+            choices,
+            "save",
+            lambda: choices.allow("opencode", allowed, **self.kw),
+            lambda: choices.choose("claude", {"builder": (SONNET, "high"), "tester": (OPUS, "high")}, **self.kw),
+        )
+        saved = choices.load(self.stages)
+        self.assertEqual({"model": "opencode/plain", "effort": None}, saved["opencode"]["task_planner"])
+        self.assertEqual({"model": SONNET, "effort": "high"}, saved.get("claude", {}).get("builder"))
+        self.assertEqual({"model": OPUS, "effort": "high"}, saved.get("claude", {}).get("tester"))
+        self.assertEqual(tuple(allowed), choices.allowed("opencode", self.stages))
+
+    def test_overlapping_allows_on_two_backends_keep_both_lists(self):
+        allowed = ["zai-coding-plan/glm-5.3", "openai/gpt-6-sol", "opencode/plain"]
+        self.overlap(
+            choices,
+            "save",
+            lambda: choices.allow("opencode", allowed, **self.kw),
+            lambda: choices.allow("claude", [SONNET, OPUS], **self.kw),
+        )
+        self.assertEqual(tuple(allowed), choices.allowed("opencode", self.stages))
+        self.assertEqual((SONNET, OPUS), choices.allowed("claude", self.stages))
+        saved = choices.load(self.stages)
+        self.assertEqual({"model": SONNET, "effort": "medium"}, saved["claude"]["builder"])
+
 
 if __name__ == "__main__":
     unittest.main()
