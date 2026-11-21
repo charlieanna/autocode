@@ -13,6 +13,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -22,6 +23,8 @@ except ImportError:
     import autocode_python_tests as python_tests
 
 HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
+# Copied beside the evidence and run by the project's interpreter; see its docstring.
+LINE_TRACE = Path(__file__).with_name("autocode_line_trace.py")
 SKIP_NOTE = "no coverage tool is installed in the project; diff coverage was not collected"
 
 
@@ -140,19 +143,18 @@ def prepare(framework, command, tree, evidence_dir) -> dict | None:
             return None
         evidence_dir.mkdir(parents=True, exist_ok=True)
         data, report = evidence_dir / ".coverage", evidence_dir / "coverage.json"
+        if _probe([invocation.python, "-c", "import sys; sys.exit(not hasattr(sys, 'monitoring'))"], tree):
+            # A project's own coverage session (pytest-cov's --cov in addopts) takes over the
+            # tracer `coverage run` would use, leaving it no data (#4039). The line trace observes
+            # through a sys.monitoring tool id of its own beside whatever the project starts.
+            tracer = evidence_dir / LINE_TRACE.name
+            tracer.unlink(missing_ok=True)
+            shutil.copyfile(LINE_TRACE, tracer)
+            measure = [str(tracer), f"--data-file={data}"]
+        else:
+            measure = ["-m", "coverage", "run", f"--data-file={data}", "--source=."]
         wrapped = shlex.join(
-            [
-                *invocation.prefix,
-                invocation.python,
-                "-m",
-                "coverage",
-                "run",
-                f"--data-file={data}",
-                "--source=.",
-                "-m",
-                invocation.kind,
-                *invocation.arguments,
-            ]
+            [*invocation.prefix, invocation.python, *measure, "-m", invocation.kind, *invocation.arguments]
         )
         finalize = shlex.join([invocation.python, "-m", "coverage", "json", f"--data-file={data}", "-o", str(report)])
         return {"tool": "coverage.py", "command": wrapped, "finalize": finalize, "report": report}
