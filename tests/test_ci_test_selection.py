@@ -8,6 +8,15 @@ import run_suite
 
 
 class AccessTransportConsumerTests(unittest.TestCase):
+    def test_evidence_catalogue_keeps_its_mutation_consumer(self):
+        consumer = "tests.test_catalogue_t14"
+        selected = run_suite.select_tests(
+            ["tests/test_catalogue_t06.py"],
+            {"tests.test_catalogue_t06": "", consumer: "", "tests.test_unrelated": ""},
+        )
+        retained, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+        self.assertIn(consumer, retained)
+
     def test_diagnostic_capture_keeps_bounded_ownership_consumers(self):
         available = {
             "tests.test_claim_evidence": "",

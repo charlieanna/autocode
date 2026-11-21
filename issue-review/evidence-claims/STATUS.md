@@ -6,6 +6,8 @@ The #3994 post-merge Ubuntu suite and `ci-required` failed because catalogue mut
 
 The existing catalogue test now also asserts the passing-evidence gate rejects a cited failing check. The unchanged product gate passes the normal test; the exact M09 mutation now fails the detector in a disposable copy. No gate is weakened and no issue is closed. The full evidence catalogue passed 18 tests and full Ruff, format and Mypy passed; the 12-mutation regression is still running. Linux required CI has not yet been observed.
 
+The mutation catalogue dynamically names its detector module, so focused CI previously omitted it when only that test changed. Explicit selection now retains the mutation consumer even when slow tests are filtered; the selection regression fails on master `5de8cacfae` and passes here. The full mutation run remains in progress.
+
 ## Follow-up: historical #3971 CI fixture alignment
 
 The historical #3971 Linux suite and `ci-required` failed after its early merge. Its CI base was `e8a6b8251e`; the same receipt, capture and checkpoint-fault tests also failed on current master `9e67329a28`. The three capture tests aimed at a run-shaped directory without its own checkpoint already failed on that CI base because #3980 required an owned run. Three event tests passed on that base but failed after #3971 required the actual qualified capture launcher and exact attempt context; three checkpoint-fault test variants also failed after the compatibility facade stopped re-exporting `os`.
