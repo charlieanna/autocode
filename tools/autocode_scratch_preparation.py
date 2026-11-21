@@ -131,6 +131,33 @@ def source_parameters(parameters, revision, review_source):
     return parameters
 
 
+def _same_source_after_copy(workspace, run_dir, tree, before, after, source_paths):
+    """Ignore only this call's newly created scratch worktree in the source inventory."""
+    if before["head"] != after["head"]:
+        return False
+    files = dict(after["files"])
+    try:
+        root = Path(workspace).resolve()
+        actual = Path(tree).resolve()
+        expected = (Path(run_dir) / "scratch" / "tree").resolve()
+        relative = actual.relative_to(root).as_posix()
+        scoped = any(
+            relative == name or relative.startswith(name + "/") or name.startswith(relative + "/")
+            for name in source_snapshot.literal_paths(source_paths)
+        )
+        key = relative + "/"
+        if (
+            actual == expected
+            and not scoped
+            and key not in before["files"]
+            and files.get(key, "").startswith("submodule:")
+        ):
+            files.pop(key)
+    except (OSError, ValueError, RuntimeError):
+        pass
+    return files == before["files"]
+
+
 def prepare(
     workspace,
     run_dir,
@@ -183,10 +210,13 @@ def prepare(
         ignored_inputs=ignored_inputs,
     )
     try:
+        if review_source is not None:
+            review_proof.verify_source(tree, review_source)
         copied = source_snapshot.copied_files(tree, expected_files)
         visible = source_snapshot.inventory(tree, paths=source_paths)
+        after = source_snapshot.snapshot(workspace, paths=source_paths)
         if (
-            copied != expected_files
+            copied != {name: value for name, value in expected_files.items() if value != "deleted"}
             or any(
                 expected_files[name] != value
                 if name in expected_files
@@ -194,13 +224,11 @@ def prepare(
                 for name, value in visible.items()
             )
             or git(tree, "rev-parse", "HEAD").strip() != before["head"]
-            or source_snapshot.snapshot(workspace, paths=source_paths)["revision"] != before["revision"]
+            or not _same_source_after_copy(workspace, run_dir, tree, before, after, source_paths)
         ):
             raise util.Paused("PAUSED_SOURCE_UNAVAILABLE", "Verification source copy differs from its pinned source")
         if expected_source_revision is not None and _on_prepared is not None:
             _on_prepared(tree, dependencies_from or workspace, expected_files)
-        if review_source is not None:
-            review_proof.verify_source(tree, review_source)
         if _before_patch is not None:
             _before_patch(tree)
         if patch:
