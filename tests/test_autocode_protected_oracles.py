@@ -768,6 +768,21 @@ class UndeterminedReplayTests(unittest.TestCase):
         self.assertTrue(schedule.intact(saved["original"], root=receipt.parent / "original"))
         self.assertIsNone(error)
         self.assertEqual("PASS", saved["verdict"])
+        receipt.unlink()
+        changed = copy.deepcopy(candidate)
+        report = proof_dir / "different.xml"
+        report.write_text(
+            Path(candidate["results_capture"]["path"])
+            .read_text()
+            .replace("missing_autocode_dependency", "different_dependency")
+        )
+        changed["results_capture"] = {"path": str(report), "sha256": guard.util.file_hash(report)}
+        for half in ("candidate", "original"):
+            receipts = {("candidate", 0): candidate, ("original", 0): candidate, (half, 0): changed}
+            error, receipt = self.replay(receipts)
+            self.assertIsInstance(error, guard.commands.OriginalGateFailure, half)
+            self.assertEqual("FAIL", json.loads(receipt.read_text())["verdict"])
+            receipt.unlink()
 
     def test_same_test_with_a_different_failure_is_not_excused(self):
         _test_id, replay = self.record_base_failure()
