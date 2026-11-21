@@ -1179,6 +1179,15 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tests.test_report_formatting_repair_cli",),
     ),
     (
+        (
+            "tools/autocode_report_correction.py",
+            "tools/autocode_report_revalidation.py",
+            "tools/autocode_action_recovery.py",
+            "tools/autocode_report_repair_queue.py",
+        ),
+        ("tests.test_report_correction_resume_cli",),
+    ),
+    (
         ("tools/autocode_report_source.py", "tools/autocode_report_syntax.py", "tools/providers/opencode.py"),
         ("tests.test_report_syntax_cli",),
     ),
