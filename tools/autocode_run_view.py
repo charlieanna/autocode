@@ -23,6 +23,7 @@ from pathlib import Path
 try:
     from . import autocode_acceptance_recovery as acceptance_recovery
     from . import autocode_brief_obligations as brief_obligations
+    from . import autocode_current_behavior as current_behavior
     from . import autocode_interaction_timing as interaction_timing
     from . import autocode_internal_failure_view as operational_block
     from . import autocode_plan_only as plan_only
@@ -31,6 +32,7 @@ try:
 except ImportError:
     import autocode_acceptance_recovery as acceptance_recovery
     import autocode_brief_obligations as brief_obligations
+    import autocode_current_behavior as current_behavior
     import autocode_interaction_timing as interaction_timing
     import autocode_internal_failure_view as operational_block
     import autocode_plan_only as plan_only
@@ -660,7 +662,9 @@ def view(
                         revision=contract["revision"],
                         status="approved" if contract_identity.approved(state) else "not approved",
                     ),
-                    "review_markdown": plan_file.review_markdown(contract["body"]),
+                    "review_markdown": plan_file.review_markdown(
+                        contract["body"], observed_behavior=(current_behavior.evidence(state) or {}).get("text", "")
+                    ),
                     **{
                         key: deepcopy(contract["body"].get(key))
                         for key in (

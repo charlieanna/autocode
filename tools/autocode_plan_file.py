@@ -434,7 +434,7 @@ def summary_markdown(body: dict, *, revision: int, status: str, details_below: b
     return util.redact("\n".join(out)).strip()
 
 
-def review_markdown(body: dict) -> str:
+def review_markdown(body: dict, *, observed_behavior: str = "") -> str:
     """Material terms of a canonical plan for a person reviewing it, without file/runner metadata.
 
     The caller supplies the sealed body under its existing display-token guard. This text is display
@@ -450,7 +450,7 @@ def review_markdown(body: dict) -> str:
     if body.get("task_kind"):
         out += [f"Job type: {_review_text(body['task_kind'])}", ""]
     out += _sections(body, review=True)
-    out += _criteria(body.get("acceptance_criteria") or [], review=True)
+    out += _criteria(body.get("acceptance_criteria") or [], review=True, observed_behavior=observed_behavior)
     out += _milestones(body.get("milestones") or [], review=True)
     out += _first_task(body.get("initial_task"), review=True)
     out += _decisions(body.get("accepted_assumptions") or [], body.get("delegated_decisions") or [], review=True)
@@ -475,7 +475,7 @@ def _sections(body, *, review=False) -> list[str]:
     return out
 
 
-def _criteria(rows, *, review=False) -> list[str]:
+def _criteria(rows, *, review=False, observed_behavior="") -> list[str]:
     if not rows:
         return []
     out = ["## Acceptance criteria", ""]
@@ -491,7 +491,14 @@ def _criteria(rows, *, review=False) -> list[str]:
         elif review:
             out += ["No separate person review is required.", ""]
         if review and row.get("current_behavior"):
-            out += ["Current behavior:", "", _review_text(row["current_behavior"]), ""]
+            reported = " ".join(str(row["current_behavior"]).split())
+            observed = " ".join(observed_behavior.split())
+            label = (
+                "Recorded observation:"
+                if observed and reported == observed
+                else "Reported current behavior (not independently verified):"
+            )
+            out += [label, "", _review_text(row["current_behavior"]), ""]
         supersedes = [value for value in _list(row.get("supersedes")) if isinstance(value, dict)]
         if review and supersedes:
             out += ["Tests this criterion replaces:", ""]
