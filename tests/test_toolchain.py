@@ -1,5 +1,6 @@
 """Real selected-tool execution and denial controls; no provider/model simulation."""
 
+import json
 import os
 import shlex
 import shutil
@@ -233,6 +234,48 @@ class SelectedToolchainTests(unittest.TestCase):
                 )
                 self.assertEqual(0, result.returncode, (command, result.stderr))
             self.assertEqual(str(base / "toolchains" / "current" / "git"), result.stdout.strip())
+
+    def test_an_interpreter_s_own_installed_packages_are_readable_contained(self):
+        # #4015: Homebrew's site-packages is a link out of the Cellar, and Debian's dist-packages sits beside the
+        # standard library, so a contained `python3 -m pytest` found no pytest though the run's suite had passed.
+        base = Path(getattr(sys, "_base_executable", sys.executable)).resolve()
+        listed = subprocess.run(
+            [str(base), "-I", "-S", "-c", toolchain.SITE_DIRECTORIES], capture_output=True, text=True, check=True
+        )
+        package = next(
+            (
+                entry.name
+                for directory in json.loads(listed.stdout)
+                if Path(directory).is_dir() and not Path(directory).resolve().is_relative_to(base.parent.parent)
+                for entry in sorted(Path(directory).resolve().iterdir())
+                if entry.name.isidentifier() and (entry / "__init__.py").is_file()
+            ),
+            None,
+        )
+        if package is None:
+            self.skipTest("requires a base interpreter with a package installed outside its standard library")
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory).resolve()
+            root, bin_dir = work / "project", work / "bin"
+            root.mkdir()
+            bin_dir.mkdir()
+            (bin_dir / "python3").symlink_to(base)
+            subprocess.run(["/usr/bin/git", "init", "--quiet", str(root)], check=True)
+            env = {"PATH": f"{bin_dir}:/usr/bin:/bin"}
+            selected = toolchain.discover(root, [f"python3 -m {package} --help"], env)
+            roots = selected["read_roots"]
+            developer = Path("/Library/Developer/CommandLineTools")
+            if developer.is_dir():
+                roots = [*roots, str(developer)]
+            boundary = containment.prepare(root, read_roots=roots, links=selected["links"], environment=env)
+            result = subprocess.run(
+                [boundary["shell"], "-c", f"python3 -c 'import {package}'"],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            self.assertEqual(0, result.returncode, (package, result.stderr[-2000:]))
 
     def test_a_virtualenv_in_a_linked_directory_runs_contained(self):
         # macOS's /tmp is a link to /private/tmp: a venv named through it must run, not pause the run.
