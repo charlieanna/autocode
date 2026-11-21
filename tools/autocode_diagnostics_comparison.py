@@ -9,8 +9,8 @@ diagnostic lines the candidate prints that the base does not.
 
 A diagnostic line is an output line containing a whole-word ``warning``, ``error`` or ``fatal`` in any
 case: a vocabulary of diagnostics, not of any one tool. Lines are compared as multisets after the base
-copy's root path is replaced with the workspace path and every digit run with one placeholder, so a
-moved line number or a timing is not new. The receipt (kind ``diagnostics_comparison``) is read by
+copy's root path is replaced with the workspace path and location line/column numbers are normalized,
+so a moved diagnostic is not new but numbers in its message remain significant. The receipt is read by
 autocode_claim_evidence. Imports nothing from AutoCode except autocode_util.
 """
 
@@ -33,7 +33,12 @@ except ImportError:
 
 KIND = "diagnostics_comparison"
 _DIAGNOSTIC = re.compile(r"\b(?:warning|error|fatal)\b", re.IGNORECASE)
-_DIGITS = re.compile(r"\d+")
+_LOCATION = re.compile(r"^(.+?):\d+(?::\d+)?:")
+
+
+def _diagnostic_key(line: str) -> str:
+    """Ignore a conventional file location, never digits in the diagnostic itself."""
+    return _LOCATION.sub(r"\1:#:", line, count=1)
 
 
 def diagnostics(text: str) -> list[str]:
@@ -42,11 +47,11 @@ def diagnostics(text: str) -> list[str]:
 
 
 def new_lines(base: list[str], candidate: list[str]) -> list[str]:
-    """Candidate diagnostic lines the base did not print, compared as multisets with digit runs ignored."""
-    remaining = collections.Counter(_DIGITS.sub("#", line) for line in base)
+    """Candidate diagnostic lines the base did not print, with only source locations normalized."""
+    remaining = collections.Counter(_diagnostic_key(line) for line in base)
     added = []
     for line in candidate:
-        key = _DIGITS.sub("#", line)
+        key = _diagnostic_key(line)
         if remaining[key] > 0:
             remaining[key] -= 1
         else:

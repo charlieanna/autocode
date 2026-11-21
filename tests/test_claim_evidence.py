@@ -303,6 +303,18 @@ class CompareBaseCaptureTests(unittest.TestCase):
         self.assertEqual([], receipt["new_diagnostics"])
         self.assertEqual("doc.txt:2: WARNING: BROKEN a", Path(receipt["full_output"]).read_text().strip())
 
+    def test_new_diagnostic_retains_numbers_in_message(self):
+        self.checker = (
+            "for number, line in enumerate(open('doc.txt').read().splitlines(), 1):\n"
+            "    if 'BROKEN' in line:\n"
+            "        print(f'doc.txt:{number}: WARNING: ' + line)\n"
+        )
+        root = self.repository("BROKEN ref1\n", "intro\nBROKEN ref2\n")
+        result = self.capture(root, ".autocode/evidence/numbered.json")
+        self.assertEqual(0, result.returncode, result.stderr)
+        receipt = json.loads((root / ".autocode/evidence/numbered.json").read_text())
+        self.assertEqual(["doc.txt:2: WARNING: BROKEN ref2"], receipt["new_diagnostics"])
+
 
 class RunnerAdmissionClaimTests(unittest.TestCase):
     """Runner admission applies the same judgment, so a stage that skipped report-check is refused."""
