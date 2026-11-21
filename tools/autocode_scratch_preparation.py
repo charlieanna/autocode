@@ -193,6 +193,8 @@ def prepare(
     if expected_source_revision is not None and before["revision"] != expected_source_revision:
         raise util.Paused("PAUSED_SOURCE_UNAVAILABLE", "Verification source no longer matches its pinned revision")
     expected_files = _source_access(source_snapshot.bound_inventory, workspace, before, paths=source_paths)
+    if unsafe := source_snapshot.first_symlinked_parent(workspace, expected_files):
+        raise util.Paused("PAUSED_SOURCE_UNAVAILABLE", "Source path has a symlinked parent: " + unsafe)
     if expected_source_revision is not None and source_snapshot.unbound_symlinks(
         workspace, expected_files, lambda: git(workspace, "ls-files", "-z").split("\0")
     ):

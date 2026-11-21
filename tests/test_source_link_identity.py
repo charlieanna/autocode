@@ -45,6 +45,54 @@ class SourceLinkIdentityTests(unittest.TestCase):
         self.assertTrue(retargeted["cache_binding_complete"])
         self.assertNotEqual(edited["source_revision"], retargeted["source_revision"])
 
+    def test_tracked_file_link_chain_is_bound_to_every_link_and_final_bytes(self):
+        middle = self.root / "middle.py"
+        middle.symlink_to("src/product.py")
+        self.retarget("middle.py")
+        git(self.root, "add", "alias.py", "middle.py")
+        current = source_snapshot.snapshot(self.root)["files"]
+        tracked = lambda: git(self.root, "ls-files", "-z").split("\0")
+        self.assertEqual([], source_snapshot.unbound_symlinks(self.root, current, tracked))
+        middle.unlink()
+        middle.symlink_to("src/other.py")
+        self.assertIn("alias.py", source_snapshot.unbound_symlinks(self.root, current, tracked))
+        middle.unlink()
+        middle.symlink_to("src/product.py")
+        (self.root / "src/product.py").write_text("value = 9\n")
+        self.assertIn("alias.py", source_snapshot.unbound_symlinks(self.root, current, tracked))
+
+    def test_long_acyclic_chain_stays_unbound_before_host_resolution_limits(self):
+        names = [f"link_{index}.py" for index in range(9)]
+        for index, name in enumerate(names):
+            target = names[index + 1] if index + 1 < len(names) else "src/product.py"
+            (self.root / name).symlink_to(target)
+        git(self.root, "add", *names)
+        unbound = self.unbound()
+        self.assertIn(names[0], unbound)
+        self.assertNotIn(names[1], unbound)
+        self.assertEqual("value = 1\n", (self.root / names[1]).read_text())
+
+    def test_tracked_chain_rejects_cycles_escapes_and_intermediate_directory_links(self):
+        middle = self.root / "middle.py"
+        middle.symlink_to("src/product.py")
+        self.retarget("middle.py")
+        git(self.root, "add", "alias.py", "middle.py")
+        (self.root / "outside-dir").symlink_to(self.root.parent, target_is_directory=True)
+        for target in (
+            "alias.py",
+            "../outside.py",
+            str(self.root / "src/product.py"),
+            "outside-dir/../src/product.py",
+            "src/product.py/.",
+            "alias.py/.",
+            "src\\product.py",
+            "src/missing.py",
+        ):
+            with self.subTest(target=target):
+                middle.unlink()
+                middle.symlink_to(target)
+                self.assertIn("alias.py", self.unbound())
+
     def test_escape_missing_untracked_and_link_chains_remain_unbound(self):
         (self.root / "untracked.py").write_text("value = 9\n")
         (self.root / "chain.py").symlink_to("alias.py")
