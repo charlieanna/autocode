@@ -194,7 +194,7 @@ class RetrofitTest(unittest.TestCase):
     def test_atomic_failure_keeps_old_checkpoint(self):
         p = self.run / "state.json"
         s.atomic_json(p, {"old": True})
-        with patch.object(s.os, "replace", side_effect=OSError("interruption")):
+        with patch.object(os, "replace", side_effect=OSError("interruption")):
             with self.assertRaises(OSError):
                 s.atomic_json(p, {"new": True})
         self.assertEqual({"old": True}, s.read(p))
@@ -1297,6 +1297,7 @@ class RetrofitTest(unittest.TestCase):
 
     def test_capture_tool_failure_preserves_full_output(self):
         path = self.run / "evidence/fail.json"
+        s.atomic_json(self.run / "state.json", self.state)
         cmd = [
             sys.executable,
             str(Path(runner.__file__).resolve()),
@@ -1987,6 +1988,7 @@ class RetrofitTest(unittest.TestCase):
 
     def test_compression_failure_returns_original_not_false_pass(self):
         path = self.run / "evidence/uncompressed.json"
+        s.atomic_json(self.run / "state.json", self.state)
         with (
             patch.object(Path, "cwd", return_value=self.root.resolve()),
             patch.object(s, "compact_output", side_effect=ValueError("bad formatter")),

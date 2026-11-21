@@ -10,6 +10,7 @@ import io
 import json
 import shlex
 import shutil
+import sys
 import tempfile
 import unittest
 from contextlib import redirect_stderr
@@ -160,7 +161,15 @@ class CapturedCheckCustodyTests(unittest.TestCase):
         }
         util.atomic_json(self.path, self.receipt)
         self.event_command = shlex.join(
-            ["autocode", "capture", "--output", str(self.path), "--", *self.receipt["command"]]
+            [
+                sys.executable,
+                str(Path(support.__file__).resolve().with_name("autocode.py")),
+                "capture",
+                "--output",
+                str(self.path),
+                "--",
+                *self.receipt["command"],
+            ]
         )
         self.write_event(self.receipt)
 
@@ -199,16 +208,29 @@ class CapturedCheckCustodyTests(unittest.TestCase):
                 )
 
     def test_native_event_must_attest_exact_receipt_and_its_command(self):
-        support.verify_checks(self.check(), self.root, self.events)
-        changed = {**self.receipt, "capture_context": {**self.context, "nonce": "forged"}}
+        support.verify_checks(self.check(), self.root, self.events, capture_context=self.context)
+        with self.assertRaisesRegex(ValueError, "does not belong"):
+            support.verify_checks(
+                self.check(), self.root, self.events, capture_context={**self.context, "nonce": "old"}
+            )
+        qualified = self.event_command
+        self.event_command = shlex.join(
+            ["autocode", "capture", "--output", str(self.path), "--", *self.receipt["command"]]
+        )
+        self.write_event(self.receipt)
+        with self.assertRaisesRegex(ValueError, "No independently executed"):
+            support.verify_checks(self.check(), self.root, self.events, capture_context=self.context)
+        self.event_command = qualified
+        self.write_event(self.receipt)
+        changed = {**self.receipt, "summary": "forged"}
         util.atomic_json(self.path, changed)
         with self.assertRaisesRegex(ValueError, "No independently executed"):
-            support.verify_checks(self.check(), self.root, self.events)
+            support.verify_checks(self.check(), self.root, self.events, capture_context=self.context)
         util.atomic_json(self.path, self.receipt)
         checks = self.check()
         checks[0]["command"] += " --different-test"
         with self.assertRaisesRegex(ValueError, "command/result differs"):
-            support.verify_checks(checks, self.root, self.events)
+            support.verify_checks(checks, self.root, self.events, capture_context=self.context)
 
     def test_matching_receipt_cannot_hide_changed_or_external_output(self):
         self.raw.write_bytes(b"different result\n")

@@ -1,5 +1,13 @@
 # Evidence claims batch
 
+## Follow-up: historical #3971 CI fixture alignment
+
+The historical #3971 Linux suite and `ci-required` failed after its early merge. Its CI base was `e8a6b8251e`; the same receipt, capture and checkpoint-fault tests also failed on current master `9e67329a28`. The three capture tests aimed at a run-shaped directory without its own checkpoint already failed on that CI base because #3980 required an owned run. Three event tests passed on that base but failed after #3971 required the actual qualified capture launcher and exact attempt context; three checkpoint-fault test variants also failed after the compatibility facade stopped re-exporting `os`.
+
+This test-only follow-up gives actual capture fixtures an owned checkpoint, supplies the qualified launcher and matching attempt context for positive receipt events, and patches the standard-library `os.replace` actually used by atomic writes. It keeps controls for missing events, forged receipt data, unqualified launchers and stale context. No authentication, run ownership, evidence or fault-injection gate is relaxed. The historical #3971 required CI remains failed; this PR's own current-head required CI must pass independently. The separately reproduced progressive Tester-probe fixture failures are being handled on another branch. Issues #3939, #3940 and #3947 remain open.
+
+The focused receipt/native replay/validation and historical crash/capture controls passed 74 tests; the complete retrofit and crash-recovery modules passed 91 tests. An added launcher/context negative control passed. Full Ruff, format and Mypy passed on the follow-up; the historical tests failed on current master before these fixture corrections. Linux CI has not yet been observed.
+
 The branch began at `6519d439a`. The previously referenced handoff was not present in the branch or accessible project files. The commit identifies issues #3940, #3939, #3904, #3898, and #3947.
 
 ## Verification in progress
