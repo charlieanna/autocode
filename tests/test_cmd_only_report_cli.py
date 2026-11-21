@@ -15,6 +15,7 @@ import unittest
 from pathlib import Path
 
 import autocode_cmd_only_report as cmd_only
+import autocode_response_language as response_language
 
 RAN = "cmd-only-final-ran"  # what the scripted command would leave in the project, were it ever run
 
@@ -81,7 +82,7 @@ class CommandOnlyFinalCLI(unittest.TestCase):
         self.assertEqual(
             ["resume", self.thread(first)], correction["command"][correction["command"].index("resume") :][:2]
         )
-        self.assertEqual(cmd_only.CORRECTION, Path(correction["prompt"]).read_text())
+        self.assertEqual(response_language.apply(cmd_only.CORRECTION), Path(correction["prompt"]).read_text())
         self.assertFalse(correction.get("rejected"))
         # The correction spent none of the full repair attempts.
         self.assertEqual(0, self.driver.state()["report_repair_history"][-1]["attempts"])
