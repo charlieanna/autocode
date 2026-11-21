@@ -23,6 +23,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **A slow suite's mutation check no longer stops short in every continuation window**: each continuation window runs the unmutated tests again, and that run's time was taken from the window's mutant budget. With a reference over half the window, no mutant that runs every selected test had enough time, in that window or any later one. The window now gets the reference's time back, still within the run's total allowance.
+
+- **A Node project's tests replayed as a command run its build first**: the original-test check replays changed tests as a command such as `cd vscode-extension && node --test test/editor.test.cjs`, but the project's own test script builds first (`tsc -p tsconfig.test.json && node --test ...`). The replay skipped that build, so the test file failed to load on both the original code and the change. A `node --test` command now takes the build steps from the test script of the project it runs in.
+
+- **Python test suites no longer recompile every module in each child process during checks**: AutoCode's check commands disabled Python's bytecode cache, so a suite whose tests start the project's CLI again recompiled everything each time (940 s instead of 354 s for two test modules), hitting the original-test check's 900-second limit. Each command now keeps its own cache in a temporary directory outside the project, removed when the command ends.
+
 - **A change to tests of two runners no longer times out its check**: when a change edited original tests of more than one runner (a Python test beside a nested Node project's test), the original-test check ran the whole Python suite, which runs none of the Node tests and on a large repository timed out, pausing the run as "verification uncertain". Each runner's changed tests now run with that runner's own command; a changed helper or a deleted test still runs the whole suite.
 
 - **A Tester report rechecked after a validator update no longer pauses as stale evidence**: on resume after an AutoCode update, a rejected Tester report is rechecked on a private copy. The copy kept the report's sealed paths, so every such recheck paused `PAUSED_STALE_HANDOFF` "Saved repair seal or evidence changed". The copy is still checked byte for byte against its pins, and is now sealed at its own path.

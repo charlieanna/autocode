@@ -4471,3 +4471,26 @@ class VendoredDependencyCopyTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "symlink"):
                 verify.copy_vendored_dependencies(source, tree)
             self.assertEqual([], list(tree.iterdir()))
+
+
+class CommandBytecodeCacheTests(unittest.TestCase):
+    """A command's Python, and the Python it starts again, keeps its compiled modules for the command's
+    length, outside the tree. A suite of end-to-end CLI tests recompiled every module in every child: two
+    test modules took 940 s in a scratch copy and 354 s in the checkout (2026-11-21)."""
+
+    def test_a_commands_python_caches_bytecode_outside_the_tree(self):
+        with tempfile.TemporaryDirectory() as temp:
+            tree = Path(temp) / "tree"
+            tree.mkdir()
+            (tree / "shop.py").write_text("VALUE = 1\n")
+            probe = "import sys, shop; print('cached', not sys.dont_write_bytecode, sys.pycache_prefix or '', sep='|')"
+            receipt = verify.run_command(
+                f"{shlex.quote(sys.executable)} -c {shlex.quote(probe)}", tree, Path(temp) / "run.log", timeout=60
+            )
+            self.assertEqual(0, receipt["exit_code"], receipt)
+            line = next(line for line in Path(receipt["output"]).read_text().splitlines() if line.startswith("cached|"))
+            _, writes, prefix = line.split("|")
+            self.assertEqual("True", writes)
+            self.assertTrue(prefix and not Path(prefix).resolve().is_relative_to(tree.resolve()), prefix)
+            self.assertFalse(Path(prefix).exists(), "the cache is removed with the command")
+            self.assertEqual([], list(tree.rglob("__pycache__")))

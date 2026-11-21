@@ -856,5 +856,45 @@ class ProjectRootRuleTests(unittest.TestCase):
         self.assertIs(project_kinds.is_test_path, project_kinds.test_rule(["package.json", "index.js"]))
 
 
+@unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "the project's suite is npm test")
+class BuiltNodeSuiteCommandTests(unittest.TestCase):
+    """A project whose test script builds before ``node --test`` (``tsc -p tsconfig.test.json && node --test``,
+    the VS Code client's) has its tests replayed as a command: ``cd vscode-extension && node --test
+    test/editor.test.cjs``. The proof ran its build first, the original-test gate did not, and both halves
+    failed to load the file (a real run, 2026-11-21)."""
+
+    BUILD = "require('fs').mkdirSync('out', {recursive: true}); require('fs').writeFileSync('out/value.js', 'module.exports = 2;');\n"
+    TEST = (
+        "const test = require('node:test');\nconst assert = require('node:assert');\n"
+        "test('the built value', () => assert.strictEqual(require('../out/value.js'), 2));\n"
+    )
+
+    def run_in(self, directory):
+        prefix = f"{directory}/" if directory else ""
+        package = {
+            "name": "built",
+            "version": "1.0.0",
+            "scripts": {"test": "node build.js && node --test test/*.test.cjs"},
+        }
+        files = {
+            "README.md": "# built\n",
+            ".gitignore": "out/\n",
+            f"{prefix}package.json": json.dumps(package) + "\n",
+            f"{prefix}build.js": self.BUILD,
+            f"{prefix}test/value.test.cjs": self.TEST,
+        }
+        project = Project(files)
+        self.addCleanup(project.close)
+        command = ("cd web && " if directory else "") + "node --test test/value.test.cjs"
+        return verify.scratch_run(project.root, project.root.parent / "run", command=command, timeout=60)
+
+    def test_a_node_test_command_runs_its_projects_build_first(self):
+        for directory in ("", "web"):
+            with self.subTest(directory=directory or "root"):
+                receipt = self.run_in(directory)
+                self.assertEqual(0, receipt["exit_code"], receipt.get("tail"))
+                self.assertEqual(["test/value.test.cjs::the built value"], receipt["results"]["passed"])
+
+
 if __name__ == "__main__":
     unittest.main()
