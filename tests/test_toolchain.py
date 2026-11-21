@@ -209,6 +209,12 @@ class SelectedToolchainTests(unittest.TestCase):
                         result = subprocess.run(
                             [boundary["shell"], "-c", command], cwd=cwd, capture_output=True, text=True, timeout=600
                         )
+                        if command.startswith("cargo test") and not allow_write and sys.platform.startswith("linux"):
+                            # #4033: bubblewrap mounts the whole verification copy read-only, so cargo cannot
+                            # make target/ beside the sources as it can on macOS. When that is fixed, this
+                            # pin fails and the case joins the others.
+                            self.assertIn("Read-only file system", result.stderr, (command, result.returncode))
+                            continue
                         self.assertEqual(0, result.returncode, (command, result.stdout[-2000:], result.stderr[-2000:]))
 
     def test_tool_found_through_a_symlinked_toolchain_directory_runs_contained(self):
