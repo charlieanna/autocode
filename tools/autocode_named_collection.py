@@ -95,7 +95,10 @@ def pytest_junit_identities(collection, source_paths):
     nodes = collection.get("node_ids")
     if not isinstance(nodes, list) or not nodes:
         return None
-    paths = set(source_paths)
+    try:
+        paths = set(source_paths)
+    except TypeError:
+        return None
     owners: dict[str, set[str]] = {}
     for name in paths:
         if not isinstance(name, str):
@@ -115,6 +118,7 @@ def pytest_junit_identities(collection, source_paths):
             or not all(pieces)
             or path not in paths
             or path.startswith("/")
+            or "\\" in path
             or any(part in ("", ".", "..") for part in path.split("/"))
         ):
             return None
