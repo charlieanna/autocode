@@ -658,9 +658,11 @@ def archive_rejected_stage(state: RunState, run_dir, record, reason):
 
 
 def set_aside_at_completion_gate(state: RunState, run_dir, record, error, *, persist):
-    """A completion-gate pause (util.boundary_pause) sets its attempt aside and is re-raised; any other error returns.
+    """A boundary pause (util.boundary_pause) sets its attempt aside and is re-raised; any other error returns.
 
-    The report passed its own checks and the completion gate refused the run's claim (#1851).
+    The report passed its own checks and the completion gate refused the run's claim (#1851), or a
+    check the runner ran for it could not establish a result (autocode_check_outcome.CheckUndetermined,
+    #3874: a protected-test replay half that timed out), which pauses PAUSED_VERIFICATION_UNCERTAIN.
     Not a rejected output: no failure record, no escalation, no report repair, so the
     Investigator is never involved and the run pauses under the gate's own status and
     reason. The attempt is still set aside like one (archive_rejected_stage), because an

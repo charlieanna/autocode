@@ -308,14 +308,17 @@
     "package": "vsce package --no-dependencies",
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc --noEmit",
-    "test": "tsc -p tsconfig.test.json && node --test out-test/test/*.test.js test/*.test.cjs"
+    "test": "tsc -p tsconfig.test.json && node --test out-test/test/*.test.js test/*.test.cjs",
+    "test:host": "node --test --test-concurrency=1 test/host/*.test.cjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@types/vscode": "^1.90.0",
+    "@vscode/test-electron": "3.1.0",
     "@vscode/vsce": "4.1.0",
     "esbuild": "0.25.12",
     "jsdom": "26.1.0",
+    "playwright-core": "1.63.0",
     "typescript": "^5.7.0"
   },
   "dependencies": {

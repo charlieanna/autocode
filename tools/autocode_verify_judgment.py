@@ -10,6 +10,7 @@ its verdict. Missing evidence is UNVERIFIED, never PASS.
 from __future__ import annotations
 
 try:
+    from . import autocode_check_outcome as check_outcome
     from . import autocode_command_receipt as command_receipt
     from . import autocode_first_suite as first_suite
     from . import autocode_junit_first_suite as junit_first
@@ -18,6 +19,7 @@ try:
     from . import autocode_test_setup as test_setup
     from . import autocode_verification_schedule as schedule
 except ImportError:
+    import autocode_check_outcome as check_outcome
     import autocode_command_receipt as command_receipt
     import autocode_first_suite as first_suite
     import autocode_junit_first_suite as junit_first
@@ -265,13 +267,17 @@ def judge_suite(
     ``repaired``: the base's failing tests that pass on the candidate (first_suite.repaired_evidence).
     ``quarantined``: tests the flaky-test recheck showed failing on base too (autocode_suite_flakes); they
     are neither a regression nor a preserved test.
+
+    A suite that timed out on the candidate could not establish a result (autocode_check_outcome): only a
+    failure it already recorded of a test that passes on base is a FAIL; otherwise preservation is unproven.
     """
-    if on_candidate["timed_out"]:
-        fail.append("The project suite timed out on the candidate")
-        return
     candidate = on_candidate.get("results")
     base_receipt = (base_suite or {}).get("receipt") or {}
     base_results = base_receipt.get("results")
+    outcome = check_outcome.classify(on_candidate)
+    if outcome["reason"] == check_outcome.TIMEOUT:
+        _judge_timed_out(outcome, base_receipt, fail, unverified, quarantined)
+        return
     candidate_owned = command_receipt.completed(on_candidate)
     base_owned = command_receipt.completed(base_receipt)
     if not candidate_owned or not base_owned:
@@ -324,6 +330,12 @@ def judge_suite(
         base_receipt.get("timed_out") or (base_results is not None and not base_results.get("complete"))
     ):
         unverified.append("The base suite was incomplete; preservation of its passing tests is unproven")
+    base_outcome = check_outcome.classify(base_receipt) if base_results is not None else None
+    if base_outcome and base_outcome["reason"] == check_outcome.SESSION_ABORTED:
+        # A pytest session that aborted (#3895) names no complete set of base failures to compare with.
+        unverified.append(
+            check_outcome.describe("The base suite", base_outcome) + "; preservation evidence is incomplete"
+        )
     if candidate is not None and not candidate.get("total"):
         unverified.append("The project suite reported zero tests or incomplete per-test results")
         return
@@ -416,7 +428,7 @@ def judge_suite(
             fail.append(
                 f"Fewer tests ran on the candidate ({candidate['total']}) than on base ({base_results['total']})"
             )
-        if base_results["failed"] and not new:
+        if base_results["failed"] and not new and base_results.get("complete") and not base_results.get("aborted"):
             notes.append(f"{len(base_results['failed'])} test(s) already failed on base; none newly fail")
         return
     if on_candidate["exit_code"] == 0:
@@ -478,6 +490,26 @@ def judge_suite(
             "The project suite already fails on base and per-test results are unavailable, "
             "so new failures cannot be ruled out (narrow it with --test-command)"
         )
+
+
+def _judge_timed_out(outcome, base_receipt, fail, unverified, quarantined):
+    """A candidate suite that timed out (#3889): it fails only on a failure it already recorded of a test the
+    base shows passing; otherwise it attributes no failure and leaves preservation unproven, with both timings."""
+    base_passed = set(((base_receipt.get("results") or {}).get("passed")) or [])
+    new = sorted(set(outcome["failed"]) & base_passed - set(quarantined))
+    if new:
+        fail.append("Tests that pass on base fail on the candidate: " + ", ".join(new[:20]))
+    base_outcome = check_outcome.classify(base_receipt) if base_receipt else None
+    on_base = (
+        " and " + base_outcome["detail"] + " on base"
+        if base_outcome and base_outcome["reason"] == check_outcome.TIMEOUT
+        else ""
+    )
+    unverified.append(
+        f"The project suite {outcome['detail']} on the candidate{on_base}, so it could not establish a result"
+        + ("" if new else "; no failure of a test that passes on base was observed")
+        + "; preservation is unproven"
+    )
 
 
 def judge_retained_runner(definition, base_suite, fail, unverified):

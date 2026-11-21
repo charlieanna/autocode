@@ -226,7 +226,8 @@ def prepare(
             if planning and not kilo_owner:
                 # A readonly planning shell coordinates through the handoff, not private run
                 # state: no run's state, events or receipts are readable, only this run's
-                # planning/ artifacts (#1250). Native Kilo isolation keeps its own profile.
+                # planning/ artifacts and the context artifacts its handoff names (#1250, #3907).
+                # Native Kilo isolation keeps its own profile.
                 containment["private_run"] = str(Path(run_dir).resolve())
         launch_kwargs = {"containment": containment} if containment else {}
         launch_kwargs["env"] = environment

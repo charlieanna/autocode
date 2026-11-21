@@ -253,6 +253,13 @@ def _acceptance_tests_stop(state: RunState) -> str | None:
         import autocode_acceptance_tests as acceptance_tests
     reason = str(state.get("stop_reason") or "")
     saved = _dict(state.get("acceptance_tests"))
+    if _dict(saved.get("verification_retry")).get("kind") == "runner_not_started":
+        # The test command never started (#3877): the tests were not judged, so they are not blamed.
+        return (
+            "Before building, the Tester's test command could not start on this host. The written tests are kept "
+            "and were not judged; correcting the environment and resuming re-runs the checks without another "
+            "Tester call."
+        )
     if reason.startswith(acceptance_tests.CANNOT_TEST_PREFIX) or (
         isinstance(saved.get("cannot_write"), dict)
         and saved["cannot_write"].get("contract_hash") == _dict(state.get("goal_contract")).get("hash")

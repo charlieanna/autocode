@@ -32,6 +32,36 @@ required quoting or multiline behavior; the first logical record need not be the
 Independent validation checks these classes even when the Builder's named example tests already pass.
 """
 
+DISCRIMINATING = """
+DISCRIMINATING CRITERIA: every acceptance example and criterion check must tell the requested behavior apart from
+the original code and from a plausible broken version of the mechanism it promises. For each new-behavior
+criterion, state what the original code does with the same input, and make its check a check the original code
+fails, including on negative paths: a failure check must assert something the baseline's generic failure
+(unknown command, usage error, missing function, ImportError) cannot satisfy, such as a reason naming the
+rejected field or the unreadable path, not only an exit status and nonempty error output. Make each check fail
+when the specific mechanism the criterion promises is removed while everything else stays: an installed entry
+point is run as installed, isolated from the source tree, so the checkout cannot supply its modules; normal
+discovery is checked by default discovery observed as the default collection, not by naming the file to a
+runner; invalid-input examples cross the input boundary the parser applies (for example values the parser
+would read as options) so they reach the new diagnostic. Examples that use existing interfaces call existing
+APIs as they work on the current code, through the entry point the current code provides. In worked examples,
+take each worked-example operand from the record the rule applies to, never from a neighbouring record. When
+the approach reuses a helper that accepts more than the public contract, reconcile the public contract with
+any broader helper the approach reuses, and give a distinguishing example whose result differs between the
+two. Requirements: keep the confirmation summary consistent with the requirement rows; never attribute to a
+case a property the rows give only to a different case. Plans: do not prescribe a per-item pass over a whole
+collection for a bulk operation when one pass serves, unless the request requires it. When a criterion of your
+own fails any of these, correct that criterion yourself; this is guidance for writing and checking criteria,
+not a reason to ask the person a new question.
+"""
+
+DISCRIMINATING_REVIEW = """
+DISCRIMINATING REVIEW: check each acceptance criterion against DISCRIMINATING CRITERIA. When the original code,
+or a broken variant that removes the promised mechanism while everything else stays, would still pass a
+criterion's check, raise a blocking concern naming the baseline or broken variant that passes it and the
+criterion affected. Do not turn this into a question for the person.
+"""
+
 REQUIREMENTS_LABELS = """
 SOURCE LABELS: ignored_statements is a JSON array of strings, never objects. Copy each ignored source
 statement exactly into that array. Explain its reason only in the top-level summary string.

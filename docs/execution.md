@@ -1815,8 +1815,12 @@ The exception is the planning stages of a native visual run (native role
 isolation). They run in this boundary read-only, and their shell also cannot
 read the run store, `.autocode/runs`: not this run's `state.json`, events or
 receipts, and no other run's files. Only this run's `planning/` artifacts (the
-predecessor plan and its delta) stay readable there; the stage gets the rest of
-its run context from its handoff (#1250). Nor can it read these `.autocode`
+predecessor plan and its delta) and its `context/` artifacts stay readable there;
+the stage gets the rest of its run context from its handoff (#1250). The
+`context/` artifacts are part of that handoff: where a field is too large to send
+inline, such as the planning rules a Plan Reviewer must audit, the handoff sends a
+summary and names the artifact that keeps it whole, and the stage reads it there
+(#3907). Kilo's whole-client boundary leaves the same directory readable. Nor can it read these `.autocode`
 stores, which hold other runs, conversation records or what they keep: `archive` (runs archived from
 task worktrees), `arena` (`autocode arena` attempts and their runs), `builders`
 (parallel Builder workspaces and their runs), `bundles` (`autocode bundle`
