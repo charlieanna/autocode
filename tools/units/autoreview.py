@@ -11,6 +11,7 @@ except ImportError:
     import autocode_prompts as prompts
 
 
+import hashlib
 import shlex
 from copy import deepcopy
 from dataclasses import replace
@@ -313,12 +314,26 @@ def apply_job(stage, state: RunState, value, record, workspace, run_dir=None, ru
     )
 
 
-def _study_run(clean_run, workspace, evidence_dir, patch, *, command=None, tests=(), timeout=PROBE_TIMEOUT):
-    """One scratch execution for the wrong-implementations study: ``patch`` None runs on the candidate itself."""
-    receipt = clean_run(
-        workspace, evidence_dir / "wrong-implementations", patch=patch, command=command, tests=tests, timeout=timeout
+def _variant_patch(evidence_dir, patch):
+    """The variant's patch text saved as a file, which the scratch runner applies; None for the candidate."""
+    if patch is None:
+        return None
+    folder = Path(evidence_dir) / "wrong-implementations"
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / (hashlib.sha256(patch.encode()).hexdigest() + ".patch")
+    path.write_text(patch if patch.endswith("\n") else patch + "\n")
+    return path
+
+
+def _study_run(clean_run, workspace, evidence_dir, patch, *, command=None, timeout=PROBE_TIMEOUT):
+    """One scratch execution of a variant's demo: ``patch`` None runs it on the candidate itself."""
+    return clean_run(
+        workspace,
+        evidence_dir / "wrong-implementations",
+        patch=_variant_patch(evidence_dir, patch),
+        command=command,
+        timeout=timeout,
     )
-    return receipt
 
 
 def _study_tests(state: RunState, clean_run, workspace, evidence_dir, patch, files):
@@ -326,7 +341,7 @@ def _study_tests(state: RunState, clean_run, workspace, evidence_dir, patch, fil
     run = clean_run(
         workspace,
         evidence_dir / "wrong-implementations",
-        patch=patch,
+        patch=_variant_patch(evidence_dir, patch),
         tests=files,
         command=command_policy.configured_targeted(state.get("settings"), files) or _planned_go_targeted(state, files),
         timeout=verify.DEFAULT_TIMEOUT,

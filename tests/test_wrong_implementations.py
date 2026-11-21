@@ -1,5 +1,6 @@
 """Wrong implementations must fail the acceptance tests (#3977): the per-variant verdicts and the record."""
 
+import sys
 import unittest
 
 import autocode_wrong_implementations as wrong
@@ -252,6 +253,53 @@ class RunTests(unittest.TestCase):
         self.assertEqual(shown["counts"]["survived"], 1)
         self.assertEqual(shown["survivors"][0]["case_id"], "C1")
         self.assertNotIn("patch_sha256", shown["survivors"][0])
+
+
+class RealRunnerTests(unittest.TestCase):
+    """The unit's glue on the real scratch runner: a variant's patch text reaches ``git apply`` as a file."""
+
+    def test_variants_are_judged_in_real_scratch_copies(self):
+        import shlex
+        import subprocess
+        import tempfile
+        from pathlib import Path
+
+        import autocode_verify as verify
+        from units import autoreview
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ws, run = Path(tmp, "ws"), Path(tmp, "run")
+            (ws / "tests").mkdir(parents=True)
+            run.mkdir()
+            (ws / "m.py").write_text("def f(x):\n    return x + 1\n")
+            (ws / "tests" / "test_m.py").write_text(
+                "import unittest\nfrom m import f\n\n\nclass T(unittest.TestCase):\n"
+                "    def test_f(self):\n        self.assertEqual(f(1), 2)\n"
+            )
+            git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid"]
+            subprocess.run(["git", "init", "-q"], cwd=ws, check=True)
+            subprocess.run([*git, "add", "-A"], cwd=ws, check=True)
+            subprocess.run([*git, "commit", "-qm", "init"], cwd=ws, check=True)
+
+            def body(line):
+                return f"--- a/m.py\n+++ b/m.py\n@@ -1,2 +1,2 @@\n def f(x):\n-    return x + 1\n+    {line}\n"
+
+            demo = [sys.executable, "-c", "import sys; sys.path.insert(0, '.'); from m import f; sys.exit(f(5) != 6)"]
+            runners = Runners(
+                demo=lambda patch, argv: autoreview._study_run(
+                    verify.scratch_run, ws, run, patch, command=shlex.join(argv)
+                ),
+                tests=lambda patch, files: autoreview._study_tests(
+                    {"settings": {}}, verify.scratch_run, ws, run, patch, files
+                ),
+            )
+            rows = [
+                variant(mistake="off by one", patch=body("return x + 2"), demo=demo),
+                variant(mistake="hard-codes the example", patch=body("return 2 if x == 1 else x"), demo=demo),
+                variant(mistake="no such file", patch="--- a/zz.py\n+++ b/zz.py\n@@ -1 +1 @@\n-a\n+b\n", demo=demo),
+            ]
+            result = study(rows, {"C1": ["tests/test_m.py"]}, runners)
+        self.assertEqual([r["outcome"] for r in result["variants"]], ["killed", "survived", "invalid"])
 
 
 if __name__ == "__main__":
