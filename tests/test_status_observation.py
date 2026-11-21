@@ -27,6 +27,12 @@ class StatusObservationTests(unittest.TestCase):
             project()
         self.assertEqual([14.0, 5.0], [call.kwargs["timeout"] for call in run.call_args_list])
 
+    def test_failed_worker_is_not_an_observation(self):
+        with patch.object(observation.captured, "run", side_effect=subprocess.TimeoutExpired("worker", 1)):
+            self.assertIsNone(observation.report_repair({}, "/tmp/project"))
+        with patch.object(observation, "_observe", return_value={"revision": "fresh", "stale": True}):
+            self.assertEqual({"revision": "fresh", "stale": True}, observation.report_repair({}, "/tmp/project"))
+
 
 if __name__ == "__main__":
     unittest.main()

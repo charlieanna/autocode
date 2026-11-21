@@ -60,7 +60,7 @@ def _observe(operation, payload, *, timeout=None):
     if remaining <= 0:
         raise subprocess.TimeoutExpired("status-worker", TIMEOUT)
     result = captured.run(
-        [sys.executable, str(Path(__file__).resolve()), "--worker"],
+        [sys.executable, str(Path(__file__).with_name("autocode_status_observation_worker.py").resolve()), "--worker"],
         input=json.dumps({"operation": operation, "payload": payload}),
         timeout=remaining,
         check=True,
@@ -107,14 +107,29 @@ def retained_retry(state: RunState, workspace):
         return unavailable
 
 
-def _worker(request):
-    if not isinstance(request, dict) or request.get("operation") != "retained_retry":
-        raise ValueError("Unsupported status observation")
-    payload = request["payload"]
-    return retry_next.decide(payload["state"], payload["workspace"])
+def report_repair(state: RunState, workspace, revision=None):
+    """Bound both snapshot and pinned report reads; None means unavailable."""
+    try:
+        value = _observe("report_repair", {"state": state, "workspace": str(workspace), "revision": revision})
+        if isinstance(value, dict) and isinstance(value.get("revision"), str) and type(value.get("stale")) is bool:
+            return value
+    except (OSError, TypeError, ValueError, subprocess.SubprocessError, captured.ProcessError):
+        pass
+    return None
 
 
-if __name__ == "__main__":
-    if sys.argv[1:] != ["--worker"]:
-        raise SystemExit(2)
-    print(json.dumps({"result": _worker(json.load(sys.stdin))}))
+def catalog_offer(state: RunState, *, controller=None, stop_pending=False):
+    """Only offer a catalog action after a bounded current observation."""
+    try:
+        from . import autocode_catalog_reconciliation as catalog
+    except ImportError:
+        import autocode_catalog_reconciliation as catalog
+    if stop_pending or not isinstance(controller, dict) or controller.get("kind") not in ("ended", "boundary"):
+        return None
+    if not catalog.eligible(state):
+        return None
+    try:
+        result = _observe("catalog_offer", {"state": state, "controller": controller})
+        return result if isinstance(result, dict) else None
+    except (OSError, TypeError, ValueError, subprocess.SubprocessError, captured.ProcessError):
+        return None

@@ -280,7 +280,7 @@ class ReportRepairStatusCliTests(unittest.TestCase):
         self.state["active_stage"].update(iteration=1, output=str(self.run_dir / "repair.json"))
         self.state["pending_report_repair"]["contract_hash"] = self.state["goal_contract"]["hash"]
         util.atomic_json(self.run_dir / "state.json", self.state)
-        with patch("autocode_status_command.source_scope.snapshot", side_effect=OSError("source unavailable")):
+        with patch("autocode_status_command.status_observation.report_repair", return_value=None):
             code, stdout, stderr = self.invoke("--status")
         self.assertEqual(0, code, stderr)
         shown = json.loads(stdout)["view"]["report_repair"]

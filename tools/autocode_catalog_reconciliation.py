@@ -29,8 +29,8 @@ except ImportError:
 PREFIX = "catalog-v1:"
 
 
-def candidate(state: RunState):
-    """Return current and original inventories only at a safe planning boundary."""
+def eligible(state: RunState):
+    """Check the in-memory planning boundary without reading the catalog."""
     v2 = roles.planning_flow(state) == "v2"
     pause = state.get("pause_intent")
     if (
@@ -58,6 +58,13 @@ def candidate(state: RunState):
         or (pause and (not isinstance(pause, dict) or not pause.get("acknowledged_at")))
         or stop.applied_stop(state) is not None
     ):
+        return None
+    return True
+
+
+def candidate(state: RunState):
+    """Return current and original inventories only at a safe planning boundary."""
+    if not eligible(state):
         return None
     old = context.saved_inventory(state)
     if not isinstance(old, dict):

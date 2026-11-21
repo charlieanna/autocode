@@ -422,11 +422,9 @@ def view(
                 ),
             }
         else:
-            try:
-                from . import autocode_catalog_reconciliation as catalog_reconciliation
-            except ImportError:
-                import autocode_catalog_reconciliation as catalog_reconciliation
-            catalog_resume = catalog_reconciliation.offer(saved_state, controller=controller, stop_pending=stop_pending)
+            catalog_resume = status_observation.catalog_offer(
+                saved_state, controller=controller, stop_pending=stop_pending
+            )
             if catalog_resume is not None:
                 next_action = {
                     "needs": catalog_resume,
