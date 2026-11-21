@@ -127,7 +127,10 @@ of the approved `test:` cases. Each is a patch plus a `demo` command that observ
 
 For each one, the runner, in a scratch copy:
 
-- drops it when it names no due `test:` case, edits a test file or does not apply (`invalid`);
+- applies its patch to copies of the files it changes with `git apply --recount --unidiff-zero`, which takes a
+  hand-written hunk with no context lines or inexact line counts, and overlays them on the copy;
+- drops it when it names no due `test:` case, edits a test file, deletes or renames a file, or does not apply
+  (`invalid`, with git's reason);
 - requires its demo to exit 0 on the candidate (`demo_unproven` otherwise) and non-zero with the patch
   (`not_shown_wrong` otherwise), so every survivor is really wrong;
 - runs the batch's acceptance tests with the patch: a failing test kills it, and when every test passes it

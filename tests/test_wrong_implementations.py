@@ -271,7 +271,7 @@ class RealRunnerTests(unittest.TestCase):
             ws, run = Path(tmp, "ws"), Path(tmp, "run")
             (ws / "tests").mkdir(parents=True)
             run.mkdir()
-            (ws / "m.py").write_text("def f(x):\n    return x + 1\n")
+            (ws / "m.py").write_text("def f(x):\n    return x + 1\n\n\ndef g(x):\n    return x\n")
             (ws / "tests" / "test_m.py").write_text(
                 "import unittest\nfrom m import f\n\n\nclass T(unittest.TestCase):\n"
                 "    def test_f(self):\n        self.assertEqual(f(1), 2)\n"
@@ -297,9 +297,35 @@ class RealRunnerTests(unittest.TestCase):
                 variant(mistake="off by one", patch=body("return x + 2"), demo=demo),
                 variant(mistake="hard-codes the example", patch=body("return 2 if x == 1 else x"), demo=demo),
                 variant(mistake="no such file", patch="--- a/zz.py\n+++ b/zz.py\n@@ -1 +1 @@\n-a\n+b\n", demo=demo),
+                # As the live writer sent them (#3977): no context lines, and a header whose counts are wrong.
+                # Plain ``git apply`` refuses both; ``patch -p1``, which the writer checks with, takes both.
+                variant(
+                    mistake="zero context",
+                    patch="--- a/m.py\n+++ b/m.py\n@@ -2 +2 @@\n-    return x + 1\n+    return x + 2\n",
+                    demo=demo,
+                ),
+                variant(
+                    mistake="miscounted header",
+                    patch="--- a/m.py\n+++ b/m.py\n@@ -1,5 +1,5 @@\n def f(x):\n-    return x + 1\n"
+                    "+    return 2 if x == 1 else x\n",
+                    demo=demo,
+                ),
+                variant(
+                    mistake="deletes the module",
+                    patch="--- a/m.py\n+++ /dev/null\n@@ -1,6 +0,0 @@\n"
+                    "-def f(x):\n-    return x + 1\n-\n-\n-def g(x):\n-    return x\n",
+                    demo=demo,
+                ),
             ]
             result = study(rows, {"C1": ["tests/test_m.py"]}, runners)
-        self.assertEqual([r["outcome"] for r in result["variants"]], ["killed", "survived", "invalid"])
+            self.assertEqual(
+                subprocess.run(["git", "status", "--porcelain"], cwd=ws, capture_output=True, text=True).stdout, ""
+            )
+        self.assertEqual(
+            [r["outcome"] for r in result["variants"]],
+            ["killed", "survived", "invalid", "killed", "survived", "invalid"],
+        )
+        self.assertIn("deletes 'm.py'", result["variants"][5]["reason"])
 
 
 if __name__ == "__main__":

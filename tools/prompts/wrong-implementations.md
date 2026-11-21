@@ -14,12 +14,13 @@ Each variant is:
 - `case_id`: the id of the approved case it violates (only a case listed in `cases`).
 - `mistake`: one sentence.
 - `category`: one of logic, validation, format, boundary, entry_point, packaging, discovery, hardcoded, stub.
-- `patch`: a unified diff against the candidate, paths as `a/...` and `b/...`, applying with `patch -p1`.
-  It may change product code, packaging metadata, docs and configuration. It must NOT add, change or
-  delete any test file.
+- `patch`: a unified diff against the candidate, paths as `a/...` and `b/...`. The runner applies it with
+  `git apply --recount --unidiff-zero`, so hunks without context lines and inexact line counts are fine.
+  It may change or add product code, packaging metadata, docs and configuration files. It must NOT delete
+  or rename a file, and must NOT add, change or delete any test file.
 - `demo`: a command as an argument array (no shell) that, run from the repository root, exits 0 on the
   candidate and non-zero once your patch is applied, observing the violated behavior directly (not through a
   test file).
 
-Write at most `max_variants` variants, spread over different cases and categories. Check each demo and
-patch in the scratch copy before reporting. Change nothing in the workspace.
+Write at most `max_variants` variants, spread over different cases and categories. Check each demo, and each
+patch with that `git apply` command, in the scratch copy before reporting. Change nothing in the workspace.
