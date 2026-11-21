@@ -311,7 +311,13 @@ def retained_command_output(state: RunState, stage, run_dir, current_source, com
     """
     if not _direct(command):
         return None
-    packet = context(state, stage, run_dir, current_source)
+    if stage == "claim_evidence":
+        if (state.get("settings") or {}).get("replay_recording"):
+            return None
+        current = current_source if callable(current_source) else lambda: current_source
+        packet = _handoff_packet(state, stage, state.get("requirements_handoff") or {}, run_dir, current)
+    else:
+        packet = context(state, stage, run_dir, current_source)
     if packet is None:
         return None
     try:

@@ -343,13 +343,31 @@ class RequirementsObservationsTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(full.encode()).hexdigest(), observed["sha256"])
         self.assertEqual(self.product["revision"], observed["source_revision"])
         self.assertNotIn(full, json.dumps(self.context()), "full native output stays out of the model packet")
+        self.state["stages"].append({"stage": "draft_plan"})
+        self.assertIsNone(lookup(self.state, "draft_plan", self.run, lambda: source.snapshot(self.workspace), command))
+        later = lookup(self.state, "claim_evidence", self.run, lambda: source.snapshot(self.workspace), command)
+        self.assertEqual(observed, later, "the evidence reader retains custody after planning starts")
+        self.state["settings"]["replay_recording"] = {"checks": "fresh"}
+        self.assertIsNone(
+            lookup(self.state, "claim_evidence", self.run, lambda: source.snapshot(self.workspace), command)
+        )
+        self.state["settings"].pop("replay_recording")
+        self.state["turns"] = [{"stage_index": 1}]
+        self.assertIsNone(
+            lookup(self.state, "claim_evidence", self.run, lambda: source.snapshot(self.workspace), command)
+        )
+        self.state.pop("turns")
         event_path = Path(self.record["events"])
         event_bytes = event_path.read_bytes()
         event_path.write_bytes(event_bytes + b" ")
-        self.assertIsNone(lookup(self.state, "draft_plan", self.run, lambda: source.snapshot(self.workspace), command))
+        self.assertIsNone(
+            lookup(self.state, "claim_evidence", self.run, lambda: source.snapshot(self.workspace), command)
+        )
         event_path.write_bytes(event_bytes)
         (self.workspace / "app.py").write_text("VALUE = 2\n")
-        self.assertIsNone(lookup(self.state, "draft_plan", self.run, lambda: source.snapshot(self.workspace), command))
+        self.assertIsNone(
+            lookup(self.state, "claim_evidence", self.run, lambda: source.snapshot(self.workspace), command)
+        )
 
     def test_filtered_truncated_unknown_or_ambiguous_output_cannot_supply_complete_custody(self):
         command = "python3 -m pytest --collect-only -q"
