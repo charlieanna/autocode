@@ -205,6 +205,36 @@ class ReportRepairViewTests(unittest.TestCase):
         for key in ("reason", "original_reason", "attempts", "limit"):
             self.assertIsNone(shown[key])
 
+    def test_unavailable_repair_observation_holds_abandonment_and_resume(self):
+        state = self.state()
+        state.update(
+            status="PAUSED_INVALID_OUTPUT", workspace="/tmp/project", run_dir="/tmp/project/.autocode/runs/test"
+        )
+        state["active_stage"].update(iteration=1, output="/tmp/project/repair.json", exit_code=1)
+        shown = run_view.view(state, report_repair_source_unavailable=True)
+        self.assertEqual("unavailable", shown["report_repair"]["freshness"])
+        self.assertIsNone(shown["next_command"])
+        self.assertIsNone(shown["needs"])
+        self.assertEqual("blocked", shown["recovery"]["category"])
+        self.assertEqual(["inspect"], [row["kind"] for row in shown["recovery"]["actions"]])
+        observed = run_view.view(state, report_repair_revision="a" * 64)
+        self.assertIn("--abandon-stage", observed["next_command"])
+        self.assertIn("abandon", [row["kind"] for row in observed["recovery"]["actions"]])
+
+    def test_unavailable_repair_preserves_a_separate_person_question(self):
+        state = self.state()
+        state.update(
+            status="WAITING_FOR_USER",
+            workspace="/tmp/project",
+            run_dir="/tmp/project/.autocode/runs/test",
+            pending_questions=[{"id": "q1", "question": "Which format?"}],
+        )
+        shown = run_view.view(state, report_repair_source_unavailable=True)
+        self.assertEqual("answer", shown["needs"]["kind"])
+        baseline = run_view.view(state)
+        self.assertEqual(baseline["next_command"], shown["next_command"])
+        self.assertEqual(baseline["needs"], shown["needs"])
+
 
 class ReportRepairStatusCliTests(unittest.TestCase):
     setUp = test_json_output.JsonActionCliTests.setUp
@@ -278,12 +308,17 @@ class ReportRepairStatusCliTests(unittest.TestCase):
         self.state.update({key: value for key, value in fixture.items() if key != "settings"})
         self.state["settings"]["report_repair"] = fixture["settings"]["report_repair"]
         self.state["active_stage"].update(iteration=1, output=str(self.run_dir / "repair.json"))
+        self.state["status"] = "PAUSED_INVALID_OUTPUT"
+        self.state["active_stage"]["exit_code"] = 1
         self.state["pending_report_repair"]["contract_hash"] = self.state["goal_contract"]["hash"]
         util.atomic_json(self.run_dir / "state.json", self.state)
         with patch("autocode_status_command.status_observation.report_repair", return_value=None):
             code, stdout, stderr = self.invoke("--status")
         self.assertEqual(0, code, stderr)
-        shown = json.loads(stdout)["view"]["report_repair"]
+        view = json.loads(stdout)["view"]
+        self.assertIsNone(view["next_command"])
+        self.assertEqual(["inspect"], [row["kind"] for row in view["recovery"]["actions"]])
+        shown = view["report_repair"]
         self.assertEqual("unavailable", shown["freshness"])
         self.assertFalse(shown["active"])
 
