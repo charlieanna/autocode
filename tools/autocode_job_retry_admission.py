@@ -182,12 +182,7 @@ def route_is_repairable(state: RunState, *, cross_check, failure_status, configu
     if not isinstance(bound, dict):
         return False
     saved_model, saved_effort = bound.get("model"), bound.get("reasoning_effort")
-    if (
-        isinstance(saved_model, str)
-        and isinstance(saved_effort, str)
-        and effort_drift(state, failure, role)
-        and quota_route.engine(state.get("settings") or {}, role) != "opencode"
-    ):
+    if isinstance(saved_model, str) and isinstance(saved_effort, str) and effort_drift(state, failure, role):
         candidates.append(f"{saved_model}@{saved_effort}")
         routes = (state.get("settings") or {}).get("roles") or {}
         if isinstance(routes, dict) and len(routes) <= 32:

@@ -25,19 +25,36 @@ def _worker(request):
             import autocode_dispatch as dispatch
             import autocode_interventions as interventions
             import autocode_opencode as opencode
+            import autocode_providers as providers
+            import autocode_role_transport as role_transport
             import autocode_support as support
 
             run_dir = payload.get("run_dir") or state.get("run_dir")
             if not isinstance(run_dir, str) or interventions.pending(Path(run_dir)):
                 return {"allowed": False, "reason": str(error)}
+            question = admission.quota_route.job_question(state)
+            role = question.get("route_role") if isinstance(question, dict) else None
+            if not isinstance(role, str) or role not in admission.quota_route.ROUTABLE:
+                return {"allowed": False, "reason": str(error)}
+            try:
+                saved = state.get("settings") or {}
+                facade = (
+                    providers.resolve(providers.select(None, saved, default="opencode"))
+                    if admission.quota_route.engine(saved, role) == "opencode"
+                    else opencode
+                )
+                if admission.quota_route.engine(saved, role) == "opencode":
+                    if saved.get("replay_recording"):
+                        return {"allowed": False, "reason": "The saved replay provider could not be inspected"}
+                    role_transport.adapter(saved, role, facade, payload["workspace"])
+            except (OSError, TypeError, ValueError, RuntimeError, util.Paused):
+                return {"allowed": False, "reason": "The saved provider could not be inspected"}
             possible = admission.route_is_repairable(
                 state,
                 cross_check=dispatch.enforce_cross_model_verification,
                 failure_status=support.failure_status,
-                configured_tool=getattr(opencode, "CONFIGURED", False),
+                configured_tool=getattr(facade, "CONFIGURED", False),
             )
-            question = admission.quota_route.job_question(state)
-            role = question.get("route_role") if isinstance(question, dict) else None
             return {
                 "allowed": False,
                 "route_allowed": possible,

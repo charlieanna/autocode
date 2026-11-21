@@ -386,14 +386,17 @@ class JobModelRouteTests(JobHarness):
             message="Apply the queued intervention before answering",
         )
 
-    def test_effort_probe_does_not_bypass_opencode_model_listing(self):
+    def test_free_form_effort_offer_does_not_claim_a_provider_model_is_available(self):
         run = self.refused("quota")
         self.stopped(run)
         saved = json.loads((run.run_dir / "state.json").read_text())
         saved["settings"]["roles"]["architect"]["reasoning_effort"] = "high"
         saved["job_failure"]["route"].pop("candidates", None)
-        with mock.patch.object(quota_route, "engine", return_value="opencode"):
-            self.assertFalse(
+        with (
+            mock.patch.object(quota_route, "engine", return_value="opencode"),
+            mock.patch("providers.opencode.available_models", side_effect=AssertionError("listing on status")),
+        ):
+            self.assertTrue(
                 job_failure.retry_admission.route_is_repairable(
                     saved,
                     cross_check=runner.dispatch.enforce_cross_model_verification,
@@ -401,6 +404,79 @@ class JobModelRouteTests(JobHarness):
                     configured_tool=True,
                 )
             )
+
+    def test_free_form_effort_answer_still_checks_provider_model_availability(self):
+        run = self.refused("quota")
+        need = self.stopped(run)
+        state = json.loads((run.run_dir / "state.json").read_text())
+        state["settings"]["roles"]["architect"]["reasoning_effort"] = "high"
+        before = copy.deepcopy(state)
+        args = argparse.Namespace(
+            answer=["route-architect=gpt-6-sol@medium"],
+            delegate=[],
+            delegate_all=False,
+            job_retry_token=need["job_retry_token"],
+        )
+        facade = mock.Mock()
+        facade.check_models.side_effect = RuntimeError("Model unavailable")
+        stderr = io.StringIO()
+        with (
+            mock.patch.object(quota_route, "engine", return_value="opencode"),
+            mock.patch.object(runner.opencode, "CONFIGURED", True, create=True),
+            mock.patch.object(job_route.role_transport, "adapter", return_value=facade),
+            contextlib.redirect_stderr(stderr),
+        ):
+            result = job_route.answer(runner, args, state, run.run_dir, self.workspace)
+        self.assertEqual(2, result)
+        self.assertIn("Model unavailable", stderr.getvalue())
+        facade.check_models.assert_called_once()
+        self.assertEqual(before, state)
+
+    def test_kilo_effort_offer_uses_no_listing_until_the_named_answer(self):
+        # A synthetic saved Kilo-shaped stop and fake local binary exercise the
+        # transport contract; this does not claim a real Kilo model attempt.
+        run = self.refused("quota")
+        need = self.stopped(run)
+        audit = self.workspace / ".autocode" / "kilo-audit"
+        model = "zhipuai-coding-plan/glm-5.3"
+        kilo = self.workspace / ".autocode" / "bin" / "kilo"
+        kilo.write_text(
+            "#!/usr/bin/env python3\n"
+            "import os,sys\nfrom pathlib import Path\n"
+            "with Path(os.environ['KILO_AUDIT']).open('a') as stream: stream.write(' '.join(sys.argv[1:])+'\\n')\n"
+            "if sys.argv[1:] == ['--version']: print('7.8.27'); raise SystemExit(0)\n"
+            f"if sys.argv[1:] == ['models']: print({model!r}); raise SystemExit(0)\n"
+            "if sys.argv[1:] == ['auth','list']: print('connected'); raise SystemExit(0)\n"
+            "raise SystemExit(7)\n"
+        )
+        kilo.chmod(0o755)
+        run.env["KILO_AUDIT"] = str(audit)
+        checkpoint = run.run_dir / "state.json"
+        state = json.loads(checkpoint.read_text())
+        state["settings"].update(engine="opencode", provider="kilocode")
+        state["settings"]["roles"]["builder"]["model"] = "openai/gpt-6-sol"
+        state["settings"]["roles"]["tester"]["model"] = "zhipuai-coding-plan/glm-5.3"
+        state["settings"]["roles"]["completion"]["model"] = "anthropic/claude-sonnet-4-6"
+        route = state["settings"]["roles"]["architect"]
+        route.update(model=model, reasoning_effort="medium")
+        state["job_failure"]["configuration"] = job_failure.configuration(state)
+        state["job_failure"]["route"]["stopped_model"] = model
+        state["job_failure"]["route"]["current_model"] = model
+        state["job_failure"]["route"]["engine"] = "opencode"
+        state["job_failure"]["route"].pop("candidates", None)
+        route["reasoning_effort"] = "high"
+        checkpoint.write_text(json.dumps(state))
+        view = run.status()
+        self.assertEqual("retry_job", view["needs"]["kind"], view["needs"])
+        self.assertTrue(view["needs"]["effort_drift"])
+        self.assertIn("--answer route-architect=MODEL", view["next_command"])
+        self.assertFalse(audit.exists() and "models" in audit.read_text(), "status must not list models")
+        proc = self.cli(
+            run, "--answer", f"route-architect={model}@medium", "--job-retry-token", need["job_retry_token"]
+        )
+        self.assertEqual(0, proc.returncode, proc.stderr)
+        self.assertIn("models", audit.read_text(), "the actual answer checks the selected provider")
+        self.assertNotIn("run ", audit.read_text(), "checking the answer must not start a model")
 
     def test_a_model_flag_at_a_stopped_job_is_refused_with_the_job_advice(self):
         run = self.refused()
