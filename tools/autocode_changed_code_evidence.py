@@ -32,7 +32,13 @@ import re
 from copy import deepcopy
 from pathlib import Path, PurePosixPath
 
+try:
+    from . import autocode_python_semantic_lines as python_semantic_lines
+except ImportError:
+    import autocode_python_semantic_lines as python_semantic_lines
+
 _SHA256 = re.compile(r"[0-9a-f]{64}")
+OVERLAP_LIMIT = 3
 
 
 def _text(value):
@@ -83,12 +89,12 @@ def quoted(text):
 def line_texts(data, digest, lines):
     """{"sha256", "lines"}: the quoted text of each changed line in exactly these bytes.
 
-    Lines are numbered as the inventory numbers them (``str.splitlines`` over UTF-8 with
-    replacement). Returns None when the bytes are not the inventoried file.
+    Lines are numbered as Git's LF-delimited physical lines. Returns None when
+    the bytes are not the inventoried file.
     """
     if not isinstance(data, bytes) or hashlib.sha256(data).hexdigest() != digest:
         return None
-    text = data.decode("utf-8", errors="replace").splitlines()
+    text = python_semantic_lines.physical_lines(data)
     return {
         "sha256": digest,
         "lines": {str(line): quoted(text[line - 1]) for line in lines if type(line) is int and 0 < line <= len(text)},
@@ -199,6 +205,40 @@ def _mutation(row, line):
     return demonstrated, outcomes, evidence
 
 
+def _overlapping_mutations(row, line):
+    """Show nonpositive parent-span observations without granting child-line credit."""
+    mutants = row.get("mutants") if isinstance(row, dict) else None
+    if not isinstance(mutants, list):
+        return [], 0
+    result = []
+    omitted = 0
+    for mutant in mutants:
+        if not isinstance(mutant, dict):
+            continue
+        start, end = mutant.get("line"), mutant.get("end_line")
+        outcome = mutant.get("outcome")
+        if (
+            type(start) is not int
+            or type(end) is not int
+            or not 0 < start < line <= end
+            or outcome not in ("survived", "not_run", "timeout", "unsupported", "error")
+        ):
+            continue
+        if len(result) >= OVERLAP_LIMIT:
+            omitted += 1
+            continue
+        result.append(
+            {
+                "line": start,
+                "end_line": end,
+                "operator": mutant.get("operator"),
+                "outcome": outcome,
+                "evidence": list(mutant["evidence"]) if _texts(mutant.get("evidence")) else [],
+            }
+        )
+    return result, omitted
+
+
 def _exception(exceptions, obligation, source_revision, proof_context):
     matches = [row for row in exceptions if isinstance(row, dict) and row.get("gap_id") == obligation["gap_id"]]
     if len(matches) != 1:
@@ -263,6 +303,7 @@ def assess(inventory, coverage, mutation, *, source_revision, proof_context, exc
         for line in file["lines"]:
             ran = _lines(executed) and line in executed
             demonstrated, outcomes, evidence = _mutation(changes, line)
+            overlap, omitted_overlap = _overlapping_mutations(changes, line)
             obligation = {
                 "gap_id": gap_id(source_revision, proof_context, path, digest, line),
                 # A short name for this exact gap, numbered over every obligation in inventory order so
@@ -283,6 +324,10 @@ def assess(inventory, coverage, mutation, *, source_revision, proof_context, exc
                 if ran
                 else "No measured execution or complete behavioral mutation evidence for this changed line.",
             }
+            if overlap:
+                obligation["overlapping_mutations"] = overlap
+            if omitted_overlap:
+                obligation["overlapping_mutations_omitted"] = omitted_overlap
             source = _line_text(texts, path, digest, line)
             if source is not None:
                 # The exact line the handle binds, beside it, for the reviewer who decides it (#2977).

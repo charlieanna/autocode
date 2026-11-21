@@ -89,6 +89,7 @@ OPERATORS = (
     "none_update",
     "none_keyword",
     "none_entry",
+    "none_element",
 )
 # Sites for an ordinary statement or a line of a long one; used only on a line where no other operator's
 # site starts.
@@ -578,11 +579,15 @@ def _sites(tree, body, starts, lines, notes, path):
         elif isinstance(node, ast.Dict):
             pairs = zip(node.keys, node.values, strict=True)
             elements = [(key, value, "none_entry") for key, value in pairs if key is not None]
+        elif isinstance(node, (ast.List, ast.Tuple)) and isinstance(node.ctx, ast.Load):
+            elements = [(item, item, "none_element") for item in node.elts if not isinstance(item, ast.Starred)]
         for first, value, operator in elements:
             if not own_line(first) or not _touches(lines, first.lineno, value.end_lineno):
                 continue
             if loads(enclosing.get(id(node))):
                 break
+            if id(value) in excluded:
+                continue
             if isinstance(value, ast.Constant) and value.value is None:
                 continue  # None has no other value to become here
             constant, text = _constant(value)
