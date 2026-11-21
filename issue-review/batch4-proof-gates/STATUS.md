@@ -24,6 +24,22 @@ remain available as diagnostics. This supersedes earlier historical statements
 below about normalized fingerprints authorizing an exemption. No same-cause
 authority or #3944 fix is claimed.
 
+**Separate #3944 recovery design, not implemented:** authenticate the base and
+protected replay receipts, source revision and test IDs. A failure absent from
+the authenticated base remains FAIL; if every named failure was already seen,
+record uncertainty only, never a passing or same-cause verdict. Route that
+runner-owned typed outcome before `reject_completed_stage` calls
+`set_aside_at_completion_gate`: archive the finished Tester and bind both
+receipts, then use a capped `stuck_job.intercept(..., routed=True)` mode for
+operational diagnosis. Existing `OriginalGateUndetermined` pauses directly and
+does not invoke the Investigator, so it is insufficient on its own. The new
+mode must prohibit machinery questions and blind retries, preserve all evidence
+across crash/resume, and hold without a person action when disabled, exhausted
+or unresolved. Controls must cover mixed genuinely new IDs, forged/incomplete
+or stale receipts, changed sources, the same-output/different-cause example,
+spend bounds and the actual editor view. This is a possible safe intermediate,
+not an authenticated cause or a complete fix for #3944.
+
 **Agent-reviewed original-test replacement:** the master test
 `test_replacement_symlink_cannot_write_through_to_source` expected an original
 command to run and produce an exit-1 receipt after an absolute source link was
