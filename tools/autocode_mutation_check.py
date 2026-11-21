@@ -272,6 +272,7 @@ def collect_selected_tests(
             return record("the selected tests do not contain ordinary test IDs")
         tests = sorted(set(tests))
         maximum = clock() + BUDGET_SECONDS
+        outer = deadline
         deadline = min(deadline, maximum) if deadline is not None else maximum
         return _collect(
             framework_name,
@@ -288,6 +289,7 @@ def collect_selected_tests(
             enforcement=enforcement,
             previous=previous,
             progress=progress,
+            outer_deadline=outer,
         )
     except command_receipt.OwnershipUncertain:
         raise
@@ -311,6 +313,7 @@ def _collect(
     enforcement=False,
     previous=None,
     progress=None,
+    outer_deadline=None,
 ) -> dict:
     if not tests:
         return record("no judged test is named after a due case, so the mutation check ran no test")
@@ -408,6 +411,7 @@ def _collect(
             total=total_mutants,
             elapsed_seconds=elapsed,
         )
+    reference_started = clock()
     reference = run(prepare(narrowed, cache), "unmutated", reference_limit)
     observed_reference = reference if python else mutation_results.selected(reference, tests)
     outcome, passed = (proved_outcome if enforcement else judge)(observed_reference, tests)
@@ -424,6 +428,14 @@ def _collect(
                 "outcome": outcome,
             }
         return failed
+    if previous is not None:
+        # A continuation window runs the unmutated reference again in its new tree, which is right, but
+        # its time is not the mutants' budget. Charged to it, a reference over half the window left no
+        # mutant that runs every selected test enough time, in this window or any later one, so a slow
+        # suite cut the same kind of site short in every window (#3945 run). The caller's total
+        # allowance still bounds the window.
+        extended = deadline + max(0.0, clock() - reference_started)
+        deadline = min(outer_deadline, extended) if outer_deadline is not None else extended
     bound = max(MUTANT_FLOOR_SECONDS, MUTANT_FACTOR * float(reference.get("duration_seconds") or 0))
     # A runner selected by name pattern runs to the end: its early stop would leave tests beside the
     # selected ones unreported in an order nothing here controls.
