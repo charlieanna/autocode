@@ -17,6 +17,8 @@ Group 4a merged as #3972 (`4393e5ec`); its integrated ten-module suite passed 37
 
 If the supervisor cannot establish cleanup for one status worker, the rest of that same projection withholds its observations without launching another worker. This is an uncertainty hold, not a claim that the earlier process was cleaned up.
 
+The post-merge task-run contract test on master omitted `source_catalog_receipt` from its exact expected field set, although the status view emits it and the published schema requires it. The follow-up corrects that strict test expectation; the regression fails on master and passes with the correction.
+
 ## Cluster D run (on Ankur's Mac, Kilo engine, saved stage models; uses no Claude)
 - Controller: `/Users/ankurkothari/Documents/workspace/autocode-recov-controller` (detached at master 38e247b23, own .venv)
 - Task worktree: `/Users/ankurkothari/Documents/workspace/autocode-recov-runs` (branch above, `--in-place`)
