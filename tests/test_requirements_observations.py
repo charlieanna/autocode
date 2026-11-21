@@ -682,6 +682,39 @@ class RequirementsObservationsTests(unittest.TestCase):
             ):
                 self.assertIsNone(lookup(self.state, self.run, self.product, "collect", "execute"))
 
+    def test_reported_suite_claim_binds_exact_current_assumption_but_remains_unverified(self):
+        claim = {"id": "A3", "text": "The whole suite currently passes", "category": "technical"}
+        self.report["proposed_assumptions"] = [claim]
+        Path(self.record["output"]).write_text(json.dumps(self.report))
+        collection_command = "python3 -m pytest --collect-only -q"
+        execution_command = "python3 -m pytest -v"
+        self.events = [
+            self.command(
+                "collection",
+                collection_command,
+                "tests/a.py::test_one\n1 test collected in 0.1s\n",
+                output_truncated=False,
+            ),
+            self.command(
+                "execution",
+                execution_command,
+                "collected 1 item\ntests/a.py::test_one PASSED [100%]\n=== 1 passed in 0.1s ===\n",
+                output_truncated=False,
+            ),
+        ]
+        self.write_events()
+        self.seal()
+        link = getattr(observations, "reported_assumption_suite_claim", None)
+        self.assertIsNotNone(link)
+        source_now = lambda: source.snapshot(self.workspace)
+        result = link(self.state, self.run, source_now, "A3", collection_command, execution_command)
+        self.assertEqual("unverified", result["status"])
+        self.assertEqual(claim["text"], result["claim"])
+        self.assertEqual(hashlib.sha256(claim["text"].encode()).hexdigest(), result["claim_sha256"])
+        self.assertIsNone(link(self.state, self.run, source_now, "other", collection_command, execution_command))
+        claim["text"] = "A changed unsupported assertion"
+        self.assertIsNone(link(self.state, self.run, source_now, "A3", collection_command, execution_command))
+
     def test_running_native_event_cannot_attest_a_later_completed_output(self):
         command = "python3 -m pytest --collect-only -q"
         part = {

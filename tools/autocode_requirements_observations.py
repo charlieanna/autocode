@@ -391,6 +391,30 @@ def reported_suite_observation(state: RunState, run_dir, current_source, collect
     }
 
 
+def reported_assumption_suite_claim(
+    state: RunState, run_dir, current_source, assumption_id, collection_command, execution_command
+):
+    """Bind an exact current assumption to reported suite data, without verifying its semantics."""
+    handoff = requirements_review.current_turn_handoff(state)
+    report = handoff.get("report") if isinstance(handoff, dict) else None
+    assumptions = report.get("proposed_assumptions") if isinstance(report, dict) else None
+    if not isinstance(assumption_id, str) or not assumption_id or not isinstance(assumptions, list):
+        return None
+    matches = [row for row in assumptions if isinstance(row, dict) and row.get("id") == assumption_id]
+    if len(matches) != 1 or not isinstance(matches[0].get("text"), str) or not matches[0]["text"].strip():
+        return None
+    suite = reported_suite_observation(state, run_dir, current_source, collection_command, execution_command)
+    if suite is None:
+        return None
+    text = matches[0]["text"]
+    return {
+        **suite,
+        "assumption_id": assumption_id,
+        "claim": text,
+        "claim_sha256": hashlib.sha256(text.encode()).hexdigest(),
+    }
+
+
 def _native(values, blocked):
     """Completed native read/search/list calls: Claude Code's adapted tool_call items carry only the
     call's inputs, OpenCode and Kilo parts also their output."""
