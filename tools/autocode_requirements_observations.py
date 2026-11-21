@@ -23,11 +23,13 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_named_collection as named_collection
+    from . import autocode_requirements_review as requirements_review
     from . import autocode_source_snapshot as source
     from . import autocode_util as util
     from .providers import opencode_events
 except ImportError:
     import autocode_named_collection as named_collection
+    import autocode_requirements_review as requirements_review
     import autocode_source_snapshot as source
     import autocode_util as util
     from providers import opencode_events
@@ -317,7 +319,7 @@ def retained_command_output(state: RunState, stage, run_dir, current_source, com
         if (state.get("settings") or {}).get("replay_recording"):
             return None
         current = current_source if callable(current_source) else lambda: current_source
-        packet = _handoff_packet(state, stage, state.get("requirements_handoff") or {}, run_dir, current)
+        packet = _handoff_packet(state, stage, requirements_review.current_turn_handoff(state), run_dir, current)
     else:
         packet = context(state, stage, run_dir, current_source)
     if packet is None:

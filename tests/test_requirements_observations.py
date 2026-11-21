@@ -362,6 +362,10 @@ class RequirementsObservationsTests(unittest.TestCase):
         self.assertIsNone(
             lookup(self.state, "claim_evidence", self.run, lambda: source.snapshot(self.workspace), command)
         )
+        self.state["turns"] = [{"previous": {"requirements_output": self.record["output"]}}]
+        self.assertIsNone(
+            lookup(self.state, "claim_evidence", self.run, lambda: source.snapshot(self.workspace), command)
+        )
         self.state.pop("turns")
         event_path = Path(self.record["events"])
         event_bytes = event_path.read_bytes()
