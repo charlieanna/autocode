@@ -1,5 +1,16 @@
 # Proof gates status
 
+### Current qualification boundary
+
+#4053 merged into master as `7a69a5ff55a35a7b5a9530b34d8f530c95acf0e2`
+after exact-head required CI and all 11 actual VS Code host tests passed;
+#4047 is closed. This proof branch retains its ancestry and integrates that
+master before the final combined qualification. The latest scoped SemVer CLI
+rehearsal passed, and all reported fixture corrections are reviewed and tested.
+The combined editor and current-head required CI are still required before
+#3981 merges or #4044/#4049 close. The earlier original-task issues #3926 and
+#3944 remain open and are not claimed fixed by these results.
+
 ### Combined rehearsal failure and fixture correction
 
 The frozen combined `283a1fc09` SemVer rehearsal is preserved at
