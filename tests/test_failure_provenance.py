@@ -1,6 +1,9 @@
 """Failure equivalence reads authenticated per-test details, not only IDs."""
 
 import hashlib
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -32,7 +35,7 @@ class FailureCaptureTests(unittest.TestCase):
             "results": {"passed": [], "failed": ["test_x.TestX::test_a"], "skipped": [], "complete": True, "total": 1},
         }
 
-    def test_volatile_pytest_instance_address_does_not_hide_exception_or_assertion_changes(self):
+    def test_pytest_instance_display_is_not_assumed_to_be_a_volatile_address(self):
         def report(address, exception="missing dependency"):
             return (
                 '<testsuite><testcase classname="test_x.TestX" name="test_a">'
@@ -44,8 +47,36 @@ class FailureCaptureTests(unittest.TestCase):
         same = evidence.observations(self.receipt(report("0x222")), root=self.root)
         different = evidence.observations(self.receipt(report("0x222", "different exception")), root=self.root)
         self.assertIsNotNone(before)
-        self.assertEqual(before, same)
+        self.assertNotEqual(before, same)
         self.assertNotEqual(before, different)
+
+    def test_real_pytest_user_repr_must_not_be_normalized_as_an_address(self):
+        source = self.root / "test_x.py"
+        source.write_text(
+            "import os\n"
+            "class TestX:\n"
+            "    def __repr__(self):\n"
+            "        return f\"<test_x.TestX object at 0x{os.environ['REPR_CODE']}>\"\n"
+            "    def test_a(self):\n"
+            "        assert False, 'constant'\n"
+        )
+
+        def observe(value):
+            result = subprocess.run(
+                [sys.executable, "-m", "pytest", "-q", "test_x.py", f"--junitxml={self.report}"],
+                cwd=self.root,
+                env={**os.environ, "REPR_CODE": value},
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 1, result.stderr)
+            return evidence.observations(self.receipt(self.report.read_text()), root=self.root)
+
+        before, changed = observe("111"), observe("222")
+        self.assertIsNotNone(before)
+        self.assertNotEqual(before, changed)
 
     def test_pytest_message_resembling_a_self_address_is_not_discarded(self):
         def report(address):

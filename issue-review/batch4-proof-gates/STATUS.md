@@ -1,6 +1,23 @@
 # Proof gates status
 
 The branch contains the work recorded in commit `458b1ae4a` for #3814 and #3926.
+
+**2026-11-20 source-boundary and failure-identity follow-up:** #3926 and
+#3944 remain incomplete and this PR must remain draft. The existing native
+readonly-check boundary cannot be substituted for the reported executions: it
+rewrites their environment, denies writes in the test tree, and rejects the
+dependency directories, source symlinks or protected-test overlay they use.
+The less-restrictive sticky-bit sealed copy protects existing source but permits
+new outputs. A real macOS Seatbelt control created and imported a new module
+under that boundary, so it cannot alone authenticate all executing source or
+the origin of an import. Its output is retained at
+`/var/folders/n2/dv1vdhq91fj3dzzffg704bjh0000gn/T/autocode-sealed-origin-control-ndj7cjrd/result.txt`.
+The pinned replay comparison also formerly normalized a pytest `self` repr
+based on its shape. Actual pytest confirmed user-defined `__repr__` can emit
+that shape with meaningful different values. The regression failed on the
+previous branch, and the comparison now preserves the entire repr. This makes
+the original #3944 incident remain held until the same underlying cause can be
+authenticated; a matching outer error or test ID is insufficient.
 The original handoff file was absent from this checkout, so this status records
 what was independently observed during continuation.
 

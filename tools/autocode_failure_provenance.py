@@ -23,7 +23,6 @@ try:
     from . import autocode_junit as junit
     from . import autocode_package_scope as package_scope
     from . import autocode_python_test_roles as test_roles
-    from . import autocode_python_tests as python_tests
     from . import autocode_test_setup as test_setup
     from . import autocode_verification_schedule as schedule
 except ImportError:
@@ -33,7 +32,6 @@ except ImportError:
     import autocode_junit as junit
     import autocode_package_scope as package_scope
     import autocode_python_test_roles as test_roles
-    import autocode_python_tests as python_tests
     import autocode_test_setup as test_setup
     import autocode_verification_schedule as schedule
 
@@ -53,9 +51,9 @@ def _unittest_trace_paths(detail, root):
     return "".join(lines)
 
 
-def _digest(kind, message, detail, *, execution_root=None, pytest_class=None, pytest_method=None, unittest=False):
-    # Only pytest's standard instance display, for the class named in its report,
-    # is volatile. Retain the exception message and every other line in full.
+def _digest(kind, message, detail, *, execution_root=None, unittest=False):
+    # Preserve display values: even a standard-looking pytest instance repr can
+    # be supplied by user code and encode meaningful differences.
     text = detail
     if isinstance(execution_root, str) and execution_root != "/" and Path(execution_root).is_absolute():
         root = re.escape(execution_root.rstrip("/"))
@@ -64,15 +62,6 @@ def _digest(kind, message, detail, *, execution_root=None, pytest_class=None, py
         else:
             text = re.sub(r'(?m)^(\s*File ")' + root + r"(?=/)", r"\1<checkout>", text)
             text = re.sub(r"(?m)^" + root + r"(?=/[^\n]*\.py:\d+(?::|$))", "<checkout>", text)
-    if pytest_class and pytest_method and message:
-        pattern = re.compile(
-            r"(?m)^(\s*self = <"
-            + re.escape(pytest_class)
-            + r" object at )0x[0-9a-fA-F]+(>)(?=\n\s*\n\s*def\s+"
-            + re.escape(pytest_method.split("[", 1)[0])
-            + r"\(self(?:[,)]))"
-        )
-        text = pattern.sub(r"\g<1><address>\2", text)
     return hashlib.sha256(json.dumps([kind, message, text], ensure_ascii=False).encode()).hexdigest()
 
 
@@ -138,8 +127,6 @@ def _xml(receipt, failures):
     root = ET.fromstring(data)
     if root.tag not in ("testsuite", "testsuites"):
         return None
-    invocation = python_tests.parse(package_scope.within(receipt.get("command")))
-    is_pytest = invocation is not None and invocation.kind == "pytest"
     seen = {}
     for case in root.iter("testcase"):
         classname, name = case.get("classname", ""), case.get("name", "")
@@ -157,8 +144,6 @@ def _xml(receipt, failures):
             problem.get("message", ""),
             problem.text or "",
             execution_root=receipt.get("execution_root"),
-            pytest_class=classname if is_pytest else None,
-            pytest_method=name if is_pytest else None,
         )
     return seen if set(seen) == failures else None
 
