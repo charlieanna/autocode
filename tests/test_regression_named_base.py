@@ -53,6 +53,20 @@ class CompiledFeatureEvidenceTests(unittest.TestCase):
         base["collection_errors"] = ["tests/pages.rs::[collection]"]
         self.assertEqual(set(), judgment.compiled_feature_tests("cargo", base, passed, changed))
 
+    def test_compiled_exception_requires_a_nonempty_failed_build_marker(self):
+        test = {"tests/pages.rs::new"}
+        changed = lambda _: True
+        base = {
+            "passed": [],
+            "failed": [],
+            "skipped": [],
+            "collection_errors": ['pager (test "pages")::[build failed]'],
+        }
+        self.assertEqual(set(), judgment.compiled_feature_tests("cargo", base, test, changed))
+        base["failed"] = ["::[build failed]"]
+        base["collection_errors"] = ["::[build failed]"]
+        self.assertEqual(set(), judgment.compiled_feature_tests("cargo", base, test, changed))
+
 
 @unittest.skipUnless(shutil.which("go"), "Go is required for the real cross-package proof")
 class GoCompiledProofTests(unittest.TestCase):

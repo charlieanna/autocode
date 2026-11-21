@@ -64,7 +64,12 @@ def compiled_feature_tests(framework, base, passed, changed_tests):
     if framework not in ("go", "cargo") or changed_tests is None:
         return set()
     suffix = "::[build failed]"
-    targets = {name[: -len(suffix)] for name in base.get("collection_errors", ()) if name.endswith(suffix)}
+    failures = set(base.get("failed") or ())
+    targets = {
+        name[: -len(suffix)]
+        for name in base.get("collection_errors", ())
+        if name in failures and name.endswith(suffix) and name[: -len(suffix)]
+    }
     if not targets:
         return set()
     observed = set(base.get("passed", ())) | set(base.get("failed", ())) | set(base.get("skipped", ()))
