@@ -720,6 +720,201 @@ class RequirementsObservationsTests(unittest.TestCase):
         claim["text"] = "A changed unsupported assertion"
         self.assertIsNone(link(self.state, self.run, source_now, "A3", collection_command, execution_command))
 
+    def test_structured_claim_requires_exact_text_and_named_scope_without_promoting_it(self):
+        text = "All current examples pass"
+        self.report["proposed_assumptions"] = [{"id": "A3", "text": text, "category": "technical"}]
+        Path(self.record["output"]).write_text(json.dumps(self.report))
+        collect = "python3 -m pytest --collect-only -q"
+        execute = "python3 -m pytest -v"
+        nodes = ["tests/a.py::test_one", "tests/a.py::test_two"]
+        self.events = [
+            self.command(
+                "collection", collect, "\n".join(nodes) + "\n2 tests collected in 0.1s\n", output_truncated=False
+            ),
+            self.command(
+                "execution",
+                execute,
+                "collected 2 items\n"
+                + nodes[0]
+                + " PASSED [ 50%]\n"
+                + nodes[1]
+                + " PASSED [100%]\n=== 2 passed in 0.1s ===\n",
+                output_truncated=False,
+            ),
+        ]
+        self.write_events()
+        self.seal()
+        claim = {
+            "assumption_id": "A3",
+            "claim_sha256": hashlib.sha256(text.encode()).hexdigest(),
+            "kind": "all_suite_pass",
+            "node_ids": nodes,
+            "collection_command": collect,
+            "execution_command": execute,
+        }
+        check = getattr(observations, "structured_reported_suite_claim", None)
+        self.assertIsNotNone(check)
+        source_now = lambda: source.snapshot(self.workspace)
+        result = check(self.state, self.run, source_now, claim)
+        self.assertEqual("unverified", result["status"])
+        self.assertEqual(nodes, result["claimed_node_ids"])
+        for replacement in (
+            {"claim_sha256": "changed"},
+            {"node_ids": nodes[:1]},
+            {"node_ids": nodes + [nodes[0]]},
+            {"node_ids": ["src/missing.py::example"]},
+            {"kind": "unknown"},
+            {"extra": True},
+        ):
+            with self.subTest(replacement=replacement):
+                self.assertIsNone(check(self.state, self.run, source_now, {**claim, **replacement}))
+        subset = {**claim, "kind": "named_tests_pass", "node_ids": nodes[:1]}
+        self.assertEqual("unverified", check(self.state, self.run, source_now, subset)["status"])
+
+    def test_structured_collection_claim_stays_unverified_until_independent_execution(self):
+        test_path = self.workspace / "tests/a.py"
+        test_path.parent.mkdir()
+        test_path.write_text("def test_one(): pass\ndef test_two(): pass\n")
+        self.product = source.snapshot(self.workspace)
+        self.record["source_revision"] = self.product["revision"]
+        for field in ("before_ref", "after_ref"):
+            Path(self.record[field]).write_text(json.dumps(self.product))
+        text = "The full suite currently passes"
+        self.report["proposed_assumptions"] = [{"id": "A3", "text": text, "category": "technical"}]
+        Path(self.record["output"]).write_text(json.dumps(self.report))
+        command = "python3 -m pytest --collect-only -q"
+        nodes = ["tests/a.py::test_one", "tests/a.py::test_two"]
+        self.events = [
+            self.command(
+                "collection", command, "\n".join(nodes) + "\n2 tests collected in 0.1s\n", output_truncated=False
+            )
+        ]
+        self.write_events()
+        self.seal()
+        claim = {
+            "assumption_id": "A3",
+            "claim_sha256": hashlib.sha256(text.encode()).hexdigest(),
+            "kind": "all_suite_pass",
+            "node_ids": nodes,
+            "collection_command": command,
+        }
+        check = getattr(observations, "structured_collection_claim", None)
+        self.assertIsNotNone(check)
+        source_now = lambda: source.snapshot(self.workspace)
+        found = check(self.state, self.run, source_now, claim)
+        self.assertEqual("unverified", found["status"])
+        self.assertEqual(["tests.a::test_one", "tests.a::test_two"], found["claimed_junit_node_ids"])
+        self.assertIn("does not establish execution", found["reason"])
+        self.assertIsNone(check(self.state, self.run, source_now, {**claim, "node_ids": nodes[:1]}))
+        self.assertIsNone(check(self.state, self.run, source_now, {**claim, "node_ids": ["src/unknown.py::example"]}))
+        subset = {**claim, "kind": "named_tests_pass", "node_ids": nodes[:1]}
+        self.assertEqual("unverified", check(self.state, self.run, source_now, subset)["status"])
+        test_path.write_text("def test_one(): assert False\n")
+        self.assertIsNone(check(self.state, self.run, source_now, claim))
+
+    def test_collection_claim_replay_checks_supervised_named_results_and_source(self):
+        import importlib
+
+        try:
+            replay = importlib.import_module("autocode_suite_claim_replay")
+        except ModuleNotFoundError:
+            self.fail("Source-bound independent suite replay is unavailable")
+        test_path = self.workspace / "test_sample.py"
+        test_path.write_text("def test_one(): assert True\ndef test_two(): assert True\n")
+        self.product = source.snapshot(self.workspace)
+        self.record["source_revision"] = self.product["revision"]
+        for field in ("before_ref", "after_ref"):
+            Path(self.record[field]).write_text(json.dumps(self.product))
+        text = "The full suite currently passes"
+        self.report["proposed_assumptions"] = [{"id": "A3", "text": text, "category": "technical"}]
+        Path(self.record["output"]).write_text(json.dumps(self.report))
+        command = "python3 -m pytest --collect-only -q"
+        nodes = ["test_sample.py::test_one", "test_sample.py::test_two"]
+        self.events = [
+            self.command(
+                "collection", command, "\n".join(nodes) + "\n2 tests collected in 0.1s\n", output_truncated=False
+            )
+        ]
+        self.write_events()
+        self.seal()
+        self.state["settings"]["regression"] = {"python": sys.executable}
+        claim = {
+            "assumption_id": "A3",
+            "claim_sha256": hashlib.sha256(text.encode()).hexdigest(),
+            "kind": "all_suite_pass",
+            "node_ids": nodes,
+            "collection_command": command,
+        }
+        current_source = lambda: source.snapshot(self.workspace)
+        found = replay.replay(self.state, self.workspace, self.run, claim, current_source=current_source, timeout=30)
+        self.assertIsNotNone(found)
+        self.assertEqual("unverified", found["status"])
+        self.assertIn("reported these named tests passed", found["reason"])
+        self.assertIn("have not been independently verified", found["reason"])
+        self.assertEqual(
+            {"test_sample::test_one", "test_sample::test_two"}, set(found["replay"]["receipt"]["results"]["passed"])
+        )
+        self.assertEqual(found["replay"]["python_sha256"], replay.util.file_hash(Path(sys.executable)))
+        with mock.patch.object(replay.verify, "scratch_run", return_value={"exit_code": 0}):
+            self.assertIsNone(replay.replay(self.state, self.workspace, self.run, claim, current_source=current_source))
+        self.state["settings"]["regression"] = {}
+        self.assertIsNone(replay.replay(self.state, self.workspace, self.run, claim, current_source=current_source))
+        self.state["settings"]["regression"] = {"python": sys.executable}
+        test_path.write_text("def test_one(): assert False\n")
+        self.assertIsNone(replay.replay(self.state, self.workspace, self.run, claim, current_source=current_source))
+
+    def test_replay_result_stays_unverified_if_project_plugin_forges_a_pass(self):
+        import importlib
+
+        try:
+            replay = importlib.import_module("autocode_suite_claim_replay")
+        except ModuleNotFoundError:
+            self.fail("Source-bound independent suite replay is unavailable")
+        (self.workspace / "test_sample.py").write_text("def test_claimed_pass(): assert False\n")
+        (self.workspace / "conftest.py").write_text(
+            "import pytest\n"
+            "@pytest.hookimpl(hookwrapper=True)\n"
+            "def pytest_runtest_makereport(item, call):\n"
+            "    outcome = yield\n"
+            "    report = outcome.get_result()\n"
+            "    if report.when == 'call':\n"
+            "        report.outcome = 'passed'\n"
+            "        report.longrepr = None\n"
+        )
+        self.product = source.snapshot(self.workspace)
+        self.record["source_revision"] = self.product["revision"]
+        for field in ("before_ref", "after_ref"):
+            Path(self.record[field]).write_text(json.dumps(self.product))
+        text = "The full suite currently passes"
+        self.report["proposed_assumptions"] = [{"id": "A3", "text": text, "category": "technical"}]
+        Path(self.record["output"]).write_text(json.dumps(self.report))
+        command = "python3 -m pytest --collect-only -q"
+        nodes = ["test_sample.py::test_claimed_pass"]
+        self.events = [
+            self.command("collection", command, nodes[0] + "\n1 test collected in 0.1s\n", output_truncated=False)
+        ]
+        self.write_events()
+        self.seal()
+        self.state["settings"]["regression"] = {"python": sys.executable}
+        claim = {
+            "assumption_id": "A3",
+            "claim_sha256": hashlib.sha256(text.encode()).hexdigest(),
+            "kind": "all_suite_pass",
+            "node_ids": nodes,
+            "collection_command": command,
+        }
+        found = replay.replay(
+            self.state,
+            self.workspace,
+            self.run,
+            claim,
+            current_source=lambda: source.snapshot(self.workspace),
+            timeout=30,
+        )
+        self.assertIsNotNone(found)
+        self.assertEqual(["test_sample::test_claimed_pass"], found["replay"]["receipt"]["results"]["passed"])
+        self.assertEqual("unverified", found["status"], "project plugins can forge named pytest results")
+
     def test_running_native_event_cannot_attest_a_later_completed_output(self):
         command = "python3 -m pytest --collect-only -q"
         part = {

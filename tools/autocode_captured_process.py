@@ -287,6 +287,8 @@ def run(
     encoding=None,
     errors=None,
     input=None,
+    output_stream=None,
+    merge_output=False,
 ):
     """Return captured bytes or text, or raise after verified timeout cleanup.
 
@@ -294,6 +296,8 @@ def run(
     family before publication. macOS retains sampled descendant cleanup, which
     cannot prove the absence of a helper that detached between observations.
     Private file streams cannot fill a pipe or be held open by a descendant.
+    A caller-owned binary output stream stays open for retaining partial output;
+    merged output preserves the command's stdout/stderr ordering in that stream.
     """
     if capture_output is not True:
         raise ValueError("Captured commands require capture_output=True")
@@ -306,8 +310,8 @@ def run(
     with ExitStack() as stack:
         if threading.current_thread() is threading.main_thread():
             stack.enter_context(interruption_handler())
-        output = stack.enter_context(_temporary("w+b"))
-        diagnostics = stack.enter_context(_temporary("w+b"))
+        output = stack.enter_context(_temporary("w+b")) if output_stream is None else output_stream
+        diagnostics = output if merge_output else stack.enter_context(_temporary("w+b"))
         if input is not None:
             stdin = stack.enter_context(_temporary("w+b"))
             stdin.write(input if decoding is None else input.encode(decoding.encoding, decoding.errors or "strict"))
@@ -315,7 +319,9 @@ def run(
         execute = _linux if sys.platform == "linux" else _sampled
         code, expired = execute(command, timeout, env, cwd, output, diagnostics, stdin)
         stdout = _read_captured(output, decoding, lossy=expired)
-        stderr = _read_captured(diagnostics, decoding, lossy=expired)
+        stderr = (
+            (b"" if decoding is None else "") if merge_output else _read_captured(diagnostics, decoding, lossy=expired)
+        )
         if expired:
             raise subprocess.TimeoutExpired(command, timeout, output=stdout, stderr=stderr)
         if check and code:
