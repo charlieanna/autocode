@@ -30,9 +30,17 @@ from pathlib import Path
 
 try:
     from . import autocode_captured_process as captured_process
+    from . import autocode_protected_paths as protected_paths
+    from . import autocode_reference_diagnostics as reference_diagnostics
+    from . import autocode_scratch_overlay as scratch_overlay
+    from . import autocode_source_snapshot as source_snapshot
     from . import autocode_util as util
 except ImportError:
     import autocode_captured_process as captured_process
+    import autocode_protected_paths as protected_paths
+    import autocode_reference_diagnostics as reference_diagnostics
+    import autocode_scratch_overlay as scratch_overlay
+    import autocode_source_snapshot as source_snapshot
     import autocode_util as util
 
 KIND = "diagnostics_comparison"
@@ -94,7 +102,9 @@ def _run(command: list[str], cwd: Path, log: Path, deadline: float) -> int:
     return result.returncode
 
 
-def compare(command: list[str], revision: str, cwd: Path, receipt_path: Path) -> dict:
+def compare(
+    command: list[str], revision: str, cwd: Path, receipt_path: Path, *, reference_docs=(), expected_source=None
+) -> dict:
     """Run ``command`` on ``revision`` and on the candidate in ``cwd``; return the comparison receipt.
 
     Both outputs are retained beside ``receipt_path`` (``.base.log`` and ``.log``); the base copy is
@@ -109,6 +119,17 @@ def compare(command: list[str], revision: str, cwd: Path, receipt_path: Path) ->
         raise FileExistsError("diagnostic comparison logs already exist")
     deadline = time.monotonic() + COMPARISON_TIMEOUT
     scratch = top / ".autocode" / "scratch"
+    if reference_docs:
+        # This opt-in uses separate pinned copies, never a caller's cached outputs.
+        docs = reference_diagnostics.sphinx_scope(command, list(reference_docs))
+        if cwd != top:
+            raise ValueError("Reference comparison paths are relative to the repository root")
+        if scratch.resolve() != scratch:
+            raise ValueError("Reference comparison needs an ordinary project scratch directory")
+        scratch.mkdir(parents=True, exist_ok=True)
+        return _reference_comparison(
+            command, top, base_revision, base_log, candidate_log, docs, deadline, expected_source
+        )
     scratch.mkdir(parents=True, exist_ok=True)
     copy = Path(tempfile.mkdtemp(prefix="compare-base-", dir=scratch))
     try:
@@ -122,6 +143,12 @@ def compare(command: list[str], revision: str, cwd: Path, receipt_path: Path) ->
     # The base copy's own root reads as the workspace's, so an absolute path in a diagnostic is not new.
     base_text = base_log.read_bytes().decode("utf-8", errors="replace").replace(str(copy), str(top))
     candidate_text = candidate_log.read_bytes().decode("utf-8", errors="replace")
+    return _receipt(
+        command, base_revision, base_log, candidate_log, base_exit, candidate_exit, base_text, candidate_text
+    )
+
+
+def _receipt(command, base_revision, base_log, candidate_log, base_exit, candidate_exit, base_text, candidate_text):
     base_lines = diagnostics(base_text)
     return {
         "kind": KIND,
@@ -138,3 +165,93 @@ def compare(command: list[str], revision: str, cwd: Path, receipt_path: Path) ->
         "candidate_diagnostics": len(diagnostics(candidate_text)),
         "new_diagnostics": new_lines(base_lines, diagnostics(candidate_text)),
     }
+
+
+def _reference_build(command, cwd, log, deadline):
+    source = cwd / command[-2]
+    output = cwd / command[-1]
+    if (
+        source.resolve() != source
+        or (source / "conf.py").is_symlink()
+        or not (source / "conf.py").is_file()
+        or output.resolve() != output
+        or output.exists()
+    ):
+        raise ValueError("Reference comparison needs an ordinary Sphinx source and a fresh output directory")
+    return _run(command, cwd, log, deadline)
+
+
+def _reference_copy(workspace, tree, source, inventory):
+    """Materialize pinned source without writes to the original Git worktree metadata."""
+    tree.mkdir()
+    files = {}
+    links = {}
+    for name, identity in inventory.items():
+        if identity.startswith("symlink:"):
+            links[name] = identity.removeprefix("symlink:")
+        else:
+            files[name] = protected_paths.path_in(workspace, name)
+    scratch_overlay.apply(tree, files, links)
+    if (
+        source_snapshot.copied_files(tree, inventory) != inventory
+        or source_snapshot.snapshot(workspace)["revision"] != source["revision"]
+    ):
+        raise ValueError("Reference comparison copy differs from its pinned source")
+
+
+def _reference_comparison(command, top, base, base_log, candidate_log, docs, deadline, expected_source):
+    control_log = candidate_log.with_suffix(".control.log")
+    if control_log.exists() or control_log.is_symlink():
+        raise FileExistsError("Reference control log already exists")
+    source = source_snapshot.snapshot(top)
+    if expected_source is not None and source["revision"] != expected_source:
+        raise ValueError("Reference comparison source no longer matches this attempt")
+    try:
+        inventory = {
+            name: identity
+            for name, identity in source_snapshot.bound_inventory(top, source).items()
+            if identity != "deleted"
+        }
+    except util.Paused as error:
+        raise ValueError(str(error)) from error
+    if source_snapshot.unbound_symlinks(top, inventory, lambda: _git(top, "ls-files", "-z").split("\0")):
+        raise ValueError("Reference comparison source has an unbound link")
+    root = Path(tempfile.mkdtemp(prefix="compare-references-", dir=top / ".autocode/scratch"))
+    base_tree = root / "base"
+    base_tree.mkdir()
+    candidate, control = root / "candidate", root / "control"
+    uncertain = False
+    try:
+        _extract(top, base, base_tree)
+        for tree in (candidate, control):
+            _reference_copy(top, tree, source, inventory)
+        rows = reference_diagnostics.controls(control, docs)
+        base_exit = _reference_build(command, base_tree, base_log, deadline)
+        candidate_exit = _reference_build(command, candidate, candidate_log, deadline)
+        control_exit = _reference_build(command, control, control_log, deadline)
+        if source_snapshot.snapshot(top)["revision"] != source["revision"]:
+            raise ValueError("Reference comparison source changed during the check")
+        base_text = base_log.read_bytes().decode("utf-8", errors="replace").replace(str(base_tree), str(top))
+        candidate_text = candidate_log.read_bytes().decode("utf-8", errors="replace").replace(str(candidate), str(top))
+        result = _receipt(command, base, base_log, candidate_log, base_exit, candidate_exit, base_text, candidate_text)
+        rendered = new_lines(
+            reference_diagnostics.unlinked_output(base_tree, command, docs, base=True),
+            reference_diagnostics.unlinked_output(candidate, command, docs),
+        )
+        result["new_diagnostics"].extend(rendered)
+        result["sphinx_reference_control"] = {
+            "documents": docs,
+            "control_root": str(control),
+            "source_revision": source["revision"],
+            "controls": rows,
+            "output": str(control_log),
+            "sha256": util.file_hash(control_log),
+            "exit_code": control_exit,
+        }
+        return result
+    except captured_process.ProcessError:
+        uncertain = True
+        raise
+    finally:
+        if not uncertain:
+            shutil.rmtree(root)

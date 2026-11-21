@@ -446,6 +446,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tools/autocode_named_collection.py", ("tests.test_requirements_observations",)),
     ("tools/autocode_suite_claim_replay.py", ("tests.test_requirements_observations",)),
     ("tools/autocode_diagnostics_comparison.py", ("tests.test_claim_evidence", "tests.test_metadata_custody")),
+    ("tools/autocode_reference_diagnostics.py", ("tests.test_claim_evidence",)),
     ("tools/autocode_capture_command.py", ("tests.test_claim_evidence",)),
     (
         "tools/autocode_captured_process.py",
@@ -916,6 +917,7 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
         (
             "tools/autocode_requirements_observations.py",
+            "tools/autocode_suite_observation_view.py",
             "tools/autocode_report_edits.py",
             "tools/autocode_repaired_result.py",
             "tools/autocode_requirements_handoff.py",
@@ -923,6 +925,10 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
             "tools/units/autoplanner.py",
         ),
         ("tests.test_requirements_observations_cli",),
+    ),
+    (
+        ("tools/autocode_suite_observation_view.py", "tools/autocode_status_observation_worker.py"),
+        ("tests.test_requirements_observations", "tests.test_status_observation"),
     ),
     (
         ("tools/autocode_source_metadata.py", "tools/autocode_source_trace.py"),

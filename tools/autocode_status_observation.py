@@ -181,6 +181,33 @@ def source_snapshot(state: RunState, workspace):
     return None
 
 
+def suite_reports(state: RunState, workspace, run_dir):
+    """Observe historical reports within the shared status deadline, never as proof."""
+    try:
+        rows = _observe("suite_reports", {"state": state, "workspace": str(workspace), "run_dir": str(run_dir)})
+        if not isinstance(rows, list) or len(rows) > 8:
+            return []
+        for row in rows:
+            if (
+                not isinstance(row, dict)
+                or row.get("kind") not in ("collection", "execution")
+                or not isinstance(row.get("command"), str)
+                or len(row["command"]) > 512
+                or type(row.get("reported_count")) is not int
+                or row["reported_count"] <= 0
+                or not isinstance(row.get("paths"), list)
+                or len(row["paths"]) > 40
+                or any(not isinstance(path, str) or len(path) > 256 for path in row["paths"])
+                or type(row.get("omitted_paths")) is not int
+                or row["omitted_paths"] < 0
+                or row.get("independently_verified") is not False
+            ):
+                return []
+        return rows
+    except (OSError, TypeError, ValueError, subprocess.SubprocessError, captured.ProcessError):
+        return []
+
+
 def evidence_inspection(state: RunState, workspace, run_dir, *, accepted_human_ids=(), initial_snapshot=None):
     """Bound source walks, evidence hashing and the checkpoint reread together."""
     try:

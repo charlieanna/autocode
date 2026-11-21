@@ -1837,9 +1837,10 @@ function render(state) {
         const reqRows = (reqView && Array.isArray(reqView.requirements)) ? reqView.requirements : [];
         const accTests = (reqView && Array.isArray(reqView.acceptance_tests)) ? reqView.acceptance_tests : [];
         const constraints = (reqView && Array.isArray(reqView.constraints)) ? reqView.constraints : [];
+        const suiteReports = (reqView && Array.isArray(reqView.suite_reports)) ? reqView.suite_reports : [];
         const showStructuredCard = Boolean(reqView) && (
           assumptions.length > 0 || conflicts.length > 0 || reqRows.length > 0 || accTests.length > 0
-          || constraints.length > 0 || (!askedInThread && Boolean(reqView.intended_outcome))
+          || constraints.length > 0 || suiteReports.length > 0 || (!askedInThread && Boolean(reqView.intended_outcome))
         );
         if (showStructuredCard) {
           const reqCard = el('div', 'requirements-card');
@@ -1861,6 +1862,22 @@ function render(state) {
               if (item.convention_ref) row.appendChild(el('div', 'why', 'Reference: ' + item.convention_ref));
               reqCard.appendChild(row);
             });
+          }
+          if (suiteReports.length > 0) {
+            const suiteDetails = el('details', 'requirements-details');
+            suiteDetails.appendChild(el('summary', null, 'Reported test observations (not independently verified)'));
+            suiteReports.forEach((report) => {
+              const label = report.kind === 'collection' ? 'Reported collected' : 'Reported passing';
+              suiteDetails.appendChild(el('div', 'row', label + ' ' + report.reported_count + ' tests: ' + report.command));
+              if (report.kind === 'collection') {
+                suiteDetails.appendChild(el('div', 'why', 'Collection lists tests; it does not run them.'));
+              }
+              if (Array.isArray(report.paths) && report.paths.length) {
+                suiteDetails.appendChild(el('div', 'why', 'Reported paths: ' + report.paths.join(', ')
+                  + (report.omitted_paths > 0 ? ' (' + report.omitted_paths + ' more omitted)' : '')));
+              }
+            });
+            reqCard.appendChild(suiteDetails);
           }
           if (conflicts.length > 0) {
             reqCard.appendChild(el('h2', null, 'Conflicts'));

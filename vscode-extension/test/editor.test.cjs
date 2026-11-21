@@ -9188,6 +9188,8 @@ test('structured Requirements & Assumptions card renders assumptions, rationale,
       ],
       acceptance_tests: ['greet.py Ana prints Hello, Ana'],
       conflicts: ['Legacy script exited 1 on usage errors'],
+      suite_reports: [{kind: 'collection', command: 'python3 -m pytest --collect-only -q',
+        reported_count: 2, paths: ['docs/guide.rst', 'tests/test_cli.py'], omitted_paths: 1, independently_verified: false}],
     },
     chat: {
       phase: 'requirements',
@@ -9206,6 +9208,9 @@ test('structured Requirements & Assumptions card renders assumptions, rationale,
   assert.ok(reqCard.textContent.includes('Exit 2 when no name is passed'));
   assert.ok(reqCard.textContent.includes('Matches repository CLI exit code convention'));
   assert.ok(reqCard.textContent.includes('Legacy script exited 1 on usage errors'));
+  assert.ok(reqCard.textContent.includes('Reported test observations (not independently verified)'));
+  assert.ok(reqCard.textContent.includes('Collection lists tests; it does not run them.'));
+  assert.ok(reqCard.textContent.includes('docs/guide.rst, tests/test_cli.py (1 more omitted)'));
 
   // Typing an inline override switches the primary action from 'plan' to the override text.
   const override = reqCard.querySelector('[data-review-override="requirements-review-r1"]');

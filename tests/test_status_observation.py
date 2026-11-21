@@ -17,6 +17,14 @@ import autocode_verification_inspection as verification
 
 
 class StatusObservationTests(unittest.TestCase):
+    def test_suite_reports_fail_closed_on_timeout_or_malformed_worker_output(self):
+        with patch.object(observation, "_observe", side_effect=subprocess.TimeoutExpired("worker", 1)):
+            self.assertEqual([], observation.suite_reports({}, "/tmp/project", "/tmp/run"))
+        with patch.object(
+            observation, "_observe", return_value=[{"kind": "collection", "independently_verified": True}]
+        ):
+            self.assertEqual([], observation.suite_reports({}, "/tmp/project", "/tmp/run"))
+
     def test_nested_observations_share_one_deadline_and_do_not_launch_after_it(self):
         result = SimpleNamespace(stdout='{"result": {"ok": true}}')
         run = Mock(return_value=result)

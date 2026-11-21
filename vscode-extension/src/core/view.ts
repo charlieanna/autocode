@@ -113,6 +113,15 @@ export interface RequirementsView {
   acceptance_tests: string[];
   constraints?: string[];
   conflicts: RequirementConflict[];
+  /** Historical provider output, with no independent execution or claim authority. */
+  suite_reports?: Array<{
+    kind: 'collection' | 'execution';
+    command: string;
+    reported_count: number;
+    paths: string[];
+    omitted_paths: number;
+    independently_verified: false;
+  }>;
 }
 
 export interface ChatGate {
