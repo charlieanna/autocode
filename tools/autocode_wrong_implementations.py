@@ -190,20 +190,23 @@ def _batch(state: RunState) -> str:
     return util.digest(sorted(case_files(state)))[:16]
 
 
-def route(state: RunState) -> None:
+def route(state: RunState, current_revision: str) -> bool:
     """Send a spec-first run about to be independently tested to the study first, once per source and batch.
 
-    Only a final passing regression proof of the current source qualifies; anything else leaves the run alone,
-    and the study never delays or blocks it again (the record, even a skip, marks the batch studied)."""
+    Only a passing regression proof of ``current_revision``, the source as it is now, qualifies: the caller
+    runs this after the runner has proved that source for the Tester (autocode_completion_result), because
+    before then a first build has no proof and a later one only the previous round's (#3977). Anything else
+    leaves the run alone, and the study never delays or blocks it again (the record, even a skip, marks the
+    batch studied). True when the run was sent to the study and the Tester must not launch now."""
     if state.get("next_stage") != "tester" or not (enabled(state) and acceptance.enabled(state)):
-        return
+        return False
     proof = state.get("regression_proof") or {}
     revision = str(proof.get("source_revision") or "")
-    if proof.get("verdict") != "PASS" or not revision:
-        return
+    if proof.get("verdict") != "PASS" or not revision or revision != current_revision:
+        return False
     batch = _batch(state)
     if studied(state, revision, batch):
-        return
+        return False
     contract = (state.get("goal_contract") or {}).get("hash")
     if not case_files(state):
         skip(
@@ -213,10 +216,11 @@ def route(state: RunState) -> None:
             batch=batch,
             contract_hash=contract,
         )
-        return
+        return False
     state.setdefault(KEY, {"receipts": {}})[FIELD + "_redirect"] = {"from": "tester", "source_revision": revision}
     state["next_stage"] = STAGE
     state["next_action"] = "A model that has not seen the acceptance tests is writing plausible wrong implementations."
+    return True
 
 
 def _touches_tests(patch: str) -> bool:

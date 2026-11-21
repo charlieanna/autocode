@@ -313,7 +313,7 @@ def dispatch_unit(runtime, state: RunState, stage, workspace, run_dir):
     unit = unit_module(stage)
     if completion_result.before_review(state, stage, workspace, run_dir) is True:
         runtime.write_json(Path(run_dir) / "state.json", state)
-        return SKIP  # the plan went back to plan review with its changed guards corrected
+        return SKIP  # back to plan review with its guards corrected, or first to the wrong-implementations study
     try:
         launch_inputs.guard(state, workspace, run_dir)
     except ValueError as error:
