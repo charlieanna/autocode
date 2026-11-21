@@ -10,7 +10,9 @@ progressive harnesses record the real command event; no product admission or
 verification gate changes. The invalid-name control was added after independent
 review; the harness refuses to cite this probe for any criterion other than C1.
 Repeat the focused tests for the updated probe.
-The six reproduced tests and all 42 tests across both affected modules pass on
-the branch. Repository Ruff lint and format and mypy (988 source files) pass.
-Master advanced after those checks; integrate it and repeat the relevant checks
-before requiring exact-head CI.
+The six reproduced tests pass with the two-input probe on the branch. All 42
+tests across both affected modules pass against master `6b803f17` with the
+previous valid-name probe; the two-input change then passed the six reproduced
+tests. Repository Ruff lint and format and mypy (990 source files) pass on the
+integrated tree, and the updated probe passes its focused Ruff checks. Require
+exact-head CI before merge.
