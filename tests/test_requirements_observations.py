@@ -963,6 +963,26 @@ class RequirementsObservationsTests(unittest.TestCase):
         self.seal()
         self.assertEqual([], suite_view.project(self.state, self.run, lambda: source.snapshot(self.workspace)))
 
+    def test_real_status_view_names_collected_scope_without_claiming_execution(self):
+        import autocode_run_view as run_view
+
+        self.events = [
+            self.command(
+                "collect",
+                "python3 -m pytest --collect-only -q",
+                "docs/guide.rst::example\ntests/test_api.py::test_one\n\n2 tests collected in 0.1s\n",
+                output_truncated=False,
+            )
+        ]
+        self.write_events()
+        self.seal()
+        self.state.update(status="WAITING_FOR_USER", next_stage="draft_plan")
+        public = run_view.view(self.state, workspace=self.workspace, run_dir=self.run)
+        reports = public["requirements"].get("suite_reports", [])
+        self.assertEqual(["collection"], [row["kind"] for row in reports])
+        self.assertEqual(["docs/guide.rst", "tests/test_api.py"], reports[0]["paths"])
+        self.assertIs(reports[0]["independently_verified"], False)
+
     def test_public_suite_report_marks_omitted_paths(self):
         import autocode_suite_observation_view as suite_view
 
