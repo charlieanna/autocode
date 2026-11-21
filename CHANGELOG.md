@@ -23,6 +23,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **A change to tests of two runners no longer times out its check**: when a change edited original tests of more than one runner (a Python test beside a nested Node project's test), the original-test check ran the whole Python suite, which runs none of the Node tests and on a large repository timed out, pausing the run as "verification uncertain". Each runner's changed tests now run with that runner's own command; a changed helper or a deleted test still runs the whole suite.
+
 - **A Tester report rechecked after a validator update no longer pauses as stale evidence**: on resume after an AutoCode update, a rejected Tester report is rechecked on a private copy. The copy kept the report's sealed paths, so every such recheck paused `PAUSED_STALE_HANDOFF` "Saved repair seal or evidence changed". The copy is still checked byte for byte against its pins, and is now sealed at its own path.
 
 - **A test an approved plan replaces is recognised in pytest's JUnit names**: a plan's `supersedes` list excused only `tests/test_x.py::Class::test` and `tests.test_x.Class.test`, but pytest's JUnit report names a case by its dotted class, `tests.test_x.Class::test`. The original-test gate then refused the replaced tests as unexcused failures, and the run paused for a person to fix AutoCode's matcher. That form now matches the same test, and only that test.
