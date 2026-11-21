@@ -841,6 +841,7 @@ class QuotaRouteTests(unittest.TestCase):
         self.assertIsNone(blocked["next_command"])
         self.assertEqual("route-tester", blocked["needs"]["route"]["question_id"])
 
+    @patch.object(run_view.status_observation, "job_retry", new=lambda *_: {"allowed": True})
     def test_the_retry_job_need_carries_the_jobs_model_question(self):
         state = self.routed_job()
         view = run_view.view(state)
@@ -872,6 +873,7 @@ class QuotaRouteTests(unittest.TestCase):
         del state["job_failure"]["route"]
         self.assertNotIn("route", run_view.view(state)["needs"])
 
+    @patch.object(run_view.status_observation, "job_retry", new=lambda *_: {"allowed": True})
     def test_a_stopped_job_offers_its_exact_retry_after_a_model_is_named_or_a_quota_stop(self):
         retry = "--resume-paused --retry-failed-stage --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)"
 

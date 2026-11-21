@@ -1273,6 +1273,9 @@ def action(
         if status == "PAUSED_NO_PROGRESS" and not recovery_limits.no_progress_bound_holds(state)
         else operational_information.resume_flags(state, (need or {}).get("pause_origin") or status)
     )
+    if (need or {}).get("retry_unavailable"):
+        # Do not resurrect a refused retry through the generic pause fallback.
+        resume_flags = None
     inputs: list | None = None if terminal or not category else command_inputs.project(state, need, resume_flags)
     # A bound row whose raise is not next_command names its own command (#2044). Pending information is
     # reviewed first, as for the attached offers, so it is offered once that review has held.
@@ -1832,14 +1835,9 @@ def needs(state: RunState, *, stale_report_repair=False, human_projection=None, 
             # The hold admits no retry yet; say what must happen first instead of implying a resume will do.
             need["retry_unavailable"] = blocked
         if status == "PAUSED_REPEATED_FAILURE" and not recovery_limits.repeated_failure_retry_refusal(state):
-            try:
-                from . import autocode_failure_retry_admission as failure_retry_admission
-            except ImportError:
-                import autocode_failure_retry_admission as failure_retry_admission
-            try:
-                failure_retry_admission.failure_retry_frontier(state, state.get("workspace"))
-            except (ValueError, OSError, KeyError, TypeError) as error:
-                need["retry_unavailable"] = str(error)
+            admission = status_observation.failure_retry(state, state.get("workspace"))
+            if not admission["allowed"]:
+                need["retry_unavailable"] = admission["reason"]
                 need.pop("retry_action", None)
                 if need.get("action") == retry:
                     need.pop("action", None)

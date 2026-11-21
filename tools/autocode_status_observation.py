@@ -132,14 +132,9 @@ def report_repair(state: RunState, workspace, revision=None):
     return None
 
 
-def job_retry(state: RunState, workspace, token):
-    """Bound retry admission's source scan; execution revalidates independently."""
-    unavailable = {"allowed": False, "reason": "The failed job's source could not be checked"}
+def _retry_admission(operation, payload, reason):
     try:
-        value = _observe(
-            "job_retry",
-            {"state": state, "workspace": str(workspace) if workspace is not None else None, "token": token},
-        )
+        value = _observe(operation, payload)
         if (
             isinstance(value, dict)
             and type(value.get("allowed")) is bool
@@ -148,7 +143,25 @@ def job_retry(state: RunState, workspace, token):
             return value
     except (OSError, TypeError, ValueError, subprocess.SubprocessError, captured.ProcessError):
         pass
-    return unavailable
+    return {"allowed": False, "reason": reason}
+
+
+def job_retry(state: RunState, workspace, token):
+    """Bound retry admission's source scan; execution revalidates independently."""
+    return _retry_admission(
+        "job_retry",
+        {"state": state, "workspace": str(workspace) if workspace is not None else None, "token": token},
+        "The failed job's source could not be checked",
+    )
+
+
+def failure_retry(state: RunState, workspace):
+    """Bound the repeated-failure frontier; its executor revalidates independently."""
+    return _retry_admission(
+        "failure_retry",
+        {"state": state, "workspace": str(workspace) if workspace is not None else None},
+        "The repeated failure's source could not be checked",
+    )
 
 
 def source_snapshot(state: RunState, workspace):

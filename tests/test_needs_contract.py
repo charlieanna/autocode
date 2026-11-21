@@ -234,6 +234,7 @@ class NeedsContractTests(unittest.TestCase):
         self.assertEqual(KNOWN_KINDS, frozenset(KIND_STATES))
         self.assertEqual(KNOWN_KINDS, frozenset(KIND_ACCEPTANCE))
 
+    @mock.patch.object(run_view.status_observation, "job_retry", new=lambda *_: {"allowed": True})
     def test_each_kind_from_state_matches_and_its_public_command_parses(self):
         for kind, state in KIND_STATES.items():
             with self.subTest(kind=kind):
@@ -247,6 +248,7 @@ class NeedsContractTests(unittest.TestCase):
                 args, _ = parse_next_command(text)
                 self.assertTrue(KIND_ACCEPTANCE[kind](args), f"kind={kind} command={text!r} args={args!r}")
 
+    @mock.patch.object(run_view.status_observation, "job_retry", new=lambda *_: {"allowed": True})
     def test_view_next_command_matches_pause_command_for_each_kind(self):
         for kind, state in KIND_STATES.items():
             with self.subTest(kind=kind):
@@ -257,6 +259,7 @@ class NeedsContractTests(unittest.TestCase):
                 args, _ = parse_next_command(view["next_command"])
                 self.assertIsNotNone(args)
 
+    @mock.patch.object(run_view.status_observation, "job_retry", new=lambda *_: {"allowed": True})
     def test_unknown_kind_from_needs_is_not_silently_accepted(self):
         # Guard: if needs() starts returning a kind not in KNOWN_KINDS, this test
         # fails until KIND_STATES / KIND_ACCEPTANCE gain a row.
@@ -468,6 +471,7 @@ class NeedsContractAgainstDocsTests(unittest.TestCase):
             for method in methods:
                 self.assertTrue(callable(getattr(taskrun.TaskRun, method, None)), f"{kind}: TaskRun.{method}")
 
+    @mock.patch.object(run_view.status_observation, "job_retry", new=lambda *_: {"allowed": True})
     def test_every_shape_names_an_accepted_action_and_asks_for_it(self):
         shapes = {kind: [state] for kind, state in KIND_STATES.items()}
         for kind, extra in KIND_SHAPES.items():

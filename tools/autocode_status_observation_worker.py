@@ -22,6 +22,15 @@ def _worker(request):
         except (ValueError, OSError, KeyError, TypeError, util.Paused) as error:
             return {"allowed": False, "reason": str(error)}
         return {"allowed": True}
+    if request.get("operation") == "failure_retry":
+        import autocode_failure_retry_admission as admission
+        import autocode_util as util
+
+        try:
+            admission.failure_retry_frontier(payload["state"], payload["workspace"])
+        except (ValueError, OSError, KeyError, TypeError, util.Paused) as error:
+            return {"allowed": False, "reason": str(error)}
+        return {"allowed": True}
     if request.get("operation") == "source_snapshot":
         import autocode_source_scope as source_scope
         import autocode_support as support

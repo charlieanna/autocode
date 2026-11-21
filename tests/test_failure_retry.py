@@ -1,10 +1,12 @@
 """Explicit retries preserve evidence and never replenish failure budgets."""
 
 import copy
+import subprocess
 import unittest
 from unittest.mock import patch
 
 import autocode as runner
+import autocode_run_view as run_view
 import autocode_support as support
 
 from . import test_autocode, test_subprocess
@@ -32,6 +34,18 @@ class FailureRetryTests(unittest.TestCase):
                 self.state["stages"].append(record)
         support.atomic_json(self.run / "state.json", self.state)
         return record
+
+    def test_status_observes_repeated_failure_with_a_bounded_source_check(self):
+        self.seed()
+        self.state["workspace"] = str(self.root)
+        ready = run_view.action(self.state, run_dir=self.run, workspace=self.root)
+        self.assertIn("--retry-failed-stage", ready["next_command"])
+        with patch.object(
+            run_view.status_observation.captured, "run", side_effect=subprocess.TimeoutExpired("status-worker", 15)
+        ):
+            blocked = run_view.action(self.state, run_dir=self.run, workspace=self.root)
+        self.assertIn("could not be checked", blocked["needs"]["retry_unavailable"])
+        self.assertNotIn("--retry-failed-stage", blocked["next_command"])
 
     def test_authorization_preserves_all_provenance_and_is_consumed_once(self):
         record = self.seed()

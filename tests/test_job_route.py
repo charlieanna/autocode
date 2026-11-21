@@ -469,7 +469,10 @@ class JobModelRouteTests(JobHarness):
         self.assertEqual("architect", held["needs"]["route"]["role"])
 
         (self.workspace / "calc.py").write_text(BROKEN)
-        with self.assertRaisesRegex(TaskRunError, "Source changed"):
+        changed = run.status()
+        self.assertEqual("recover_source", changed["needs"]["kind"])
+        self.assertIsNone(changed["next_command"])
+        with self.assertRaisesRegex(TaskRunError, "needs recover_source"):
             run.assign_model("architect", "gpt-6-luna")
         (self.workspace / "calc.py").write_text(ORIGINAL)
         assigned = run.assign_model("architect", "gpt-6-luna")
@@ -835,6 +838,7 @@ class JobWithoutModelQuestionTests(unittest.TestCase):
             self.answer(other, runner),
         )
 
+    @mock.patch.object(run_view.status_observation, "job_retry", new=lambda *_: {"allowed": True})
     def test_an_investigator_without_bound_attempt_evidence_keeps_only_its_exact_retry(self):
         state = unrouted_stop()
         view = run_view.view(state)
@@ -860,6 +864,7 @@ class JobWithoutModelQuestionTests(unittest.TestCase):
         self.assertIn("once the quota resets, retry it unchanged with", self.answer(quota))
         self.assertIn("Retry it once the quota resets.", run_view.view(quota)["recovery"]["what_happened"])
 
+    @mock.patch.object(run_view.status_observation, "job_retry", new=lambda *_: {"allowed": True})
     def test_a_refusal_saved_before_jobs_took_a_model_says_so(self):
         state = unrouted_stop("check_design", pause_status=None)
         self.assertIn(

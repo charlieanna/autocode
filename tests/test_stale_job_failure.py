@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import autocode_job_failure as job_failure
 import autocode_quota_route as quota_route
@@ -88,6 +89,7 @@ class StaleJobFailureTests(unittest.TestCase):
         state["job_failure"]["kind"] = "exit"
         self.assertEqual("automatic", job_failure.resume_gate(state, resume=True, retry=False, token=None))
 
+    @patch.object(run_view.status_observation, "job_retry", new=lambda *_: {"allowed": True})
     def test_status_offers_resume_for_the_later_pause_and_retry_for_the_job(self):
         need = run_view.needs(observed())
         self.assertEqual("resume", need["kind"])

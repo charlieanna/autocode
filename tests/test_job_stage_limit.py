@@ -262,6 +262,7 @@ class StageLimitPolicyTests(unittest.TestCase):
             "user_events": [],
         }
 
+    @patch.object(run_view.status_observation, "job_retry", new=lambda *_: {"allowed": True})
     def test_failed_job_offers_separate_token_bound_time_controls(self):
         state = self.state()
         view = run_view.action(state, run_dir=Path("/run"), workspace=Path("/workspace"))
@@ -279,6 +280,7 @@ class StageLimitPolicyTests(unittest.TestCase):
         ]
         self.assertEqual(["max_seconds"], [row["id"] for row in controls])
 
+    @patch.object(run_view.status_observation, "job_retry", new=lambda *_: {"allowed": True})
     def test_time_controls_only_describe_actionable_finite_limits(self):
         state = self.state()
         need = run_view.needs(state)
