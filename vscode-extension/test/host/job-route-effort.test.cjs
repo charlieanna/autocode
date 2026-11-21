@@ -6,6 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { test } = require('node:test');
 const { openHistoryRow } = require('./open-history.cjs');
+const { routeDecisionReady } = require('../job-route-readiness.cjs');
 
 const EXTENSION = path.resolve(__dirname, '../..');
 const REPO = path.resolve(EXTENSION, '..');
@@ -101,7 +102,8 @@ test('real editor offers the bound quota model and effort decision', { timeout: 
       const frame = await chat();
       lastState = await frame.evaluate(() => ({ text: document.body.innerText, action: document.querySelector('#take-action')?.textContent }));
       const element = frame.locator('[data-question="route-architect"]');
-      return await element.count() ? element : null;
+      const visible = await element.count() > 0 && await element.isVisible();
+      return routeDecisionReady({ visible, text: lastState.text }) ? element : null;
     });
     const before = publicStatus();
     assert.equal(before.needs.kind, 'retry_job');
