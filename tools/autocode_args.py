@@ -49,6 +49,7 @@ try:
     from . import autocode_task_input as task_input
     from . import autocode_verification_config as verification_config
     from . import autocode_workflows as workflows
+    from . import autocode_wrong_implementations as wrong_implementations
     from . import autopilot
     from .autocode_configure import BUDGET_ARGUMENTS, DEFAULT_ROLE_MODELS, cost_cap
     from .autocode_control_tokens import TOKEN_ENV_VARS as TOKEN_ENV_VARS
@@ -78,6 +79,7 @@ except ImportError:
     import autocode_task_input as task_input
     import autocode_verification_config as verification_config
     import autocode_workflows as workflows
+    import autocode_wrong_implementations as wrong_implementations
     import autopilot
     from autocode_configure import BUDGET_ARGUMENTS, DEFAULT_ROLE_MODELS, cost_cap
     from autocode_control_tokens import TOKEN_ENV_VARS as TOKEN_ENV_VARS
@@ -303,6 +305,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     resolver_human.requirements_review.add_argument(parser)
     requirements_triage.add_argument(parser)
     acceptance_tests.add_argument(parser)
+    wrong_implementations.add_argument(parser)
     parser.add_argument(
         "--planning-v2",
         action="store_true",

@@ -283,7 +283,9 @@ def job_question(state: RunState) -> dict | None:
         return failure["route"]
     row = _job_row(state)
     timeout_role = (
-        {"write_acceptance_tests": "acceptance_tester"}.get(str(failure.get("stage") or ""))
+        {"write_acceptance_tests": "acceptance_tester", "write_wrong_implementations": "acceptance_tester"}.get(
+            str(failure.get("stage") or "")
+        )
         if failure.get("kind") == "timeout"
         else None
     )
@@ -923,7 +925,7 @@ def _clashes(settings: dict, role: str, model: str, cross_check) -> str | None:
 ARCHITECT_MAX_EFFORT = "medium"
 INHERITED_ROLES = ("acceptance_tester", "architect", "resolver")
 _JOB_STAGE_ROLES: dict[str, tuple[str, ...]] = {
-    "acceptance_tester": ("write_acceptance_tests",),
+    "acceptance_tester": ("write_acceptance_tests", "write_wrong_implementations"),
     "architect": ("check_design",),
     "resolver": ("resolve", "diagnose"),
 }

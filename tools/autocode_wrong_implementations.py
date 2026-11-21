@@ -29,13 +29,21 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_acceptance_tests as acceptance
     from . import autocode_prompts as prompts
+    from . import autocode_run_status as run_status
     from . import autocode_stage_access as stage_access
+    from . import autocode_stray_writes as stray_writes
     from . import autocode_test_results as test_results
+    from . import autocode_util as util
 except ImportError:
+    import autocode_acceptance_tests as acceptance
     import autocode_prompts as prompts
+    import autocode_run_status as run_status
     import autocode_stage_access as stage_access
+    import autocode_stray_writes as stray_writes
     import autocode_test_results as test_results
+    import autocode_util as util
 
 STAGE: Final = "write_wrong_implementations"
 KEY: Final = "acceptance_tests"
@@ -116,28 +124,91 @@ def new_run_setting(requested, spec_first: bool) -> bool:
     return requested is True
 
 
-def packet(state: RunState, cases: list[dict], inventory: dict | None = None, engine: str | None = None) -> dict:
+def case_files(state: RunState) -> dict[str, list[str]]:
+    """Each due ``test:`` case with a current acceptance receipt, mapped to its batch's test files.
+
+    A receipt names its batch's files, not one file per case, so a variant of a case is run against every
+    acceptance test of that batch: it is killed when any of them fails and survives only when all pass."""
+    contract = (state.get("goal_contract") or {}).get("hash")
+    kinds = {case["id"]: case.get("kind") for case in acceptance.all_cases(state)}
+    found: dict[str, list[str]] = {}
+    for receipt in acceptance.receipts(state).values():
+        if receipt.get("contract_hash") != contract:
+            continue
+        for cid in receipt.get("case_ids") or []:
+            if cid in kinds and kinds[cid] != "preserve":
+                found[cid] = sorted(receipt.get("files") or {})
+    return {cid: files for cid, files in found.items() if files}
+
+
+def configure_new_run(settings: dict, args) -> None:
+    """Save the setting on a new run when asked for (after spec-first is decided)."""
+    if new_run_setting(getattr(args, "wrong_implementations", None), bool(settings.get("spec_first"))):
+        settings[SETTING] = True
+
+
+def resume_refused(saved_settings: dict, requested) -> bool:
+    """A saved run keeps its choice; repeating its own choice is harmless, no flag changes nothing."""
+    return requested is not None and bool(requested) != bool(saved_settings.get(SETTING))
+
+
+def packet(state: RunState, inventory: dict | None = None, engine: str | None = None) -> dict:
     """The approved cases and nothing of the tests: the writer must stay blind to them."""
+    cases = {case["id"]: case for case in acceptance.all_cases(state)}
     return {
         "stage": STAGE,
         "task": state["task"],
         "workspace": state.get("workspace"),
         "execution_engine": engine,
         "workspace_inventory": inventory or {},
-        "cases": [{"id": case["id"], "text": case.get("text") or case.get("criterion") or ""} for case in cases],
+        "cases": [{"id": cid, "text": cases[cid].get("text", "")} for cid in case_files(state)],
         "max_variants": MAX_VARIANTS,
     }
 
 
 def prompt(
-    state: RunState,
-    cases: list[dict],
-    inventory: dict | None = None,
-    soft_budget_tokens: int = 10000,
-    engine: str | None = None,
+    state: RunState, inventory: dict | None = None, soft_budget_tokens: int = 10000, engine: str | None = None
 ) -> tuple[str, dict]:
-    text = PROMPT + "\nCURRENT HANDOFF DATA\n" + json.dumps(packet(state, cases, inventory, engine), indent=2)
+    text = PROMPT + "\nCURRENT HANDOFF DATA\n" + json.dumps(packet(state, inventory, engine), indent=2)
     return text, {"estimated_prompt_tokens": (len(text.encode()) + 3) // 4, "soft_budget_tokens": soft_budget_tokens}
+
+
+def studied(state: RunState, source_revision: str, batch: str) -> bool:
+    saved = (state.get(KEY) or {}).get(FIELD) or {}
+    return saved.get("source_revision") == source_revision and saved.get("batch") == batch
+
+
+def _batch(state: RunState) -> str:
+    return util.digest(sorted(case_files(state)))[:16]
+
+
+def route(state: RunState) -> None:
+    """Send a spec-first run about to be independently tested to the study first, once per source and batch.
+
+    Only a final passing regression proof of the current source qualifies; anything else leaves the run alone,
+    and the study never delays or blocks it again (the record, even a skip, marks the batch studied)."""
+    if state.get("next_stage") != "tester" or not (enabled(state) and acceptance.enabled(state)):
+        return
+    proof = state.get("regression_proof") or {}
+    revision = str(proof.get("source_revision") or "")
+    if proof.get("verdict") != "PASS" or not revision:
+        return
+    batch = _batch(state)
+    if studied(state, revision, batch):
+        return
+    contract = (state.get("goal_contract") or {}).get("hash")
+    if not case_files(state):
+        skip(
+            state,
+            "no due test: case has acceptance tests",
+            source_revision=revision,
+            batch=batch,
+            contract_hash=contract,
+        )
+        return
+    state.setdefault(KEY, {"receipts": {}})[FIELD + "_redirect"] = {"from": "tester", "source_revision": revision}
+    state["next_stage"] = STAGE
+    state["next_action"] = "A model that has not seen the acceptance tests is writing plausible wrong implementations."
 
 
 def _touches_tests(patch: str) -> bool:
@@ -190,7 +261,7 @@ def study(
     return {"variants": rows, "counts": counts, "survivors": [r for r in rows if r["outcome"] == SURVIVED]}
 
 
-def record(state: RunState, result: dict, *, source_revision: str, batch: str, contract_hash: str | None) -> None:
+def save(state: RunState, result: dict, *, source_revision: str, batch: str, contract_hash: str | None) -> None:
     saved = state.setdefault(KEY, {"receipts": {}})
     saved[FIELD] = {
         "source_revision": source_revision,
@@ -201,7 +272,7 @@ def record(state: RunState, result: dict, *, source_revision: str, batch: str, c
 
 
 def skip(state: RunState, reason: str, *, source_revision: str, batch: str, contract_hash: str | None) -> None:
-    record(
+    save(
         state,
         {"variants": [], "counts": {name: 0 for name in OUTCOMES}, "survivors": [], "skipped_reason": reason},
         source_revision=source_revision,
@@ -222,3 +293,37 @@ def survivors_note(state: RunState) -> str:
         "of these is wrong (its demo fails) while the case's acceptance tests pass. Say in your report when one "
         "is a real violation of its approved case.\n" + "\n".join(lines) + "\n"
     )
+
+
+def apply(state: RunState, value: dict, record: dict, workspace, run_demo=None, run_tests=None) -> None:
+    """Judge the writer's variants with the runner's own demo and test runs, record them, go on to the Tester.
+
+    Without the runner functions a variant is not run: the study records nothing it could not show."""
+    stray = stage_access.stray(STAGE, record.get("changed_files"))
+    if stray:
+        raise stray_writes.StrayWrites(
+            "Writing wrong implementations must not change the repository; this attempt changed: " + ", ".join(stray),
+            stray,
+        )
+    runners = Runners(
+        demo=run_demo or (lambda patch, argv: {"exit_code": None, "error": "no demo runner was given"}),
+        tests=run_tests or (lambda patch, files: {"failed": [], "error": "no test runner was given"}),
+    )
+    redirect = (state.get(KEY) or {}).pop(FIELD + "_redirect", None) or {}
+    result = study(value["variants"], case_files(state), runners)
+    identity = {
+        "source_revision": redirect.get("source_revision") or str(record.get("source_revision") or ""),
+        "batch": _batch(state),
+        "contract_hash": (state.get("goal_contract") or {}).get("hash"),
+    }
+    save(state, result, **identity)
+    run_status.running(state, "REVIEWING", next_stage=redirect.get("from") or "tester")
+
+
+def owns(state: RunState) -> bool:
+    """A study never completes a run: it hands it to the independent Tester."""
+    return False
+
+
+def render(state: RunState) -> str:
+    return ""

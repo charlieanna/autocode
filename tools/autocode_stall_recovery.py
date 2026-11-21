@@ -36,6 +36,7 @@ READ_ONLY_STAGES = frozenset(
         "review_completion",
         "review_checkpoint",
         "check_design",
+        "write_wrong_implementations",
         "investigate_stuck",
         "resolve_repair",
     }

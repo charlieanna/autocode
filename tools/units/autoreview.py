@@ -11,6 +11,7 @@ except ImportError:
     import autocode_prompts as prompts
 
 
+import shlex
 from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
@@ -37,6 +38,7 @@ try:
     from .. import autocode_verification_commands as command_policy
     from .. import autocode_verification_plan as verification_plan
     from .. import autocode_verify as verify
+    from .. import autocode_wrong_implementations as wrong_implementations
 except ImportError:
     import autocode_acceptance_reference as acceptance_reference
     import autocode_acceptance_tests_job as acceptance_tests_job
@@ -55,6 +57,7 @@ except ImportError:
     import autocode_verification_commands as command_policy
     import autocode_verification_plan as verification_plan
     import autocode_verify as verify
+    import autocode_wrong_implementations as wrong_implementations
 from . import autoplanner
 from .common import ModelRequest, capped_route, execution_request
 
@@ -67,6 +70,7 @@ JOBS = {
     design_check_job.STAGE: design_check_job,
     design_intake.STAGE: design_intake,
     acceptance_tests_job.STAGE: acceptance_tests_job,
+    wrong_implementations.STAGE: wrong_implementations,
 }
 # The Architect copies the Plan Reviewer's model but not its effort beyond this: at
 # "high", MiMo twice spent its whole reasoning budget on a dense design and returned
@@ -105,6 +109,16 @@ def prepare(state: RunState, stage, state_path, schema_dir):
             roles["acceptance_tester"] = deepcopy(roles["tester"])
         role_transport.inherit(state.get("settings"), "acceptance_tester", "tester")
         return job_request(state, acceptance_tests_job, "tester", "acceptance_tester")
+    if stage == wrong_implementations.STAGE:
+        # #3977: the Tester's model on its acceptance_tester route writes wrong implementations blind to the tests.
+        state["phase"] = "REVIEWING"
+        roles = state["settings"]["roles"]
+        if "acceptance_tester" in roles:
+            quota_route.sync_derived_role(state, "acceptance_tester")
+        else:
+            roles["acceptance_tester"] = deepcopy(roles["tester"])
+        role_transport.inherit(state.get("settings"), "acceptance_tester", "tester")
+        return job_request(state, wrong_implementations, "tester", "acceptance_tester")
     if stage == design_check_job.STAGE:
         # The Design Reviewer inherits the Plan Reviewer's model (the planner's own when
         # there is none), with effort capped at ARCHITECT_MAX_EFFORT, on a route of
@@ -122,6 +136,9 @@ def prepare(state: RunState, stage, state_path, schema_dir):
         raise ValueError(f"Autoreview cannot run {stage}")
     request = execution_request(state, stage, state_path, schema_dir)
     authority = task_authority.instruction(state.get("investigation"))
+    # #3977: wrong implementations the acceptance tests still accept are the independent Tester's evidence.
+    survivors = wrong_implementations.survivors_note(state) if stage == "tester" else ""
+    authority = "\n".join(part for part in (authority, survivors) if part)
     if authority:
         prompt = tool_handoff.before_handoff(request.prompt, "\n" + authority)
         request = replace(
@@ -267,6 +284,19 @@ def apply_job(stage, state: RunState, value, record, workspace, run_dir=None, ru
             send_back=lambda body, changes: send_back_plan(state, body, changes, record),
         )
         return
+    if stage == wrong_implementations.STAGE:
+        # The runner, not the writer, shows each variant wrong (its demo) and runs the acceptance tests on it.
+        wrong_implementations.apply(
+            state,
+            value,
+            record,
+            workspace,
+            run_demo=lambda patch, argv: _study_run(
+                clean_run, workspace, evidence_dir, patch, command=shlex.join(argv)
+            ),
+            run_tests=lambda patch, files: _study_tests(state, clean_run, workspace, evidence_dir, patch, files),
+        )
+        return
     # The Design Reviewer's concerns and conflicts about today's code carry probes the runner runs itself, on the
     # code and again with each one's counterexample made, where the probe must fail (#1769).
     JOBS[stage].apply(
@@ -281,6 +311,30 @@ def apply_job(stage, state: RunState, value, record, workspace, run_dir=None, ru
             clean_run, workspace, evidence_dir / "design-probes", timeout=PROBE_TIMEOUT
         ),
     )
+
+
+def _study_run(clean_run, workspace, evidence_dir, patch, *, command=None, tests=(), timeout=PROBE_TIMEOUT):
+    """One scratch execution for the wrong-implementations study: ``patch`` None runs on the candidate itself."""
+    receipt = clean_run(
+        workspace, evidence_dir / "wrong-implementations", patch=patch, command=command, tests=tests, timeout=timeout
+    )
+    return receipt
+
+
+def _study_tests(state: RunState, clean_run, workspace, evidence_dir, patch, files):
+    """The failed acceptance tests, or why they could not run, with the variant's patch applied."""
+    run = clean_run(
+        workspace,
+        evidence_dir / "wrong-implementations",
+        patch=patch,
+        tests=files,
+        command=command_policy.configured_targeted(state.get("settings"), files) or _planned_go_targeted(state, files),
+        timeout=verify.DEFAULT_TIMEOUT,
+    )
+    results = run.get("results")
+    if run.get("error") or results is None:
+        return {"failed": [], "error": str(run.get("error") or "the runner reported no per-test results")}
+    return {"failed": [*(results.get("failed") or [])], "error": ""}
 
 
 def send_back_plan(state: RunState, body, changes, record):

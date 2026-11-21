@@ -118,3 +118,22 @@ but isolates the test code from the Builder entirely (#702):
   resolves.
 - The status view's `acceptance_tests` field marks `blind: true`.
 
+## Wrong implementations (`--wrong-implementations`)
+
+`--wrong-implementations` (off by default; needs `--spec-first`) measures whether the acceptance tests reject
+plausible wrong code (#3977). Once a batch's regression proof passes, and before the independent Tester runs,
+a model on the Tester's route that has not seen the acceptance tests writes up to eight wrong implementations
+of the approved `test:` cases. Each is a patch plus a `demo` command that observes the violated behavior.
+
+For each one, the runner, in a scratch copy:
+
+- drops it when it names no due `test:` case, edits a test file or does not apply (`invalid`);
+- requires its demo to exit 0 on the candidate (`demo_unproven` otherwise) and non-zero with the patch
+  (`not_shown_wrong` otherwise), so every survivor is really wrong;
+- runs the batch's acceptance tests with the patch: a failing test kills it, and when every test passes it
+  `survived`.
+
+The study is report only. It is recorded as `acceptance_tests.wrong_implementations`, and its survivors reach
+the independent Tester as evidence. It changes no verdict, sends nothing back and asks no one anything. It runs
+once per source revision and batch.
+
