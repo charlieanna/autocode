@@ -60,7 +60,6 @@ try:
     from . import autocode_first_suite as first_suite
     from . import autocode_go_test_prerequisites as go_prerequisites
     from . import autocode_go_tests as go_tests
-    from . import autocode_import_observation as import_observation
     from . import autocode_investigation_workspace as investigation_workspace
     from . import autocode_junit_first_suite as junit_first
     from . import autocode_junit_proof as junit_proof
@@ -113,7 +112,6 @@ except ImportError:
     import autocode_first_suite as first_suite
     import autocode_go_test_prerequisites as go_prerequisites
     import autocode_go_tests as go_tests
-    import autocode_import_observation as import_observation
     import autocode_investigation_workspace as investigation_workspace
     import autocode_junit_first_suite as junit_first
     import autocode_junit_proof as junit_proof
@@ -1835,7 +1833,6 @@ def _prove_regression(run: _Run, trees, *, no_go_project, no_junit_project):
     ignored_inputs, new_behavior, preserve, fail = run.ignored_inputs, run.new_behavior, run.preserve, run.fail
     unverified, notes, review_reasons, checks = run.unverified, run.notes, run.review_reasons, run.checks
     proof = run.proof
-    candidate_source = source_snapshot.snapshot(trees["candidate"], paths=list(changes))["revision"]
     on_candidate, took = base_bound.timed(
         lambda: run_suite(
             framework, commands["regression"], trees["candidate"], run_dir, "regression-on-candidate", timeout=timeout
@@ -1888,9 +1885,7 @@ def _prove_regression(run: _Run, trees, *, no_go_project, no_junit_project):
         lambda: product_diff(workspace, base, product_files(changes, roles=run.roles)),
         lambda command, log: run_command(command, trees["candidate"], log, timeout=timeout),
     )
-    project_imports, unloaded_new = import_observation.for_regression(
-        run, trees, on_candidate, on_base, candidate_source, (run_suite, run_command, execution_identity)
-    )
+    unloaded_new = judgment.unloaded_sentinel(new_behavior, on_base, framework, trees)
     _judge_regression(
         proof_stability.without(on_candidate, unstable),
         proof_stability.without(on_base, unstable),
@@ -1900,7 +1895,6 @@ def _prove_regression(run: _Run, trees, *, no_go_project, no_junit_project):
         proof,
         review_reasons,
         new_behavior=new_behavior,
-        project_imports=project_imports,
         unloaded_new=unloaded_new,
         preserve_only=preserve,
         absent_go_base=no_go_project and _go_test(package_scope.split(framework, commands["regression"])[1]),

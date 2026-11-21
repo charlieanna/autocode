@@ -16,9 +16,7 @@ if TYPE_CHECKING:
 try:
     from . import autocode_base_patch as base_patch
     from . import autocode_command_receipt as command_receipt
-    from . import autocode_dependency_dirs as dependency_dirs
     from . import autocode_follow_up as follow_up
-    from . import autocode_import_observation as import_observation
     from . import autocode_joint_inputs as joint_inputs
     from . import autocode_launch_inputs as launch_inputs
     from . import autocode_proof_stability as stability
@@ -34,9 +32,7 @@ try:
 except ImportError:
     import autocode_base_patch as base_patch
     import autocode_command_receipt as command_receipt
-    import autocode_dependency_dirs as dependency_dirs
     import autocode_follow_up as follow_up
-    import autocode_import_observation as import_observation
     import autocode_joint_inputs as joint_inputs
     import autocode_launch_inputs as launch_inputs
     import autocode_proof_stability as stability
@@ -49,12 +45,6 @@ except ImportError:
     import autocode_verification_commands as commands
     import autocode_verification_schedule as schedule
     import autocode_verify as verify
-
-
-NOT_LOADED = (
-    "The test file could not load on the original code; on new behavior a test that cannot import the project's "
-    "own not-yet-existing name fails there, the same as that import inside the test body"
-)
 
 
 class SetupEvidenceRequired(ValueError):
@@ -92,13 +82,10 @@ def candidate_problem(run):
 def collect(state: RunState, workspace, run_dir, out, selected, files, command=None, *, new_behavior=False):
     """Run exactly the observed cases on original product code plus today's tests.
 
-    ``new_behavior`` is whether the approved task adds behavior rather than fixing a bug. Which original-code
-    failures are setup errors that cannot count as evidence is autocode_test_setup's one answer for it
-    (``not_evidence``, ``unloaded_failures``); without it the strict bug-fix rule applies."""
+    ``new_behavior`` is whether the approved task adds behavior rather than fixing a bug. The shared setup
+    classifier excludes preparation failures from proof for both; incomplete collection stays unverified."""
     workspace, out = Path(workspace), Path(out) / f"attempt-{uuid4().hex}"
     tree = out / "tree"
-    candidate_tree = None
-    observation = {}
     uncertain = False
     try:
         out.mkdir(parents=True, exist_ok=False)
@@ -154,72 +141,14 @@ def collect(state: RunState, workspace, run_dir, out, selected, files, command=N
         ):
             raise ValueError("source or launch inputs changed during original-reference check")
         results = receipt.get("results")
-        if new_behavior and import_observation.targets(receipt, tree, framework.name):
-            candidate_tree = verify.prepare_scratch_tree(
-                workspace,
-                out / "candidate-import-scratch",
-                patch=None,
-                files=None,
-                links=None,
-                source_paths=source_scope.paths(state),
-                dependencies_from=dependencies,
-                generated_record=None,
-                generated_unrecorded=False,
-                ignored_inputs=inputs,
-            )
-            snapshot = lambda path: source_scope.snapshot(path, state)["revision"]
-            if snapshot(candidate_tree) != before["revision"]:
-                raise ValueError("candidate import observation did not copy the exact source")
-            identity_command = import_observation.identity_command(framework, narrowed, candidate_tree)
-            identity = lambda path: verify.execution_identity(
-                path,
-                command=identity_command,
-                dependencies_from=dependencies,
-                source_paths=source_scope.paths(state),
-                ignored_inputs=inputs,
-            )
-            observation = import_observation.observe_candidate(
-                receipt,
-                tree,
-                candidate_tree,
-                framework,
-                selected_ids,
-                narrowed,
-                out / "candidate-import-observation",
-                run_suite=verify.run_suite,
-                run_command=verify.run_command,
-                snapshot=snapshot,
-                identity=identity,
-                expected_source=before["revision"],
-                is_product=lambda path: not roles.is_test(path) and not dependency_dirs.installed(path),
-                timeout=verify.DEFAULT_TIMEOUT,
-            )
-        project_imports = observation.get("imports") or {}
-        # On new behavior a selected test whose file cannot load on the original code (it imports the project's
-        # own not-yet-existing name at module level) fails there; the run is otherwise judged complete as usual.
-        unloaded = (
-            test_setup.unloaded_failures(
-                results,
-                files,
-                selected_ids,
-                new_behavior=new_behavior,
-                directory=getattr(framework, "directory", None),
-                project_imports=project_imports,
-            )
-            if isinstance(results, dict)
-            else None
-        )
-        loaded = (
-            {**receipt, "results": {**results, "uncollected": [], "collection_errors": []}} if unloaded else receipt
-        )
-        if receipt.get("error") or receipt.get("timed_out") or not schedule.complete_results(loaded):
+        if receipt.get("error") or receipt.get("timed_out") or not schedule.complete_results(receipt):
             raise ValueError("original-reference execution did not produce complete named results")
         if not schedule.intact(receipt, root=out):
             raise ValueError("original-reference output capture is incomplete")
-        passed, failed = set(results["passed"]), set(results["failed"]) | set(unloaded or ())
+        passed, failed = set(results["passed"]), set(results["failed"])
         if set(results["skipped"]) & set(selected_ids) or not set(selected_ids) <= passed | failed:
             raise ValueError("original-reference cases were skipped or not executed")
-        setup_errors = test_setup.not_evidence(results, new_behavior=new_behavior, project_imports=project_imports)
+        setup_errors = test_setup.not_evidence(results, new_behavior=new_behavior)
         selected_setup = {name: setup_errors[name] for name in selected_ids if name in setup_errors}
         if selected_setup:
             if new_behavior:
@@ -241,9 +170,6 @@ def collect(state: RunState, workspace, run_dir, out, selected, files, command=N
             "test_files": {path: util.file_hash(workspace / path) for path in files},
             "receipt": receipt,
             "verdicts": verdicts,
-            **({"candidate_import_observation": observation} if observation else {}),
-            # The decision and its reason stay in the evidence beside the run that showed it.
-            **({"not_loaded_on_original": {"tests": unloaded, "reason": NOT_LOADED}} if unloaded else {}),
         }
     except SetupEvidenceRequired as error:
         rejected = {
@@ -254,7 +180,6 @@ def collect(state: RunState, workspace, run_dir, out, selected, files, command=N
             "source_revision": before["revision"],
             "selected": selected,
             "test_files": {path: util.file_hash(workspace / path) for path in files},
-            **({"candidate_import_observation": observation} if observation else {}),
         }
         path = out / f"original-reference-rejection-{uuid4().hex}.json"
         util.atomic_json(path, rejected)
@@ -265,10 +190,7 @@ def collect(state: RunState, workspace, run_dir, out, selected, files, command=N
     except (OSError, ValueError, RuntimeError) as error:
         return {
             "error": f"Cannot classify passing tests against the original reference: {error}",
-            **({"candidate_import_observation": observation} if observation else {}),
         }
     finally:
-        if not uncertain:
-            for path in (tree, candidate_tree):
-                if path is not None and path.exists():
-                    verify.remove_tree(workspace, path)
+        if not uncertain and tree.exists():
+            verify.remove_tree(workspace, tree)

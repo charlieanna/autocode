@@ -269,58 +269,28 @@ class SharedSetupAnswerTests(unittest.TestCase):
         results = base_results(failed=[SELECTED], setup={SELECTED: reason})
         self.assertEqual({SELECTED: reason}, test_setup.not_evidence(results, new_behavior=True))
 
-    def test_only_observed_project_imports_are_excluded_from_new_behavior_setup_errors(self):
+    def test_setup_errors_remain_excluded_for_both_task_kinds(self):
         reason = "The test could not import its dependency on base: cannot import name 'dumps_version'"
         results = base_results(failed=[SELECTED], setup={SELECTED: reason})
         self.assertEqual({SELECTED: reason}, test_setup.not_evidence(results, new_behavior=False))
         self.assertEqual({SELECTED: reason}, test_setup.not_evidence(results, new_behavior=True))
-        self.assertEqual({}, test_setup.not_evidence(results, new_behavior=True, project_imports=[SELECTED]))
         self.assertEqual({}, test_setup.not_evidence(base_results(failed=[SELECTED]), new_behavior=False))
         self.assertEqual({}, test_setup.not_evidence(None, new_behavior=False))
 
-    def test_a_test_whose_file_did_not_load_fails_on_base_only_for_new_behavior(self):
-        results = base_results(unloaded=[UNITTEST_UNLOADED])
-        files = ["tests/test_feature.py"]
-        self.assertIsNone(test_setup.unloaded_failures(results, files, [SELECTED], new_behavior=True))
-        self.assertEqual(
-            [SELECTED],
-            test_setup.unloaded_failures(
-                results, files, [SELECTED], new_behavior=True, project_imports=[UNITTEST_UNLOADED]
-            ),
-        )
-        self.assertEqual([], test_setup.unloaded_failures(results, files, [SELECTED], new_behavior=False))
-        # pytest names the file that did not load, and a test in a class, its own way.
-        pytest = base_results(unloaded=["::tests.test_feature"])
-        selected = "tests.test_feature.Feature::test_ac1_answer"
-        self.assertEqual(
-            [selected],
-            test_setup.unloaded_failures(
-                pytest, files, [selected], new_behavior=True, project_imports=["::tests.test_feature"]
-            ),
-        )
-
-    def test_a_not_loaded_file_outside_the_reported_tests_or_an_unexplained_gap_establishes_nothing(self):
-        files = ["tests/test_feature.py"]
-        other = base_results(unloaded=[UNITTEST_UNLOADED, "unittest.loader._FailedTest.test_other"])
-        self.assertIsNone(test_setup.unloaded_failures(other, files, [SELECTED], new_behavior=True))
-        incomplete = base_results(failed=[SELECTED], complete=False)
-        self.assertIsNone(test_setup.unloaded_failures(incomplete, files, [SELECTED], new_behavior=True))
-        complete = base_results(failed=[SELECTED])
-        self.assertEqual([], test_setup.unloaded_failures(complete, files, [SELECTED], new_behavior=True))
-        loaded = "tests.test_other.Other.test_x"
-        self.assertEqual(
-            [],
-            test_setup.unloaded_failures(
-                base_results(unloaded=[UNITTEST_UNLOADED]),
-                [*files, "tests/test_other.py"],
-                [loaded],
-                new_behavior=True,
-                project_imports=[UNITTEST_UNLOADED],
-            ),
-        )
-
 
 class RegressionImportJudgmentTests(unittest.TestCase):
+    def test_collection_sentinel_preserves_first_project_and_other_runner_paths(self):
+        for name in ("pytest", "unittest"):
+            framework = verify.Framework(name, "test command")
+            self.assertEqual((), judgment.unloaded_sentinel(True, {}, framework, {"base_with_tests": "tree"}))
+            self.assertIsNone(judgment.unloaded_sentinel(True, None, framework, {"base_with_tests": "tree"}))
+            self.assertIsNone(judgment.unloaded_sentinel(True, {}, framework, {}))
+            self.assertIsNone(judgment.unloaded_sentinel(False, {}, framework, {"base_with_tests": "tree"}))
+        self.assertIsNone(
+            judgment.unloaded_sentinel(True, {}, verify.Framework("go", "go test"), {"base_with_tests": "tree"})
+        )
+        self.assertIsNone(judgment.unloaded_sentinel(True, {}, None, {"base_with_tests": "tree"}))
+
     def judge(self, base, **kwargs):
         candidate = {
             "exit_code": 0,
@@ -360,17 +330,6 @@ class RegressionImportJudgmentTests(unittest.TestCase):
         self.assertEqual([], proof["fail_to_pass"])
         self.assertEqual([SELECTED], proof["not_run_on_base"])
         self.assertTrue(failed or unverified)
-
-    def test_observed_project_imports_can_prove_new_behavior(self):
-        reason = "The test could not import its dependency on base: cannot import name 'new' from 'app'"
-        failed, unverified, proof = self.judge(
-            base_results(failed=[SELECTED], setup={SELECTED: reason}), project_imports=[SELECTED]
-        )
-        self.assertEqual([SELECTED], proof["fail_to_pass"])
-        self.assertFalse(failed or unverified)
-        failed, unverified, proof = self.judge(base_results(unloaded=[UNITTEST_UNLOADED]), unloaded_new=[SELECTED])
-        self.assertEqual([SELECTED], proof["fail_to_pass"])
-        self.assertFalse(failed or unverified)
 
 
 class PytestOuterFailureTests(unittest.TestCase):

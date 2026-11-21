@@ -137,6 +137,14 @@ class AcceptanceReferenceTests(unittest.TestCase):
         test = self.workspace / "tests/test_feature.py"
         test.write_text(test.read_text().replace("from app import answer", "from app import new_answer as answer"))
 
+    def test_reference_import_failure_does_not_establish_behavioral_failure(self):
+        (self.workspace / "app.py").write_text("def new_answer():\n    return 42\n")
+        test = self.workspace / "tests/test_feature.py"
+        test.write_text(test.read_text().replace("from app import answer", "from app import new_answer as answer"))
+        self.apply().assert_not_called()
+        self.assertEqual("PAUSED_ACCEPTANCE_TESTS", self.state["status"])
+        self.assertFalse(acceptance.receipts(self.state))
+
     def in_body_new_export(self):
         """The original release has semver.py without dumps_version; the candidate adds it, and the test imports
         it inside the test body."""
@@ -175,15 +183,16 @@ class AcceptanceReferenceTests(unittest.TestCase):
         self.assertEqual("passes candidate; fails original reference", receipt["results"]["AC1"])
         return receipt["original_reference"]
 
-    def test_ac6_new_behavior_in_body_public_import_is_a_base_failure(self):
+    def test_ac6_public_import_remains_unproven_until_a_named_assertion_runs(self):
         self.in_body_new_export()
-        reference = self.assert_reaches_builder(self.apply())
-        self.assertEqual(["tests.test_feature.Feature.test_ac1_answer"], reference["receipt"]["results"]["failed"])
+        self.apply().assert_not_called()
+        self.assertEqual(acceptance.STAGE, self.state["next_stage"])
+        self.assertFalse(acceptance.receipts(self.state))
+        self.assertIn("test_ac1_answer", self.state[acceptance.KEY]["rewrites"][0]["feedback"])
 
     def test_unbound_import_setup_requests_bounded_test_repair_then_fresh_reference(self):
         self.in_body_new_export()
-        with patch.object(reference.verify, "execution_identity", return_value={"cache_binding_complete": False}):
-            self.apply().assert_not_called()
+        self.apply().assert_not_called()
         self.assertEqual("RUNNING", self.state["status"])
         self.assertEqual(acceptance.STAGE, self.state["next_stage"])
         self.assertFalse(acceptance.receipts(self.state), "a setup error is not proof")
@@ -220,41 +229,39 @@ class AcceptanceReferenceTests(unittest.TestCase):
     def test_rejected_pytest_reference_captures_survive_a_later_rewrite_attempt(self):
         self.in_body_new_export()
         self.state["settings"]["regression"] = {"test_command": f"{sys.executable} -m pytest tests/test_feature.py"}
-        with patch.object(reference.verify, "execution_identity", return_value={"cache_binding_complete": False}):
-            self.apply().assert_not_called()
-            first = self.state[acceptance.KEY]["rewrites"][0]["original_reference"]["receipt"]["results_capture"]
-            self.apply().assert_not_called()
+        self.apply().assert_not_called()
+        first = self.state[acceptance.KEY]["rewrites"][0]["original_reference"]["receipt"]["results_capture"]
+        self.apply().assert_not_called()
         second = self.state[acceptance.KEY]["rewrites"][1]["original_reference"]["receipt"]["results_capture"]
         self.assertNotEqual(first["path"], second["path"])
         for pin in (first, second):
             self.assertEqual(pin["sha256"], hashlib.sha256(Path(pin["path"]).read_bytes()).hexdigest())
         self.assertFalse(acceptance.receipts(self.state))
 
-    def test_project_import_observation_succeeds_with_a_fully_bound_isolated_interpreter(self):
+    def test_isolated_interpreter_does_not_grant_unobserved_import_authority(self):
         self.in_body_new_export()
         environment = self.root / "isolated-python"
-        subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(environment)], check=True)
+        subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(environment)], check=True, timeout=30)
         interpreter = environment / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-        self.state["settings"]["regression"]["test_command"] = shlex.join(
-            [str(interpreter), "-m", "unittest", "-v", "tests.test_feature"]
-        )
-        reference = self.assert_reaches_builder(self.apply())
-        observation = reference["candidate_import_observation"]
-        self.assertTrue(observation["execution_identity"]["cache_binding_complete"])
-        self.assertEqual("semver.py", next(iter(observation["imports"].values()))["origin"])
+        self.state["settings"]["regression"] = {
+            "test_command": shlex.join([str(interpreter), "-m", "unittest", "-v", "tests.test_feature"])
+        }
+        self.apply().assert_not_called()
+        self.assertEqual(acceptance.STAGE, self.state["next_stage"])
+        self.assertFalse(acceptance.receipts(self.state))
 
-    def test_incomplete_import_identity_retains_the_rejected_observation(self):
+    def test_reference_rejection_requires_no_extra_import_probe(self):
         self.in_body_new_export()
-        with patch.object(reference.verify, "execution_identity", return_value={"cache_binding_complete": False}):
+        with patch.object(
+            reference.verify, "execution_identity", side_effect=AssertionError("unexpected origin probe")
+        ):
             result = self.collect(new_behavior=True)
         self.assertIn("error", result)
         self.assertNotIn("verdicts", result)
-        observation = result["candidate_import_observation"]
-        self.assertEqual({}, observation["imports"])
-        self.assertIn("not fully bound", observation["reason"])
-        self.assertTrue(Path(observation["path"]).is_file())
+        self.assertIn("tests.test_feature.Feature.test_ac1_answer", result["setup_errors"])
+        self.assertTrue(Path(result["evidence"]["path"]).is_file())
 
-    def test_new_export_reexported_through_unchanged_src_package_is_observed(self):
+    def test_reexported_name_has_no_unverified_origin_authority(self):
         package = self.workspace / "src" / "release_api"
         package.mkdir(parents=True)
         (package / "__init__.py").write_text("from .core import *\n")
@@ -267,19 +274,19 @@ class AcceptanceReferenceTests(unittest.TestCase):
             "import unittest\nclass Feature(unittest.TestCase):\n"
             "    def test_ac1_answer(self):\n        from release_api import new\n        self.assertEqual(new(), 42)\n"
         )
-        reference = self.assert_reaches_builder(self.apply())
-        imports = reference["candidate_import_observation"]["imports"]
-        self.assertEqual("src/release_api/__init__.py", next(iter(imports.values()))["origin"])
+        self.apply().assert_not_called()
+        self.assertEqual(acceptance.STAGE, self.state["next_stage"])
+        self.assertFalse(acceptance.receipts(self.state))
 
-    def test_new_project_module_missing_on_base_is_observed(self):
+    def test_new_module_has_no_unverified_origin_authority(self):
         (self.workspace / "release_api.py").write_text("def new(): return 42\n")
         (self.workspace / "tests/test_feature.py").write_text(
             "import unittest\nclass Feature(unittest.TestCase):\n"
             "    def test_ac1_answer(self):\n        from release_api import new\n        self.assertEqual(new(), 42)\n"
         )
-        reference = self.assert_reaches_builder(self.apply())
-        imports = reference["candidate_import_observation"]["imports"]
-        self.assertEqual("release_api.py", next(iter(imports.values()))["origin"])
+        self.apply().assert_not_called()
+        self.assertEqual(acceptance.STAGE, self.state["next_stage"])
+        self.assertFalse(acceptance.receipts(self.state))
 
     def test_ac7_bugfix_in_body_import_is_still_a_setup_error(self):
         self.in_body_new_export()
@@ -327,11 +334,9 @@ class AcceptanceReferenceTests(unittest.TestCase):
         )
         self.assert_refused(self.apply())
 
-    def test_ac11_new_behavior_module_level_import_is_a_base_failure(self):
+    def test_ac11_module_level_import_does_not_establish_a_failure(self):
         self.module_level_new_name()
-        reference = self.assert_reaches_builder(self.apply())
-        self.assertEqual({"AC1": "fails"}, reference["verdicts"])
-        self.assertEqual(["tests.test_feature.Feature.test_ac1_answer"], reference["not_loaded_on_original"]["tests"])
+        self.assert_refused(self.apply())
 
     def test_ac28_bugfix_module_level_import_is_still_refused(self):
         self.module_level_new_name()
@@ -367,12 +372,10 @@ class AcceptanceReferenceTests(unittest.TestCase):
                 with patch.object(reference.verify, "run_suite", side_effect=corrupt):
                     self.assert_refused(self.apply())
 
-    def test_ac30_pytest_module_level_import_is_a_base_failure(self):
+    def test_ac30_pytest_module_level_import_does_not_establish_a_failure(self):
         self.module_level_new_name()
         self.state["settings"]["regression"] = {"test_command": f"{sys.executable} -m pytest tests/test_feature.py"}
-        reference = self.assert_reaches_builder(self.apply())
-        self.assertEqual({"AC1": ["tests.test_feature.Feature::test_ac1_answer"]}, reference["selected"])
-        self.assertEqual(["::tests.test_feature"], reference["receipt"]["results"]["uncollected"])
+        self.assert_refused(self.apply())
 
     def test_reference_skip_does_not_establish_behavioral_failure(self):
         test = self.workspace / "tests/test_feature.py"
@@ -544,7 +547,9 @@ class AcceptanceReferenceTests(unittest.TestCase):
             self.assertRaisesRegex(reference.command_receipt.OwnershipUncertain, "ownership was lost"),
         ):
             self.collect()
-        self.assertTrue((self.evidence / "reference/tree/app.py").is_file())
+        retained = list((self.evidence / "reference").glob("attempt-*/tree/app.py"))
+        self.assertEqual(1, len(retained), "the owned reference tree must remain when process ownership is uncertain")
+        self.assertTrue(retained[0].is_file())
         self.assertFalse(acceptance.receipts(self.state))
 
     def test_incomplete_reference_classification_cannot_grant_a_receipt(self):

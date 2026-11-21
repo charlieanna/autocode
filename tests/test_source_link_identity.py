@@ -3,9 +3,7 @@
 import os
 import shlex
 import unittest
-from pathlib import Path
 
-import autocode_import_observation as observation
 import autocode_source_snapshot as source_snapshot
 import autocode_verify as verify
 
@@ -159,48 +157,3 @@ class SourceLinkIdentityTests(unittest.TestCase):
     def test_target_with_an_external_hardlink_stays_unbound(self):
         os.link(self.root / "src/product.py", self.root.parent / "outside-hardlink.py")
         self.assertIn("alias.py", self.unbound())
-
-    def test_target_mutated_during_observation_invalidates_real_execution_identity(self):
-        base = Project({"src/product.py": "value = 1\n"})
-        self.addCleanup(base.close)
-        (base.root / "alias.py").symlink_to("src/product.py")
-        source = (
-            "import unittest\nclass Feature(unittest.TestCase):\n"
-            "    def test_new(self):\n        from alias import new\n        self.assertEqual(new, 42)\n"
-        )
-        for tree in (base.root, self.root):
-            (tree / "test_feature.py").write_text(source)
-        (self.root / "src/product.py").write_text("new = 42\n")
-        out = Path(self.project.temp.name) / "observation"
-        out.mkdir()
-        python = isolated_python(self)
-        command = shlex.join([python, "-m", "unittest", "-v", "test_feature"])
-        framework = verify.Framework("unittest", command, python=python)
-        original = verify.run_suite(framework, command, base.root, out, "original", timeout=30)
-        snap = lambda tree: source_snapshot.snapshot(tree)["revision"]
-        identity = lambda tree: verify.execution_identity(tree, command=shlex.join([python, "-m", "unittest"]))
-
-        def change_after_run(*args, **kwargs):
-            receipt = verify.run_suite(*args, **kwargs)
-            (self.root / "src/product.py").write_text("new = 43\n")
-            return receipt
-
-        observed = observation.observe_candidate(
-            original,
-            base.root,
-            self.root,
-            framework,
-            original["results"]["failed"],
-            command,
-            out / "attempt",
-            run_suite=change_after_run,
-            run_command=verify.run_command,
-            snapshot=snap,
-            identity=identity,
-            expected_source=snap(self.root),
-            is_product=lambda path: not path.startswith("test_"),
-            timeout=30,
-        )
-        self.assertEqual({}, observed["imports"])
-        self.assertEqual("Candidate execution identity changed after the selected tests", observed["reason"])
-        self.assertNotIn("probe", observed)

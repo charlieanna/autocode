@@ -41,6 +41,19 @@ UNLOADABLE = (
 )
 
 
+def unloaded_sentinel(new_behavior, on_base, framework, trees):
+    """Hold Python collection failures without changing other-runner or first-project rules."""
+    if (
+        new_behavior
+        and on_base is not None
+        and framework is not None
+        and framework.name in ("pytest", "unittest")
+        and "base_with_tests" in trees
+    ):
+        return ()
+    return None
+
+
 def judge_regression(
     on_candidate,
     on_base,
@@ -59,7 +72,6 @@ def judge_regression(
     changed_tests=None,
     base_suite_passed=None,
     reloaded=None,
-    project_imports=(),
     unloaded_new=None,
 ):
     """Judge the targeted runs of the changed test files.
@@ -175,12 +187,12 @@ def judge_regression(
         if not base.get("complete"):
             unverified.append("Per-test results on the base code were incomplete")
             return
-        setup_errors = test_setup.not_evidence(base, new_behavior=new_behavior, project_imports=project_imports)
+        setup_errors = test_setup.not_evidence(base, new_behavior=new_behavior)
         ran_and_failed = set(base["failed"]) - set(base["collection_errors"]) - set(setup_errors)
         if setup_errors:
             notes.append(test_setup.proof_note(setup_errors))
-        # Preserve the runner's existing first-project rule. For Python import collection failures,
-        # only the named tests whose project import was observed may stand in for tests that did not run.
+        # Preserve the runner's first-project and other-runner rules. Python
+        # collection failures do not stand in for named tests that never ran.
         not_run = passed - set(base["passed"]) - set(base["failed"])
         if unloaded_new is not None:
             not_run |= passed & (set(base.get("uncollected") or ()) | set(base.get("collection_errors") or ()))
@@ -190,7 +202,6 @@ def judge_regression(
                 flipped_set -= not_run
                 flipped_set -= set(base.get("collection_errors") or ())
                 flipped_set -= set(base.get("uncollected") or ())
-                flipped_set |= set(unloaded_new) & passed
             flipped = sorted(flipped_set)
         else:
             flipped = sorted(ran_and_failed & passed)
