@@ -1812,7 +1812,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/1c6545d00f7d923e6da2783845fc0b0cacc7e655/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/7a69a5ff55a35a7b5a9530b34d8f530c95acf0e2/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -3142,7 +3142,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/1c6545d00f7d923e6da2783845fc0b0cacc7e655/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/7a69a5ff55a35a7b5a9530b34d8f530c95acf0e2/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -4028,7 +4028,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/1c6545d00f7d923e6da2783845fc0b0cacc7e655/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/7a69a5ff55a35a7b5a9530b34d8f530c95acf0e2/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
@@ -4053,7 +4053,12 @@ Current task proofs enumerate eligible Python sites within the existing command
 budget and require observed named-test failures; setup, collection, timeout and
 unrun outcomes never demonstrate a kill. <code>verification.changed_code_evidence</code>
 lists exact gap IDs, file hashes/lines, <code>tested</code>, <code>reason_required</code> or <code>excepted</code>,
-the reason/evidence, and the chosen fallback. Missing tools never trigger a
+the reason/evidence, and the chosen fallback.
+Where a nonpositive mutation spans a changed line but starts elsewhere, the line's
+optional <code>overlapping_mutations</code> lists its start, end, operator, outcome and evidence
+for review; <code>overlapping_mutations_omitted</code> counts observations beyond the first three.
+This is diagnostic context; a parent mutation never proves the child line.
+Missing tools never trigger a
 project install: demonstrated per-line mutation evidence is the deterministic
 fallback, otherwise an explicit independent per-line judgment is required.
 Two direct repairs precede the existing Investigator path within saved run
