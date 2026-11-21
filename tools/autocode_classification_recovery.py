@@ -44,8 +44,8 @@ except ImportError:
 
 ACTION = "--resume-paused --retry-failed-stage --job-retry-token TOKEN"
 STATUS = "PAUSED_BUILDER_CLASSIFICATION"
-# What a saved checkpoint shows until its next resume ends it (autocode_action_retained_recovery).
-NOTICE = "AutoCode will close the spent Builder failure classification with a recorded outcome."
+# The locked continuation checks whether the held source still matches before settling it.
+NOTICE = "AutoCode is checking whether this run can continue safely."
 CAUSES = {
     "disabled": "the Investigator is disabled for this run",
     "allowance": "this milestone's classification allowance is spent",

@@ -641,6 +641,9 @@ class ClassificationOfferTests(unittest.TestCase):
                 copy_state[field] = value
                 self.assertIsNone(recovery.pending(copy_state))
         with patch.object(recovery.source_scope, "snapshot", return_value={"revision": "changed"}):
+            self.assertEqual(
+                "AutoCode is checking whether this run can continue safely.", run_view.view(state)["stop_reason"]
+            )
             self.assertFalse(recovery.conclude(state, Path("/owned"), at="2026-11-21T00:00:00Z"))
             state["status"] = "RUNNING"
             recovery.failure.dispatch_guard(state, "builder", Path("/owned"))
