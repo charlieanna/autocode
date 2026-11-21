@@ -5,9 +5,9 @@ releases it. No status output or argument is altered and no live model is used.
 """
 
 import os
+import select
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 CLI = Path(__file__).resolve().parents[3] / "tools" / "autocode.py"
@@ -15,17 +15,22 @@ CLI = Path(__file__).resolve().parents[3] / "tools" / "autocode.py"
 
 def main(argv: list[str]) -> int:
     if "--resume-paused" in argv:
-        Path(os.environ["AUTOCODE_SOURCE_ACTION_STARTED"]).write_text("\n".join(argv))
-        release = Path(os.environ["AUTOCODE_SOURCE_ACTION_RELEASE"])
-        deadline = time.monotonic() + 90
-        while not release.exists():
-            if time.monotonic() >= deadline:
+        release = os.open(os.environ["AUTOCODE_SOURCE_ACTION_RELEASE"], os.O_RDWR | os.O_NONBLOCK)
+        try:
+            Path(os.environ["AUTOCODE_SOURCE_ACTION_STARTED"]).write_text("\n".join(argv))
+            if not select.select([release], [], [], 90)[0]:
                 return 124
-            time.sleep(0.1)
+            os.read(release, 1)
+        finally:
+            os.close(release)
         result = subprocess.call([sys.executable, str(CLI), *argv])
         Path(os.environ["AUTOCODE_SOURCE_ACTION_FINISHED"]).write_text(str(result))
         return result
-    return subprocess.call([sys.executable, str(CLI), *argv])
+    result = subprocess.call([sys.executable, str(CLI), *argv])
+    if "--status" in argv:
+        with Path(os.environ["AUTOCODE_SOURCE_STATUS_READS"]).open("a") as reads:
+            reads.write(f"{result}\n")
+    return result
 
 
 if __name__ == "__main__":

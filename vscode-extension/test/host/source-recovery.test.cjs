@@ -15,6 +15,8 @@ const root = fs.mkdtempSync(path.join(os.tmpdir(), 'autocode-source-host-'));
 const started = path.join(root, 'action-started');
 const release = path.join(root, 'action-release');
 const finished = path.join(root, 'action-finished');
+assert.equal(spawnSync('mkfifo', [release]).status, 0, 'create owned release FIFO');
+const statusReads = path.join(root, 'status-reads');
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 let app;
 let win;
@@ -30,6 +32,40 @@ async function until(what, probe, timeout = 60_000) {
     await sleep(250);
   } while (Date.now() < deadline);
   throw new Error(`Timed out waiting for ${what}; last: ${last instanceof Error ? last.message : JSON.stringify(last)}`);
+}
+
+function releaseAction() {
+  try {
+    const fd = fs.openSync(release, fs.constants.O_WRONLY | fs.constants.O_NONBLOCK);
+    try { fs.writeSync(fd, 'x'); } finally { fs.closeSync(fd); }
+  } catch (error) {
+    if (error.code !== 'ENXIO') throw error; // No action is waiting.
+  }
+}
+
+function completedStatusReads() {
+  if (!fs.existsSync(statusReads)) return [];
+  return fs.readFileSync(statusReads, 'utf8').trim().split('\n').filter(Boolean);
+}
+
+function waitForStatusReads(count) {
+  return new Promise((resolve, reject) => {
+    let watcher;
+    const timer = setTimeout(() => {
+      watcher.close();
+      reject(new Error(`Timed out waiting for ${count} completed extension status reads`));
+    }, 60_000);
+    const check = () => {
+      const reads = completedStatusReads();
+      if (reads.length < count) return;
+      clearTimeout(timer);
+      watcher.close();
+      try { assert.ok(reads.every((result) => result === '0'), 'extension status reads succeeded'); resolve(); }
+      catch (error) { reject(error); }
+    };
+    watcher = fs.watch(root, check);
+    check();
+  });
 }
 
 function python() {
@@ -82,9 +118,11 @@ before(async () => {
     'extensions.autoUpdate': false,
     'telemetry.telemetryLevel': 'off',
   }));
-  environment = { ...process.env, ...fixture.env, HOME: path.join(root, 'home'),
+  const tempDir = path.join(root, 'tmp');
+  fs.mkdirSync(tempDir);
+  environment = { ...process.env, ...fixture.env, HOME: path.join(root, 'home'), TMPDIR: tempDir,
     AUTOCODE_SOURCE_ACTION_STARTED: started, AUTOCODE_SOURCE_ACTION_RELEASE: release,
-    AUTOCODE_SOURCE_ACTION_FINISHED: finished };
+    AUTOCODE_SOURCE_ACTION_FINISHED: finished, AUTOCODE_SOURCE_STATUS_READS: statusReads };
   for (const key of ['OPENAI_API_KEY', 'CODEX_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY']) delete environment[key];
   const { _electron } = require('playwright-core');
   app = await _electron.launch({ executablePath: await executable(), env: environment, args: [
@@ -101,13 +139,23 @@ before(async () => {
 
 after(async () => {
   // Always release any held action before closing its owned host.
-  fs.writeFileSync(release, 'release');
+  releaseAction();
   if (fs.existsSync(started) && !fs.existsSync(finished)) {
     await until('the released action to finish', () => fs.existsSync(finished), 90_000).catch(() => {});
   }
   fs.mkdirSync(path.join(EXTENSION, '.vscode-test'), { recursive: true });
   await win?.screenshot({ path: path.join(EXTENSION, '.vscode-test', 'host-last.png') }).catch(() => {});
   await app?.close().catch(() => {});
+  if (environment && fixture) {
+    const invoke = (action) => spawnSync(fixture.cli[0], [...fixture.cli.slice(1), 'serve', action, '--json'], {
+      cwd: fixture.workspace, env: environment, encoding: 'utf8', timeout: 15_000,
+    });
+    const stop = invoke('--stop');
+    assert.equal(stop.status, 0, stop.stderr);
+    const host = invoke('--status');
+    assert.equal(host.status, 0, host.stderr);
+    assert.equal(JSON.parse(host.stdout).running, false, 'owned source host stopped');
+  }
   if (passed) fs.rmSync(root, { recursive: true, force: true, maxRetries: 3 });
   else console.error(`Preserved failed source recovery fixture at ${root}`);
 });
@@ -124,7 +172,8 @@ test('unsafe source blocks the actual chat until the source is restored', { time
   const held = status();
   assert.equal(held.status, 'PAUSED_SOURCE_UNAVAILABLE');
   assert.equal(held.next_command, null);
-  await sleep(4_000); // Cover multiple editor poll intervals while source remains unsafe.
+  const previousReads = completedStatusReads().length;
+  await waitForStatusReads(previousReads + 2);
   assert.equal(fs.existsSync(started), false, 'the extension did not take an unnamed action');
 
   const shared = path.join(fixture.workspace, 'shared');
@@ -143,7 +192,7 @@ test('unsafe source blocks the actual chat until the source is restored', { time
     const text = await frame.evaluate(() => document.body.textContent);
     return text && !text.includes('AutoCode cannot read the task source') ? text : null;
   });
-  fs.writeFileSync(release, 'release');
+  releaseAction();
   await until('the offline Resume action to finish', () => fs.existsSync(finished), 90_000);
   const advanced = await until('source recovery to advance', () => {
     const view = status();
