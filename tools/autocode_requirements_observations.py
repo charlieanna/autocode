@@ -353,6 +353,29 @@ def retained_command_output(state: RunState, stage, run_dir, current_source, com
         return None
 
 
+def reported_suite_observation(state: RunState, run_dir, current_source, collection_command, execution_command):
+    """Relate same-suite named reports without granting them independent proof authority."""
+    collection = retained_command_output(state, "claim_evidence", run_dir, current_source, collection_command)
+    execution = retained_command_output(state, "claim_evidence", run_dir, current_source, execution_command)
+    if not collection or not execution or collection["source_revision"] != execution["source_revision"]:
+        return None
+    collected, executed = collection.get("reported_collection"), execution.get("reported_execution")
+    if not collected or not executed or collected["suite_command"] != executed["suite_command"]:
+        return None
+    names, ran = collected["node_ids"], executed["node_ids"]
+    if len(names) != len(set(names)) or len(ran) != len(set(ran)) or set(names) != set(ran):
+        return None
+    return {
+        "status": "unverified",
+        "reason": "Collection and execution are historical reports; independent replay has not established the claim.",
+        "suite_command": collected["suite_command"],
+        "node_ids": names,
+        "source_revision": collection["source_revision"],
+        "collection_sha256": collection["sha256"],
+        "execution_sha256": execution["sha256"],
+    }
+
+
 def _native(values, blocked):
     """Completed native read/search/list calls: Claude Code's adapted tool_call items carry only the
     call's inputs, OpenCode and Kilo parts also their output."""

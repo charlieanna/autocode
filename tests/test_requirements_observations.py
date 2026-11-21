@@ -544,6 +544,7 @@ class RequirementsObservationsTests(unittest.TestCase):
         self.assertIsNone(parser.pytest_junit_identities(collection, {"tests/test_api.py"}))
         self.assertIsNone(parser.pytest_junit_identities(collection, paths | {"tests/test_api/Group.py"}))
         self.assertIsNone(parser.pytest_junit_identities({"node_ids": ["../bad.py::test_a"]}, {"../bad.py"}))
+        self.assertIsNone(parser.pytest_junit_identities(collection, [["not a source path"]]))
         self.assertIsNone(
             parser.pytest_junit_identities({"node_ids": ["tests/test_api.py::x", "tests/test_api.py::x"]}, paths)
         )
@@ -578,6 +579,73 @@ class RequirementsObservationsTests(unittest.TestCase):
         failed = subprocess.run(execution_args, cwd=self.workspace, env=env, capture_output=True, text=True, timeout=20)
         self.assertNotEqual(0, failed.returncode)
         self.assertIsNone(parser.pytest_execution(shlex.join(execution_args), failed.stdout))
+
+    def test_matching_reported_collection_and_execution_never_grant_proof(self):
+        collection_command = "python3 -m pytest --collect-only -q"
+        execution_command = "python3 -m pytest -v"
+        names = ["tests/test_a.py::test_one", "tests/test_a.py::test_two"]
+        collected = "\n".join(names) + "\n\n2 tests collected in 0.14s\n"
+        executed = (
+            "collected 2 items\n"
+            + names[0]
+            + " PASSED [ 50%]\n"
+            + names[1]
+            + " PASSED [100%]\n====== 2 passed in 0.10s ======\n"
+        )
+        self.events = [
+            self.command("collection", collection_command, collected, output_truncated=False),
+            self.command("execution", execution_command, executed, output_truncated=False),
+        ]
+        self.write_events()
+        self.seal()
+        lookup = getattr(observations, "reported_suite_observation", lambda *args: None)
+        result = lookup(
+            self.state, self.run, lambda: source.snapshot(self.workspace), collection_command, execution_command
+        )
+        self.assertIsNotNone(result)
+        self.assertEqual("unverified", result["status"])
+        self.assertEqual(names, result["node_ids"])
+        self.assertIn("independent replay", result["reason"])
+        self.assertIsNone(
+            lookup(
+                self.state, self.run, lambda: source.snapshot(self.workspace), collection_command, collection_command
+            )
+        )
+        (self.workspace / "app.py").write_text("VALUE = 2\n")
+        self.assertIsNone(
+            lookup(self.state, self.run, lambda: source.snapshot(self.workspace), collection_command, execution_command)
+        )
+
+    def test_reported_suite_rejects_subset_different_suite_source_and_duplicate_nodes(self):
+        lookup = getattr(observations, "reported_suite_observation", None)
+        self.assertIsNotNone(lookup)
+        collection = {
+            "source_revision": "r",
+            "sha256": "a",
+            "reported_collection": {"suite_command": "python3 -m pytest", "node_ids": ["a::one", "b::two"]},
+        }
+        execution = {
+            "source_revision": "r",
+            "sha256": "b",
+            "reported_execution": {"suite_command": "python3 -m pytest", "node_ids": ["a::one", "b::two"]},
+        }
+        for change in ("subset", "suite", "source", "duplicate", "missing"):
+            left, right = copy.deepcopy(collection), copy.deepcopy(execution)
+            if change == "subset":
+                right["reported_execution"]["node_ids"] = ["a::one"]
+            elif change == "suite":
+                right["reported_execution"]["suite_command"] = "other suite"
+            elif change == "source":
+                right["source_revision"] = "other source"
+            elif change == "duplicate":
+                left["reported_collection"]["node_ids"] = ["a::one", "a::one"]
+            else:
+                right.pop("reported_execution")
+            with (
+                self.subTest(change=change),
+                mock.patch.object(observations, "retained_command_output", side_effect=[left, right]),
+            ):
+                self.assertIsNone(lookup(self.state, self.run, self.product, "collect", "execute"))
 
     def test_running_native_event_cannot_attest_a_later_completed_output(self):
         command = "python3 -m pytest --collect-only -q"
