@@ -371,7 +371,7 @@ class UndeterminedReplayTests(unittest.TestCase):
         self.run_dir = self.project / ".autocode/runs/protected"
         self.out = self.run_dir / "replays"
         command = shlex.join([sys.executable, "-B", "-m", "unittest", "discover", "-v"])
-        self.state = {"settings": {}}
+        self.state = {"settings": {}, "run_dir": str(self.run_dir)}
         guard.reconcile(
             self.state,
             self.state["settings"],
