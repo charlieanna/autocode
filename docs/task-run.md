@@ -1642,6 +1642,33 @@ as its `investigated` entry. The field is display only: it names no action and g
 The terminal chat shows each new entry as a `Recovery ·` notice, the newest three in its side
 panel, and all of them under `/why`.
 
+An `investigated` entry whose Investigator advised a retry says what actually ran between that result
+and the next investigation of the same stage (#3927): a later or running attempt of the stage ("the
+Tester tried again with its advice"), a local re-check of a retained report without running the stage
+("AutoCode re-checked the saved tests without running the Tester again"), or nothing yet ("the Tester
+has not run again yet").
+
+### The Tester's retained report (`acceptance_verification_retry`)
+
+When the Tester's finished report is retained after its local verification failed, the next resume
+re-checks the saved tests without a model call. `view.acceptance_verification_retry` says what that
+resume does, from the one answer `autocode_acceptance_retry_next.decide` that dispatch, `needs`,
+`next_command`, the recovery card, the chat input and `progress` also read. It is null without a
+retained report, else `{next, rechecks, allowed}`:
+
+| `next` | The next resume |
+| --- | --- |
+| `recheck` | Runs the saved tests again without a new Tester attempt. The card's resume is labelled `Re-check the saved tests`; `progress.needs_you` is `resume to re-check the saved tests`. |
+| `tester` | In-force Investigator advice places the cause in the written tests or report (a recorded cause other than `environment`): the retained report is retired, its attempts and failures kept, and the ordinary Tester step runs with that guidance. One Investigator result retires at most one retained report. |
+| `exhausted` | Nothing is left to re-check. `needs` and `next_command` are null, and the recovery card is `blocked` (`No re-check of the saved tests is left`) and says how often the saved tests were re-checked of how many allowed times. It does not ask the person for machinery feedback. |
+| `blocked` | The retained report, source, approval, task or evidence cannot be verified, or work remains uncertain. No re-check is offered; the recovery card describes the hold and preserves the saved evidence. |
+
+`rechecks` counts the local re-checks spent and `allowed` the re-checks this report may spend (one, one
+more per bound Investigator result with an `environment` cause or none, and the one authenticated
+provenance re-check); `allowed` is null for a test runner that never started or a blocked report. A
+runner that never started is re-checked on each resume. The field is display only. A stale, changed or uncertain retained report never executes,
+is retired or grants acceptance, whatever this field says.
+
 ## Inspecting current verification
 
 `autocode --run-dir RUN --status --inspect-evidence` performs a read-only source
@@ -2266,7 +2293,10 @@ its wording may change, so programs read the fields beside it:
   grants no action; the current `needs` and `next_command` still decide that.
 - `headline`: `Complete`, `Waiting for you`, `Paused`, `Waiting for another run`,
   `<job> working` (`Tester writing tests first` while the Tester writes the approved
-  tests before the Builder starts), `<job> finished` (its report is saved but not applied yet),
+  tests before the Builder starts; the same stage reads `Tester strengthening tests (round 1 of 2)`
+  while it strengthens tests of code the Builder already wrote, and `Tester repairing tests (round 1 of 2)`
+  while it repairs a protected test a review sent back, repair first when both are pending, from the same
+  record and round the `recoveries` list shows, #3924), `<job> finished` (its report is saved but not applied yet),
   `<job> finished · Next: <job>` when the run already knows the job after that
   finished one (#1711), `<job> attempt ended` (an ended or accounted attempt
   still held for reconciliation, without asserting a successful report or confirmed cleanup),
@@ -2293,7 +2323,11 @@ its wording may change, so programs read the fields beside it:
   person has accepted yet); `reviewed` (a person's review receipt is valid for the
   current validation); `unchecked` otherwise, never `checked`. Each state has a
   count. Results under another contract, or with no contract hash under a contract,
-  do not count. The view does not read the workspace.
+  do not count. The view does not read the workspace. Before a plan has criteria,
+  `label` counts the requirements in the published Requirements record (the view's
+  `requirements`, #3864): `4 gathered requirements ready for review` while the
+  Requirements review question waits for the person, otherwise
+  `4 gathered requirements, no plan yet`; `total` still counts only the plan's criteria.
 - `problems`: `open` counts the open findings (`items`: `id`, `finding`, `source`,
   `severity`, `blocking`) plus, for a code or design review and a design-conflict
   stop, the findings that job saved instead (`reports`: `kind`, `blocking`,

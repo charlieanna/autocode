@@ -884,7 +884,9 @@ other chats; the question on screen is not counted again.
 A run recovers from most failures on its own, and the chat says so as it happens, once each:
 a `Recovery ·` notice names the stage, what went wrong and what AutoCode did about it, such as
 "Builder stuck", the rejection that caused it, and "AutoCode called the Investigator, which found
-the cause, and the Builder tried again with its advice." A chat opened on a run that already
+the cause, and the Builder tried again with its advice." That last sentence names what actually ran
+after the Investigator: when the stage has not run again it says so ("the Builder has not run again
+yet"), and when AutoCode only re-checked the Tester's saved tests it says that instead. A chat opened on a run that already
 recovered says how many times in one line instead of replaying them. `/why` lists the complete recovery history with times. These come
 from the view's `recoveries` ([task-run interface](task-run.md#what-went-wrong-recoveries)).
 

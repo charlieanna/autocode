@@ -214,6 +214,7 @@ class RunViewTests(unittest.TestCase):
                 "verification_obligation",
                 "evidence_report",
                 "acceptance_tests",
+                "acceptance_verification_retry",
                 "prompts_hash",
                 "task",
                 "task_sha256",

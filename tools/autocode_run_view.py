@@ -38,6 +38,7 @@ except ImportError:
     import autocode_stop as stop
 
 try:
+    from . import autocode_acceptance_retry_next as retry_next
     from . import autocode_acceptance_tests as acceptance_tests
     from . import autocode_accepted_source as accepted_source
     from . import autocode_adaptive_planning as adaptive_planning
@@ -103,6 +104,7 @@ try:
     from . import autocode_stage_pipeline as stage_pipeline
     from . import autocode_stage_policy as stage_policy
     from . import autocode_status_label as status_label
+    from . import autocode_status_observation as status_observation
     from . import autocode_stop_explanations as stop_explanations
     from . import autocode_task_input as task_input
     from . import autocode_tool_containment as tool_containment
@@ -114,6 +116,7 @@ try:
     from . import autocode_workflows as workflows
     from . import autocode_worktree_choice as worktree_choice
 except ImportError:
+    import autocode_acceptance_retry_next as retry_next
     import autocode_acceptance_tests as acceptance_tests
     import autocode_accepted_source as accepted_source
     import autocode_adaptive_planning as adaptive_planning
@@ -180,6 +183,7 @@ except ImportError:
     import autocode_stage_pipeline as stage_pipeline
     import autocode_stage_policy as stage_policy
     import autocode_status_label as status_label
+    import autocode_status_observation as status_observation
     import autocode_stop_explanations as stop_explanations
     import autocode_task_input as task_input
     import autocode_tool_containment as tool_containment
@@ -197,6 +201,7 @@ COMPLETE = ("TASK_COMPLETE", "COMPLETE")
 # Statuses where relaunching the run, with no user input, continues the work.
 CONTINUE = ("RUNNING", "DISCOVERING", "WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL")
 QUESTION_FIELDS = answer_options.QUESTION_FIELDS
+_UNSET = object()  # a caller that computed no retained-retry answer: compute it from the run's workspace
 _question_view = answer_options.question_view
 
 
@@ -332,12 +337,16 @@ def view(
     if simulated or invalid_replay:
         completion_current = False
     status = state.get("status", "")
+    # What the next resume of a retained acceptance verification retry does (#3927): one answer, computed
+    # once with the view's workspace, read by needs, next_command, the recovery card, chat and progress.
+    retained = status_observation.retained_retry(saved_state, workspace or state.get("workspace"))
     next_action = action(
         saved_state,
         run_dir=run_dir,
         workspace=workspace,
         stale_report_repair=stale_report_repair,
         human_projection=human_projection,
+        retained=retained,
     )
     stop_reason = (
         recovery_exhaustion.NOTICE
@@ -419,7 +428,7 @@ def view(
     plan = approved_contract(state)
     # Tokens and cost so far, by role (autocode_usage.summary), with the live accounting the cost reads.
     usage_summary = autocode_usage.summary(state)
-    recovery = None if continuing else recovery_view.project(saved_state, need)
+    recovery = None if continuing else recovery_view.project(saved_state, need, retained=retained)
     result = {
         "replay_source": None if invalid_replay else replay_view.project(state, run_dir=run_dir),
         "replay_progress": replay_progress,
@@ -526,6 +535,10 @@ def view(
         # authenticates its files and current completion; no state mutation here.
         "evidence_report": evidence_report(state),
         "acceptance_tests": acceptance_tests.view(state),  # spec-first Tester files and results (#1200)
+        # What the next resume of a retained acceptance verification retry does (autocode_acceptance_retry_next):
+        # {next: recheck|tester|exhausted|blocked, rechecks, allowed}; allowed is null for an unbounded
+        # runner-not-started retry or a blocked report, and the field is null without a retained retry.
+        "acceptance_verification_retry": retry_next.public(retained),
         # Tokens and cost so far, by role (autocode_usage.summary): reported, estimated and unknown kept apart.
         "usage": usage_summary,
         # Spend against the person's money cap at the dated price table (autocode_cost, #721), and what
@@ -1148,15 +1161,26 @@ def _route(question: dict) -> dict:
     return route
 
 
-def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair=False, human_projection=None) -> dict:
+def action(
+    state: RunState,
+    *,
+    run_dir=None,
+    workspace=None,
+    stale_report_repair=False,
+    human_projection=None,
+    retained=_UNSET,
+) -> dict:
     """What this run asks of a person: the need, its category, and the command that answers it.
 
     ``view`` composes those three from here, so a caller that only needs the next
     action never re-derives it; ``autocode runs`` pays for this, not for the view's
     evidence and usage accounting. Leaving ``stale_report_repair`` false keeps an
     uncertain attempt's abandon step in the need instead of promising a resume that
-    would discard it.
+    would discard it. ``retained`` is the retained acceptance retry's answer
+    (autocode_acceptance_retry_next.decide), computed here when the caller has none.
     """
+    if retained is _UNSET:
+        retained = status_observation.retained_retry(state, workspace or state.get("workspace"))
     try:
         from . import autocode_changeset_barrier as changeset_barrier
     except ImportError:
@@ -1193,7 +1217,7 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
             ),
         }
     status = display_state.get("status", "")
-    need = needs(state, stale_report_repair=stale_report_repair, human_projection=human_projection)
+    need = needs(state, stale_report_repair=stale_report_repair, human_projection=human_projection, retained=retained)
     category = pause_category.category(status, need)
     # This status also names novelty/source holds; only its bound hold needs a larger limit.
     resume_flags = (
@@ -1297,8 +1321,9 @@ def _person_facing(need: dict) -> dict:
     return need
 
 
-def needs(state: RunState, *, stale_report_repair=False, human_projection=None) -> dict | None:
-    """What must happen next, or None when complete or an internal failure offers no person action.
+def needs(state: RunState, *, stale_report_repair=False, human_projection=None, retained=_UNSET) -> dict | None:
+    """What must happen next, or None when complete, an internal failure offers no person action, or the
+    Tester's retained report has no re-check left (autocode_acceptance_retry_next; ``retained`` is its answer).
 
     kind          what it asks for                  answered with
     review        human acceptance of criteria      --approve-review CRITERION --review-token - (reads AUTOCODE_REVIEW_TOKEN)
@@ -1652,6 +1677,12 @@ def needs(state: RunState, *, stale_report_repair=False, human_projection=None) 
             import autocode_protected_commands as protected_commands
         if protected_offer := protected_commands.offer(state):
             return protected_offer
+        if retained is _UNSET:
+            retained = status_observation.retained_retry(state, state.get("workspace"))
+        if retry_next.exhausted_pause(state, retained):
+            # The retained report is spent or cannot be authenticated: plain resume would only re-pause.
+            # The recovery card preserves the evidence and explains the hold.
+            return None
         need = {"kind": "resume", "reason": state.get("stop_reason") or status}
         # An uncertain attempt must be set aside before a resume can continue (#340).
         active = state.get("active_stage") or {}

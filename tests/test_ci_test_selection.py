@@ -8,6 +8,17 @@ import run_suite
 
 
 class AccessTransportConsumerTests(unittest.TestCase):
+    def test_bounded_status_observation_keeps_retained_retry_consumers(self):
+        consumers = {
+            "tests.test_acceptance_retry_resume_cli",
+            "tests.test_acceptance_verification_retry",
+            "tests.test_recovery_history",
+        }
+        selected = run_suite.select_tests(
+            ["tools/autocode_status_observation.py"], {**dict.fromkeys(consumers, ""), "tests.test_unrelated": ""}
+        )
+        self.assertTrue(consumers <= set(selected))
+
     def test_answer_ingresses_keep_the_requirements_lifecycle_consumers_when_slow(self):
         consumers = {
             "tests.test_chat_cli",

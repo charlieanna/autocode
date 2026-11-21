@@ -1,0 +1,92 @@
+"""Bound potentially slow status observations; never grant execution authority.
+
+Operations are allowlisted in the worker. The action that uses an observation
+must independently revalidate under its normal lock before it can execute.
+"""
+
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
+try:
+    from . import autocode_acceptance_retry_admission as admission
+    from . import autocode_acceptance_retry_next as retry_next
+    from . import autocode_acceptance_tests as acceptance
+    from . import autocode_captured_process as captured
+except ImportError:
+    import autocode_acceptance_retry_admission as admission
+    import autocode_acceptance_retry_next as retry_next
+    import autocode_acceptance_tests as acceptance
+    import autocode_captured_process as captured
+
+TIMEOUT = 3.0
+
+
+def _observe(operation, payload, *, timeout=TIMEOUT):
+    """Collect a worker result only after the owned process family is gone."""
+    result = captured.run(
+        [sys.executable, str(Path(__file__).resolve()), "--worker"],
+        input=json.dumps({"operation": operation, "payload": payload}),
+        timeout=timeout,
+        check=True,
+    )
+    value = json.loads(result.stdout)
+    if not isinstance(value, dict) or set(value) != {"result"}:
+        raise ValueError("Invalid status observation")
+    return value["result"]
+
+
+def retained_retry(state: RunState, workspace):
+    """Project a retained retry or conservatively hold if observation is unavailable."""
+    saved = state.get(acceptance.KEY)
+    if saved is None:
+        saved = {}
+    if not isinstance(saved, dict):
+        return {
+            "next": retry_next.BLOCKED,
+            "rechecks": 0,
+            "allowed": None,
+            "reason": "The saved acceptance verification is malformed",
+        }
+    pending = saved.get(retry_next.KEY)
+    if pending is None or admission.preflight(state, pending):
+        return retry_next.decide(state, workspace)
+    attempts = pending.get("attempts")
+    unavailable = {
+        "next": retry_next.BLOCKED,
+        "rechecks": attempts if type(attempts) is int and attempts >= 0 else 0,
+        "allowed": None,
+        "reason": "The saved acceptance verification could not be checked in time",
+    }
+    try:
+        answer = _observe("retained_retry", {"state": state, "workspace": str(workspace)})
+        if not isinstance(answer, dict) or answer.get("next") not in (
+            retry_next.RECHECK,
+            retry_next.TESTER,
+            retry_next.EXHAUSTED,
+            retry_next.BLOCKED,
+        ):
+            return unavailable
+        return answer
+    except (OSError, TypeError, ValueError, subprocess.SubprocessError, captured.ProcessError):
+        return unavailable
+
+
+def _worker(request):
+    if not isinstance(request, dict) or request.get("operation") != "retained_retry":
+        raise ValueError("Unsupported status observation")
+    payload = request["payload"]
+    return retry_next.decide(payload["state"], payload["workspace"])
+
+
+if __name__ == "__main__":
+    if sys.argv[1:] != ["--worker"]:
+        raise SystemExit(2)
+    print(json.dumps({"result": _worker(json.load(sys.stdin))}))

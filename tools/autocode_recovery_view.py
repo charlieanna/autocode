@@ -18,6 +18,7 @@ from copy import deepcopy
 from pathlib import PurePath
 
 try:
+    from . import autocode_acceptance_retry_next as retry_next
     from . import autocode_accepted_source as accepted_source
     from . import autocode_builder_policy as builder_policy
     from . import autocode_internal_failure_view as operational_block
@@ -31,9 +32,11 @@ try:
     from . import autocode_recovery_limits as recovery_limits
     from . import autocode_rejection_summary as rejection_summary
     from . import autocode_run_messages as run_messages
+    from . import autocode_status_observation as status_observation
     from . import autocode_stop as stop
     from .autocode_role_names import role_name
 except ImportError:
+    import autocode_acceptance_retry_next as retry_next
     import autocode_accepted_source as accepted_source
     import autocode_builder_policy as builder_policy
     import autocode_internal_failure_view as operational_block
@@ -47,6 +50,7 @@ except ImportError:
     import autocode_recovery_limits as recovery_limits
     import autocode_rejection_summary as rejection_summary
     import autocode_run_messages as run_messages
+    import autocode_status_observation as status_observation
     import autocode_stop as stop
     from autocode_role_names import role_name
 
@@ -513,7 +517,12 @@ def _failures(state: RunState):
     return groups
 
 
-def project(state: RunState, need=None):
+_UNSET = object()  # no retained-retry answer supplied: compute it from the run's workspace
+
+
+def project(state: RunState, need=None, *, retained=_UNSET):
+    """The recovery card. ``retained`` is the retained acceptance retry's answer
+    (autocode_acceptance_retry_next.decide), which the status view computes once with its workspace."""
     status = state.get("status") or ""
     need = _dict(need)
     terminal = stop.applied_stop(state) is not None
@@ -533,7 +542,12 @@ def project(state: RunState, need=None):
     role = role_name(stage, _dict(_dict(state.get("settings")).get("workflow")).get("mode"))
     cause = _cause(state) or status
     # A stage answer AutoCode refused: which stage, why, what it tried and what resuming does.
-    rejected = rejection_summary.summary(state, cause, role, stage)
+    if retained is _UNSET:
+        retained = status_observation.retained_retry(state, state.get("workspace"))
+    retained = retained if isinstance(retained, dict) else None
+    # The Tester's retained report has no re-check left: no resume can do anything but pause again (#3927).
+    spent = retry_next.exhausted_pause(state, retained)
+    rejected = rejection_summary.summary(state, cause, role, stage, retained)
     # A stop AutoCode recorded itself when it could not continue (autocode_stop.end, #2485).
     ended = next(
         (
@@ -818,6 +832,7 @@ def project(state: RunState, need=None):
         and not state.get("active_runner_check")
         # A stopped job AutoCode settles itself offers no resume for a person to correct first.
         and not job_end.pending(state)
+        and not spent
     ):
         requested = cause in ("PAUSED_REQUESTED", "PAUSED_INTERVENTION")
         handoff = run_messages.resume_stage(state)
@@ -846,13 +861,21 @@ def project(state: RunState, need=None):
                 else "Continue from this saved pause after its cause is corrected. Existing model pins, limits and approval gates still apply.",
             )
         )
+    if spent:
+        # The bounded recovery could not settle this internal failure. Preserve its evidence for inspection.
+        if retained and retained.get("next") == retry_next.BLOCKED:
+            result.update(
+                category="blocked", title="Saved verification cannot be rechecked", what_happened=retained["reason"]
+            )
+        else:
+            result.update(category="blocked", title="No re-check of the saved tests is left")
     for member in _parallel_members(state):
         label, effect = member_stop.card(state, member) or (
             "Retry Builder task " + member,
             "Retry only this stopped batch member. Completed members and their work are kept. The runner rechecks worker liveness and the approved batch.",
         )
         actions.append(_action("retry_builder", label, effect, milestone_ids=[member]))
-    if not pause_authority.feedback_refusal(state):
+    if not spent and not pause_authority.feedback_refusal(state):
         actions.append(
             _action(
                 "feedback",
