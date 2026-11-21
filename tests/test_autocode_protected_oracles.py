@@ -862,6 +862,17 @@ class UndeterminedReplayTests(unittest.TestCase):
         self.assertIsNotNone(error)
         self.assertNotEqual("PASS", json.loads(receipt.read_text())["verdict"])
 
+    def test_proof_outside_this_run_cannot_excuse_failure(self):
+        _test_id, replay = self.record_base_failure()
+        proof = self.state["regression_proof"]
+        outside = self.project.parent / "elsewhere.json"
+        outside.write_bytes(Path(proof["path"]).read_bytes())
+        proof["path"] = str(outside)
+        proof["receipt_sha256"] = guard.util.file_hash(outside)
+        error, receipt = self.replay({("candidate", 0): replay, ("original", 0): replay})
+        self.assertIsNotNone(error)
+        self.assertNotEqual("PASS", json.loads(receipt.read_text())["verdict"])
+
     def test_tampered_candidate_failure_evidence_is_not_excused(self):
         _test_id, replay = self.record_base_failure()
         proof = json.loads(Path(self.state["regression_proof"]["path"]).read_text())
