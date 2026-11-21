@@ -11,7 +11,7 @@ import shlex
 from pathlib import Path
 
 _SUMMARY = re.compile(r"^(\d+) tests? collected in [0-9]+(?:\.[0-9]+)?s$")
-_NODE = re.compile(r"^\S+::\S+$")
+_NODE = re.compile(r"^\S+::.+$")
 
 
 def pytest_collection(command, output):
@@ -29,8 +29,14 @@ def pytest_collection(command, output):
     lines = [line.strip() for line in output.splitlines() if line.strip()]
     if not lines or not (summary := _SUMMARY.fullmatch(lines[-1])):
         return None
-    names = lines[:-1]
-    if not names or len(names) != int(summary.group(1)) or not all(_NODE.fullmatch(line) for line in names):
+    count = int(summary.group(1))
+    names, extra = lines[:count], lines[count:-1]
+    if (
+        not names
+        or len(names) != count
+        or not all(_NODE.fullmatch(line) for line in names)
+        or any("::" in line for line in extra)
+    ):
         return None
     return {
         "kind": "reported_collection",
@@ -76,3 +82,49 @@ def pytest_execution(command, output):
         "node_ids": cases,
         "independently_verified": False,
     }
+
+
+def pytest_junit_identities(collection, source_paths):
+    """Map reported nodes to pytest's JUnit spelling using exact known source paths.
+
+    This maps names only; it never says the collector or an execution is trusted.
+    Any unsupported node, missing source or identity collision leaves the mapping unknown.
+    """
+    if not isinstance(collection, dict) or not isinstance(source_paths, (set, list, tuple, dict)):
+        return None
+    nodes = collection.get("node_ids")
+    if not isinstance(nodes, list) or not nodes:
+        return None
+    paths = set(source_paths)
+    owners: dict[str, set[str]] = {}
+    for name in paths:
+        if not isinstance(name, str):
+            return None
+        module = name.replace("/", ".")
+        if module.endswith(".py"):
+            module = module[:-3]
+        owners.setdefault(module, set()).add(name)
+    result = []
+    for node in nodes:
+        if not isinstance(node, str):
+            return None
+        pieces = node.split("::")
+        path = pieces[0]
+        if (
+            len(pieces) < 2
+            or not all(pieces)
+            or path not in paths
+            or path.startswith("/")
+            or any(part in ("", ".", "..") for part in path.split("/"))
+        ):
+            return None
+        module = path.replace("/", ".")
+        if module.endswith(".py"):
+            module = module[:-3]
+        classname = ".".join([module, *pieces[1:-1]])
+        parts = classname.split(".")
+        possible = set().union(*(owners.get(".".join(parts[:i]), set()) for i in range(1, len(parts) + 1)))
+        if possible != {path}:
+            return None
+        result.append(classname + "::" + pieces[-1])
+    return result if len(result) == len(set(result)) else None

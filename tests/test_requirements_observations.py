@@ -525,6 +525,30 @@ class RequirementsObservationsTests(unittest.TestCase):
             with self.subTest(command=bad_command, output=bad_output):
                 self.assertIsNone(parser.pytest_collection(bad_command, bad_output))
 
+    def test_pytest_junit_name_mapping_uses_known_unique_source_paths(self):
+        parser = getattr(observations, "named_collection", None)
+        self.assertIsNotNone(parser)
+        command = "python3 -m pytest --collect-only -q"
+        text = (
+            "tests/test_api.py::Group::test_case[hello world]\n"
+            "docs/usage/guide.rst::guide.rst\n\n"
+            "=============== tests coverage ===============\n"
+            "TOTAL 100%\n2 tests collected in 0.14s\n"
+        )
+        collection = parser.pytest_collection(command, text)
+        paths = {"tests/test_api.py", "docs/usage/guide.rst"}
+        self.assertEqual(
+            ["tests.test_api.Group::test_case[hello world]", "docs.usage.guide.rst::guide.rst"],
+            parser.pytest_junit_identities(collection, paths),
+        )
+        self.assertIsNone(parser.pytest_junit_identities(collection, {"tests/test_api.py"}))
+        self.assertIsNone(parser.pytest_junit_identities(collection, paths | {"tests/test_api/Group.py"}))
+        self.assertIsNone(parser.pytest_junit_identities({"node_ids": ["../bad.py::test_a"]}, {"../bad.py"}))
+        self.assertIsNone(
+            parser.pytest_junit_identities({"node_ids": ["tests/test_api.py::x", "tests/test_api.py::x"]}, paths)
+        )
+        self.assertIsNone(parser.pytest_collection(command, text.replace("2 tests collected", "3 tests collected")))
+
     def test_actual_named_pytest_collection_and_execution_are_distinct_reported_observations(self):
         parser = getattr(observations, "named_collection", None)
         self.assertIsNotNone(parser)

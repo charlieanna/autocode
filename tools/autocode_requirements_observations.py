@@ -338,6 +338,10 @@ def retained_command_output(state: RunState, stage, run_dir, current_source, com
         ):
             return None
         collection = named_collection.pytest_collection(command, row["output"])
+        if collection:
+            identities = named_collection.pytest_junit_identities(collection, payload["source"]["files"])
+            if identities is not None:
+                collection["junit_node_ids"] = identities
         execution = named_collection.pytest_execution(command, row["output"])
         return {
             **row,
