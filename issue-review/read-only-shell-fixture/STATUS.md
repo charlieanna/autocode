@@ -33,8 +33,11 @@ The native prelaunch refusal control also passed with a simulated failed probe.
 On the first PR head, Linux CI found that the mocked refusal control reached
 the Linux policy constructor without a fake source socket. The test now
 explicitly exercises the Linux configuration branch with its policy objects
-mocked; all ten client-policy and Linux replay unit tests pass locally. The
-actual kernel boundary tests remain separate and are still running in CI.
+mocked; all ten client-policy and Linux replay unit tests pass locally. On the
+original product-identical PR head `e89387b65`, both macOS Seatbelt and Linux
+bubblewrap containment CI passed, including the new Linux symlink execution
+test. Its required gate failed on the Linux mock-fixture error above; the
+corrected head still needs its own CI result.
 
 Issue #3954 remains open: these tests do not authenticate the original run's
 reported host cause or implement recovery. The later fresh-host observation is
