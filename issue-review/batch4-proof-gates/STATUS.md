@@ -16,6 +16,9 @@ what was independently observed during continuation.
 - Ruff check and format check passed locally. Mypy passed on 965 source files.
 - The three new `SharedSetupAnswerTests` pass on this branch and error on
   current master, which does not have the new shared setup-classification API.
+- For #3814, the two new assertion-identity tests passed on the branch. On
+  current master their seven volatile-message subcases failed while the
+  different-assertion guard passed.
 - The focused command below passed 119 tests with normal process access.
   A sandboxed attempt produced process-access errors.
 - The branch has not been reviewed for a PR or merged.
