@@ -1885,7 +1885,6 @@ def _prove_regression(run: _Run, trees, *, no_go_project, no_junit_project):
         lambda: product_diff(workspace, base, product_files(changes, roles=run.roles)),
         lambda command, log: run_command(command, trees["candidate"], log, timeout=timeout),
     )
-    unloaded_new = judgment.unloaded_sentinel(new_behavior, on_base, framework, trees)
     _judge_regression(
         proof_stability.without(on_candidate, unstable),
         proof_stability.without(on_base, unstable),
@@ -1895,7 +1894,8 @@ def _prove_regression(run: _Run, trees, *, no_go_project, no_junit_project):
         proof,
         review_reasons,
         new_behavior=new_behavior,
-        unloaded_new=unloaded_new,
+        compiled_framework=framework.name if framework is not None else None,
+        absent_first_suite=judgment.first_suite_absent(base_suite, base, commands["suite"]),
         preserve_only=preserve,
         absent_go_base=no_go_project and _go_test(package_scope.split(framework, commands["regression"])[1]),
         absent_junit_base=no_junit_project

@@ -279,19 +279,7 @@ class SharedSetupAnswerTests(unittest.TestCase):
 
 
 class RegressionImportJudgmentTests(unittest.TestCase):
-    def test_collection_sentinel_preserves_first_project_and_other_runner_paths(self):
-        for name in ("pytest", "unittest"):
-            framework = verify.Framework(name, "test command")
-            self.assertEqual((), judgment.unloaded_sentinel(True, {}, framework, {"base_with_tests": "tree"}))
-            self.assertIsNone(judgment.unloaded_sentinel(True, None, framework, {"base_with_tests": "tree"}))
-            self.assertIsNone(judgment.unloaded_sentinel(True, {}, framework, {}))
-            self.assertIsNone(judgment.unloaded_sentinel(False, {}, framework, {"base_with_tests": "tree"}))
-        self.assertIsNone(
-            judgment.unloaded_sentinel(True, {}, verify.Framework("go", "go test"), {"base_with_tests": "tree"})
-        )
-        self.assertIsNone(judgment.unloaded_sentinel(True, {}, None, {"base_with_tests": "tree"}))
-
-    def judge(self, base, **kwargs):
+    def judge(self, base, *, new_behavior=True, **kwargs):
         candidate = {
             "exit_code": 0,
             "timed_out": False,
@@ -309,7 +297,7 @@ class RegressionImportJudgmentTests(unittest.TestCase):
             proof,
             reviews,
             known_failures=lambda: set(),
-            new_behavior=True,
+            new_behavior=new_behavior,
             **kwargs,
         )
         return failed, unverified, proof
@@ -321,12 +309,36 @@ class RegressionImportJudgmentTests(unittest.TestCase):
         self.assertTrue(failed or unverified)
 
     def test_unobserved_unloaded_test_cannot_prove_a_new_feature(self):
-        failed, unverified, proof = self.judge(base_results(unloaded=[UNITTEST_UNLOADED]), unloaded_new=())
+        failed, unverified, proof = self.judge(base_results(unloaded=[UNITTEST_UNLOADED]))
         self.assertEqual([], proof["fail_to_pass"])
         self.assertTrue(failed or unverified)
 
     def test_collection_failure_sharing_a_test_id_cannot_prove_it_ran(self):
-        failed, unverified, proof = self.judge(base_results(unloaded=[SELECTED]), unloaded_new=())
+        failed, unverified, proof = self.judge(base_results(unloaded=[SELECTED]))
+        self.assertEqual([], proof["fail_to_pass"])
+        self.assertEqual([SELECTED], proof["not_run_on_base"])
+        self.assertTrue(failed or unverified)
+
+    def test_contradictory_skipped_and_failed_result_is_not_a_proof(self):
+        base = base_results(failed=[SELECTED])
+        base["skipped"] = [SELECTED]
+        failed, unverified, proof = self.judge(base)
+        self.assertEqual([], proof["fail_to_pass"])
+        self.assertEqual([SELECTED], proof["not_run_on_base"])
+        self.assertTrue(failed or unverified)
+
+    def test_first_suite_exception_does_not_count_skipped_tests(self):
+        base = base_results(unloaded=[UNITTEST_UNLOADED])
+        base["skipped"] = [SELECTED]
+        failed, unverified, proof = self.judge(base, absent_first_suite=True)
+        self.assertEqual([], proof["fail_to_pass"])
+        self.assertEqual([SELECTED], proof["not_run_on_base"])
+        self.assertTrue(failed or unverified)
+
+    def test_unloadable_repair_does_not_count_a_skipped_targeted_test(self):
+        base = base_results(unloaded=[UNITTEST_UNLOADED])
+        base["skipped"] = [SELECTED]
+        failed, unverified, proof = self.judge(base, new_behavior=False, reloaded=lambda: [SELECTED])
         self.assertEqual([], proof["fail_to_pass"])
         self.assertEqual([SELECTED], proof["not_run_on_base"])
         self.assertTrue(failed or unverified)

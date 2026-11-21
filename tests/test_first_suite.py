@@ -3,6 +3,8 @@
 import shutil
 import sys
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import autocode_first_suite as first_suite
 import autocode_verify as verify
@@ -22,6 +24,29 @@ class GoProjectInventoryTests(unittest.TestCase):
         ):
             with self.subTest(listing=listing, copied=copied):
                 self.assertFalse(first_suite.no_go_project(listing, copied))
+
+
+class ReloadedTargetTests(unittest.TestCase):
+    def test_whole_suite_repair_does_not_reintroduce_a_targeted_skip(self):
+        roles = SimpleNamespace(partition=lambda _: (["test_new.py"], [], []))
+        run = SimpleNamespace(
+            base_suite={"receipt": {"results": {}}},
+            commands={"suite": "suite"},
+            existing_failures=[],
+            roles=roles,
+            changes={"test_new.py": "added"},
+            workspace="workspace",
+            base="base",
+            checks={"regression_on_base": {"results": {"skipped": ["test_skipped"]}}},
+        )
+        candidate = {"results": {"complete": True}, "timed_out": False}
+        with (
+            patch.object(first_suite, "unloaded", return_value=["test_old"]),
+            patch.object(first_suite, "_added_tests", return_value=set()),
+            patch.object(first_suite.changed_tests, "inline_tests_kept", return_value=True),
+            patch.object(first_suite, "loaded", return_value=["test_skipped", "test_repaired"]),
+        ):
+            self.assertEqual(["test_repaired"], first_suite.reloaded(run, candidate))
 
 
 @unittest.skipUnless(shutil.which("node"), "Node is required for native suite proof")
@@ -402,6 +427,15 @@ class RepairedByFlipTests(unittest.TestCase):
         )
         on_candidate = self.results(passed=["t.Bad.collect", "t.Bad.setup", "t.Good.fixed"], failed=[])
         self.assertEqual(["t.Good.fixed"], first_suite.repaired_by_flip(base_suite, on_base_with_tests, on_candidate))
+
+    def test_skipped_or_uncollected_rows_are_not_repairs_even_if_also_marked_failed(self):
+        names = ["t.Skipped.fixed", "t.Uncollected.fixed", "t.Good.fixed"]
+        base_suite = {"receipt": self.results(failed=names)}
+        on_base = self.results(failed=names)
+        on_base["results"]["skipped"] = ["t.Skipped.fixed"]
+        on_base["results"]["uncollected"] = ["t.Uncollected.fixed"]
+        candidate = self.results(passed=names)
+        self.assertEqual(["t.Good.fixed"], first_suite.repaired_by_flip(base_suite, on_base, candidate))
 
     def test_a_base_failure_the_targeted_run_did_not_rerun_is_no_repair(self):
         base_suite = {"receipt": self.results(passed=[], failed=["t.Unseen.fixed", "t.Repair.fixed"])}

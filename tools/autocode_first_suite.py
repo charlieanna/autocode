@@ -513,7 +513,9 @@ def reloaded(run, on_candidate) -> list[str]:
         return []
     if not changed_tests.inline_tests_kept(run.workspace, run.base, run.changes):
         return []
-    return loaded(run.base_suite["receipt"]["results"], candidate, gone, added)
+    result = loaded(run.base_suite["receipt"]["results"], candidate, gone, added)
+    targeted = set(((run.checks.get("regression_on_base") or {}).get("results") or {}).get("skipped") or ())
+    return [test for test in result if test not in targeted]
 
 
 def reloads(run, trees, run_suite) -> list[str]:
@@ -637,6 +639,8 @@ def repaired_by_flip(base_suite, on_base_with_tests, on_candidate):
     ran_and_failed = (
         set(base.get("failed") or [])
         - set(base.get("collection_errors") or [])
+        - set(base.get("uncollected") or [])
+        - set(base.get("skipped") or [])
         - set(test_setup.not_evidence(base, new_behavior=False))
     )
     return sorted(set(base_results.get("failed") or []) & ran_and_failed & set(candidate.get("passed") or []))

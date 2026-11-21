@@ -41,17 +41,37 @@ UNLOADABLE = (
 )
 
 
-def unloaded_sentinel(new_behavior, on_base, framework, trees):
-    """Hold Python collection failures without changing other-runner or first-project rules."""
-    if (
-        new_behavior
-        and on_base is not None
-        and framework is not None
-        and framework.name in ("pytest", "unittest")
-        and "base_with_tests" in trees
-    ):
-        return ()
-    return None
+def first_suite_absent(base_suite, base, command):
+    """Accept only the matching completed baseline's own no-suite observation."""
+    return bool(
+        base
+        and command
+        and base_suite
+        and base_suite.get("base") == base
+        and base_suite.get("command") == command
+        and command_receipt.completed(base_suite.get("receipt") or {})
+        and first_suite.no_base_suite(base_suite.get("receipt") or {})
+    )
+
+
+def compiled_feature_tests(framework, base, passed, changed_tests):
+    """Apply the documented build-failure exception only to changed, unobserved tests.
+
+    Go identifies the failed package; Cargo does not currently bind its failed
+    target to the file-based passing test identity. That limitation is recorded
+    in the proof note and does not establish the cause of a particular failure.
+    """
+    if framework not in ("go", "cargo") or changed_tests is None:
+        return set()
+    suffix = "::[build failed]"
+    targets = {name[: -len(suffix)] for name in base.get("collection_errors", ()) if name.endswith(suffix)}
+    if not targets:
+        return set()
+    observed = set(base.get("passed", ())) | set(base.get("failed", ())) | set(base.get("skipped", ()))
+    missing = {name for name in passed - observed if changed_tests(name)}
+    if framework == "go":
+        return {name for name in missing if name.partition("::")[0] in targets}
+    return missing
 
 
 def judge_regression(
@@ -72,7 +92,8 @@ def judge_regression(
     changed_tests=None,
     base_suite_passed=None,
     reloaded=None,
-    unloaded_new=None,
+    compiled_framework=None,
+    absent_first_suite=False,
 ):
     """Judge the targeted runs of the changed test files.
 
@@ -188,29 +209,55 @@ def judge_regression(
             unverified.append("Per-test results on the base code were incomplete")
             return
         setup_errors = test_setup.not_evidence(base, new_behavior=new_behavior)
-        ran_and_failed = set(base["failed"]) - set(base["collection_errors"]) - set(setup_errors)
+        ran_and_failed = (
+            set(base["failed"])
+            - set(base["collection_errors"])
+            - set(base.get("uncollected") or ())
+            - set(base.get("skipped") or ())
+            - set(setup_errors)
+        )
         if setup_errors:
             notes.append(test_setup.proof_note(setup_errors))
-        # Preserve the runner's first-project and other-runner rules. Python
-        # collection failures do not stand in for named tests that never ran.
+        # A skipped, absent or uncollected result is not an observed failure.
         not_run = passed - set(base["passed"]) - set(base["failed"])
-        if unloaded_new is not None:
-            not_run |= passed & (set(base.get("uncollected") or ()) | set(base.get("collection_errors") or ()))
-        if new_behavior:
-            flipped_set = passed - set(base["passed"]) - set(setup_errors)
-            if unloaded_new is not None and (base.get("uncollected") or base.get("collection_errors")):
-                flipped_set -= not_run
-                flipped_set -= set(base.get("collection_errors") or ())
-                flipped_set -= set(base.get("uncollected") or ())
-            flipped = sorted(flipped_set)
-        else:
-            flipped = sorted(ran_and_failed & passed)
+        not_run |= passed & (
+            set(base.get("uncollected") or ())
+            | set(base.get("collection_errors") or ())
+            | set(base.get("skipped") or ())
+        )
+        flipped_set = ran_and_failed & passed
+        compiled = (
+            compiled_feature_tests(compiled_framework, base, passed, changed_tests)
+            if new_behavior and not preserve_only
+            else set()
+        )
+        if compiled:
+            flipped_set |= compiled
+            notes.append("Changed feature tests were not run on the base because a test build failed.")
+            if compiled_framework == "cargo":
+                notes.append("Cargo's failed target is not bound to a particular passing test (#4046).")
+        if (
+            new_behavior
+            and not preserve_only
+            and absent_first_suite
+            and base["collection_errors"]
+            and on_candidate["exit_code"] == 0
+            and not candidate.get("skipped")
+            and not failed
+        ):
+            observed = set(base["passed"]) | set(base["failed"]) | set(base.get("skipped") or ())
+            first = passed - observed
+            if first:
+                flipped_set |= first
+                notes.append("The first suite's named tests were not run on the base because collection failed.")
+        flipped = sorted(flipped_set)
         # Tests that ran and passed on the original code and still pass (autocode_regression.check_cases).
         kept = set(base["passed"]) & passed
         # Passing tests that never ran on the original code (their module did not import there): a
         # guard's test there is not shown to fail before, only not shown to pass (check_cases).
-        if not new_behavior and not_run - set(flipped) and reloaded and reloaded():
-            flipped = sorted({*flipped, *not_run})
+        reloadable = not_run - set(base.get("skipped") or ())
+        if not new_behavior and reloadable - set(flipped) and reloaded and reloaded():
+            flipped = sorted({*flipped, *reloadable})
             notes.append(UNLOADABLE)
         if new_behavior and changed_tests is not None:
             unchanged = {name for name in flipped if not changed_tests(name)}
