@@ -13,6 +13,7 @@ class AccessTransportConsumerTests(unittest.TestCase):
             "tests.test_acceptance_retry_resume_cli",
             "tests.test_acceptance_verification_retry",
             "tests.test_recovery_history",
+            "tests.test_status_observation",
         }
         selected = run_suite.select_tests(
             ["tools/autocode_status_observation.py"], {**dict.fromkeys(consumers, ""), "tests.test_unrelated": ""}
