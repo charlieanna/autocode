@@ -114,7 +114,7 @@ def _project(receipt):
     return project
 
 
-def _read_pinned(path, digest):
+def read_pinned(path, digest):
     """Parse only the same bounded bytes that match the runner's capture hash."""
     nofollow = getattr(os, "O_NOFOLLOW", None)
     if nofollow is None:
@@ -132,7 +132,7 @@ def _read_pinned(path, digest):
 
 def _xml(receipt, failures):
     capture = receipt["results_capture"]
-    data = _read_pinned(capture["path"], capture["sha256"])
+    data = read_pinned(capture["path"], capture["sha256"])
     if b"<!DOCTYPE" in data.upper() or b"<!ENTITY" in data.upper():
         return None
     root = ET.fromstring(data)
@@ -164,7 +164,7 @@ def _xml(receipt, failures):
 
 
 def _unittest(receipt, failures):
-    output = _read_pinned(receipt["output"], receipt["output_sha256"]).decode(errors="replace")
+    output = read_pinned(receipt["output"], receipt["output_sha256"]).decode(errors="replace")
     headers = list(test_setup.UNITTEST_FAILURE.finditer(output))
     details = list(test_setup.failure_details(output))
     if len(headers) != len(details):
@@ -185,7 +185,7 @@ def _unittest(receipt, failures):
 
 
 def _go(receipt, failures):
-    text = _read_pinned(receipt["output"], receipt["output_sha256"]).decode(errors="replace")
+    text = read_pinned(receipt["output"], receipt["output_sha256"]).decode(errors="replace")
     rows = {name: {"run": 0, "fail": 0, "output": []} for name in failures}
     for line in text.splitlines():
         if not line.startswith("{"):
@@ -281,7 +281,7 @@ def baseline(state, revision):
             or path.stat().st_nlink != 1
         ):
             return None
-        data = json.loads(_read_pinned(path, proof.get("receipt_sha256")))
+        data = json.loads(read_pinned(path, proof.get("receipt_sha256")))
         checks = data.get("checks") or {}
         if (
             data.get("verdict") != "PASS"

@@ -69,6 +69,24 @@ regressions were rerun on the same head and remain red.
   The unittest parser currently records only the unloaded file ID for the
   module-level case. A common fix needs to retain the observed failure cause
   and establish that the missing import is provided by changed project code.
+- An in-progress shared import-observation helper now reads named errors only
+  from authenticated runner captures, reruns the selected candidate tests in an
+  owned scratch tree, and probes imports in a separate owned subprocess. It
+  admits an origin only when the actual file is project source and the test and
+  probe share the same execution-environment digest and unchanged source
+  snapshot. Tests cover a re-export through an unchanged package file, an added
+  module, `src/`, test helpers, external modules and an environment change.
+  **This helper is not yet connected to acceptance-reference or final proof;**
+  the three unsafe-dependency regressions still fail. The final integration must
+  preserve the candidate scratch/ownership and launch-input guards and record
+  both the test and probe receipts.
+- The owned runner now records a digest of its actual scrubbed execution
+  environment. The observation uses the interpreter and package directory
+  from the recognized test command, rejects shell environment prefixes and
+  requires matching test/probe environment digests and unchanged source.
+  Six focused import-observation tests, 58 receipt/scheduler/replay tests and
+  the architecture limits pass; full mypy passes on 972 files. Integration
+  into both gates is still pending.
 - Unit and end-to-end acceptance-reference regressions now capture in-test
   and module-level dependency cases. The candidate test passes, while the
   original run raises a missing unrelated dependency before its assertion.
@@ -76,8 +94,8 @@ regressions were rerun on the same head and remain red.
   regressions remain red here until classification is corrected. The in-test
   case mentions that dependency in an added source comment, guarding against
   treating a matching diff word alone as proof that the project provides it.
-- Ruff check and format check passed locally. Mypy passed on 971 source files
-  on the rebased head.
+- Ruff check and format check passed locally. Mypy passed on 972 source files
+  with the import-observation foundation.
 - A broader 137-test replay/architecture/scheduler run failed its old
   architecture size limit (the capture code has since moved into the
   lower-level scheduler and the targeted architecture check passes) and timed
@@ -99,7 +117,8 @@ regressions were rerun on the same head and remain red.
 - The focused command below passed 119 tests with normal process access
   before adding the intentionally red dependency regressions described above.
   A sandboxed attempt produced process-access errors.
-- A draft PR is being prepared for review. This branch is not ready to merge.
+- Draft PR: https://github.com/charlieanna/autocode/pull/3981. This branch is
+  not ready to merge.
 
 Focused command in this checkout:
 

@@ -685,9 +685,10 @@ def run_command(
         if type(native_execution) is not native_checks.NativeCheckExecution:
             raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Original concrete native check owner required")
         return native_execution.run_command(command, cwd, log_path, timeout=timeout, env=env, checkpoint=checkpoint)
-    return command_supervision.run(
-        command, cwd, log_path, timeout=timeout, env=test_environment(cwd, env), checkpoint=checkpoint
-    )
+    environment = test_environment(cwd, env)
+    environment_hash = util.digest(environment)
+    receipt = command_supervision.run(command, cwd, log_path, timeout=timeout, env=environment, checkpoint=checkpoint)
+    return {**receipt, "execution_environment_sha256": environment_hash}
 
 
 with_results = test_results.with_results
