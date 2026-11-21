@@ -4,6 +4,15 @@ The branch contains the work recorded in commit `458b1ae4a` for #3814 and #3926.
 The original handoff file was absent from this checkout, so this status records
 what was independently observed during continuation.
 
+**Current blocker:** the separate import probe's `__spec__.origin` comes from
+the imported module or its finder, so it can be forged. A real external module
+pointed its claimed origin at an existing project file and the prior revision
+incorrectly granted proof authority. The new negative control reproduced this
+at `bb3232381`; it passes after making every such origin diagnostic only.
+Legitimate project-import positives now hold as well. Independently establish
+the actual loaded source without trusting module/finder self-report before
+restoring authority. This issue is separate from the unbound editable below.
+
 The branch was rebased onto master `6ae029754` and additionally incorporates
 the capture ownership fixture correction from `251841736` (cherry-picked as
 `493baaae5`). Focused provenance, protected-oracle, capture fixture,
@@ -78,8 +87,9 @@ pass while the strict-binding positive cases and final judgment remain open.
   snapshot. Tests cover a re-export through an unchanged package file, an added
   module, `src/`, test helpers, external modules and an environment change.
   The acceptance-reference path now consumes this observation and records both
-  test and probe receipts; final regression judgment now reads the same answer.
-  Its result retains the observation and receipts. The
+  test and probe receipts; final regression judgment reads the same answer.
+  Its result retains the observation and receipts. All reported origins are
+  currently diagnostic only, because they can be forged (see blocker above). The
   external-dependency safety controls now pass for acceptance, but the four
   positive import cases are currently blocked because this host's selected
   interpreter has an unbound editable `autocode_supervisor` install. The
@@ -98,7 +108,8 @@ pass while the strict-binding positive cases and final judgment remain open.
   the architecture limits pass; full mypy passes on 972 files. The final
   final regression-judgment integration also has a real owned-scratch positive
   and missing-external-dependency negative using a fully bound isolated
-  interpreter. Both pass here; on master the missing dependency incorrectly
+  interpreter. Both passed at `bb3232381`, before the forged-origin finding;
+  the positive must now hold. On master the missing dependency incorrectly
   grants PASS and the recorded observation is absent. The existing first
   Node project control also passes. These checks do not resolve the unbound
   editable or unsupported/legacy runner gaps above.

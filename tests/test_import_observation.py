@@ -150,6 +150,42 @@ class ImportObservationTests(unittest.TestCase):
         self.assertEqual(first["execution_environment_sha256"], same["execution_environment_sha256"])
         self.assertNotEqual(first["execution_environment_sha256"], changed["execution_environment_sha256"])
 
+    def test_a_module_cannot_forge_its_origin_to_obtain_project_import_authority(self):
+        base, candidate, output, external = (self.root / name for name in ("base", "candidate", "out", "external"))
+        for tree in (base, candidate, output, external):
+            tree.mkdir()
+        for tree in (base, candidate):
+            (tree / "app.py").write_text("value = 42\n")
+            (tree / "test_app.py").write_text(
+                "import unittest\nclass TestApp(unittest.TestCase):\n"
+                "    def test_export(self):\n        import forged_dependency\n"
+                "        self.assertEqual(forged_dependency.value, 42)\n"
+            )
+        (external / "forged_dependency.py").write_text(
+            "import os\n__spec__.origin = os.path.join(os.getcwd(), 'app.py')\nvalue = 42\n"
+        )
+        command = shlex.join([sys.executable, "-m", "unittest", "-v", "test_app"])
+        framework = verify.Framework("unittest", command, python=sys.executable)
+        original = verify.run_suite(framework, command, base, output, "original", timeout=30)
+        with patch.dict(os.environ, {"PYTHONPATH": str(external)}):
+            observed = observation.observe_candidate(
+                original,
+                base,
+                candidate,
+                framework,
+                ["test_app.TestApp.test_export"],
+                command,
+                output / "probe",
+                run_suite=verify.run_suite,
+                run_command=verify.run_command,
+                snapshot=lambda tree: "same-source",
+                identity=lambda tree: {"cache_binding_complete": True},
+                expected_source="same-source",
+                is_product=lambda path: not path.startswith("test_"),
+                timeout=30,
+            )
+        self.assertEqual({}, observed["imports"], observed)
+
     def test_observe_candidate_reruns_the_same_tests_and_binds_source_and_environment(self):
         base, candidate, output = (self.root / name for name in ("base", "candidate", "evidence"))
         for tree, implementation in ((base, "def old(): return 1\n"), (candidate, "def new(): return 42\n")):

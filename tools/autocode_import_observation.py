@@ -264,8 +264,11 @@ def observe_candidate(
         source_before=between,
         source_after=after,
     )
-    attempt["imports"] = project
-    return finish("Project import origins observed" if project else "No project import origin was established")
+    # A module (or an arbitrary finder) can forge __spec__.origin. Retain the
+    # claimed paths for diagnosis, but do not use them as proof until the
+    # execution independently authenticates which source was actually loaded.
+    attempt["reported_imports"] = project
+    return finish("Module-reported import origins are not independently authenticated")
 
 
 def for_regression(run, trees, on_candidate, on_base, candidate_source, runners):
