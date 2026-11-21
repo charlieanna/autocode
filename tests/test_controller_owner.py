@@ -55,7 +55,7 @@ class OwnerInspectionTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="controller-owner-")
         self.addCleanup(temporary.cleanup)
-        self.workspace = Path(temporary.name)
+        self.workspace = Path(temporary.name).resolve()
         self.run_dir = self.workspace / ".autocode/runs/one"
         self.run_dir.mkdir(parents=True)
         self.state = {
