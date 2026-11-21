@@ -69,7 +69,7 @@ def hunks(diff_text) -> list[dict]:
     """Added or replaced line ranges in the new file. A deletion has nothing to execute."""
     files: list[dict] = []
     current: dict | None = None
-    for line in (diff_text or "").splitlines():
+    for line in (diff_text or "").split("\n"):
         if line.startswith("diff --git "):
             current = {"path": line.split(" b/", 1)[-1], "hunks": []}
             files.append(current)

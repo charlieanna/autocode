@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 import autocode_changed_code_evidence as policy
 import autocode_changed_code_measurement as measurement
+import autocode_diff_coverage as diff_coverage
 import autocode_util as util
 
 from .test_command_receipt import guarded_command_receipt
@@ -22,6 +23,97 @@ TESTS = ["tests.test_value.Value.test_boundary"]
 
 
 class PythonInventoryTests(unittest.TestCase):
+    def test_multiline_folded_expressions_keep_each_semantic_element(self):
+        data = b"""values = [
+    "old",
+    # real comment
+    "new",
+]
+result = (
+    1 +
+    2
+)
+mapping = {
+    "name":
+        "value",
+}
+"""
+        lines = measurement.python_lines(data)
+        self.assertTrue({2, 4, 7, 8, 11, 12} <= lines, lines)
+        self.assertNotIn(3, lines)
+
+    def test_standalone_tuple_comma_and_slice_colon_can_change_behavior(self):
+        data = b"""single = ("one"
+,
+)
+part = [1, 2][
+:
+1
+]
+"""
+        lines = measurement.python_lines(data)
+        self.assertTrue({2, 5} <= lines, lines)
+
+    def test_multiline_container_delimiters_can_change_behavior(self):
+        data = b"values = [\n    1,\n]\n"
+        self.assertIn(3, measurement.python_lines(data))
+
+    def test_unicode_separator_in_changed_literal_cannot_create_a_fake_hunk(self):
+        diff = 'diff --git a/app.py b/app.py\n+++ b/app.py\n@@ -1 +1 @@\n+x = "a\u2028@@ -99 +99 @@"\n'
+        self.assertEqual([{"path": "app.py", "hunks": [{"start": 1, "end": 1}]}], diff_coverage.hunks(diff))
+
+    def test_literal_content_with_blank_and_comment_text_is_inventoried_and_bound(self):
+        data = 'prefix = "a\u2028b"\nvalue = """first\n\n# value content\nlast\n"""\n'.encode()
+        diff = "diff --git a/app.py b/app.py\n+++ b/app.py\n@@ -0,0 +1,6 @@\n"
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            (root / "app.py").write_bytes(data)
+            row = measurement.inventory(root, [("app.py", "added")], diff)[0]
+        self.assertTrue({2, 3, 4, 5} <= set(row["lines"]), row)
+        texts = policy.line_texts(data, hashlib.sha256(data).hexdigest(), [2, 3, 4, 5])["lines"]
+        self.assertEqual('value = """first', texts["2"])
+        self.assertEqual("", texts["3"])
+        self.assertEqual("# value content", texts["4"])
+        self.assertEqual("last", texts["5"])
+
+    def test_invalid_python_keeps_changed_lines_for_review(self):
+        data = b'broken = """unterminated\n# possibly literal content\n\n'
+        diff = "diff --git a/app.py b/app.py\n+++ b/app.py\n@@ -0,0 +1,3 @@\n"
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            (root / "app.py").write_bytes(data)
+            row = measurement.inventory(root, [("app.py", "added")], diff)[0]
+        self.assertEqual([1, 2, 3], row["lines"])
+        self.assertIn("could not be inventoried", row["note"])
+
+    def test_folded_defaults_and_unicode_columns_keep_values_but_not_future_annotations(self):
+        data = """from __future__ import annotations
+def example(
+    default=(
+        "é", "first",
+        "second",
+    ),
+    annotated: list[
+        str
+    ] = None,
+):
+    return default
+""".encode()
+        lines = measurement.python_lines(data)
+        self.assertTrue({4, 5, 9, 11} <= lines, lines)
+        self.assertNotIn(8, lines)
+
+    def test_multiline_f_string_contents_keep_literal_lines(self):
+        data = b'''def render(value):
+    return f"""first
+
+# literal, not a comment
+{value}
+"""
+'''
+        lines = measurement.python_lines(data)
+        self.assertTrue({2, 3, 4, 5} <= lines, lines)
+
     def test_declarations_comments_and_docstrings_are_not_executable_obligations(self):
         data = b'''# comment
 """module docs"""
@@ -60,6 +152,10 @@ class Derived(make_base(), metaclass=Meta):
         lines = measurement.python_lines(data)
         self.assertFalse(lines & {2, 5}, lines)
         self.assertTrue({3, 4, 6, 7} <= lines, lines)
+
+    def test_runtime_code_sharing_a_docstring_line_is_not_discarded(self):
+        self.assertEqual({1}, measurement.python_lines(b'"""docs"""; value = 1\n'))
+        self.assertEqual({1}, measurement.python_lines(b'def value(): "docs"; return 1\n'))
 
     def test_inline_body_and_evaluated_default_survive_header_classification(self):
         self.assertEqual({1}, measurement.python_lines(b"def value(): return 1\n"))

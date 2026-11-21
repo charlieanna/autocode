@@ -18,6 +18,18 @@ def shown(made):
 
 
 class OperatorTests(unittest.TestCase):
+    def test_changed_multiline_list_and_tuple_elements_have_specific_mutants(self):
+        for opener, closer in (("[", "]"), ("(", ")")):
+            with self.subTest(container=opener):
+                source = f'exports = {opener}\n    "old",\n    "new",\n{closer}\n'.encode()
+                made, _ = mutants.python_mutants("app.py", source, [3], limit=20)
+                selected = [item for item in made if item.operator == "none_element" and item.line == 3]
+                self.assertEqual(1, len(selected), made)
+                namespace = {}
+                exec(mutants.apply(source, selected[0]), namespace)
+                self.assertEqual("old", namespace["exports"][0])
+                self.assertNotEqual("new", namespace["exports"][1])
+
     def test_each_operator_changes_one_site_on_the_changed_lines(self):
         made, notes = mutants.python_mutants("app.py", WINDOW, range(3, 6), limit=20)
         self.assertEqual([], notes)

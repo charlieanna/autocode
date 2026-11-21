@@ -106,6 +106,7 @@ jobs:
           name: extension-host-screen
           path: vscode-extension/.vscode-test/host-*.png
           if-no-files-found: ignore
+          include-hidden-files: true
 
   suite:
     needs: scope

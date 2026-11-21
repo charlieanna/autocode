@@ -304,10 +304,11 @@ def undecided_gaps(assessment, decisions, offered_schema, stage):
 
 
 def tester_only(row) -> bool:
-    """True for an open line no Builder test can mark tested: it has no mutation outcome.
+    """True for an open line no Builder test can mark tested: no mutation starts there.
 
     Whether its runner made no mutants at all or the line has no mutation site, nothing a test adds
-    gives it behavioral evidence; only an independently checked reason settles it. The Tester's
+    gives it line-specific behavioral evidence; only an independently checked reason settles it. An
+    overlapping parent mutation is retained separately and never gives positive child credit. The Tester's
     report repair (tester_only_gaps) and the changed-line repair route (autocode_changed_code_rework)
     read this one answer (#3817).
     """

@@ -265,6 +265,7 @@ class BuilderEvidenceTests(unittest.TestCase):
             row(2, mutation_outcomes=["survived"]),
             row(3, evidence=["/proof/m.log"]),
             row(4, executed=True),
+            row(5, overlapping_mutations=[{"line": 2, "end_line": 6, "outcome": "survived"}]),
         ]
         view = rework.builder_evidence({"status": "UNVERIFIED", "obligations": rows})
         self.assertEqual(rows[1:], view["obligations"])
