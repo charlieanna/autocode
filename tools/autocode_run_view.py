@@ -397,11 +397,7 @@ def view(
             ),
         }
     elif not operational_block.presentation(saved_state, include_hold=True):
-        try:
-            from . import autocode_source_reconciliation as source_reconciliation
-        except ImportError:
-            import autocode_source_reconciliation as source_reconciliation
-        source_resume = source_reconciliation.offer(
+        source_resume = status_observation.source_offer(
             saved_state,
             workspace or state.get("workspace"),
             liveness,

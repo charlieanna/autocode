@@ -26,6 +26,12 @@ def _worker(request):
         import autocode_catalog_reconciliation as catalog
 
         return catalog.offer(payload["state"], controller=payload["controller"])
+    if request.get("operation") == "source_offer":
+        import autocode_source_reconciliation as source
+
+        return source.offer(
+            payload["state"], payload["workspace"], payload["inspection"], controller=payload["controller"]
+        )
     raise ValueError("Unsupported status observation")
 
 

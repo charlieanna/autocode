@@ -126,10 +126,28 @@ def catalog_offer(state: RunState, *, controller=None, stop_pending=False):
         import autocode_catalog_reconciliation as catalog
     if stop_pending or not isinstance(controller, dict) or controller.get("kind") not in ("ended", "boundary"):
         return None
-    if not catalog.eligible(state):
-        return None
     try:
+        if not catalog.eligible(state):
+            return None
         result = _observe("catalog_offer", {"state": state, "controller": controller})
         return result if isinstance(result, dict) else None
-    except (OSError, TypeError, ValueError, subprocess.SubprocessError, captured.ProcessError):
+    except (OSError, TypeError, ValueError, AttributeError, RecursionError, RuntimeError, subprocess.SubprocessError):
+        return None
+
+
+def source_offer(state: RunState, workspace, inspection, *, controller=None, stop_pending=False):
+    """Bound the source and catalog observation behind a source-recovery offer."""
+    try:
+        from . import autocode_source_reconciliation as source
+    except ImportError:
+        import autocode_source_reconciliation as source
+    try:
+        if not source.eligible(state, inspection, controller=controller, stop_pending=stop_pending):
+            return None
+        result = _observe(
+            "source_offer",
+            {"state": state, "workspace": str(workspace), "inspection": inspection, "controller": controller},
+        )
+        return result if isinstance(result, dict) else None
+    except (OSError, TypeError, ValueError, AttributeError, RecursionError, RuntimeError, subprocess.SubprocessError):
         return None
