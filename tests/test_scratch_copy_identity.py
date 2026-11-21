@@ -86,6 +86,34 @@ class ScratchCopyIdentityTests(unittest.TestCase):
             scratch_preparation._same_source_after_copy(self.workspace, run_dir, tree, before, after, ("evidence",))
         )
 
+    def test_commit_during_copy_is_refused_even_when_source_files_are_unchanged(self):
+        original = source_snapshot.snapshot(self.workspace)
+        make_tree = verify.make_tree
+
+        def advance_head(*args, **kwargs):
+            tree = make_tree(*args, **kwargs)
+            git(
+                self.workspace,
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@example.test",
+                "commit",
+                "--allow-empty",
+                "-qm",
+                "new head",
+            )
+            current = source_snapshot.snapshot(self.workspace)
+            self.assertNotEqual(original["head"], current["head"])
+            self.assertEqual(original["files"], current["files"])
+            return tree
+
+        with patch.object(verify, "make_tree", side_effect=advance_head):
+            with self.assertRaises(util.Paused) as held:
+                self.run_copy()
+        self.assertEqual("PAUSED_SOURCE_UNAVAILABLE", held.exception.status)
+        self.assertFalse(self.marker.exists(), "The check must not launch against a stale source revision")
+
     def test_owned_worker_preserves_unsafe_copy_path_as_source_refusal(self):
         shared = self.workspace / "shared"
         shared.mkdir()
