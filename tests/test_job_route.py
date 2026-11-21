@@ -260,6 +260,15 @@ class JobModelRouteTests(JobHarness):
             mutate(altered)
             checkpoint.write_text(json.dumps(altered))
             self.assertEqual("recover_source", run.status()["needs"]["kind"])
+        for key, value in (("id", "route-foreign"), ("category", "not-a-route")):
+            malformed = copy.deepcopy(state)
+            malformed["job_failure"]["route"][key] = value
+            checkpoint.write_text(json.dumps(malformed))
+            self.assertEqual("recover_source", run.status()["needs"]["kind"])
+        unsupported = copy.deepcopy(state)
+        unsupported["job_failure"].update(pause_status="PAUSED_INVALID_OUTPUT", kind="exit")
+        checkpoint.write_text(json.dumps(unsupported))
+        self.assertNotEqual("retry_job", run.status()["needs"]["kind"])
         foreign = copy.deepcopy(state)
         foreign["job_failure"]["route"]["route_role"] = "builder"
         checkpoint.write_text(json.dumps(foreign))

@@ -120,6 +120,13 @@ def route_is_repairable(state: RunState, *, cross_check, failure_status, configu
     if not isinstance(question, dict):
         return False
     role = question.get("route_role")
+    question_id = question.get("id")
+    if (
+        not isinstance(question_id, str)
+        or quota_route.asked_route([question], question_id) is None
+        or quota_route.job_stop_status(failure) not in quota_route.MODEL_STOPS
+    ):
+        return False
     attempt = quota_route.stopped_attempt(state, failure_status=failure_status)
     if (
         not isinstance(role, str)
