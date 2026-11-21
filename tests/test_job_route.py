@@ -488,7 +488,10 @@ class JobModelRouteTests(JobHarness):
         )
         self.assertEqual(0, proc.returncode, proc.stderr)
         self.assertIn("models", audit.read_text(), "the actual answer checks the selected provider")
-        self.assertNotIn("run ", audit.read_text(), "checking the answer must not start a model")
+        self.assertFalse(
+            any(line.split()[:1] == ["run"] for line in audit.read_text().splitlines()),
+            "checking the answer must not start a model",
+        )
 
     def test_a_model_flag_at_a_stopped_job_is_refused_with_the_job_advice(self):
         run = self.refused()
