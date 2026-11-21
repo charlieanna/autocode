@@ -261,6 +261,7 @@ def requirements_view(state: RunState) -> dict | None:
         "requirements": requirements,
         "proposed_assumptions": proposed_assumptions,
         "acceptance_tests": tests,
+        "constraints": [item for item in report.get("constraints") or [] if isinstance(item, str)],
         "conflicts": conflicts,
         # What Requirements named in this report, before the person confirms it (#3630): the
         # workflow field reports the job only once it starts, and the model probe grades both.

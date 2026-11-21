@@ -1805,9 +1805,10 @@ function render(state) {
         const conflicts = (reqView && Array.isArray(reqView.conflicts)) ? reqView.conflicts : [];
         const reqRows = (reqView && Array.isArray(reqView.requirements)) ? reqView.requirements : [];
         const accTests = (reqView && Array.isArray(reqView.acceptance_tests)) ? reqView.acceptance_tests : [];
+        const constraints = (reqView && Array.isArray(reqView.constraints)) ? reqView.constraints : [];
         const showStructuredCard = Boolean(reqView) && (
-          assumptions.length > 0 || conflicts.length > 0
-          || (!askedInThread && (reqRows.length > 0 || accTests.length > 0 || Boolean(reqView.intended_outcome)))
+          assumptions.length > 0 || conflicts.length > 0 || reqRows.length > 0 || accTests.length > 0
+          || constraints.length > 0 || (!askedInThread && Boolean(reqView.intended_outcome))
         );
         if (showStructuredCard) {
           const reqCard = el('div', 'requirements-card');
@@ -1839,7 +1840,7 @@ function render(state) {
               reqCard.appendChild(el('div', 'conflict-row', text));
             });
           }
-          if (reqRows.length > 0 || accTests.length > 0) {
+          if (reqRows.length > 0 || accTests.length > 0 || constraints.length > 0) {
             const details = el('details', 'requirements-details');
             if (!askedInThread) details.open = true;
             details.appendChild(el('summary', null, 'Structured requirements (' + reqRows.length + ')'));
@@ -1848,6 +1849,9 @@ function render(state) {
             });
             accTests.forEach((testLine) => {
               details.appendChild(el('div', 'why', 'Check: ' + testLine));
+            });
+            constraints.forEach((constraint) => {
+              details.appendChild(el('div', 'why', 'Constraint: ' + constraint));
             });
             reqCard.appendChild(details);
           }
