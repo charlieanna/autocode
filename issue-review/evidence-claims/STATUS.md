@@ -4,9 +4,9 @@
 
 The #3994 post-merge Ubuntu suite and `ci-required` failed because catalogue mutation M09 survived. The same mutation survived on both #3994's untouched base `6b803f17` and merged tree `8120d324`; this detector gap predates #3994. An earlier Tester-probe rejection satisfied a broad `ValueError` expectation before the test exercised the cited-failed-check gate, allowing that gate's removal to go unnoticed.
 
-The existing catalogue test now also asserts the passing-evidence gate rejects a cited failing check. The unchanged product gate passes the normal test; the exact M09 mutation now fails the detector in a disposable copy. No gate is weakened and no issue is closed. The full evidence catalogue passed 18 tests and full Ruff, format and Mypy passed; the 12-mutation regression is still running. Linux required CI has not yet been observed.
+The existing catalogue test now also asserts the passing-evidence gate rejects a cited failing check. The unchanged product gate passes the normal test; the exact M09 mutation now fails the detector in a disposable copy. No gate is weakened and no issue is closed. The full evidence catalogue passed 18 tests, and the complete 12-mutation regression passed on `006b67e6f` before the separate CI-selection-only change. Full Ruff, format and Mypy passed; Linux required CI has not yet been observed.
 
-The mutation catalogue dynamically names its detector module, so focused CI previously omitted it when only that test changed. Explicit selection now retains the mutation consumer even when slow tests are filtered; the selection regression fails on master `5de8cacfae` and passes here. The full mutation run remains in progress.
+The mutation catalogue dynamically names its detector module, so focused CI previously omitted it when only that test changed. Explicit selection now retains the mutation consumer even when slow tests are filtered; the selection regression fails on master `5de8cacfae` and passes here. The full 142-test selection suite and Mypy pass after the selector change.
 
 ## Follow-up: historical #3971 CI fixture alignment
 
