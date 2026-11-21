@@ -293,6 +293,7 @@ def accepted_reviews(state: RunState) -> list:
         return []
 
 
+@status_observation.budgeted
 def view(
     state: RunState,
     *,
@@ -1168,6 +1169,7 @@ def _route(question: dict) -> dict:
     return route
 
 
+@status_observation.budgeted
 def action(
     state: RunState,
     *,
@@ -1328,6 +1330,7 @@ def _person_facing(need: dict) -> dict:
     return need
 
 
+@status_observation.budgeted
 def needs(state: RunState, *, stale_report_repair=False, human_projection=None, retained=_UNSET) -> dict | None:
     """What must happen next, or None when complete, an internal failure offers no person action, or the
     Tester's retained report has no re-check left (autocode_acceptance_retry_next; ``retained`` is its answer).

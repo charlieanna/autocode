@@ -18,6 +18,7 @@ try:
     from . import autocode_launch_inputs as launch_inputs
     from . import autocode_review_result as review_result
     from . import autocode_source_scope as source_scope
+    from . import autocode_status_observation as status_observation
     from . import autocode_status_summary as status_summary
 except ImportError:
     import autocode_answer_output as answer_output
@@ -32,6 +33,7 @@ except ImportError:
     import autocode_launch_inputs as launch_inputs
     import autocode_review_result as review_result
     import autocode_source_scope as source_scope
+    import autocode_status_observation as status_observation
     import autocode_status_summary as status_summary
 
 import json
@@ -119,6 +121,7 @@ def render_launch(workspace, run_dir, record) -> None:
     )
 
 
+@status_observation.budgeted
 def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_preview=None):
     state, token, owner = sample(runner, state, run_dir, workspace)
     observation = {

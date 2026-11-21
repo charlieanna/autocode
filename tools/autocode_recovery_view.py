@@ -520,6 +520,7 @@ def _failures(state: RunState):
 _UNSET = object()  # no retained-retry answer supplied: compute it from the run's workspace
 
 
+@status_observation.budgeted
 def project(state: RunState, need=None, *, retained=_UNSET):
     """The recovery card. ``retained`` is the retained acceptance retry's answer
     (autocode_acceptance_retry_next.decide), which the status view computes once with its workspace."""
