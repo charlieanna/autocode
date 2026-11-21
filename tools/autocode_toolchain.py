@@ -25,6 +25,21 @@ except ImportError:
     import autocode_tool_shell as tool_shell
 
 
+# The programs a contained stage's declared command may begin with: each has a family rule below that
+# selects its read-only runtime without running project code (pytest through its interpreter, npm and npx
+# through node). The pre-approval plan check names them to the Planner (autocode_plan_tool_admission).
+ADMITTED = ("git", "python", "python3", "pytest", "node", "npm", "npx", "go", "sh", "bash")
+
+
+class Unadmitted(RuntimeError):
+    """A declared command's program this boundary cannot admit: absent from PATH, or without a family rule."""
+
+    def __init__(self, message, program, *, missing=False):
+        super().__init__(message)
+        self.program = program
+        self.missing = missing  # absent from PATH: installing it lets the same plan run
+
+
 def _binary_dependencies(tool):
     """The loader files a selected tool needs: Mach-O on macOS, ELF on Linux (#709)."""
     return (macho if sys.platform == "darwin" else elf).dependencies(tool)
@@ -111,7 +126,7 @@ def discover(workspace, commands, environment):
         resolved = str(root / name) if "/" in name and not Path(name).is_absolute() else name
         located = shutil.which(resolved, path=search_path)
         if not located:
-            raise RuntimeError(f"Approved tool is unavailable before launch: {name}")
+            raise Unadmitted(f"Approved tool is unavailable before launch: {name}", name, missing=True)
         original, tool = Path(located).absolute(), Path(located).resolve()
         links.extend(hop for hop in _symlink_hops(original) if hop not in links)
         family = original.name
@@ -143,7 +158,12 @@ def discover(workspace, commands, environment):
             probes.append(shlex.join([str(original), "-c", ":"]))
             continue
         if family not in ("git", "node", "go", "python", "python3") and not family.startswith("python3."):
-            raise RuntimeError(f"Contained toolchain discovery does not support {name}; no model launched")
+            raise Unadmitted(
+                f"Contained toolchain discovery does not support {name} (it admits "
+                + ", ".join(ADMITTED)
+                + "); no model launched",
+                name,
+            )
         paths.update(_binary_dependencies(tool))
         if family.startswith("python"):
             tool = _python_executable(tool)

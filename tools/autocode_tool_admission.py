@@ -97,6 +97,14 @@ def failure(error, *, kilo_readonly=False, isolation=None):
         # The sandbox's own checks follow the same rule (containment.setup_check): the host was slow, twice.
         else ". Running out of time does not establish a broken sandbox or tool; resume to run the check again"
         if isinstance(error, containment.SetupCheckTimeout)
+        # The plan's command, not the tool: a plan is checked for this before approval (#4015), and resuming
+        # this plan pauses here again, since the approved commands do not change.
+        else f". The approved plan runs `{error.program}`, which is not installed on this host; install it and "
+        "resume, or revise the plan's commands with plan feedback"
+        if isinstance(error, toolchain.Unadmitted) and error.missing
+        else f". The approved plan runs `{error.program}`, which the tool boundary does not admit; resuming this "
+        "plan pauses here again, so revise the plan's commands with plan feedback"
+        if isinstance(error, toolchain.Unadmitted)
         else ". Restore the qualified native setup; native role isolation requires its kernel tool boundary"
         if isolation is not None
         else ". Restore a qualified Kilo and its kernel shell setup; a Kilo stage cannot waive this boundary"
