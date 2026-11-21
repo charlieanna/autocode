@@ -54,7 +54,7 @@ def _reject_once(bindir: Path, provider: Path) -> None:
     )
 
 
-def stopped_planner_run(root: Path, fault: str = REJECTED):
+def stopped_planner_run(root: Path, fault: str = REJECTED, *, inherit_homes: bool = False):
     """Start the scripted run under ``root`` and drive it until it stops at the Planner.
 
     Returns the driver (its ``run_dir`` set) and the stopped status view.
@@ -66,7 +66,10 @@ def stopped_planner_run(root: Path, fault: str = REJECTED):
         (root / name).mkdir(parents=True, exist_ok=True)
     project = layout.materialize(scenario.seed, root / "project")
     flags, env = harness.fake_setup(scenario, root, scenario.reference)
-    env.update(CODEX_HOME=str(root / "codex-home"))
+    if inherit_homes:
+        env.pop("CODEX_HOME", None)
+    else:
+        env.update(CODEX_HOME=str(root / "codex-home"))
     if fault == REJECTED:
         _reject_once(root / "bin", harness.FAKE_PROVIDER)
     else:
@@ -86,10 +89,11 @@ def stopped_planner_run(root: Path, fault: str = REJECTED):
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 1:
-        print("usage: python tests/provider_auth_fixture.py ROOT", file=sys.stderr)
+    inherit_homes = len(argv) == 2 and argv[1] == "--inherit-homes"
+    if len(argv) != 1 and not inherit_homes:
+        print("usage: python tests/provider_auth_fixture.py ROOT [--inherit-homes]", file=sys.stderr)
         return 2
-    driver, view = stopped_planner_run(Path(argv[0]))
+    driver, view = stopped_planner_run(Path(argv[0]), inherit_homes=inherit_homes)
     _, harness, _ = _harness()
     print(
         json.dumps(
@@ -97,7 +101,11 @@ def main(argv: list[str]) -> int:
                 "workspace": str(driver.project),
                 "runDir": str(driver.run_dir),
                 "cli": harness.default_autocode(),
-                "env": {name: driver.env[name] for name in ("AUTOCODE_HOME", "XDG_CONFIG_HOME", "CODEX_HOME")},
+                "env": {
+                    name: driver.env[name]
+                    for name in ("AUTOCODE_HOME", "XDG_CONFIG_HOME", "CODEX_HOME")
+                    if name in driver.env and (name != "CODEX_HOME" or not inherit_homes)
+                },
                 "view": view,
             }
         )

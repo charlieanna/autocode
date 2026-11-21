@@ -19,6 +19,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { after, before, test } = require('node:test');
 const { openHistoryRow } = require('./open-history.cjs');
+const { privateHostEnvironment, ownedWarmHostSteps, settleFixture } = require('../owned-fixture-cleanup.cjs');
 
 const EXTENSION = path.resolve(__dirname, '../..');
 const REPO = path.resolve(EXTENSION, '..');
@@ -70,6 +71,34 @@ const log = path.join(root, 'reads');
 let app;
 let win;
 let fixture;
+let claimedHost = false;
+let testError;
+let editorPid;
+let editorStarted;
+const tempDir = path.join(root, 'tmp');
+fs.mkdirSync(tempDir);
+const environment = { ...privateHostEnvironment(process.env, path.join(root, 'run')), TMPDIR: tempDir,
+  AUTOCODE_HOST_READS: log, AUTOCODE_HOST_HOLD: hold, AUTOCODE_SOURCE_HOST: '1' };
+
+function rememberFailure(action) {
+  return async () => {
+    try { await action(); } catch (error) { testError = error; throw error; }
+  };
+}
+
+function cli(action) {
+  return spawnSync(fixture.cli[0], [...fixture.cli.slice(1), ...action], {
+    cwd: fixture.workspace, env: environment, encoding: 'utf8', timeout: 15_000,
+  });
+}
+
+function ownedEditor(operation) {
+  const args = [path.join(REPO, 'tests/status_retry_host_cleanup.py'), operation, String(editorPid)];
+  if (operation === 'stop') args.push(String(editorStarted));
+  const result = spawnSync(python(), args, { cwd: REPO, env: environment, encoding: 'utf8', timeout: 15_000 });
+  assert.equal(result.status, 0, `owned editor ${operation}: ${result.stderr}`);
+  return JSON.parse(result.stdout);
+}
 
 /** The webview frame that holds ``selector``: the chat view or a Run details panel. */
 async function frameWith(selector) {
@@ -94,13 +123,19 @@ async function command(title) {
   await win.keyboard.press('Enter');
 }
 
-before(async () => {
+before(rememberFailure(async () => {
   fs.writeFileSync(log, '');
-  const made = spawnSync(python(), [path.join(REPO, 'tests', 'provider_auth_fixture.py'), path.join(root, 'run')], {
-    cwd: REPO, encoding: 'utf8', env: { ...process.env, HOME: path.join(root, 'home') },
+  const made = spawnSync(python(), [path.join(REPO, 'tests', 'provider_auth_fixture.py'), path.join(root, 'run'), '--inherit-homes'], {
+    cwd: REPO, encoding: 'utf8', env: { ...environment, AUTOCODE_SOURCE_HOST: '0' },
   });
   assert.equal(made.status, 0, `the offline Planner 401 run could not be made:\n${made.stderr}`);
   fixture = JSON.parse(made.stdout);
+  assert.equal(path.resolve(fixture.env.AUTOCODE_HOME), path.resolve(root, 'run', 'registry'));
+  assert.ok(fs.lstatSync(fixture.env.AUTOCODE_HOME).isDirectory(), 'registry is an owned directory, not a symlink');
+  Object.assign(environment, fixture.env);
+  assert.equal(environment.HOME, process.env.HOME);
+  assert.equal(environment.CODEX_HOME, process.env.CODEX_HOME);
+  claimedHost = true;
   assert.equal(fixture.view.status, 'PAUSED_PROVIDER_UNCERTAIN', fixture.view.stop_reason);
 
   const userData = path.join(root, 'user-data');
@@ -119,16 +154,16 @@ before(async () => {
   const { _electron } = require('playwright-core');
   app = await _electron.launch({
     executablePath: await vscodeExecutable(),
-    env: {
-      ...process.env, ...fixture.env, HOME: path.join(root, 'home'),
-      AUTOCODE_HOST_READS: log, AUTOCODE_HOST_HOLD: hold,
-    },
+    env: environment,
     args: [
       '--no-sandbox', '--disable-gpu', '--disable-extensions', '--skip-welcome', '--skip-release-notes',
       '--disable-workspace-trust', `--user-data-dir=${userData}`, `--extensions-dir=${path.join(root, 'extensions')}`,
       `--extensionDevelopmentPath=${EXTENSION}`, fixture.workspace,
     ],
   });
+  editorPid = app.process().pid;
+  editorStarted = ownedEditor('identity').started;
+  assert.equal(typeof editorStarted, 'number', 'owned editor birth identity is available');
   win = await app.firstWindow();
   await win.locator('.monaco-workbench').waitFor({ timeout: 120_000 });
   // Open the run as a person does: the AutoCode chat, its History, then the run's row.
@@ -145,34 +180,61 @@ before(async () => {
     throw error;
   }
   await until('the run in the chat', async () => (await chatText()).includes('rejected the saved credentials (HTTP 401)'));
-});
+}));
 
 after(async () => {
-  // The window as the suite left it, for a failed CI run's artifact.
-  await win?.screenshot({ path: path.join(EXTENSION, '.vscode-test', 'host-stock.png') }).catch(() => {});
-  await app?.close().catch(() => {});
-  // Read-only diagnostic for #4012: identify the stock host, if it survives the editor.
-  // Never stop a service here: this fixture does not yet own a private socket.
-  if (fixture) {
-    const env = { ...process.env, ...fixture.env, HOME: path.join(root, 'home'), AUTOCODE_HOST_READS: log, AUTOCODE_HOST_HOLD: hold };
-    const check = spawnSync(fixture.cli[0], [...fixture.cli.slice(1), 'serve', '--status', '--json'],
-      { cwd: fixture.workspace, env, encoding: 'utf8', timeout: 15_000 });
-    if (check.status === 0) {
-      const host = JSON.parse(check.stdout);
-      let processIdentity = null;
-      if (host.running && Number.isInteger(host.pid)) {
-        const code = 'import json, psutil, sys; p=psutil.Process(int(sys.argv[1])); '
-          + 'print(json.dumps({"pid":p.pid,"started":p.create_time(),"argv0_1":p.cmdline()[:2]}))';
-        const info = spawnSync(fixture.cli[0], ['-c', code, String(host.pid)], { env, encoding: 'utf8', timeout: 15_000 });
-        if (info.status === 0) processIdentity = JSON.parse(info.stdout);
-      }
-      console.log('Stock warm-host diagnostic after editor close:', JSON.stringify({ host, processIdentity }));
-    } else console.log('Stock warm-host diagnostic unavailable:', check.stderr);
+  await win?.screenshot({ path: path.join(EXTENSION, '.vscode-test', 'host-stock.png'), timeout: 5_000 }).catch(() => {});
+  const invoke = (args) => {
+    const result = cli(args);
+    assert.equal(result.status, 0, `${args.join(' ')}: ${result.stderr}`);
+    return JSON.parse(result.stdout);
+  };
+  try {
+    await settleFixture([
+      ['release held readers', () => fs.rmSync(hold, { force: true })],
+      ['close editor', async () => {
+        if (!app) return;
+        let timer;
+        const timedOut = await Promise.race([
+          app.close().then(() => false, () => true),
+          new Promise((resolve) => { timer = setTimeout(() => resolve(true), 5_000); }),
+        ]);
+        clearTimeout(timer);
+        if (timedOut) ownedEditor('stop');
+      }],
+      ['check owned readers', async () => {
+        if (!fs.existsSync(log)) return;
+        await until('owned readers to exit', () => {
+          const result = spawnSync(python(), [path.join(REPO, 'tests/host_reader_cleanup.py'), log],
+            { cwd: REPO, env: environment, encoding: 'utf8', timeout: 15_000 });
+          assert.equal(result.status, 0, `inspect owned readers: ${result.stderr}`);
+          return JSON.parse(result.stdout).running.length === 0;
+        }, 15_000);
+      }],
+      ...ownedWarmHostSteps(claimedHost,
+        () => invoke(['serve', '--stop', '--json']),
+        () => {
+          const host = invoke(['serve', '--status', '--json']);
+          assert.equal(host.running, false, 'owned warm host exited before fixture removal');
+          console.log('Stock owned warm host cleanup:', JSON.stringify(host));
+        }),
+      ['check unrecorded owned readers', async () => {
+        if (!claimedHost) return;
+        await until('no Python reader tied to the owned fixture', () => {
+          const result = spawnSync(python(), [path.join(REPO, 'tests/host_reader_cleanup.py'), log, root],
+            { cwd: REPO, env: environment, encoding: 'utf8', timeout: 15_000 });
+          assert.equal(result.status, 0, `inspect fixture processes: ${result.stderr}`);
+          return JSON.parse(result.stdout).running.length === 0;
+        }, 15_000);
+      }],
+    ], () => fs.rmSync(root, { recursive: true, force: true, maxRetries: 3 }), testError);
+  } catch (error) {
+    console.error(`Preserved failed stock host fixture at ${root}`);
+    throw error;
   }
-  fs.rmSync(root, { recursive: true, force: true, maxRetries: 3 });
 });
 
-test('a scripted Planner HTTP 401 shows the failed stage, a blocked chat and why its models cannot change', async () => {
+test('a scripted Planner HTTP 401 shows the failed stage, a blocked chat and why its models cannot change', rememberFailure(async () => {
   const frame = await chat();
   const rows = await frame.evaluate(() => Object.fromEntries([...document.querySelectorAll('#pipeline tbody tr')]
     .map((row) => [row.dataset.job, { state: row.className, mark: row.querySelector('.mark')?.textContent }])));
@@ -208,15 +270,15 @@ test('a scripted Planner HTTP 401 shows the failed stage, a blocked chat and why
 
   // The editor only read: the saved run still records the one Planner attempt.
   const status = spawnSync(fixture.cli[0], [...fixture.cli.slice(1), '--run-dir', fixture.runDir, '--status', '--json'], {
-    cwd: fixture.workspace, encoding: 'utf8', env: { ...process.env, ...fixture.env, HOME: path.join(root, 'home') },
+    cwd: fixture.workspace, encoding: 'utf8', env: environment,
   });
   assert.equal(status.status, 0, status.stderr);
   const view = JSON.parse(status.stdout).view ?? JSON.parse(status.stdout);
   assert.equal(view.usage.accounting.attempts.filter((row) => row.stage === 'draft_plan').length, 1);
   await win.keyboard.press('Control+W');
-});
+}));
 
-test('a status read held past its deadline shows unavailable, keeps one reader and the draft, and recovers', async () => {
+test('a status read held past its deadline shows unavailable, keeps one reader and the draft, and recovers', rememberFailure(async () => {
   const draft = 'Keep this draft while the status read is held.';
   await (await chat()).fill('#message', draft);
   fs.writeFileSync(hold, '');
@@ -252,4 +314,4 @@ test('a status read held past its deadline shows unavailable, keeps one reader a
   await until('the chat to recover', async () => (await chatError()) === '' && (await chatText()).includes('rejected the saved credentials (HTTP 401)'));
   await until('the status bar to recover', async () => /blocked on internal recovery/.test(await statusBar()));
   assert.equal(await (await chat()).inputValue('#message'), draft, 'the draft is still there after recovery');
-});
+}));
