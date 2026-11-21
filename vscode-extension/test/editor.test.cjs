@@ -6874,6 +6874,42 @@ test('one hung status read does not freeze the other tabs (#1711)', async (t) =>
   await flush();
 });
 
+test('a healthy chat keeps reading while a sibling chat read is still out (#3851)', async (t) => {
+  // refresh() used to hand every caller the one multi-chat cycle, so while one chat's read was
+  // pending no other chat was read again, and the chat's own poll timer waited on that cycle too.
+  const healthy = { workspace: '/ws', runDir: '/ws/.autocode/runs/healthy-run' };
+  const ui = await openChat(t, chatView());
+  ui.chat.show(healthy);
+  await flush(); await flush();
+  let revision = 1;
+  const reads = { slow: 0, healthy: 0 };
+  t.mock.method(controller, 'status', (target) => {
+    if (target.runDir === run.runDir) {
+      reads.slow += 1;
+      return new Promise(() => {});
+    }
+    reads.healthy += 1;
+    revision += 1;
+    return Promise.resolve({ status: 'RUNNING', done: false, needs: { kind: 'continue' },
+      chat: { phase: null, context: 'c', input: null,
+        messages: [{ id: 'answer', role: 'assistant', text: `revision ${revision}` }] } });
+  });
+  const text = () => ui.document.body.textContent;
+  void ui.chat.refresh();
+  await flush(); await flush();
+  assert.match(text(), /revision 2/);
+  void ui.chat.refresh();
+  await flush(); await flush();
+  assert.match(text(), /revision 3/, 'the healthy chat is read again while its sibling read is out');
+  assert.equal(reads.slow, 1, 'the sibling still has exactly one outstanding read');
+  // The chat's own poll timer keeps ticking and reading the healthy chat as well.
+  t.mock.timers.tick(5000); await flush(); await flush();
+  t.mock.timers.tick(5000); await flush(); await flush();
+  assert.match(text(), /revision 5/);
+  assert.equal(reads.healthy, 4);
+  assert.equal(reads.slow, 1, 'an outstanding read is never started again');
+});
+
 test('similar open chats have distinct tabs and full request tooltips', async (t) => {
   const other = { workspace: '/ws', runDir: '/ws/.autocode/runs/second-run' };
   const firstTask = 'Investigate the same very long opening, then fix the first issue';
@@ -9147,6 +9183,29 @@ test('test_ac3_assumption_label_follows_standing', async (t) => {
   assert.ok(!shown.A4.text.includes('confirmed by you'));
   assert.equal(shown.A6.label, 'confirmed');
   assert.equal(shown.A7.label, 'needs confirmation');
+});
+
+test('complete Requirements details remain accessible without assumptions after a question', async (t) => {
+  const constraints = Array.from({length: 9}, (_, index) => `Constraint ${index + 1}`);
+  const examples = Array.from({length: 13}, (_, index) => `Example ${index + 1}`);
+  const view = {
+    status: 'WAITING_FOR_USER', done: false,
+    needs: {kind: 'answer', resolver_token: 'review:tok',
+      questions: [{id: 'requirements-review-r1', question: understanding, options: [], proposed_default: 'plan', allow_custom: true}]},
+    next_command: `autocode --answer requirements-review-r1=ANSWER --resolver-token - --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    requirements: {handoff_ref: 'ref', intended_outcome: 'Task', requirements: [],
+      proposed_assumptions: [], conflicts: [], acceptance_tests: examples, constraints},
+    chat: {phase: 'requirements', context: 'review',
+      input: {kind: 'feedback', label: 'Send reply', next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --feedback MESSAGE`},
+      messages: [{id: 'requirements-question-r1', role: 'assistant', text: understanding}],
+      review: {question_id: 'requirements-review-r1', answer: 'plan',
+        label: 'Approve understanding and prepare plan', summary: understanding}},
+  };
+  const ui = await openChat(t, view, run, {controller: new RunController(host.log)});
+  const details = ui.document.querySelector('#app .requirements-details');
+  assert.ok(details, 'complete details remain available after the question was shown');
+  assert.ok(details.textContent.includes('Constraint 9'));
+  assert.ok(details.textContent.includes('Example 13'));
 });
 
 function recordedStageEvidence(context, path) {

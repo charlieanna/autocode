@@ -651,7 +651,7 @@ class CommandProviderTests(unittest.TestCase):
 
         bundled = command.load("kilocode")
         route = bundled._config["auth"]["routes"][0]
-        self.assertEqual(("openai/", "oauth"), (route["models"], route["expect"]))
+        self.assertEqual(("openai/", ["oauth", "api"]), (route["models"], route["expect"]))
 
     def test_auth_timeout_is_bounded_and_kilo_uses_its_explicit_30_seconds(self):
         auth = '[auth]\ncommand = ["fake-auth"]\n[[auth.routes]]\nmodels = "demo/"\npattern = "(api)"\nexpect = "api"\n'
@@ -839,6 +839,33 @@ class CommandProviderTests(unittest.TestCase):
         with mock.patch.object(command.env_prep, "preflight_run", return_value=wrong):
             with self.assertRaisesRegex(RuntimeError, "zhipuai-coding-plan/ models require login mode 'api'"):
                 bundled.check_subscription_routes({"planner": {"model": "zhipuai-coding-plan/glm-5.3"}}, self.home)
+
+    def test_bundled_kilo_runs_openai_models_on_a_chatgpt_login_or_an_api_key(self):
+        # The owner asked for OpenAI models through an API key too, not only a ChatGPT login (2026-11-20).
+        bundled = command.load("kilocode")
+        roles = {"tester": {"model": "openai/gpt-5.6-sol"}, "builder": {"model": "openai/gpt-5.6-terra"}}
+        for listing, accepted in (
+            ("●  OpenAI oauth\n", True),
+            ("●  OpenAI api\n", True),
+            ("●  OpenAI api\n●  OpenAI api\n", True),
+            ("●  OpenAI wellknown\n", False),
+            ("●  OpenAI oauth\n●  OpenAI api\n", False),
+            ("●  Kilo Gateway oauth\n", False),
+        ):
+            result = SimpleNamespace(returncode=0, stdout=listing, stderr="")
+            with (
+                self.subTest(listing=listing),
+                mock.patch.object(command.env_prep, "preflight_run", return_value=result),
+            ):
+                if accepted:
+                    bundled.check_subscription_routes(roles, self.home)
+                else:
+                    with self.assertRaisesRegex(RuntimeError, "openai/ models require login mode 'oauth' or 'api'"):
+                        bundled.check_subscription_routes(roles, self.home)
+        # An API key set in the environment still never overrides Kilo's own saved login.
+        with mock.patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test"}):
+            with self.assertRaisesRegex(RuntimeError, "OPENAI_API_KEY"):
+                bundled.check_subscription_routes(roles, self.home)
 
     def test_pay_as_you_go_credit_errors_pause_as_budget(self):
         from tools import autocode_support as support

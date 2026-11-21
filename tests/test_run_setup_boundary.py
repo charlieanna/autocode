@@ -3,6 +3,7 @@
 import contextlib
 import copy
 import io
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -18,6 +19,13 @@ import autocode_util as util
 
 from . import test_recovery_view as view_fixtures
 from .test_operational_block import admission_failure
+
+# The real controller owner, captured before setUp replaces it with a mock for the preload tests.
+REAL_OWNER = setup.controller_owner.Owner
+BUSY = (
+    "Another AutoCode task (other-run) is still working in this folder, so this task waits rather than "
+    "change the same files at the same time. Nothing was changed. Try again once that task has finished or paused."
+)
 
 
 class RunSetupBoundaryTests(unittest.TestCase):
@@ -59,7 +67,9 @@ class RunSetupBoundaryTests(unittest.TestCase):
             pause_command=SimpleNamespace(recovery=Mock(return_value="Unexpected resume advice")),
             task_workspaces=setup.task_workspaces,
         )
-        self.enterContext(patch("subprocess.Popen", side_effect=AssertionError("No process in boundary regression")))
+        self.popen = self.enterContext(
+            patch("subprocess.Popen", side_effect=AssertionError("No process in boundary regression"))
+        )
         self.enterContext(patch.object(setup.keep_awake, "hold"))
         self.owner_factory = self.enterContext(patch.object(setup.controller_owner, "Owner", return_value=self.owner))
         self.enterContext(patch.object(setup.worker_binding, "bind"))
@@ -240,6 +250,54 @@ class RunSetupBoundaryTests(unittest.TestCase):
         self.assertEqual(2, self.run_locked())
         self.assertEqual("PAUSED_INVALID_OUTPUT", util.read(self.path)["status"])
         self.owner_factory.assert_called_once()
+
+    def owned_running_exit(self, build_loop):
+        """run_locked under the real controller owner from a saved RUNNING checkpoint."""
+        self.owner_factory.side_effect = REAL_OWNER
+        self.state.update(status="RUNNING", stop_reason=None)
+        util.atomic_json(self.path, self.state)
+        self.runtime.build_loop.run.side_effect = build_loop
+        code = self.run_locked()
+        receipt = util.read(self.run / setup.controller_owner.FILE)
+        events = [json.loads(line) for line in (self.run / "activity.jsonl").read_text().splitlines()]
+        exits = [event for event in events if event.get("event") == "controller_exit"]
+        return code, receipt, exits[-1]
+
+    def test_ac7_checkout_busy_and_ready_handoff_receipts_differ(self):
+        def busy(*args, **kwargs):
+            raise setup.checkout_lock.CheckoutBusy(BUSY)
+
+        code, receipt, event = self.owned_running_exit(busy)
+        self.assertEqual(2, code)
+        self.assertLessEqual(len(BUSY), 500)
+        self.assertEqual((2, "ready", BUSY), (receipt["exit_code"], receipt["disposition"], receipt["reason"]))
+        self.assertEqual(BUSY, event["reason"])
+        self.assertEqual("RUNNING", util.read(self.path)["status"])
+        self.popen.assert_not_called()
+
+        def ready_boundary(*args, **kwargs):
+            self.args._ready_message_boundary = True
+            return 2
+
+        code, receipt, event = self.owned_running_exit(ready_boundary)
+        self.assertEqual(2, code)
+        ready = "Saved user action or unit handoff is ready to advance"
+        self.assertEqual(("ready", ready), (receipt["disposition"], receipt["reason"]))
+        self.assertEqual(ready, event["reason"])
+        self.assertEqual("RUNNING", util.read(self.path)["status"])
+        self.popen.assert_not_called()
+
+    def test_ac21_paused_exit_receipt_keeps_saved_stop_reason(self):
+        def paused(*args, **kwargs):
+            raise util.Paused("PAUSED_INVALID_OUTPUT", "Saved report was invalid")
+
+        code, receipt, event = self.owned_running_exit(paused)
+        self.assertEqual(2, code)
+        saved = util.read(self.path)["stop_reason"]
+        self.assertEqual(saved, receipt["reason"])
+        self.assertEqual(saved, event["reason"])
+        self.assertNotEqual("Saved task boundary", receipt["reason"])
+        self.popen.assert_not_called()
 
 
 if __name__ == "__main__":

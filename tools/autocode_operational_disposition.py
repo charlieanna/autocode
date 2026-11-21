@@ -16,6 +16,7 @@ try:
     from . import autocode_operational_receipt_identity as receipt_identity
     from . import autocode_pause_authority as pause_authority
     from . import autocode_permission_recovery as permission_recovery
+    from . import autocode_preflight_stop as preflight_stop
     from . import autocode_provider_auth as provider_auth
     from . import autocode_quota_route as quota_route
     from . import autocode_roles as roles
@@ -28,6 +29,7 @@ except ImportError:
     import autocode_operational_receipt_identity as receipt_identity
     import autocode_pause_authority as pause_authority
     import autocode_permission_recovery as permission_recovery
+    import autocode_preflight_stop as preflight_stop
     import autocode_provider_auth as provider_auth
     import autocode_quota_route as quota_route
     import autocode_roles as roles
@@ -47,6 +49,11 @@ CAUSES = (
     (("PAUSED_PROVIDER_UNCERTAIN",), "its model provider ended the call without a confirmed result"),
     (("PAUSED_UNCERTAIN_STAGE",), "it ended without a confirmed result"),
     (("PAUSED_RATE_LIMIT",), "its model provider kept refusing requests (a rate limit)"),
+    # A spent account found by a stage, not by the access probe (whose stop names the probe, below).
+    (
+        ("PAUSED_BUDGET",),
+        "its model provider reported the account credit, quota, usage limit or spending limit used up",
+    ),
     (("PAUSED_PROVIDER_CAPACITY",), "its model provider had no capacity for the request"),
     (("PAUSED_REPEATED_FAILURE",), "it failed the same way each time"),
     (("TIMEOUT", "TIME_LIMIT"), "it ran past its time limit"),
@@ -59,9 +66,14 @@ CAUSES = (
 def cause(stage, status, rationale=None, state: RunState | None = None) -> str:
     """One sentence naming the job that stopped and why, for an exhausted internal recovery.
 
+    A stop the model access probe found before the stage launched names the probe, its model and
+    the fixed cause of its saved status (autocode_preflight_stop), read from the saved probe record.
     A refused account is named with the core's fixed diagnostic, since only the person can fix it.
     Otherwise the job comes from the saved stage and the reason from the saved pause status.
     """
+    probe = preflight_stop.sentence(state, status)
+    if probe:
+        return probe
     account = provider_auth.account_cause(rationale)
     if account:
         return account

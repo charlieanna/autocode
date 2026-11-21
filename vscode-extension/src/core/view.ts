@@ -107,6 +107,7 @@ export interface RequirementsView {
   requirements: RequirementRow[];
   proposed_assumptions: ProposedAssumption[];
   acceptance_tests: string[];
+  constraints?: string[];
   conflicts: RequirementConflict[];
 }
 

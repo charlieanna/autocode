@@ -17,18 +17,21 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_builder_failure as builder_failure
+    from . import autocode_changed_code_review as review
     from . import autocode_mutation_check as mutation_check
     from . import autocode_run_status as run_status
     from . import autocode_util as util
 except ImportError:
     import autocode_builder_failure as builder_failure
+    import autocode_changed_code_review as review
     import autocode_mutation_check as mutation_check
     import autocode_run_status as run_status
     import autocode_util as util
 
 REPAIR_ROUNDS = 2
 # The proof's runner produces no mutation evidence at all (autocode_mutation_check.record ``unavailable``).
-# A Builder change cannot close such a gap, so its rounds are not spent on it (#3817).
+# A Builder change cannot close such a gap, so its rounds are not spent on it (#3817). An assessment
+# that lists its open lines is judged line by line instead (_tester_only).
 UNCLOSABLE = (mutation_check.NO_SOURCE, mutation_check.NO_SELECTION)
 # The Tester's rejected reasons the Builder sees; each names the test its line still needs.
 REJECTIONS_SHOWN = 20
@@ -71,6 +74,40 @@ def _scope_conflict(task, contract, rejected):
     return None
 
 
+# Open lines a builder_skipped or Builder note names; the rest are in the assessment's obligations.
+LISTED_LINES = 20
+
+
+def _listed(rows):
+    names = ", ".join(f"{row.get('path')}:{row.get('line')}" for row in rows[:LISTED_LINES])
+    return names + (f", and {len(rows) - LISTED_LINES} more" if len(rows) > LISTED_LINES else "")
+
+
+def _no_site(rows, mutation_report):
+    why = mutation_report.get("note") if mutation_report.get("unavailable") in UNCLOSABLE else None
+    return (
+        str(why)
+        if why
+        else "the mutation check made no mutant for them (no mutation site), so only the Tester's reasons settle "
+        + _listed(rows)
+    )
+
+
+def _unclosable(gaps, tester_only, mutation_report, rejected):
+    """True when no Builder change can settle any open line, so its rounds go unspent (#3817).
+
+    A Tester rejection names the test a line still needs, which the Builder can write. Otherwise each
+    open line is judged by its own evidence (autocode_changed_code_review.tester_only): a line with no
+    mutation outcome, because its runner has no mutation source or the line has no mutation site, is
+    settled only by a reason. An assessment that lists no open line falls back to the runner's record.
+    """
+    if any(isinstance(row, dict) for row in rejected or ()):
+        return False
+    if gaps:
+        return len(tester_only) == len(gaps)
+    return mutation_report.get("unavailable") in UNCLOSABLE
+
+
 def route(state: RunState, record, *, investigation_enabled, rejected=()):
     """Consume only a reconciled independent review of this exact measurement."""
     actual = record.get("original_stage") or record.get("stage")
@@ -106,7 +143,9 @@ def route(state: RunState, record, *, investigation_enabled, rejected=()):
     scope_reason = _scope_conflict(task, contract, rejected)
     builder_rounds = sum(row.get("action") == "builder" for row in previous)
     mutation_report = proof.get("mutation_check") or {}
-    unclosable = mutation_report.get("unavailable") in UNCLOSABLE
+    gaps = review.open_gaps(assessment)
+    tester_only = [row for row in gaps if review.tester_only(row)]
+    unclosable = _unclosable(gaps, tester_only, mutation_report, rejected)
     event = {
         "kind": "changed_code_rework",
         **binding,
@@ -123,8 +162,10 @@ def route(state: RunState, record, *, investigation_enabled, rejected=()):
     if scope_reason:
         event["scope_reason"] = scope_reason
     elif unclosable:
-        event["builder_skipped"] = "No Builder change can give these lines mutation evidence: " + str(
-            mutation_report.get("note") or mutation_report["unavailable"]
+        event["builder_skipped"] = "No Builder change can give these lines mutation evidence: " + (
+            str(mutation_report.get("note") or mutation_report["unavailable"])
+            if not gaps
+            else _no_site(tester_only, mutation_report)
         )
     else:
         # Which Builder round this is and how many the gate allows, so the status view can say
@@ -143,6 +184,12 @@ def route(state: RunState, record, *, investigation_enabled, rejected=()):
     )
     if unclosable:
         reason += ". " + event["builder_skipped"]
+    elif event["action"] == "builder" and tester_only:
+        # The Builder's work is the lines a test can settle; the others wait for the Tester's reasons.
+        reason += (
+            f". {len(tester_only)} of the {len(gaps)} open lines have no mutation outcome, so no test you add "
+            "can mark them tested; leave them to the Tester's reasons: " + _listed(tester_only)
+        )
     run_status.running(
         state,
         "EXECUTING",

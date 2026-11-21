@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_action_resolver as action_resolver
+    from . import autocode_attempt_ledger as attempt_ledger
     from . import autocode_controller_owner as controller_owner  # noqa: F401 - runner compatibility export
     from . import autocode_interaction_timing as interaction_timing
     from . import autocode_names as names
@@ -39,6 +40,7 @@ try:
     from .autocode_model_inventory import InvocationInventory
 except ImportError:
     import autocode_action_resolver as action_resolver
+    import autocode_attempt_ledger as attempt_ledger
     import autocode_controller_owner as controller_owner  # noqa: F401 - runner compatibility export
     import autocode_interaction_timing as interaction_timing
     import autocode_names as names
@@ -364,6 +366,12 @@ def reject_completed_stage(state: RunState, run_dir, record, error):
 
 
 _changed_code_proof = role_launch.changed_code_proof
+
+
+def read_only_drift(record, message):
+    """A read-only result set aside for source drift: the attempt records why, then the same pause."""
+    attempt_ledger.mark_unusable(record, message)
+    return support.Paused("PAUSED_STALE_VALIDATION", message)
 
 
 def run_role(
@@ -857,9 +865,7 @@ def run_role(
             state, record, workspace, base, before, events, save=save, allow_write=allow_write
         )
     if not allow_write and before["revision"] != after["revision"]:
-        raise support.Paused(
-            "PAUSED_STALE_VALIDATION", "Repository changed during read-only review; preserve result and revalidate"
-        )
+        raise read_only_drift(record, "Repository changed during read-only review; preserve result and revalidate")
     try:
         with phase_timing.measure(state, "report_loading", stage=stage, attempt=attempt):
             value = load_stage_report(
@@ -1338,8 +1344,8 @@ def reconcile_active(state: RunState, run_dir, workspace):
     before = read_json(Path(record["before_ref"]))
     after = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
     if not stage_access.writes_source(record) and before["revision"] != after["revision"]:
-        raise support.Paused(
-            "PAUSED_STALE_VALIDATION",
+        raise read_only_drift(
+            record,
             f"Read-only stage revision changed across interruption: {record['stage']} ran on source "
             f"{before['revision'][:12]}, the workspace is now at {after['revision'][:12]}; its result is not applied. "
             f"After inspecting the change, use --abandon-stage {attempt_id(record)} to set the result aside "

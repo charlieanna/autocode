@@ -6,6 +6,7 @@ import argparse
 import copy
 import json
 import re
+import shlex
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -37,6 +38,7 @@ try:
     from . import (
         autocode_planning_graph as planning_graph,
     )
+    from . import autocode_progressive_state as progressive_state
     from . import (
         autocode_requirement_coverage as requirement_coverage,
     )
@@ -55,9 +57,11 @@ try:
     from . import (
         autocode_source_trace as source_trace,
     )
+    from . import autocode_tester_probes as tester_probes
     from . import (
         autocode_util as util,
     )
+    from . import autocode_verification_plan as verification_plan
 except ImportError:
     import autocode_acceptance_test_repair as acceptance_test_repair
     import autocode_acceptance_tests as acceptance_tests
@@ -68,13 +72,16 @@ except ImportError:
     import autocode_plan_retention as retention
     import autocode_plan_revision_reference as revision_reference
     import autocode_planning_graph as planning_graph
+    import autocode_progressive_state as progressive_state
     import autocode_requirement_coverage as requirement_coverage
     import autocode_requirement_cues as requirement_cues
     import autocode_requirement_quotes as requirement_quotes
     import autocode_requirements_faults as requirements_faults
     import autocode_requirements_report as requirements_report
     import autocode_source_trace as source_trace
+    import autocode_tester_probes as tester_probes
     import autocode_util as util
+    import autocode_verification_plan as verification_plan
 
 SPEC_VERSION = 1
 _PLANNING_STAGES = ("draft_plan", "revise_plan", "finalize_plan")
@@ -126,6 +133,14 @@ def build_spec(
     if stage in claim_evidence.CLAIM_STAGES:
         # The claim judge's inputs (#3904, #3947): admission reads the same context from the run.
         spec[claim_evidence.SPEC_KEY] = claim_evidence.context(state, workspace)
+    if stage == "tester":
+        # The approved required commands, so a PASS criterion citing only them is refused here as the runner
+        # refuses it (autocode_tester_probes).
+        try:
+            context = progressive_state.context(state)
+            spec["approved_commands"] = verification_plan.approved_commands(state, progressive_context=context)
+        except ValueError:
+            spec["approved_commands"] = []
     if stage == "requirements_gather":
         spec["source_texts"] = requirement_cues.source_texts(state)
         spec["coverage_checklist"] = requirement_cues.coverage_checklist(state)
@@ -340,6 +355,38 @@ def _check_validator(data: dict[str, Any], workspace: Path, errors: list[str]) -
                 errors.append(message)
 
 
+def _receipt_command(workspace: Path, ref) -> str | None:
+    """The command of the capture receipt a check cites, as the runner fills a null command
+    (autocode_support.verify_checks), read but not authenticated; None when it cannot be read."""
+    if not isinstance(ref, str) or not ref.strip() or ref.startswith("event:"):
+        return None
+    path = Path(ref) if Path(ref).is_absolute() else workspace / ref
+    try:
+        receipt = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    argv = receipt.get("command") if isinstance(receipt, dict) else None
+    if not isinstance(argv, list) or not argv or not all(isinstance(word, str) for word in argv):
+        return None
+    return shlex.join(argv)
+
+
+def _check_tester_probes(data: dict[str, Any], spec: dict[str, Any], workspace: Path, errors: list[str]) -> None:
+    """The runner's probe rejection (autocode_tester_probes.admit) and its message, for a Tester report. A
+    check whose receipt cannot be read is never a probe; an unbound exit_code is not a failure here."""
+    approved = spec.get("approved_commands")
+    if not isinstance(approved, list):
+        return  # a spec written before the probe check
+    report = copy.deepcopy(data)
+    for check in report.get("checks") or []:
+        if isinstance(check, dict) and check.get("command") is None:
+            check["command"] = _receipt_command(workspace, check.get("evidence_ref"))
+    try:
+        tester_probes.admit(report, [command for command in approved if isinstance(command, str)])
+    except ValueError as exc:
+        errors.append(str(exc))
+
+
 def _check_evidence_binding(stage: str, data: dict[str, Any], errors: list[str]) -> None:
     """The final evidence-binding gate's decision and message (autopilot.apply_review_result, #3891), for the
     criterion event citations decidable before the runner binds the checks. That gate reads the Tester's
@@ -392,6 +439,7 @@ def check_report(raw_text: str, *, spec: dict[str, Any]) -> list[str]:
     schema = spec.get("schema")
     if isinstance(schema, dict) and schema:
         data = acceptance_test_repair.normalize_absent(data, schema, {"stage": stage})
+        data = tester_probes.default_reason(data, schema)
         try:
             util.validate_schema(data, schema, where="$")
         except ValueError as exc:
@@ -425,6 +473,8 @@ def check_report(raw_text: str, *, spec: dict[str, Any]) -> list[str]:
         _check_validator(data, workspace, errors)
         _check_evidence_binding(stage, data, errors)
         _check_claims(stage, data, spec, workspace, errors)
+        if stage == "tester":
+            _check_tester_probes(data, spec, workspace, errors)
     elif stage == "investigate_stuck":
         _check_investigate_stuck(data, errors)
     return errors

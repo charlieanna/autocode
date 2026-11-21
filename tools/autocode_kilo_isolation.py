@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_context as handoff_context
     from . import autocode_kilo_linux_boundary as linux_boundary
     from . import autocode_kilo_native as rules
     from . import autocode_kilo_source_relay as relay
@@ -38,6 +39,7 @@ try:
     from . import autocode_util as util
     from . import autocode_visual_profile as files
 except ImportError:
+    import autocode_context as handoff_context
     import autocode_kilo_linux_boundary as linux_boundary
     import autocode_kilo_native as rules
     import autocode_kilo_source_relay as relay
@@ -423,7 +425,12 @@ def whole_client_policy(
     )
     # The shell control and native client are siblings. Their exact read
     # exceptions belong to this whole-client policy, not the shell renderer.
-    exceptions = ["(require-not (subpath " + json.dumps(str(path)) + "))" for path in (target, control)]
+    # The run's context artifacts are part of the handoff: it names them by path and tells the stage
+    # to read them (#3907), so the denial of the rest of the run leaves them readable.
+    exceptions = [
+        "(require-not (subpath " + json.dumps(str(path)) + "))"
+        for path in (target, control, handoff_context.archive_directory(target.parent))
+    ]
     if prompt_file is not None:
         prompt = Path(prompt_file).resolve()
         _require(prompt.is_relative_to(root / ".autocode/runs"), "original prompt is outside its owned run")
@@ -1171,6 +1178,10 @@ class KiloRoleIsolation:
             ]
             if prompt is not None:
                 reads.append(Path(prompt))
+            # The handoff's context artifacts (#3907); a bind needs an existing path, and a run that
+            # moved nothing into one has nothing there to read.
+            if (archive := handoff_context.archive_directory(target.parent)).is_dir():
+                reads.append(archive)
             value = linux_boundary.policy(
                 policy_path,
                 kind="client",

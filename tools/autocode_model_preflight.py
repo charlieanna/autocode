@@ -57,6 +57,7 @@ try:
     from . import autocode_cost as cost
     from . import autocode_model_unavailable as model_unavailable
     from . import autocode_preflight_attempts as attempts
+    from . import autocode_preflight_stop as preflight_stop
     from . import autocode_process as processes
     from . import autocode_provider_auth as provider_auth
     from . import autocode_provider_env as provider_env
@@ -76,6 +77,7 @@ except ImportError:
     import autocode_cost as cost
     import autocode_model_unavailable as model_unavailable
     import autocode_preflight_attempts as attempts
+    import autocode_preflight_stop as preflight_stop
     import autocode_process as processes
     import autocode_provider_auth as provider_auth
     import autocode_provider_env as provider_env
@@ -421,6 +423,17 @@ def fitted_routes(settings, routes) -> dict:
     return fitted
 
 
+def _engine(routes, role) -> str:
+    """The engine a probe of ``role``'s route runs on: the route's own, else OpenCode.
+
+    Only OpenCode-engine routes are probed (``autocode_role_transport.groups``; a selection's tools
+    are OpenCode or Kilo), so a Kilo route is provider kilocode on this engine, as its stages are.
+    """
+    route = routes.get(role) if isinstance(routes, dict) else None
+    engine = route.get("engine") if isinstance(route, dict) else None
+    return engine if isinstance(engine, str) and engine else "opencode"
+
+
 def certify(state: RunState, model, effort, outcome, checkpoint) -> None:
     """A probe that passed proves this model serves this level: record it for later fits (#2057).
 
@@ -634,6 +647,7 @@ def check(
             efforts.get(model),
             roles.get(model),
             tuple(name for name in sorted(routes) if (routes[name] or {}).get("model") == model),
+            _engine(routes, roles.get(model)),
         )
         for adapter, routes, identity, probed, wanted, efforts, roles in receipts
         for model in wanted
@@ -643,7 +657,7 @@ def check(
         or _imminent_requirements_binding(state, adapter, routes) != {"schema": 1, "identity": identity, "model": model}
     ]
     tools_checked = False
-    for adapter, identity, probed, model, effort, role, model_roles in pending:
+    for adapter, identity, probed, model, effort, role, model_roles, engine in pending:
         # A role bound with --role-transport names its tool; the same model may also be on the run's tool.
         where = "" if adapter is getattr(runner, "opencode", None) else f" on {(identity or {}).get('provider')}"
         before_probe()
@@ -664,6 +678,8 @@ def check(
             time.monotonic,
             preflight_identity=identity,
             roles=model_roles,
+            effort=effort,
+            engine=engine,
         )
         finite_time = ((state.get("settings") or {}).get("limits") or {}).get("max_seconds")
         try:
@@ -706,19 +722,9 @@ def check(
             print(f"Model preflight: {model}{where} cannot be used; the Builder keeps its route", flush=True)
             raise support.Paused(state["status"], state.get("stop_reason") or "Builder retries exhausted")
         if outcome["blocking"]:
-            affected = (
-                f" (role: {model_roles[0]})"
-                if len(model_roles) == 1
-                else f" (roles: {', '.join(model_roles)})"
-                if model_roles
-                else ""
-            )
-            raise support.Paused(
-                outcome["status"],
-                f"Model access preflight failed for {model}{where}{affected}: {outcome['detail'] or outcome['status']}. "
-                "Billing or login for this route cannot serve the model; fix it before any stage spend. "
-                f"Probe evidence: {outcome['evidence']}",
-            )
+            # Said from the probe's saved record, so every pause handler saves the same stop reason and
+            # the provider's own words stay in the record and its evidence (autocode_preflight_stop).
+            raise support.Paused(outcome["status"], preflight_stop.compose(attempt.record))
         _allowance(runner, state, run_dir, workspace, timeout)
         if outcome["status"] == "ok":
             print(f"Model preflight: {model}{where} ok ({outcome['seconds']}s)", flush=True)

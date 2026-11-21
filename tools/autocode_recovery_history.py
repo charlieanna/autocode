@@ -252,6 +252,23 @@ def _rejections(state: RunState):
         )
 
 
+def _repair_reasons(rejections) -> str | None:
+    """Why each report was rejected, oldest first (#3831); a run saved before they were kept has none.
+
+    The first is the stage's own report; each later one is a rewrite that was rejected again.
+    """
+    if not isinstance(rejections, list):
+        return None
+    texts = [text for text in rejections if isinstance(text, str) and text.strip()]
+    if len(texts) <= 1:
+        return _plain(texts[0]) if texts else None
+    labels = ["Its report:", *(f"Rewrite {number}:" for number in range(1, len(texts)))]
+    # Each rejection gets its share of the field, so a later one is not cut off by the first.
+    share = TEXT // len(texts) - max(len(label) for label in labels) - 1
+    parts = [f"{label} {reason}" for label, text in zip(labels, texts, strict=True) if (reason := _plain(text, share))]
+    return " ".join(parts) or None
+
+
 def _report_repairs(state: RunState):
     """A stage that finished its work but whose report failed its checks, and rewrote it."""
     for row in state.get("report_repair_history") or []:
@@ -275,7 +292,7 @@ def _report_repairs(state: RunState):
             stage,
             state,
             headline=f"{job} rewrote its report",
-            problem=None,
+            problem=_repair_reasons(row.get("rejections")),
             action=f"Its work stood; only the report was rewritten.{took} {done}",
             handled=row.get("result") == "accepted",
         )
@@ -343,8 +360,8 @@ def _sent_back(state: RunState):
             action, by = "AutoCode sent the selected tests to the independent Tester for stronger assertions.", "Tester"
         elif row.get("action") == "investigator" and row.get("builder_skipped"):
             action, by = (
-                "No Builder change can give these lines mutation evidence for this test runner, "
-                "so AutoCode called the Investigator.",
+                "No Builder change can give these lines mutation evidence (their test runner has no "
+                "mutation source, or they have no mutation site), so AutoCode called the Investigator.",
                 "Investigator",
             )
         elif row.get("action") == "investigator":

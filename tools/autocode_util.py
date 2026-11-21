@@ -535,6 +535,24 @@ def unlock_file(handle):
 
 
 @contextlib.contextmanager
+def store_lock(path):
+    """Hold an exclusive lock on the store at ``path`` until the block ends (#3858).
+
+    The lock is a sidecar file beside the store (``stages.toml.lock``), so the store itself can still be
+    replaced atomically. A caller reads, changes and writes the store inside the block; a second writer
+    waits for the first, then reads what it wrote, so no successful update is lost.
+    """
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.with_name(target.name + ".lock").open("a+") as handle:
+        lock_file(handle, blocking=True)
+        try:
+            yield
+        finally:
+            unlock_file(handle)
+
+
+@contextlib.contextmanager
 def workspace_lock(workspace):
     path = Path(workspace) / ".autocode" / "writer.lock"
     path.parent.mkdir(parents=True, exist_ok=True)

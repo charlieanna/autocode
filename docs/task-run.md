@@ -1511,7 +1511,7 @@ modulo formatting (#1013). On a strict choice question, any other text is reject
 current, and something the options do not cover goes in `--feedback` (`/feedback` in
 `--chat`, which asks again after a rejected answer). A question without options takes any
 nonempty text. When the current turn has an accepted Requirements handoff, `view.requirements`
-projects `{handoff_ref, intended_outcome, requirements, proposed_assumptions, acceptance_tests, conflicts, job, clarity}`
+projects `{handoff_ref, intended_outcome, requirements, proposed_assumptions, acceptance_tests, constraints, conflicts, job, clarity}`
 (`null` otherwise; `job` and `clarity` are what that report named, each `null` when it named none, #3630), and `--delegate-all` / `--reject-assumption` bind `--review-token` to
 `handoff_ref` before a goal contract exists (#3650). The terminal CLI also shows the remaining question IDs and
 the exact `--answer` command on stderr after each successful answer and on `--status`; that

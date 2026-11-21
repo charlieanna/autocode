@@ -715,6 +715,38 @@ class FailureRoutingCLI(unittest.TestCase):
         self.assert_no_strong()
         self.assertEqual(user_source, (self.project / "main.py").read_text())
 
+    def test_ac18_real_drift_pause_journals_one_unaccepted_investigation(self):
+        self.seed()
+        self.env.update(BUILD_AUDIT_FAULT="no_change", FAILURE_ROUTING_DIAGNOSIS="execution", FAILURE_ROUTING_HOLD="1")
+        process = subprocess.Popen(
+            self.command("autocode", ["--run-dir", str(self.run), "--no-chat"]),
+            cwd=self.root,
+            env=self.env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            self.wait_for(lambda: (self.root / "investigator-ready").exists(), process, "Investigator source barrier")
+            (self.project / "main.py").write_text("print('user change must survive')\n")
+            (self.root / "release-investigator").touch()
+            stdout, stderr = process.communicate(timeout=45)
+            (self.root / "drift-journal-cli.log").write_text(stdout + stderr)
+            self.assertEqual(2, process.returncode, stdout + stderr)
+        finally:
+            if process.poll() is None:
+                process.kill()
+            if not (self.root / "drift-journal-cli.log").exists():
+                stdout, stderr = process.communicate(timeout=10)
+                (self.root / "drift-journal-cli.log").write_text(stdout + stderr)
+        reason = "Repository changed during read-only review; preserve result and revalidate"
+        self.assertEqual("PAUSED_STALE_VALIDATION", self.status()["status"])
+        entries = [json.loads(line) for line in (self.run / "activity.jsonl").read_text().splitlines()]
+        finished = [e for e in entries if e["event"] == "stage_finished" and e["stage"] == "investigate_stuck"]
+        self.assertEqual(1, len(finished), finished)
+        self.assertEqual(("unaccepted", reason), (finished[0].get("outcome"), finished[0].get("outcome_reason")))
+        self.assertIsNotNone(finished[0]["finished_at"])
+
     def test_crash_resume_retains_pending_investigation_without_replay_or_renewal(self):
         self.seed()
         hook = self.root / "hook"

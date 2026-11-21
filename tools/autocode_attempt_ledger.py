@@ -9,9 +9,14 @@ Grouping identifies a call; it never chooses which observation is true.
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
+
+# The core records why it set a cleanly stopped attempt's result aside (read-only source drift).
+UNUSABLE = "unusable_reason"
+REASON_LIMIT = 500
 
 
 def running_stage(state: Mapping[str, Any]):
@@ -130,3 +135,86 @@ def finished_records(state: Mapping[str, Any]):
         ):
             records.append(retained)
     return records
+
+
+def mark_unusable(record, reason):
+    """Record on a stopped attempt why its result is not used; the journal reads it as its outcome."""
+    record[UNUSABLE] = str(reason)[:REASON_LIMIT]
+
+
+class JournalAttempt(NamedTuple):
+    """One attempt as the activity journal sees it; ``outcome`` is None until it is terminal."""
+
+    digest: str
+    position: int | None  # position in stages, None for the retained active stage
+    record: dict
+    outcome: str | None
+    reason: str | None
+    former: tuple[str, ...] = ()  # digests of the same attempt before its artifacts were archived
+
+
+def _short(identity):
+    # The journal records no file names: an attempt is named by a short digest of its identity.
+    return hashlib.sha256(identity.encode()).hexdigest()[:16]
+
+
+def _digest(record, namespace, index):
+    return _short(attempt_identity(record, namespace=namespace, index=index))
+
+
+def _former(record, namespace):
+    """Digests of the identity this attempt had before archive_rejected_stage moved its artifacts."""
+    archived = record.get("archived_paths")
+    if not isinstance(archived, dict):
+        return ()
+    for field in ("events", "output"):
+        current = _artifact_path(record.get(field), namespace)
+        if current is not None:
+            return tuple(
+                _short(f"{field}:{_artifact_path(old, namespace)}")
+                for old, new in archived.items()
+                if _artifact_path(old, namespace) is not None and _artifact_path(new, namespace) == current
+            )
+    return ()
+
+
+def _saved_outcome(record):
+    """A saved row is terminal unless it still carries the preflight admission marker."""
+    if record.get("preflight_complete") is False:
+        return None  # admitted, or finished with provider cleanup unverified: never inferred settled
+    preflight = record.get("preflight_outcome")
+    if isinstance(preflight, dict) and isinstance(preflight.get("status"), str) and preflight["status"]:
+        return preflight["status"]
+    return "rejected" if record.get("rejected") else "completed"
+
+
+def _retained_outcome(state: Mapping[str, Any], record):
+    """A retained attempt is terminal only once the core rejected its result and the run stopped."""
+    reason = record.get(UNUSABLE)
+    finished = record.get("finished_at") or record.get("completed_at")
+    if isinstance(reason, str) and reason and finished and state.get("status") != "RUNNING":
+        return "unaccepted", reason[:REASON_LIMIT]
+    return None, None
+
+
+def journal(state: Mapping[str, Any]):
+    """Every attempt with its terminal outcome for the activity journal, in saved order.
+
+    Saved rows come first; a stopped retained active stage that no saved row represents
+    comes last. The journal announces an attempt once, when its outcome is first known.
+    """
+    stages = state.get("stages")
+    stages = stages if isinstance(stages, list) else []
+    namespace = run_identity(state.get("run_dir") or state.get("task_id")) or ""
+    found = [
+        JournalAttempt(_digest(row, namespace, index), index, row, _saved_outcome(row), None, _former(row, namespace))
+        for index, row in enumerate(stages)
+        if isinstance(row, dict)
+    ]
+    retained = state.get("active_stage")
+    if isinstance(retained, dict) and retained and not running_stage(state):
+        digest = _digest(retained, namespace, len(stages))
+        if not any(row.record is retained or digest in (row.digest, *row.former) for row in found):
+            outcome, reason = _retained_outcome(state, retained)
+            found.append(JournalAttempt(digest, None, retained, outcome, reason))
+    return found
