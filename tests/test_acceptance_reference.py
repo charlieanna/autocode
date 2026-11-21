@@ -252,6 +252,15 @@ class AcceptanceReferenceTests(unittest.TestCase):
         self.assertEqual({"AC1": "fails"}, result.get("verdicts"), result)
         self.assertNotIn(str(self.workspace / ".venv"), result["receipt"]["command"])
 
+    @unittest.skipUnless(importlib.util.find_spec("pytest"), "the suite's interpreter needs pytest to compare")
+    def test_an_original_reference_runner_that_never_started_is_named_so(self):
+        empty = self.root / "empty-venv"
+        subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(empty)], check=True)
+        command = f"{empty / 'bin' / 'python'} -m pytest -q tests/test_feature.py"
+        result = self.collect(command=command, selected={"AC1": ["tests.test_feature.Feature::test_ac1_answer"]})
+        self.assertIn("could not start its test runner", result["error"])
+        self.assertIn("No module named pytest", result["runner_not_started"]["tail"])
+
     def test_missing_or_unsafe_reference_inputs_hold_before_execution(self):
         with patch.object(reference.run_base, "base_commit", return_value=None):
             self.assertIn("no recorded original reference", self.collect()["error"])
