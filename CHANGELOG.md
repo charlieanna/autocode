@@ -23,6 +23,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **A stuck test module no longer holds CI to its six-hour limit**: the Linux suite and diff-coverage jobs ran `tools/run_suite.py` with no per-module limit, so one stuck module kept `ci-required` waiting without saying which module it was. Every module running in parallel now ends as a named timed-out failure after an hour, or two for a module in `tests/suite_slow.json`, bounds measured from hosted Linux CI. `--module-timeout` still sets one limit for every module, and `--module-timeout 0` none (#4011).
+
 - **A Tester check run through the capture tool no longer fails its clean replay**: when a Tester captured a noisy check (`autocode capture --output R -- <command>`) and cited its event, or left the command for the runner to fill in, the check kept the capture invocation as its command. The clean-copy replay then ran that invocation again, which refuses an existing receipt ("existing evidence is immutable"), and a passing report paused `PAUSED_INVALID_OUTPUT`. Such a check is now the captured command, proved by the receipt the capture wrote and authenticated as a cited receipt is. A capture whose receipt is missing or names another command or exit code keeps its event citation.
 
 - **A slow suite's mutation check no longer stops short in every continuation window**: each continuation window runs the unmutated tests again, and that run's time was taken from the window's mutant budget. With a reference over half the window, no mutant that runs every selected test had enough time, in that window or any later one. The window now gets the reference's time back, still within the run's total allowance.

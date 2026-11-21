@@ -98,6 +98,13 @@ REPO_ROOT = HERE.parent
 TESTS_DIR = REPO_ROOT / "tests"
 DEFAULT_EXCLUSIONS_PATH = TESTS_DIR / "suite_exclusions.json"
 DEFAULT_SLOW_PATH = TESTS_DIR / "suite_slow.json"
+# Each test module's limit when --module-timeout is not given (#4011), so one stuck module ends as a named
+# timed-out failure rather than holding the run until the CI job's own limit. Measured on hosted Linux CI on
+# 2026-11-21: across 43 recent pull-request runs a module not in suite_slow.json took at most 1315 s in the
+# suite and 2551 s under coverage.py (diff-coverage), and master's full run, all modules side by side, took
+# 1166 s; a module in suite_slow.json took at most 4613 s (master) and 3295 s (diff-coverage).
+FAST_MODULE_TIMEOUT = 3600.0
+SLOW_MODULE_TIMEOUT = 7200.0
 
 
 def load_exclusions(path: Path) -> dict[str, str]:
@@ -571,12 +578,20 @@ def first_skip(output: str) -> str:
     return match.group(1) if match else ""
 
 
+def module_timeouts(modules: list[str], slow: dict[str, str], override: float | None = None) -> dict[str, float | None]:
+    """Each module's limit in seconds, or None for none: `override` for every module when given (0 is no limit),
+    otherwise the measured bound for a module in suite_slow.json or for any other one."""
+    if override is not None:
+        return {module: override if override > 0 else None for module in modules}
+    return {module: SLOW_MODULE_TIMEOUT if module in slow else FAST_MODULE_TIMEOUT for module in modules}
+
+
 def run_parallel(
     modules: list[str],
     jobs: int,
     verbosity: int,
     unit: str = "modules",
-    timeout: float | None = None,
+    timeout: float | dict[str, float | None] | None = None,
     failed_out: Path | None = None,
 ) -> bool:
     """Run each module in its own process, ``jobs`` at a time. A failing module's whole output is printed
@@ -593,10 +608,14 @@ def run_parallel(
     rows = []
     failed = []
     tests = 0
-    bound = [timeout] if timeout is not None else []
+
+    def bound(module: str) -> list[float]:
+        limit = timeout.get(module) if isinstance(timeout, dict) else timeout
+        return [limit] if limit is not None else []
+
     unprivileged_prefix()  # once, before the workers race to compute it and each print its notice
     with ThreadPoolExecutor(jobs) as pool:
-        for future in as_completed([pool.submit(run_module, module, verbosity, *bound) for module in modules]):
+        for future in as_completed([pool.submit(run_module, module, verbosity, *bound(module)) for module in modules]):
             row = future.result()
             rows.append(row)
             tests += row["tests"]
@@ -691,8 +710,8 @@ def main(argv: list[str] | None = None) -> int:
         "--module-timeout",
         type=float,
         metavar="SECONDS",
-        help="with --jobs above 1, end a test module still running after SECONDS and report it as a timed-out failure "
-        "(default: no limit)",
+        help="with --jobs above 1, end a test module still running after SECONDS and report it as a timed-out failure; "
+        f"0 sets no limit (default: {FAST_MODULE_TIMEOUT:g}, or {SLOW_MODULE_TIMEOUT:g} for a module in suite_slow.json)",
     )
     args = parser.parse_args(argv)
 
@@ -779,7 +798,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.jobs > 1 and not args.durations:
         return (
             0
-            if run_parallel(modules, args.jobs, args.verbosity, timeout=args.module_timeout, failed_out=args.failed_out)
+            if run_parallel(
+                modules,
+                args.jobs,
+                args.verbosity,
+                timeout=module_timeouts(modules, slow, args.module_timeout),
+                failed_out=args.failed_out,
+            )
             else 1
         )
 
