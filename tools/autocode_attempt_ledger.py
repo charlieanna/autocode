@@ -146,7 +146,7 @@ class JournalAttempt(NamedTuple):
     """One attempt as the activity journal sees it; ``outcome`` is None until it is terminal."""
 
     digest: str
-    index: int | None  # position in stages, None for the retained active stage
+    position: int | None  # position in stages, None for the retained active stage
     record: dict
     outcome: str | None
     reason: str | None

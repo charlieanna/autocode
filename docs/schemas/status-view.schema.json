@@ -1153,6 +1153,7 @@
               }
             },
             "acceptance_tests": {"type": "array", "items": {"type": "string"}},
+            "constraints": {"type": "array", "items": {"type": "string"}},
             "conflicts": {
               "type": "array",
               "items": {

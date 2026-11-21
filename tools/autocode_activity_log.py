@@ -158,12 +158,12 @@ def _finished(before: dict, current: dict, state: RunState) -> list[dict]:
     retained = list(before.get("retained") or [])
     pending = []
     for attempt in attempt_ledger.journal(state):
-        if attempt.index is None:
+        if attempt.position is None:
             if attempt.outcome is not None and attempt.digest not in retained:
                 found.append(_stage_finished(attempt))
                 retained.append(attempt.digest)
             continue
-        if attempt.index < logged and attempt.digest not in unsettled:
+        if attempt.position < logged and attempt.digest not in unsettled:
             continue  # announced, or skipped, when it was appended
         announced = [digest for digest in (attempt.digest, *attempt.former) if digest in retained]
         if attempt.outcome is None:
