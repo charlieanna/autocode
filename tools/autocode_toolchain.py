@@ -60,6 +60,44 @@ class Unadmitted(RuntimeError):
         self.missing = missing  # absent from PATH: installing it lets the same plan run
 
 
+SITE_DIRECTORIES = (
+    "import json, site, sysconfig; "
+    "print(json.dumps([*site.getsitepackages(), sysconfig.get_path('purelib'), sysconfig.get_path('platlib')]))"
+)
+
+
+def _site_directories(tool, root) -> list[Path]:
+    """The installed packages of an interpreter that is not a virtualenv, as that interpreter computes them.
+
+    Admitting only the standard library left a system interpreter's own packages unreadable to a contained
+    stage: Homebrew's ``lib/python3.X/site-packages`` is a symlink out of the Cellar into the prefix's
+    ``lib``, and Debian and Ubuntu keep theirs in ``/usr/lib/python3/dist-packages``, beside the standard
+    library rather than in it. ``python3 -m pytest`` then found no pytest, though the run's own suite had
+    passed with that interpreter, and a Planner correcting the plan found no interpreter with pytest at all
+    (#4015). The answer is the interpreter's own: its ``site`` module, imported with ``-I -S`` so no ``.pth``
+    file, user site or project code runs. An interpreter inside the workspace is the project's and is never
+    run here.
+    """
+    if tool.is_relative_to(root):
+        return []
+    result = subprocess.run(
+        [str(tool), "-I", "-S", "-B", "-c", SITE_DIRECTORIES],
+        cwd="/",
+        env={"PATH": "/usr/bin:/bin"},
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if result.returncode:
+        raise RuntimeError(f"Cannot identify the selected Python's site directories: {tool}: {result.stderr.strip()}")
+    found = []
+    for entry in json.loads(result.stdout):
+        path = Path(entry)
+        if path.is_absolute() and path.is_dir():
+            found.append(path.resolve())
+    return found
+
+
 def _binary_dependencies(tool):
     """The loader files a selected tool needs: Mach-O on macOS, ELF on Linux (#709)."""
     return (macho if sys.platform == "darwin" else elf).dependencies(tool)
@@ -260,6 +298,8 @@ def discover(workspace, commands, environment):
                 install = original.parent.parent
                 if (install / "pyvenv.cfg").is_file():
                     paths.add(install)
+                else:
+                    paths.update(_site_directories(tool, root))
                 stdlibs = []
                 for ancestor in tool.parents:
                     candidates = list((ancestor / "lib").glob("python*/encodings/__init__.py"))
