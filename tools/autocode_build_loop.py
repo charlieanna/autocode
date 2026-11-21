@@ -401,13 +401,13 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
             and (current.get(acceptance_tests.KEY) or {}).get(acceptance_retry.KEY) is not None
         ):
             record_resume(runner, args, current, state_path)
-            retained = acceptance_retry.dispatch(
+            result = acceptance_retry.dispatch(
                 runner, current, stage, workspace, run_dir, apply=autopilot.unit_module(stage).apply_job
             )
-            if retained is not None:
-                return retained
-            # Test-cause Investigator advice retired the retained report: the ordinary test-writing step runs
-            # with that guidance (the resume above is recorded once per invocation).
+            # Superseding an old report changes no completed stage. Restart at
+            # the saved state so the replacement writer runs before boundary
+            # callbacks or a pause-after-stage can claim work was completed.
+            return runner.orchestrator.SKIP if result is None else result
         request = autopilot.prepare_request(
             current,
             stage,

@@ -95,6 +95,19 @@ def reconcile_checkpoint(runner, args, parser, state: RunState, state_path, run_
         import autocode_checkpoint_reconciliation as reconciliation
     if stop.applied_stop(state) is not None or stop.pending_stop(run_dir) is not None:
         parser.error("A stop is pending or already applied; inspect that stop before reconciling the checkpoint")
+    try:
+        from . import autocode_catalog_reconciliation as catalog_reconciliation
+    except ImportError:
+        import autocode_catalog_reconciliation as catalog_reconciliation
+    if args.reconcile_only.startswith(catalog_reconciliation.PREFIX):
+        try:
+            # This action already owns the run lock and controller receipt; inspecting
+            # controller liveness here would observe this action's own process.
+            changes = catalog_reconciliation.reconcile(runner, state, run_dir, args.reconcile_only)
+        except (OSError, ValueError, TypeError, support.Paused) as error:
+            parser.error(str(error))
+        print("Source inventory reconciled; Requirements will revisit: " + "; ".join(changes))
+        return 0
     active = state.get("active_stage") or {}
     fresh = runner.supervision.observe(active.get("supervision"))
     try:

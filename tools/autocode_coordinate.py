@@ -120,6 +120,7 @@ def initialize(run_dir, *, command=tasks.AUTOCODE):
         "joint_attempts": [],
         "initial_scope": scope["external_parts"],
         "source_catalog": source_info,
+        "source_catalog_receipt": view.get("source_catalog_receipt"),
     }
     store.save(document)
     return document
@@ -164,6 +165,11 @@ def add_member(document, target, entry, brief, *, reported_work=None, supporting
 def observe(document, *, command=tasks.AUTOCODE):
     if document.get("anchor_turn"):
         current_anchor = anchor_view(document["anchor"], command=command)
+        if (
+            "source_catalog_receipt" in document
+            and current_anchor.get("source_catalog_receipt") != document["source_catalog_receipt"]
+        ):
+            raise store.CoordinationError("The anchor source inventory changed; review the updated request")
         if "request_sources" in document and current_anchor.get("request_sources", []) != document["request_sources"]:
             raise store.CoordinationError("The anchor request sources changed; review the updated request")
         if current_anchor.get("turn") != document["anchor_turn"] or current_anchor.get("task") != document["task"]:
@@ -220,7 +226,10 @@ def request_evidence(document, views, target):
                 from . import autocode_catalog_context as source_catalog
             except ImportError:
                 import autocode_catalog_context as source_catalog
-            if citation := source_catalog.evidence({"run_dir": document["anchor"]}, part["evidence"]):
+            if citation := source_catalog.evidence(
+                {"run_dir": document["anchor"], "source_catalog_receipt": document.get("source_catalog_receipt")},
+                part["evidence"],
+            ):
                 result.update(
                     evidence_repository=citation["repository"],
                     evidence_revision=citation["revision"],

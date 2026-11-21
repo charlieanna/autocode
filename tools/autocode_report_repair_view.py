@@ -79,7 +79,7 @@ def _reason(value):
     return result
 
 
-def project(state: RunState, *, stale=False):
+def project(state: RunState, *, stale=False, current_revision=None, source_unavailable=False):
     pending = state.get("pending_report_repair")
     if not isinstance(pending, dict):
         return None
@@ -97,10 +97,18 @@ def project(state: RunState, *, stale=False):
         or stage != state.get("next_stage")
         or pending.get("contract_hash") != contract
         or (task.get("id") is not None and original.get("task_id") != task["id"])
-        or (task.get("source_revision") is not None and source != task["source_revision"])
+        or (current_revision is not None and source != current_revision)
         or (_object(pending.get("latest_rejected")).get("source_revision", source) != source)
     )
-    freshness = "unavailable" if source is None else "stale" if changed else "recorded"
+    freshness = (
+        "unavailable"
+        if source is None or source_unavailable
+        else "stale"
+        if changed
+        else "unavailable"
+        if current_revision is None
+        else "recorded"
+    )
     active = _object(state.get("active_stage"))
     return {
         "stage": stage,

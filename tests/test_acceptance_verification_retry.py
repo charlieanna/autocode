@@ -5,6 +5,7 @@ import json
 import subprocess
 import tempfile
 import unittest
+from contextlib import ExitStack
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -227,7 +228,18 @@ class AcceptanceVerificationRetryTests(unittest.TestCase):
         self.state["status"] = "PAUSED_INVALID_OUTPUT"
         before = copy.deepcopy(self.state)
         paths = {key: Path(self.record[key]).read_bytes() for key in retry.ARTIFACTS}
-        for change in ("source", "task", "contract", "pin", "uncertain", "malformed", "active_check", "active_stage"):
+        for change in (
+            "source",
+            "task",
+            "contract",
+            "pin",
+            "uncertain",
+            "malformed",
+            "malformed_investigations",
+            "malformed_provenance",
+            "active_check",
+            "active_stage",
+        ):
             with self.subTest(change=change):
                 self.state = copy.deepcopy(before)
                 (self.workspace / "tests/test_feature.py").write_text("# independently written test\n")
@@ -245,6 +257,10 @@ class AcceptanceVerificationRetryTests(unittest.TestCase):
                     self.state["uncertain_artifacts"] = [{"reason": "unknown outcome"}]
                 elif change == "malformed":
                     self.state[acceptance.KEY][retry.KEY] = ["invalid"]
+                elif change == "malformed_investigations":
+                    self.state[acceptance.KEY][retry.KEY]["investigations"] = 42
+                elif change == "malformed_provenance":
+                    self.state[acceptance.KEY][retry.KEY]["provenance_retry"] = "unknown"
                 elif change == "active_check":
                     self.state["active_runner_check"] = {"stage": "verification", "summary": "still running"}
                 else:
@@ -270,11 +286,11 @@ class AcceptanceVerificationRetryTests(unittest.TestCase):
     def test_retained_retry_does_not_claim_a_different_next_stage(self):
         self.start_retry()
         self.state["next_stage"] = "builder"
-        self.state["status"] = "PAUSED_INVALID_OUTPUT"
         shown = run_view.view(self.state, workspace=self.workspace, run_dir=self.run)
         self.assertEqual("blocked", shown["acceptance_verification_retry"]["next"])
         self.assertEqual("builder", shown["next_stage"])
-        self.assertIsNotNone(shown["next_command"], "A separately named Builder continuation stays available")
+        self.assertEqual("continue", shown["needs"]["kind"])
+        self.assertIn("--no-chat", shown["next_command"])
         with self.assertRaises(util.Paused):
             self.dispatch()
         self.runtime.run_role.assert_not_called()
@@ -452,6 +468,194 @@ class AcceptanceVerificationRetryTests(unittest.TestCase):
                     if target:
                         target.write_bytes(previous) if previous is not None else target.unlink()
         self.assertEqual(1, self.reference.call_count)
+
+    def test_new_approved_plan_supersedes_only_the_old_retained_report(self):
+        self.start_retry()
+        old = copy.deepcopy(self.state["goal_contract"])
+        pending = copy.deepcopy(self.state[acceptance.KEY][retry.KEY])
+        revised = {"task_id": old["task_id"], "revision": old["revision"] + 1, "body": copy.deepcopy(old["body"])}
+        revised["body"]["acceptance_criteria"][0]["criterion"] = "corrected answer"
+        revised["hash"] = util.digest(revised)
+        approval = {"kind": "goal_approval", "actor": "user_cli", "token": identity.token(revised)}
+        revised.update(approval_status="approved", approval_event=approval)
+        self.state["contract_history"] = [old]
+        self.state["goal_contract"] = revised
+        self.state["user_events"].append(approval)
+        self.state["current_task"] = {"id": "T2"}
+        self.state["next_stage"] = acceptance.STAGE
+
+        paused = copy.deepcopy(self.state)
+        paused.update(status="PAUSED_INVALID_OUTPUT", stop_reason="Old acceptance report retained")
+        shown = run_view.view(paused, workspace=self.workspace, run_dir=self.run)
+        self.assertEqual("tester", shown["acceptance_verification_retry"]["next"])
+        self.assertEqual("resume", shown["needs"]["kind"])
+        self.assertIn("--resume-paused", shown["next_command"])
+
+        before = copy.deepcopy(self.state)
+        self.assertIsNone(self.dispatch(), "the normal dispatch must run a fresh writer")
+        self.assertNotIn(retry.KEY, self.state[acceptance.KEY])
+        archived = self.state[acceptance.KEY]["verification_retries"][-1]
+        for key, value in pending.items():
+            self.assertEqual(value, archived[key])
+        self.assertEqual(revised["hash"], archived["superseded_by"]["contract_hash"])
+        self.assertEqual(before["stages"], self.state["stages"])
+        self.assertEqual(before["history"], self.state["history"])
+        self.runtime.run_role.assert_not_called()
+
+    def test_superseded_report_restarts_build_loop_before_stage_boundary(self):
+        import autocode_build_loop as loop
+        import autopilot
+
+        class WriterReached(Exception):
+            pass
+
+        # The retained report is retired, but no stage has completed. The
+        # next pass must reach a fresh writer before the after-stage hook.
+        self.state[acceptance.KEY][retry.KEY] = {"record": {}}
+        self.state["next_stage"] = acceptance.STAGE
+        self.state["settings"]["roles"] = {}
+        runner = SimpleNamespace(
+            native_calls=Mock(),
+            orchestrator=SimpleNamespace(SKIP=autopilot.SKIP, LoopExit=autopilot.LoopExit),
+            write_json=Mock(),
+            SCHEMA_DIR=self.run / "schemas",
+        )
+        args = SimpleNamespace(unit=None, chat=False, pause_after_stage=True)
+        after = Mock()
+
+        def drive(current, dispatch, **callbacks):
+            return autopilot.drive(current, dispatch, after=after)
+
+        runner.orchestrator.drive = drive
+
+        def supersede(current_runner, current, stage, workspace, run_dir, *, apply):
+            current[acceptance.KEY].pop(retry.KEY)
+            return None
+
+        with ExitStack() as stack:
+            for module, name in (
+                (loop.model_preflight, "check"),
+                (loop.progressive, "guard_dispatch"),
+                (loop.autopilot.builder_failure, "dispatch_guard"),
+                (loop.workflow, "dispatch_guard"),
+                (loop.autopilot, "admit_validation"),
+                (loop.completion_result, "before_review"),
+                (loop.launch_inputs, "guard"),
+            ):
+                stack.enter_context(patch.object(module, name))
+            stack.enter_context(patch.object(loop.storage_budget, "conversation_only", return_value=True))
+            stack.enter_context(patch.object(loop.planning, "is_planning", return_value=False))
+            stack.enter_context(patch.object(loop.autopilot, "revalidate_resolver", return_value=False))
+            stack.enter_context(patch.object(loop.acceptance_retry, "dispatch", side_effect=supersede))
+            stack.enter_context(patch.object(loop.autopilot, "prepare_request", side_effect=WriterReached))
+            with self.assertRaises(WriterReached):
+                loop.run(
+                    runner, args, self.state, self.run / "state.json", self.run, self.workspace, checkout_owned=True
+                )
+        after.assert_not_called()
+
+    def test_replacement_cannot_archive_a_retained_report_with_changed_pins(self):
+        self.start_retry()
+        old = copy.deepcopy(self.state["goal_contract"])
+        revised = {"task_id": old["task_id"], "revision": old["revision"] + 1, "body": copy.deepcopy(old["body"])}
+        revised["body"]["acceptance_criteria"][0]["criterion"] = "corrected answer"
+        revised["hash"] = util.digest(revised)
+        approval = {"kind": "goal_approval", "actor": "user_cli", "token": identity.token(revised)}
+        revised.update(approval_status="approved", approval_event=approval)
+        self.state["contract_history"] = [old]
+        self.state["goal_contract"] = revised
+        self.state["user_events"].append(approval)
+        pending = copy.deepcopy(self.state[acceptance.KEY][retry.KEY])
+        Path(self.record["events"]).write_text("changed pinned evidence")
+        with self.assertRaises(util.Paused):
+            self.dispatch()
+        self.assertEqual(pending, self.state[acceptance.KEY][retry.KEY])
+        self.runtime.run_role.assert_not_called()
+
+    def test_a_forged_or_unapproved_replacement_cannot_discard_a_retained_report(self):
+        self.start_retry()
+        old = copy.deepcopy(self.state["goal_contract"])
+        revised = {"task_id": old["task_id"], "revision": old["revision"] + 1, "body": copy.deepcopy(old["body"])}
+        revised["body"]["acceptance_criteria"][0]["criterion"] = "corrected answer"
+        revised["hash"] = util.digest(revised)
+        approval = {"kind": "goal_approval", "actor": "user_cli", "token": identity.token(revised)}
+        revised.update(approval_status="approved", approval_event=approval)
+        self.state["contract_history"] = [old]
+        self.state["goal_contract"] = revised
+        self.state["user_events"].append(approval)
+        original = copy.deepcopy(self.state)
+        original_events = Path(self.record["events"]).read_bytes()
+        for fault in (
+            "draft",
+            "old_approval_missing",
+            "new_approval_missing",
+            "unchanged",
+            "uncertain",
+            "duplicate_history",
+            "approval_order",
+            "different_task",
+            "active_stage",
+            "artifact_changed",
+            "pin_changed",
+            "value_changed",
+        ):
+            with self.subTest(fault=fault):
+                Path(self.record["events"]).write_bytes(original_events)
+                self.state = copy.deepcopy(original)
+                if fault == "draft":
+                    self.state["goal_contract"]["approval_status"] = "draft"
+                elif fault == "old_approval_missing":
+                    self.state["user_events"].pop(0)
+                elif fault == "new_approval_missing":
+                    self.state["user_events"].pop()
+                elif fault == "unchanged":
+                    same = {
+                        "task_id": old["task_id"],
+                        "revision": old["revision"] + 1,
+                        "body": copy.deepcopy(old["body"]),
+                    }
+                    same["hash"] = util.digest(same)
+                    same_approval = {"kind": "goal_approval", "actor": "user_cli", "token": identity.token(same)}
+                    same.update(approval_status="approved", approval_event=same_approval)
+                    self.state["goal_contract"] = same
+                    self.state["user_events"][-1] = same_approval
+                elif fault == "uncertain":
+                    self.state["uncertain_artifacts"] = ["pending"]
+                elif fault == "duplicate_history":
+                    self.state["contract_history"].append(copy.deepcopy(old))
+                elif fault == "approval_order":
+                    self.state["user_events"].reverse()
+                elif fault == "different_task":
+                    different = copy.deepcopy(revised)
+                    different["task_id"] = "unrelated"
+                    different["hash"] = util.digest({key: different[key] for key in ("task_id", "revision", "body")})
+                    different_approval = {
+                        "kind": "goal_approval",
+                        "actor": "user_cli",
+                        "token": identity.token(different),
+                    }
+                    different["approval_event"] = different_approval
+                    self.state["goal_contract"] = different
+                    self.state["user_events"][-1] = different_approval
+                elif fault == "artifact_changed":
+                    Path(self.record["events"]).write_text("altered evidence")
+                elif fault == "pin_changed":
+                    self.state[acceptance.KEY][retry.KEY]["pins"][self.record["events"]] = "0" * 64
+                elif fault == "value_changed":
+                    self.state[acceptance.KEY][retry.KEY]["value"] = {"changed": True}
+                else:
+                    self.state["active_stage"] = {"stage": acceptance.STAGE}
+                pending = copy.deepcopy(self.state[acceptance.KEY][retry.KEY])
+                if fault in ("artifact_changed", "pin_changed", "value_changed"):
+                    paused = copy.deepcopy(self.state)
+                    paused.update(status="PAUSED_INVALID_OUTPUT", stop_reason="Retained report needs attention")
+                    shown = run_view.view(paused, workspace=self.workspace, run_dir=self.run)
+                    self.assertEqual("blocked", shown["acceptance_verification_retry"]["next"])
+                    self.assertIsNone(shown["next_command"])
+                with self.assertRaises(util.Paused):
+                    self.dispatch()
+                self.assertEqual(pending, self.state[acceptance.KEY][retry.KEY])
+        Path(self.record["events"]).write_bytes(original_events)
 
     def test_uncertain_cleanup_propagates_and_spent_retry_survives(self):
         self.start_retry()

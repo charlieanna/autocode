@@ -13,12 +13,14 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_catalog_context as catalog_context
     from . import autocode_liveness as liveness
     from . import autocode_repo_catalog as repo_catalog
     from . import autocode_source_scope as source_scope
     from . import autocode_stop as stop
     from . import autocode_util as util
 except ImportError:
+    import autocode_catalog_context as catalog_context
     import autocode_liveness as liveness
     import autocode_repo_catalog as repo_catalog
     import autocode_source_scope as source_scope
@@ -77,9 +79,20 @@ def readable(workspace, state: RunState) -> bool:
     """
     try:
         source_scope.snapshot(workspace, state)
-        return not repo_catalog.blocking(repo_catalog.discover())
+        return catalog_problem(state) is None
     except (util.Paused, OSError, ValueError, RuntimeError, TypeError):
         return False
+
+
+def catalog_problem(state: RunState):
+    """Observe the same pinned inventory for the offer and the locked resume."""
+    discovery = repo_catalog.discover()
+    if stopped := repo_catalog.blocking(discovery):
+        return catalog_context.DiscoveryIncomplete(stopped, discovery.get("catalog_roots") or ())
+    saved = catalog_context.saved_inventory(state)
+    if changes := catalog_context.binding_changes(saved, discovery):
+        return catalog_context.CatalogChanged(changes)
+    return None
 
 
 def prepare(runner, state: RunState, workspace):
@@ -90,6 +103,8 @@ def prepare(runner, state: RunState, workspace):
     if active:
         runner.assert_stage_stopped(active)
     current = source_scope.snapshot(workspace, state, base_snapshot=runner.support.snapshot)
+    if problem := catalog_problem(state):
+        raise problem
     note = {
         "kind": "source_access_recovered",
         "actor": "runner",
@@ -107,13 +122,25 @@ def presentation(state: RunState, need):
     if state.get("status") != STATUS:
         return None
     ready = (need or {}).get("kind") == "continue"
+    catalog_recovery = str((need or {}).get("action") or "").startswith("--reconcile-only catalog-v1:")
+    changed = str(state.get("stop_reason") or "").startswith("The task's source catalog changed:")
     return {
-        "title": "Recovering source access" if ready else "AutoCode cannot read the task source",
+        "title": "Updating the task source"
+        if catalog_recovery
+        else "Recovering source access"
+        if ready
+        else "Task source changed"
+        if changed
+        else "AutoCode cannot read the task source",
         "category": "recovery" if ready else "blocked",
         "what_happened": (
-            "Source access is readable again. AutoCode is reconciling the saved attempt; "
+            "Source bindings changed. AutoCode is recording the new inventory and revisiting Requirements and the plan."
+            if catalog_recovery
+            else "Source access is readable again. AutoCode is reconciling the saved attempt; "
             "model choices, limits, usage and failed attempts are retained."
             if ready
+            else str(state.get("stop_reason")) + ". The original inventory remains recorded."
+            if changed
             else NOTICE
         ),
     }

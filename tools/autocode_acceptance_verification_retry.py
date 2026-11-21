@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import copy
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -145,6 +145,18 @@ def dispatch(runtime, state: RunState, stage, workspace, run_dir, *, apply):
         return None
     checking = False
     try:
+        answer = retry_next.decide(state, workspace) or {}
+        if replacement := answer.get("replacement"):
+            candidate = copy.deepcopy(state)
+            candidate[acceptance.KEY][KEY]["superseded_by"] = replacement
+            finish(candidate)
+            candidate.setdefault("user_events", []).append(
+                {"kind": "acceptance_report_superseded", "actor": "runner", "at": util.now(), **replacement}
+            )
+            runtime.write_json(Path(run_dir) / "state.json", candidate)
+            cast(dict, state).clear()
+            state.update(candidate)
+            return None
         if refusal := admission.problem(state, pending, workspace):
             raise ValueError(refusal)
         record = copy.deepcopy(pending["record"])

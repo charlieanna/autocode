@@ -65,6 +65,8 @@ def pending(state: RunState) -> dict | None:
 def _advice(state: RunState) -> dict | None:
     """In-force Investigator advice for the Tester's rejected answer, bound to the current inputs."""
     advice = state.get("stuck_investigation") or {}
+    if not isinstance(advice, dict):
+        return None
     identity = advice.get("identity")
     if (
         advice.get("in_force") is True
@@ -114,6 +116,9 @@ def decide(state: RunState, workspace) -> dict | None:
         return _answer(BLOCKED, 0, None, reason="The saved acceptance verification retry is malformed")
     retry = raw
     attempts = retry.get("attempts")
+    if replacement := admission.replacement(state, retry):
+        assert type(attempts) is int  # replacement admission checked the retained counter.
+        return _answer(TESTER, attempts, None, replacement=replacement)
     if refusal := admission.problem(state, retry, workspace):
         return _answer(BLOCKED, attempts if type(attempts) is int and attempts >= 0 else 0, None, reason=refusal)
     if type(attempts) is not int or attempts < 0:
@@ -138,7 +143,9 @@ def decide(state: RunState, workspace) -> dict | None:
     if not isinstance(value, dict):
         value = {}
     passing = value.get("already_passing") or []
-    passing_ids = {row.get("case_id") for row in passing if isinstance(row, dict)}
+    if not isinstance(passing, list):
+        passing = []
+    passing_ids = {row["case_id"] for row in passing if isinstance(row, dict) and isinstance(row.get("case_id"), str)}
     if (
         not retry.get("provenance_retry")
         and passing_ids

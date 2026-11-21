@@ -252,17 +252,7 @@ def abandon_stage(state: RunState, run_dir, workspace, selected, *, launch=None,
         if record["role"] in ("builder", "tester")
         else "review_completion"
     )
-    recovery_role = (
-        roles.SCREEN["resolver"]
-        if planning_repair
-        else "Requirements"
-        if planning.is_planning(state, next_stage)
-        else "Tester"
-        if next_stage == "tester"
-        else "Builder"
-        if next_stage == "builder"
-        else "Plan Reviewer"
-    )
+    recovery_role = roles.screen_name(next_stage, state)
     run_status.pause(
         state,
         "PAUSED_STAGE_ABANDONED",
@@ -1466,6 +1456,7 @@ def restore_launchable_unlaunchable_repair(runner, state: RunState, run_dir, wor
             provider=route.get("provider"),
             enforce_tool_boundary=False,
             source_paths=runner.source_scope.paths(state),
+            source_catalog_receipt=state.get("source_catalog_receipt"),
             settings=state["settings"],
             planning_report_recovery=True,
             report_only=True,

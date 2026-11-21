@@ -18,9 +18,11 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_command_receipt as command_receipt
     from . import autocode_repo_catalog as catalog
     from . import autocode_util as util
 except ImportError:
+    import autocode_command_receipt as command_receipt
     import autocode_repo_catalog as catalog
     import autocode_util as util
 
@@ -100,18 +102,44 @@ class DiscoveryIncomplete(ValueError):
         super().__init__(f"Source discovery is incomplete: {shown}{more}. {fix}")
 
 
-def context(state: RunState):
-    """Expose the same pinned catalog to intake stages, independent of launch cwd."""
-    run = state.get("run_dir")
-    receipt = Path(run) / "planning/source-catalog.json" if run else None
-    saved = util.read_object(receipt) if receipt and receipt.is_file() else None
-    discovery = catalog.discover()
+class CatalogChanged(ValueError):
+    """The recorded source inventory no longer describes current discovery."""
+
+    status = "PAUSED_SOURCE_UNAVAILABLE"
+
+    def __init__(self, changes):
+        self.changes = changes
+        super().__init__("The task's source catalog changed: " + "; ".join(changes))
+
+
+def binding_changes(saved, discovery):
+    """Identify changed inputs without replacing the receipt or accepting new source."""
+    if not isinstance(saved, dict):
+        return []
+    changes = []
+    for key in ("catalog", "catalog_identity"):
+        if saved.get(key) != discovery.get(key):
+            changes.append(key)
+    previous = {row["path"]: row for row in saved.get("repositories", []) if isinstance(row, dict) and "path" in row}
+    current = {row["path"]: row for group in discovery.get("repositories", []) for row in group.get("candidates", [])}
+    for path in sorted(previous.keys() | current.keys()):
+        if path not in previous:
+            changes.append(f"{path}: added")
+        elif path not in current:
+            changes.append(f"{path}: removed")
+        else:
+            for key in ("head", "tree", "remote"):
+                if previous[path].get(key) != current[path].get(key):
+                    changes.append(f"{path}: {key}")
+    if not changes and saved.get("source_snapshot") != discovery.get("source_snapshot"):
+        changes.append("source_snapshot")
+    return changes
+
+
+def inventory(discovery, *, allow_empty=False):
+    """Build the canonical intake receipt from a complete discovery without writing it."""
     if stopped := catalog.blocking(discovery):
         raise DiscoveryIncomplete(stopped, discovery.get("catalog_roots") or ())
-    if saved and any(
-        saved.get(key) != discovery.get(key) for key in ("catalog", "catalog_identity", "source_snapshot")
-    ):
-        raise ValueError("The task's source catalog or pinned source revisions changed; rediscover the task scope")
     rows = []
     for group in discovery["repositories"]:
         for source in group["candidates"]:
@@ -126,7 +154,7 @@ def context(state: RunState):
                     "ambiguous_baseline": group["ambiguous_baseline"],
                 }
             )
-    if not rows:
+    if not rows and not allow_empty:
         return None
     if len(rows) > 256:
         raise ValueError("Source discovery exceeds the bounded intake inventory of 256 repositories")
@@ -142,11 +170,53 @@ def context(state: RunState):
     if unsearched := catalog.not_searched(discovery):
         result["not_searched"] = unsearched
         result["instruction"] += " " + NOT_SEARCHED_INSTRUCTION
+    return result
+
+
+def receipt_path(state: RunState):
+    run = state.get("run_dir")
+    if not run:
+        return None
+    selected = state.get("source_catalog_receipt")
+    if selected is None:
+        path = Path(run) / "planning/source-catalog.json"
+    else:
+        if not isinstance(selected, str) or not re.fullmatch(r"[0-9a-f]{64}", selected):
+            raise ValueError("The saved source inventory receipt identity is invalid")
+        path = Path(run) / "planning/source-catalogs" / (selected + ".json")
+    if command_receipt.owned_relative(path, Path(run)) is None:
+        raise ValueError("The source inventory receipt is not an ordinary path owned by this run")
+    return path
+
+
+def saved_inventory(state: RunState):
+    receipt = receipt_path(state)
+    selected = state.get("source_catalog_receipt")
+    if not receipt or not receipt.is_file():
+        if selected is not None:
+            raise ValueError("The saved source inventory receipt is missing")
+        return None
+    saved = util.read_object(receipt)
+    if selected is not None and (not isinstance(saved, dict) or util.digest(saved) != selected):
+        raise ValueError("The saved source inventory receipt does not match its identity")
+    return saved
+
+
+def context(state: RunState):
+    """Expose the same pinned catalog to intake stages, independent of launch cwd."""
+    receipt = receipt_path(state)
+    saved = saved_inventory(state)
+    discovery = catalog.discover()
+    if stopped := catalog.blocking(discovery):
+        raise DiscoveryIncomplete(stopped, discovery.get("catalog_roots") or ())
+    if saved and (changes := binding_changes(saved, discovery)):
+        raise CatalogChanged(changes)
+    result = inventory(discovery, allow_empty=state.get("source_catalog_receipt") is not None)
     if saved is not None:
         if saved != result:
             raise ValueError("The task's saved source inventory changed; rediscover the task scope")
-        return result
-    if receipt:
+        return result if result.get("repositories") else None
+    if receipt and result is not None:
         util.atomic_json(receipt, result)
     return result
 

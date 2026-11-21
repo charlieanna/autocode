@@ -510,6 +510,7 @@ def run_role(
             provider=route.get("provider"),
             enforce_tool_boundary=not dry_run,
             source_paths=source_scope.paths(state),
+            source_catalog_receipt=state.get("source_catalog_receipt"),
             settings=state["settings"],  # the launcher applies the saved #413 opt-out
             planning_report_recovery=report_only or planning_recovery_policy.active(state, original_stage),
             report_only=report_only,
