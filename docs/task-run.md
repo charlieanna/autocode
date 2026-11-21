@@ -891,6 +891,23 @@ requested outcome; plan review and the person's plan approval follow as usual. O
 part of the plan, concerns a rejected assumption, or follows another settled plan defect before the
 person has answered anything reaches the person as an ordinary decision, with that reason in its why.
 
+AutoCode raises one such defect itself (#4015, `tools/autocode_plan_tool_admission.py`). When a run's
+code stages launch in the kernel tool boundary (OpenCode or Kilo, without the saved
+`--allow-uncontained-tools`), each draft's criterion commands are admitted, without a model, by the same
+`autocode_toolchain.discover` the launch applies. A command whose program the boundary has no rule for
+(`uv`, `make`, `bundle`, `yarn`) or cannot find becomes a `plan-tool-boundary` plan defect naming those
+criteria, so the Planner corrects it before the plan is shown for approval. A second refusal in the same
+round reaches the person as a decision about the test environment. A plan already approved with such a
+command (approved before this check, or whose admission changed since) is reopened the same way before its
+next launch: the approval returns to draft, the Planner corrects the plan and the person approves the
+correction. Only a second refusal in the same round pauses `PAUSED_TOOL_CONTAINMENT`, naming the plan's
+program rather than the tool.
+
+The boundary admits git, Python and pytest, Node with npm and npx, Go, Cargo (#4017) and the
+POSIX shells (`autocode_toolchain.ADMITTED`). Cargo runs from its installed toolchain, or through a rustup
+proxy with `RUSTUP_HOME`'s toolchains readable; `CARGO_HOME` stays the stage's scratch directory, so the
+person's registry credentials are never readable.
+
 `handoff_conversation(expected_revision=..., expected_plan_token=...)` records the
 reviewed current draft's handoff to that same run. It does not approve the plan or
 start a second task. Read the current plan and use the separate `approve_plan()`
