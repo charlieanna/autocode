@@ -771,6 +771,47 @@ class RequirementsObservationsTests(unittest.TestCase):
         subset = {**claim, "kind": "named_tests_pass", "node_ids": nodes[:1]}
         self.assertEqual("unverified", check(self.state, self.run, source_now, subset)["status"])
 
+    def test_structured_collection_claim_stays_unverified_until_independent_execution(self):
+        test_path = self.workspace / "tests/a.py"
+        test_path.parent.mkdir()
+        test_path.write_text("def test_one(): pass\ndef test_two(): pass\n")
+        self.product = source.snapshot(self.workspace)
+        self.record["source_revision"] = self.product["revision"]
+        for field in ("before_ref", "after_ref"):
+            Path(self.record[field]).write_text(json.dumps(self.product))
+        text = "The full suite currently passes"
+        self.report["proposed_assumptions"] = [{"id": "A3", "text": text, "category": "technical"}]
+        Path(self.record["output"]).write_text(json.dumps(self.report))
+        command = "python3 -m pytest --collect-only -q"
+        nodes = ["tests/a.py::test_one", "tests/a.py::test_two"]
+        self.events = [
+            self.command(
+                "collection", command, "\n".join(nodes) + "\n2 tests collected in 0.1s\n", output_truncated=False
+            )
+        ]
+        self.write_events()
+        self.seal()
+        claim = {
+            "assumption_id": "A3",
+            "claim_sha256": hashlib.sha256(text.encode()).hexdigest(),
+            "kind": "all_suite_pass",
+            "node_ids": nodes,
+            "collection_command": command,
+        }
+        check = getattr(observations, "structured_collection_claim", None)
+        self.assertIsNotNone(check)
+        source_now = lambda: source.snapshot(self.workspace)
+        found = check(self.state, self.run, source_now, claim)
+        self.assertEqual("unverified", found["status"])
+        self.assertEqual(["tests.a::test_one", "tests.a::test_two"], found["claimed_junit_node_ids"])
+        self.assertIn("does not establish execution", found["reason"])
+        self.assertIsNone(check(self.state, self.run, source_now, {**claim, "node_ids": nodes[:1]}))
+        self.assertIsNone(check(self.state, self.run, source_now, {**claim, "node_ids": ["src/unknown.py::example"]}))
+        subset = {**claim, "kind": "named_tests_pass", "node_ids": nodes[:1]}
+        self.assertEqual("unverified", check(self.state, self.run, source_now, subset)["status"])
+        test_path.write_text("def test_one(): assert False\n")
+        self.assertIsNone(check(self.state, self.run, source_now, claim))
+
     def test_running_native_event_cannot_attest_a_later_completed_output(self):
         command = "python3 -m pytest --collect-only -q"
         part = {
