@@ -99,7 +99,10 @@ def replay(state: RunState, workspace, run_dir, claim, *, current_source, timeou
         return None
     return {
         **bound,
-        "reason": "The named suite passed an independent replay; the claim's wording is not independently reviewed.",
+        "reason": (
+            "An independent replay reported these named tests passed; the test outcomes and claim wording "
+            "have not been independently verified."
+        ),
         "replay": {
             "command": command,
             "python": str(executable),

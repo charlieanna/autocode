@@ -849,6 +849,8 @@ class RequirementsObservationsTests(unittest.TestCase):
         found = replay.replay(self.state, self.workspace, self.run, claim, current_source=current_source, timeout=30)
         self.assertIsNotNone(found)
         self.assertEqual("unverified", found["status"])
+        self.assertIn("reported these named tests passed", found["reason"])
+        self.assertIn("have not been independently verified", found["reason"])
         self.assertEqual(
             {"test_sample::test_one", "test_sample::test_two"}, set(found["replay"]["receipt"]["results"]["passed"])
         )
