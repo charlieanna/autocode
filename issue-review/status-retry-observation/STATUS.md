@@ -2,6 +2,8 @@
 
 Draft; do not merge. The prior #4004 editor-test branch was externally merged at `324da18e0684607698bc1b2f87851602622f1f83` before its required suite and coverage completed; the product draft still needs current master integration and fresh exact-head CI.
 
+The #4009 correction #4014 was externally merged into this draft as `caf7a05824034718459896474805d992e9083cac` while its Ubuntu suite and `ci-required` were still in progress. Its exact head `a4aea854343631bdb105eef5e35d06d23fba4e40` passed both actual Linux VS Code timeout/recovery cases with deterministic timeout injection (`/private/tmp/autocode-4014-extension-ci.log`), but its historical required CI outcome was not green at merge. This follow-up normally integrates master `189738f4ed609513def57ed9f8aefd686f7f2bbf` and must pass fresh exact-head required CI and repeat the actual editor check before readiness. The external merge is not an exception to those gates.
+
 ## Done
 
 - Failed-job status used to call the retry admission's Git/source snapshot directly. A slow Git or file read could hang the status request outside the existing shared observation deadline; a source-unavailable `Paused` exception could also escape status entirely. The status projection now asks the existing supervised, bounded status-observation worker to run the same admission, while the executor continues to revalidate independently. Timeout, uncertain cleanup, malformed output and source observation errors hold the retry.

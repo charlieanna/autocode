@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import autocode_scratch_preparation as scratch_preparation
 import autocode_source_snapshot as source_snapshot
 import autocode_util as util
 import autocode_verification_schedule as schedule
@@ -29,6 +30,116 @@ class ScratchCopyIdentityTests(unittest.TestCase):
 
     def run_copy(self, **kwargs):
         return verify.scratch_run(self.workspace, self.project.evidence, command=self.command, timeout=30, **kwargs)
+
+    def test_a_deleted_tracked_file_is_absent_from_a_pinned_copy(self):
+        self.app.unlink()
+        pinned = source_snapshot.snapshot(self.workspace)
+        self.assertEqual("deleted", pinned["files"]["app.py"])
+        receipt = self.run_copy(expected_source_revision=pinned["revision"])
+        self.assertEqual(0, receipt["exit_code"], receipt)
+        self.assertTrue(self.marker.exists())
+
+    def test_resurrecting_a_deleted_tracked_file_during_copy_is_refused(self):
+        self.app.unlink()
+        pinned = source_snapshot.snapshot(self.workspace)
+        make_tree = verify.make_tree
+
+        def resurrect(*args, **kwargs):
+            tree = make_tree(*args, **kwargs)
+            (tree / "app.py").write_text("untrusted\n")
+            return tree
+
+        with patch.object(verify, "make_tree", side_effect=resurrect):
+            with self.assertRaises(util.Paused):
+                self.run_copy(expected_source_revision=pinned["revision"])
+        self.assertFalse(self.marker.exists())
+
+    def test_an_owned_scratch_tree_inside_the_workspace_is_not_source_drift(self):
+        run_dir = self.workspace / "evidence/probe"
+        receipt = verify.scratch_run(self.workspace, run_dir, command=self.command, timeout=30)
+        self.assertEqual(0, receipt["exit_code"], receipt)
+        self.assertTrue(self.marker.exists())
+
+    def test_other_new_source_beside_an_owned_scratch_tree_is_still_refused(self):
+        run_dir = self.workspace / "evidence/probe"
+        make_tree = verify.make_tree
+
+        def inject(*args, **kwargs):
+            tree = make_tree(*args, **kwargs)
+            (run_dir / "unexpected.py").write_text("untrusted\n")
+            return tree
+
+        with patch.object(verify, "make_tree", side_effect=inject):
+            with self.assertRaises(util.Paused):
+                verify.scratch_run(self.workspace, run_dir, command=self.command, timeout=30)
+        self.assertFalse(self.marker.exists())
+
+    def test_owned_tree_exception_never_hides_preexisting_or_selected_source(self):
+        run_dir = self.workspace / "evidence/probe"
+        tree = run_dir / "scratch/tree"
+        key = "evidence/probe/scratch/tree/"
+        before = {"head": "base", "files": {key: "submodule:before"}}
+        after = {"head": "base", "files": {key: "submodule:after"}}
+        self.assertFalse(scratch_preparation._same_source_after_copy(self.workspace, run_dir, tree, before, after, ()))
+        before["files"] = {}
+        self.assertFalse(
+            scratch_preparation._same_source_after_copy(self.workspace, run_dir, tree, before, after, ("evidence",))
+        )
+
+    def test_commit_during_copy_is_refused_even_when_source_files_are_unchanged(self):
+        original = source_snapshot.snapshot(self.workspace)
+        make_tree = verify.make_tree
+
+        def advance_head(*args, **kwargs):
+            tree = make_tree(*args, **kwargs)
+            git(
+                self.workspace,
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@example.test",
+                "commit",
+                "--allow-empty",
+                "-qm",
+                "new head",
+            )
+            current = source_snapshot.snapshot(self.workspace)
+            self.assertNotEqual(original["head"], current["head"])
+            self.assertEqual(original["files"], current["files"])
+            return tree
+
+        with patch.object(verify, "make_tree", side_effect=advance_head):
+            with self.assertRaises(util.Paused) as held:
+                self.run_copy()
+        self.assertEqual("PAUSED_SOURCE_UNAVAILABLE", held.exception.status)
+        self.assertFalse(self.marker.exists(), "The check must not launch against a stale source revision")
+
+    def test_owned_worker_preserves_unsafe_copy_path_as_source_refusal(self):
+        shared = self.workspace / "shared"
+        shared.mkdir()
+        (shared / "test_original.py").write_text("original = True\n")
+        git(self.workspace, "add", "shared")
+        git(self.workspace, "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-qm", "source")
+        external = Path(self.project.temp.name) / "external"
+        external.mkdir()
+        (external / "test_original.py").write_text("external = True\n")
+        shared.rename(self.workspace / "old-shared")
+        shared.symlink_to(external, target_is_directory=True)
+        identity = {"fixture": "unsafe copied parent"}
+        with self.assertRaises(util.Paused) as held:
+            schedule.run(
+                self.project.evidence / "obligations",
+                identity,
+                lambda out: verify.scratch_run(self.workspace, out, command=self.command, timeout=30),
+                reuse_allowed=False,
+                reason="fresh",
+                current_identity=lambda: identity,
+                owned_preparation=True,
+            )
+        self.assertEqual("PAUSED_SOURCE_UNAVAILABLE", held.exception.status)
+        self.assertIn("symlinked parent", str(held.exception))
+        self.assertFalse(self.marker.exists())
+        self.assertEqual("external = True\n", (external / "test_original.py").read_text())
 
     def test_transient_copy_change_is_rejected_even_if_workspace_is_restored(self):
         pinned = source_snapshot.snapshot(self.workspace)["revision"]

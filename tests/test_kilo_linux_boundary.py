@@ -8,10 +8,54 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import autocode_kilo_linux_boundary as boundary
 import autocode_kilo_linux_peer as peers
 import autocode_process as processes
+import autocode_toolchain as toolchain
+
+
+class KiloLinuxPolicyTests(unittest.TestCase):
+    def test_discovered_links_are_bound_and_changed_or_hidden_links_are_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            work = root / "work"
+            runtime = root / "runtime"
+            aliases = root / "aliases"
+            hidden = work / "private"
+            for path in (work, runtime, aliases, hidden):
+                path.mkdir()
+            link = aliases / "python"
+            link.symlink_to(runtime)
+            kwargs = dict(kind="client", read_paths=[work, runtime], write_paths=[], cwd=work)
+            with (
+                patch.object(boundary.kernel, "executable", return_value=Path("/usr/bin/true")),
+                patch.object(boundary.kernel, "seccomp_program", return_value=b"filter"),
+            ):
+                old = boundary.policy(root / "old.json", **kwargs)
+                self.assertNotIn("links", old["inputs"])
+                value = boundary.policy(root / "new.json", **kwargs, links=[[str(link), str(runtime)]])
+                for name, saved in (("old", old), ("new", value)):
+                    profile = root / (name + ".json")
+                    profile.write_text(boundary.text(saved))
+                    profile.chmod(0o400)
+                    program = Path(saved["filter"]["path"])
+                    program.write_bytes(b"filter")
+                    program.chmod(0o400)
+                    self.assertEqual(saved, boundary.verify(profile))
+                args = value["arguments"]
+                self.assertIn(["--symlink", str(runtime), str(link)], [args[n : n + 3] for n in range(len(args))])
+                link.unlink()
+                link.symlink_to(work)
+                with self.assertRaisesRegex(ValueError, "symlink changed"):
+                    boundary.verify(root / "new.json")
+                private_link = hidden / "python"
+                private_link.symlink_to(runtime)
+                with self.assertRaisesRegex(ValueError, "hidden authority"):
+                    boundary.policy(
+                        root / "new.json", **kwargs, hidden_paths=[hidden], links=[[str(private_link), str(runtime)]]
+                    )
 
 
 @unittest.skipUnless(
@@ -48,6 +92,31 @@ class KiloLinuxBoundaryTests(unittest.TestCase):
             text=True,
             timeout=10,
         )
+
+    def test_client_runs_discovered_python_through_external_symlink(self):
+        aliases = self.root / "aliases"
+        aliases.mkdir()
+        python = aliases / "python3"
+        python.symlink_to(Path(sys.executable).resolve())
+        environment = {"PATH": str(aliases) + ":/usr/bin:/bin"}
+        selected = toolchain.discover(self.target, (), environment)
+        profile = self.target / "client.json"
+        value = boundary.policy(
+            profile,
+            kind="client",
+            read_paths=[self.target, *selected["read_roots"]],
+            write_paths=[self.scratch],
+            cwd=self.target,
+            links=selected["links"],
+        )
+        boundary.write(profile, value)
+        result = subprocess.run(
+            [*boundary.prefix(profile), str(python), "-I", "-S", "-c", "import ssl; print('ready')"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual((0, "ready\n"), (result.returncode, result.stdout), result.stderr)
 
     def test_pure_allows_threads_but_denies_process_fork_and_network(self):
         profile = self.prepare(reads=[Path(sys.executable).resolve().parents[1]])

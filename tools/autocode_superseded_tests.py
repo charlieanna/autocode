@@ -139,6 +139,11 @@ def own_names(rest: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys(names))
 
 
+def _dotted(container: str) -> bool:
+    """A runner's container that is a dotted module name (``tests.test_shipping.Shipping``), not a file path."""
+    return not container.endswith(".py") and re.fullmatch(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*", container) is not None
+
+
 def matches(entry: dict, test_id: str) -> bool:
     """Whether a runner's test id is the superseded test, or one of its parameter sets or Go subtests.
 
@@ -148,6 +153,10 @@ def matches(entry: dict, test_id: str) -> bool:
     if not name or not test:
         return False
     test_id = _PARAMETERS.sub("", str(test_id))
+    if "::" in test_id and name.endswith(".py") and _dotted(test_id.split("::", 1)[0]):
+        # pytest's JUnit report names a case by its dotted classname (autocode_python_tests.pytest_case_names):
+        # tests.test_shipping.Shipping::test_x is the unittest id tests.test_shipping.Shipping.test_x.
+        test_id = test_id.replace("::", ".")
     if "::" in test_id:
         container, rest = test_id.split("::", 1)
         if name.endswith(".go"):

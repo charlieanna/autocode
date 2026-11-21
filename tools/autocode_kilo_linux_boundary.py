@@ -25,7 +25,7 @@ def _require(value, reason):
         raise ValueError("Kilo Linux boundary: " + reason)
 
 
-def policy(profile, *, kind, read_paths, write_paths, hidden_paths=(), cwd):
+def policy(profile, *, kind, read_paths, write_paths, hidden_paths=(), cwd, links=()):
     _require(kind in KINDS, "unknown authority kind")
     profile = Path(profile)
     network, deny_fork = KINDS[kind]
@@ -35,6 +35,8 @@ def policy(profile, *, kind, read_paths, write_paths, hidden_paths=(), cwd):
         "hidden_paths": list(dict.fromkeys(str(Path(p)) for p in hidden_paths)),
         "cwd": str(Path(cwd)),
     }
+    if links:
+        inputs["links"] = [list(item) for item in links]
     program = kernel.seccomp_program(network=network, deny_fork=deny_fork)
     arguments = kernel.arguments(**inputs, seccomp_fd=3)
     if kind == "client":
@@ -76,7 +78,12 @@ def verify(profile):
     _require(set(value) == {"version", "kind", "inputs", "filter", "arguments"}, "unknown policy fields")
     inputs = value["inputs"]
     _require(
-        isinstance(inputs, dict) and set(inputs) == {"read_paths", "write_paths", "hidden_paths", "cwd"},
+        isinstance(inputs, dict)
+        and set(inputs)
+        in (
+            {"read_paths", "write_paths", "hidden_paths", "cwd"},
+            {"read_paths", "write_paths", "hidden_paths", "cwd", "links"},
+        ),
         "unknown authority input fields",
     )
     expected = policy(profile, kind=value["kind"], **inputs)

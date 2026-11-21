@@ -95,6 +95,20 @@ SUITE_CONSUMERS = (
     *CORE_CONSUMERS,
 )
 
+# These callers enter scratch preparation through the verifier or an owned
+# worker, so their source does not directly import either shared copy module.
+SCRATCH_COPY_CONSUMERS = (
+    "tests.test_autocode_protected_oracles",
+    "tests.test_design_check_job",
+    "tests.test_protected_test_links",
+    "tests.test_review_mutation_runtime",
+    "tests.test_review_proof",
+    "tests.test_scratch_copy_identity",
+    "tests.test_scratch_link_binding",
+    "tests.test_source_reconciliation",
+    "tests.test_verification_preparation",
+)
+
 # Black-box consumers cannot import their runtime producers. Job scope and the scenario runner share this
 # map; its producer and top-level scenario files also select the map-discovery guard.
 SCENARIO_RUNTIME_CONSUMERS = {
@@ -427,8 +441,8 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "tools/prompts/fragments/stage-context/implementation-discrepancy.md",
         ("tests.test_implementation_discrepancy",),
     ),
-    ("tools/autocode_scratch_preparation.py", ("tests.test_scratch_copy_identity",)),
-    ("tools/autocode_source_snapshot.py", ("tests.test_scratch_copy_identity", "tests.test_scratch_link_binding")),
+    ("tools/autocode_scratch_preparation.py", SCRATCH_COPY_CONSUMERS),
+    ("tools/autocode_source_snapshot.py", SCRATCH_COPY_CONSUMERS),
     ("tools/autocode_named_collection.py", ("tests.test_requirements_observations",)),
     ("tools/autocode_suite_claim_replay.py", ("tests.test_requirements_observations",)),
     ("tools/autocode_diagnostics_comparison.py", ("tests.test_claim_evidence", "tests.test_metadata_custody")),

@@ -6,6 +6,7 @@ import shlex
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import autocode_protected_oracles as guard
 import autocode_protected_store as store
@@ -104,7 +105,12 @@ class ProtectedLinkTests(unittest.TestCase):
         (self.root / "shared").rename(self.root / "old-shared")
         (self.root / "shared").symlink_to(external, target_is_directory=True)
         before = (external / "oracle.py").read_bytes()
-        self.rejected_receipt()
+        with patch.object(verify, "run_command") as execute:
+            with self.assertRaises(verify.util.Paused) as held:
+                self.replay()
+        self.assertEqual("PAUSED_SOURCE_UNAVAILABLE", held.exception.status)
+        self.assertIn("symlinked parent", str(held.exception))
+        execute.assert_not_called()
         self.assertEqual(before, (external / "oracle.py").read_bytes())
         self.assertTrue((self.root / "shared").is_symlink())
 
