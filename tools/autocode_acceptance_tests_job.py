@@ -433,7 +433,7 @@ def _verdicts(
     if misnamed:
         raise ValueError(f"Name each test as its case says (the approved name, else test_<case id>_...): {misnamed}")
     named = [{**case, "test_name": case.get("test_name") or rows[case["id"]]["test_name"]} for case in cases]
-    passed = test_cases.match_cases(named, results.get("passed") or [])
+    passed = reference.wholly_passing(named, results)
     failed = test_cases.match_cases(named, results.get("failed") or [])
     skipped = test_cases.match_cases(named, results.get("skipped") or [])
     # A bug's reproduction must run and fail; a file that cannot load is no reproduction (autocode_proof_seam).
