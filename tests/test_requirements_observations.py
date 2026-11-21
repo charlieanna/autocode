@@ -385,6 +385,7 @@ class RequirementsObservationsTests(unittest.TestCase):
         for case in (
             "filtered",
             "wrapped_filter",
+            "newline_chain",
             "truncated",
             "unknown",
             "duplicate",
@@ -398,6 +399,8 @@ class RequirementsObservationsTests(unittest.TestCase):
                     if case == "filtered"
                     else f"/bin/sh -c '{filtered}'"
                     if case == "wrapped_filter"
+                    else command + "\necho filtered"
+                    if case == "newline_chain"
                     else command
                 )
                 flags = {"output_truncated": case == "truncated"} if case != "unknown" else {}

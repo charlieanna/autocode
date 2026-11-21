@@ -291,7 +291,7 @@ def _rows(raw):
 
 def _direct(command):
     """Reject shell chains and redirection when retaining a command's complete native output."""
-    if not isinstance(command, str) or not command.strip() or any(char in command for char in "`$#"):
+    if not isinstance(command, str) or not command.strip() or any(char in command for char in "`$#\n\r"):
         return False
     try:
         lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|<>()")
