@@ -1812,7 +1812,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/f5c47648d7e79a5e3bce9db4bd24b1a7e12640ef/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/66460e6f3b8626a85996d4b2165972ca5a0753d1/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -2635,9 +2635,13 @@ next launch: the approval returns to draft, the Planner corrects the plan and th
 correction. Only a second refusal in the same round pauses <code>PAUSED_TOOL_CONTAINMENT</code>, naming the plan's
 program rather than the tool.</p>
 <p>The boundary admits git, Python and pytest, Node with npm and npx, Go, Cargo (#4017) and the
-POSIX shells (<code>autocode_toolchain.ADMITTED</code>). Cargo runs from its installed toolchain, or through a rustup
-proxy with <code>RUSTUP_HOME</code>'s toolchains readable; <code>CARGO_HOME</code> stays the stage's scratch directory, so the
-person's registry credentials are never readable.</p>
+POSIX shells (<code>autocode_toolchain.ADMITTED</code>), each read past a leading <code>env</code> and <code>NAME=value</code> assignments
+(<code>autocode_toolchain.program_words</code>, which the plan's command extraction reads too). Cargo runs from its
+installed toolchain. For rustup's proxy, the toolchain the proxy would run in the project (<code>rustup which
+cargo</code>) is selected instead: its prefix is read-only and its <code>bin</code> leads the stage's <code>PATH</code>, so the proxy,
+which writes under <code>RUSTUP_HOME</code> as it starts, never runs. <code>CARGO_HOME</code> stays the stage's scratch
+directory, so the person's registry credentials are never readable. A command the boundary refuses alone,
+for any reason (unsupported, missing, or a launcher it cannot qualify), is the plan's to correct.</p>
 <p><code>handoff_conversation(expected_revision=..., expected_plan_token=...)</code> records the
 reviewed current draft's handoff to that same run. It does not approve the plan or
 start a second task. Read the current plan and use the separate <code>approve_plan()</code>
@@ -3137,7 +3141,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/f5c47648d7e79a5e3bce9db4bd24b1a7e12640ef/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/66460e6f3b8626a85996d4b2165972ca5a0753d1/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -4023,7 +4027,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/f5c47648d7e79a5e3bce9db4bd24b1a7e12640ef/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/66460e6f3b8626a85996d4b2165972ca5a0753d1/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
