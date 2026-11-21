@@ -65,6 +65,8 @@ def _replacement(state: RunState, pending):
         for key in ("active_stage", "active_runner_check", "uncertain_artifacts", "pending_report_repair")
     ):
         return None
+    if state.get("next_stage") != acceptance.STAGE:
+        return None
     current = state.get("goal_contract") or {}
     task = state.get("current_task")
     record = pending.get("record")
@@ -124,6 +126,8 @@ def problem(state: RunState, pending, workspace):
     """Why this exact retained report cannot be rechecked; never mutate or execute it."""
     if invalid := shape_problem(pending):
         return invalid
+    if state.get("next_stage") != acceptance.STAGE:
+        return "The saved acceptance verification is not the next stage"
     if any(
         state.get(key)
         for key in ("active_stage", "active_runner_check", "uncertain_artifacts", "pending_report_repair")
