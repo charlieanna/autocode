@@ -176,7 +176,7 @@ def output_refusal(output, roots, capture_context=None) -> str | None:
     if addressed is None:
         return None
     run_dir, _ = addressed
-    if checkpoint(run_dir) is not None:
+    if _record(run_dir) is not None:
         return None
     owner = expected_owner(roots, capture_context)
     expected = (
