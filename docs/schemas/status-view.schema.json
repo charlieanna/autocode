@@ -1118,7 +1118,7 @@
         "proxied_requirements": {"type": "array", "items": {"type": "object", "required": ["requirement_id", "evidence", "proxy_reason"], "properties": {"requirement_id": {"type": ["string", "null"]}, "evidence": {"type": ["string", "null"]}, "proxy_reason": {"type": ["string", "null"]}}}, "description": "The requirements the current plan proves only on a stand-in because code outside this checkout renders what the user sees (#2068): the criteria it cites (evidence) and why (proxy_reason); [] when none or no plan yet. Documented in docs/task-run.md."},
         "requirements": {
           "type": ["object", "null"],
-          "description": "Structured current-turn Requirements handoff (#3650): intended_outcome, requirements, proposed_assumptions, acceptance_tests, conflicts and handoff_ref; job and clarity as this report named them (#3630), each null when it named none; null before the current turn has a Requirements handoff.",
+          "description": "Structured current-turn Requirements handoff (#3650): intended_outcome, requirements, proposed_assumptions, acceptance_tests, constraints, conflicts and handoff_ref; job and clarity as this report named them (#3630), each null when it named none; null before the current turn has a Requirements handoff.",
           "required": ["handoff_ref", "intended_outcome", "requirements", "proposed_assumptions", "acceptance_tests", "conflicts", "job", "clarity"],
           "properties": {
             "handoff_ref": {"type": "string"},
