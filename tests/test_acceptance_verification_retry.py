@@ -231,6 +231,18 @@ class AcceptanceVerificationRetryTests(unittest.TestCase):
                     self.dispatch()
                 self.assertEqual(0, self.runtime.run_role.call_count)
 
+    def test_retained_retry_does_not_claim_a_different_next_stage(self):
+        self.start_retry()
+        self.state["next_stage"] = "builder"
+        self.state["status"] = "PAUSED_INVALID_OUTPUT"
+        shown = run_view.view(self.state, workspace=self.workspace, run_dir=self.run)
+        self.assertEqual("blocked", shown["acceptance_verification_retry"]["next"])
+        self.assertEqual("builder", shown["next_stage"])
+        self.assertIsNotNone(shown["next_command"], "A separately named Builder continuation stays available")
+        with self.assertRaises(util.Paused):
+            self.dispatch()
+        self.runtime.run_role.assert_not_called()
+
     def test_blocked_retry_does_not_hide_a_real_requirements_question(self):
         self.start_retry()
         self.state.update(
