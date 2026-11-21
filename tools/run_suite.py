@@ -225,7 +225,22 @@ def select_tests(changed: list[str], sources: dict[str, str]) -> dict[str, str]:
         elif path.endswith(".py") and path.startswith(("tests/", "scenarios/harness/")):
             helper = path[:-3].replace("/", ".").removesuffix(".__init__")
             for test in sources:
-                if helper in imports[test] or Path(path).name in sources[test]:
+                source = sources[test]
+                resource = Path(path)
+                # Mapped nested host fixtures can have shared basenames (notably
+                # sitecustomize.py). Require the containing path as well, while
+                # retaining import and full-path consumers.
+                mentioned = resource.name in source and (
+                    path not in ci_test_selection.EXTENSION_HOST_RESOURCES
+                    or resource.parent == Path("tests")
+                    or resource.parent.name in source
+                )
+                hook_directory = (
+                    path in ci_test_selection.EXTENSION_HOST_RESOURCES
+                    and resource.parent != Path("tests")
+                    and resource.parent.name in source
+                )
+                if helper in imports[test] or mentioned or path in source or hook_directory:
                     selected.setdefault(test, REQUIRED + path)
         elif path.startswith(("tools/", "tests/")):
             for test, source in sources.items():

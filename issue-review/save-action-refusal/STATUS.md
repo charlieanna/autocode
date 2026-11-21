@@ -7,8 +7,10 @@ The Linux host run for #4031 showed an actual named saved-model answer exit 2
 with `autocode: Existing run process 4448 is active; leave it untouched`, but
 the sidebar showed no error. `RunController.take` accepted every unclassified
 exit 2 as a pause. The same result handling was shared by bound raises and
-failed-job time controls. The process identity in that old log was not retained;
-do not infer what process it was or clear an owner.
+failed-job time controls. In that test, PID 4448 was the deliberately held
+synthetic writer; the action log matched the refusal to its child PID. The
+earlier #4022 PID 4491 was not identified. Do not infer its identity or clear
+an owner.
 
 The public TaskRun contract says save-only answers, approvals, feedback and
 limit changes return 0 on save and 2 on refusal. Only those documented named
@@ -37,5 +39,18 @@ answer/token rotation. The held process stops at an injected test barrier and
 does not execute the synthetic writer action; no model is called. The test
 waits for the second action to finish before its status poll, so it does not
 depend on the separate, unmerged path-first observer guard fix (#4031).
-HOME and CODEX_HOME remain inherited in this new host scenario. Actual Linux
-host and exact-head required CI are pending.
+HOME and CODEX_HOME remain inherited in this new host scenario. The actual Linux
+VS Code host passed all six cases on head 55aeff699, including the visible
+held-writer refusal and the later accepted answer; log
+`/private/tmp/autocode-4035-55ae-editor-success.log`. That head's Ubuntu suite
+and required CI failed: both Rustup containment controls hit a read-only
+`~/.rustup/update-hashes`, tracked separately in #4024. The exact log is
+`/private/tmp/autocode-4035-55ae-suite.log`; this head is not green.
+
+The guard fixture is dynamically loaded by the extension host. The shared CI
+resource registry now names that consumer and the separate Rustup host fixture,
+so editing either fixture alone selects the extension job. Python selection
+continues to include actual imports and path references while not conflating
+unrelated nested `sitecustomize.py` files. Both new controls fail on 55ae and
+pass here; 240 CI selector tests, Ruff and mypy pass. Fresh exact-head CI and
+the actual host are required after the qualified Rustup correction lands.
