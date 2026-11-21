@@ -15,8 +15,9 @@ This branch is a snapshot of an AutoCode run. Claude usage ran out partway, so t
 
 ## In progress, not yet accepted
 - **M2 (#3869):** record the controller's full intervention capability at setup (`tools/autocode_run_setup.py`, `tests/test_pause_offer.py`, `tests/test_stop_now_runner_check_cli.py`). The Builder has run; the Tester had not checked it yet.
-- **M3 source-edit offer (#3880):** the public offer now reads the same admission checks as the action. Added controls for source, settings, task, contract, scope, evidence and an existing diagnosis. The focused `tests.test_accepted_source.AcceptReviewedSourceTests` passes locally. The named wider suite is running with process enumeration enabled.
+- **M3 source-edit offer (#3880):** the public offer now reads the same admission checks as the action. Added controls for source, settings, task, contract, scope, evidence and an existing diagnosis. The focused `tests.test_accepted_source.AcceptReviewedSourceTests` passes locally, and the new offer regression fails on master.
 - **M3 stale check names (#3880):** failed dispatch bindings now record the named checks on the pending request without bound values. Packet guard tests pass and fail on master. The compatibility path for saved settings bindings remains the same.
+- The eight-module suite named below passed 284 tests with one skipped before the stale-check change. The focused packet and source-offer tests passed after it. Ruff check and format and mypy for the two changed recovery modules passed.
 
 ## Left
 - **M3 (#3880 and the #3954 view case):**
