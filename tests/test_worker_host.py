@@ -141,6 +141,7 @@ class PersistentHost(unittest.TestCase):
             **os.environ,
             **fixture,
             "TERM": "xterm-256color",
+            "LIVE_FIXTURE_LOADABLE_TESTS": "1",
             "AUTOCODE_WORKER_HOME": str(self.workspace.parent / "launches"),
         }
         self.receipts = []

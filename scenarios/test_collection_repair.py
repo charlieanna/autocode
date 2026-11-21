@@ -7,6 +7,7 @@ import shutil
 from pathlib import Path
 
 from scenarios.harness.adversarial import AdversarialCase
+from scenarios.harness.attack_collection_repair import loadable_greeting_tests
 
 
 class CollectionRepairScenario(AdversarialCase):
@@ -16,17 +17,7 @@ class CollectionRepairScenario(AdversarialCase):
         repaired = self.root / "repaired-reference"
         shutil.copytree(self.scenario.reference, repaired)
         tests = repaired / "test_greet.py"
-        text = tests.read_text()
-        for anchor in ("from greet import greet\n", "    def test_greet(self):\n", "    def test_unicode(self):\n"):
-            self.assertEqual(1, text.count(anchor), anchor)
-        text = text.replace("from greet import greet\n", "")
-        text = text.replace(
-            "    def test_greet(self):\n", "    def test_greet(self):\n        from greet import greet\n"
-        )
-        text = text.replace(
-            "    def test_unicode(self):\n", "    def test_unicode(self):\n        from greet import greet\n"
-        )
-        tests.write_text(text)
+        tests.write_text(loadable_greeting_tests(tests.read_text()))
         self.env["SCENARIO_FAKE_REWORK_SOLUTION"] = str(repaired)
         self.set_fault("collection_repair", "repair_after_collection")
         self.approve(self.start_to_approval())

@@ -18,6 +18,7 @@ from pathlib import Path
 import psutil
 
 from . import catalog, delivery
+from .attack_collection_repair import loadable_greeting_tests
 from .driver import Driver, default_autocode, fake_setup
 from .processes import run_cli
 from .project import materialize
@@ -57,6 +58,14 @@ class AdversarialCase(unittest.TestCase):
         self.env = self.driver.env
         self.config_path = self.root / "fake-config.json"
         config = json.loads(self.config_path.read_text())
+        if getattr(self, "loadable_greeting_reference", False):
+            import shutil
+
+            reference = self.root / "loadable-reference"
+            shutil.copytree(self.scenario.reference, reference)
+            tests = reference / "test_greet.py"
+            tests.write_text(loadable_greeting_tests(tests.read_text()))
+            config["reference"] = str(reference)
         config["adversarial"] = {"root": str(self.root), "case": "control"}
         self.config_path.write_text(json.dumps(config))
         provider = Path(__file__).with_name("adversarial_provider.py")

@@ -19,6 +19,10 @@ from scenarios.harness.attack_lifecycle import ProviderBarrier
 
 
 class LifecycleAttacks(AdversarialCase):
+    # These tests exercise lifecycle ownership; keep their assertions unchanged
+    # while letting the greeting tests collect on the original empty project.
+    loadable_greeting_reference = True
+
     def assert_completed(self, view):
         """The delivery a recovered run claims, and the delivered suite run in this workspace.
 

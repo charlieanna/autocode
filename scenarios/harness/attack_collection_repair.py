@@ -7,6 +7,16 @@ import os
 from pathlib import Path
 
 
+def loadable_greeting_tests(text):
+    """Keep every assertion while deferring the two test-only imports to their tests."""
+    anchors = ("from greet import greet\n", "    def test_greet(self):\n", "    def test_unicode(self):\n")
+    if any(text.count(anchor) != 1 for anchor in anchors):
+        raise ValueError("greeting test reference has unexpected structure")
+    text = text.replace(anchors[0], "")
+    text = text.replace(anchors[1], anchors[1] + "        from greet import greet\n")
+    return text.replace(anchors[2], anchors[2] + "        from greet import greet\n")
+
+
 def install(fake, attack, trace):
     if attack.get("case") != "repair_after_collection":
         raise ValueError("unknown collection repair scenario")
