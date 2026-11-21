@@ -10,8 +10,10 @@ plus a ``demo`` command that observes the violated behavior directly. The runner
 - runs the acceptance test files of that case on the patched copy: a failure kills the variant, and a
   variant every test still passes ``survived``: the tests accept a wrong implementation.
 
-Report only: this module changes no verdict, queues no repair and asks the person nothing. Survivors are
-evidence for the independent Tester and the final report. Pure: prompt, schema, per-variant verdicts and the
+This module changes no verdict, queues no repair and asks the person nothing. Survivors are evidence for the
+independent Tester: one it judges a real violation of its approved case becomes an ``accepts_wrong_implementation``
+repair (autocode_acceptance_test_repair), which sends the tests back to ``write_acceptance_tests`` within that
+path's existing rounds; the changed tests are a new source, so the study runs again on them. Pure: prompt, schema, per-variant verdicts and the
 record; the unit passes in the functions that copy the tree, apply a patch, run a demo and run tests, so
 nothing here touches the workspace. State: ``acceptance_tests["wrong_implementations"]``.
 """
@@ -289,9 +291,11 @@ def survivors_note(state: RunState) -> str:
         return ""
     lines = [f"- case {row['case_id']}: {row['mistake']} ({row['category']})" for row in rows]
     return (
-        "\nWRONG IMPLEMENTATIONS THE ACCEPTANCE TESTS STILL ACCEPT (report only, #3977): the runner showed each "
-        "of these is wrong (its demo fails) while the case's acceptance tests pass. Say in your report when one "
-        "is a real violation of its approved case.\n" + "\n".join(lines) + "\n"
+        "\nWRONG IMPLEMENTATIONS THE ACCEPTANCE TESTS STILL ACCEPT (#3977): the runner showed each "
+        "of these is wrong (its demo fails) while the case's acceptance tests pass. For each one that really "
+        "violates its approved case, fail that criterion and list it in acceptance_test_repairs with kind "
+        '"accepts_wrong_implementation" and the mistake as the reason, so the tests are strengthened before the '
+        "Builder works again. One that violates nothing the case states needs no action.\n" + "\n".join(lines) + "\n"
     )
 
 

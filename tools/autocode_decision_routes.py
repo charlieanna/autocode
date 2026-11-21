@@ -127,7 +127,12 @@ def user_request(
 def validate_decision(state: RunState, stage: str, value: dict) -> None:
     """Validate optional protected acceptance-test repairs on modern ``review_completion`` / ``resolve`` decisions."""
     if stage in acceptance_test_repair.DECISION_STAGES:
-        acceptance_test_repair.validate_report(value, stage=stage, covered_case_ids=acceptance_tests.covered(state))
+        acceptance_test_repair.validate_report(
+            value,
+            stage=stage,
+            covered_case_ids=acceptance_tests.covered(state),
+            survivor_case_ids=acceptance_test_repair.survivor_case_ids(state),
+        )
 
 
 def prepare_continuation(runtime, state: RunState, stage: str, value: dict, record: dict, workspace) -> None:

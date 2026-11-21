@@ -65,6 +65,7 @@ def preflight(state: RunState, validation, record, *, passing_claim):
             validation,
             stage=actual if actual in acceptance_test_repair.REVIEW_STAGES else "tester",
             covered_case_ids=acceptance_tests.covered(state),
+            survivor_case_ids=acceptance_test_repair.survivor_case_ids(state),
         )
     problems = []
     for check in (require_exact_lines, require_tester_decisions):

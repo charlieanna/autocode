@@ -40,7 +40,10 @@ RECEIPT_FIELD = "test_repair"
 HISTORY_KEY = "test_repairs"
 PENDING_KEY = "pending_test_repair"
 MAX_REPAIRS = 2
-KINDS = ("contradicts_case", "broken_fixture")
+WRONG_IMPLEMENTATION = "accepts_wrong_implementation"
+# accepts_wrong_implementation: the runner saw a wrong implementation of the case pass every acceptance test
+# (autocode_wrong_implementations, #3977); only a case with such a recorded survivor may be repaired for it.
+KINDS = ("contradicts_case", "broken_fixture", WRONG_IMPLEMENTATION)
 REVIEW_STAGES = ("tester", "review_checkpoint")
 DECISION_STAGES = ("review_completion", "resolve")
 ALL_STAGES = (*REVIEW_STAGES, *DECISION_STAGES)
@@ -66,7 +69,9 @@ AUDIT_NOTE = (
     "(such as asserting an unspecified fallback or host error instead of the approved case), and do "
     "not ask the Builder to edit a protected test line. When a protected test contradicts/substitutes "
     'for the approved case (`kind="contradicts_case"`) or fails due to a fixture/assertion bug in '
-    'the test itself rather than a product defect (`kind="broken_fixture"`), fail/rework the task '
+    'the test itself rather than a product defect (`kind="broken_fixture"`), or accepts a wrong implementation '
+    "the runner showed passing every acceptance test of its case (WRONG IMPLEMENTATIONS below, "
+    '`kind="accepts_wrong_implementation"`), fail/rework the task '
     "and list `{case_id, kind, reason}` in `acceptance_test_repairs` so the runner routes the repair "
     "to the independent Tester before the Builder.\n"
 )
@@ -152,13 +157,26 @@ def normalize_absent(value: Any, schema: Any, record: Any = None) -> Any:
     return result
 
 
+def survivor_case_ids(state: RunState) -> set[str]:
+    """Cases whose acceptance tests the runner saw accept a wrong implementation, under the current contract."""
+    study = (state.get("acceptance_tests") or {}).get("wrong_implementations") or {}
+    if not isinstance(study, dict) or study.get("contract_hash") != (state.get("goal_contract") or {}).get("hash"):
+        return set()
+    return {str(row.get("case_id")) for row in study.get("survivors") or [] if isinstance(row, dict)}
+
+
 def validate_report(
     data: dict[str, Any],
     *,
     stage: str,
     covered_case_ids: set[str] | list[str] | None = None,
+    survivor_case_ids: set[str] | None = None,
 ) -> list[dict[str, str]]:
-    """Validate ``acceptance_test_repairs`` as a pure function of the report and covered cases."""
+    """Validate ``acceptance_test_repairs`` as a pure function of the report and covered cases.
+
+    ``survivor_case_ids`` (``survivor_case_ids(state)``) limits ``accepts_wrong_implementation`` to cases with a
+    recorded survivor; None, where no run state is at hand (a pre-submit report check), leaves that to the
+    final validation, which always passes it."""
     raw = data.get(FIELD)
     if raw is None or raw == []:
         return []
@@ -185,6 +203,11 @@ def validate_report(
             raise ValueError(f"{FIELD} kind for {cid!r} must be one of {list(KINDS)}")
         if not reason:
             raise ValueError(f"{FIELD} for {cid!r} requires a non-empty reason")
+        if kind == WRONG_IMPLEMENTATION and survivor_case_ids is not None and cid not in survivor_case_ids:
+            raise ValueError(
+                f"{FIELD} kind {WRONG_IMPLEMENTATION!r} for {cid!r} needs a wrong implementation the runner saw pass "
+                "every acceptance test of that case; none is recorded"
+            )
         seen.add(cid)
         normalized.append({"case_id": cid, "kind": kind, "reason": reason})
     if stage in REVIEW_STAGES:
@@ -334,7 +357,9 @@ def route_from_review(
     actual = str(record.get("original_stage") or str(record.get("stage") or "").removesuffix("_report_repair"))
     if actual not in REVIEW_STAGES:
         return False
-    repairs = validate_report(validation, stage=actual, covered_case_ids=covered_case_ids)
+    repairs = validate_report(
+        validation, stage=actual, covered_case_ids=covered_case_ids, survivor_case_ids=survivor_case_ids(state)
+    )
     if not repairs:
         return False
     _record_event(state, repairs, record, stage=actual)
@@ -359,7 +384,9 @@ def record_decision(
     actual = str(record.get("original_stage") or str(record.get("stage") or "").removesuffix("_report_repair"))
     if actual not in DECISION_STAGES:
         return False
-    repairs = validate_report(decision, stage=actual, covered_case_ids=covered_case_ids)
+    repairs = validate_report(
+        decision, stage=actual, covered_case_ids=covered_case_ids, survivor_case_ids=survivor_case_ids(state)
+    )
     if not repairs:
         return False
     _record_event(state, repairs, record, stage=actual)
