@@ -174,12 +174,28 @@ pass while the strict-binding positive cases and final judgment remain open.
   check. Protected-test replay now supplies its own current source revision and
   approved scope. The independent claim-evidence caller must still adopt its
   sealed Requirements revision and scope in its separate follow-up.
+  Tracked symlinks inside a nested Git repository currently remain unbound:
+  the outer index alone does not authenticate the nested index. The nested
+  controls above cover ordinary files and selected ignored outputs, not nested
+  symlinks.
   Flattening now reuses the pinned root snapshot and checks every nested Git
   snapshot against that pin; a changed nested file is refused. On one local
   1,500-file fixture with nested Git and a selected ignored file, three-run
   preparation medians were 0.647 s on master and 0.899 s with the check. This
   is a synthetic measurement, not a production latency bound. Existing worker
   preparation and command deadlines are unchanged.
+  A broad 52-test worker/replay run initially had two refusals: its custody
+  fixture wrote an untracked log inside the project, and an ignored virtualenv
+  became a visible generated symlink in the copy. The fixture now writes its
+  log outside source, and the copy recognizes only dependency links bound to
+  the authorized dependency location. The complete 52-test rerun passed;
+  the original failure log remains at `/private/tmp/autocode-scratch-copy-broad.log`.
+  Pinned copies check generated dependency-link topology before and after the
+  command, including root and nested package dependencies; foreign targets,
+  retargeting and newly introduced dependency directories are refused. This
+  topology guard does not authenticate mutable dependency contents; those need
+  the separate execution identity. Three full scratch runs on the same local
+  fixture had median 0.775 s on master and 1.076 s with the pinned guard.
 - Unit and end-to-end acceptance-reference regressions now capture in-test
   and module-level dependency cases. The candidate test passes, while the
   original run raises a missing unrelated dependency before its assertion.
