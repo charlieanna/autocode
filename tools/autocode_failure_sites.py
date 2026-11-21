@@ -144,7 +144,7 @@ def identity(source, line, *, path):
         peers = [
             node
             for node, owner in entries
-            if owner == scope and isinstance(node, ast.stmt) and ast.dump(node, include_attributes=False) == shape
+            if owner == scope and type(node) is type(statement) and ast.dump(node, include_attributes=False) == shape
         ]
         if not peers:
             return None
