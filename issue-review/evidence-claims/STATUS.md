@@ -1,5 +1,39 @@
 # Evidence claims batch
 
+## Latest verification, 2026-11-21
+
+PR #3996 was merged at `5335ff6e6895b1203c42bc650a37119d380ac744`.
+The following post-merge checks used that exact runtime. Older pending entries
+below are historical and do not override these results.
+
+- The original SemVer AC7 was reconstructed from archived base `dfee3874`
+  and candidate `e4460515`, using scripted stage responses and real Sphinx
+  7.0.1 processes. The broken candidate was refused. The actual Mac VS Code
+  Extension Host displayed the refusal and both unresolved function names.
+- With both API anchors repaired, a separate run traversed Requirements,
+  agent review of the exact plan, Builder, Tester and completion. Its public
+  status reached `TASK_COMPLETE`, and the actual extension displayed the
+  completed run and checked requirement. The independent replay passed both
+  commands. Parsed generated HTML also contained the two expected links into
+  `api.html`. This is offline integration evidence, not a fresh GLM/MiMo run.
+- The initial positive fixture hit its 240-second harness bound. Another
+  fixture exposed an incorrectly prefixed Sphinx anchor. Those attempts were
+  retained. The corrected fixture used a 600-second harness bound and the
+  proper module declaration, without weakening the product's checks.
+- The exact merged runtime passed 184 focused tests, repository Ruff and format
+  checks, and `mypy tools/` (993 files). Retained logs and precise artifact paths
+  are in [REFERENCE-CHECK.md](REFERENCE-CHECK.md).
+- The exact #3996 PR-head Linux extension, containment, scenario and lint jobs
+  passed in [run 44886364594](https://github.com/charlieanna/autocode/actions/runs/44886364594).
+  At this update the Ubuntu suite and advisory diff coverage were still running.
+  Green `ci-required` has not been observed, and this record does not grant it.
+
+Still open: independently authenticated claim execution and semantics for
+#3939/#3940, mixed-version diagnostic custody and its run-level recovery
+handoff, and the unsupported or unauthenticated reference-check cases described
+in REFERENCE-CHECK.md. Keep those issues open. No runtime is changed by this
+verification update, and no completed test needs to be repeated for it.
+
 ## Follow-up: native ownership preflight and review fixture
 
 The post-merge #3992 Linux suite exposed two additional failures on current master `5de8cacfae`. The scratch caller evaluated the admitted-worker state before checking that a supplied native owner was the required concrete owner, violating the refusal-before-observation boundary. The native preflight now receives the state reader and invokes it only after validating the owner and unsupported review inputs. The existing native boundary regression fails on master and passes with this change.
@@ -29,7 +63,7 @@ The branch began at `6519d439a`. The previously referenced handoff was not prese
 
 - Candidate mixed-version custody design, not implemented: serialize on the original account-root `admission.lock`, refuse any unresolved legacy pending family, and atomically install a schema-versioned reservation in the legacy journal before arming separately scoped ownership. Old clients that cannot validate the new schema must fail closed while the reservation exists. The reservation cannot retire until every scoped family has authenticated cleanup. Crash/reboot ordering, durable installation, concurrent legacy callers, malformed or forged reservation, scoped reaping and actual VS Code recovery need deterministic controls. A purpose string, workspace path, model-supplied token or environment value cannot authorize a scope; model-launched captures and runner-owned connection metadata require a supervisor-authenticated operation/launch identity. Do not adopt a purpose-only split or relax the existing global uncertain hold.
 
-- The shared Sphinx comparison correction and its scope, regression evidence and limitations are recorded in [REFERENCE-CHECK.md](REFERENCE-CHECK.md). Broken or suppressed changed-document links are refused, while clean scoped checks remain unverified; it does not close #3947. The actual scripted VS Code host check and this integrated head's exact CI remain pending.
+- The shared Sphinx comparison correction and its scope, regression evidence and limitations are recorded in [REFERENCE-CHECK.md](REFERENCE-CHECK.md). Broken or suppressed changed-document links are refused, while clean scoped checks remain explicitly unverified; it does not close #3947. The post-merge actual scripted VS Code refusal and completion checks passed as recorded above. Required CI remains unconfirmed.
 - Draft follow-up: the Requirements status and VS Code card can now display bounded, source-matched, complete provider-reported suite observations, distinguishing collection from execution and marking omitted paths. They explicitly remain unverified; the card says collection did not run the tests. Unknown provider formats, output without an explicit completeness marker, truncated or stale source, and observation timeout produce no such report. This does not semantically verify any assumption, authenticate execution, or close #3939/#3940. The original Kilo filtered collection event lacks a completeness marker, so it is not claimed to supply this view; A fresh scripted SemVer event was displayed in the actual Mac VS Code host at product head `81130ff1c`: the card showed 358 collected, the exact command and paths, the unverified label, and no execution claim (`/private/tmp/autocode-3996-semver-host-811-clean.log`, `/private/tmp/semver-evidence-host-G7oMxj/visible.png`). This reconstructed event is not the original Kilo output. The harness flagged an extra helper; its exact private socket and PID were subsequently stopped, but the harness did not exit cleanly. Recheck the integrated head and host cleanup before readiness. Local checks passed 226 focused tests, extension tests (779 passed, 22 skipped), full Ruff and format, TypeScript, and Mypy; the real status-view regression fails on master because no collection report appears and passes on the branch (`/private/tmp/autocode-3996-suite-view-master-behavior.log`). The separately retained sandbox attempt could not enumerate supervised processes; the process-enabled run passed.
 - #3996 head `59a250fa06f5a6fc51794303cf29cdfbb8171b18`, tested against CI base `6b803f17ea359252f06a27377757575680648eb3`, finished with a failed Ubuntu suite and failed `ci-required`. The retained log `/private/tmp/autocode-3996-59a250-ubuntu.log` shows exactly two failed modules: `tests.test_needs_execution_matrix.NeedsExecutionMatrixTests.test_exact_job_retry_checks_source_and_current_token` and `tests.test_catalogue_t14.SystematicCase.test_sys04_targeted_mutations_killed`. The historical failure remains failed.
 - The first test expected the status need to remain byte-identical after deliberately changing source. Current master `b5be18283a06fd1e909f6012137d6eefe490ead3` reproduces that assertion failure (`/private/tmp/autocode-3996-current-needs.log`); the actual status correctly changes from `retry_job` to `recover_source`. Draft #4004 updates the real Git/CLI control to assert the changed hold and unchanged protected state, then source restoration and successful retry. Its 27-test needs matrix passed locally, but its final required CI and merge remain open.
