@@ -57,6 +57,7 @@ try:
     from . import autocode_command_supervision as command_supervision
     from . import autocode_dependency_dirs as dependency_dirs
     from . import autocode_diff_coverage as diff_coverage
+    from . import autocode_first_go_proof as first_go_proof
     from . import autocode_first_suite as first_suite
     from . import autocode_go_test_prerequisites as go_prerequisites
     from . import autocode_go_tests as go_tests
@@ -109,6 +110,7 @@ except ImportError:
     import autocode_command_supervision as command_supervision
     import autocode_dependency_dirs as dependency_dirs
     import autocode_diff_coverage as diff_coverage
+    import autocode_first_go_proof as first_go_proof
     import autocode_first_suite as first_suite
     import autocode_go_test_prerequisites as go_prerequisites
     import autocode_go_tests as go_tests
@@ -1840,7 +1842,8 @@ def _prove_regression(run: _Run, trees, *, no_go_project, no_junit_project):
     )
     checks["regression_on_candidate"] = on_candidate
     on_base = None
-    if "base_with_tests" in trees:
+    first_go, first_go_proved = first_go_proof.qualify(run, trees, on_candidate, no_go_project)
+    if "base_with_tests" in trees and not first_go:
         if run.progress:
             run.progress(
                 "Comparing regression tests against the original code",
@@ -1904,7 +1907,7 @@ def _prove_regression(run: _Run, trees, *, no_go_project, no_junit_project):
         review_reasons,
         new_behavior=new_behavior,
         preserve_only=preserve,
-        absent_go_base=no_go_project and _go_test(package_scope.split(framework, commands["regression"])[1]),
+        absent_first_go=first_go_proved,
         absent_junit_base=no_junit_project
         and junit_first.reported_absence(on_base or {}, junit_first.family(commands["suite"])),
         known_failures=lambda: _pre_existing(
@@ -1963,6 +1966,7 @@ def _preserve_suite(run: _Run, trees, *, no_go_project, no_junit_project) -> lis
         and not base_patch
         and comparable
         and comparable.get("base") == base
+        and (framework is None or framework.name != "go" or no_go_project)
         and _document_only_base(
             workspace,
             base,
@@ -2128,7 +2132,7 @@ def _preserve_suite(run: _Run, trees, *, no_go_project, no_junit_project) -> lis
             "be shown to rest on tests the base revision holds: " + ", ".join(hidden[:5])
         )
     with_tests = None
-    if guards and "base_with_tests" in trees and not hidden:
+    if guards and "base_with_tests" in trees and not hidden and not no_go_project:
         # Without a targeted command the whole suite already ran there; tests that timed out there are in it too.
         with_tests = base_bound.ran_with_tests(checks, commands["regression"])
         if with_tests is None:
@@ -2448,7 +2452,7 @@ def verify(
         # Regression proof: identical tests, base source versus candidate source.
         if trees and runnable_tests and commands["regression"]:
             _prove_regression(run, trees, no_go_project=no_go_project, no_junit_project=no_junit_project)
-        elif "base_with_tests" in trees and commands["suite"]:
+        elif "base_with_tests" in trees and commands["suite"] and not no_go_project:
             # No targeted command: the whole suite proves the flip when base was green, if it holds the tests.
             if reason := unheld(framework, commands["suite"], runnable_tests):
                 unverified.append(reason)
