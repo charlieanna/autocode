@@ -36,6 +36,7 @@ try:
     from .. import autocode_task_authority as task_authority
     from .. import autocode_tool_handoff as tool_handoff
     from .. import autocode_toolchain_requirements as toolchain_requirements
+    from .. import autocode_variant_patch as variant_patch
     from .. import autocode_verification_commands as command_policy
     from .. import autocode_verification_plan as verification_plan
     from .. import autocode_verify as verify
@@ -55,6 +56,7 @@ except ImportError:
     import autocode_task_authority as task_authority
     import autocode_tool_handoff as tool_handoff
     import autocode_toolchain_requirements as toolchain_requirements
+    import autocode_variant_patch as variant_patch
     import autocode_verification_commands as command_policy
     import autocode_verification_plan as verification_plan
     import autocode_verify as verify
@@ -314,23 +316,30 @@ def apply_job(stage, state: RunState, value, record, workspace, run_dir=None, ru
     )
 
 
-def _variant_patch(evidence_dir, patch):
-    """The variant's patch text saved as a file, which the scratch runner applies; None for the candidate."""
+def _variant(workspace, evidence_dir, patch):
+    """``{"files": overlay}`` for the scratch runner, or ``{"error": why}``; ``patch`` None is the candidate itself.
+
+    The variant's patch is applied to copies of the files it changes (autocode_variant_patch), never as a patch
+    file the scratch runner applies with plain ``git apply``, which refuses the hand-written hunks the writer is
+    told it may send (no context lines, inexact line counts)."""
     if patch is None:
-        return None
-    folder = Path(evidence_dir) / "wrong-implementations"
-    folder.mkdir(parents=True, exist_ok=True)
-    path = folder / (hashlib.sha256(patch.encode()).hexdigest() + ".patch")
-    path.write_text(patch if patch.endswith("\n") else patch + "\n")
-    return path
+        return {"files": None}
+    name = hashlib.sha256(patch.encode()).hexdigest()
+    try:
+        return {"files": variant_patch.files(workspace, patch, Path(evidence_dir) / "wrong-implementations" / name)}
+    except ValueError as error:
+        return {"error": str(error)}
 
 
 def _study_run(clean_run, workspace, evidence_dir, patch, *, command=None, timeout=PROBE_TIMEOUT):
     """One scratch execution of a variant's demo: ``patch`` None runs it on the candidate itself."""
+    variant = _variant(workspace, evidence_dir, patch)
+    if "error" in variant:
+        return {"exit_code": None, "error": variant["error"]}
     return clean_run(
         workspace,
         evidence_dir / "wrong-implementations",
-        patch=_variant_patch(evidence_dir, patch),
+        files=variant["files"],
         command=command,
         timeout=timeout,
     )
@@ -338,10 +347,13 @@ def _study_run(clean_run, workspace, evidence_dir, patch, *, command=None, timeo
 
 def _study_tests(state: RunState, clean_run, workspace, evidence_dir, patch, files):
     """The failed acceptance tests, or why they could not run, with the variant's patch applied."""
+    variant = _variant(workspace, evidence_dir, patch)
+    if "error" in variant:
+        return {"failed": [], "error": variant["error"]}
     run = clean_run(
         workspace,
         evidence_dir / "wrong-implementations",
-        patch=_variant_patch(evidence_dir, patch),
+        files=variant["files"],
         tests=files,
         command=command_policy.configured_targeted(state.get("settings"), files) or _planned_go_targeted(state, files),
         timeout=verify.DEFAULT_TIMEOUT,

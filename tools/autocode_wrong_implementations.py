@@ -249,7 +249,7 @@ def _verdict(row: dict, case_files: dict, runners: Runners, deadline: float) -> 
         return {**base, "outcome": "demo_unproven", "reason": "the demo does not exit 0 on the candidate"}
     shown = runners.demo(row["patch"], row["demo"])
     if shown.get("exit_code") is None and shown.get("error"):
-        return {**base, "outcome": "invalid", "reason": "the patch does not apply to the candidate"}
+        return {**base, "outcome": "invalid", "reason": f"the patch does not apply to the candidate: {shown['error']}"}
     if shown.get("exit_code") in (0, None):
         return {**base, "outcome": "not_shown_wrong", "reason": "the demo still exits 0 with the patch"}
     run = runners.tests(row["patch"], case_files[row["case_id"]])
