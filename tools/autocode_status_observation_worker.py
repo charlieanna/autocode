@@ -46,8 +46,10 @@ def _worker(request):
 
         try:
             admission.failure_retry_frontier(payload["state"], payload["workspace"])
+        except admission.FailureRetryFrontierRefused as error:
+            return {"allowed": False, "reason": str(error), "unavailable": False}
         except (ValueError, OSError, KeyError, TypeError, util.Paused) as error:
-            return {"allowed": False, "reason": str(error)}
+            return {"allowed": False, "reason": str(error), "unavailable": True}
         return {"allowed": True}
     if request.get("operation") == "source_snapshot":
         import autocode_source_scope as source_scope

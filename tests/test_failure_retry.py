@@ -6,7 +6,9 @@ import unittest
 from unittest.mock import patch
 
 import autocode as runner
+import autocode_failure_retry_admission as retry_admission
 import autocode_run_view as run_view
+import autocode_source_scope as source_scope
 import autocode_support as support
 
 from . import test_autocode, test_subprocess
@@ -44,8 +46,39 @@ class FailureRetryTests(unittest.TestCase):
             run_view.status_observation.captured, "run", side_effect=subprocess.TimeoutExpired("status-worker", 15)
         ):
             blocked = run_view.action(self.state, run_dir=self.run, workspace=self.root)
+            shown = run_view.view(self.state, run_dir=self.run, workspace=self.root)
         self.assertIn("could not be checked", blocked["needs"]["retry_unavailable"])
-        self.assertNotIn("--retry-failed-stage", blocked["next_command"])
+        self.assertIsNone(blocked["next_command"])
+        self.assertEqual(blocked["needs"]["retry_unavailable"], blocked["needs"]["resume_unavailable"])
+        self.assertEqual("blocked", shown["recovery"]["category"])
+        self.assertIsNone(shown["next_command"])
+        self.assertNotIn("resume", [row["kind"] for row in shown["recovery"]["actions"]])
+
+    def test_changed_repeated_failure_source_still_offers_plain_resume(self):
+        self.seed()
+        self.state["workspace"] = str(self.root)
+        (self.root / "changed.py").write_text("changed = True\n")
+        view = run_view.action(self.state, run_dir=self.run, workspace=self.root)
+        self.assertIn("--resume-paused", view["next_command"])
+        self.assertNotIn("--retry-failed-stage", view["next_command"])
+        self.assertNotIn("resume_unavailable", view["needs"])
+        with self.assertRaises(retry_admission.FailureRetryFrontierRefused):
+            runner.authorize_failure_retry(self.state, self.run, self.root)
+
+    def test_source_read_failure_holds_view_and_cannot_authorize_retry(self):
+        self.seed()
+        self.state["workspace"] = str(self.root)
+        failure = {"allowed": False, "reason": "Git failed", "unavailable": True}
+        with patch.object(run_view.status_observation, "_observe", return_value=failure):
+            view = run_view.action(self.state, run_dir=self.run, workspace=self.root)
+        self.assertIsNone(view["next_command"])
+        self.assertEqual("Git failed", view["needs"]["resume_unavailable"])
+        before = copy.deepcopy(self.state)
+        with patch.object(source_scope, "snapshot", side_effect=ValueError("Git failed")):
+            with self.assertRaisesRegex(ValueError, "Git failed") as raised:
+                runner.authorize_failure_retry(self.state, self.run, self.root)
+        self.assertNotIsInstance(raised.exception, retry_admission.FailureRetryFrontierRefused)
+        self.assertEqual(before, self.state)
 
     def test_authorization_preserves_all_provenance_and_is_consumed_once(self):
         record = self.seed()
@@ -216,6 +249,9 @@ class FailureRetryTests(unittest.TestCase):
         self.state["settings"]["report_repair"] = {"max_attempts": 2}
         self.state["pending_report_repair"] = {"attempts": 1, "original": record}
         self.assertIsNone(runner.repeated_failure_resume_guard(self.state, self.root))
+        view = run_view.action(self.state, run_dir=self.run, workspace=self.root)
+        self.assertIn("--resume-paused", view["next_command"])
+        self.assertNotIn("resume_unavailable", view["needs"])
         # A spent repair is not a queued one: with nothing left to dispatch the hold still applies.
         self.state["pending_report_repair"]["attempts"] = 2
         with self.assertRaises(support.Paused):

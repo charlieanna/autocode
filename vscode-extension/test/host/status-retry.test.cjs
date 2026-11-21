@@ -129,14 +129,10 @@ for (const kind of ['job', 'repeat']) {
           return shown.text.includes("The failed job's source could not be checked") && !shown.action;
         });
       } else {
-        // Do not require the known ineffective Continue: a later fix may remove it.
-        const blocked = await until('repeated failure without a retry offer', async () => {
+        await until('blocked repeated failure in the chat', async () => {
           const shown = await state();
-          return shown.action !== retryLabel && !shown.text.includes('choose “Retry the failed step once”')
-            && (shown.text.includes('An ordinary resume cannot grant another attempt')
-              || shown.text.includes("The repeated failure's source could not be checked")) ? shown : null;
+          return shown.text.includes("The repeated failure's source could not be checked") && !shown.action;
         });
-        console.log('Repeated failure timeout action:', blocked.action ?? '(none)');
       }
       const unavailable = publicStatus();
       assert.doesNotMatch(unavailable.next_command ?? '', /--retry-failed-stage/, 'timeout does not name a stale retry');

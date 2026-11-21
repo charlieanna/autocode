@@ -139,11 +139,12 @@ def _retry_admission(operation, payload, reason):
             isinstance(value, dict)
             and type(value.get("allowed")) is bool
             and (value["allowed"] or isinstance(value.get("reason"), str) and value["reason"])
+            and (operation != "failure_retry" or value["allowed"] or type(value.get("unavailable")) is bool)
         ):
             return value
     except (OSError, TypeError, ValueError, subprocess.SubprocessError, captured.ProcessError):
         pass
-    return {"allowed": False, "reason": reason}
+    return {"allowed": False, "reason": reason, "unavailable": True}
 
 
 def job_retry(state: RunState, workspace, token, run_dir=None):
