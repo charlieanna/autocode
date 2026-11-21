@@ -393,7 +393,10 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
             return recovery_dispatch.dispatch_orchestrator(
                 runner, autopilot.unit_module(stage), current, workspace, run_dir, runner.orchestrator.SKIP
             )
-        if stage == acceptance_tests.STAGE and (current.get(acceptance_tests.KEY) or {}).get(acceptance_retry.KEY):
+        if (
+            stage == acceptance_tests.STAGE
+            and (current.get(acceptance_tests.KEY) or {}).get(acceptance_retry.KEY) is not None
+        ):
             record_resume(runner, args, current, state_path)
             result = acceptance_retry.dispatch(
                 runner, current, stage, workspace, run_dir, apply=autopilot.unit_module(stage).apply_job

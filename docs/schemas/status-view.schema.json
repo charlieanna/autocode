@@ -21,7 +21,7 @@
         "schema", "status", "done", "needs", "pause_category", "pause_category_label", "next_command",
         "phase", "next_stage", "next_stage_label", "status_label", "iteration", "stop_reason", "explanation", "current_task", "task", "task_sha256",
         "workflow", "workflow_source", "workflow_reason", "turn", "evidence", "approvals", "evidence_report",
-        "acceptance_tests", "usage", "cost", "planning_calls", "progress", "summary", "delivery", "liveness", "controller", "recovery", "recoveries",
+        "acceptance_tests", "acceptance_verification_retry", "usage", "cost", "planning_calls", "progress", "summary", "delivery", "liveness", "controller", "recovery", "recoveries",
         "verification", "review_result", "verification_obligation", "code_checkpoints", "runner", "runner_check", "dependency",
         "prompts_hash", "interaction_timing", "replay_source", "replay_progress", "replay_result",
         "escalation_outcomes", "escalations", "request_context", "output_transport", "direct_rework_assignments", "routes",
@@ -163,6 +163,17 @@
         "approvals": {"type": "array", "description": "Who approved each plan and review, edited the plan, resumed the run from a pause or accepted its completion, oldest first (#722). Recorded as given and never verified."},
         "evidence_report": {"type": ["object", "null"]},
         "acceptance_tests": {"type": ["object", "null"]},
+        "acceptance_verification_retry": {
+          "type": ["object", "null"],
+          "description": "What the next resume of the Tester's retained acceptance report does (tools/autocode_acceptance_retry_next.py, #3927): re-check the saved tests without a new Tester attempt, run a fresh Tester attempt under test-cause Investigator advice, or nothing because the bounded re-check is spent or its saved inputs cannot be verified. Null without a retained report. Display only: needs and next_command name the action.",
+          "required": ["next", "rechecks", "allowed"],
+          "additionalProperties": false,
+          "properties": {
+            "next": {"enum": ["recheck", "tester", "exhausted", "blocked"]},
+            "rechecks": {"type": "integer", "minimum": 0, "description": "Local re-checks of the saved tests spent."},
+            "allowed": {"type": ["integer", "null"], "minimum": 1, "description": "Re-checks this retained report may spend; null when blocked or for a test runner that never started, re-checked on each resume."}
+          }
+        },
         "usage": {
           "type": "object",
           "description": "Tokens and cost so far; unknown cost is not zero. cost_usd.estimated is a comparison figure at frozen rates that price every input token, cached or not, at the input rate; the run's cost is cost.spent_usd.",
