@@ -15,9 +15,7 @@ try:
     from . import autocode_escalation_view as escalation_view
     from . import autocode_failures as failures
     from . import autocode_internal_failure_view as operational_block
-    from . import autocode_launch_inputs as launch_inputs
     from . import autocode_review_result as review_result
-    from . import autocode_source_scope as source_scope
     from . import autocode_status_observation as status_observation
     from . import autocode_status_summary as status_summary
 except ImportError:
@@ -30,9 +28,7 @@ except ImportError:
     import autocode_escalation_view as escalation_view
     import autocode_failures as failures
     import autocode_internal_failure_view as operational_block
-    import autocode_launch_inputs as launch_inputs
     import autocode_review_result as review_result
-    import autocode_source_scope as source_scope
     import autocode_status_observation as status_observation
     import autocode_status_summary as status_summary
 
@@ -181,61 +177,70 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
     )
     current: Any = None
     report_source_unavailable = False
-    if completion_snapshot or state.get("pending_report_repair"):
-        try:
-            current = source_scope.snapshot(workspace, state, base_snapshot=runner.support.snapshot)
-        except (OSError, ValueError, util.Paused):
-            if completion_snapshot:
-                raise
-            report_source_unavailable = True
-    # Public --status stays lock-free. Scoped visual acceptance needs the runner's
-    # CODE scope authority (exclusive locks); without it, projection reports UNKNOWN
-    # and completion_current stays unknown rather than a false NOT_READY denial (#1255).
+    if completion_snapshot:
+        current = status_observation.source_snapshot(state, workspace)
+    report_observation = None
+    if state.get("pending_report_repair") and (not completion_snapshot or current is not None):
+        report_observation = status_observation.report_repair(
+            state, workspace, revision=current["revision"] if current else None
+        )
+        report_source_unavailable = report_observation is None
+    elif state.get("pending_report_repair"):
+        report_source_unavailable = True
+    # Public --status stays lock-free. The worker checks physical evidence under
+    # the same deadline; an unavailable observation never claims completion.
+    completion_observation = (
+        status_observation.completion(state, current, workspace, run_dir) if current is not None else None
+    )
+    visual_needed = bool(strict_visual or state.get("settings", {}).get("design_manifest"))
     visual_acceptance = (
-        runner.visual_runtime.projection(state, current_snapshot=current)
-        if (state.get("settings", {}).get("design_manifest") or strict_visual) and current
+        completion_observation.get("visual_acceptance")
+        if completion_observation
+        else runner.visual_runtime._authority_unknown("Current source or visual evidence could not be inspected.")
+        if visual_needed
         else None
     )
-    completion_current = (
-        runner.completion_gate.completion_ready(state, state.get("final_decision", {}), current)
-        if state["status"] == "TASK_COMPLETE"
-        else None
-    )
+    completion_current = completion_observation.get("current") if completion_observation else None
     completed_without_building = runner.jobs.built_nothing(state)
-    if completion_current:
-        try:
-            launch_inputs.guard(state, workspace, run_dir)
-        except ValueError:
-            completion_current = False
-    if completion_current is True and (state.get("settings", {}).get("design_manifest") or strict_visual):
-        visual_gate = runner.visual_runtime.completion_check(state, current_snapshot=current)
-        # None means scoped acceptance could not be judged without runner CODE.
-        completion_current = visual_gate["passed"]
     inspected = None
     if getattr(args, "inspect_evidence", False):
         contract = state.get("goal_contract") or {}
         criteria = (contract.get("body") or {}).get("acceptance_criteria") or []
         missing = runner.goals.missing_human_reviews(state) if contract else []
         accepted = [row["id"] for row in criteria if row.get("human_review") and row["id"] not in missing]
-        inspected = verification.inspect(
+        inspected = status_observation.evidence_inspection(
             state,
             workspace,
-            snapshot=lambda root: source_scope.snapshot(root, state, base_snapshot=runner.support.snapshot),
-            read_state=lambda: runner.read_json(run_dir / "state.json"),
+            run_dir,
             accepted_human_ids=accepted,
             initial_snapshot=current,
         )
-        try:
-            launch_inputs.guard(state, workspace, run_dir)
-        except ValueError as error:
+        inspection_unavailable = inspected is None
+        if inspected is None:
+            inspected = verification.project(
+                state,
+                inspection_error="Current source or saved evidence could not be inspected. Recorded results remain available.",
+                accepted_human_ids=accepted,
+            )
+        launch_observation = status_observation.launch_guard(state, workspace, run_dir)
+        if launch_observation is None:
+            inspection_unavailable = True
+            inspected = verification.project(
+                state,
+                inspection_error="Current source or saved evidence could not be inspected. Recorded results remain available.",
+                accepted_human_ids=accepted,
+            )
+        elif not launch_observation["ok"]:
             inspected = verification.project(
                 state,
                 current_revision=inspected.get("inspected_source_revision"),
                 evidence_matches=False,
                 accepted_human_ids=accepted,
             )
-            inspected["reasons"].append(str(error))
-        if completion_current is not None and (
+            inspected["reasons"].append(str(launch_observation.get("reason") or "Launch inputs changed."))
+        if (inspection_unavailable or inspected.get("freshness") == "unavailable") and completion_current is not None:
+            completion_current = None
+        elif completion_current is not None and (
             inspected["freshness"] != "current" or inspected.get("inspected_source_revision") != current["revision"]
         ):
             completion_current = False
@@ -260,9 +265,8 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         liveness=liveness,
         runner_check_liveness=check_liveness,
         verification_obligation=preparation.frontier(run_dir / "check-replay" / "obligations", check),
-        stale_report_repair=not report_source_unavailable
-        and runner.stale_report_repair(state, workspace, revision=current["revision"] if current else None) is not None,
-        report_repair_revision=current["revision"] if current and state.get("pending_report_repair") else None,
+        stale_report_repair=bool(report_observation and report_observation["stale"]),
+        report_repair_revision=report_observation["revision"] if report_observation else None,
         report_repair_source_unavailable=report_source_unavailable,
         design_input_preview=design_input_preview,
         run_dir=run_dir,
@@ -497,7 +501,7 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
                 "unit_handoffs": state.get("unit_handoffs", {}),
                 "milestone_activation_pending": (run_dir / "milestone-checkpoints-requested.json").exists(),
                 "interventions": runner.intervention_metadata(workspace, run_dir, state),
-                "view": {**public_view, "delivery": runner.dependency.export(state, current, completion_current)},
+                "view": {**public_view, "delivery": status_observation.delivery(state, current, completion_current)},
                 **human_projection,
             },
             indent=2,

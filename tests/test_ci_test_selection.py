@@ -8,6 +8,31 @@ import run_suite
 
 
 class AccessTransportConsumerTests(unittest.TestCase):
+    def test_diagnostic_capture_keeps_bounded_ownership_consumers(self):
+        available = {
+            "tests.test_claim_evidence": "",
+            "tests.test_captured_process": "",
+            "tests.test_metadata_custody": "",
+        }
+        for path in (
+            "tools/autocode_diagnostics_comparison.py",
+            "tools/autocode_capture_command.py",
+            "tools/autocode_captured_process.py",
+        ):
+            selected = run_suite.select_tests([path], available)
+            self.assertIn("tests.test_claim_evidence", selected)
+            if path.endswith("autocode_captured_process.py"):
+                self.assertIn("tests.test_captured_process", selected)
+            if not path.endswith("autocode_capture_command.py"):
+                self.assertIn("tests.test_metadata_custody", selected)
+
+    def test_scratch_source_identity_keeps_its_safety_tests(self):
+        available = {"tests.test_scratch_copy_identity": "", "tests.test_scratch_link_binding": ""}
+        selected = run_suite.select_tests(["tools/autocode_source_snapshot.py"], available)
+        self.assertEqual(set(available), set(selected))
+        selected = run_suite.select_tests(["tools/autocode_scratch_preparation.py"], available)
+        self.assertIn("tests.test_scratch_copy_identity", selected)
+
     def test_named_collection_changes_keep_observation_custody_tests(self):
         selected = run_suite.select_tests(
             ["tools/autocode_named_collection.py"],
@@ -21,11 +46,19 @@ class AccessTransportConsumerTests(unittest.TestCase):
             "tests.test_acceptance_verification_retry",
             "tests.test_recovery_history",
             "tests.test_status_observation",
+            "tests.test_status_updates",
+            "tests.test_status_command",
+            "tests.test_report_repair_view",
+            "tests.test_catalog_reconciliation",
+            "tests.test_source_reconciliation",
+            "tests.test_visual_runtime",
         }
-        selected = run_suite.select_tests(
-            ["tools/autocode_status_observation.py"], {**dict.fromkeys(consumers, ""), "tests.test_unrelated": ""}
-        )
-        self.assertTrue(consumers <= set(selected))
+        for source in ("tools/autocode_status_observation.py", "tools/autocode_status_observation_worker.py"):
+            with self.subTest(source=source):
+                selected = run_suite.select_tests(
+                    [source], {**dict.fromkeys(consumers, ""), "tests.test_unrelated": ""}
+                )
+                self.assertTrue(consumers <= set(selected))
 
     def test_answer_ingresses_keep_the_requirements_lifecycle_consumers_when_slow(self):
         consumers = {
@@ -675,6 +708,13 @@ class DynamicDependenciesTests(unittest.TestCase):
         )
         kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
         self.assertEqual([consumer], list(kept))
+
+    def test_claim_replay_keeps_its_named_result_tests(self):
+        selected = run_suite.select_tests(
+            ["tools/autocode_suite_claim_replay.py"],
+            {"tests.test_requirements_observations": "", "tests.test_unrelated": ""},
+        )
+        self.assertIn("tests.test_requirements_observations", selected)
 
     def test_requirements_observations_keep_the_public_intake_to_planner_consumer(self):
         consumer = "tests.test_requirements_observations_cli"

@@ -11,6 +11,8 @@ from unittest.mock import patch
 
 import autocode_client_actions as client
 import autocode_run_view as run_view
+import autocode_status_observation as status_observation
+import autocode_status_observation_worker as status_worker
 import autocode_status_summary as summary
 import autocode_util as util
 
@@ -96,8 +98,13 @@ class SourceReconciliationTests(unittest.TestCase):
 
     def test_unreadable_source_has_no_person_or_replay_action(self):
         before = copy.deepcopy(self.state)
-        with patch(
-            "autocode_source_scope.snapshot", side_effect=util.Paused("PAUSED_SOURCE_UNAVAILABLE", "unreadable")
+        with (
+            patch("autocode_source_scope.snapshot", side_effect=util.Paused("PAUSED_SOURCE_UNAVAILABLE", "unreadable")),
+            patch.object(
+                status_observation,
+                "_observe",
+                side_effect=lambda op, payload: status_worker._worker({"operation": op, "payload": payload}),
+            ),
         ):
             view = self.view()
         self.assertIsNone(view["needs"])
@@ -110,12 +117,26 @@ class SourceReconciliationTests(unittest.TestCase):
         # Discovery under the shared source roots is the other cause of this stop; resuming while it still
         # blocks stops at the same place again, so the view must not offer the continuation.
         before = copy.deepcopy(self.state)
-        with patch("autocode_repo_catalog.blocking", return_value=[{"code": "symlink_escape", "path": "/r/link"}]):
+        with (
+            patch("autocode_repo_catalog.blocking", return_value=[{"code": "symlink_escape", "path": "/r/link"}]),
+            patch.object(
+                status_observation,
+                "_observe",
+                side_effect=lambda op, payload: status_worker._worker({"operation": op, "payload": payload}),
+            ),
+        ):
             view = self.view()
         self.assertIsNone(view["needs"])
         self.assertIsNone(view["next_command"])
         self.assertEqual("blocked", view["recovery"]["category"])
         self.assertEqual(before, self.state)
+
+    def test_status_observation_timeout_holds_until_a_later_fresh_read(self):
+        with patch.object(status_observation.captured, "run", side_effect=subprocess.TimeoutExpired("worker", 15)):
+            view = self.view()
+        self.assertIsNone(view["next_command"])
+        self.assertEqual("blocked", view["recovery"]["category"])
+        self.assertEqual("continue", self.view()["needs"]["kind"])
 
     def test_a_live_controller_reconciling_a_saved_failure_is_not_shown_as_blocked(self):
         for status in ("PAUSED_SOURCE_UNAVAILABLE", "PAUSED_TOOL_CONTAINMENT", "PAUSED_VERIFICATION_UNCERTAIN"):

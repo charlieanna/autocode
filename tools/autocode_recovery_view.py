@@ -532,7 +532,7 @@ _UNSET = object()  # no retained-retry answer supplied: compute it from the run'
 
 
 @status_observation.budgeted
-def project(state: RunState, need=None, *, retained=_UNSET):
+def project(state: RunState, need=None, *, retained=_UNSET, report_repair_unavailable=False):
     """The recovery card. ``retained`` is the retained acceptance retry's answer
     (autocode_acceptance_retry_next.decide), which the status view computes once with its workspace."""
     status = state.get("status") or ""
@@ -622,6 +622,12 @@ def project(state: RunState, need=None, *, retained=_UNSET):
             "Read the saved plan, changes, checks and attempt history. This does not run a step.",
         )
     )
+    if report_repair_unavailable and not need and not terminal:
+        result.update(
+            category="blocked",
+            what_happened="AutoCode could not verify the saved report and current source. Saved work is retained.",
+        )
+        return result
     if terminal:
         actions.append(
             _action(

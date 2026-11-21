@@ -11,7 +11,8 @@ A diagnostic line is an output line containing a whole-word ``warning``, ``error
 case: a vocabulary of diagnostics, not of any one tool. Lines are compared as multisets after the base
 copy's root path is replaced with the workspace path and location line/column numbers are normalized,
 so a moved diagnostic is not new but numbers in its message remain significant. The receipt is read by
-autocode_claim_evidence. Imports nothing from AutoCode except autocode_util.
+autocode_claim_evidence. The shared captured-process owner bounds each exact
+argv and retains process-family cleanup across Linux metadata invocations.
 """
 
 from __future__ import annotations
@@ -24,14 +25,18 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
+import time
 from pathlib import Path
 
 try:
+    from . import autocode_captured_process as captured_process
     from . import autocode_util as util
 except ImportError:
+    import autocode_captured_process as captured_process
     import autocode_util as util
 
 KIND = "diagnostics_comparison"
+COMPARISON_TIMEOUT = 900
 _DIAGNOSTIC = re.compile(r"\b(?:warning|error|fatal)\b", re.IGNORECASE)
 _LOCATION = re.compile(r"^(.+?):\d+(?::\d+)?:")
 
@@ -77,9 +82,16 @@ def _extract(top: Path, revision: str, destination: Path) -> None:
         tar.extractall(destination, filter="data")
 
 
-def _run(command: list[str], cwd: Path, log: Path) -> int:
-    with log.open("xb") as handle:
-        return subprocess.run(command, cwd=cwd, stdout=handle, stderr=subprocess.STDOUT).returncode
+def _run(command: list[str], cwd: Path, log: Path, deadline: float) -> int:
+    """Retain combined output while the shared capture owner bounds the command family."""
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise subprocess.TimeoutExpired(command, COMPARISON_TIMEOUT)
+    with log.open("x+b") as output:
+        result = captured_process.run_metadata(
+            command, cwd=cwd, timeout=remaining, text=False, output_stream=output, merge_output=True
+        )
+    return result.returncode
 
 
 def compare(command: list[str], revision: str, cwd: Path, receipt_path: Path) -> dict:
@@ -91,18 +103,22 @@ def compare(command: list[str], revision: str, cwd: Path, receipt_path: Path) ->
     cwd = Path(cwd).resolve()
     top = Path(_git(cwd, "rev-parse", "--show-toplevel")).resolve()
     base_revision = _git(cwd, "rev-parse", "--verify", f"{revision}^{{commit}}")
+    base_log = receipt_path.with_suffix(".base.log").absolute()
+    candidate_log = receipt_path.with_suffix(".log").absolute()
+    if base_log.exists() or base_log.is_symlink() or candidate_log.exists() or candidate_log.is_symlink():
+        raise FileExistsError("diagnostic comparison logs already exist")
+    deadline = time.monotonic() + COMPARISON_TIMEOUT
     scratch = top / ".autocode" / "scratch"
     scratch.mkdir(parents=True, exist_ok=True)
     copy = Path(tempfile.mkdtemp(prefix="compare-base-", dir=scratch))
-    base_log, candidate_log = receipt_path.with_suffix(".base.log"), receipt_path.with_suffix(".log")
     try:
         _extract(top, base_revision, copy)
         base_cwd = copy / cwd.relative_to(top)
         base_cwd.mkdir(parents=True, exist_ok=True)
-        base_exit = _run(command, base_cwd, base_log)
+        base_exit = _run(command, base_cwd, base_log, deadline)
     finally:
         shutil.rmtree(copy, ignore_errors=True)
-    candidate_exit = _run(command, cwd, candidate_log)
+    candidate_exit = _run(command, cwd, candidate_log, deadline)
     # The base copy's own root reads as the workspace's, so an absolute path in a diagnostic is not new.
     base_text = base_log.read_bytes().decode("utf-8", errors="replace").replace(str(copy), str(top))
     candidate_text = candidate_log.read_bytes().decode("utf-8", errors="replace")

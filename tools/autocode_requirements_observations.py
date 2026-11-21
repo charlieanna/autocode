@@ -415,6 +415,91 @@ def reported_assumption_suite_claim(
     }
 
 
+def structured_reported_suite_claim(state: RunState, run_dir, current_source, claim):
+    """Bind an explicit test-claim scope to named reports, always without proof authority."""
+    keys = {"assumption_id", "claim_sha256", "kind", "node_ids", "collection_command", "execution_command"}
+    if not isinstance(claim, dict) or set(claim) != keys:
+        return None
+    if claim.get("kind") not in ("all_suite_pass", "named_tests_pass"):
+        return None
+    wanted = claim.get("node_ids")
+    if not isinstance(wanted, list) or not wanted or any(not isinstance(item, str) or not item for item in wanted):
+        return None
+    if len(wanted) != len(set(wanted)):
+        return None
+    result = reported_assumption_suite_claim(
+        state, run_dir, current_source, claim["assumption_id"], claim["collection_command"], claim["execution_command"]
+    )
+    if not result or claim.get("claim_sha256") != result["claim_sha256"]:
+        return None
+    if not set(wanted) <= set(result["node_ids"]):
+        return None
+    if claim["kind"] == "all_suite_pass" and set(wanted) != set(result["node_ids"]):
+        return None
+    return {**result, "claim_kind": claim["kind"], "claimed_node_ids": list(wanted)}
+
+
+def structured_collection_claim(state: RunState, run_dir, current_source, claim):
+    """Bind an exact proposed claim to collection data without asserting that tests ran."""
+    keys = {"assumption_id", "claim_sha256", "kind", "node_ids", "collection_command"}
+    if (
+        not isinstance(claim, dict)
+        or set(claim) != keys
+        or claim.get("kind") not in ("all_suite_pass", "named_tests_pass")
+    ):
+        return None
+    wanted = claim.get("node_ids")
+    if (
+        not isinstance(wanted, list)
+        or not wanted
+        or any(not isinstance(x, str) or not x for x in wanted)
+        or len(wanted) != len(set(wanted))
+    ):
+        return None
+    handoff = requirements_review.current_turn_handoff(state)
+    report = handoff.get("report") if isinstance(handoff, dict) else None
+    assumptions = report.get("proposed_assumptions") if isinstance(report, dict) else None
+    if not isinstance(assumptions, list) or not isinstance(claim.get("assumption_id"), str):
+        return None
+    matches = [row for row in assumptions if isinstance(row, dict) and row.get("id") == claim["assumption_id"]]
+    if len(matches) != 1 or not isinstance(matches[0].get("text"), str) or not matches[0]["text"].strip():
+        return None
+    text = matches[0]["text"]
+    if hashlib.sha256(text.encode()).hexdigest() != claim.get("claim_sha256"):
+        return None
+    result = retained_command_output(state, "claim_evidence", run_dir, current_source, claim["collection_command"])
+    if not result or not source.is_canonical_paths(result.get("source_paths")):
+        return None
+    collection = result.get("reported_collection") or {}
+    names, junit = collection.get("node_ids"), collection.get("junit_node_ids")
+    if (
+        not isinstance(names, list)
+        or not isinstance(junit, list)
+        or len(names) != len(junit)
+        or len(names) != len(set(names))
+    ):
+        return None
+    if not set(wanted) <= set(names) or (claim["kind"] == "all_suite_pass" and set(wanted) != set(names)):
+        return None
+    mapped = dict(zip(names, junit, strict=True))
+    return {
+        "status": "unverified",
+        "reason": "Collection alone does not establish execution or the claim.",
+        "assumption_id": claim["assumption_id"],
+        "claim": text,
+        "claim_sha256": claim["claim_sha256"],
+        "claim_kind": claim["kind"],
+        "suite_command": collection["suite_command"],
+        "node_ids": names,
+        "junit_node_ids": junit,
+        "claimed_node_ids": list(wanted),
+        "claimed_junit_node_ids": [mapped[item] for item in wanted],
+        "source_revision": result["source_revision"],
+        "source_paths": result["source_paths"],
+        "collection_sha256": result["sha256"],
+    }
+
+
 def _native(values, blocked):
     """Completed native read/search/list calls: Claude Code's adapted tool_call items carry only the
     call's inputs, OpenCode and Kilo parts also their output."""

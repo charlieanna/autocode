@@ -801,7 +801,8 @@ class OwnedPreparationExecutionTests(unittest.TestCase):
         root = (project.evidence / "obligations").resolve()
         hook = project.root / "hook"
         hook.mkdir()
-        observations = project.root / "git-observations.jsonl"
+        project.evidence.mkdir(parents=True, exist_ok=True)
+        observations = project.evidence / "git-observations.jsonl"
         hook.joinpath("sitecustomize.py").write_text(
             "import os,json,subprocess,pathlib\n"
             "original=subprocess.run\n"

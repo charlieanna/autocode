@@ -1697,7 +1697,14 @@ class VisualRuntimeTests(unittest.TestCase):
         self.state["settings"].pop("design_manifest")
         self.state.update(status="TASK_COMPLETE", iteration=1, sessions={})
         output = io.StringIO()
+        import autocode_status_observation_worker as status_worker
+
         with (
+            patch.object(
+                autocode_status_command.status_observation,
+                "_observe",
+                side_effect=lambda op, payload: status_worker._worker({"operation": op, "payload": payload}),
+            ),
             patch.object(autocode.completion_gate, "completion_ready", return_value=True),
             patch.object(autocode.support, "snapshot", return_value=self.snapshot()),
             contextlib.redirect_stdout(output),
@@ -1709,15 +1716,39 @@ class VisualRuntimeTests(unittest.TestCase):
         self.assertFalse(status["completion_current"])
         self.assertEqual(0, status["view"]["efficiency"]["delivery"]["verified_deliveries"])
 
+    def test_unavailable_source_keeps_visual_completion_unknown(self):
+        self.state.update(status="TASK_COMPLETE", iteration=1, sessions={}, final_decision={})
+        output = io.StringIO()
+        with (
+            patch.object(autocode_status_command.status_observation, "source_snapshot", return_value=None),
+            patch.object(autocode_status_command.status_observation, "completion") as completion,
+            contextlib.redirect_stdout(output),
+        ):
+            autocode_status_command.render(
+                autocode, self.state, SimpleNamespace(run_dir=self.run, engine="opencode"), self.root, self.run
+            )
+        status = json.loads(output.getvalue())
+        self.assertIsNone(status["completion_current"])
+        self.assertIsNone(status["view"]["efficiency"]["visual"]["current_all_accepted"])
+        self.assertIn("could not be inspected", status["view"]["efficiency"]["visual"]["reason"])
+        completion.assert_not_called()
+
     def test_scoped_status_reports_visual_acceptance_unknown_without_claiming_not_ready(self):
         # #1255: public --status is lock-free. A scoped native run without the
         # runner's CODE scope authority must not report NOT_READY / false
         # completion_current; acceptance stays unknown until the runner binds it.
+        import autocode_status_observation_worker as status_worker
+
         self.install_test_only_scope()
         self.state.update(status="TASK_COMPLETE", iteration=1, sessions={}, final_decision={})
         output = io.StringIO()
         with (
             self.owned_fixture_snapshot(),
+            patch.object(
+                autocode_status_command.status_observation,
+                "_observe",
+                side_effect=lambda op, payload: status_worker._worker({"operation": op, "payload": payload}),
+            ),
             patch.object(autocode.completion_gate, "completion_ready", return_value=True),
             patch.object(autocode.support, "snapshot", return_value=self.snapshot()),
             patch.object(source_scope, "snapshot", return_value=self.snapshot()),

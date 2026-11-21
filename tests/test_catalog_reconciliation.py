@@ -17,6 +17,7 @@ import autocode_coordination_store as coordination_store
 import autocode_goals as goals
 import autocode_repo_catalog as catalog
 import autocode_run_view as run_view
+import autocode_status_observation as status_observation
 import autocode_util as util
 
 from tests import test_catalog_context as catalog_fixtures
@@ -102,6 +103,23 @@ class CatalogReconciliationTests(unittest.TestCase):
         self.assertEqual(context.saved_inventory(self.state), context.context(self.state))
         self.assertEqual(self.state["source_catalog_receipt"], run_view.view(self.state)["source_catalog_receipt"])
         self.assertIsNone(reconciliation.offer(self.state, controller=controller))
+
+    def test_catalog_status_timeout_holds_then_a_fresh_observation_offers_reconciliation(self):
+        self.changed_state()
+        controller = {"kind": "ended"}
+        with (
+            patch("autocode_source_reconciliation.readable", return_value=False),
+            patch.object(status_observation.captured, "run", side_effect=subprocess.TimeoutExpired("worker", 15)),
+        ):
+            blocked = run_view.view(
+                self.state, controller=controller, run_dir=self.state["run_dir"], workspace=self.repo
+            )
+        self.assertIsNone(blocked["next_command"])
+        with patch("autocode_source_reconciliation.readable", return_value=False):
+            recovered = run_view.view(
+                self.state, controller=controller, run_dir=self.state["run_dir"], workspace=self.repo
+            )
+        self.assertIn("--reconcile-only", recovered["next_command"])
 
     def test_coordinator_uses_the_public_anchor_inventory_binding(self):
         selected = "a" * 64

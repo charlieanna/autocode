@@ -221,6 +221,10 @@ def _compare(parser, revision, command, path, capture_context):
     """
     try:
         receipt = comparison.compare(command, revision, Path.cwd(), path)
+    except comparison.captured_process.ProcessError as error:
+        parser.error(
+            f"--compare-base {revision}: command cleanup could not be verified; no comparison was published: {error}"
+        )
     except (OSError, ValueError, subprocess.SubprocessError, tarfile.TarError) as error:
         parser.error(f"--compare-base {revision}: {error}")
     if capture_context:

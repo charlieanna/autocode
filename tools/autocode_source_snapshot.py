@@ -149,6 +149,23 @@ def inventory(workspace, *, paths=()):
     return result
 
 
+def bound_inventory(workspace, current, *, paths=()):
+    """Flatten the exact captured snapshot, authenticating each nested Git snapshot against it."""
+    root, result = Path(workspace), {}
+    for name, identity in current["files"].items():
+        if identity.startswith("submodule:"):
+            prefix = name.rstrip("/")
+            selected = nested_paths(root, paths, prefix)
+            nested = snapshot(root / prefix, paths=selected)
+            if "submodule:" + nested["revision"] != identity:
+                raise util.Paused("PAUSED_SOURCE_UNAVAILABLE", "Nested source changed while its copy was inventoried")
+            children = bound_inventory(root / prefix, nested, paths=selected)
+            result.update({prefix + "/" + child: value for child, value in children.items()})
+        elif identity != "uninitialized-submodule":
+            result[name] = identity
+    return result
+
+
 def copied_files(workspace, names):
     """Read known copyable file identities without depending on scratch Git metadata.
 
@@ -180,6 +197,53 @@ def metadata(workspace, files):
             info = path.stat()
             result[name] = [info.st_mode, info.st_mtime_ns, info.st_uid, info.st_gid]
     return result
+
+
+def unbound_symlinks(workspace, files, tracked_paths):
+    """Links not bound by this inventory and a tracked, ordinary in-tree target.
+
+    Resolve no symlink chain: every target and its parent directories must be
+    ordinary paths, and both the link and target must occur in Git's index and
+    this snapshot. This deliberately leaves directories, cycles, missing and
+    ignored targets, and links through another link unbound.
+    """
+    links = [name for name, value in files.items() if value.startswith("symlink:")]
+    if not links:
+        return []
+    try:
+        tracked = set(tracked_paths())
+        root = Path(workspace).resolve(strict=True)
+    except (OSError, ValueError, RuntimeError):
+        return sorted(links)
+    unbound = []
+    for name in links:
+        try:
+            link = root / name
+            text = os.readlink(link)
+            if name not in tracked or files[name] != "symlink:" + text or os.path.isabs(text) or text.endswith("/"):
+                raise ValueError("unbound link")
+            if any((root / parent).is_symlink() for parent in Path(name).parents if parent != Path(".")):
+                raise ValueError("symlinked link parent")
+            target = link.parent
+            parts = Path(text).parts
+            for index, part in enumerate(parts):
+                target = target.parent if part == ".." else target / part
+                target.relative_to(root)
+                if target.is_symlink() or (index < len(parts) - 1 and not target.is_dir()):
+                    raise ValueError("symlink chain or invalid parent")
+            relative = target.relative_to(root)
+            info = target.lstat()
+            actual = _identity(target, info)
+            if (
+                relative.as_posix() not in tracked
+                or not stat.S_ISREG(info.st_mode)
+                or info.st_nlink != 1
+                or files.get(relative.as_posix()) != actual
+            ):
+                raise ValueError("unbound target")
+        except (OSError, ValueError, RuntimeError):
+            unbound.append(name)
+    return sorted(unbound)
 
 
 def preserve_after(path, current, *, write_json=util.atomic_json):

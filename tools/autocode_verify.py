@@ -1472,6 +1472,7 @@ def scratch_run(
     review_source=None,
     acceptance_preflight=False,
     python=None,
+    expected_source_revision=None,
 ) -> dict:
     """Execute in a copy of HEAD plus current changes and an optional reviewed patch.
     File/link overlays preserve cited inputs. Review mutation returns a typed
@@ -1482,15 +1483,13 @@ def scratch_run(
     if type(acceptance_preflight) is not bool:
         raise ValueError("Acceptance preflight must be a boolean")
     workspace, run_dir = Path(workspace), Path(run_dir)
+    link_guard = scratch_preparation.DependencyGuard()
     native_scope = None
     ownership_uncertain = False
     if native_execution is not None:
-        if review_mutation or review_mutation_deadline is not None or review_source is not None:
-            raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Native readonly checks cannot run review mutations")
-        if type(native_execution) is not native_checks.NativeCheckExecution:
-            raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Original concrete native check owner required")
-        if preparation.active():
-            raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Native checks cannot share scheduled preparation ownership")
+        native_checks.validate_scratch_owner(
+            native_execution, review_mutation, review_mutation_deadline, review_source, preparation.active()
+        )
         native_scope = native_execution.copy(
             workspace,
             run_dir,
@@ -1504,6 +1503,7 @@ def scratch_run(
             generated_record=generated_record,
             generated_unrecorded=generated_unrecorded,
             ignored_inputs=ignored_inputs,
+            expected_source_revision=expected_source_revision,
         )
         # All unsupported native inputs are checked before the ordinary Git,
         # dependency, patch or framework probing path can run.
@@ -1512,8 +1512,7 @@ def scratch_run(
         parameters = preparation.scratch_parameters(
             patch, files, links, source_paths, dependencies_from, generated_record, generated_unrecorded, ignored_inputs
         )
-        if review_source is not None:
-            parameters["review_source"] = review_source
+        scratch_preparation.source_parameters(parameters, expected_source_revision, review_source)
         if preparation.active():
             answer = preparation.execute(
                 workspace,
@@ -1531,7 +1530,9 @@ def scratch_run(
                 review_mutations.validate(answer.get("review_mutation"), run_dir)
             return answer
         if review_mutation:
-            if review_mutation is not True or tests or command is not None or files or links:
+            if scratch_preparation.invalid_review_inputs(
+                review_mutation, tests, command, files, links, expected_source_revision
+            ):
                 raise ValueError("Review mutation uses only the explicit patch and its selected tests")
             envelope = review_mutations.run_scratch(
                 workspace,
@@ -1548,6 +1549,7 @@ def scratch_run(
             )
             return {"review_mutation": envelope}
         try:
+            parameters["_on_prepared"] = link_guard.capture
             tree = prepare_scratch_tree(workspace, run_dir, **parameters)
         except ScratchPatchError as error:
             return {"error": str(error), "results": None}
@@ -1626,10 +1628,7 @@ def scratch_run(
             native_scope.__exit__(*sys.exc_info())
         elif not ownership_uncertain:
             try:
-                changed_review_source = (
-                    review_snapshot is not None
-                    and source_snapshot.snapshot(tree, paths=source_paths)["files"] != review_snapshot["files"]
-                )
+                changed_review_source = scratch_preparation.finished(tree, review_snapshot, source_paths, link_guard)
             finally:
                 remove_tree(workspace, tree)
             if changed_review_source:

@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+import autocode_captured_process as captured
 import autocode_metadata_custody as custody
 
 BOOT = "00000000-0000-0000-0000-000000000001"
@@ -222,6 +223,18 @@ class MetadataCustodyTests(unittest.TestCase):
         self.assertEqual("CustodyUncertain", type(caught.exception).__name__)
         self.assertIsNone(caught.exception.binding)
         self.assertFalse(custody.recover(caught.exception.binding))
+
+    def test_comparison_and_connection_checks_share_busy_and_uncertain_custody(self):
+        self.assertIn("output_stream", __import__("inspect").signature(captured.run).parameters)
+        with custody.group(timeout=1), patch.object(captured, "run") as launch:
+            with self.assertRaises(custody.MetadataAdmissionBusy):
+                contextvars.Context().run(captured.run_metadata, ["diagnostic-comparison"], timeout=0)
+            launch.assert_not_called()
+        self.leave_pending()
+        with patch.object(captured, "run") as launch:
+            with self.assertRaises(custody.CustodyUncertain):
+                captured.run_metadata(["connection-metadata"], timeout=1)
+            launch.assert_not_called()
 
     def test_known_preparation_failure_without_committed_targets_is_not_permanent_custody(self):
         with (
