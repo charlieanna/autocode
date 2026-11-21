@@ -86,6 +86,33 @@ class ScratchCopyIdentityTests(unittest.TestCase):
             scratch_preparation._same_source_after_copy(self.workspace, run_dir, tree, before, after, ("evidence",))
         )
 
+    def test_owned_worker_preserves_unsafe_copy_path_as_source_refusal(self):
+        shared = self.workspace / "shared"
+        shared.mkdir()
+        (shared / "test_original.py").write_text("original = True\n")
+        git(self.workspace, "add", "shared")
+        git(self.workspace, "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-qm", "source")
+        external = Path(self.project.temp.name) / "external"
+        external.mkdir()
+        (external / "test_original.py").write_text("external = True\n")
+        shared.rename(self.workspace / "old-shared")
+        shared.symlink_to(external, target_is_directory=True)
+        identity = {"fixture": "unsafe copied parent"}
+        with self.assertRaises(util.Paused) as held:
+            schedule.run(
+                self.project.evidence / "obligations",
+                identity,
+                lambda out: verify.scratch_run(self.workspace, out, command=self.command, timeout=30),
+                reuse_allowed=False,
+                reason="fresh",
+                current_identity=lambda: identity,
+                owned_preparation=True,
+            )
+        self.assertEqual("PAUSED_SOURCE_UNAVAILABLE", held.exception.status)
+        self.assertIn("symlinked parent", str(held.exception))
+        self.assertFalse(self.marker.exists())
+        self.assertEqual("external = True\n", (external / "test_original.py").read_text())
+
     def test_transient_copy_change_is_rejected_even_if_workspace_is_restored(self):
         pinned = source_snapshot.snapshot(self.workspace)["revision"]
         make_tree = verify.make_tree

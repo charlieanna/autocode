@@ -100,6 +100,7 @@ SUITE_CONSUMERS = (
 SCRATCH_COPY_CONSUMERS = (
     "tests.test_autocode_protected_oracles",
     "tests.test_design_check_job",
+    "tests.test_protected_test_links",
     "tests.test_review_mutation_runtime",
     "tests.test_review_proof",
     "tests.test_scratch_copy_identity",

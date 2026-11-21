@@ -30,6 +30,14 @@ class ScratchPatchError(ValueError):
     """An unapplied patch has no execution receipt."""
 
 
+def _source_access(reader, *args, **kwargs):
+    """Transport a specifically unsafe source path through the owned worker."""
+    try:
+        return reader(*args, **kwargs)
+    except source_snapshot.UnsafeSourcePath as error:
+        raise util.Paused("PAUSED_SOURCE_UNAVAILABLE", str(error)) from error
+
+
 def _installed_link(tree, name, source, expected_files):
     """An extra visible link created by the existing installed-dependency copier."""
     path = Path(name)
@@ -181,10 +189,10 @@ def prepare(
 ):
     """Existing copy operations, supplied to the owned preparation worker."""
     workspace, run_dir = Path(workspace), Path(run_dir)
-    before = source_snapshot.snapshot(workspace, paths=source_paths)
+    before = _source_access(source_snapshot.snapshot, workspace, paths=source_paths)
     if expected_source_revision is not None and before["revision"] != expected_source_revision:
         raise util.Paused("PAUSED_SOURCE_UNAVAILABLE", "Verification source no longer matches its pinned revision")
-    expected_files = source_snapshot.bound_inventory(workspace, before, paths=source_paths)
+    expected_files = _source_access(source_snapshot.bound_inventory, workspace, before, paths=source_paths)
     if expected_source_revision is not None and source_snapshot.unbound_symlinks(
         workspace, expected_files, lambda: git(workspace, "ls-files", "-z").split("\0")
     ):
@@ -212,9 +220,9 @@ def prepare(
     try:
         if review_source is not None:
             review_proof.verify_source(tree, review_source)
-        copied = source_snapshot.copied_files(tree, expected_files)
-        visible = source_snapshot.inventory(tree, paths=source_paths)
-        after = source_snapshot.snapshot(workspace, paths=source_paths)
+        copied = _source_access(source_snapshot.copied_files, tree, expected_files)
+        visible = _source_access(source_snapshot.inventory, tree, paths=source_paths)
+        after = _source_access(source_snapshot.snapshot, workspace, paths=source_paths)
         if (
             copied != {name: value for name, value in expected_files.items() if value != "deleted"}
             or any(

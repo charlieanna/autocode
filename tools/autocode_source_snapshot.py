@@ -23,6 +23,10 @@ except ImportError:
 _INTERNAL = {".git", ".autocode", ".autocode-ui"}
 
 
+class UnsafeSourcePath(ValueError):
+    """A source path would require following an unbound parent link."""
+
+
 def literal_paths(paths):
     """Validate and canonicalize a bounded, explicit source inventory policy."""
     if not isinstance(paths, (list, tuple)):
@@ -61,7 +65,7 @@ def _include(root, relative, files):
     # after this check, so the link itself is part of source, not its contents.
     for parent in relative.parents:
         if parent != Path(".") and (root / parent).is_symlink():
-            raise ValueError("Source path has a symlinked parent: " + str(relative))
+            raise UnsafeSourcePath("Source path has a symlinked parent: " + str(relative))
     # Preserve Git boundaries; nested selection is applied recursively below.
     if any(
         files.get(parent.as_posix(), "").startswith(("submodule:", "uninitialized-submodule"))
