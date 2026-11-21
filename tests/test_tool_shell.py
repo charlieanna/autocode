@@ -86,6 +86,127 @@ class ToolShellTests(unittest.TestCase):
             with self.subTest(malformed=malformed), self.assertRaises(ValueError):
                 shell.environment(runtime, scratch, "control", {"AUTOCODE_CAPTURE_CONTEXT": malformed}, None)
 
+    def test_rustup_uses_writable_owned_metadata_and_readonly_selected_toolchains(self):
+        rustup = self.root / "original-rustup"
+        (rustup / "toolchains" / "selected").mkdir(parents=True)
+        (rustup / "toolchains" / "selected" / "rustc").write_text("toolchain")
+        (rustup / "settings.toml").write_text('default_toolchain = "selected"\n')
+        (rustup / "unrelated-secret").write_text("private")
+        scratch = self.root / "scratch"
+        scratch.mkdir()
+        runtime = {"path": str(self.binary), "alias": str(self.root / "shell-bin/bash")}
+        safe = shell.environment(
+            runtime,
+            scratch,
+            "control",
+            {},
+            None,
+            {"RUSTUP_HOME": str(rustup), "RUSTUP_TOOLCHAIN": "selected-fixture-toolchain"},
+        )
+        self.assertEqual("selected-fixture-toolchain", safe["RUSTUP_TOOLCHAIN"])
+        isolated = Path(safe["RUSTUP_HOME"])
+        self.assertTrue(isolated.is_relative_to(scratch))
+        self.assertNotEqual(rustup, isolated)
+        self.assertEqual((rustup / "toolchains").resolve(), (isolated / "toolchains").resolve())
+        self.assertEqual((rustup / "settings.toml").read_bytes(), (isolated / "settings.toml").read_bytes())
+        (isolated / "settings.toml").write_text("modified copy")
+        (isolated / "update-hashes").mkdir()
+        self.assertEqual('default_toolchain = "selected"\n', (rustup / "settings.toml").read_text())
+        self.assertFalse((rustup / "update-hashes").exists())
+        self.assertFalse((isolated / "unrelated-secret").exists())
+        with self.assertRaises(FileExistsError):
+            shell.environment(runtime, scratch, "control", {}, None, {"RUSTUP_HOME": str(rustup)})
+        self.assertEqual("modified copy", (isolated / "settings.toml").read_text())
+
+    def test_linked_rustup_toolchains_use_the_selected_resolved_target(self):
+        source = self.root / "rustup"
+        source.mkdir()
+        target = self.root / "selected-toolchains"
+        target.mkdir()
+        (source / "toolchains").symlink_to(target, target_is_directory=True)
+        scratch = self.root / "scratch"
+        scratch.mkdir()
+        runtime = {"path": str(self.binary), "alias": str(self.root / "shell-bin/bash")}
+        safe = shell.environment(runtime, scratch, "control", {}, None, {"RUSTUP_HOME": str(source)})
+        self.assertEqual(target, (Path(safe["RUSTUP_HOME"]) / "toolchains").readlink())
+
+    def test_rustup_refuses_unavailable_or_relative_toolchains(self):
+        scratch = self.root / "scratch"
+        scratch.mkdir()
+        runtime = {"path": str(self.binary), "alias": str(self.root / "shell-bin/bash")}
+        for home in ("relative", str(self.root / "missing")):
+            with self.subTest(home=home), self.assertRaisesRegex(ValueError, "toolchains are unavailable"):
+                shell.environment(runtime, scratch, "control", {}, None, {"RUSTUP_HOME": home})
+        empty = self.root / "selected"
+        (empty / "toolchains").mkdir(parents=True)
+        result = shell.environment(runtime, scratch, "control", {}, None, {"RUSTUP_HOME": str(empty)})
+        self.assertFalse((Path(result["RUSTUP_HOME"]) / "settings.toml").exists())
+
+    def test_rustup_refuses_symlinked_hardlinked_or_unbounded_settings(self):
+        source = self.root / "rustup"
+        (source / "toolchains").mkdir(parents=True)
+        secret = self.root / "secret"
+        secret.write_text("private host bytes")
+        settings = source / "settings.toml"
+        scratch = self.root / "scratch"
+        scratch.mkdir()
+        runtime = {"path": str(self.binary), "alias": str(self.root / "shell-bin/bash")}
+        for kind in ("symlink", "hardlink", "large"):
+            if kind == "symlink":
+                settings.symlink_to(secret)
+            elif kind == "hardlink":
+                os.link(secret, settings)
+            else:
+                settings.write_bytes(b"x" * (1024 * 1024 + 1))
+            with self.subTest(kind=kind), self.assertRaisesRegex(ValueError, "rustup settings"):
+                shell.environment(runtime, scratch, "control", {}, None, {"RUSTUP_HOME": str(source)})
+            self.assertFalse((scratch / "rustup-home").exists())
+            self.assertEqual("private host bytes", secret.read_text())
+            settings.unlink()
+
+    def test_rustup_aliases_keep_path_position_and_never_hide_unrelated_tools(self):
+        early, selected = self.root / "early", self.root / "selected"
+        early.mkdir()
+        selected.mkdir()
+        proxy = selected / "cargo"
+        proxy.write_text("verified proxy")
+        proxy.chmod(0o700)
+        (early / "rustdoc").write_text("earlier unrelated tool")
+        (early / "rustdoc").chmod(0o700)
+        (selected / "other-tool").write_text("unrelated tool")
+        (selected / "other-tool").chmod(0o700)
+        scratch = self.root / "scratch"
+        scratch.mkdir()
+        path = str(early) + os.pathsep + str(selected)
+        runtime = {"path": str(self.binary), "alias": str(self.root / "shell-bin/bash")}
+        aliases = [{"index": 1, "path": path, "proxy": str(proxy), "names": ["cargo", "rustc", "rustdoc"]}]
+        safe = shell.environment(runtime, scratch, "control", {"PATH": path}, None, aliases=aliases)
+        self.assertEqual(str(early / "rustdoc"), shutil.which("rustdoc", path=safe["PATH"]))
+        self.assertEqual(str(selected / "other-tool"), shutil.which("other-tool", path=safe["PATH"]))
+        cargo = Path(shutil.which("cargo", path=safe["PATH"]))
+        self.assertTrue(cargo.is_relative_to(scratch))
+        self.assertEqual(proxy, cargo.readlink())
+        self.assertEqual(proxy, (cargo.parent / "rustc").readlink())
+
+    def test_rustup_aliases_refuse_unbound_path_and_unsafe_names(self):
+        scratch = self.root / "scratch"
+        scratch.mkdir()
+        runtime = {"path": str(self.binary), "alias": str(self.root / "shell-bin/bash")}
+        valid = {"index": 0, "path": "/bin", "proxy": str(self.binary), "names": ["rustc"]}
+        invalid = (
+            {**valid, "path": "/other"},
+            {**valid, "index": -1},
+            {**valid, "index": True},
+            {**valid, "proxy": "relative"},
+            {**valid, "names": ["../secret"]},
+            {**valid, "names": ["bad\0name"]},
+            {**valid, "names": ["rustc", "rustc"]},
+        )
+        for group in invalid:
+            with self.subTest(group=group), self.assertRaisesRegex(ValueError, "aliases"):
+                shell.environment(runtime, scratch, "control", {"PATH": "/bin"}, None, aliases=[group])
+            self.assertFalse(any(scratch.iterdir()))
+
     def test_selecting_bash_preserves_every_other_tools_path_precedence(self):
         selected = self.root / "selected/bin"
         selected.mkdir(parents=True)

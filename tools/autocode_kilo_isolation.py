@@ -413,7 +413,7 @@ def runtime_request(workspace, request, environment):
         "read_roots": list(dict.fromkeys([*request["read_roots"], *selected["read_roots"]])),
         "runtime_links": selected["links"],
         "runtime_probes": selected["probes"],
-        "runtime_path_prefix": selected.get("path_prefix", []),
+        "tool_setup": selected,
     }
 
 
@@ -1138,10 +1138,10 @@ class KiloRoleIsolation:
             environment=child,
             read_roots=request["read_roots"],
             links=request["runtime_links"],
-            path_prefix=request["runtime_path_prefix"],
             protected_paths=request["protected_paths"],
             verification_copy=True,
             source_paths=request.get("source_paths", ()),
+            tool_setup=request.get("tool_setup"),
         )
         runtime = _relocate_client_runtime(boundary, child)
         self._prepared.update(runtime_root=runtime, environment=deepcopy(child))

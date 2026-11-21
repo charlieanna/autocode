@@ -1,5 +1,6 @@
 """Real selected-tool execution and denial controls; no provider/model simulation."""
 
+import json
 import os
 import shlex
 import shutil
@@ -8,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import autocode_tool_containment as containment
 import autocode_toolchain as toolchain
@@ -121,6 +123,80 @@ class SelectedToolchainTests(unittest.TestCase):
             self.assertEqual("private fixture", outside.read_text())
             self.assertEqual("package sample\nfunc Sum(a,b int) int { return a+b }\n", source.read_text())
 
+    def test_scratch_rustup_home_cannot_write_selected_toolchains_or_read_secrets(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory).resolve()
+            root = home / "project"
+            root.mkdir()
+            rustup = home / "rustup"
+            toolchains = rustup / "toolchains"
+            toolchains.mkdir(parents=True)
+            (rustup / "settings.toml").write_text('default_toolchain = "selected"\n')
+            secret = home / "credential"
+            secret.write_text("private fixture")
+            for allow_write in (True, False):
+                with self.subTest(allow_write=allow_write):
+                    boundary = containment.prepare(
+                        root,
+                        allow_write=allow_write,
+                        read_roots=[str(toolchains), str(rustup / "settings.toml")],
+                        tool_setup={"environment": {"RUSTUP_HOME": str(rustup)}},
+                    )
+
+                    def run(command):
+                        return subprocess.run(
+                            [boundary["shell"], "-c", command], cwd=root, capture_output=True, text=True, timeout=30
+                        )
+
+                    self.assertEqual(0, run('mkdir "$RUSTUP_HOME/update-hashes"').returncode)
+                    denied = run(': > "$RUSTUP_HOME/toolchains/marker"')
+                    self.assertNotEqual(0, denied.returncode)
+                    self.assertRegex(denied.stderr, DENIED)
+                    private = run("cat " + shlex.quote(str(secret)))
+                    self.assertNotEqual(0, private.returncode)
+                    self.assertRegex(private.stderr, DENIED)
+                    self.assertFalse((toolchains / "marker").exists())
+                    self.assertFalse((rustup / "update-hashes").exists())
+                    self.assertEqual("private fixture", secret.read_text())
+
+    def test_rustup_selects_verified_hardlink_and_symlink_peers_only(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            project = root / "project"
+            project.mkdir()
+            (project / "Cargo.toml").write_text("[package]\nname='fixture'\nversion='0.1.0'\n")
+            home = root / "home"
+            (home / ".rustup/toolchains").mkdir(parents=True)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            rustup = bin_dir / "rustup"
+            rustup.write_bytes(b"verified rustup fixture")
+            rustup.chmod(0o700)
+            os.link(rustup, bin_dir / "cargo")
+            os.link(rustup, bin_dir / "rustc")
+            (bin_dir / "rustdoc").symlink_to("rustup")
+            (bin_dir / "other").write_bytes(b"unrelated")
+            path = f"{root / 'early'}:{bin_dir}"
+
+            def which(name, path=None):
+                return {"git": "/usr/bin/git", "cargo": str(bin_dir / "cargo")}.get(name)
+
+            with (
+                patch.object(toolchain.shutil, "which", side_effect=which),
+                patch.object(toolchain, "_binary_dependencies", side_effect=lambda executable: {executable}),
+            ):
+                selected = toolchain.discover(
+                    project,
+                    ["cargo test --offline"],
+                    {"PATH": path, "HOME": str(home), "RUSTUP_TOOLCHAIN": "selected-fixture-toolchain"},
+                )
+            groups = selected["tool_aliases"]
+            self.assertEqual("selected-fixture-toolchain", selected["environment"]["RUSTUP_TOOLCHAIN"])
+            self.assertEqual(1, len(groups), groups)
+            self.assertEqual(1, groups[0]["index"])
+            self.assertEqual({"cargo", "rustc", "rustdoc", "rustup"}, set(groups[0]["names"]))
+            self.assertNotIn(str(bin_dir), selected["read_roots"])
+
     def test_rustup_s_proxy_is_known_by_its_file_not_its_name(self):
         # Linux rustup installs ~/.cargo/bin/cargo as a hard link of rustup, so its name is cargo (#4017).
         with tempfile.TemporaryDirectory() as directory:
@@ -132,6 +208,106 @@ class SelectedToolchainTests(unittest.TestCase):
             self.assertTrue(toolchain._rustup_proxy(bin_dir / "cargo"))
             self.assertTrue(toolchain._rustup_proxy((bin_dir / "rustup-init").resolve()))
             self.assertFalse(toolchain._rustup_proxy(bin_dir / "other"))
+
+    def test_discovery_never_executes_a_task_local_fake_rustup_proxy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            binary = root / "bin"
+            binary.mkdir()
+            marker = root / "unexpected-host-execution"
+            proxy = binary / "rustup"
+            proxy.write_text("#!/bin/sh\nprintf '%s\\n' invoked > " + shlex.quote(str(marker)) + "\n")
+            proxy.chmod(0o700)
+            (binary / "cargo").symlink_to(proxy.name)
+            environment = {**os.environ, "PATH": str(binary) + os.pathsep + os.environ.get("PATH", "")}
+            with self.assertRaises((RuntimeError, ValueError)):
+                toolchain.discover(root, ["cargo --version"], environment)
+            self.assertFalse(marker.exists(), "discovery must never execute a task-local proxy")
+
+    def test_rustup_keeps_environment_pin_and_directory_override(self):
+        candidates = [shutil.which("cargo"), str(Path.home() / ".cargo/bin/cargo")]
+        candidates += sorted(str(path) for path in Path("/opt/homebrew/Cellar/rustup").glob("*/libexec/bin/cargo"))
+        cargo = next(
+            (
+                path
+                for path in candidates
+                if path and Path(path).is_file() and toolchain._rustup_proxy(Path(path).resolve())
+            ),
+            None,
+        )
+        if cargo is None:
+            self.skipTest("requires cargo through an installed native rustup proxy")
+        original_home = Path(os.environ.get("RUSTUP_HOME") or Path.home() / ".rustup").resolve()
+        original_toolchains = original_home / "toolchains"
+        installed = sorted(entry.name for entry in original_toolchains.iterdir() if entry.is_dir())
+        self.assertTrue(installed)
+        default, selected_name = installed[0], installed[-1]
+        with tempfile.TemporaryDirectory() as directory:
+            owned = Path(directory).resolve()
+            root, rustup = owned / "project", owned / "rustup"
+            root.mkdir()
+            rustup.mkdir()
+            (rustup / "toolchains").symlink_to(original_toolchains, target_is_directory=True)
+            (root / "Cargo.toml").write_text('[package]\nname = "fixture"\nversion = "0.1.0"\n')
+            git = ["git", "-C", str(root)]
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            subprocess.run([*git, "add", "Cargo.toml"], check=True)
+            subprocess.run(
+                [*git, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-qm", "base"],
+                check=True,
+            )
+            env = {
+                **os.environ,
+                "PATH": str(Path(cargo).parent) + os.pathsep + os.environ.get("PATH", ""),
+                "RUSTUP_HOME": str(rustup),
+            }
+
+            def compare(label, writable):
+                with self.subTest(selection=label, writable=writable):
+                    selected = toolchain.discover(root, ["cargo --version"], env)
+                    boundary = containment.prepare(
+                        root, allow_write=writable, environment=env, tool_setup=selected, verification_copy=not writable
+                    )
+                    cwd = root
+                    if not writable:
+                        import autocode_verification_copy as copies
+
+                        cwd, _ = copies.execution(
+                            boundary["verification_copy"], boundary["verification_copy_sha256"], root
+                        )
+                    original = subprocess.run(
+                        [cargo, "--version"], cwd=root, env=env, capture_output=True, text=True, timeout=30
+                    )
+                    held = subprocess.run(
+                        [boundary["shell"], "-c", "cargo --version"],
+                        cwd=cwd,
+                        capture_output=True,
+                        text=True,
+                        timeout=30,
+                    )
+                    self.assertEqual(0, original.returncode, original.stderr)
+                    self.assertEqual(0, held.returncode, held.stderr)
+                    self.assertEqual(original.stdout, held.stdout)
+
+            settings = rustup / "settings.toml"
+            settings.write_text(f'version = "12"\ndefault_toolchain = "{default}"\n[overrides]\n')
+            env["RUSTUP_TOOLCHAIN"] = selected_name
+            compare("environment", True)
+            env.pop("RUSTUP_TOOLCHAIN")
+            settings.write_text(
+                f'version = "12"\ndefault_toolchain = "{default}"\n[overrides]\n{json.dumps(str(root))} = "{selected_name}"\n'
+            )
+            compare("directory override", True)
+            compare("directory override", False)
+            (root / "rust-toolchain.toml").write_text(f'[toolchain]\nchannel = "{selected_name}"\n')
+            subprocess.run([*git, "add", "rust-toolchain.toml"], check=True)
+            subprocess.run(
+                [*git, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-qm", "pin"],
+                check=True,
+            )
+            settings.write_text(f'version = "12"\ndefault_toolchain = "{default}"\n[overrides]\n')
+            compare("project pin", True)
+            compare("project pin", False)
 
     def test_cargo_through_rustup_runs_contained_without_the_person_s_cargo_home(self):
         # #4017: every Rust project was refused, since discovery selects cargo for a Cargo.toml.
@@ -171,16 +347,22 @@ class SelectedToolchainTests(unittest.TestCase):
                 check=True,
             )
             selected = toolchain.discover(root, ["cargo test --offline"], env)
-            # The toolchain's own cargo, not the proxy: rustup writes under RUSTUP_HOME as it starts, which the
-            # read-only boundary refuses on Linux ("could not create update-hash directory").
-            [toolchain_bin] = selected["path_prefix"]
-            self.assertTrue((Path(toolchain_bin).parent / "lib/rustlib").is_dir(), toolchain_bin)
-            self.assertFalse(toolchain._rustup_proxy((Path(toolchain_bin) / "cargo").resolve()))
+            self.assertEqual(
+                {"RUSTUP_HOME", *({"RUSTUP_TOOLCHAIN"} if "RUSTUP_TOOLCHAIN" in env else set())},
+                set(selected["environment"]),
+            )
+            self.assertEqual(env.get("RUSTUP_TOOLCHAIN"), selected["environment"].get("RUSTUP_TOOLCHAIN"))
+            installed = sorted(
+                entry.name
+                for entry in (Path(selected["environment"]["RUSTUP_HOME"]) / "toolchains").iterdir()
+                if entry.is_dir() and not entry.name.startswith(".")
+            )
+            self.assertTrue(installed, "the selected rustup home needs an installed toolchain")
+            explicit = shlex.quote("+" + next((name for name in installed if name.startswith("stable-")), installed[0]))
             cargo_home = Path(env.get("CARGO_HOME") or Path.home() / ".cargo").resolve()
             for read in selected["read_roots"]:
                 with self.subTest(read=read):
                     self.assertFalse(Path(read) == cargo_home or (cargo_home / "credentials.toml").is_relative_to(read))
-                    self.assertFalse(cargo.resolve().is_relative_to(read), "the proxy is never readable")
             developer = [str(p) for p in (Path("/Library/Developer/CommandLineTools"),) if p.is_dir()]
             for allow_write in (True, False):
                 with self.subTest(allow_write=allow_write):
@@ -190,7 +372,7 @@ class SelectedToolchainTests(unittest.TestCase):
                         read_roots=[*selected["read_roots"], *developer],
                         links=selected["links"],
                         environment=env,
-                        path_prefix=selected["path_prefix"],
+                        tool_setup=selected,
                         verification_copy=not allow_write,
                     )
                     cwd = root
@@ -200,21 +382,29 @@ class SelectedToolchainTests(unittest.TestCase):
                         cwd, _ = copies.execution(
                             boundary["verification_copy"], boundary["verification_copy_sha256"], root
                         )
+                    if not allow_write and containment.backend() == containment.BUBBLEWRAP:
+                        # Linux protects the entire copy, including new in-tree outputs.
+                        denied = subprocess.run(
+                            [boundary["shell"], "-c", "cargo test --offline"],
+                            cwd=cwd,
+                            capture_output=True,
+                            text=True,
+                            timeout=600,
+                        )
+                        self.assertNotEqual(0, denied.returncode)
+                        self.assertIn("Read-only file system", denied.stderr)
+                    output = 'CARGO_TARGET_DIR="$TMPDIR/cargo-target" ' if not allow_write else ""
                     for command in (
                         *selected["probes"],
-                        "cargo test --offline",
-                        'test "$(command -v cargo)" = ' + shlex.quote(str(Path(toolchain_bin) / "cargo")),
+                        "cargo " + explicit + " --version",
+                        shlex.quote(str(cargo)) + " " + explicit + " --version",
+                        output + "cargo test --offline",
+                        output + "cargo doc --offline --no-deps",
                         'test "$HOME" != ' + shlex.quote(str(Path.home())),
                     ):
                         result = subprocess.run(
                             [boundary["shell"], "-c", command], cwd=cwd, capture_output=True, text=True, timeout=600
                         )
-                        if command.startswith("cargo test") and not allow_write and sys.platform.startswith("linux"):
-                            # #4033: bubblewrap mounts the whole verification copy read-only, so cargo cannot
-                            # make target/ beside the sources as it can on macOS. When that is fixed, this
-                            # pin fails and the case joins the others.
-                            self.assertIn("Read-only file system", result.stderr, (command, result.returncode))
-                            continue
                         self.assertEqual(0, result.returncode, (command, result.stdout[-2000:], result.stderr[-2000:]))
 
     def test_tool_found_through_a_symlinked_toolchain_directory_runs_contained(self):

@@ -905,11 +905,12 @@ program rather than the tool.
 
 The boundary admits git, Python and pytest, Node with npm and npx, Go, Cargo (#4017) and the
 POSIX shells (`autocode_toolchain.ADMITTED`), each read past a leading `env` and `NAME=value` assignments
-(`autocode_toolchain.program_words`, which the plan's command extraction reads too). Cargo runs from its
-installed toolchain. For rustup's proxy, the toolchain the proxy would run in the project (`rustup which
-cargo`) is selected instead: its prefix is read-only and its `bin` leads the stage's `PATH`, so the proxy,
-which writes under `RUSTUP_HOME` as it starts, never runs. `CARGO_HOME` stays the stage's scratch
-directory, so the person's registry credentials are never readable. A command the boundary refuses alone,
+(`autocode_toolchain.program_words`, which the plan's command extraction reads too). For rustup's Cargo
+proxy, the same proxy and arguments run inside the boundary. Its writable metadata lives in owned scratch;
+the selected installed toolchains remain read-only, and a selected `RUSTUP_TOOLCHAIN` is preserved. Owned
+aliases for verified proxy peers keep their original position in `PATH`, including earlier tool choices.
+`CARGO_HOME` stays the stage's scratch directory, so the person's registry credentials are never readable.
+A command the boundary refuses alone,
 for any reason (unsupported, missing, or a launcher it cannot qualify), is the plan's to correct.
 
 `handoff_conversation(expected_revision=..., expected_plan_token=...)` records the

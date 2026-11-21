@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import stat
 import sys
 from pathlib import Path
 
@@ -74,12 +75,96 @@ def search_path(runtime: dict, path: str) -> str:
     return str(Path(runtime["alias"]).parent) + os.pathsep + path
 
 
-def environment(runtime, scratch, control_name, original, verification, path_prefix=()):
-    """Tools receive only their owned temporary area and nonsecret runtime setup.
+# The selected toolchain may pass a nonsecret Rustup selection; its home is
+# replaced with owned scratch metadata and read-only selected toolchains.
+TOOL_VARIABLES = ("RUSTUP_HOME", "RUSTUP_TOOLCHAIN")
 
-    ``path_prefix`` is the selected toolchains' own bin directories (autocode_toolchain.discover), read-only
-    roots placed ahead of the person's PATH so a tool resolves to the selected runtime, never to a proxy that
-    would write outside the boundary (#4017)."""
+
+def _rustup_settings(source):
+    """Read only a bounded regular settings file; never follow its final symlink."""
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    if nofollow is None:
+        raise ValueError("Platform cannot safely read rustup settings")
+    try:
+        descriptor = os.open(source / "settings.toml", os.O_RDONLY | nofollow | getattr(os, "O_NONBLOCK", 0))
+    except FileNotFoundError:
+        return None
+    except OSError as error:
+        raise ValueError("Selected rustup settings cannot be read safely") from error
+    with os.fdopen(descriptor, "rb") as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > 1024 * 1024:
+            raise ValueError("Selected rustup settings are not a bounded regular file")
+        data = stream.read(1024 * 1024 + 1)
+    if len(data) > 1024 * 1024:
+        raise ValueError("Selected rustup settings are not a bounded regular file")
+    return data
+
+
+def _rustup_home(scratch, selected):
+    """Give rustup writable metadata without permitting writes to the selected toolchain."""
+    source = Path(selected)
+    if not source.is_absolute() or not (source / "toolchains").is_dir():
+        raise ValueError("Selected rustup toolchains are unavailable")
+    settings = _rustup_settings(source)
+    home = scratch / "rustup-home"
+    home.mkdir(mode=0o700)
+    (home / "toolchains").symlink_to((source / "toolchains").resolve(strict=True), target_is_directory=True)
+    if settings is not None:
+        copied = home / "settings.toml"
+        copied.write_bytes(settings)
+        copied.chmod(0o600)
+    return str(home)
+
+
+def _tool_path(runtime, scratch, path, aliases):
+    """Add owned aliases at the selected PATH position, preserving earlier choices."""
+    if not aliases:
+        return search_path(runtime, path)
+    if not isinstance(aliases, list):
+        raise ValueError("Invalid selected tool aliases")
+    parts = path.split(os.pathsep)
+    seen = set()
+    groups = []
+    for group in aliases:
+        if not isinstance(group, dict) or group.get("path") != path:
+            raise ValueError("Selected tool aliases do not match PATH")
+        index, target, names = group.get("index"), group.get("proxy"), group.get("names")
+        if (
+            type(index) is not int
+            or index < 0
+            or index >= len(parts)
+            or index in seen
+            or not isinstance(target, str)
+            or not Path(target).is_absolute()
+            or "\0" in target
+            or not isinstance(names, list)
+            or not names
+            or len(names) > 4096
+            or any(
+                not isinstance(name, str)
+                or name in ("", ".", "..")
+                or "\0" in name
+                or len(name.encode()) > 255
+                or Path(name).name != name
+                for name in names
+            )
+            or len(set(names)) != len(names)
+        ):
+            raise ValueError("Invalid selected tool aliases")
+        seen.add(index)
+        groups.append((index, target, names))
+    for index, target, names in sorted(groups, reverse=True):
+        directory = scratch / f"tool-aliases-{index}"
+        directory.mkdir(mode=0o700)
+        for name in names:
+            (directory / name).symlink_to(target)
+        parts.insert(index, str(directory))
+    return search_path(runtime, os.pathsep.join(parts))
+
+
+def environment(runtime, scratch, control_name, original, verification, tools=None, *, aliases=None):
+    """Tools receive their owned temporary area and selected nonsecret runtime setup."""
     safe = {
         "GIT_CONFIG_NOSYSTEM": "1",
         "GIT_CONFIG_GLOBAL": "/dev/null",
@@ -87,9 +172,7 @@ def environment(runtime, scratch, control_name, original, verification, path_pre
         "OPENSSL_CONF": "/dev/null",
         "NPM_CONFIG_USERCONFIG": str(scratch / "npm-user.conf"),
         "NPM_CONFIG_GLOBALCONFIG": str(scratch / "npm-global.conf"),
-        "PATH": search_path(
-            runtime, os.pathsep.join([*path_prefix, original.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")])
-        ),
+        "PATH": _tool_path(runtime, scratch, original.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin"), aliases),
         "HOME": str(scratch),
         "TMPDIR": str(scratch),
         "TMP": str(scratch),
@@ -104,6 +187,10 @@ def environment(runtime, scratch, control_name, original, verification, path_pre
         "AUTOCODE_TOOL_CONTAINMENT_ID": control_name,
         "AUTOCODE_OUTPUT_STORE": str(scratch / "output-store"),
     }
+    for name, value in (tools or {}).items():
+        if name not in TOOL_VARIABLES or not isinstance(value, str):
+            raise ValueError(f"Unsupported toolchain variable for tool containment: {name}")
+        safe[name] = _rustup_home(scratch, value) if name == "RUSTUP_HOME" else value
     if verification:
         safe["AUTOCODE_VERIFICATION_COPY"] = verification["manifest"]
         safe["AUTOCODE_VERIFICATION_COPY_SHA256"] = verification["sha256"]
