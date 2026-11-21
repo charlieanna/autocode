@@ -1757,6 +1757,7 @@ def needs(
             # The recovery card preserves the evidence and explains the hold.
             return None
         need = {"kind": "resume", "reason": state.get("stop_reason") or status}
+        retry_observation_unavailable = None
         if status == "PAUSED_STALE_HANDOFF":
             stale_checks = (state.get("resolution_request") or {}).get("stale_checks")
             if isinstance(stale_checks, list) and all(isinstance(name, str) for name in stale_checks):
@@ -1850,6 +1851,8 @@ def needs(
             admission = status_observation.failure_retry(state, workspace or state.get("workspace"))
             if not admission["allowed"]:
                 need["retry_unavailable"] = admission["reason"]
+                if admission.get("unavailable") is True:
+                    retry_observation_unavailable = admission["reason"]
                 need.pop("retry_action", None)
                 if need.get("action") == retry:
                     need.pop("action", None)
@@ -1942,6 +1945,10 @@ def needs(
             need["resume_unavailable"] = (
                 "The saved blocker remains unresolved. A plain resume cannot continue at this same frontier."
             )
+        if retry_observation_unavailable and not need.get("action"):
+            # The source could not be observed; plain resume may repeat this hold.
+            # Preserve other named continuations, such as a dispatchable report repair.
+            need["resume_unavailable"] = retry_observation_unavailable
         if "action" not in need and pause_authority.requested_only(state):
             need["confirmation_required"] = False
         action = need.get("action")

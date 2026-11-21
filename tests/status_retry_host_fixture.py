@@ -58,7 +58,7 @@ def prepare(root, kind):
             "unrestored": [],
         }
     elif kind == "repeat":
-        case = FailureRetryTests("test_status_observes_repeated_failure_with_a_bounded_source_check")
+        case = FailureRetryTests("runTest")
         case.setUp()
         case.seed()
         workspace, oldrun = case.root, case.run

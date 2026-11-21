@@ -20,12 +20,16 @@ except ImportError:
     import autocode_util as util
 
 
+class FailureRetryFrontierRefused(ValueError):
+    """A completed observation found that this exact retry is not admissible."""
+
+
 def failure_retry_frontier(state: RunState, workspace, *, base_snapshot=util.snapshot):
     """One exact source/stage/count answer shared by retry and revalidation."""
     record = next((row for row in reversed(state.get("stages", [])) if row.get("failure_key")), None)
     repeated = (failures.repeated(state, record) or stage_stalls.retry_entry(state, record)) if record else None
     if not repeated:
-        raise ValueError("No unchanged repeated failure to authorize; fix the cause, then resume")
+        raise FailureRetryFrontierRefused("No unchanged repeated failure to authorize; fix the cause, then resume")
     selected = cast(dict, record).get("failure_key")
     revision = source_scope.snapshot(workspace, state, base_snapshot=base_snapshot)["revision"]
     identity = repeated["identity"]
@@ -37,7 +41,9 @@ def failure_retry_frontier(state: RunState, workspace, *, base_snapshot=util.sna
         or identity["stage"] != (cast(dict, record).get("original_stage") or cast(dict, record).get("stage"))
         or identity["stage"] != state.get("next_stage")
     ):
-        raise ValueError("Retry authorization requires the exact current source, stage and failure identity")
+        raise FailureRetryFrontierRefused(
+            "Retry authorization requires the exact current source, stage and failure identity"
+        )
     return {
         "failure_key": selected,
         "identity": copy.deepcopy(identity),

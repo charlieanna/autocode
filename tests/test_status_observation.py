@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import autocode_failure_retry_admission as failure_retry_admission
 import autocode_interventions as interventions
 import autocode_job_retry_admission as job_retry_admission
 import autocode_status_observation as observation
@@ -88,6 +89,35 @@ class StatusObservationTests(unittest.TestCase):
             result = worker._worker(request)
         self.assertTrue(result["route_allowed"])
         pending.assert_called_once_with(Path("/actual-run"))
+
+    def test_repeated_failure_worker_distinguishes_source_error_from_stale_frontier(self):
+        request = {"operation": "failure_retry", "payload": {"state": {}, "workspace": "/project"}}
+        refused = failure_retry_admission.FailureRetryFrontierRefused("Source changed")
+        with patch.object(failure_retry_admission, "failure_retry_frontier", side_effect=refused):
+            self.assertEqual(
+                {"allowed": False, "reason": "Source changed", "unavailable": False}, worker._worker(request)
+            )
+        for error in (
+            ValueError("Git failed"),
+            ValueError("Unsafe source path"),
+            util.Paused("PAUSED_SOURCE_UNAVAILABLE", "unavailable"),
+        ):
+            with (
+                self.subTest(error=error),
+                patch.object(failure_retry_admission, "failure_retry_frontier", side_effect=error),
+            ):
+                self.assertEqual({"allowed": False, "reason": str(error), "unavailable": True}, worker._worker(request))
+
+    def test_malformed_repeated_failure_observation_is_unavailable(self):
+        for value in (
+            {"allowed": False, "reason": "stale"},
+            {"allowed": False, "reason": "stale", "unavailable": "no"},
+        ):
+            with self.subTest(value=value), patch.object(observation, "_observe", return_value=value):
+                self.assertTrue(observation.failure_retry({}, "/project")["unavailable"])
+        valid = {"allowed": False, "reason": "Source changed", "unavailable": False}
+        with patch.object(observation, "_observe", return_value=valid):
+            self.assertEqual(valid, observation.failure_retry({}, "/project"))
 
     def test_job_retry_timeout_or_unconfirmed_cleanup_fails_closed(self):
         for error in (subprocess.TimeoutExpired("worker", 1), observation.captured.ProcessError("uncertain")):
