@@ -685,9 +685,8 @@ def run_command(
         if type(native_execution) is not native_checks.NativeCheckExecution:
             raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Original concrete native check owner required")
         return native_execution.run_command(command, cwd, log_path, timeout=timeout, env=env, checkpoint=checkpoint)
-    return command_supervision.run(
-        command, cwd, log_path, timeout=timeout, env=test_environment(cwd, env), checkpoint=checkpoint
-    )
+    with test_env.own_bytecode_cache(test_environment(cwd, env)) as environment:
+        return command_supervision.run(command, cwd, log_path, timeout=timeout, env=environment, checkpoint=checkpoint)
 
 
 with_results = test_results.with_results
@@ -1579,6 +1578,9 @@ def scratch_run(
             for root in dict.fromkeys((str(workspace.resolve()), str(workspace))):
                 command = command.replace(root, str(tree))
             framework = command_framework(command) or package_scope.recognize(command, command_framework)
+            framework = toolchain_suite.with_project_build(
+                framework, lambda root: detect_framework(root, python=python or python_for(workspace)), tree
+            )
             # A reporter-owned command can name tests without a recognized framework object.
             if framework or (native_execution is None and expects_results(None, command, tree)):
                 receipt = scratch_suites.explicit(

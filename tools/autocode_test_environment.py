@@ -270,3 +270,17 @@ def external_roots(paths, workspace) -> set[Path]:
     workspace = Path(workspace).resolve()
     shims = {Path(p).resolve() for p in scratch_import_roots(workspace)}
     return {p for p in paths if not p.is_relative_to(workspace) and p not in shims}
+
+
+@contextlib.contextmanager
+def own_bytecode_cache(environment):
+    """Give a command's Python a bytecode cache of its own, outside the tree, removed when the command ends.
+
+    ``environment`` turns bytecode writing off so nothing lands in the tree; a suite whose tests start the
+    project's own Python again (a CLI's end-to-end tests) then compiled every module in every child. Two test
+    modules of AutoCode's took 940 s in a scratch copy and 354 s in the checkout, and the original-test gate's
+    900-second limit stopped both halves (2026-11-21).
+    """
+    with tempfile.TemporaryDirectory(prefix="autocode-pycache-") as cache:
+        environment.update(PYTHONDONTWRITEBYTECODE="", PYTHONPYCACHEPREFIX=cache)
+        yield environment
