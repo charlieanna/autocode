@@ -17,6 +17,7 @@ import unittest
 from pathlib import Path
 
 import autocode as runner
+import autocode_claim_evidence as claim_evidence
 import autocode_diagnostics_comparison as comparison
 import autocode_goal_lifecycle as lifecycle
 import autocode_report_check as report_check
@@ -70,13 +71,28 @@ def write_capture(workspace, name, command, exit_code, **extra):
             }
         )
     )
+    attest_capture(path)
     return path
+
+
+def attest_capture(path):
+    events = path.parent.parent / "claim-events.jsonl"
+    with events.open("a") as handle:
+        handle.write(
+            json.dumps(
+                {"type": "item.completed", "item": {"type": "command_execution", "aggregated_output": path.read_text()}}
+            )
+            + "\n"
+        )
 
 
 def write_comparison(workspace, name, *, base, new_diagnostics, command=COMPARED_BUILD):
     """A receipt shaped as `autocode capture --compare-base` writes one."""
     path = Path(workspace) / ".autocode/evidence" / name
     path.parent.mkdir(parents=True, exist_ok=True)
+    output, base_output = path.with_suffix(".log"), path.with_suffix(".base.log")
+    output.write_text("\n".join(new_diagnostics))
+    base_output.write_text("")
     path.write_text(
         json.dumps(
             {
@@ -87,9 +103,14 @@ def write_comparison(workspace, name, *, base, new_diagnostics, command=COMPARED
                 "base_exit_code": 0,
                 "candidate_exit_code": 0,
                 "new_diagnostics": new_diagnostics,
+                "full_output": str(output),
+                "full_output_sha256": s.file_hash(output),
+                "base_output": str(base_output),
+                "base_output_sha256": s.file_hash(base_output),
             }
         )
     )
+    attest_capture(path)
     return path
 
 
@@ -138,7 +159,13 @@ class ReportCheckClaimTests(unittest.TestCase):
         }
 
     def check(self, stage, report, state):
-        spec = report_check.build_spec(stage=stage, workspace=self.root, schema=SCHEMA, state=state)
+        spec = report_check.build_spec(
+            stage=stage,
+            workspace=self.root,
+            schema=SCHEMA,
+            state=state,
+            events_path=self.root / ".autocode/claim-events.jsonl",
+        )
         return report_check.check_report(json.dumps(report), spec=spec)
 
     def test_ac5_report_check_refuses_limitation_contradicting_capture_exit(self):
@@ -151,6 +178,38 @@ class ReportCheckClaimTests(unittest.TestCase):
         self.assertIn("exit 2", errors[0])
         self.assertIn("exit 0", errors[0])
         self.assertNotIn("deferred_backlog", errors[0])
+
+    def test_unattested_or_changed_capture_cannot_establish_or_contradict_a_claim(self):
+        path = write_capture(self.root, PROBE, "python inventory.py apply header-only.csv", 0)
+        report = completion_report([EXIT_2_LIMITATION])
+        events = self.root / ".autocode/claim-events.jsonl"
+        events.write_text("")
+        self.assertEqual([], self.check("review_completion", report, self.state()))
+        attest_capture(path)
+        self.assertEqual(1, len(self.check("review_completion", report, self.state())))
+        path.with_suffix(".log").write_text("altered output")
+        self.assertEqual([], self.check("review_completion", report, self.state()))
+
+    def test_report_file_capture_is_bound_to_the_current_attempt(self):
+        attempt = {"attempt": "attempt-1", "nonce": "one", "source_revision": "revision-1"}
+        write_capture(self.root, PROBE, "python inventory.py apply header-only.csv", 0, capture_context=attempt)
+        report = completion_report([EXIT_2_LIMITATION])
+        for seen, expected in ((attempt, "contradicted"), ({**attempt, "nonce": "two"}, "unverified")):
+            with self.subTest(attempt=seen):
+                context = claim_evidence.context(
+                    self.state(), self.root, record={"output_mode": "report_file", "capture_context": seen}
+                )
+                problems, rows = claim_evidence.judge("review_completion", report, context)
+                self.assertEqual(expected, rows[0]["status"])
+                self.assertEqual(expected == "contradicted", bool(problems))
+
+    def test_comparison_does_not_trust_tampered_baseline_output(self):
+        state = self.state([("C3", C3)])
+        path = write_comparison(self.root, "docs-clean.json", base=BASE, new_diagnostics=[])
+        report = tester_report("C3", COMPARED_BUILD, refs=[".autocode/evidence/docs-clean.json"])
+        self.assertEqual([], self.check("tester", report, state))
+        path.with_suffix(".base.log").write_text("changed baseline")
+        self.assertEqual(1, len(self.check("tester", report, state)))
 
     def test_ac10_matching_claim_is_accepted_unchanged(self):
         write_capture(self.root, PROBE, "python inventory.py apply header-only.csv", 0)
@@ -291,6 +350,36 @@ class CompareBaseCaptureTests(unittest.TestCase):
         self.assertEqual([], list(scratch.iterdir()) if scratch.exists() else [])
         self.assertEqual("ok\nBROKEN ref\n", (root / "doc.txt").read_text())
 
+    def test_executed_comparison_event_authenticates_the_recorded_outputs(self):
+        self.checker = "for line in open('doc.txt').read().splitlines():\n    if 'BROKEN' in line:\n        print('WARNING: ' + line)\n"
+        root = self.repository("ok\n", "ok\nBROKEN ref\n")
+        result = self.capture(root, ".autocode/evidence/cmp.json")
+        self.assertEqual(0, result.returncode, result.stderr)
+        events = root / ".autocode/events.jsonl"
+        events.write_text(
+            json.dumps(
+                {
+                    "type": "item.completed",
+                    "item": {"type": "command_execution", "aggregated_output": result.stdout + result.stderr},
+                }
+            )
+            + "\n"
+        )
+        context = {
+            "workspace": str(root),
+            "criteria": {"C3": C3},
+            "base_commit": git(root, "rev-parse", "HEAD"),
+            "attempt": {"events": str(events)},
+        }
+        report = tester_report("C3", "python check.py", refs=[".autocode/evidence/cmp.json"])
+        errors, _ = claim_evidence.judge("tester", report, context)
+        self.assertEqual(1, len(errors))
+        self.assertIn("WARNING: BROKEN ref", errors[0])
+        events.write_text("")
+        errors, _ = claim_evidence.judge("tester", report, context)
+        self.assertEqual(1, len(errors))
+        self.assertNotIn("WARNING: BROKEN ref", errors[0])
+
     def test_ac20_moved_diagnostic_is_not_new(self):
         self.checker = (
             "for number, line in enumerate(open('doc.txt').read().splitlines(), 1):\n"
@@ -369,6 +458,9 @@ class RunnerAdmissionClaimTests(unittest.TestCase):
         ]:
             Path(str(path) + suffix).write_text(text)
             record[key] = str(Path(str(path) + suffix))
+        fixture_events = self.root / ".autocode/claim-events.jsonl"
+        if fixture_events.exists():
+            Path(record["events"]).write_text(fixture_events.read_text())
         return record
 
     def test_ac6_completion_review_contradicting_its_capture_is_refused(self):
@@ -433,6 +525,9 @@ class RunnerAdmissionClaimTests(unittest.TestCase):
                 }
             )
         )
+        fixture_events = self.root / ".autocode/claim-events.jsonl"
+        if fixture_events.exists():
+            events.write_text(events.read_text() + "\n" + fixture_events.read_text())
         report = {
             **envelope(self.state),
             "verdict": "PASS",

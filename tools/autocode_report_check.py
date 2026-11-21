@@ -118,6 +118,7 @@ def build_spec(
     workspace: Path,
     schema: dict[str, Any],
     state: RunState | None = None,
+    events_path: Path | None = None,
 ) -> dict[str, Any]:
     """Build a public, self-contained report-check specification from schema and public cues."""
     spec: dict[str, Any] = {
@@ -132,7 +133,9 @@ def build_spec(
         spec["covered_acceptance_cases"] = sorted(acceptance_tests.covered(state))
     if stage in claim_evidence.CLAIM_STAGES:
         # The claim judge's inputs (#3904, #3947): admission reads the same context from the run.
-        spec[claim_evidence.SPEC_KEY] = claim_evidence.context(state, workspace)
+        spec[claim_evidence.SPEC_KEY] = claim_evidence.context(
+            state, workspace, record={"events": str(events_path)} if events_path else None
+        )
     if stage == "tester":
         # The approved required commands, so a PASS criterion citing only them is refused here as the runner
         # refuses it (autocode_tester_probes).

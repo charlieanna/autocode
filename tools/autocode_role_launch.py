@@ -134,6 +134,7 @@ def prepare_schema_and_report_check(
                 workspace=workspace,
                 schema=support.read(schema),
                 state=state,
+                events_path=base.with_suffix(".jsonl"),
             ),
         )
         prompt = tool_handoff.with_report_check_command(prompt, spec_path)

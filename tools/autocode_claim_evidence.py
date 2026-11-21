@@ -38,10 +38,16 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_evidence_events as event_log
+    from . import autocode_receipt_auth as receipt_auth
     from . import autocode_run_base as run_base
+    from . import autocode_util as util
     from . import autocode_verification_commands as verification_commands
 except ImportError:
+    import autocode_evidence_events as event_log
+    import autocode_receipt_auth as receipt_auth
     import autocode_run_base as run_base
+    import autocode_util as util
     import autocode_verification_commands as verification_commands
 
 ESTABLISHED, UNVERIFIED, CONTRADICTED = "established", "unverified", "contradicted"
@@ -57,7 +63,7 @@ _RESOLVE = re.compile(r"\bresolve[sd]?\b", re.IGNORECASE)
 _CHECK = re.compile(r"check:(\d+)")
 
 
-def context(state: RunState, workspace, run_dir=None) -> dict[str, Any]:
+def context(state: RunState, workspace, run_dir=None, *, record=None) -> dict[str, Any]:
     """What the judge reads from a run: approved criterion texts, the run's base and evidence folders."""
     contract = (state.get("goal_contract") or {}).get("body") or {}
     rows = contract.get("acceptance_criteria") or state.get("acceptance_criteria") or []
@@ -78,6 +84,9 @@ def context(state: RunState, workspace, run_dir=None) -> dict[str, Any]:
         "criteria": criteria,
         "base_commit": base or "",
         "evidence_dirs": evidence_dirs(workspace, run_dir),
+        "attempt": {key: record.get(key) for key in ("events", "output_mode", "capture_context")}
+        if isinstance(record, dict)
+        else {},
     }
 
 
@@ -144,6 +153,40 @@ def _read(path: Path) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
+def _authenticated(path: Path, receipt: dict, claim_context: dict) -> bool:
+    """The same attempt-bound capture check as Validator admission, never a model-written JSON alone."""
+    workspace = claim_context.get("workspace") or ""
+    attempt = claim_context.get("attempt") or {}
+    events = attempt.get("events")
+    try:
+        if not workspace or not path.resolve().is_relative_to(Path(workspace).resolve() / ".autocode"):
+            return False
+        rows = event_log.events(events) if events else []
+        outputs = [
+            row["item"]
+            for row in rows
+            if row.get("type") == "item.completed"
+            and row.get("item", {}).get("type") in ("command_execution", "tool_output")
+        ]
+        receipt_auth.authenticate(
+            receipt,
+            path,
+            workspace,
+            outputs,
+            receipt_only=attempt.get("output_mode") == "report_file",
+            capture_context=attempt.get("capture_context"),
+        )
+        if receipt.get("kind") == COMPARISON:
+            base_output = Path(receipt["base_output"])
+            if not base_output.resolve().is_relative_to(Path(workspace).resolve() / ".autocode"):
+                return False
+            if util.file_hash(base_output) != receipt["base_output_sha256"]:
+                return False
+        return True
+    except (KeyError, OSError, TypeError, ValueError):
+        return False
+
+
 def exit_code_claims(report: dict, claim_context: dict) -> list[dict]:
     """Rows for each limitation or backlog sentence that states one exit code and cites captures."""
     rows = []
@@ -160,7 +203,7 @@ def exit_code_claims(report: dict, claim_context: dict) -> list[dict]:
 
 
 def _exit_row(field, index, sentence, stated, cited, claim_context) -> dict:
-    missing, unreadable, tests, differing, matching = [], [], [], [], []
+    missing, unreadable, unauthenticated, tests, differing, matching = [], [], [], [], [], []
     for name in cited:
         path = _find(name, claim_context)
         receipt = _read(path) if path else None
@@ -168,6 +211,8 @@ def _exit_row(field, index, sentence, stated, cited, claim_context) -> dict:
             missing.append(name)
         elif receipt is None or (not is_test_run(receipt) and not isinstance(receipt.get("exit_code"), int)):
             unreadable.append(name)
+        elif not _authenticated(path, receipt, claim_context):
+            unauthenticated.append(name)
         elif is_test_run(receipt):
             tests.append(name)
         elif receipt["exit_code"] == stated:
@@ -177,7 +222,7 @@ def _exit_row(field, index, sentence, stated, cited, claim_context) -> dict:
     row = {"source": field, "id": f"{field}[{index}]", "claim": sentence, "observation": ", ".join(cited)}
     if matching:
         return {**row, "status": ESTABLISHED, "reason": f"{', '.join(matching)} recorded exit {stated}."}
-    if differing and not (missing or unreadable or tests):
+    if differing and not (missing or unreadable or unauthenticated or tests):
         return {
             **row,
             "status": CONTRADICTED,
@@ -192,6 +237,8 @@ def _exit_row(field, index, sentence, stated, cited, claim_context) -> dict:
         reasons.append(f"no recorded capture was found for {', '.join(missing)}")
     if unreadable:
         reasons.append(f"{', '.join(unreadable)} could not be read as a capture with an exit code")
+    if unauthenticated:
+        reasons.append(f"{', '.join(unauthenticated)} is not authenticated to this attempt")
     if tests:
         reasons.append(f"{', '.join(tests)} is a test run, whose exit code is its runner's, not the product's")
     if differing:
@@ -244,7 +291,7 @@ def _cited_observations(refs, checks, claim_context):
         for path in paths:
             file = Path(path) if Path(path).is_absolute() else Path(workspace) / path
             receipt = _read(file) if workspace and not path.startswith("event:") and file.is_file() else None
-            if receipt and receipt.get("kind") == COMPARISON:
+            if receipt and receipt.get("kind") == COMPARISON and _authenticated(file, receipt, claim_context):
                 found = (path, receipt)
         if found:
             comparisons.append(found)
@@ -328,7 +375,7 @@ def record_rows(record: dict, source_stage: str, rows: list[dict]) -> None:
 
 def tester_problems(state: RunState, validation: dict, record: dict) -> list[str]:
     """The Tester rule at admission (changed-code preflight); rows are saved only when nothing is refused."""
-    problems, rows = judge("tester", validation, context(state, state.get("workspace")))
+    problems, rows = judge("tester", validation, context(state, state.get("workspace"), record=record))
     if not problems:
         record_rows(record, "tester", rows)
     return problems
@@ -337,7 +384,7 @@ def tester_problems(state: RunState, validation: dict, record: dict) -> list[str
 def admit(state: RunState, stage: str, value: dict, record: dict, workspace, run_dir) -> None:
     """Refuse a contradicted completion statement, record unverified ones, then merge the backlog."""
     if stage == "review_completion":
-        problems, rows = judge(stage, value, context(state, workspace, run_dir))
+        problems, rows = judge(stage, value, context(state, workspace, run_dir, record=record))
         if problems:
             raise ValueError("\n\n".join(problems))
         record_rows(record, stage, rows)
