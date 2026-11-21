@@ -17,13 +17,17 @@ the person configures, never from the agent's tool arguments:
 
 No tool call waits for the work, which can take as long as the work does (#3984): the
 run works in a background process and a call returns at once, or after the
-``wait_seconds`` it asks for, with ``working`` true until the run stops. A refusal, AutoCode's or the step's, is a tool result with ``isError``
-so the agent can read it; only a malformed request is a JSON-RPC error.
+``wait_seconds`` it asks for, with ``working`` true until the run stops. While a call
+waits and its request carries ``_meta.progressToken``, the server sends
+``notifications/progress`` every few seconds with the run's progress line as the
+message. A refusal, AutoCode's or the step's, is a tool result with ``isError`` so
+the agent can read it; only a malformed request is a JSON-RPC error.
 """
 
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import sys
 from collections.abc import Callable, Iterable
@@ -187,6 +191,8 @@ class Server:
     def __init__(self, step: agent_step.AgentStep, version: str):
         self.step = step
         self.version = version
+        # Writes one message to the client between a request and its response; serve() sets it.
+        self.send: Callable[[dict], None] | None = None
 
     def handle(self, message: Any) -> dict | None:
         if not isinstance(message, dict) or message.get("jsonrpc") != "2.0":
@@ -211,7 +217,7 @@ class Server:
                 return _error(ident, INVALID_PARAMS, f"Unknown tool: {name}")
             if not isinstance(arguments, dict):
                 return _error(ident, INVALID_PARAMS, "arguments must be an object")
-            result = self.call(name, arguments)
+            result = self.call(name, arguments, progress=self._progress(params))
         else:
             return _error(ident, METHOD_NOT_FOUND, f"Method not found: {method}")
         return {"jsonrpc": "2.0", "id": ident, "result": result}
@@ -225,8 +231,27 @@ class Server:
             "instructions": INSTRUCTIONS,
         }
 
-    def call(self, name: str, arguments: dict) -> dict:
+    def _progress(self, params: dict) -> Callable[[str], None] | None:
+        """The notifications/progress sender for a call whose client asked for progress, or None.
+
+        While a call waits for the run (``wait_seconds``), the client is told the run's progress line every
+        few seconds, which also tells a client that resets its tool timeout on progress that the call lives.
+        """
+        token = (params.get("_meta") or {}).get("progressToken") if isinstance(params.get("_meta"), dict) else None
+        send = self.send
+        if send is None or isinstance(token, bool) or not isinstance(token, (str, int)):
+            return None
+        count = itertools.count(1)
+
+        def report(line: str) -> None:
+            notice = {"progressToken": token, "progress": next(count), "message": line}
+            send({"jsonrpc": "2.0", "method": "notifications/progress", "params": notice})
+
+        return report
+
+    def call(self, name: str, arguments: dict, *, progress: Callable[[str], None] | None = None) -> dict:
         known = next(tool["inputSchema"]["properties"] for tool in TOOLS if tool["name"] == name)
+        self.step.progress = progress
         try:
             unknown = sorted(set(arguments) - set(known))
             if unknown:  # engine and budget flags in particular: they are the server's, set by the person
@@ -234,6 +259,8 @@ class Server:
             value = HANDLERS[name](self.step, arguments)
         except agent_step.StepError as error:
             return {"content": [{"type": "text", "text": str(error)}], "isError": True}
+        finally:
+            self.step.progress = None
         return {
             "content": [{"type": "text", "text": json.dumps(value, indent=2)}],
             "structuredContent": value,
@@ -242,7 +269,13 @@ class Server:
 
 
 def serve(server: Server, lines: Iterable[str], out: IO[str]) -> None:
-    """Answer each request line on ``out`` until the input ends."""
+    """Answer each request line on ``out`` until the input ends; progress notifications go there too."""
+
+    def send(message: dict) -> None:
+        out.write(json.dumps(message) + "\n")
+        out.flush()
+
+    server.send = send
     for line in lines:
         if not line.strip():
             continue
@@ -257,8 +290,7 @@ def serve(server: Server, lines: Iterable[str], out: IO[str]) -> None:
                 ident = message.get("id") if isinstance(message, dict) else None
                 response = _error(ident, INTERNAL_ERROR, f"{type(error).__name__}: {error}")
         if response is not None:
-            out.write(json.dumps(response) + "\n")
-            out.flush()
+            send(response)
 
 
 def _error(ident: Any, code: int, message: str) -> dict:

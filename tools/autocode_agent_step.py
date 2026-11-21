@@ -95,6 +95,9 @@ class AgentStep:
     run_dir: Path | None = None
     # Starts a launch's background process (autocode_agent_background.Spawn); tests run it in process.
     spawn: background.Spawn = background.detached
+    # Told the run's progress line every few seconds while a call waits for the run (the MCP server's
+    # progress notifications); None reports nothing.
+    progress: Callable[[str], None] | None = None
 
     def __post_init__(self):
         self.workspace = Path(self.workspace).expanduser().resolve()
@@ -243,7 +246,8 @@ class AgentStep:
 
     def _settled(self, run_dir: Path, wait: float, *, full: bool = False) -> dict:
         """The summary, after up to ``wait`` seconds for the background work on ``run_dir`` to reach a stop."""
-        launched = background.wait(self.workspace, run_dir, wait)
+        tick = (lambda: self._report(run_dir)) if self.progress is not None else None
+        launched = background.wait(self.workspace, run_dir, wait, tick=tick)
         working = (launched or {}).get("state") == "working"
         if not self._saved(run_dir):
             if working:  # a start whose run is not saved yet
@@ -255,6 +259,19 @@ class AgentStep:
         summary = self._summary(run, _call(run.status), full=full, working=working)
         summary["background"] = launched
         return summary
+
+    def _report(self, run_dir: Path) -> None:
+        """Tell ``progress`` where the working run stands: its progress line, read from the status view."""
+        line = "Starting"
+        if self._saved(run_dir):
+            try:
+                view = self._task_run(run_dir).status()
+            except TaskRunError:
+                line = "Working"  # a read that failed while the run works; the next one may not
+            else:
+                line = (view.get("progress") or {}).get("line") or view.get("status") or "Working"
+        if self.progress is not None:
+            self.progress(line)
 
     def _env(self) -> dict[str, str]:
         return {**(self.env or {}), "AUTOCODE_CALLER": self.caller}

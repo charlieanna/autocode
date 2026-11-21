@@ -417,6 +417,22 @@ class AgentStepTests(unittest.TestCase):
         self.assertIn("ended without recording", lost["error"])
         self.assertEqual([], background.working(self.workspace))
 
+        ticks, now, told = iter(range(100)), [0.0], []
+        alive_again = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+        self.addCleanup(alive_again.wait)
+        self.addCleanup(alive_again.kill)
+        background.launch(self.workspace, run_dir, {"operation": "advance"}, ["drive"], {}, lambda *_: alive_again.pid)
+
+        def advance(seconds):
+            now[0] += 1.0  # each look costs a second of the fake clock
+
+        background.wait(
+            self.workspace, run_dir, 12, tick=lambda: told.append(now[0]), every=5, sleep=advance, clock=lambda: now[0]
+        )
+        self.assertEqual([5.0, 10.0], told)  # every five seconds while it works, none after the deadline
+        alive_again.kill()
+        alive_again.wait()
+
         request = background.read_request(self.workspace / background.RECORDS / "held.request.json")
         background.finish(request, {"state": "stopped"})
         self.assertEqual("stopped", background.state(self.workspace, run_dir)["state"])

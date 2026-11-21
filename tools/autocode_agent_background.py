@@ -36,6 +36,8 @@ RECORDS = Path(".autocode") / "agent-step"
 RUNS = Path(".autocode") / "runs"
 # How often a waiting status call looks again.
 POLL_SECONDS = 0.5
+# How often a wait reports that the launch still works, for a caller that shows progress.
+PROGRESS_SECONDS = 5.0
 
 # Starts argv detached with env, its output in log; returns the process id (None when it already ended).
 Spawn = Callable[[list[str], dict[str, str], Path], "int | None"]
@@ -109,13 +111,29 @@ def state(workspace: Path, run_dir: Path) -> dict | None:
     }
 
 
-def wait(workspace: Path, run_dir: Path, seconds: float, *, sleep=time.sleep, clock=time.monotonic) -> dict | None:
-    """``state``, after waiting up to ``seconds`` for a working launch to end."""
+def wait(
+    workspace: Path,
+    run_dir: Path,
+    seconds: float,
+    *,
+    tick: Callable[[], None] | None = None,
+    every: float = PROGRESS_SECONDS,
+    sleep=time.sleep,
+    clock=time.monotonic,
+) -> dict | None:
+    """``state``, after waiting up to ``seconds`` for a working launch to end.
+
+    ``tick`` is called every ``every`` seconds while the launch still works, so a caller can report progress.
+    """
     deadline = clock() + max(0.0, seconds)
+    due = clock() + every
     current = state(workspace, run_dir)
     while current and current["state"] == "working" and clock() < deadline:
         sleep(min(POLL_SECONDS, max(0.0, deadline - clock())))
         current = state(workspace, run_dir)
+        if tick is not None and current and current["state"] == "working" and clock() >= due:
+            tick()
+            due = clock() + every
     return current
 
 

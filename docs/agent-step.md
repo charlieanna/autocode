@@ -61,6 +61,14 @@ outlives the agent's call and the MCP server; if it ends without recording how,
 The background work's records and output are in `.autocode/agent-step/` in the
 workspace (`RUN.log` holds the process's output).
 
+Over MCP, a call that waits and carries a `progressToken` in its request's `_meta`
+gets `notifications/progress` every few seconds while the run still works: its
+`message` is the run's progress line (for example `Builder working · 1 of 3 tasks
+done`) and `progress` counts up from 1, with no `total`, since how long the work
+takes is unknown. A client that resets its tool timeout on progress can then wait
+longer than that timeout in one call; any client can show the line to the person.
+A call without a token gets no notifications.
+
 ## Claude Code skill
 
 Copy [`examples/agent-step/skills/autocode`](../examples/agent-step/skills/autocode/SKILL.md)
