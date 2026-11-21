@@ -85,6 +85,15 @@ is `/private/tmp/autocode-kilo-integration-sandbox-failure.log`. Ruff and host
 JavaScript syntax checks passed. These local results are not final-head CI or
 actual editor verification; #4024 and #4031 are still being qualified.
 
+The Kilo fixture also uses the shared, merged #4036 private-host setup and
+all-steps cleanup. It selects its private AutoCode registry before its first
+subprocess, validates the returned owned directory and retains failed test
+fixtures. A stubbed callback control for early Kilo fixture failure fails on
+the prior Kilo host because it targets an inherited host, and passes here; the
+baseline log is `/private/tmp/autocode-kilo-host-early-baseline.vFHNIp/result.log`.
+The offline fixture succeeds with its private registry preselected. This does
+not establish the final actual-editor result.
+
 Still required: focused checks and master control, actual VS Code behavior on
 the final head, current-head `ci-required`, and review of unsupported or absent
 structural candidates. Do not close #4005 on this partial increment alone.

@@ -8,6 +8,7 @@ const path = require('node:path');
 const { test } = require('node:test');
 const { openHistoryRow } = require('./open-history.cjs');
 const { routeDecisionReady } = require('../job-route-readiness.cjs');
+const { privateHostEnvironment, ownedWarmHostSteps, settleFixture } = require('../owned-fixture-cleanup.cjs');
 
 const EXTENSION = path.resolve(__dirname, '../..');
 const REPO = path.resolve(EXTENSION, '..');
@@ -41,13 +42,15 @@ test('real editor offers a synthetic Kilo model and effort decision', { timeout:
   let lastStatus;
   let expectedToken;
   let passed = false;
+  let testError;
+  let ownsWarmHost = false;
   try {
     const temp = path.join(root, 'tmp');
     const actions = path.join(root, 'actions.jsonl');
     fs.mkdirSync(temp);
     // Preserve the runner's inherited home and credential configuration.
     // The fake provider is credential-free and this test runs on a disposable CI host.
-    env = { ...process.env, TMPDIR: temp };
+    env = { ...privateHostEnvironment(process.env, root), TMPDIR: temp };
     assert.equal(env.HOME, process.env.HOME);
     assert.equal(env.CODEX_HOME, process.env.CODEX_HOME);
     for (const key of Object.keys(env)) {
@@ -56,10 +59,13 @@ test('real editor offers a synthetic Kilo model and effort decision', { timeout:
     const made = spawnSync(python, [path.join(REPO, 'tests/kilo_route_vscode_fixture.py'), root], { cwd: REPO, encoding: 'utf8', env, timeout: 90_000 });
     assert.equal(made.status, 0, `offline quota fixture: ${made.stderr}`);
     const fixture = JSON.parse(made.stdout);
-    Object.assign(env, { AUTOCODE_ROUTE_HOST_ACTIONS: actions, AUTOCODE_HOME: fixture.registry, XDG_CONFIG_HOME: path.join(root, 'config'),
+    assert.equal(path.resolve(fixture.registry), path.resolve(root, 'registry'), 'registry is the owned fixture path');
+    assert.ok(fs.lstatSync(fixture.registry).isDirectory(), 'owned registry is a directory, not a symlink');
+    Object.assign(env, { AUTOCODE_ROUTE_HOST_ACTIONS: actions,
       JOB_RUNTIME: REPO, JOB_CALLS: fixture.calls,
       KILO_AUDIT: fixture.audit, REFUSE_KIND: 'quota', REFUSE_MODEL: 'gpt-6-sol', JOB_MODE: 'exit42',
       PATH: [path.join(fixture.workspace, '.autocode/bin'), env.PATH].join(path.delimiter) });
+    ownsWarmHost = true;
     const userData = path.join(root, 'user-data');
     fs.mkdirSync(path.join(userData, 'User'), { recursive: true });
     fs.writeFileSync(path.join(userData, 'User/settings.json'), JSON.stringify({
@@ -130,31 +136,38 @@ test('real editor offers a synthetic Kilo model and effort decision', { timeout:
     assert.equal(fs.readFileSync(fixture.calls, 'utf8'), originalCalls, 'answering the question launches no model');
     passed = true;
   } catch (error) {
+    testError = error;
     const actions = path.join(root, 'actions.jsonl');
     console.error('Quota route host diagnostics:', JSON.stringify({ root, lastState, lastStatus,
       actions: fs.existsSync(actions) ? fs.readFileSync(actions, 'utf8') : '(no answer action)' }));
     await win?.screenshot({ path: path.join(EXTENSION, '.vscode-test', 'host-synthetic-kilo-route.png'), timeout: 5_000 }).catch(() => {});
-    throw error;
   } finally {
-    if (app) {
-      let timer;
-      const timedOut = await Promise.race([app.close().then(() => false, () => true),
-        new Promise((resolve) => { timer = setTimeout(() => resolve(true), 5_000); })]);
-      clearTimeout(timer);
-      if (timedOut) {
-        const stopped = spawnSync(python, [path.join(REPO, 'tests/status_retry_host_cleanup.py'), 'stop', String(editorPid), String(editorStarted)],
-          { cwd: REPO, env, encoding: 'utf8', timeout: 15_000 });
-        assert.equal(stopped.status, 0, `stop owned editor: ${stopped.stderr}`);
-      }
+    try {
+      await settleFixture([['close editor', async () => {
+        if (!app) return;
+        let timer;
+        const timedOut = await Promise.race([app.close().then(() => false, () => true),
+          new Promise((resolve) => { timer = setTimeout(() => resolve(true), 5_000); })]);
+        clearTimeout(timer);
+        if (timedOut) {
+          const stopped = spawnSync(python, [path.join(REPO, 'tests/status_retry_host_cleanup.py'), 'stop', String(editorPid), String(editorStarted)],
+            { cwd: REPO, env, encoding: 'utf8', timeout: 15_000 });
+          assert.equal(stopped.status, 0, `stop owned editor: ${stopped.stderr}`);
+        }
+      }], ...ownedWarmHostSteps(ownsWarmHost, () => {
+        const cli = path.join(REPO, 'tools/autocode.py');
+        const stop = spawnSync(python, [cli, 'serve', '--stop', '--json'], { cwd: REPO, env, encoding: 'utf8', timeout: 15_000 });
+        assert.equal(stop.status, 0, stop.stderr);
+      }, () => {
+        const cli = path.join(REPO, 'tools/autocode.py');
+        const check = spawnSync(python, [cli, 'serve', '--status', '--json'], { cwd: REPO, env, encoding: 'utf8', timeout: 15_000 });
+        assert.equal(check.status, 0, check.stderr);
+        assert.equal(JSON.parse(check.stdout).running, false, 'owned warm host exited');
+      })], () => fs.rmSync(root, { recursive: true, force: true, maxRetries: 3 }),
+      testError || (!passed ? new Error('editor test did not complete') : undefined));
+    } catch (error) {
+      console.error(`Preserved failed quota route fixture at ${root}`);
+      throw error;
     }
-    if (env) {
-      const cli = path.join(REPO, 'tools/autocode.py');
-      const stop = spawnSync(python, [cli, 'serve', '--stop', '--json'], { cwd: REPO, env, encoding: 'utf8', timeout: 15_000 });
-      const check = spawnSync(python, [cli, 'serve', '--status', '--json'], { cwd: REPO, env, encoding: 'utf8', timeout: 15_000 });
-      assert.equal(stop.status, 0, stop.stderr); assert.equal(check.status, 0, check.stderr);
-      assert.equal(JSON.parse(check.stdout).running, false, 'owned warm host exited');
-    }
-    if (passed) fs.rmSync(root, { recursive: true, force: true, maxRetries: 3 });
-    else console.error(`Preserved failed quota route fixture at ${root}`);
   }
 });

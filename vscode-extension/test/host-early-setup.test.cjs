@@ -6,14 +6,17 @@ const { createRequire } = require('node:module');
 const { test } = require('node:test');
 const vm = require('node:vm');
 
-test('failed quota fixture never stops an inherited operator host', async () => {
-  const hostFile = path.join(__dirname, 'host/job-route-effort.test.cjs');
+for (const [label, host, fixture] of [
+  ['quota', 'job-route-effort.test.cjs', 'job_route_vscode_fixture.py'],
+  ['synthetic Kilo', 'kilo-route-effort.test.cjs', 'kilo_route_vscode_fixture.py'],
+]) test(`failed ${label} fixture never stops an inherited operator host`, async () => {
+  const hostFile = path.join(__dirname, 'host', host);
   const realRequire = createRequire(hostFile);
   const calls = [];
   let callback, fixtureRoot, fixtureEnvironment;
   const fakeFs = { ...fs, mkdtempSync(prefix) { fixtureRoot = fs.mkdtempSync(prefix); return fixtureRoot; } };
   const fakeChild = { spawnSync(_command, args, options) {
-    if (args.some((value) => String(value).endsWith('job_route_vscode_fixture.py'))) {
+    if (args.some((value) => String(value).endsWith(fixture))) {
       fixtureEnvironment = options.env;
       return { status: 7, stdout: '', stderr: 'simulated fixture setup failure' };
     }
