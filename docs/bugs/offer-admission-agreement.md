@@ -203,16 +203,20 @@ its title and explanation with the feedback composer enabled. The panel is uncha
 
 ## Open
 
-- The disagreeing variants of abandon, retry_job, retry_report, retry_builder and
-  retry_failed_stage above, the lane-action-`retry` variant's `next_command`, and the stopped
-  parallel batch member's `retry_builder` variants that plan review recorded (not probed in M0)
-  are not fixed by M1 to M3, which fix the four reported cases. Milestone **M4** is the planned
-  fix (AC26 abandon, AC27 retry_job, AC28 retry_report, AC29 serial retry_builder, AC30
-  retry_failed_stage, AC32 parallel member), after which this note records the decision each offer
-  reads (AC31).
+The packet's failed binding names are kept in the pending request and in a
+`recovery_packet_stale` event, without bound values. Source acceptance calls the same
+source-only admission as the executor. An answered blocker at the same frontier has
+no plain-resume command, and retains feedback only where a real decision admits it.
+
+The stopped-process check for abandon, job-retry source and configuration checks,
+report-retry frontier, serial Builder lane and approval checks, and repeated-failure
+frontier are now shared with their executors. A refused serial Builder retry also
+removes the previously advertised `next_command`.
+
+- The stopped parallel batch member's `retry_builder` admission remains to be shared.
 - The resume at a `PAUSED_REPEATED_FAILURE` with `retry_unavailable` ends in an operational block.
 - The newer-process `supports_stop_now` stamp (#3869, above).
 - Client documentation outside this run's permitted paths: the `docs/task-run.md` resume-need row
   for the planned `needs.resume_unavailable`.
-- Still to record after the fixes (M2 and M3 for the other three reported offers, M4 for the five
-  above): how each offer now reads its executor's decision. #3852's is recorded above.
+- Verify M2's controller capability against the original stop-now checks and complete
+  the parallel member's admission survey before marking M4 complete.

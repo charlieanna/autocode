@@ -157,11 +157,7 @@ except ImportError:
 CONTROLLER_CAPABILITY = {
     "supported": True,
     "version": interventions.INBOX_VERSION,
-    "supports_stop": True,
-    "supports_messages": True,
-    "supports_message_context": True,
-    "supports_stop_now": True,
-    "supports_message_now": True,
+    **stop.CONTROLLER_FEATURES,
 }
 
 # Recovery actions that answer or act on the published operational request themselves; a settings change

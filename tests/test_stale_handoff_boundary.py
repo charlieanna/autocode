@@ -660,6 +660,16 @@ class PacketPauseGuardTests(unittest.TestCase):
         self.assertEqual("PAUSED_STALE_HANDOFF", caught.exception.status)
         self.assertEqual(PACKET_REASON, str(caught.exception))
         self.assertEqual(["settings"], self.request["stale_checks"])
+        recorded = self.state["user_events"][-1]
+        self.assertEqual("recovery_packet_stale", recorded["kind"])
+        self.assertEqual(["settings"], recorded["failed_checks"])
+        self.assertNotIn("model_pinned", str(recorded))
+        self.assertNotIn("settings_hash", str(recorded))
+        # Once the temporary request is removed, the decision remains in the
+        # run's event evidence rather than disappearing with that request.
+        retained = copy.deepcopy(self.state)
+        retained.pop("resolution_request")
+        self.assertEqual(recorded, retained["user_events"][-1])
         self.state.update(status="PAUSED_STALE_HANDOFF", stop_reason=PACKET_REASON)
         self.assertEqual(["settings"], run_view.needs(self.state)["stale_checks"])
 

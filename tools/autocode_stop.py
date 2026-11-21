@@ -55,6 +55,13 @@ except ImportError:
 STOP_KIND = "stop"
 STOP_STATUS = "PAUSED_INTERVENTION"
 STOP_REASON = "Durable stop applied at a saved boundary; this run launches no further stages."
+CONTROLLER_FEATURES = {
+    "supports_stop": True,
+    "supports_messages": True,
+    "supports_message_context": True,
+    "supports_stop_now": True,
+    "supports_message_now": True,
+}
 # A pause that ended the running step (#3263): the step's partial work and logs are kept, and resuming runs it again.
 STOPPED_NOW_REASON = (
     "Stopped by you. The step that was running was ended; its partial work and logs are kept. Resume runs it again."
@@ -191,13 +198,7 @@ def state_writer(ordinary_write: Callable, persist_stopped: Callable) -> Callabl
 
     def write(path, value, *, before_commit=None, after_commit=None):
         if Path(path).name == "state.json" and isinstance(value, dict):
-            value.setdefault("intervention_capability", {}).update(
-                supports_stop=True,
-                supports_messages=True,
-                supports_message_context=True,
-                supports_stop_now=True,
-                supports_message_now=True,
-            )
+            value.setdefault("intervention_capability", {}).update(CONTROLLER_FEATURES)
             if applied_stop(value):
                 assert_stopped(value)
                 return (
