@@ -9,4 +9,6 @@ The branch began at `6519d439a`. The previously referenced handoff was not prese
 - Dedicated claim tests passed (13 tests). The VS Code extension suite passed (751 passed, 22 skipped). Two targeted regression tests failed by assertion on master `73e7e284e1` and passed on this branch.
 - The broader Python run is still in progress. The sandboxed attempt could not enumerate processes and was repeated outside the sandbox.
 - Draft PR #3971 is open and CI is running.
-- The current commit does not implement the collection and baseline-execution claims in #3939 and #3940. These remain open and need work. Review all issue scope and the exact diff before merge.
+- The current commit does not implement the collection and baseline-execution claims in #3939 and #3940. These remain open and need work.
+- The reference check only applies to criteria that explicitly say references resolve. The reported #3947 task asked for a linked executable page without such a criterion, so the exact incident is not yet shown fixed. A clean comparison is recorded as unverified and still admitted. Resolve that gap before claiming #3947.
+- The focused Python suite passed 115 tests with one skipped outside the sandbox. Architecture and run-state checks passed 34 tests.
