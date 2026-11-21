@@ -1488,7 +1488,7 @@ def scratch_run(
     ownership_uncertain = False
     if native_execution is not None:
         native_checks.validate_scratch_owner(
-            native_execution, review_mutation, review_mutation_deadline, review_source, preparation.active()
+            native_execution, review_mutation, review_mutation_deadline, review_source, preparation.active
         )
         native_scope = native_execution.copy(
             workspace,
