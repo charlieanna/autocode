@@ -100,6 +100,40 @@ class DiscoveryIncomplete(ValueError):
         super().__init__(f"Source discovery is incomplete: {shown}{more}. {fix}")
 
 
+class CatalogChanged(ValueError):
+    """The recorded source inventory no longer describes current discovery."""
+
+    status = "PAUSED_SOURCE_UNAVAILABLE"
+
+    def __init__(self, changes):
+        self.changes = changes
+        super().__init__("The task's source catalog changed: " + "; ".join(changes))
+
+
+def binding_changes(saved, discovery):
+    """Identify changed inputs without replacing the receipt or accepting new source."""
+    if not isinstance(saved, dict):
+        return []
+    changes = []
+    for key in ("catalog", "catalog_identity"):
+        if saved.get(key) != discovery.get(key):
+            changes.append(key)
+    previous = {row["path"]: row for row in saved.get("repositories", []) if isinstance(row, dict) and "path" in row}
+    current = {row["path"]: row for group in discovery.get("repositories", []) for row in group.get("candidates", [])}
+    for path in sorted(previous.keys() | current.keys()):
+        if path not in previous:
+            changes.append(f"{path}: added")
+        elif path not in current:
+            changes.append(f"{path}: removed")
+        else:
+            for key in ("head", "tree", "remote"):
+                if previous[path].get(key) != current[path].get(key):
+                    changes.append(f"{path}: {key}")
+    if not changes and saved.get("source_snapshot") != discovery.get("source_snapshot"):
+        changes.append("source_snapshot")
+    return changes
+
+
 def context(state: RunState):
     """Expose the same pinned catalog to intake stages, independent of launch cwd."""
     run = state.get("run_dir")
@@ -108,10 +142,8 @@ def context(state: RunState):
     discovery = catalog.discover()
     if stopped := catalog.blocking(discovery):
         raise DiscoveryIncomplete(stopped, discovery.get("catalog_roots") or ())
-    if saved and any(
-        saved.get(key) != discovery.get(key) for key in ("catalog", "catalog_identity", "source_snapshot")
-    ):
-        raise ValueError("The task's source catalog or pinned source revisions changed; rediscover the task scope")
+    if saved and (changes := binding_changes(saved, discovery)):
+        raise CatalogChanged(changes)
     rows = []
     for group in discovery["repositories"]:
         for source in group["candidates"]:

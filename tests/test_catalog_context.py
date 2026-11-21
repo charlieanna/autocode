@@ -10,6 +10,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import autocode_catalog_context as context
@@ -66,6 +67,58 @@ class CatalogContextTests(unittest.TestCase):
         catalog.remove_root(self.repo.parent)
         with self.assertRaisesRegex(ValueError, "changed"):
             context.context(self.state)
+
+    def test_changed_catalog_names_the_affected_checkout_and_never_offers_plain_resume(self):
+        import autocode_source_reconciliation as reconciliation
+
+        other = self.repo.parent / "worker"
+        other.mkdir()
+        (other / "go.mod").write_text("module example.test/worker\n")
+        for args in (
+            ["init", "-q"],
+            ["add", "."],
+            ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-qm", "base"],
+        ):
+            subprocess.run(["git", "-C", str(other), *args], check=True, capture_output=True)
+        catalog.add_root(self.repo.parent)
+        initial = context.context(self.state)
+        self.assertEqual(2, len(initial["repositories"]))
+        receipt = Path(self.state["run_dir"]) / "planning/source-catalog.json"
+        before = receipt.read_bytes()
+        (self.repo / "go.mod").write_text("module example.test/api\n\n// changed\n")
+        subprocess.run(["git", "-C", str(self.repo), "add", "."], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.repo),
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.test",
+                "commit",
+                "-qm",
+                "new",
+            ],
+            check=True,
+            capture_output=True,
+        )
+        for _ in range(2):
+            with self.assertRaises(ValueError) as raised:
+                context.context(self.state)
+            self.assertEqual("PAUSED_SOURCE_UNAVAILABLE", getattr(raised.exception, "status", None))
+            self.assertIn(str(self.repo), str(raised.exception))
+            self.assertIn("head", str(raised.exception))
+            self.assertNotIn(str(other), str(raised.exception))
+            self.assertEqual(before, receipt.read_bytes())
+            with patch.object(reconciliation.source_scope, "snapshot", return_value={"revision": "unchanged"}):
+                self.assertFalse(reconciliation.readable(self.repo, self.state))
+                state = {**self.state, "status": "PAUSED_SOURCE_UNAVAILABLE"}
+                runner = SimpleNamespace(native_calls=None, support=SimpleNamespace(snapshot=object()))
+                with self.assertRaises(ValueError):
+                    reconciliation.prepare(runner, state, self.repo)
+                self.assertNotIn("reconciliation_notes", state)
+                self.assertEqual(before, receipt.read_bytes())
 
     def test_catalog_citations_require_pinned_regular_source_and_valid_line_bounds(self):
         catalog.add_root(self.repo.parent)
