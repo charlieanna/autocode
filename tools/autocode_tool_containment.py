@@ -65,8 +65,8 @@ SYSTEM_READ_ROOTS = (
     "/usr/share",
     "/System/Library",
     "/Library/Apple/System/Library",
-    # macOS's own LibreSSL reads its nonsecret configuration when a system library loads it (libcurl does, in
-    # rustup's cargo proxy), and fails "Auto configuration failed" when the read is denied (#4017).
+    # macOS's own LibreSSL reads its nonsecret configuration when a system library loads it (cargo's libcurl
+    # does), and fails "Auto configuration failed" when the read is denied (#4017).
     "/private/etc/ssl/openssl.cnf",
     "/private/etc/ssl/x509v3.cnf",
 )
@@ -1093,7 +1093,7 @@ def prepare(
     write_paths=None,
     links=(),
     private_run=None,
-    tool_environment=None,
+    path_prefix=(),
 ):
     """Create a fresh runner-owned policy and shell; return only nonsecret metadata.
 
@@ -1191,7 +1191,7 @@ def prepare(
     npm_user, npm_global = scratch / "npm-user.conf", scratch / "npm-global.conf"
     npm_user.write_text("")
     npm_global.write_text("")
-    safe = tool_shell.environment(shell_runtime, scratch, control.name, env, verification, tool_environment)
+    safe = tool_shell.environment(shell_runtime, scratch, control.name, env, verification, path_prefix)
     sandbox = [SANDBOX_EXEC, "-f", str(profile)] if host == SEATBELT else [BWRAP, "--args", "3"]
     argv = [
         "/usr/bin/env",
@@ -1763,7 +1763,7 @@ def configure(
         write_paths=None if opt_in_writer else footprint,
         links=tools_ready.get("links", ()),
         private_run=request.get("private_run"),
-        tool_environment=tools_ready.get("environment"),
+        path_prefix=tools_ready.get("path_prefix", ()),
     )
     config["shell"] = boundary["shell"]
     definition["permission"] = permissions

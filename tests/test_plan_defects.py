@@ -142,6 +142,17 @@ class SettleTests(unittest.TestCase):
         lifecycle.install_draft(current, draft(defect("P3")), origin="revise_plan")
         self.assertEqual(["P1", "P3"], [e["question_id"] for e in corrections(current)])
 
+    def test_the_persons_approval_of_the_corrected_plan_starts_a_new_round(self):
+        # A live run: the corrected plan was approved, then the tool boundary refused one of its commands
+        # before the build; that reopen could not correct the plan because the round still looked spent.
+        current = state()
+        lifecycle.install_draft(current, draft(defect()), origin="revise_plan")
+        self.assertTrue(plan_defects.settled_this_round(current))
+        current["user_events"].append({"kind": "goal_approval", "actor": "user_cli"})
+        self.assertFalse(plan_defects.settled_this_round(current))
+        current["user_events"].append({"kind": "permission_answer", "actor": "user_cli"})
+        self.assertFalse(plan_defects.settled_this_round(current))
+
     def test_a_rejected_assumption_obligation_stays_the_persons(self):
         current = state()
         current["deferred_obligations"] = [{"id": "P1", "status": "open"}]
