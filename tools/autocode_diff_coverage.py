@@ -13,7 +13,9 @@ import json
 import os
 import re
 import shlex
+import stat
 import subprocess
+import tempfile
 from pathlib import Path
 
 try:
@@ -128,7 +130,7 @@ def prepare(framework, command, tree, evidence_dir) -> dict | None:
     """
     if not framework or not command:
         return None
-    evidence_dir = Path(evidence_dir)
+    evidence_dir = Path(evidence_dir).absolute()
     name = framework.name
     if name in ("unittest", "pytest"):
         invocation = python_tests.parse(command)
@@ -140,9 +142,34 @@ def prepare(framework, command, tree, evidence_dir) -> dict | None:
             return None
         evidence_dir.mkdir(parents=True, exist_ok=True)
         data, report = evidence_dir / ".coverage", evidence_dir / "coverage.json"
+        prefix = list(invocation.prefix)
+        nested = None
+        nested_identity = None
+        # Other coverage collectors (including pytest-cov) can replace the
+        # outer tracer. Give such a collector its own fresh, owned data file;
+        # never override a value the caller explicitly supplied.
+        if (
+            "COVERAGE_FILE" not in os.environ
+            and not any(word.startswith("COVERAGE_FILE=") for word in prefix)
+            and not any(path.is_symlink() for path in (evidence_dir, *evidence_dir.parents))
+        ):
+            try:
+                nested_dir = Path(tempfile.mkdtemp(prefix="nested-coverage-", dir=evidence_dir))
+                info = nested_dir.stat()
+                nested_identity = (info.st_dev, info.st_ino)
+                owner = evidence_dir.stat()
+                evidence_identity = (owner.st_dev, owner.st_ino)
+            except OSError:
+                nested_identity = None
+            if nested_identity is not None:
+                data = nested_dir / "outer.coverage"
+                nested = nested_dir / "inner.coverage"
+                if not prefix:
+                    prefix = ["env"]
+                prefix.append(f"COVERAGE_FILE={nested}")
         wrapped = shlex.join(
             [
-                *invocation.prefix,
+                *prefix,
                 invocation.python,
                 "-m",
                 "coverage",
@@ -155,7 +182,16 @@ def prepare(framework, command, tree, evidence_dir) -> dict | None:
             ]
         )
         finalize = shlex.join([invocation.python, "-m", "coverage", "json", f"--data-file={data}", "-o", str(report)])
-        return {"tool": "coverage.py", "command": wrapped, "finalize": finalize, "report": report}
+        result = {"tool": "coverage.py", "command": wrapped, "finalize": finalize, "report": report}
+        if nested is not None:
+            result["nested_data"] = nested
+            result["outer_data"] = data
+            result["nested_identity"] = nested_identity
+            result["evidence_identity"] = evidence_identity
+            result["nested_finalize"] = shlex.join(
+                [invocation.python, "-m", "coverage", "json", f"--data-file={nested}", "-o", str(report)]
+            )
+        return result
     if name == "go" and command.startswith("go test ") and not re.search(r"[;&|<>`$()\n]", command):
         evidence_dir.mkdir(parents=True, exist_ok=True)
         report = evidence_dir / "cover.out"
@@ -277,6 +313,16 @@ def parse_istanbul(payload, root) -> tuple[dict, dict]:
     return executed, missing
 
 
+def _unavailable(note, receipts):
+    result = skipped(note)
+    result.update(command_receipts=receipts, command_outputs=[row.get("output") for row in receipts])
+    return result
+
+
+def _artifact_identity(info):
+    return (info.st_dev, info.st_ino, info.st_nlink, info.st_mode, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
 def collect(framework, command, tree, evidence_dir, diff_text, run) -> dict:
     """Run the proving-test ``command`` once more under the project's coverage tool and report the
     changed product hunks it did not execute. ``diff_text()`` gives the product diff; ``run(command,
@@ -294,8 +340,89 @@ def collect(framework, command, tree, evidence_dir, diff_text, run) -> dict:
         return skipped("the coverage report is a symlink; no measurement was accepted")
     report_path.unlink(missing_ok=True)
     receipts = [run(spec["command"], Path(evidence_dir) / "run.log")]
-    if spec["finalize"]:
-        receipts.append(run(spec["finalize"], Path(evidence_dir) / "report.log"))
+    finalize = spec["finalize"]
+    nested = spec.get("nested_data")
+    if nested is not None:
+        if receipts[0].get("exit_code") != 0 or receipts[0].get("timed_out"):
+            return _unavailable("the coverage run failed; no measurement was accepted", receipts)
+        nested = Path(nested)
+        # A redirected artifact cannot be accepted, even if the outer tracer
+        # also happened to produce data. Never combine unrelated observations.
+        if any(path.is_symlink() for path in (nested, *nested.parents)):
+            return _unavailable("the nested coverage artifact is redirected; no measurement was accepted", receipts)
+        try:
+            info = nested.parent.stat()
+            owner = nested.parent.parent.stat()
+            same_owner = (info.st_dev, info.st_ino) == spec["nested_identity"] and (
+                owner.st_dev,
+                owner.st_ino,
+            ) == spec["evidence_identity"]
+        except OSError:
+            same_owner = False
+        if not same_owner:
+            return _unavailable("the nested coverage directory changed; no measurement was accepted", receipts)
+        checked_parent = (info.st_dev, info.st_ino, info.st_mtime_ns, info.st_ctime_ns)
+        try:
+            nested_info = nested.lstat()
+        except FileNotFoundError:
+            nested_info = None
+        except OSError:
+            return _unavailable("the nested coverage artifact is unavailable; no measurement was accepted", receipts)
+        if nested_info is not None and stat.S_ISREG(nested_info.st_mode):
+            if nested_info.st_nlink != 1:
+                return _unavailable("the nested coverage artifact is linked; no measurement was accepted", receipts)
+            finalize = spec["nested_finalize"]
+        elif nested_info is not None:
+            return _unavailable(
+                "the nested coverage artifact is not a regular file; no measurement was accepted", receipts
+            )
+        else:
+            # The outer collector is also in the fresh directory, so an old
+            # data file cannot stand in for the command that just ran.
+            nested = Path(spec["outer_data"])
+            try:
+                nested_info = nested.lstat()
+            except OSError:
+                nested_info = None
+            if nested_info is None or not stat.S_ISREG(nested_info.st_mode) or nested_info.st_nlink != 1:
+                return _unavailable("the outer coverage artifact is unavailable; no measurement was accepted", receipts)
+    if finalize:
+        receipts.append(run(finalize, Path(evidence_dir) / "report.log"))
+    if nested is not None:
+        # Finalization is a separate process. It must have read the same
+        # directory and data file checked immediately after the test run.
+        try:
+            parent_info = nested.parent.stat()
+            owner = nested.parent.parent.stat()
+            final_info = nested.lstat() if nested.exists() or nested.is_symlink() else None
+            same_data = (
+                final_info is None
+                if nested_info is None
+                else final_info is not None and _artifact_identity(final_info) == _artifact_identity(nested_info)
+            )
+            intact = (
+                (parent_info.st_dev, parent_info.st_ino, parent_info.st_mtime_ns, parent_info.st_ctime_ns)
+                == checked_parent
+                and (owner.st_dev, owner.st_ino) == spec["evidence_identity"]
+                and not any(path.is_symlink() for path in (nested, *nested.parents))
+                and same_data
+            )
+        except OSError:
+            intact = False
+        if not intact:
+            return _unavailable(
+                "the nested coverage artifact changed during finalization; no measurement was accepted", receipts
+            )
+    if nested is not None:
+        try:
+            report_info = report_path.lstat()
+            report_safe = stat.S_ISREG(report_info.st_mode) and report_info.st_nlink == 1
+        except OSError:
+            report_safe = False
+        if not report_safe or receipts[-1].get("exit_code") != 0 or receipts[-1].get("timed_out"):
+            return _unavailable(
+                "the coverage report was unavailable or redirected; no measurement was accepted", receipts
+            )
     result = finish(spec["tool"], report_path, tree, text)
     result.update(
         command_receipts=receipts,
