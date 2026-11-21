@@ -4,7 +4,8 @@ The run guard misclassified status when the source CLI placed `--run-dir` and
 `--workspace` before `--status`. It also missed writers when macOS reports the
 interpreter as `Python` or when an installed `autocode` entry point is used.
 The guard now uses a strict argument-vector reader grammar and one interpreter
-predicate; ps text alone retains its conservative leading-reader grammar.
+predicate; ps text identifies only possible runners and grants no observer
+authority without authenticated exact argument boundaries.
 Real writers, mixed mutating requests, and ambiguous paths remain blocking.
 
 Master f5752a7 behavioral controls: a path-first status was refused; a real
@@ -29,3 +30,25 @@ The expanded guard, job-route, architecture and run-state selection passed 120
 tests; the extension unit suite passed 784 tests with 22 skipped. The isolated
 worktree's first extension unit attempt lacked node_modules and failed during
 TypeScript loading; using the existing local dependencies corrected setup.
+
+The first actual Linux editor-host attempt on a87c45afd confirmed the held
+writer caused the named answer to be refused, but the editor did not display
+the CLI's exit-2 error; it never reached the concurrent-reader phase. The log
+is preserved at `/private/tmp/autocode-4031-a87-editor-failure.log`. That
+independently discovered UI error-reporting defect is being fixed separately.
+
+A further review found that even leading status text can be part of a renamed
+runner's filename. The previous a87 guard fails the real renamed-writer and
+missing-exact-argv controls; the tightened guard passes the focused tests.
+Only exact process arguments can identify a reader; inaccessible argv remains
+blocked. Actual-editor verification and exact-head CI remain pending.
+
+Review also covered interpreter executables beneath directories with spaces.
+For every process row referencing the run, the guard now first classifies its
+authenticated actual arguments; without them, ps text only holds a possible
+runner. The 64 focused guard checks and 127-test guard, job-route, architecture and run-state selection pass on these revised product bytes. Full Ruff and mypy pass.
+
+The a87 Linux containment job separately reproduced the existing Rustup
+`update-hashes` read-only failure in both write modes; the qualified #4024
+fix must reach master before current-head CI can pass. The retained log is
+`/private/tmp/autocode-4031-a87-linux-containment.log`.

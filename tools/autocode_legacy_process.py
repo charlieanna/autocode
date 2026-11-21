@@ -25,7 +25,10 @@ except ImportError:  # only the exact-argv refinements below need it; the ps sca
 # The scripts a stage-running AutoCode process executes: the source runner, the
 # installed console script, the parallel Builder worker and the controller
 # scripts the dashboard and the macOS app start.
-RUNNER_SCRIPTS = ("autocode.py", "autocode", "autocode_builder_worker.py", "autopilot.py", "autocode_orchestrator.py")
+OBSERVER_SCRIPTS = ("autocode.py", "autocode_entry.py", "autocode")
+RUNNER_SCRIPTS = (*OBSERVER_SCRIPTS, "autocode_builder_worker.py", "autopilot.py", "autocode_orchestrator.py")
+RUNNER_MODULES = ("autocode", "autocode_entry", "autocode_cli.autocode", "autocode_cli.autocode_entry")
+RUNNER_MODULE_MARKER = re.compile(r"(?:^|\s)-m\s+(?:" + "|".join(map(re.escape, RUNNER_MODULES)) + r")(?:\s|$)")
 # Interpreter switches that take no value, so the next argument is still the script.
 PYTHON_FLAGS = re.compile(r"-[BbdEIiOPqRSsuv]+")
 
@@ -49,7 +52,11 @@ def _readonly_runner_argv(argv):
         script = 1
         while script < len(argv) and argv[script] in ("-B", "-u"):
             script += 1
-    if script >= len(argv) or os.path.basename(argv[script]) not in ("autocode.py", "autocode"):
+    if argv[script : script + 1] == ["-m"]:
+        if script + 1 >= len(argv) or argv[script + 1] not in RUNNER_MODULES:
+            return False
+        script += 1
+    elif script >= len(argv) or os.path.basename(argv[script]) not in OBSERVER_SCRIPTS:
         return False
     args = argv[script + 1 :]
     if args[:2] == ["coordinate", "status"]:
@@ -104,34 +111,20 @@ def _readonly_runner_argv(argv):
     )
 
 
-def _readonly_runner_command(command):
-    """Use the reader grammar only for the existing leading-reader ps forms.
-
-    Split process text cannot prove where a path containing spaces ends, so a
-    later apparent --status must be authenticated using the actual argv instead.
-    """
-    if any(character in command for character in "'\"\\\n\r"):
-        return False
-    argv = command.split()
-    if not argv:
-        return False
-    script = 0
-    if _python_interpreter(argv[0]):
-        script = 1
-        while script < len(argv) and argv[script] in ("-B", "-u"):
-            script += 1
-    args = argv[script + 1 :]
-    if not (
-        args[:1] in (["--status"], ["--dry-run"]) or args[:2] in (["coordinate", "status"], ["intervention", "inspect"])
-    ):
-        return False
-    return _readonly_runner_argv(argv)
+def _runner_marker(command):
+    return bool(
+        any(script in command for script in RUNNER_SCRIPTS if script != "autocode")
+        or re.search(r"(?:^|\s)(?:\S*/)?autocode(?:\s|$)", command)
+        or RUNNER_MODULE_MARKER.search(command)
+    )
 
 
 def duplicate_runner_command(command):
-    """True only for processes that are themselves the runner or a codex exec call.
-    Wrappers (zsh -lc '... autocode.py ...') and helper apps whose argv embeds
-    runner prompt text are not duplicate runners."""
+    """Detect a possible runner from ps text, without granting reader authority.
+
+    This coarse scan includes status readers. Only authenticated exact argv may
+    exempt them; wrappers and helper apps are refined after the scan.
+    """
     parts = command.split(None, 2)
     if len(parts) < 2:
         return False
@@ -140,15 +133,28 @@ def duplicate_runner_command(command):
         return parts[1] == "exec"
     if name in ("opencode", "opencode.exe"):
         return parts[1] == "run"
-    return (
-        (_python_interpreter(name) or name == "autocode")
-        and (
-            name == "autocode"
-            or any(script in command for script in ("autocode.py", "autocode_builder_worker.py"))
-            or re.search(r"(?:^|\s)(?:\S*/)?autocode(?:\s|$)", command) is not None
-        )
-        and not _readonly_runner_command(command)
-    )
+    return (_python_interpreter(name) or name == "autocode") and (name == "autocode" or _runner_marker(command))
+
+
+def _possible_runner_argv(argv, command):
+    """Classify a possible runner using actual executable argument boundaries."""
+    name = os.path.basename(argv[0])
+    if name == "codex":
+        return argv[1:2] == ["exec"]
+    if name in ("opencode", "opencode.exe"):
+        return argv[1:2] == ["run"]
+    if name == "autocode":
+        return True
+    if not _python_interpreter(name):
+        return False
+    index = 1
+    while index < len(argv) and PYTHON_FLAGS.fullmatch(argv[index]):
+        index += 1
+    if argv[index : index + 1] == ["-m"]:
+        return (index + 1 < len(argv) and argv[index + 1] in RUNNER_MODULES) or _runner_marker(command)
+    if index < len(argv) and any(runner in os.path.basename(argv[index]) for runner in RUNNER_SCRIPTS):
+        return True
+    return _runner_marker(command)
 
 
 def not_a_runner(argv):
@@ -166,21 +172,23 @@ def not_a_runner(argv):
     name = os.path.basename(argv[0])
     index = 1
     if _python_interpreter(name):
+        if any(character.isspace() for character in name):
+            return False
         while index < len(argv) and PYTHON_FLAGS.fullmatch(argv[index]):
             index += 1
+        if argv[index : index + 1] == ["-m"]:
+            return _readonly_runner_argv(argv)
         if index >= len(argv) or argv[index].startswith("-"):
             return False
         script = os.path.basename(argv[index])
         if script not in RUNNER_SCRIPTS:
-            return True
+            return not any(runner in script for runner in RUNNER_SCRIPTS)
         index += 1
     elif name == "autocode":
         script = name
     else:
         return False
-    return script in ("autocode.py", "autocode") and (
-        argv[index : index + 1] == ["chat"] or _readonly_runner_argv(argv)
-    )
+    return script in OBSERVER_SCRIPTS and (argv[index : index + 1] == ["chat"] or _readonly_runner_argv(argv))
 
 
 def _exact_argv(pid, command):
@@ -290,8 +298,13 @@ def assert_no_legacy_process(run_dir, workspace):
         if pid in lineage:
             continue
         # Also catches an orphaned Codex child with an output path in this run.
-        if references_run(command, marker, relative) and duplicate_runner_command(command):
-            argv = _exact_argv(pid, command)
-            if argv is not None and not_a_runner(argv):
-                continue
+        if not references_run(command, marker, relative):
+            continue
+        argv = _exact_argv(pid, command)
+        if argv is not None:
+            possible = _possible_runner_argv(argv, command) and not not_a_runner(argv)
+        else:
+            # Text can identify a possible runner, but cannot exempt an observer.
+            possible = duplicate_runner_command(command) or ("python" in command.lower() and _runner_marker(command))
+        if possible:
             raise Paused("PAUSED_WORKSPACE_BUSY", f"Existing run process {pid} is active; leave it untouched")

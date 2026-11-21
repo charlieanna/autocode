@@ -25,6 +25,7 @@ class RunnerCommandTests(unittest.TestCase):
             "/usr/bin/autocode",
             "/usr/bin/python3 /venv/bin/autocode",
             "/usr/bin/python3 autocode",
+            "/usr/bin/python3 /ws/autocode/tools/autocode_entry.py",
         ):
             for args in (
                 f"--status {PATHS} --json",
@@ -38,7 +39,7 @@ class RunnerCommandTests(unittest.TestCase):
                     self.assertTrue(legacy.duplicate_runner_command(f"{runner} {args}"))
 
     def test_canonical_status_is_read_only(self):
-        self.assertFalse(legacy.duplicate_runner_command(f"{RUNNER} --status {PATHS}"))
+        self.assertTrue(legacy._readonly_runner_argv(f"{RUNNER} --status {PATHS}".split()))
 
     def test_status_json_observer_is_read_only(self):
         for args in (
@@ -47,13 +48,13 @@ class RunnerCommandTests(unittest.TestCase):
             f"--status {PATHS} --json --inspect-evidence",
         ):
             with self.subTest(args=args):
-                self.assertFalse(legacy.duplicate_runner_command(f"{RUNNER} {args}"))
+                self.assertTrue(legacy._readonly_runner_argv(f"{RUNNER} {args}".split()))
 
     def test_canonical_intervention_inspect_is_read_only(self):
-        self.assertFalse(legacy.duplicate_runner_command(f"{RUNNER} intervention inspect {PATHS} --json"))
-        self.assertFalse(
-            legacy.duplicate_runner_command(
-                f"{RUNNER} intervention inspect --json --run-dir=/ws/project/.autocode/runs/run-x --workspace=/ws/project"
+        self.assertTrue(legacy._readonly_runner_argv(f"{RUNNER} intervention inspect {PATHS} --json".split()))
+        self.assertTrue(
+            legacy._readonly_runner_argv(
+                f"{RUNNER} intervention inspect --json --run-dir=/ws/project/.autocode/runs/run-x --workspace=/ws/project".split()
             )
         )
 
@@ -85,17 +86,18 @@ class RunnerCommandTests(unittest.TestCase):
         ):
             with self.subTest(args=args):
                 self.assertTrue(legacy.duplicate_runner_command(f"{RUNNER} {args}"))
+                self.assertFalse(legacy._readonly_runner_argv(f"{RUNNER} {args}".split()))
 
     def test_canonical_dry_run_is_read_only(self):
-        self.assertFalse(legacy.duplicate_runner_command(f"{RUNNER} --dry-run {PATHS}"))
+        self.assertTrue(legacy._readonly_runner_argv(f"{RUNNER} --dry-run {PATHS}".split()))
 
     def test_status_can_inspect_evidence(self):
-        self.assertFalse(legacy.duplicate_runner_command(f"{RUNNER} --status {PATHS} --inspect-evidence"))
+        self.assertTrue(legacy._readonly_runner_argv(f"{RUNNER} --status {PATHS} --inspect-evidence".split()))
 
     def test_named_paths_accept_equals_and_either_order(self):
-        self.assertFalse(
-            legacy.duplicate_runner_command(
-                f"{RUNNER} --status --run-dir=/ws/project/.autocode/runs/run-x --workspace=/ws/project"
+        self.assertTrue(
+            legacy._readonly_runner_argv(
+                f"{RUNNER} --status --run-dir=/ws/project/.autocode/runs/run-x --workspace=/ws/project".split()
             )
         )
 
@@ -104,7 +106,7 @@ class RunnerCommandTests(unittest.TestCase):
             "coordinate status --run-dir /ws/run --json",
             "coordinate status --json --run-dir=/ws/run",
         ):
-            self.assertFalse(legacy.duplicate_runner_command(f"{RUNNER} {args}"))
+            self.assertTrue(legacy._readonly_runner_argv(f"{RUNNER} {args}".split()))
         for args in (
             "coordinate advance --run-dir /ws/run --json",
             "coordinate approve --run-dir /ws/run --token t --json",
@@ -117,8 +119,10 @@ class RunnerCommandTests(unittest.TestCase):
             self.assertTrue(legacy.duplicate_runner_command(f"{RUNNER} {args}"))
 
     def test_python_bytecode_and_buffering_switches_are_structural(self):
-        self.assertFalse(
-            legacy.duplicate_runner_command(f"/usr/bin/python3 -B -u /ws/autocode/tools/autocode.py --status {PATHS}")
+        self.assertTrue(
+            legacy._readonly_runner_argv(
+                f"/usr/bin/python3 -B -u /ws/autocode/tools/autocode.py --status {PATHS}".split()
+            )
         )
 
     def test_missing_empty_relative_or_duplicate_paths_stay_blocking(self):
@@ -136,6 +140,7 @@ class RunnerCommandTests(unittest.TestCase):
         ):
             with self.subTest(args=args):
                 self.assertTrue(legacy.duplicate_runner_command(f"{RUNNER} {args}"))
+                self.assertFalse(legacy._readonly_runner_argv(f"{RUNNER} {args}".split()))
 
     def test_unknown_duplicate_and_mixed_reader_flags_stay_blocking(self):
         for args in (
@@ -151,6 +156,7 @@ class RunnerCommandTests(unittest.TestCase):
         ):
             with self.subTest(args=args):
                 self.assertTrue(legacy.duplicate_runner_command(f"{RUNNER} {args}"))
+                self.assertFalse(legacy._readonly_runner_argv(f"{RUNNER} {args}".split()))
 
     def test_status_with_mutation_options_stays_blocking(self):
         for mutation in (
@@ -168,6 +174,7 @@ class RunnerCommandTests(unittest.TestCase):
             for reader in ("--status", "--status --json", "--dry-run"):
                 with self.subTest(reader=reader, mutation=mutation):
                     self.assertTrue(legacy.duplicate_runner_command(f"{RUNNER} {reader} {PATHS} {mutation}"))
+                    self.assertFalse(legacy._readonly_runner_argv(f"{RUNNER} {reader} {PATHS} {mutation}".split()))
 
     def test_positional_task_and_embedded_status_text_stay_blocking(self):
         for args in (
@@ -370,6 +377,11 @@ class LiveProcessGuardTests(unittest.TestCase):
         with self.assertRaisesRegex(legacy.Paused, f"Existing run process {pid} is active"):
             legacy.assert_no_legacy_process(run, workspace)
 
+    def test_runner_like_filename_with_status_suffix_is_not_an_observer(self):
+        renamed = self.workspace / "autocode.py --status"
+        renamed.write_text("import sys\nsys.stdin.read()\n")
+        self.assert_busy(self.hold(sys.executable, str(renamed), *self.paths))
+
     def test_reading_coordination_status_does_not_block_a_source_run_launch(self):
         self.hold(sys.executable, str(self.autocode), "coordinate", "status", "--run-dir", str(self.run), "--json")
         legacy.assert_no_legacy_process(self.run, self.workspace)
@@ -477,7 +489,11 @@ class ProcessGuardTests(unittest.TestCase):
             legacy.assert_no_legacy_process(self.run, self.workspace)
 
     def test_status_observer_does_not_block_a_writer(self):
-        with patch.object(legacy.subprocess, "run", return_value=self.listing(f"{RUNNER} --status {self.paths}")):
+        command = f"{RUNNER} --status {self.paths}"
+        with (
+            patch.object(legacy.subprocess, "run", return_value=self.listing(command)),
+            patch.object(legacy, "_exact_argv", return_value=command.split()),
+        ):
             legacy.assert_no_legacy_process(self.run, self.workspace)
 
     def test_exact_path_first_status_does_not_block_a_writer(self):
@@ -497,6 +513,86 @@ class ProcessGuardTests(unittest.TestCase):
                 legacy.assert_no_legacy_process(self.run, self.workspace)
             with patch.object(legacy, "_exact_argv", return_value=None), self.assertRaises(legacy.Paused):
                 legacy.assert_no_legacy_process(self.run, self.workspace)
+
+    def test_leading_status_requires_authenticated_arguments(self):
+        command = f"{RUNNER} --status {self.paths}"
+        with patch.object(legacy.subprocess, "run", return_value=self.listing(command)):
+            with patch.object(legacy, "_exact_argv", return_value=None), self.assertRaises(legacy.Paused):
+                legacy.assert_no_legacy_process(self.run, self.workspace)
+            with patch.object(legacy, "_exact_argv", return_value=command.split()):
+                legacy.assert_no_legacy_process(self.run, self.workspace)
+
+    def test_ambiguous_interpreter_name_never_authorizes_a_reader(self):
+        argv = [
+            "/usr/bin/python3 --status",
+            "/ws/autocode.py",
+            "--workspace",
+            str(self.workspace),
+            "--run-dir",
+            str(self.run),
+        ]
+        with (
+            patch.object(legacy.subprocess, "run", return_value=self.listing(" ".join(argv))),
+            patch.object(legacy, "_exact_argv", return_value=argv),
+            self.assertRaises(legacy.Paused),
+        ):
+            legacy.assert_no_legacy_process(self.run, self.workspace)
+
+    def test_exact_argv_classifies_interpreter_in_spaced_directory(self):
+        runner = ["/tmp/interpreter folder/python3", "/ws/autocode.py"]
+        paths = ["--workspace", str(self.workspace), "--run-dir", str(self.run)]
+        for args, blocked in ((["--status", *paths], False), ([*paths, "--approve-goal", "token"], True)):
+            argv = [*runner, *args]
+            with (
+                self.subTest(args=args),
+                patch.object(legacy.subprocess, "run", return_value=self.listing(" ".join(argv))),
+                patch.object(legacy, "_exact_argv", return_value=argv),
+            ):
+                if blocked:
+                    with self.assertRaises(legacy.Paused):
+                        legacy.assert_no_legacy_process(self.run, self.workspace)
+                else:
+                    legacy.assert_no_legacy_process(self.run, self.workspace)
+
+    def test_unavailable_argv_for_spaced_interpreter_stays_blocking(self):
+        command = f"/tmp/interpreter folder/python3 /ws/autocode.py --status {self.paths}"
+        with (
+            patch.object(legacy.subprocess, "run", return_value=self.listing(command)),
+            patch.object(legacy, "_exact_argv", return_value=None),
+            self.assertRaises(legacy.Paused),
+        ):
+            legacy.assert_no_legacy_process(self.run, self.workspace)
+
+    def test_exact_shell_wrapper_is_not_mistaken_for_spaced_interpreter(self):
+        argv = ["/bin/zsh", "-c", f"/tmp/interpreter folder/python3 /ws/autocode.py --status {self.paths}"]
+        with (
+            patch.object(legacy.subprocess, "run", return_value=self.listing(" ".join(argv))),
+            patch.object(legacy, "_exact_argv", return_value=argv),
+        ):
+            legacy.assert_no_legacy_process(self.run, self.workspace)
+
+    def test_module_entry_observers_and_writers_use_exact_arguments(self):
+        paths = ["--workspace", str(self.workspace), "--run-dir", str(self.run)]
+        for module in ("autocode", "autocode_entry", "autocode_cli.autocode", "autocode_cli.autocode_entry"):
+            for args, blocked in (
+                (["--status", *paths], False),
+                ([*paths, "--status", "--resume-paused"], True),
+                ([*paths, "--resume-paused"], True),
+            ):
+                argv = ["/usr/bin/python3", "-B", "-m", module, *args]
+                command = " ".join(argv)
+                with (
+                    self.subTest(module=module, args=args),
+                    patch.object(legacy.subprocess, "run", return_value=self.listing(command)),
+                ):
+                    with patch.object(legacy, "_exact_argv", return_value=argv):
+                        if blocked:
+                            with self.assertRaises(legacy.Paused):
+                                legacy.assert_no_legacy_process(self.run, self.workspace)
+                        else:
+                            legacy.assert_no_legacy_process(self.run, self.workspace)
+                    with patch.object(legacy, "_exact_argv", return_value=None), self.assertRaises(legacy.Paused):
+                        legacy.assert_no_legacy_process(self.run, self.workspace)
 
     def test_spaced_reader_requires_matching_exact_arguments(self):
         argv = [
@@ -536,12 +632,19 @@ class ProcessGuardTests(unittest.TestCase):
                     legacy.assert_no_legacy_process(self.run, self.workspace)
 
     def test_dry_run_observer_does_not_block_a_writer(self):
-        with patch.object(legacy.subprocess, "run", return_value=self.listing(f"{RUNNER} --dry-run {self.paths}")):
+        command = f"{RUNNER} --dry-run {self.paths}"
+        with (
+            patch.object(legacy.subprocess, "run", return_value=self.listing(command)),
+            patch.object(legacy, "_exact_argv", return_value=command.split()),
+        ):
             legacy.assert_no_legacy_process(self.run, self.workspace)
 
     def test_intervention_inspector_does_not_block_a_writer(self):
         command = f"{RUNNER} intervention inspect {self.paths} --json"
-        with patch.object(legacy.subprocess, "run", return_value=self.listing(command)):
+        with (
+            patch.object(legacy.subprocess, "run", return_value=self.listing(command)),
+            patch.object(legacy, "_exact_argv", return_value=command.split()),
+        ):
             legacy.assert_no_legacy_process(self.run, self.workspace)
 
     def test_inspector_does_not_hide_a_real_writer_or_bundle_export(self):
@@ -550,15 +653,21 @@ class ProcessGuardTests(unittest.TestCase):
             with (
                 self.subTest(writer=writer),
                 patch.object(legacy.subprocess, "run", return_value=self.listing(inspector, writer)),
+                patch.object(legacy, "_exact_argv", side_effect=lambda _pid, command: command.split()),
             ):
                 with self.assertRaisesRegex(legacy.Paused, f"Existing run process {self.row_pids[1]}"):
                     legacy.assert_no_legacy_process(self.run, self.workspace)
 
     def test_reader_does_not_hide_a_second_writer(self):
-        with patch.object(
-            legacy.subprocess,
-            "run",
-            return_value=self.listing(f"{RUNNER} --status {self.paths}", f"{RUNNER} --approve-goal token {self.paths}"),
+        with (
+            patch.object(
+                legacy.subprocess,
+                "run",
+                return_value=self.listing(
+                    f"{RUNNER} --status {self.paths}", f"{RUNNER} --approve-goal token {self.paths}"
+                ),
+            ),
+            patch.object(legacy, "_exact_argv", side_effect=lambda _pid, command: command.split()),
         ):
             with self.assertRaisesRegex(legacy.Paused, f"Existing run process {self.row_pids[1]}"):
                 legacy.assert_no_legacy_process(self.run, self.workspace)
@@ -590,6 +699,7 @@ class ProcessGuardTests(unittest.TestCase):
             patch.object(legacy, "read", return_value={"processes": [{"pid": 101}]}),
             patch.object(processes, "live_processes", return_value=[]),
             patch.object(legacy.subprocess, "run", return_value=self.listing(f"{RUNNER} --status {self.paths}")),
+            patch.object(legacy, "_exact_argv", side_effect=lambda _pid, command: command.split()),
         ):
             legacy.assert_no_legacy_process(self.run, self.workspace)
 
@@ -702,7 +812,10 @@ class ProcessGuardTests(unittest.TestCase):
             f"102 {RUNNER} --status {self.paths}\n",
             "",
         )
-        with patch.object(legacy.subprocess, "run", return_value=result):
+        with (
+            patch.object(legacy.subprocess, "run", return_value=result),
+            patch.object(legacy, "_exact_argv", side_effect=lambda _pid, command: command.split()),
+        ):
             legacy.assert_no_legacy_process(self.run, self.workspace)
 
 
