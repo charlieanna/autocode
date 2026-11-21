@@ -311,6 +311,17 @@ class ExactArgvTests(unittest.TestCase):
         with patch.object(legacy.psutil, "Process", side_effect=psutil.AccessDenied(os.getpid())):
             self.assertIsNone(legacy._exact_argv(os.getpid(), " ".join(argv)))
 
+    def test_only_a_confirmed_gone_process_is_skipped(self):
+        pid = 48123
+        command = "python3 autocode.py --status --run-dir /ws/run"
+        for error, expected in (
+            (psutil.NoSuchProcess(pid), legacy.PROCESS_GONE),
+            (psutil.AccessDenied(pid), None),
+            (psutil.ZombieProcess(pid), None),
+        ):
+            with self.subTest(error=type(error).__name__), patch.object(legacy.psutil, "Process", side_effect=error):
+                self.assertIs(expected, legacy._exact_argv(pid, command))
+
     def test_lineage_holds_this_process_and_every_ancestor(self):
         lineage = legacy.own_lineage()
         self.assertLessEqual({os.getpid(), os.getppid()}, lineage)
@@ -455,6 +466,11 @@ class ProcessGuardTests(unittest.TestCase):
         self.run.mkdir(parents=True)
         self.paths = f"--workspace {self.workspace} --run-dir {self.run}"
         self.row_pids: list[int] = []
+        # Fake listing PIDs have unknown identity unless a test supplies one.
+        self.real_exact_argv = legacy._exact_argv
+        identity = patch.object(legacy, "_exact_argv", return_value=None)
+        identity.start()
+        self.addCleanup(identity.stop)
 
     def listing(self, *commands):
         """A fake listing whose row pids are never this test's own runner or an ancestor.
@@ -541,6 +557,39 @@ class ProcessGuardTests(unittest.TestCase):
             with patch.object(legacy, "_exact_argv", return_value=command.split()):
                 legacy.assert_no_legacy_process(self.run, self.workspace)
 
+    def test_status_process_that_exited_after_ps_does_not_block(self):
+        command = f"{RUNNER} --status {self.paths}"
+        listing = self.listing(command)
+        with (
+            patch.object(legacy.subprocess, "run", return_value=listing),
+            patch.object(legacy, "_exact_argv", side_effect=self.real_exact_argv),
+            patch.object(legacy.psutil, "Process", side_effect=psutil.NoSuchProcess(self.row_pids[0])),
+        ):
+            legacy.assert_no_legacy_process(self.run, self.workspace)
+
+    def test_status_process_with_denied_identity_stays_blocked(self):
+        command = f"{RUNNER} --status {self.paths}"
+        listing = self.listing(command)
+        with (
+            patch.object(legacy.subprocess, "run", return_value=listing),
+            patch.object(legacy, "_exact_argv", side_effect=self.real_exact_argv),
+            patch.object(legacy.psutil, "Process", side_effect=psutil.AccessDenied(self.row_pids[0])),
+            self.assertRaises(legacy.Paused),
+        ):
+            legacy.assert_no_legacy_process(self.run, self.workspace)
+
+    def test_unavailable_spaced_provider_identity_stays_blocking(self):
+        for executable, verb in (("codex", "exec"), ("opencode", "run"), ("opencode.exe", "run")):
+            argv = [f"/tmp/provider folder/{executable}", verb, "--run-dir", str(self.run)]
+            with (
+                self.subTest(executable=executable),
+                patch.object(legacy.subprocess, "run", return_value=self.listing(" ".join(argv))),
+            ):
+                with patch.object(legacy, "_exact_argv", return_value=argv), self.assertRaises(legacy.Paused):
+                    legacy.assert_no_legacy_process(self.run, self.workspace)
+                with patch.object(legacy, "_exact_argv", return_value=None), self.assertRaises(legacy.Paused):
+                    legacy.assert_no_legacy_process(self.run, self.workspace)
+
     def test_ambiguous_interpreter_name_never_authorizes_a_reader(self):
         argv = [
             "/usr/bin/python3 --status",
@@ -581,6 +630,22 @@ class ProcessGuardTests(unittest.TestCase):
             self.assertRaises(legacy.Paused),
         ):
             legacy.assert_no_legacy_process(self.run, self.workspace)
+
+    def test_spaced_console_path_requires_exact_arguments(self):
+        argv = [
+            "/tmp/interpreter folder/autocode",
+            "--status",
+            "--workspace",
+            str(self.workspace),
+            "--run-dir",
+            str(self.run),
+        ]
+        command = " ".join(argv)
+        with patch.object(legacy.subprocess, "run", return_value=self.listing(command)):
+            with patch.object(legacy, "_exact_argv", return_value=argv):
+                legacy.assert_no_legacy_process(self.run, self.workspace)
+            with patch.object(legacy, "_exact_argv", return_value=None), self.assertRaises(legacy.Paused):
+                legacy.assert_no_legacy_process(self.run, self.workspace)
 
     def test_exact_shell_wrapper_is_not_mistaken_for_spaced_interpreter(self):
         argv = ["/bin/zsh", "-c", f"/tmp/interpreter folder/python3 /ws/autocode.py --status {self.paths}"]

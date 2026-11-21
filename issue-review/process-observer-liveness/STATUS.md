@@ -60,3 +60,11 @@ local checks passed 65 guard tests and 128 guard, job-route, architecture and
 run-state tests, plus full Ruff/format and mypy. #4035's separate candidate
 passed its Linux actual-editor refusal/retry test; it has not yet reached
 master or completed its required CI.
+
+The guard now distinguishes a process confirmed gone after `ps` from denied,
+zombie or mismatched identity; only the confirmed-gone row is skipped. The same
+fallback also recognizes the finite Codex and OpenCode runner verbs when their
+executable paths contain spaces. The gone-reader, unknown spaced-console and
+spaced-provider behavioral controls fail on 815ddfe20 and pass on the candidate.
+Final checks for these product bytes: 70 guard tests, 133 focused tests, full
+Ruff/format, and mypy over 993 tools files passed.

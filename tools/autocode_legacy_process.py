@@ -29,6 +29,8 @@ OBSERVER_SCRIPTS = ("autocode.py", "autocode_entry.py", "autocode")
 RUNNER_SCRIPTS = (*OBSERVER_SCRIPTS, "autocode_builder_worker.py", "autopilot.py", "autocode_orchestrator.py")
 RUNNER_MODULES = ("autocode", "autocode_entry", "autocode_cli.autocode", "autocode_cli.autocode_entry")
 RUNNER_MODULE_MARKER = re.compile(r"(?:^|\s)-m\s+(?:" + "|".join(map(re.escape, RUNNER_MODULES)) + r")(?:\s|$)")
+PROVIDER_VERBS = {"codex": "exec", "opencode": "run", "opencode.exe": "run"}
+PROCESS_GONE = object()
 # Interpreter switches that take no value, so the next argument is still the script.
 PYTHON_FLAGS = re.compile(r"-[BbdEIiOPqRSsuv]+")
 
@@ -133,6 +135,13 @@ def _runner_marker(command):
     )
 
 
+def _provider_marker(command):
+    return any(
+        re.search(r"(?:^|\s)(?:\S*/)?" + re.escape(name) + r"\s+" + re.escape(verb) + r"(?:\s|$)", command)
+        for name, verb in PROVIDER_VERBS.items()
+    )
+
+
 def duplicate_runner_command(command):
     """Detect a possible runner from ps text, without granting reader authority.
 
@@ -143,20 +152,16 @@ def duplicate_runner_command(command):
     if len(parts) < 2:
         return False
     name = os.path.basename(parts[0])
-    if name == "codex":
-        return parts[1] == "exec"
-    if name in ("opencode", "opencode.exe"):
-        return parts[1] == "run"
+    if name in PROVIDER_VERBS:
+        return parts[1] == PROVIDER_VERBS[name]
     return (_python_interpreter(name) or name == "autocode") and (name == "autocode" or _runner_marker(command))
 
 
 def _possible_runner_argv(argv, command):
     """Classify a possible runner using actual executable argument boundaries."""
     name = os.path.basename(argv[0])
-    if name == "codex":
-        return argv[1:2] == ["exec"]
-    if name in ("opencode", "opencode.exe"):
-        return argv[1:2] == ["run"]
+    if name in PROVIDER_VERBS:
+        return argv[1:2] == [PROVIDER_VERBS[name]]
     if name == "autocode":
         return True
     if not _python_interpreter(name):
@@ -204,13 +209,17 @@ def not_a_runner(argv):
 def _exact_argv(pid, command):
     """The argument vector of ``pid``, only while it is still the process ps listed as ``command``.
 
-    None when it cannot be read or no longer matches (gone, reused, access denied,
-    or text ps rendered differently), so the conservative ps verdict stands.
+    PROCESS_GONE only when the listed process has already exited; None when it
+    cannot be read or matched, so the conservative ps verdict stands.
     """
     if psutil is None:
         return None
     try:
         argv = psutil.Process(pid).cmdline()
+    except psutil.ZombieProcess:
+        return None
+    except psutil.NoSuchProcess:
+        return PROCESS_GONE
     except (psutil.Error, OSError):
         return None
     return argv if argv and " ".join(argv) == command else None
@@ -311,10 +320,12 @@ def assert_no_legacy_process(run_dir, workspace):
         if not references_run(command, marker, relative):
             continue
         argv = _exact_argv(pid, command)
+        if argv is PROCESS_GONE:
+            continue
         if argv is not None:
             possible = _possible_runner_argv(argv, command) and not not_a_runner(argv)
         else:
             # Text can identify a possible runner, but cannot exempt an observer.
-            possible = duplicate_runner_command(command) or ("python" in command.lower() and _runner_marker(command))
+            possible = duplicate_runner_command(command) or _runner_marker(command) or _provider_marker(command)
         if possible:
             raise Paused("PAUSED_WORKSPACE_BUSY", f"Existing run process {pid} is active; leave it untouched")
