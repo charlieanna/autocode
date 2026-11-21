@@ -9,6 +9,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import autocode_accepted_source as accepted_source
 import autocode_args
 import autocode_configure as configure
 import autocode_issue as issue
@@ -587,12 +588,15 @@ class RecoveryViewTests(unittest.TestCase):
         source_edit = self.state(
             "PAUSED_STALE_HANDOFF",
             stop_reason="Repair diagnosis needs the current reviewed source and task",
-            resolution_request={"source_revision": "s1"},
+            workspace="/tmp",
+            resolution_request={"source_revision": "s1", "task_id": "t", "contract_hash": "approved"},
         )
+        with patch.object(accepted_source.source_scope, "snapshot", return_value={"revision": "s2"}):
+            source_card = self.card(source_edit)
         cases = [
             (self.card(self.state("PAUSED_REQUESTED")), "resume", ["--resume-paused"]),
             (self.card(self.state("PAUSED_PROCESS_CLEANUP")), "resume", ["--resume-paused"]),
-            (self.card(source_edit), "accept_source_edit", ["--resume-paused", "--accept-source-edit"]),
+            (source_card, "accept_source_edit", ["--resume-paused", "--accept-source-edit"]),
             (self.card(interrupted), "abandon", ["--abandon-stage", "004/builder-02"]),
             (self.card(builder), "retry_builder", ["--resume-paused", "--retry-builder", "M1"]),
             (self.card(parallel), "retry_builder:M3", ["--resume-paused", "--retry-builder", "M3"]),
@@ -634,8 +638,14 @@ class RecoveryViewTests(unittest.TestCase):
         # The run names --resume-paused --accept-source-edit as the one command that continues;
         # without a card action a dashboard reader had no way to continue it (#730).
         reason = "Repair diagnosis needs the current reviewed source and task"
-        edited = self.state("PAUSED_STALE_HANDOFF", stop_reason=reason, resolution_request={"source_revision": "s1"})
-        view = run_view.view(edited)
+        edited = self.state(
+            "PAUSED_STALE_HANDOFF",
+            stop_reason=reason,
+            workspace="/tmp",
+            resolution_request={"source_revision": "s1", "task_id": "t", "contract_hash": "approved"},
+        )
+        with patch.object(accepted_source.source_scope, "snapshot", return_value={"revision": "s2"}):
+            view = run_view.view(edited)
         self.assertEqual("--resume-paused --accept-source-edit", view["needs"]["action"])
         self.assertEqual(
             ["inspect", "accept_source_edit", "feedback"], [row["kind"] for row in view["recovery"]["actions"]]

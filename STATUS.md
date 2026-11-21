@@ -17,13 +17,14 @@ This branch is a snapshot of an AutoCode run. Claude usage ran out partway, so t
 - **M2 (#3869):** record the controller's full intervention capability at setup (`tools/autocode_run_setup.py`, `tests/test_pause_offer.py`, `tests/test_stop_now_runner_check_cli.py`). The Builder has run; the Tester had not checked it yet.
 - **M3 source-edit offer (#3880):** the public offer now reads the same admission checks as the action. Added controls for source, settings, task, contract, scope, evidence and an existing diagnosis. The focused `tests.test_accepted_source.AcceptReviewedSourceTests` passes locally, and the new offer regression fails on master.
 - **M3 stale check names (#3880):** failed dispatch bindings now record the named checks on the pending request without bound values. Packet guard tests pass and fail on master. The compatibility path for saved settings bindings remains the same.
+- **M3 answered blocker (#3954 view):** the view now omits a plain resume at the same answered blocker frontier, explains the hold, and preserves feedback for an actual contract decision. The new regression fails on master and passes on the branch. Status-view and CLI tests are running.
 - The eight-module suite named below passed 284 tests with one skipped before the stale-check change. The focused packet and source-offer tests passed after it. Ruff check and format and mypy for the two changed recovery modules passed.
 
 ## Left
 - **M3 (#3880 and the #3954 view case):**
   - Verify the saved stale check names are carried through the public recovery view and final evidence.
   - Complete independent review and integration verification of the shared source-edit admission.
-  - Show an answered blocker with no resume that only re-pauses, and add `needs.resume_unavailable` to the schema.
+  - Finish integration verification of the answered-blocker view and update the offer survey.
   - Criteria: AC8 to AC19, AC21, AC23 to AC25.
 - **M4:** abandon, retry_job, retry_report, retry_builder (serial and parallel member) and retry_failed_stage each read their executor's admission (AC26 to AC32).
 

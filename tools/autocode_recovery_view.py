@@ -594,6 +594,9 @@ def project(state: RunState, need=None):
             )
         )
         return result
+    if need.get("resume_unavailable"):
+        result.update(category="blocked", title="Task blocked", what_happened=need["resume_unavailable"])
+        return result
     if (failure := operational_block.presentation(state, include_hold=True)) and failure["category"] == "blocked":
         result.update(failure)
         # Never a dead end: the person can start the task again in a new chat, which leaves this one as it is.

@@ -1773,6 +1773,16 @@ def needs(state: RunState, *, stale_report_repair=False, human_projection=None) 
         ):
             need["retry_unavailable"] = blocked
             need["action"] = "--resume-paused"
+        if (
+            status == "PAUSED_RESOLVER"
+            and "action" not in need
+            and resolver_human.held_response_scope(state) == "blocker"
+            and resolver_human.response_holds_current_frontier(state)
+            and not operational_information.retired(state)
+        ):
+            need["resume_unavailable"] = (
+                "The saved blocker remains unresolved. A plain resume cannot continue at this same frontier."
+            )
         if "action" not in need and pause_authority.requested_only(state):
             need["confirmation_required"] = False
         return need
