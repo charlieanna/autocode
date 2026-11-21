@@ -30,6 +30,7 @@ import autocode_network_retry as network_retry
 import autocode_resolver_recovery as recovery
 import autocode_role_launch as role_launch
 import autocode_run_records as records
+import autocode_run_view as run_view
 import autocode_source_scope as source_scope
 import autocode_stage_recovery as stage_recovery
 import autocode_support as support
@@ -659,6 +660,8 @@ class PacketPauseGuardTests(unittest.TestCase):
         self.assertEqual("PAUSED_STALE_HANDOFF", caught.exception.status)
         self.assertEqual(PACKET_REASON, str(caught.exception))
         self.assertEqual(["settings"], self.request["stale_checks"])
+        self.state.update(status="PAUSED_STALE_HANDOFF", stop_reason=PACKET_REASON)
+        self.assertEqual(["settings"], run_view.needs(self.state)["stale_checks"])
 
     def test_packet_admission_names_each_failed_binding_without_settings_values(self):
         saved = recovery._binding(self.state, "s1")

@@ -1652,6 +1652,10 @@ def needs(state: RunState, *, stale_report_repair=False, human_projection=None) 
         if protected_offer := protected_commands.offer(state):
             return protected_offer
         need = {"kind": "resume", "reason": state.get("stop_reason") or status}
+        if status == "PAUSED_STALE_HANDOFF":
+            stale_checks = (state.get("resolution_request") or {}).get("stale_checks")
+            if isinstance(stale_checks, list) and all(isinstance(name, str) for name in stale_checks):
+                need["stale_checks"] = list(stale_checks)
         # An uncertain attempt must be set aside before a resume can continue (#340).
         active = state.get("active_stage") or {}
         if (
