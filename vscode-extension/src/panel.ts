@@ -1152,6 +1152,21 @@ function el(tag, cls, text) {
   return node;
 }
 
+/* Where an assumption's standing comes from (#3898): only the person's own confirmation reads as done.
+   A row from an older core, with no standing, keeps the confirmed / needs confirmation label. */
+const ASSUMPTION_STANDING = {
+  confirmed_by_person: { label: 'confirmed by you', done: true },
+  convention_not_approved: { label: 'reported convention, not independently verified or approved', done: false },
+  approved_with_understanding: { label: 'approved with your understanding', done: false },
+  skipped_review: { label: 'review skipped', done: false },
+  needs_confirmation: { label: 'needs confirmation', done: false },
+};
+function assumptionStanding(item) {
+  const known = Object.prototype.hasOwnProperty.call(ASSUMPTION_STANDING, item.standing) ? ASSUMPTION_STANDING[item.standing] : null;
+  if (known) return known;
+  return item.confirmed ? { label: 'confirmed', done: true } : { label: 'needs confirmation', done: false };
+}
+
 /* The "---" and "+++" file headers must be named before the "+" and "-" line kinds, or the two
    lines that introduce every file in the patch read as a removed and an added line. */
 const DIFF_HEADER = /^(diff |index |--- |\\+\\+\\+ |new file|deleted file|old mode|new mode|similarity|dissimilarity|rename |copy |Binary files)/;
@@ -1838,7 +1853,8 @@ function render(state) {
               const head = el('div', 'assumption-head');
               head.appendChild(el('span', 'state', item.id));
               if (item.category) head.appendChild(el('span', 'meta', item.category));
-              head.appendChild(el('span', 'state ' + (item.confirmed ? 'done' : ''), item.confirmed ? 'confirmed' : 'needs confirmation'));
+              const standing = assumptionStanding(item);
+              head.appendChild(el('span', 'state ' + (standing.done ? 'done' : ''), standing.label));
               row.appendChild(head);
               row.appendChild(el('div', 'q', item.text));
               if (item.rationale) row.appendChild(el('div', 'why', 'Why: ' + item.rationale));

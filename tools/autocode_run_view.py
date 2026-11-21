@@ -23,6 +23,7 @@ from pathlib import Path
 try:
     from . import autocode_acceptance_recovery as acceptance_recovery
     from . import autocode_brief_obligations as brief_obligations
+    from . import autocode_current_behavior as current_behavior
     from . import autocode_interaction_timing as interaction_timing
     from . import autocode_internal_failure_view as operational_block
     from . import autocode_plan_only as plan_only
@@ -31,6 +32,7 @@ try:
 except ImportError:
     import autocode_acceptance_recovery as acceptance_recovery
     import autocode_brief_obligations as brief_obligations
+    import autocode_current_behavior as current_behavior
     import autocode_interaction_timing as interaction_timing
     import autocode_internal_failure_view as operational_block
     import autocode_plan_only as plan_only
@@ -221,6 +223,7 @@ def requirements_view(state: RunState) -> dict | None:
         row.get("id") for row in requirements_review.unconfirmed_assumptions(state) if isinstance(row, dict)
     }
     skip_confirmed = (handoff.get("confirmed_assumptions") or {}).get("source") == requirements_review.CONFIRMED_BY_SKIP
+    standing = requirements_review.assumption_standing(state)
     proposed_assumptions = []
     for raw in report.get("proposed_assumptions") or []:
         try:
@@ -237,6 +240,8 @@ def requirements_view(state: RunState) -> dict | None:
                 "convention_ref": row["convention_ref"],
                 "rationale": row["rationale"],
                 "confirmed": bool(skip_confirmed or row["id"] in confirmed_ids or row["id"] not in unconfirmed_ids),
+                # Where `confirmed` comes from (#3898): the person, an inferred convention, a whole approval or a skip.
+                "standing": standing.get(row["id"], requirements_review.NEEDS_CONFIRMATION),
             }
         )
     requirements = [
@@ -671,7 +676,9 @@ def view(
                         revision=contract["revision"],
                         status="approved" if contract_identity.approved(state) else "not approved",
                     ),
-                    "review_markdown": plan_file.review_markdown(contract["body"]),
+                    "review_markdown": plan_file.review_markdown(
+                        contract["body"], observed_behavior=(current_behavior.evidence(state) or {}).get("text", "")
+                    ),
                     **{
                         key: deepcopy(contract["body"].get(key))
                         for key in (

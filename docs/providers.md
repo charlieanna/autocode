@@ -819,7 +819,15 @@ to that value. It uses the public `autocode.py capture` entry point; the
 `autocode_capture_command.py` implementation module is not a standalone command.
 An existing handoff command and its explicit output mode are preserved; the
 supplied default inherits the runner's output-mode environment. This supplies
-tool context without granting additional filesystem permissions.
+tool context without granting additional filesystem permissions. Event-backed receipts
+are bound to the current runner's exact Python executable and installed AutoCode
+entry point. If a saved report is resumed under a different interpreter or an
+installation at a different path, its old capture event cannot authenticate:
+the stage must recapture the check using its current handoff's exact
+`capture_command` and a fresh receipt. A bare `autocode` or `python` launcher
+cannot establish this identity. Report-file receipts use their separate saved
+attempt binding; a current stage's generated handoff supplies the qualified
+launcher for fresh captures.
 
 The runner can fill an omitted check exit code from a unique executed event or
 the cited, verified capture receipt before checking the unchanged report schema.

@@ -160,10 +160,15 @@ class RepairTests(unittest.TestCase):
         pending["validation_runtime"] = "earlier runtime"
         original = pending["original"]
         repair = pending["latest_rejected"]
+        original_context = {"attempt": original["output"], "nonce": "original-nonce", "source_revision": "original"}
+        original.update(output_mode="report_file", capture_context=original_context)
+        repair.update(output_mode="report_file", capture_context={**original_context, "nonce": "repair-nonce"})
         original_events = original["events"]
 
         def apply(state, stage, value, record, workspace, run):
             self.assertEqual(original_events, record["events"])
+            self.assertEqual("report_file", record["output_mode"])
+            self.assertEqual(original_context, record["capture_context"])
             state["stages"].append(record)
             state["history"].append(record)
             state["next_stage"] = "tester"
