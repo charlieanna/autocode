@@ -10,7 +10,8 @@ was skipped as already present on master; all proof-specific files were
 unchanged by the rebase. The recorded outstanding proof and claim-evidence
 limitations still apply.
 After the rebase, 49 focused copy, link, import-safety, nested-source, native
-and architecture tests passed; full ruff and mypy passed (989 source files).
+and architecture tests passed; the broader 52-test admitted-worker and
+ordinary replay suite also passed. Full ruff and mypy passed (989 source files).
 
 **Current blocker:** the separate import probe's `__spec__.origin` comes from
 the imported module or its finder, so it can be forged. A real external module
@@ -65,6 +66,28 @@ pass while the strict-binding positive cases and final judgment remain open.
   roots. It fails closed for other commands and for old pytest receipts without a pinned
   result file. Those routes still need a shared recovery and comparison before
   the issue is fixed or this branch can be merged.
+- A fresh macOS reconstruction uses the actual pre/post-#3952 source commits
+  and the real `OriginalOracleTests` under an isolated pytest runtime without
+  psutil. All three owned runs reproduce the reported eight failures. The
+  current comparison holds all eight: pytest includes different provider PIDs,
+  object addresses and shifted traceback line numbers, so the full failure
+  details differ even though the final exception class and message match.
+  Provider PIDs are independently present in the supervision receipts; the
+  differing failure sites and locals still need a source-bound structural
+  comparison that cannot hide a changed assertion, exception chain, cause or
+  parameter. Matching IDs and error messages alone cannot authorize progress.
+  Receipts and pinned XML are under `/private/tmp/autocode-proof-replay-real-tkdj2jfj`.
+  This is a fresh reconstruction, not the unavailable original Linux run.
+  The first disposable pytest setup failed before testing because its `py.py`
+  shim was missing; `/private/tmp/autocode-proof-real-replay.log` retains that
+  attempt, and the successful reconstruction copied the local shim as well.
+  An offline prototype maps traceback lines to Python AST statement identities
+  and aligns the eight reconstructed failures while retaining full exception
+  text. A new pure site helper now rejects changed statements, ambiguous
+  scopes and changed repeated-site contexts. It grants no gate authority:
+  the runner must still authenticate the exact executing source and every
+  normalized runner-owned value, preserve chains and parameters, and capture
+  fresh base evidence. Old unpinned JUnit must not be upgraded.
 - A second #3944 regression now runs real pytest and retains separately pinned
   base and candidate JUnit captures for an original test failing on a missing
   dependency. It failed on master and now passes on this branch. Pytest's failure
