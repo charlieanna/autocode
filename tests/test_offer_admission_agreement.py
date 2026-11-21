@@ -13,6 +13,7 @@ including the variants where the card and the executor disagree on the unchanged
 import contextlib
 import copy
 import io
+import json
 import os
 import subprocess
 import tempfile
@@ -23,6 +24,7 @@ from unittest.mock import patch
 import autocode as runner
 import autocode_args
 import autocode_builder_policy as builder_policy
+import autocode_dispatch as dispatch
 import autocode_goals as goals
 import autocode_job_failure as job_failure
 import autocode_job_source as job_source
@@ -336,6 +338,50 @@ class OfferAdmissionAgreementTests(SavedRunFixtures, unittest.TestCase):
                 code, _ = self.execute(state, flags)
                 self.assertNotEqual(0, code)
                 (self.root / "README.md").write_text(SOURCE)
+    def test_parallel_builder_retry_offer_matches_admission(self):
+        state = self.state("PAUSED_ORCHESTRATOR_WORKER", next_stage="orchestrator")
+        workers = []
+        for member in ("M1", "M2"):
+            directory = self.run / member
+            directory.mkdir()
+            workers.append(
+                {
+                    "milestone_id": member,
+                    "status": "INTERRUPTED",
+                    "run_dir": str(directory),
+                    "workspace": str(self.root),
+                }
+            )
+        state["orchestration_batch"] = {
+            "id": "batch-1",
+            "status": "BUILDING",
+            "contract_hash": state["goal_contract"]["hash"],
+            "workers": workers,
+        }
+
+        def check(refused):
+            before = copy.deepcopy(state)
+            view = run_view.view(state, workspace=self.root, run_dir=self.run)
+            offered = [a["milestone_ids"] for a in self.offered(view["recovery"], "retry_builder")]
+            result = dispatch.member_retry_refusal(state, ["M1"])
+            self.assertEqual(not refused, ["M1"] in offered)
+            self.assertEqual(refused, result is not None)
+            if refused:
+                self.assertNotIn("--retry-builder M1", str(view.get("next_command")))
+            self.assertEqual(before, state)
+
+        check(False)
+        with self.subTest("approved contract changed"):
+            state["goal_contract"]["approval_status"] = "draft"
+            check(True)
+        state["goal_contract"]["approval_status"] = "approved"
+        with self.subTest("saved completed result"):
+            (Path(workers[0]["run_dir"]) / "result.json").write_text(json.dumps({"status": "BUILT"}))
+            check(True)
+        (Path(workers[0]["run_dir"]) / "result.json").unlink()
+        with self.subTest("live sibling"), patch("autocode_process.live_processes", return_value=[{"pid": 123}]):
+            workers[1]["processes"] = [{"pid": 123}]
+            check(True)
 
     def test_ac22_surveyed_offers_agree_with_their_executor_admission(self):
         # (kind, status, args, admitted state, the one-field variant its executor refuses, refusal text)

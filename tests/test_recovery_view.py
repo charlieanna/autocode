@@ -485,7 +485,8 @@ class RecoveryViewTests(unittest.TestCase):
         self.assertIsNone(result["failure_groups"][0]["last_reason"])
         self.assertNotIn("retry_failed_stage", [row["kind"] for row in result["actions"]])
 
-    def test_parallel_retry_targets_only_failed_members_and_never_a_running_batch(self):
+    @patch("autocode_parallel_retry_admission.member_retry_refusal", return_value=None)
+    def test_parallel_retry_targets_only_failed_members_and_never_a_running_batch(self, _admission):
         state = self.state(
             "PAUSED_ORCHESTRATOR_WORKER",
             next_stage="orchestrator",
@@ -507,7 +508,8 @@ class RecoveryViewTests(unittest.TestCase):
         state["orchestration_batch"]["workers"][0]["status"] = "RUNNING"
         self.assertFalse(any(row["kind"] == "retry_builder" for row in self.card(state)["actions"]))
 
-    def test_a_member_model_stop_answered_without_a_model_names_its_one_control(self):
+    @patch("autocode_parallel_retry_admission.member_retry_refusal", return_value=None)
+    def test_a_member_model_stop_answered_without_a_model_names_its_one_control(self, _admission):
         # #541: once its request was answered with information (or left paused), no question is open and
         # needs.action and the card name one control: a quota stop reruns unchanged, a refusal is asked again.
         def answered(status):
@@ -572,7 +574,8 @@ class RecoveryViewTests(unittest.TestCase):
 
     @patch("autocode_legacy_process.assert_no_legacy_process")
     @patch("autocode_goals.execution_guard")
-    def test_each_execution_action_names_the_exact_cli_flags_it_runs(self, _guard, _process):
+    @patch("autocode_parallel_retry_admission.member_retry_refusal", return_value=None)
+    def test_each_execution_action_names_the_exact_cli_flags_it_runs(self, _admission, _guard, _process):
         # A client runs these after the inspected token instead of mapping an action's kind to flags (#730).
         builder = self.state("PAUSED_BUILDER_RETRY_LIMIT", workspace="/project", run_dir="/project/.autocode/run")
         builder["builder_retries"] = {recovery.builder_policy.key(builder): {"action": "pause", "failures": ["a"]}}
