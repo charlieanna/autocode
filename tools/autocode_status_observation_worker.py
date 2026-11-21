@@ -19,6 +19,24 @@ def _worker(request):
         state = payload["state"]
         try:
             admission.validate_retry(state, payload["workspace"], payload["token"])
+        except admission.RetryConfigurationChanged as error:
+            from pathlib import Path
+
+            import autocode_dispatch as dispatch
+            import autocode_interventions as interventions
+            import autocode_opencode as opencode
+            import autocode_support as support
+
+            run_dir = state.get("run_dir")
+            if not isinstance(run_dir, str) or interventions.pending(Path(run_dir)):
+                return {"allowed": False, "reason": str(error)}
+            possible = admission.route_is_repairable(
+                state,
+                cross_check=dispatch.enforce_cross_model_verification,
+                failure_status=support.failure_status,
+                configured_tool=getattr(opencode, "CONFIGURED", False),
+            )
+            return {"allowed": False, "route_allowed": possible, "reason": str(error)}
         except (ValueError, OSError, KeyError, TypeError, util.Paused) as error:
             return {"allowed": False, "reason": str(error)}
         return {"allowed": True}

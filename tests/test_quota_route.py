@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import autocode_builder_policy as builder_policy
 import autocode_dispatch as dispatch
+import autocode_progress_view as progress_view
 import autocode_quota_route as quota_route
 import autocode_resolver_recovery as resolver_recovery
 import autocode_run_view as run_view
@@ -840,6 +841,23 @@ class QuotaRouteTests(unittest.TestCase):
         self.assertIsNone(blocked["needs"]["action"])
         self.assertIsNone(blocked["next_command"])
         self.assertEqual("route-tester", blocked["needs"]["route"]["question_id"])
+
+    def test_route_only_admission_does_not_offer_the_stale_quota_retry(self):
+        state = self.routed_job(QUOTA, "PAUSED_BUDGET")
+        state["job_failure"]["route_assignment"] = {"role": "tester", "to": "gpt-6-luna"}
+        with patch.object(
+            run_view.status_observation,
+            "job_retry",
+            return_value={"allowed": False, "route_allowed": True, "reason": "Configuration changed"},
+        ):
+            view = run_view.view(state)
+        self.assertEqual("retry_job", view["needs"]["kind"])
+        self.assertIn("--answer route-tester=MODEL", view["next_command"])
+        self.assertNotIn("--retry-failed-stage", view["next_command"])
+        self.assertNotIn("retry_job", [row["kind"] for row in view["recovery"]["actions"]])
+        self.assertNotIn("retry it unchanged", view["recovery"]["what_happened"])
+        progress = progress_view.progress(state, accepted=(), stage=None, needs=view["needs"])
+        self.assertIn("name another model", progress["needs_you"])
 
     @patch.object(run_view.status_observation, "job_retry", new=lambda *_: {"allowed": True})
     def test_the_retry_job_need_carries_the_jobs_model_question(self):

@@ -530,7 +530,9 @@ def _asked(needs, state: RunState | None = None):
         route = needs["route"]
         job = route.get("job") or "job"
         # Once a person named the model (job_failure.route_assignment), only the retry is left (#463).
-        if _mapping(_mapping((state or {}).get("job_failure")).get("route_assignment")):
+        if not needs.get("retry_unavailable") and _mapping(
+            _mapping((state or {}).get("job_failure")).get("route_assignment")
+        ):
             return f"retry the {job} on {route.get('current_model')}"
         return f"name another model for the {job}, then retry it"
     if kind == "retry_job":

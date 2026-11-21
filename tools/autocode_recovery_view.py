@@ -276,7 +276,7 @@ def _acceptance_tests_stop(state: RunState) -> str | None:
     return None
 
 
-def _job_model_stop(state: RunState, role):
+def _job_model_stop(state: RunState, role, need):
     """What happened to a workflow job its provider refused or ran out of quota on (#463), or None.
 
     Once a person named another model (``route_assignment``), the next step is only the retry
@@ -290,6 +290,8 @@ def _job_model_stop(state: RunState, role):
     job = route.get("job") or role or "job"
     on = f" on {route['stopped_model']}" if route.get("stopped_model") else ""
     assigned = _dict(failure.get("route_assignment")).get("to") if route else None
+    if need.get("retry_unavailable") and route:
+        return f"The {job}'s saved model settings changed. Name another model for this job before retrying."
     now = f"The {job} now runs on {assigned}; retry it once with the new token." if assigned else ""
     if cause == "PAUSED_CONTENT_FILTER":
         refused = f"The provider's content filter refused the {job}'s response{on}. The same model is likely to refuse it again"
@@ -349,8 +351,10 @@ def _awaits_model(state: RunState, need):
     another model (``route_assignment``, retried with the new token). A quota stop keeps it (the
     quota resets), and so does a refusal with no model question (the exact retry is its only way on).
     """
-    return _dict(need.get("route")).get("cause") in ("content_filter", "output_limit") and not isinstance(
-        _dict(state.get("job_failure")).get("route_assignment"), dict
+    return (
+        bool(need.get("retry_unavailable"))
+        or _dict(need.get("route")).get("cause") in ("content_filter", "output_limit")
+        and not isinstance(_dict(state.get("job_failure")).get("route_assignment"), dict)
     )
 
 
@@ -595,7 +599,7 @@ def project(state: RunState, need=None, *, retained=_UNSET, report_repair_unavai
             or preflight_stop.sentence(state, cause)
             or _seatbelt_loopback_stop(state)
             or _acceptance_tests_stop(state)
-            or _job_model_stop(state, role)
+            or _job_model_stop(state, role, need)
             or (rejected or {}).get("what_happened")
             or _explanation(cause, role, bool(state.get("stop_reason")))
         ),

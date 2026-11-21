@@ -236,6 +236,32 @@ class JobModelRouteTests(JobHarness):
         self.assertEqual(["gpt-6-sol", "gpt-6-luna"], self.models())
         self.assertEqual(ORIGINAL, (self.workspace / "calc.py").read_text())
 
+    def test_legacy_model_divergence_keeps_its_acceptable_model_question(self):
+        run = self.refused()
+        need = self.stopped(run)
+        checkpoint = run.run_dir / "state.json"
+        state = json.loads(checkpoint.read_text())
+        state["settings"]["roles"]["architect"]["model"] = "gpt-6-old"
+        checkpoint.write_text(json.dumps(state))
+        (self.workspace / "calc.py").write_text(BROKEN)
+        self.assertEqual("recover_source", run.status()["needs"]["kind"])
+        (self.workspace / "calc.py").write_text(ORIGINAL)
+        unrelated = copy.deepcopy(state)
+        unrelated["settings"]["roles"]["builder"]["model"] = "gpt-6-foreign"
+        checkpoint.write_text(json.dumps(unrelated))
+        self.assertEqual("recover_source", run.status()["needs"]["kind"])
+        foreign = copy.deepcopy(state)
+        foreign["job_failure"]["route"]["route_role"] = "builder"
+        checkpoint.write_text(json.dumps(foreign))
+        self.assertEqual("recover_source", run.status()["needs"]["kind"])
+        checkpoint.write_text(json.dumps(state))
+        view = run.status()
+        self.assertEqual("retry_job", view["needs"]["kind"])
+        self.assertIn("--answer route-architect=MODEL", view["next_command"])
+        assigned = run.assign_model("architect", "gpt-6-luna")
+        self.assertEqual("gpt-6-luna", assigned["needs"]["route"]["current_model"])
+        self.assertNotEqual(need["job_retry_token"], assigned["needs"]["job_retry_token"])
+
     def test_a_model_flag_at_a_stopped_job_is_refused_with_the_job_advice(self):
         run = self.refused()
         need = self.stopped(run)

@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import autocode_interventions as interventions
 import autocode_job_retry_admission as job_retry_admission
 import autocode_status_observation as observation
 import autocode_status_observation_worker as worker
@@ -58,6 +59,20 @@ class StatusObservationTests(unittest.TestCase):
         for error in (ValueError("Source changed"), util.Paused("PAUSED_SOURCE_UNAVAILABLE", "Git unavailable")):
             with self.subTest(error=error), patch.object(job_retry_admission, "validate_retry", side_effect=error):
                 self.assertEqual({"allowed": False, "reason": str(error)}, worker._worker(request))
+
+    def test_model_reroute_observation_refuses_queued_intervention(self):
+        state = {"run_dir": "/run"}
+        request = {"operation": "job_retry", "payload": {"state": state, "workspace": "/project", "token": "t"}}
+        error = job_retry_admission.RetryConfigurationChanged("Configuration changed")
+        with (
+            patch.object(job_retry_admission, "validate_retry", side_effect=error),
+            patch.object(interventions, "pending", return_value=[{"kind": "pause"}]),
+            patch.object(job_retry_admission, "route_is_repairable") as preflight,
+        ):
+            result = worker._worker(request)
+        self.assertFalse(result["allowed"])
+        self.assertNotIn("route_allowed", result)
+        preflight.assert_not_called()
 
     def test_job_retry_timeout_or_unconfirmed_cleanup_fails_closed(self):
         for error in (subprocess.TimeoutExpired("worker", 1), observation.captured.ProcessError("uncertain")):

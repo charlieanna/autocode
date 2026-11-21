@@ -1525,9 +1525,13 @@ def needs(state: RunState, *, stale_report_repair=False, human_projection=None, 
                 "The current checkout cannot establish the missing original identity."
             ),
         }
+        route_required = False
         if known_source:
             admission = status_observation.job_retry(state, state.get("workspace"), failure.get("job_retry_token"))
-            if not admission["allowed"]:
+            route_required = not admission["allowed"] and admission.get("route_allowed") is True
+            if route_required:
+                need["retry_unavailable"] = admission["reason"]
+            if not admission["allowed"] and not route_required:
                 need.update(kind="recover_source", action=None, resume_unavailable=admission["reason"])
         # A job stopped on quota or by its provider's content filter (#463) keeps its model question on
         # the failure: --answer route-ROLE=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN) names another model and issues a
@@ -1538,15 +1542,9 @@ def needs(state: RunState, *, stale_report_repair=False, human_projection=None, 
             # Until a person names another model (job_failure.route_assignment), the exact retry of a
             # refused job would replay the refused model: the next step is the answer. job_retry_token
             # stays, since the CLI still accepts it. A quota stop keeps the retry (the quota resets).
-            if (
-                need["kind"] == "retry_job"
-                and need["route"]["cause"]
-                in (
-                    "content_filter",
-                    "output_limit",
-                    "authentication",
-                    "timeout",
-                )
+            if need["kind"] == "retry_job" and (
+                route_required
+                or need["route"]["cause"] in ("content_filter", "output_limit", "authentication", "timeout")
                 and not isinstance(failure.get("route_assignment"), dict)
             ):
                 # A timeout whose model declares a lighter variant names that answer itself (#1902).

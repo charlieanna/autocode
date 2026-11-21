@@ -97,6 +97,81 @@ def retry_configuration_matches(current, saved):
     return normalized(current) == normalized(saved)
 
 
+class RetryConfigurationChanged(ValueError):
+    """The source and token are current, but the saved retry configuration differs."""
+
+
+def route_configuration_matches(state: RunState, failure, assignment):
+    """The concrete route assignment may change only its bound model and named effort."""
+    expected = copy.deepcopy(failure["configuration"])
+    bound = (expected.get("roles") or {}).get(assignment.get("role"))
+    if not isinstance(bound, dict):
+        return False
+    bound["model"] = assignment.get("to")
+    if isinstance(assignment.get("effort"), dict):
+        bound["reasoning_effort"] = assignment["effort"].get("to")
+    return configuration(state) == expected
+
+
+def route_is_repairable(state: RunState, *, cross_check, failure_status, configured_tool=False):
+    """Try saved offered models against the same concrete assignment configuration gate."""
+    question = quota_route.job_question(state)
+    failure = state.get("job_failure") or {}
+    if not isinstance(question, dict) or not isinstance(question.get("candidates"), list):
+        return False
+    role = question.get("route_role")
+    attempt = quota_route.stopped_attempt(state, failure_status=failure_status)
+    if (
+        not isinstance(role, str)
+        or not attempt
+        or attempt.get("kind") != "job"
+        or attempt.get("role") != role
+        or attempt.get("attempt_id") != failure.get("attempt_id")
+    ):
+        return False
+    for answer in question["candidates"]:
+        if not isinstance(answer, str):
+            continue
+        model, effort = quota_route.split_effort(answer)
+        bound = ((failure.get("configuration") or {}).get("roles") or {}).get(role) or {}
+        if effort == bound.get("reasoning_effort"):
+            effort = None
+        if failure.get("pause_status") in (
+            quota_route.REFUSAL_STATUS,
+            quota_route.OUTPUT_STATUS,
+            quota_route.CONTEXT_STATUS,
+        ) and model == question.get("stopped_model"):
+            continue
+        candidate = copy.deepcopy(state)
+        try:
+            quota_route.validate(
+                candidate,
+                role,
+                model,
+                configured_tool=configured_tool,
+                cross_check=cross_check,
+                job=question.get("job"),
+                allow_unchanged=effort is not None
+                or quota_route.job_stop_status(failure) == quota_route.TIMEOUT_STATUS,
+            )
+            if effort is not None:
+                quota_route.check_effort(candidate, role, model, effort, job=question.get("job"))
+            assignment = quota_route.assign(
+                candidate,
+                role,
+                model,
+                at="",
+                via="answer",
+                effort=effort,
+                attempt=attempt,
+            )
+            if route_configuration_matches(candidate, failure, assignment):
+                return True
+        except (ValueError, KeyError, TypeError):
+            continue
+    return False
+
+
 def validate_retry(state: RunState, workspace, token):
     failure = state.get("job_failure") or {}
     if not quota_route.job_pause_current(state):
@@ -116,5 +191,5 @@ def validate_retry(state: RunState, workspace, token):
             raise ValueError("Unrestored source blocks job retry: " + ", ".join(failure["unrestored"]))
         raise ValueError("Source changed since the failed attempt; retry is stale")
     if not retry_configuration_matches(configuration(state), failure["configuration"]):
-        raise ValueError("Provider configuration or limits changed; retry is stale")
+        raise RetryConfigurationChanged("Provider configuration or limits changed; retry is stale")
     return failure
