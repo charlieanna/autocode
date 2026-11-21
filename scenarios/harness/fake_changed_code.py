@@ -580,7 +580,7 @@ def _regclient(data, root):
 
 
 LEASE_SOURCE = "37086ea9920187aa6f500f5d946c70c33229ebade1d69cb1a655235c2c6304e3"
-LEASE_TESTS = "78e4c933baa51d3a0c09167303692e9dacd71439c9769b086163a28f71bd345d"
+LEASE_TESTS = "749013990efc6e77380eb621ca35586a56410a1bcc2709a8bec5010e7788d975"
 LEASE_TOKENS_TESTS = LEASE_TESTS
 _LEASE_TXN = (
     "No supported mutation for this transaction line. Every test in tests/test_behavior.py enqueues, claims "
@@ -665,7 +665,7 @@ LEASE_TOKENS_REASONS = {
 
 
 OUTBOX_SOURCE = "edc2e9466110c1f311254eab65c61b59aad12a324e07577e6be4689e115109e2"
-OUTBOX_TESTS = "bf0b21a820bdeb356f04d5f1ceb955ad8bffeae04aa7ca33c5185815dd862d6f"
+OUTBOX_TESTS = "6ad07728f0d9c2f6f160922524a77185fb57522263a7839977fa499a24617087"
 _OUTBOX_TXN = (
     "No supported mutation for this transaction line. Every test in tests/test_behavior.py creates, reads and "
     "publishes through _db; test_orders_publish_and_restart and test_sink_failure_retries_same_durable_event "
@@ -834,7 +834,7 @@ def _lifecycle(data, root, source_path, sources, tests_digest):
 # runner must still detect its split-transaction race. These five syntax lines
 # have no mutation site; all supported mutants need their actual observations.
 LEASE_NON_ATOMIC_SOURCE = "a7067c3c67d30194cf473870d350072529de7af46d2fe0097aa9efd56183cd02"
-LEASE_NON_ATOMIC_TESTS = "321e48026834c43a636d0bdb3208ae855a58c02737c14e804702e232f02b23b7"
+LEASE_NON_ATOMIC_TESTS = "a81a122ad6cf3d8a3beea0a2f16605d9bce272c0882e7f0001302e9c4d617811"
 LEASE_NON_ATOMIC_REASONS = {
     6: LEASE_REASONS[5],
     14: LEASE_REASONS[13],

@@ -4,11 +4,14 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from leasequeue import LeaseQueue
+import leasequeue
 
 
 class QueueTests(unittest.TestCase):
     def test_claim_locks_before_reading_jobs_and_closes_its_connection(self):
+        self.assertTrue(hasattr(leasequeue, "LeaseQueue"))
+        from leasequeue import LeaseQueue
+
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "queue.db"
             queue = LeaseQueue(path)
@@ -47,6 +50,9 @@ class QueueTests(unittest.TestCase):
                     connection.execute("SELECT 1")
 
     def test_enqueue_claim_restart_and_ack(self):
+        self.assertTrue(hasattr(leasequeue, "LeaseQueue"))
+        from leasequeue import LeaseQueue
+
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "queue.db"
             q = LeaseQueue(path)
@@ -60,6 +66,9 @@ class QueueTests(unittest.TestCase):
             self.assertIsNone(q.claim(20, 5))
 
     def test_inputs_are_validated_at_their_boundaries(self):
+        self.assertTrue(hasattr(leasequeue, "LeaseQueue"))
+        from leasequeue import LeaseQueue
+
         with tempfile.TemporaryDirectory() as folder:
             q = LeaseQueue(Path(folder) / "queue.db")
             with self.assertRaises(ValueError):
@@ -76,6 +85,9 @@ class QueueTests(unittest.TestCase):
                 q.ack("first", item["token"], -1)
 
     def test_expiry_at_the_deadline_fences_the_old_token(self):
+        self.assertTrue(hasattr(leasequeue, "LeaseQueue"))
+        from leasequeue import LeaseQueue
+
         with tempfile.TemporaryDirectory() as folder:
             q = LeaseQueue(Path(folder) / "queue.db")
             q.enqueue("first", "work")
@@ -90,6 +102,9 @@ class QueueTests(unittest.TestCase):
             self.assertEqual(q.pending(), 1)
 
     def test_nack_releases_for_immediate_retry(self):
+        self.assertTrue(hasattr(leasequeue, "LeaseQueue"))
+        from leasequeue import LeaseQueue
+
         with tempfile.TemporaryDirectory() as folder:
             q = LeaseQueue(Path(folder) / "queue.db")
             q.enqueue("first", "work")

@@ -362,6 +362,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "scenarios/harness/fake_changed_code.py",
         (
             "tests.test_risk_cli",
+            "tests.test_risk_fixture_named_proof",
             "tests.test_brief_cli",
             "tests.test_scenario_changed_code_fixtures",
             "tests.test_native_scenario_fixture_reasons",
@@ -372,16 +373,24 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ),
     ),
     (
+        "scenarios/catalog/ladder-18-durable-lease-queue/reference/",
+        ("tests.test_risk_cli", "tests.test_risk_fixture_named_proof", "tests.test_scenario_changed_code_fixtures"),
+    ),
+    (
+        "scenarios/catalog/ladder-19-transactional-outbox/reference/",
+        ("tests.test_risk_cli", "tests.test_risk_fixture_named_proof", "tests.test_scenario_changed_code_fixtures"),
+    ),
+    (
         "scenarios/catalog/ladder-18-durable-lease-queue/broken/non-atomic-claim/",
-        ("tests.test_risk_cli",),
+        ("tests.test_risk_cli", "tests.test_risk_fixture_named_proof", "tests.test_scenario_changed_code_fixtures"),
     ),
     (
         "scenarios/catalog/ladder-18-durable-lease-queue/broken/process-local-tokens/",
-        ("tests.test_risk_cli",),
+        ("tests.test_risk_cli", "tests.test_risk_fixture_named_proof", "tests.test_scenario_changed_code_fixtures"),
     ),
     (
         "scenarios/catalog/ladder-19-transactional-outbox/broken/ack-with-exception-rollback/",
-        ("tests.test_risk_cli",),
+        ("tests.test_risk_cli", "tests.test_risk_fixture_named_proof", "tests.test_scenario_changed_code_fixtures"),
     ),
     (
         "tools/goal_fixtures.py",
