@@ -7,12 +7,10 @@ is not the original twelve-criterion run.
 
 from __future__ import annotations
 
-import copy
 import hashlib
 import importlib.util
 import json
 import os
-import re
 import shlex
 import shutil
 import subprocess
@@ -20,6 +18,9 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO))
+from tests import fixture_plan_review  # noqa: E402
+
 FIXTURES = REPO / "tests" / "fixtures" / "semver-reference-m1"
 BASE = "6adf8765f6e21910f1f0c13151ce84f32f8d431d"
 UPSTREAM = "https://github.com/python-semver/python-semver.git"
@@ -59,39 +60,12 @@ TESTS = {
 REVIEWED_PLAN_DIGEST = "a4a6b85f72f5eda082402ee1d54a4635eba777387bb7ea003325b91c046c6eb0"
 
 
-def canonical_plan(plan: dict, interpreter: str) -> bytes:
-    """Canonicalize only the reviewed plan's run-specific token and interpreter."""
-    value = copy.deepcopy(plan)
-    value["hash"] = "<contract-hash>"
-    value["token"] = "<approval-token>"
-    escaped = re.sub(r"([\\`*{}\[\]()#+.!_>~|<>-])", r"\\\1", interpreter)
-
-    def scrub(item):
-        if isinstance(item, str):
-            return item.replace(escaped, "<fixture-python>").replace(interpreter, "<fixture-python>")
-        if isinstance(item, list):
-            return [scrub(entry) for entry in item]
-        if isinstance(item, dict):
-            return {key: scrub(entry) for key, entry in item.items()}
-        return item
-
-    return json.dumps(scrub(value), sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
-
-
 def require_reviewed_plan(plan: dict, need: dict, interpreter: str) -> None:
-    revision, plan_hash, token = plan.get("revision"), plan.get("hash"), plan.get("token")
-    if (
-        need.get("kind") != "approve_plan"
-        or type(revision) is not int
-        or not isinstance(plan_hash, str)
-        or re.fullmatch(r"[0-9a-f]{64}", plan_hash) is None
-        or token != f"r{revision}:{plan_hash}"
-        or need.get("token") != token
-    ):
-        raise AssertionError("The exact displayed plan approval token is not current")
-    digest = hashlib.sha256(canonical_plan(plan, interpreter)).hexdigest()
-    if digest != REVIEWED_PLAN_DIGEST:
-        raise AssertionError(f"The full displayed plan differs from the reviewed fixture (sha256 {digest})")
+    fixture_plan_review.require_reviewed_plan(plan, need, interpreter, REVIEWED_PLAN_DIGEST)
+
+
+# Preserve the existing public helper for the SemVer plan-review tests.
+canonical_plan = fixture_plan_review.canonical_plan
 
 
 def git(project: Path, env: dict[str, str], *args: str) -> str:

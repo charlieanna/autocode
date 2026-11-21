@@ -84,6 +84,30 @@ class ScopeTests(unittest.TestCase):
         )
         self.assertNotIn("extension", self.enabled("tests/unrelated/protected_link_vscode_fixture.py"))
 
+    def test_named_proof_fixture_resources_select_their_real_host(self):
+        from tools import ci_test_selection
+
+        host = "vscode-extension/test/host/named-proof-refusal.test.cjs"
+        for resource in (
+            "tests/named_proof_vscode_fixture.py",
+            "tests/fixture_plan_review.py",
+            "tests/test_failure_routing_cli.py",
+            "tests/test_build_blackbox.py",
+            "tests/failure_routing_provider.py",
+            "tools/blackbox_build_provider.py",
+            "tests/host_reader_cleanup.py",
+            "tests/status_retry_host_cleanup.py",
+            "vscode-extension/test/owned-fixture-cleanup.cjs",
+        ):
+            with self.subTest(resource=resource):
+                self.assertIn(host, ci_test_selection.EXTENSION_HOST_RESOURCES[resource])
+                self.assertIn("extension", self.enabled(resource))
+        self.assertNotIn("extension", self.enabled("tests/unrelated/named_proof_vscode_fixture.py"))
+        self.assertIn(
+            "vscode-extension/test/host/semver-reference-repair.test.cjs",
+            ci_test_selection.EXTENSION_HOST_RESOURCES["tests/fixture_plan_review.py"],
+        )
+
     def test_semver_reference_fixture_selects_only_its_registered_host_path(self):
         from tools import ci_test_selection
 
