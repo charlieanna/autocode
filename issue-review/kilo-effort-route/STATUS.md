@@ -74,6 +74,17 @@ CLI returns: PID, creation time, command hash and safe status-option category.
 The sample can be absent or describe a reused PID; it grants no authority and
 does not establish which process the earlier guard observed.
 
+The local integration now includes #4035's verified editor refusal visibility
+and its shared host-fixture CI registry. The Kilo fixture and its shared CLI and
+cleanup helpers are registered as consumers of the Kilo editor test. On this
+integration 228 focused job-route, status-observation, diagnostics and
+CI-selection tests passed with process enumeration available; the log is
+`/private/tmp/autocode-kilo-integration-focused.log`. A sandbox-only run was
+unable to enumerate processes and refused test setup; its single-test control
+is `/private/tmp/autocode-kilo-integration-sandbox-failure.log`. Ruff and host
+JavaScript syntax checks passed. These local results are not final-head CI or
+actual editor verification; #4024 and #4031 are still being qualified.
+
 Still required: focused checks and master control, actual VS Code behavior on
 the final head, current-head `ci-required`, and review of unsupported or absent
 structural candidates. Do not close #4005 on this partial increment alone.
