@@ -242,6 +242,8 @@ class JobModelRouteTests(JobHarness):
         checkpoint = run.run_dir / "state.json"
         state = json.loads(checkpoint.read_text())
         state["settings"]["roles"]["architect"]["model"] = "gpt-6-old"
+        # Free-form model answers remain possible when no advisory candidates were saved.
+        state["job_failure"]["route"].pop("candidates", None)
         checkpoint.write_text(json.dumps(state))
         (self.workspace / "calc.py").write_text(BROKEN)
         self.assertEqual("recover_source", run.status()["needs"]["kind"])
@@ -250,6 +252,14 @@ class JobModelRouteTests(JobHarness):
         unrelated["settings"]["roles"]["builder"]["model"] = "gpt-6-foreign"
         checkpoint.write_text(json.dumps(unrelated))
         self.assertEqual("recover_source", run.status()["needs"]["kind"])
+        for mutate in (
+            lambda row: row["settings"]["roles"]["architect"].update(reasoning_effort="foreign"),
+            lambda row: row["settings"].update(transport_identity={"foreign": True}),
+        ):
+            altered = copy.deepcopy(state)
+            mutate(altered)
+            checkpoint.write_text(json.dumps(altered))
+            self.assertEqual("recover_source", run.status()["needs"]["kind"])
         foreign = copy.deepcopy(state)
         foreign["job_failure"]["route"]["route_role"] = "builder"
         checkpoint.write_text(json.dumps(foreign))

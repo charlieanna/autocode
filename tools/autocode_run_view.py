@@ -1265,7 +1265,14 @@ def action(
             ),
         }
     status = display_state.get("status", "")
-    need = needs(state, stale_report_repair=stale_report_repair, human_projection=human_projection, retained=retained)
+    need = needs(
+        state,
+        stale_report_repair=stale_report_repair,
+        human_projection=human_projection,
+        retained=retained,
+        run_dir=run_dir,
+        workspace=workspace,
+    )
     category = pause_category.category(status, need)
     # This status also names novelty/source holds; only its bound hold needs a larger limit.
     resume_flags = (
@@ -1373,7 +1380,9 @@ def _person_facing(need: dict) -> dict:
 
 
 @status_observation.budgeted
-def needs(state: RunState, *, stale_report_repair=False, human_projection=None, retained=_UNSET) -> dict | None:
+def needs(
+    state: RunState, *, stale_report_repair=False, human_projection=None, retained=_UNSET, run_dir=None, workspace=None
+) -> dict | None:
     """What must happen next, or None when complete, an internal failure offers no person action, or the
     Tester's retained report has no re-check left (autocode_acceptance_retry_next; ``retained`` is its answer).
 
@@ -1527,7 +1536,12 @@ def needs(state: RunState, *, stale_report_repair=False, human_projection=None, 
         }
         route_required = False
         if known_source:
-            admission = status_observation.job_retry(state, state.get("workspace"), failure.get("job_retry_token"))
+            admission = status_observation.job_retry(
+                state,
+                workspace or state.get("workspace"),
+                failure.get("job_retry_token"),
+                run_dir or state.get("run_dir"),
+            )
             route_required = not admission["allowed"] and admission.get("route_allowed") is True
             if route_required:
                 need["retry_unavailable"] = admission["reason"]
@@ -1833,7 +1847,7 @@ def needs(state: RunState, *, stale_report_repair=False, human_projection=None, 
             # The hold admits no retry yet; say what must happen first instead of implying a resume will do.
             need["retry_unavailable"] = blocked
         if status == "PAUSED_REPEATED_FAILURE" and not recovery_limits.repeated_failure_retry_refusal(state):
-            admission = status_observation.failure_retry(state, state.get("workspace"))
+            admission = status_observation.failure_retry(state, workspace or state.get("workspace"))
             if not admission["allowed"]:
                 need["retry_unavailable"] = admission["reason"]
                 need.pop("retry_action", None)

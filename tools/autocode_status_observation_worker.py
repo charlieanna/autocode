@@ -27,7 +27,7 @@ def _worker(request):
             import autocode_opencode as opencode
             import autocode_support as support
 
-            run_dir = state.get("run_dir")
+            run_dir = payload.get("run_dir") or state.get("run_dir")
             if not isinstance(run_dir, str) or interventions.pending(Path(run_dir)):
                 return {"allowed": False, "reason": str(error)}
             possible = admission.route_is_repairable(

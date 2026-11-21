@@ -117,7 +117,7 @@ def route_is_repairable(state: RunState, *, cross_check, failure_status, configu
     """Try saved offered models against the same concrete assignment configuration gate."""
     question = quota_route.job_question(state)
     failure = state.get("job_failure") or {}
-    if not isinstance(question, dict) or not isinstance(question.get("candidates"), list):
+    if not isinstance(question, dict):
         return False
     role = question.get("route_role")
     attempt = quota_route.stopped_attempt(state, failure_status=failure_status)
@@ -129,7 +129,23 @@ def route_is_repairable(state: RunState, *, cross_check, failure_status, configu
         or attempt.get("attempt_id") != failure.get("attempt_id")
     ):
         return False
-    for answer in question["candidates"]:
+    expected = copy.deepcopy(failure.get("configuration"))
+    current = configuration(state)
+    if isinstance(expected, dict):
+        expected_role = (expected.get("roles") or {}).get(role)
+        current_role = (current.get("roles") or {}).get(role)
+        if isinstance(expected_role, dict) and isinstance(current_role, dict):
+            saved_model, current_model = expected_role.get("model"), current_role.get("model")
+            if isinstance(saved_model, str) and saved_model and isinstance(current_model, str) and current_model:
+                current_role["model"] = saved_model
+                if saved_model != current_model and current == expected:
+                    # A route question is free form. This observes only model drift;
+                    # its concrete answer still passes every normal locked gate.
+                    return True
+    candidates = question.get("candidates")
+    if not isinstance(candidates, list):
+        return False
+    for answer in candidates:
         if not isinstance(answer, str):
             continue
         model, effort = quota_route.split_effort(answer)

@@ -74,6 +74,21 @@ class StatusObservationTests(unittest.TestCase):
         self.assertNotIn("route_allowed", result)
         preflight.assert_not_called()
 
+    def test_model_reroute_observes_the_explicit_run_directory(self):
+        request = {
+            "operation": "job_retry",
+            "payload": {"state": {}, "workspace": "/project", "run_dir": "/actual-run", "token": "t"},
+        }
+        error = job_retry_admission.RetryConfigurationChanged("Configuration changed")
+        with (
+            patch.object(job_retry_admission, "validate_retry", side_effect=error),
+            patch.object(interventions, "pending", return_value=[]) as pending,
+            patch.object(job_retry_admission, "route_is_repairable", return_value=True),
+        ):
+            result = worker._worker(request)
+        self.assertTrue(result["route_allowed"])
+        pending.assert_called_once_with(Path("/actual-run"))
+
     def test_job_retry_timeout_or_unconfirmed_cleanup_fails_closed(self):
         for error in (subprocess.TimeoutExpired("worker", 1), observation.captured.ProcessError("uncertain")):
             with self.subTest(error=error), patch.object(observation.captured, "run", side_effect=error):

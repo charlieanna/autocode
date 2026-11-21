@@ -146,11 +146,16 @@ def _retry_admission(operation, payload, reason):
     return {"allowed": False, "reason": reason}
 
 
-def job_retry(state: RunState, workspace, token):
+def job_retry(state: RunState, workspace, token, run_dir=None):
     """Bound retry admission's source scan; execution revalidates independently."""
     return _retry_admission(
         "job_retry",
-        {"state": state, "workspace": str(workspace) if workspace is not None else None, "token": token},
+        {
+            "state": state,
+            "workspace": str(workspace) if workspace is not None else None,
+            "run_dir": str(run_dir) if run_dir is not None else None,
+            "token": token,
+        },
         "The failed job's source could not be checked",
     )
 
