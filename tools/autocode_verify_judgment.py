@@ -182,6 +182,8 @@ def judge_regression(
         # Preserve the runner's existing first-project rule. For Python import collection failures,
         # only the named tests whose project import was observed may stand in for tests that did not run.
         not_run = passed - set(base["passed"]) - set(base["failed"])
+        if unloaded_new is not None:
+            not_run |= passed & (set(base.get("uncollected") or ()) | set(base.get("collection_errors") or ()))
         if new_behavior:
             flipped_set = passed - set(base["passed"]) - set(setup_errors)
             if unloaded_new is not None and (base.get("uncollected") or base.get("collection_errors")):

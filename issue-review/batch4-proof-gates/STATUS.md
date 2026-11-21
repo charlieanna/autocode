@@ -26,7 +26,8 @@ finder; these cases remain held until there is independent evidence.
 The final judgment also excludes collection-failure IDs before deciding that a
 candidate test ran and failed on base. A direct control where the collection
 failure shares the candidate test's exact ID failed at `caa53371a`; matching
-IDs alone do not turn failed collection into an executed test.
+IDs alone do not turn failed collection into an executed test. The proof also
+lists that colliding ID as not run on base instead of omitting it from the report.
 An owned-runner control also shows why a separate standard `PathFinder`
 probe is insufficient: it finds the project's `release_api.py`, while the
 actual candidate test first installs a custom finder and loads an external

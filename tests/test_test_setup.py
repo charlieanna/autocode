@@ -358,6 +358,7 @@ class RegressionImportJudgmentTests(unittest.TestCase):
     def test_collection_failure_sharing_a_test_id_cannot_prove_it_ran(self):
         failed, unverified, proof = self.judge(base_results(unloaded=[SELECTED]), unloaded_new=())
         self.assertEqual([], proof["fail_to_pass"])
+        self.assertEqual([SELECTED], proof["not_run_on_base"])
         self.assertTrue(failed or unverified)
 
     def test_observed_project_imports_can_prove_new_behavior(self):
