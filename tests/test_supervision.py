@@ -386,6 +386,9 @@ signal.pause()
             self.assertEqual("stderr-kept\n", error)
         self.assertEqual(child.supervision, saved[0])
         self.assertEqual("stopped", supervision.receipt(saved[0])["phase"])
+        # The launch names the boot it ran in, so a reader after a host restart knows it ended (#3965).
+        self.assertEqual(processes.boot_id(), saved[0].get("boot_id"))
+        self.assertFalse(processes.host_restarted(saved[0]))
 
     def test_verified_abnormal_stop_is_distinct_from_unknown_or_uncertain_cleanup(self):
         read_receipt = supervision.receipt

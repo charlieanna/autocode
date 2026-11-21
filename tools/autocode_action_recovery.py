@@ -412,6 +412,22 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
                 decided.evidence_reconciled = True
                 args._resumed_pause = None  # Runner recovery, not a person's resume or an allowance renewal.
                 runner.write_json(state_path, state)
+            if (
+                state.get("status") == "PAUSED_VERIFICATION_UNCERTAIN"
+                and state.get("active_stage")
+                and runner_check.restart_recoverable(state, run_dir)
+            ):
+                # A host restart ended the model attempt and the check of its report together: nothing of
+                # either can still run, and the interrupted check proves nothing. AutoCode sets the attempt
+                # aside itself, as a person's --abandon-stage would, and records it as its own (#3965).
+                stage_recovery.abandon_stage(
+                    state,
+                    run_dir,
+                    workspace,
+                    runner.attempt_id(state["active_stage"]),
+                    launch=runner,
+                    actor="runner",
+                )
             if state.get("status") in ("PAUSED_VERIFICATION_UNCERTAIN", "PAUSED_STAGE_ABANDONED"):
                 runner_check.recover_interrupted(state, run_dir, runner.write_json)
             # Acknowledgement is not a new spending/recovery allowance.

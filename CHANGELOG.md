@@ -23,6 +23,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **A host restart during a runner check no longer strands the run** (#3965): when the machine restarted while AutoCode checked a Tester's report, status named no action, a resume asked for `--abandon-stage`, and then refused because the check's cleanup receipt was never finished. Each launch now records the boot it ran in, and a launch from an earlier boot is known to have ended with it. The next resume, which status now names, sets the interrupted attempt aside, records the check as interrupted with its evidence kept, and runs it again. An interrupted check still proves nothing.
+
+- **Run details lists only the lines a send-back left open** (#3925): a changed-line send-back listed every line its assessment examined, including those it had already tested or excepted, so 59 lines were called untested when 2 were.
+
 - **A Tester check run through the capture tool no longer fails its clean replay**: when a Tester captured a noisy check (`autocode capture --output R -- <command>`) and cited its event, or left the command for the runner to fill in, the check kept the capture invocation as its command. The clean-copy replay then ran that invocation again, which refuses an existing receipt ("existing evidence is immutable"), and a passing report paused `PAUSED_INVALID_OUTPUT`. Such a check is now the captured command, proved by the receipt the capture wrote and authenticated as a cited receipt is. A capture whose receipt is missing or names another command or exit code keeps its event citation.
 
 - **A slow suite's mutation check no longer stops short in every continuation window**: each continuation window runs the unmutated tests again, and that run's time was taken from the window's mutant budget. With a reference over half the window, no mutant that runs every selected test had enough time, in that window or any later one. The window now gets the reference's time back, still within the run's total allowance.

@@ -78,6 +78,43 @@ def clear(state: RunState, run_dir, persist):
     persist(Path(run_dir) / "state.json", state)
 
 
+def ended_with_host(state: RunState):
+    """Whether a host restart ended the run's interrupted runner check and the model attempt it served.
+
+    Read-only. Each launch's own supervision answers it (``autocode_process.host_restarted``); a check or
+    attempt in this boot, or one without supervision, is not claimed (#3965).
+    """
+    check = state.get("active_runner_check")
+    if not isinstance(check, dict) or not processes.host_restarted(check.get("supervision")):
+        return False
+    active = state.get("active_stage")
+    return active is None or (isinstance(active, dict) and processes.host_restarted(active.get("supervision")))
+
+
+def restart_recoverable(state: RunState, run_dir):
+    """Whether the next resume retires a verification a host restart interrupted (#3965).
+
+    Read-only: it binds the pending admission and checks native absence exactly as the resume will, and
+    writes nothing. Status names the resume only when this holds, so a person is never offered a step
+    the core would refuse, and never left without one when the core can settle it.
+    """
+    if run_dir is None or not ended_with_host(state):
+        return False
+    root = Path(run_dir) / "check-replay" / "obligations"
+    pending = root / "pending.json"
+    try:
+        if pending.is_symlink() or not pending.is_file():
+            return False
+        active, _ = verification_recovery.read_regular(pending, root.resolve())
+        if active.get("preparation_admission") and active.get("phase") == "post_execution_identity":
+            verification_recovery.authenticate_publication(root.resolve(), active)
+        else:
+            verification_recovery.authenticate(root.resolve(), active, state.get("active_runner_check"))
+    except (command_supervision.receipts.OwnershipUncertain, processes.ProcessError, OSError, ValueError):
+        return False
+    return True
+
+
 def recover_interrupted(state: RunState, run_dir, persist):
     """Explicit resume after abandoning a model may retire its stopped check.
 
