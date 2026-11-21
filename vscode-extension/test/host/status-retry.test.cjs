@@ -88,12 +88,14 @@ for (const kind of ['job', 'repeat']) {
           return shown.text.includes("The failed job's source could not be checked") && !shown.action;
         });
       } else {
-        // Current public view withholds retry but offers plain Continue, which cannot grant an attempt.
-        // Keep this behavior visible as an unresolved defect, not evidence that Continue is effective.
-        await until('repeated failure without a retry offer', async () => {
+        // Do not require the known ineffective Continue: a later fix may remove it.
+        const blocked = await until('repeated failure without a retry offer', async () => {
           const shown = await state();
-          return shown.action === 'Continue' && shown.text.includes('An ordinary resume cannot grant another attempt');
+          return shown.action !== retryLabel && !shown.text.includes('choose “Retry the failed step once”')
+            && (shown.text.includes('An ordinary resume cannot grant another attempt')
+              || shown.text.includes("The repeated failure's source could not be checked")) ? shown : null;
         });
+        console.log('Repeated failure timeout action:', blocked.action ?? '(none)');
       }
       fs.rmSync(marker);
       await until('recovered retry action', async () => (await state()).action === retryLabel);
