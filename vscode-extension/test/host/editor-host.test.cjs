@@ -18,6 +18,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { after, before, test } = require('node:test');
+const { openHistoryRow } = require('./open-history.cjs');
 
 const EXTENSION = path.resolve(__dirname, '../..');
 const REPO = path.resolve(EXTENSION, '..');
@@ -135,8 +136,8 @@ before(async () => {
   // Opening History replaces the chat webview. A Playwright click waits on the
   // old frame after the handler succeeds and can time out even with the Runs
   // list visible. Dispatch the setup action, then wait for the actual run row.
-  await (await chat()).dispatchEvent('#history', 'click');
-  await win.locator('.monaco-list-row', { hasText: 'Bug report from the finance team' }).first().click();
+  const row = win.locator('.monaco-list-row', { hasText: 'Bug report from the finance team' }).first();
+  await openHistoryRow(row, chat, 'Bug report from the finance team');
   await until('the run in the chat', async () => (await chatText()).includes('rejected the saved credentials (HTTP 401)'));
 });
 
