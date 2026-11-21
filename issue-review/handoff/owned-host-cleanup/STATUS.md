@@ -1,7 +1,10 @@
 # Owned editor-host cleanup
 
-Base: master f5c47648d7. Draft; exact-head CI and actual Linux VS Code Extension
-Host are required.
+Base: master f5c47648d7. Merged as 7a569cd735f3f3134be103b40b98b41ca1c7bf4e
+after exact-head e0bbddf5f4e90383cc1ac45197e35e7a37799fea passed
+`ci-required`, the Ubuntu suite, actual Linux VS Code Extension Host, lint and
+diff coverage. The editor host explicitly passed the active-writer refusal and
+subsequent accepted answer; log `/private/tmp/autocode-4036-e0bb-editor.log`.
 
 The quota host test assigned its environment before constructing its offline
 fixture but inherited `AUTOCODE_HOME` until that fixture succeeded. A failed
@@ -25,5 +28,4 @@ on the candidate no host call occurs and the failed fixture is retained. Four
 additional cleanup-order and ownership controls pass; the full extension suite
 passed 798 tests (22 skipped), and typecheck passed. The genuine offline
 quota fixture also succeeded with the private registry preselected
-(`/private/tmp/autocode-private-registry-probe.log`). Actual editor and CI
-results remain pending.
+(`/private/tmp/autocode-private-registry-probe.log`).
