@@ -7,6 +7,7 @@ their existing owners; a source read never proves a model result or a test.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -93,11 +94,11 @@ def readable(workspace, state: RunState) -> bool:
         return False
 
 
-def _unsafe_copy_source(workspace, state, current):
+def _unsafe_copy_source(workspace, state: RunState, current):
     """Recheck source names for parent links before offering any source recovery."""
     paths = source_scope.paths(state)
     files = source_snapshot.bound_inventory(workspace, current, paths=paths)
-    checked = set()
+    checked: set[Path] = set()
     return any(source_snapshot.symlinked_parent(workspace, name, checked=checked) for name in files)
 
 
