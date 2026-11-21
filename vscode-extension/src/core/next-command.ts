@@ -10,7 +10,7 @@
  * No VS Code API and no Node built-ins, so it is unit-testable in-process.
  */
 
-import type { ChangesetSummary, EffortNeed, IntegerCommandInput, StatusView } from "./view";
+import type { ChangesetSummary, EffortNeed, IntegerCommandInput, Needs, StatusView } from "./view";
 
 export class ClientGap extends Error {
   constructor(message: string) {
@@ -365,8 +365,22 @@ export function leavesForPerson(need: { kind?: string; resolver_scope?: string }
  * dialog, and neither does an answer: the person typed it and pressed Send, and asking again to confirm their
  * own reply was the double confirmation the 2026-11-18 audit found.
  */
-export function requiresConfirmation(need: { kind?: string; resolver_scope?: string; confirmation_required?: boolean } | null): boolean {
-  return leavesForPerson(need) && need?.kind !== "answer" && !(need?.kind === "resume" && need.confirmation_required === false);
+export function requiresConfirmation(
+  need: Partial<Needs> | null, action?: NamedCommand & { advancing: boolean },
+): boolean {
+  const route = need?.route;
+  const token = need?.job_retry_token;
+  const question = route?.question_id;
+  const prefix = `${question}=`;
+  // A stopped job's model answer only saves the person's selected route and
+  // rotates the retry token. It cannot include a retry or a spending change.
+  const savedJobAnswer = need?.kind === "retry_job" && typeof token === "string" && token.length > 0
+    && typeof question === "string" && typeof route?.role === "string" && question === `route-${route.role}`
+    && action?.advancing === false && Object.keys(action.env).length === 1 && action.env.AUTOCODE_JOB_RETRY_TOKEN === token
+    && action.argv.length === 4 && action.argv[0] === "--answer" && action.argv[1]?.startsWith(prefix)
+    && action.argv[1].length > prefix.length && action.argv[2] === "--job-retry-token" && action.argv[3] === "-";
+  return leavesForPerson(need) && need?.kind !== "answer" && !savedJobAnswer
+    && !(need?.kind === "resume" && need.confirmation_required === false);
 }
 
 /** The action a person takes on their own initiative while a stage runs. */

@@ -29,6 +29,8 @@ async function executable() {
 }
 
 test('real editor offers the bound quota model and effort decision', { timeout: 180_000 }, async () => {
+  assert.equal(require('../../package.json').contributes.configuration.properties['autocode.confirmPersonOnly'].default, true,
+    'the default person-only confirmation policy remains enabled');
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'autocode-quota-route-'));
   let app;
   let win;
@@ -36,9 +38,13 @@ test('real editor offers the bound quota model and effort decision', { timeout: 
   let editorPid;
   let editorStarted;
   let lastState;
+  let openedFrame;
+  let lastStatus;
+  let expectedToken;
   let passed = false;
   try {
     const temp = path.join(root, 'tmp');
+    const actions = path.join(root, 'actions.jsonl');
     fs.mkdirSync(temp);
     env = { ...process.env, HOME: path.join(root, 'home'), TMPDIR: temp };
     for (const key of Object.keys(env)) {
@@ -47,14 +53,14 @@ test('real editor offers the bound quota model and effort decision', { timeout: 
     const made = spawnSync(python, [path.join(REPO, 'tests/job_route_vscode_fixture.py'), root], { cwd: REPO, encoding: 'utf8', env, timeout: 90_000 });
     assert.equal(made.status, 0, `offline quota fixture: ${made.stderr}`);
     const fixture = JSON.parse(made.stdout);
-    Object.assign(env, { AUTOCODE_HOME: fixture.registry, XDG_CONFIG_HOME: path.join(root, 'config'),
+    Object.assign(env, { AUTOCODE_ROUTE_HOST_ACTIONS: actions, AUTOCODE_HOME: fixture.registry, XDG_CONFIG_HOME: path.join(root, 'config'),
       CODEX_HOME: path.join(root, 'codex-home'), JOB_RUNTIME: REPO, JOB_CALLS: fixture.calls,
       REFUSE_KIND: 'quota', REFUSE_MODEL: 'gpt-6-sol', JOB_MODE: 'exit42',
       PATH: [path.join(fixture.workspace, '.autocode/bin'), env.PATH].join(path.delimiter) });
     const userData = path.join(root, 'user-data');
     fs.mkdirSync(path.join(userData, 'User'), { recursive: true });
     fs.writeFileSync(path.join(userData, 'User/settings.json'), JSON.stringify({
-      'autocode.cliPath': python, 'autocode.cliArgs': [path.join(REPO, 'tools/autocode.py')], 'autocode.pollSeconds': 2,
+      'autocode.cliPath': python, 'autocode.cliArgs': [path.join(REPO, 'tests/job_route_vscode_cli.py')], 'autocode.pollSeconds': 2,
       'workbench.startupEditor': 'none', 'security.workspace.trust.enabled': false, 'chat.disableAIFeatures': true,
       'update.mode': 'none', 'extensions.autoUpdate': false, 'telemetry.telemetryLevel': 'off',
     }));
@@ -79,7 +85,12 @@ test('real editor offers the bound quota model and effort decision', { timeout: 
       const result = spawnSync(python, [path.join(REPO, 'tools/autocode.py'), '--run-dir', fixture.run_dir,
         '--workspace', fixture.workspace, '--status', '--json'], { cwd: fixture.workspace, env, encoding: 'utf8', timeout: 30_000 });
       assert.equal(result.status, 0, result.stderr);
-      return JSON.parse(result.stdout).view;
+      const view = JSON.parse(result.stdout).view;
+      lastStatus = { kind: view.needs?.kind, action: view.next_command ? 'named' : null,
+        tokenRotated: expectedToken ? Boolean(view.needs?.job_retry_token && view.needs.job_retry_token !== expectedToken) : null,
+        model: view.routes?.architect?.model, effort: view.routes?.architect?.reasoning_effort,
+        reason: view.recovery?.what_happened };
+      return view;
     };
     await win.locator('.activitybar [aria-label^="AutoCode"]').first().click();
     await openHistoryRow(win.locator('.monaco-list-row', { hasText: 'Offline quota model effort recovery' }).first(), chat, 'quota effort');
@@ -96,11 +107,14 @@ test('real editor offers the bound quota model and effort decision', { timeout: 
     assert.equal(before.progress.needs_you, 'review the model and reasoning level for the Design Reviewer, then retry it');
     assert.match(before.next_command ?? '', /--answer route-architect=MODEL/);
     assert.ok(before.needs.job_retry_token);
+    expectedToken = before.needs.job_retry_token;
     assert.equal(before.recovery.actions.some((action) => action.kind === 'retry_job'), false);
     const originalCalls = fs.readFileSync(fixture.calls, 'utf8');
-    assert.match(lastState.text, /model|reasoning/i);
+    assert.match(lastState.text, /Review the model and reasoning level for the Design Reviewer, then retry it/i);
+    assert.match(lastState.text, /The Design Reviewer's saved model settings changed\. Review the model and reasoning level before retrying\./i);
     await field.fill('gpt-6-sol@medium');
     const frame = await chat();
+    openedFrame = frame;
     await frame.locator('#take-action').click();
     const after = await until('the concrete bound answer to be accepted', () => {
       const view = publicStatus();
@@ -111,8 +125,19 @@ test('real editor offers the bound quota model and effort decision', { timeout: 
     assert.equal(fs.readFileSync(fixture.calls, 'utf8'), originalCalls, 'answering the question launches no model');
     passed = true;
   } catch (error) {
-    console.error('Quota route host diagnostics:', JSON.stringify({ root, lastState }));
-    await win?.screenshot({ path: path.join(EXTENSION, '.vscode-test', 'host-quota-route.png'), timeout: 5_000 }).catch(() => {});
+    const actions = path.join(root, 'actions.jsonl');
+    if (openedFrame) {
+      lastState = await Promise.race([
+        openedFrame.evaluate(() => ({ text: document.body.innerText, action: document.querySelector('#take-action')?.textContent,
+          error: document.querySelector('#chat-error')?.textContent })),
+        new Promise((resolve) => setTimeout(() => resolve(lastState), 3_000)),
+      ]).catch(() => lastState);
+    }
+    console.error('Quota route host diagnostics:', JSON.stringify({ root, lastState, lastStatus,
+      actions: fs.existsSync(actions) ? fs.readFileSync(actions, 'utf8') : '(no answer action)' }));
+    fs.mkdirSync(path.join(EXTENSION, '.vscode-test'), { recursive: true });
+    await win?.screenshot({ path: path.join(EXTENSION, '.vscode-test', 'host-quota-route.png'), timeout: 5_000 })
+      .catch((screenshotError) => console.error('Quota route screenshot failed:', screenshotError.message));
     throw error;
   } finally {
     if (app) {
