@@ -14,6 +14,10 @@ what was independently observed during continuation.
   changed assertion can fail under the same ID, so that judgment cannot
   establish the identical-failure condition for #3944. Preserve and compare
   authenticated failure provenance before exempting either replay half.
+  The existing unittest signature parser distinguishes assertion details.
+  Pytest records JUnit results, while other runners have their own reporters.
+  Their per-test failure details need a shared representation tied to the
+  runner-owned capture. Missing or incomplete details must not count as equal.
 - Review found a potential false proof in the #3926 work. For a new feature,
   `autocode_test_setup.not_evidence` discards even a reported missing
   third-party dependency. The module-level path also classifies an unloaded
