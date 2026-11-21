@@ -4,6 +4,13 @@ The branch contains the work recorded in commit `458b1ae4a` for #3814 and #3926.
 The original handoff file was absent from this checkout, so this status records
 what was independently observed during continuation.
 
+The branch was rebased onto master `6ae029754` and additionally incorporates
+the capture ownership fixture correction from `251841736` (cherry-picked as
+`493baaae5`). Focused provenance, protected-oracle, capture fixture,
+incomplete-outcome and architecture suites passed 101 tests on that rebased
+head. Full ruff and mypy passed (971 files). The three #3926 unsafe-dependency
+regressions were rerun on the same head and remain red.
+
 - #3944 is in progress. A first provenance-based replay implementation now
   accepts identical named failures from authenticated base and candidate proof
   captures for directly recognized Python pytest and unittest commands and Go
@@ -69,8 +76,8 @@ what was independently observed during continuation.
   regressions remain red here until classification is corrected. The in-test
   case mentions that dependency in an added source comment, guarding against
   treating a matching diff word alone as proof that the project provides it.
-- Ruff check and format check passed locally. Mypy passed on 966 source files
-  after the traceback-root normalization.
+- Ruff check and format check passed locally. Mypy passed on 971 source files
+  on the rebased head.
 - A broader 137-test replay/architecture/scheduler run failed its old
   architecture size limit (the capture code has since moved into the
   lower-level scheduler and the targeted architecture check passes) and timed
@@ -92,7 +99,7 @@ what was independently observed during continuation.
 - The focused command below passed 119 tests with normal process access
   before adding the intentionally red dependency regressions described above.
   A sandboxed attempt produced process-access errors.
-- The branch has not been reviewed for a PR or merged.
+- A draft PR is being prepared for review. This branch is not ready to merge.
 
 Focused command in this checkout:
 
