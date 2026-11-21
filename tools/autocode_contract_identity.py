@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
@@ -17,6 +18,23 @@ except ImportError:
 
 def token(contract):
     return f"r{contract['revision']}:{contract['hash']}"
+
+
+def approval_identity(state: RunState):
+    """The saved contract's identity and approval, the one projection admission and the view compare."""
+    contract = state.get("goal_contract")
+    if not contract:
+        return None
+    expected = util.digest({key: contract[key] for key in ("task_id", "revision", "body")})
+    if contract.get("hash") != expected:
+        raise ValueError("Cannot authorize a question against an unsealed contract")
+    return {
+        "task_id": contract["task_id"],
+        "revision": contract["revision"],
+        "hash": contract["hash"],
+        "approval_status": contract.get("approval_status"),
+        "approval_event": copy.deepcopy(contract.get("approval_event")),
+    }
 
 
 def sealed(contract):

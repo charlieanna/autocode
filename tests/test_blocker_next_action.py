@@ -284,6 +284,15 @@ class BlockerNeedTests(unittest.TestCase):
         self.assertIsNone(pause_authority.feedback_refusal(self.state))
         self.assertIsNone(pause_authority.correction_refusal(self.state, "An edited goal"))
 
+    def test_answered_blocker_does_not_offer_a_resume_that_will_hold_again(self):
+        self.answer_blocker_with_information()
+        view = self.view()
+        self.assertTrue(view["needs"]["resume_unavailable"])
+        self.assertIsNone(view["next_command"])
+        self.assertEqual("blocked", view["recovery"]["category"])
+        self.assertNotIn("resume", [action["kind"] for action in view["recovery"]["actions"]])
+        self.assertIsNotNone(view["chat"]["input"])
+
     def test_information_stays_informational_until_the_person_sends_the_correction(self):
         self.state["status"] = "PAUSED_RESOLVER"
         self.contract()

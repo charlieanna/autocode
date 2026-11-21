@@ -257,6 +257,27 @@ def _holds(saved, state: RunState, revision):
     return False
 
 
+def _stale_binding_checks(saved, state: RunState, revision, within):
+    """Name the failed admission checks without exposing any bound values."""
+    if not isinstance(saved, dict):
+        return ["binding"] if within else ["binding", "scope"]
+    current = _binding(state, revision)
+    checks = []
+    if saved.get("source_revision") != current["source_revision"]:
+        checks.append("source")
+    if saved.get("task_id") != current["task_id"]:
+        checks.append("task")
+    if any(saved.get(key) != current[key] for key in ("contract_hash", "contract_revision")):
+        checks.append("contract")
+    if not _holds({**current, "settings_hash": saved.get("settings_hash")}, state, revision):
+        checks.append("settings")
+    if not within:
+        checks.append("scope")
+    if not checks and not _holds(saved, state, revision):
+        checks.append("binding")
+    return checks
+
+
 def _escalated(state: RunState):
     """``state``, then ``state`` on each other route of the Builder lane it is on now.
 
@@ -1806,7 +1827,7 @@ def recover_no_progress(runner, state: RunState, run_dir, workspace, error):
     return True
 
 
-def _dispatch_frontier(state: RunState, record, workspace, run_dir):
+def _dispatch_frontier(state: RunState, record, workspace, run_dir, *, record_stale=False):
     """The existing non-consuming packet/source/input/scope dispatch frontier."""
     stage = record.get("stage")
     if stage not in ("builder", "resolve", "diagnose") or record.get("report_only") or record.get("dry_run"):
@@ -1856,13 +1877,24 @@ def _dispatch_frontier(state: RunState, record, workspace, run_dir):
         expected = admission["binding"]
         within = _narrows(packet["scope"], scope, _decided(packet))
     if not _holds(expected, state, revision) or not within:
+        if record_stale:
+            request["stale_checks"] = _stale_binding_checks(expected, state, revision, within)
+            state.setdefault("user_events", []).append(
+                {
+                    "kind": "recovery_packet_stale",
+                    "actor": "runner",
+                    "at": util.now(),
+                    "stage": stage,
+                    "failed_checks": list(request["stale_checks"]),
+                }
+            )
         _stale("current source, task, settings, contract or scope changed before admission")
     return request, pointer, packet, revision, bound
 
 
 def admit_dispatch(state: RunState, record, workspace, run_dir, *, retry_authorization=None):
     """Run inside the caller's final locked admission, before any allowance charge."""
-    checked = _dispatch_frontier(state, record, workspace, run_dir)
+    checked = _dispatch_frontier(state, record, workspace, run_dir, record_stale=True)
     if checked is None:
         return
     request, pointer, packet, revision, bound = checked

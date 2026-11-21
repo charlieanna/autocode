@@ -42,22 +42,18 @@ COMMAND = "--resume-paused --accept-source-edit"
 
 def resume_action(state: RunState) -> str | None:
     """The status-view command for a source-only stale repair, or None."""
-    request = state.get("resolution_request") or {}
-    if (
-        state.get("status") == "PAUSED_STALE_HANDOFF"
-        and request.get("source_revision")
-        and state.get("stop_reason") in SOURCE_REASONS
-    ):
-        return COMMAND
-    return None
+    workspace = state.get("workspace")
+    if not workspace:
+        return None
+    try:
+        _reviewed_source(state, workspace)
+    except (ValueError, OSError):
+        return None
+    return COMMAND
 
 
-def accept_reviewed_source(state: RunState, workspace) -> dict:
-    """Rebind the pending repair to the current source. Raise ValueError otherwise.
-
-    Nothing is written until every check passes. The returned event is also
-    appended to ``user_events``.
-    """
+def _reviewed_source(state: RunState, workspace):
+    """Read the same admission checks for the offer and the final action."""
     if state.get("status") != "PAUSED_STALE_HANDOFF":
         raise ValueError("--accept-source-edit applies to a repair paused because its reviewed source changed")
     reason = state.get("stop_reason") or ""
@@ -84,6 +80,12 @@ def accept_reviewed_source(state: RunState, workspace) -> dict:
     pointer = request.get("recovery_packet")
     if pointer:
         _packet_still_binds(state, pointer, previous)
+    return request, previous, current, pointer
+
+
+def accept_reviewed_source(state: RunState, workspace) -> dict:
+    """Rebind the pending repair to the current source after checking admission."""
+    request, previous, current, pointer = _reviewed_source(state, workspace)
     event = {
         "kind": "source_accepted",
         "actor": "user_cli",

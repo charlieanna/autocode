@@ -1495,6 +1495,11 @@ class ChatClient:
             return self.approve(view)
         if offer.get("kind") == "resolver_response":
             return self.resolver_reply(view)
+        if offer.get("kind") == "feedback" and not view.get("next_command"):
+            answer = self.ask("What should change? ")
+            if not answer.strip():
+                return False
+            return self.send(answer, (view.get("chat") or {}).get("context") or "")
         try:
             command = actions.named(view, self.workspace, self.run_dir)
             decided = actions.decisions(view, command)

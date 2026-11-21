@@ -9,6 +9,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import autocode_accepted_source as accepted_source
 import autocode_args
 import autocode_configure as configure
 import autocode_issue as issue
@@ -264,8 +265,10 @@ class RecoveryViewTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "pause changed"):
             recovery.require_token(state, "")
 
-    def test_exact_serial_builder_action_preserves_pins_history_and_scope(self):
-        state = self.state("PAUSED_BUILDER_RETRY_LIMIT")
+    @patch("autocode_legacy_process.assert_no_legacy_process")
+    @patch("autocode_goals.execution_guard")
+    def test_exact_serial_builder_action_preserves_pins_history_and_scope(self, _guard, _process):
+        state = self.state("PAUSED_BUILDER_RETRY_LIMIT", workspace="/project", run_dir="/project/.autocode/run")
         key = recovery.builder_policy.key(state)
         state["builder_retries"] = {key: {"action": "pause", "failures": ["failure-a", "failure-b"]}}
         before = copy.deepcopy(state)
@@ -441,7 +444,10 @@ class RecoveryViewTests(unittest.TestCase):
         self.assertEqual(["inspect", "abandon"], [row["kind"] for row in view["recovery"]["actions"]])
         report.pop("active_stage")
         report["settings"]["report_repair"] = {"max_attempts": 2}
-        view = run_view.view(report)
+        # This synthetic card fixture has no report files; the admission behavior
+        # itself is exercised with real files in the offer-agreement suite.
+        with patch("autocode_report_retry_admission.validate"):
+            view = run_view.view(report)
         self.assertEqual("004/validator-01", view["needs"]["retry_report_attempt"])
         self.assertEqual(["inspect", "retry_report"], [row["kind"] for row in view["recovery"]["actions"]])
 
@@ -477,9 +483,10 @@ class RecoveryViewTests(unittest.TestCase):
         self.assertEqual("Builder", result["failure_groups"][1]["role"])
         self.assertEqual(3, result["failure_groups"][1]["count"])
         self.assertIsNone(result["failure_groups"][0]["last_reason"])
-        self.assertIn("retry_failed_stage", [row["kind"] for row in result["actions"]])
+        self.assertNotIn("retry_failed_stage", [row["kind"] for row in result["actions"]])
 
-    def test_parallel_retry_targets_only_failed_members_and_never_a_running_batch(self):
+    @patch("autocode_parallel_retry_admission.member_retry_refusal", return_value=None)
+    def test_parallel_retry_targets_only_failed_members_and_never_a_running_batch(self, _admission):
         state = self.state(
             "PAUSED_ORCHESTRATOR_WORKER",
             next_stage="orchestrator",
@@ -501,7 +508,8 @@ class RecoveryViewTests(unittest.TestCase):
         state["orchestration_batch"]["workers"][0]["status"] = "RUNNING"
         self.assertFalse(any(row["kind"] == "retry_builder" for row in self.card(state)["actions"]))
 
-    def test_a_member_model_stop_answered_without_a_model_names_its_one_control(self):
+    @patch("autocode_parallel_retry_admission.member_retry_refusal", return_value=None)
+    def test_a_member_model_stop_answered_without_a_model_names_its_one_control(self, _admission):
         # #541: once its request was answered with information (or left paused), no question is open and
         # needs.action and the card name one control: a quota stop reruns unchanged, a refusal is asked again.
         def answered(status):
@@ -564,9 +572,12 @@ class RecoveryViewTests(unittest.TestCase):
         actions = self.card(self.state("WAITING_FOR_DEPENDENCY"))["actions"]
         self.assertEqual(["inspect", "feedback"], [row["kind"] for row in actions])
 
-    def test_each_execution_action_names_the_exact_cli_flags_it_runs(self):
+    @patch("autocode_legacy_process.assert_no_legacy_process")
+    @patch("autocode_goals.execution_guard")
+    @patch("autocode_parallel_retry_admission.member_retry_refusal", return_value=None)
+    def test_each_execution_action_names_the_exact_cli_flags_it_runs(self, _admission, _guard, _process):
         # A client runs these after the inspected token instead of mapping an action's kind to flags (#730).
-        builder = self.state("PAUSED_BUILDER_RETRY_LIMIT")
+        builder = self.state("PAUSED_BUILDER_RETRY_LIMIT", workspace="/project", run_dir="/project/.autocode/run")
         builder["builder_retries"] = {recovery.builder_policy.key(builder): {"action": "pause", "failures": ["a"]}}
         parallel = self.state(
             "PAUSED_ORCHESTRATOR_WORKER",
@@ -587,12 +598,15 @@ class RecoveryViewTests(unittest.TestCase):
         source_edit = self.state(
             "PAUSED_STALE_HANDOFF",
             stop_reason="Repair diagnosis needs the current reviewed source and task",
-            resolution_request={"source_revision": "s1"},
+            workspace="/tmp",
+            resolution_request={"source_revision": "s1", "task_id": "t", "contract_hash": "approved"},
         )
+        with patch.object(accepted_source.source_scope, "snapshot", return_value={"revision": "s2"}):
+            source_card = self.card(source_edit)
         cases = [
             (self.card(self.state("PAUSED_REQUESTED")), "resume", ["--resume-paused"]),
             (self.card(self.state("PAUSED_PROCESS_CLEANUP")), "resume", ["--resume-paused"]),
-            (self.card(source_edit), "accept_source_edit", ["--resume-paused", "--accept-source-edit"]),
+            (source_card, "accept_source_edit", ["--resume-paused", "--accept-source-edit"]),
             (self.card(interrupted), "abandon", ["--abandon-stage", "004/builder-02"]),
             (self.card(builder), "retry_builder", ["--resume-paused", "--retry-builder", "M1"]),
             (self.card(parallel), "retry_builder:M3", ["--resume-paused", "--retry-builder", "M3"]),
@@ -607,7 +621,7 @@ class RecoveryViewTests(unittest.TestCase):
                 ["--resume-paused", "--retry-report", "004/validator-01"],
             ),
             (
-                self.card(self.state("PAUSED_REPEATED_FAILURE")),
+                recovery.project(self.state("PAUSED_REPEATED_FAILURE"), {"kind": "resume"}),
                 "retry_failed_stage",
                 ["--resume-paused", "--retry-failed-stage"],
             ),
@@ -634,8 +648,14 @@ class RecoveryViewTests(unittest.TestCase):
         # The run names --resume-paused --accept-source-edit as the one command that continues;
         # without a card action a dashboard reader had no way to continue it (#730).
         reason = "Repair diagnosis needs the current reviewed source and task"
-        edited = self.state("PAUSED_STALE_HANDOFF", stop_reason=reason, resolution_request={"source_revision": "s1"})
-        view = run_view.view(edited)
+        edited = self.state(
+            "PAUSED_STALE_HANDOFF",
+            stop_reason=reason,
+            workspace="/tmp",
+            resolution_request={"source_revision": "s1", "task_id": "t", "contract_hash": "approved"},
+        )
+        with patch.object(accepted_source.source_scope, "snapshot", return_value={"revision": "s2"}):
+            view = run_view.view(edited)
         self.assertEqual("--resume-paused --accept-source-edit", view["needs"]["action"])
         self.assertEqual(
             ["inspect", "accept_source_edit", "feedback"], [row["kind"] for row in view["recovery"]["actions"]]

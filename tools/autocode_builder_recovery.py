@@ -21,8 +21,8 @@ except ImportError:
     import autocode_util as util
 
 
-def request_serial_retry(state: RunState, selected, *, pause_status=None):
-    """Grant one attempt to this stopped milestone; ordinary resume grants none."""
+def serial_retry_frontier(state: RunState, selected, *, pause_status=None):
+    """Validate the stopped serial Builder without changing its saved state."""
     task = state.get("current_task") or {}
     members = task.get("milestone_ids") or [task.get("milestone_id") or task.get("id")]
     current = state.get("builder_retries", {}).get(policy.key(state))
@@ -45,6 +45,13 @@ def request_serial_retry(state: RunState, selected, *, pause_status=None):
         raise ValueError("Pending Builder repair belongs to a different approved contract")
     if not pending and task.get("kind") != "implement":
         raise ValueError("Serial Builder retry requires an implementation task or a pending Resolver repair")
+
+
+def request_serial_retry(state: RunState, selected, *, pause_status=None):
+    """Grant one attempt to this stopped milestone; ordinary resume grants none."""
+    serial_retry_frontier(state, selected, pause_status=pause_status)
+    current = state["builder_retries"][policy.key(state)]
+    pending = state.get("resolution_request")
     route = state["settings"]["roles"]["builder"]
     at = util.now()
     current["action"] = "retry"

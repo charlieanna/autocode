@@ -105,6 +105,9 @@ def progress(
     continuing: bool = False,
     internal_failure=None,
     liveness=None,
+    recovery=None,
+    next_command=None,
+    person_input=None,
     gathered: dict | None = None,
     retained: dict | None = None,
 ) -> dict:
@@ -124,6 +127,8 @@ def progress(
               raised limit is being applied, so the stop no longer waits for the person
     liveness  the same fresh classified stage observation as the public view; an open accounting
               slot or a saved timestamp alone never establishes working activity
+    recovery  the public recovery card, including whether the core classified this pause as blocked
+    next_command, person_input  the public actions, so a blocked card cannot hide a real person decision
     gathered  the status view's published Requirements record (`requirements`), so a run with no plan
               yet names the requirements it gathered instead of "no requirements yet" (#3864)
     retained  the status view's `acceptance_verification_retry` (autocode_acceptance_retry_next), so a resume
@@ -166,6 +171,14 @@ def progress(
         headline, stage = "Continuing", None
         asked = "nothing needed from you"
         observed_continuation = True
+    elif (
+        _mapping(recovery).get("category") == "blocked"
+        and kind == "resume"
+        and (needs or {}).get("resume_unavailable")
+        and not next_command
+        and not person_input
+    ):
+        headline, asked = "Task blocked", "nothing needed from you"
     elif status == "PAUSED_SOURCE_UNAVAILABLE":
         headline = "Recovering source access" if kind == "continue" else "Source access unavailable"
         asked = "nothing needed from you"

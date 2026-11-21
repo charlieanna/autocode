@@ -16,27 +16,30 @@ from autocode_taskrun import TaskRun, TaskRunError
 
 from . import test_subprocess
 from .opencode_fixture_cli import entrypoint
+from .test_offer_admission_agreement import SavedRunFixtures
 
 
-class ReportRetryPolicyTests(unittest.TestCase):
-    def state(self):
-        identity = {"stage": "tester", "artifact_hash": "source", "error_class": "RuntimeError"}
+class ReportRetryPolicyTests(SavedRunFixtures, unittest.TestCase):
+    def setUp(self):
+        self.open_run()
+        self.addCleanup(self.temp.cleanup)
+
+    def policy_state(self):
+        state = self.report()
+        pending = state["pending_report_repair"]
+        original = pending["original"]
+        repair = state["stages"][-1]
+        repair.update(iteration=1, output=str(self.run / "iterations/001/repair-01.json"))
+        identity = {"stage": "tester", "artifact_hash": original["source_revision"], "error_class": "RuntimeError"}
         key = failures.key(identity)
-        return {
-            "status": "PAUSED_REPEATED_FAILURE",
-            "next_stage": "tester",
-            "settings": {"report_repair": {"max_attempts": 2}},
-            "pending_report_repair": {
-                "attempts": 1,
-                "error": retry.RETRYABLE_ERRORS[0],
-                "original": {"stage": "tester", "source_revision": "source", "failure_key": key},
-                "latest_rejected": {"failure_key": key, "iteration": 1, "output": "/run/repair-01.json"},
-            },
-            "failure_history": {key: {"identity": identity, "count": 3, "streak": 3}},
-        }
+        original["failure_key"] = key
+        repair["failure_key"] = key
+        pending.update(attempts=1, error=retry.RETRYABLE_ERRORS[0], latest_rejected=repair)
+        state["failure_history"] = {key: {"identity": identity, "count": 3, "streak": 3}}
+        return state
 
     def test_partial_limit_requires_this_exact_consecutive_failure(self):
-        state = self.state()
+        state = self.policy_state()
         self.assertTrue(retry.bounded_failure(state, 2))
         for case in (
             "not_paused",
@@ -71,7 +74,7 @@ class ReportRetryPolicyTests(unittest.TestCase):
         self.assertFalse(retry.bounded_failure(state, 0))
 
     def test_status_distinguishes_exact_retry_changed_source_and_active_work(self):
-        state = self.state()
+        state = self.policy_state()
         for error in retry.RETRYABLE_ERRORS:
             state["pending_report_repair"]["error"] = error
             self.assertEqual("--resume-paused --retry-report 001/repair-01", run_view.needs(state)["action"])
@@ -85,9 +88,13 @@ class ReportRetryPolicyTests(unittest.TestCase):
                 actions = [row["kind"] for row in run_view.view(held)["recovery"]["actions"]]
                 self.assertNotIn("retry_failed_stage", actions)
         for stage in ("builder", "review_completion"):
-            held = self.state()
+            held = self.policy_state()
             held["next_stage"] = stage
-            identity = {"stage": stage, "artifact_hash": "source", "error_class": "RuntimeError"}
+            identity = {
+                "stage": stage,
+                "artifact_hash": held["pending_report_repair"]["original"]["source_revision"],
+                "error_class": "RuntimeError",
+            }
             key = failures.key(identity)
             held["pending_report_repair"]["original"].update(stage=stage, failure_key=key)
             held["pending_report_repair"]["latest_rejected"]["failure_key"] = key
@@ -103,7 +110,7 @@ class ReportRetryPolicyTests(unittest.TestCase):
 
     def test_an_explained_rejection_keeps_its_exact_retry(self):
         # The event-check rejection now says which call the cited command ran inside; the retry it offered stays.
-        state = self.state()
+        state = self.policy_state()
         explained = (
             "Check is not supported by an exact executed Validator event: it ran only inside "
             "`node node_modules/vitest/vitest.mjs run 2>&1 | tail -15`, joined with other commands or piped into a filter"
@@ -116,18 +123,20 @@ class ReportRetryPolicyTests(unittest.TestCase):
 
     def test_fresh_attempt_stopped_before_any_repair_names_itself(self):
         # An explicit retry that fails the same way is stopped by the bound before a correction or repair runs.
-        state = self.state()
+        state = self.policy_state()
         key = state["pending_report_repair"]["original"]["failure_key"]
         fresh = {
             "stage": "tester",
             "iteration": 2,
             "output": "/run/validator-02.json",
             "rejected": True,
-            "source_revision": "source",
+            "source_revision": state["pending_report_repair"]["original"]["source_revision"],
+            "schema": state["pending_report_repair"]["original"]["schema"],
             "failure_key": key,
             "failure_attempt": "2:sol:/run/validator-02.json",
         }
-        state["pending_report_repair"] = {"attempts": 0, "error": retry.RETRYABLE_ERRORS[0], "original": fresh}
+        state["pending_report_repair"].update(attempts=0, error=retry.RETRYABLE_ERRORS[0], original=fresh)
+        state["pending_report_repair"].pop("latest_rejected")
         state["failure_history"][key].update(
             count=4, streak=4, attempts=["1:sol:/run/validator-01.json", fresh["failure_attempt"]]
         )

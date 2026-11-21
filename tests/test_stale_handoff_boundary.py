@@ -30,6 +30,7 @@ import autocode_network_retry as network_retry
 import autocode_resolver_recovery as recovery
 import autocode_role_launch as role_launch
 import autocode_run_records as records
+import autocode_run_view as run_view
 import autocode_source_scope as source_scope
 import autocode_stage_recovery as stage_recovery
 import autocode_support as support
@@ -658,6 +659,42 @@ class PacketPauseGuardTests(unittest.TestCase):
             recovery.admit_dispatch(self.state, {"stage": "resolve"}, self.root, self.run)
         self.assertEqual("PAUSED_STALE_HANDOFF", caught.exception.status)
         self.assertEqual(PACKET_REASON, str(caught.exception))
+        self.assertEqual(["settings"], self.request["stale_checks"])
+        recorded = self.state["user_events"][-1]
+        self.assertEqual("recovery_packet_stale", recorded["kind"])
+        self.assertEqual(["settings"], recorded["failed_checks"])
+        self.assertNotIn("model_pinned", str(recorded))
+        self.assertNotIn("settings_hash", str(recorded))
+        # Once the temporary request is removed, the decision remains in the
+        # run's event evidence rather than disappearing with that request.
+        retained = copy.deepcopy(self.state)
+        retained.pop("resolution_request")
+        self.assertEqual(recorded, retained["user_events"][-1])
+        self.state.update(status="PAUSED_STALE_HANDOFF", stop_reason=PACKET_REASON)
+        self.assertEqual(["settings"], run_view.needs(self.state)["stale_checks"])
+
+    def test_packet_admission_names_each_failed_binding_without_settings_values(self):
+        saved = recovery._binding(self.state, "s1")
+        self.assertEqual([], recovery._stale_binding_checks(saved, self.state, "s1", True))
+        self.assertEqual(["binding", "scope"], recovery._stale_binding_checks(None, self.state, "s1", False))
+        cases = [
+            ("source", {**saved, "source_revision": "old"}, True, ["source"]),
+            ("task", {**saved, "task_id": "old"}, True, ["task"]),
+            ("contract", {**saved, "contract_hash": "old"}, True, ["contract"]),
+            ("settings", {**saved, "settings_hash": "secret-value"}, True, ["settings"]),
+            ("scope", saved, False, ["scope"]),
+            (
+                "mixed",
+                {**saved, "source_revision": "old", "settings_hash": "secret-value"},
+                False,
+                ["source", "settings", "scope"],
+            ),
+        ]
+        for label, binding, within, expected in cases:
+            with self.subTest(label=label):
+                names = recovery._stale_binding_checks(binding, self.state, "s1", within)
+                self.assertEqual(expected, names)
+                self.assertNotIn("secret-value", str(names))
 
 
 if __name__ == "__main__":
