@@ -453,6 +453,30 @@ class AcceptanceReferenceTests(unittest.TestCase):
                 self.assertIn("error", result)
                 self.assertNotIn("verdicts", result)
 
+    def test_a_test_with_one_failing_example_does_not_pass_for_the_tester_s_report(self):
+        # #4026: one example of AC1's test fails on the candidate, the others pass. The reference check already
+        # read that as "does not pass"; the report check read it as passing, so the Tester's claim that AC1
+        # already works was accepted and the run paused for the person.
+        (self.workspace / "app.py").write_text("def answer(x=0):\n    return 42 if x == 0 else 0\n")
+        (self.workspace / "tests/test_feature.py").write_text(
+            "import pytest\nfrom app import answer\n"
+            "@pytest.mark.parametrize('x', [0, 1])\n"
+            "def test_ac1_answer(x):\n    assert answer(x) == 42\n"
+        )
+        self.state["settings"]["regression"] = {
+            "test_command": f"{sys.executable} -m pytest -q -p no:cacheprovider tests/test_feature.py"
+        }
+        self.value["already_passing"] = [{"case_id": "AC1", "evidence": "Its named test passed on the candidate"}]
+        with self.assertRaisesRegex(ValueError, "AC1 was reported already working, but test_ac1_answer does not pass"):
+            self.apply()
+        self.assertNotEqual("PAUSED_ACCEPTANCE_TESTS", self.state.get("status"))
+        self.assertFalse(acceptance.receipts(self.state))
+        # Without the claim the test is a test: case's failing test, as the Builder needs it.
+        self.value["already_passing"] = []
+        self.apply().assert_not_called()
+        self.assertEqual("builder", self.state["next_stage"])
+        self.assertEqual("fails", next(iter(acceptance.receipts(self.state).values()))["results"]["AC1"])
+
     def test_failed_candidate_never_runs_original_reference(self):
         (self.workspace / "app.py").write_text("def answer():\n    return 0\n")
         with patch.object(autoreview.acceptance_reference, "collect") as collect:

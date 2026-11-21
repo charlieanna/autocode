@@ -35,7 +35,9 @@ except ImportError:
     import autocode_util as util
 
 KIND = "plan_defect"
-USER_INPUT = ("answer", "brief_feedback", "goal_edit")
+# The person's input that starts a new round. Approving the corrected plan is one: a defect found after
+# it (the tool boundary refusing an approved plan's command) is a new correction, not the same loop.
+USER_INPUT = ("answer", "brief_feedback", "goal_edit", "goal_approval")
 
 
 def plan_ids(body) -> set[str]:
@@ -59,7 +61,7 @@ def named_parts(question, body) -> list[str]:
 
 
 def settled_this_round(state: RunState) -> bool:
-    """Whether AutoCode has settled a plan defect since the person's last answer or feedback."""
+    """Whether AutoCode has settled a plan defect since the person's last answer, feedback or approval."""
     for event in reversed(state.get("user_events") or []):
         if event.get("actor") == "user_cli" and event.get("kind") in USER_INPUT:
             return False

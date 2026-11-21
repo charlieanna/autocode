@@ -34,6 +34,25 @@ CORE_CONSUMERS = (
     "tests.test_inprocess_cli",
 )
 PUBLIC_FLOW_CONSUMERS = ("tests.test_launch_state_cli", "tests.test_completion_status")
+
+# These helpers are loaded dynamically by the extension-host tests, not by a
+# Python import. Keep the consuming test named so fixture-only edits run it.
+EXTENSION_HOST_RESOURCES = {
+    "tests/guard_host_hook/sitecustomize.py": ("vscode-extension/test/host/job-route-effort.test.cjs",),
+    "tests/host_status_site/sitecustomize.py": ("vscode-extension/test/host/status-retry.test.cjs",),
+    "tests/job_route_vscode_cli.py": ("vscode-extension/test/host/job-route-effort.test.cjs",),
+    "tests/job_route_vscode_fixture.py": ("vscode-extension/test/host/job-route-effort.test.cjs",),
+    "tests/provider_auth_fixture.py": ("vscode-extension/test/host/editor-host.test.cjs",),
+    "tests/protected_link_vscode_fixture.py": ("vscode-extension/test/host/protected-link-recovery.test.cjs",),
+    "tests/rustup_vscode_fixture.py": ("vscode-extension/test/host/rustup-containment.test.cjs",),
+    "tests/source_recovery_vscode_fixture.py": ("vscode-extension/test/host/source-recovery.test.cjs",),
+    "tests/status_retry_host_cleanup.py": (
+        "vscode-extension/test/host/job-route-effort.test.cjs",
+        "vscode-extension/test/host/status-retry.test.cjs",
+    ),
+    "tests/status_retry_host_cli.py": ("vscode-extension/test/host/status-retry.test.cjs",),
+    "tests/status_retry_host_fixture.py": ("vscode-extension/test/host/status-retry.test.cjs",),
+}
 ACTIONLESS_CONSUMERS = (
     "tests.test_actionless_consumers",
     "tests.test_issue",

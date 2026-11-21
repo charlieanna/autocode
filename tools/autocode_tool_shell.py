@@ -74,16 +74,12 @@ def search_path(runtime: dict, path: str) -> str:
     return str(Path(runtime["alias"]).parent) + os.pathsep + path
 
 
-# The only variables a selected toolchain's rule may hand the contained shell (autocode_toolchain.discover):
-# each names a read-only toolchain location, never a credential or the person's own configuration.
-TOOL_VARIABLES = ("RUSTUP_HOME",)
-
-
-def environment(runtime, scratch, control_name, original, verification, tools=None):
+def environment(runtime, scratch, control_name, original, verification, path_prefix=()):
     """Tools receive only their owned temporary area and nonsecret runtime setup.
 
-    ``tools`` is the selected toolchains' own setup (autocode_toolchain.discover's ``environment``): only the
-    names in ``TOOL_VARIABLES`` are taken, each a read-only toolchain location."""
+    ``path_prefix`` is the selected toolchains' own bin directories (autocode_toolchain.discover), read-only
+    roots placed ahead of the person's PATH so a tool resolves to the selected runtime, never to a proxy that
+    would write outside the boundary (#4017)."""
     safe = {
         "GIT_CONFIG_NOSYSTEM": "1",
         "GIT_CONFIG_GLOBAL": "/dev/null",
@@ -91,7 +87,9 @@ def environment(runtime, scratch, control_name, original, verification, tools=No
         "OPENSSL_CONF": "/dev/null",
         "NPM_CONFIG_USERCONFIG": str(scratch / "npm-user.conf"),
         "NPM_CONFIG_GLOBALCONFIG": str(scratch / "npm-global.conf"),
-        "PATH": search_path(runtime, original.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")),
+        "PATH": search_path(
+            runtime, os.pathsep.join([*path_prefix, original.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")])
+        ),
         "HOME": str(scratch),
         "TMPDIR": str(scratch),
         "TMP": str(scratch),
@@ -106,10 +104,6 @@ def environment(runtime, scratch, control_name, original, verification, tools=No
         "AUTOCODE_TOOL_CONTAINMENT_ID": control_name,
         "AUTOCODE_OUTPUT_STORE": str(scratch / "output-store"),
     }
-    for name, value in (tools or {}).items():
-        if name not in TOOL_VARIABLES or not isinstance(value, str):
-            raise ValueError(f"Unsupported toolchain variable for tool containment: {name}")
-        safe[name] = value
     if verification:
         safe["AUTOCODE_VERIFICATION_COPY"] = verification["manifest"]
         safe["AUTOCODE_VERIFICATION_COPY_SHA256"] = verification["sha256"]

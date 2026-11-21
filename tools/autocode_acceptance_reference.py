@@ -56,20 +56,28 @@ class SetupEvidenceRequired(ValueError):
         self.receipt = receipt
 
 
+def wholly_passing(named, results) -> dict[str, list[str]]:
+    """Each case's passing test IDs when its test wholly passed, else none: one failed or skipped part
+    (a parametrized example, a subtest) means the test does not pass.
+
+    The one answer to "does this case's test pass" for the reference selection and the Tester's report check
+    (autocode_acceptance_tests_job._verdicts). A test with one failing example had been called passing there,
+    so the Tester's claim that it already works was accepted and the run paused for the person (#4026).
+    """
+    passes = test_cases.match_cases(named, results.get("passed") or [])
+    nonpasses = test_cases.match_cases(named, [*(results.get("failed") or []), *(results.get("skipped") or [])])
+    return {case["id"]: [] if nonpasses[case["id"]] else sorted(passes[case["id"]]) for case in named}
+
+
 def passing(cases, rows, run, inherited):
     """Only wholly passing restore cases need classification, using observed IDs."""
     reported = {row["case_id"]: row for row in rows}
     named = [{**case, "test_name": reported[case["id"]]["test_name"]} for case in cases]
-    results = run.get("results") or {}
-    passes = test_cases.match_cases(named, results.get("passed") or [])
-    nonpasses = test_cases.match_cases(named, [*(results.get("failed") or []), *(results.get("skipped") or [])])
+    passes = wholly_passing(named, run.get("results") or {})
     return {
-        case["id"]: sorted(passes[case["id"]])
+        case["id"]: passes[case["id"]]
         for case in named
-        if case.get("kind") != "preserve"
-        and case["id"] not in inherited
-        and passes[case["id"]]
-        and not nonpasses[case["id"]]
+        if case.get("kind") != "preserve" and case["id"] not in inherited and passes[case["id"]]
     }
 
 

@@ -50,8 +50,35 @@ class ScopeTests(unittest.TestCase):
             "tools/autocode_usage.py",
             "tools/autocode_progress_view.py",
             "tests/provider_auth_fixture.py",
+            "tests/protected_link_vscode_fixture.py",
         ):
             self.assertIn("extension", self.enabled(path))
+
+    def test_each_host_fixture_alone_selects_its_actual_extension_host_consumer(self):
+        for fixture in (
+            "tests/guard_host_hook/sitecustomize.py",
+            "tests/host_status_site/sitecustomize.py",
+            "tests/job_route_vscode_cli.py",
+            "tests/job_route_vscode_fixture.py",
+            "tests/provider_auth_fixture.py",
+            "tests/protected_link_vscode_fixture.py",
+            "tests/rustup_vscode_fixture.py",
+            "tests/source_recovery_vscode_fixture.py",
+            "tests/status_retry_host_cleanup.py",
+            "tests/status_retry_host_cli.py",
+            "tests/status_retry_host_fixture.py",
+        ):
+            with self.subTest(fixture=fixture):
+                self.assertIn("extension", self.enabled(fixture))
+
+    def test_protected_link_fixture_selects_only_its_registered_host_path(self):
+        from tools import ci_test_selection
+
+        self.assertEqual(
+            ("vscode-extension/test/host/protected-link-recovery.test.cjs",),
+            ci_test_selection.EXTENSION_HOST_RESOURCES["tests/protected_link_vscode_fixture.py"],
+        )
+        self.assertNotIn("extension", self.enabled("tests/unrelated/protected_link_vscode_fixture.py"))
 
     def test_visual_changes_keep_their_real_browser_job(self):
         self.assertTrue({"suite", "visual", "wheel"} <= self.enabled("tools/autocode_visual_browser.cjs"))
