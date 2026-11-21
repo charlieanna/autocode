@@ -21,8 +21,11 @@ import autocode as runner
 import autocode_claim_evidence as claim_evidence
 import autocode_diagnostics_comparison as comparison
 import autocode_goal_lifecycle as lifecycle
+import autocode_job_source as job_source
 import autocode_report_check as report_check
+import autocode_role_launch as role_launch
 import autocode_support as s
+import autocode_util as util
 from goal_fixtures import body, envelope
 
 from . import test_goals
@@ -210,6 +213,76 @@ class ReportCheckClaimTests(unittest.TestCase):
                 problems, rows = claim_evidence.judge("review_completion", report, context)
                 self.assertEqual(expected, rows[0]["status"])
                 self.assertEqual(expected == "contradicted", bool(problems))
+
+    def test_report_check_binds_the_actual_capture_attempt_before_launch(self):
+        stage = "review_completion"
+        base = self.run / "stages" / "completion-1"
+        base.parent.mkdir(parents=True)
+        events = base.with_suffix(".jsonl")
+        spec_path = self.run / "planning" / "report-check" / f"{stage}-{base.parent.name}-{base.name}.json"
+        spec_path.parent.mkdir(parents=True)
+        spec = report_check.build_spec(
+            stage=stage, workspace=self.root, schema=SCHEMA, state=self.state(), events_path=events
+        )
+        for mode in ("report_file", "opencode_events"):
+            for attempt in (1, 2):
+                with self.subTest(mode=mode, attempt=attempt):
+                    spec_path.write_text(json.dumps(spec))
+                    record = {"stage": stage, "events": str(events), "output_mode": mode}
+                    options = {"env": dict(os.environ)}
+                    output = base.with_suffix(".json")
+                    job_source.prepare_capture_context(record, {"revision": f"source-{attempt}"}, output, options)
+                    role_launch.bind_report_check_attempt(self.run, base, stage, record, util.atomic_json)
+                    bound = json.loads(spec_path.read_text())
+                    name = f"evidence-check3-independent-probe-{mode}-{attempt}.json"
+                    path = self.root / ".autocode/evidence" / name
+                    environment = {**options["env"], "AUTOCODE_OUTPUT_STORE": str(self.root / ".autocode/output-store")}
+                    command = [
+                        sys.executable,
+                        str(ROOT / "tools/autocode.py"),
+                        "capture",
+                        "--output",
+                        str(path),
+                        "--",
+                        sys.executable,
+                        "-c",
+                        "print('ok')",
+                    ]
+                    result = subprocess.run(
+                        command, cwd=self.root, env=environment, capture_output=True, text=True, timeout=20
+                    )
+                    self.assertEqual(0, result.returncode, result.stderr)
+                    actual_report = completion_report([f"The program exits 2 ({name})"])
+                    if mode == "opencode_events":
+                        events.write_text(
+                            json.dumps(
+                                {
+                                    "type": "item.completed",
+                                    "item": {
+                                        "type": "command_execution",
+                                        "command": shlex.join(command),
+                                        "aggregated_output": result.stdout + result.stderr,
+                                    },
+                                }
+                            )
+                            + "\n"
+                        )
+                    pre = report_check.check_report(json.dumps(actual_report), spec=bound)
+                    post, _ = claim_evidence.judge(
+                        stage, actual_report, claim_evidence.context(self.state(), self.root, record=record)
+                    )
+                    self.assertEqual(1, len(pre), pre)
+                    self.assertEqual(pre, post)
+                    if mode == "report_file":
+                        stale = copy.deepcopy(bound)
+                        stale[claim_evidence.SPEC_KEY]["attempt"]["capture_context"]["nonce"] = "previous-attempt"
+                        self.assertEqual([], report_check.check_report(json.dumps(actual_report), spec=stale))
+        # A pre-submit spec from another attempt must not be silently rebound.
+        spec_path.write_text(json.dumps(spec))
+        with self.assertRaisesRegex(ValueError, "does not belong"):
+            role_launch.bind_report_check_attempt(self.run, base, stage, {"events": "elsewhere"}, util.atomic_json)
+        # Report-repair launches do not have a pre-submit spec.
+        role_launch.bind_report_check_attempt(self.run, base.with_name("repair"), stage, {}, util.atomic_json)
 
     def test_comparison_does_not_trust_tampered_baseline_output(self):
         state = self.state([("C3", C3)])

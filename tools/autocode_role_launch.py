@@ -141,6 +141,26 @@ def prepare_schema_and_report_check(
     return schema, prompt
 
 
+def bind_report_check_attempt(run_dir, base, stage, record, save):
+    """Bind the pre-submit claim judge to this launch, after its capture context exists."""
+    spec_path = run_dir / "planning" / "report-check" / f"{stage}-{base.parent.name}-{base.name}.json"
+    if not spec_path.exists():
+        return  # report-only repairs and other launches without a report-check specification
+    spec = util.read(spec_path)
+    context = spec.get(report_check.claim_evidence.SPEC_KEY)
+    if context is None:
+        return
+    expected = str(base.with_suffix(".jsonl"))
+    if (
+        spec.get("stage") != stage
+        or record.get("events") != expected
+        or context.get("attempt", {}).get("events") != expected
+    ):
+        raise ValueError("Report-check specification does not belong to this stage attempt")
+    context["attempt"] = {key: record.get(key) for key in ("events", "output_mode", "capture_context")}
+    save(spec_path, spec)
+
+
 def native_environment(state: RunState, workspace, events, adapter, output, before):
     """The scrubbed environment of a native launch, and its capture context when the tool writes a report file."""
     environment = agent_env.scrubbed(os.environ)
