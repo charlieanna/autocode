@@ -1146,26 +1146,10 @@ def run_suite(framework, command, tree, evidence_dir, label, *, timeout, native_
     receipt = run_command(
         actual, tree, Path(evidence_dir) / f"{label}.log", timeout=timeout, native_execution=native_execution
     )
+    receipt["execution_root"] = str(Path(tree).resolve())
     receipt["results"] = per_test_results(framework, receipt, xml, tree=root)
     receipt["results_expected"] = expects_results(framework, command, root, scripts=scripts)
-    try:
-        command_words = shlex.split(actual)
-    except ValueError:
-        command_words = [actual]
-    if any(str(xml) in word for word in command_words):
-        # The command was told to write its per-test results here; a runner that never started writes none
-        # (autocode_check_outcome RUNNER_NOT_STARTED). A runner that parses its own output names no file.
-        receipt["results_file_written"] = xml.is_file()
-        if native_execution is None and receipt["results_file_written"]:
-            # Keep the runner's own per-test details available for later authenticated comparisons.
-            # A report that is not an ordinary sibling file cannot authorize such a comparison.
-            capture = {"path": str(xml), "sha256": None}
-            try:
-                if not xml.is_symlink() and xml.stat().st_nlink == 1:
-                    capture["sha256"] = util.file_hash(xml)
-            except OSError:
-                pass  # The integrity check refuses an unavailable result file.
-            receipt["results_capture"] = capture
+    schedule.record_result_capture(receipt, xml, actual, retain=native_execution is None)
     if native_execution is not None:
         native_execution.retain_results(receipt)
     return receipt

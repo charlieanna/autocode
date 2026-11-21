@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import subprocess
 import uuid
 from pathlib import Path
@@ -126,6 +127,25 @@ def intact(receipt, *, root=None):
         )
     except (OSError, KeyError, TypeError):
         return False
+
+
+def record_result_capture(receipt, path, command, *, retain):
+    """Record a runner-named results file, respecting shell-quoted evidence paths."""
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        words = [command]
+    if not any(str(path) in word for word in words):
+        return
+    receipt["results_file_written"] = path.is_file()
+    if retain and receipt["results_file_written"]:
+        capture = {"path": str(path), "sha256": None}
+        try:
+            if not path.is_symlink() and path.stat().st_nlink == 1:
+                capture["sha256"] = util.file_hash(path)
+        except OSError:
+            pass  # The integrity check refuses an unavailable result file.
+        receipt["results_capture"] = capture
 
 
 def results_capture_intact(receipt, *, root=None):

@@ -432,6 +432,7 @@ class UndeterminedReplayTests(unittest.TestCase):
             index = 1 if command == self.HOME else 0
             self.calls.append((half, index, command))
             result = copy.deepcopy(receipts.get((half, index)) or self.passing())
+            result.setdefault("command", command)
             if result.get("output"):
                 folder.mkdir(parents=True, exist_ok=True)
                 log = folder / "output.log"
@@ -442,8 +443,12 @@ class UndeterminedReplayTests(unittest.TestCase):
                 report = folder / "results.xml"
                 report.write_bytes(Path(capture["path"]).read_bytes())
                 result["results_capture"] = {"path": str(report), "sha256": guard.util.file_hash(report)}
-            if isinstance(result.get("supervision"), dict):
-                supervision = result["supervision"]
+            supervision = result.get("supervision")
+            if (
+                isinstance(supervision, dict)
+                and isinstance(supervision.get("receipt"), str)
+                and Path(supervision["receipt"]).is_file()
+            ):
                 owned = folder / "supervision.json"
                 owned.write_bytes(Path(supervision["receipt"]).read_bytes())
                 result["supervision"] = {**supervision, "receipt": str(owned)}
@@ -729,6 +734,65 @@ class UndeterminedReplayTests(unittest.TestCase):
         self.assertEqual("PASS", saved["verdict"])
         self.assertIn(test_id, str(saved.get("preexisting_failures")))
 
+    def test_preexisting_failure_is_excused_when_another_project_part_passes(self):
+        self.two_parts()
+        _test_id, replay = self.record_base_failure()
+        log = self.run_dir / "regression" / "other-project.log"
+        log.write_text("test_sub (test_sub.Sub) ... ok\nRan 1 test in 0.01s\n\nOK\n")
+        other = self.passing()
+        other["results"]["passed"] = ["test_sub.Sub::test_sub"]
+        other.update(output=str(log), output_sha256=guard.util.file_hash(log))
+        receipts = {
+            ("candidate", 0): replay,
+            ("candidate", 1): other,
+            ("original", 0): replay,
+            ("original", 1): other,
+        }
+        error, receipt = self.replay(receipts)
+        self.assertEqual(4, len(self.calls), self.calls)
+        self.assertIsNone(error)
+        self.assertEqual("PASS", json.loads(receipt.read_text())["verdict"])
+
+    def test_preexisting_failure_does_not_hide_a_timed_out_project_part(self):
+        self.two_parts()
+        _test_id, replay = self.record_base_failure()
+        log = self.run_dir / "regression" / "other-project.log"
+        log.write_text("test_sub (test_sub.Sub) ... ok\nRan 1 test in 0.01s\n\nOK\n")
+        other = self.passing()
+        other["results"]["passed"] = ["test_sub.Sub::test_sub"]
+        other.update(output=str(log), output_sha256=guard.util.file_hash(log))
+        timed_out = {**other, "timed_out": True, "exit_code": None}
+        receipts = {
+            ("candidate", 0): replay,
+            ("candidate", 1): timed_out,
+            ("original", 0): replay,
+            ("original", 1): other,
+        }
+        error, receipt = self.replay(receipts)
+        self.assertIsInstance(error, guard.util.Paused)
+        self.assertNotIsInstance(error, guard.commands.OriginalGateFailure)
+        self.assertEqual("PAUSED_VERIFICATION_UNCERTAIN", error.status)
+        self.assertEqual("NOT_VERIFIED", json.loads(receipt.read_text())["verdict"])
+
+    def test_same_named_failure_in_another_project_is_not_excused(self):
+        self.two_parts()
+        _test_id, replay = self.record_base_failure()
+        other = self.passing()
+        other["results"]["passed"] = ["test_sub.Sub::test_sub"]
+        log = self.run_dir / "regression" / "other-project.log"
+        log.write_text("test_sub (test_sub.Sub) ... ok\nRan 1 test in 0.01s\n\nOK\n")
+        other.update(output=str(log), output_sha256=guard.util.file_hash(log))
+        cross_project = {**replay, "command": self.HOME}
+        receipts = {
+            ("candidate", 0): replay,
+            ("candidate", 1): cross_project,
+            ("original", 0): replay,
+            ("original", 1): other,
+        }
+        error, receipt = self.replay(receipts)
+        self.assertIsNotNone(error)
+        self.assertNotEqual("PASS", json.loads(receipt.read_text())["verdict"])
+
     def pytest_failure_receipts(self):
         """Keep independently run, authenticated pytest results for the replay cases."""
         import autocode_verification_schedule as schedule
@@ -784,6 +848,45 @@ class UndeterminedReplayTests(unittest.TestCase):
         self.assertIsNone(error)
         self.assertEqual("PASS", saved["verdict"])
 
+    def test_unittest_failure_matches_across_distinct_scratch_roots(self):
+        import autocode_verify as verify
+
+        proof_dir = self.run_dir / "regression" / "unittest-proof"
+        proof_dir.mkdir(parents=True)
+        receipts = []
+        command = shlex.join([sys.executable, "-m", "unittest", "-v", "test_layout"])
+        for label in ("base", "candidate"):
+            project = self.run_dir / ("unittest-" + label)
+            project.mkdir()
+            (project / "test_layout.py").write_text(
+                "import unittest\nclass TestLayout(unittest.TestCase):\n"
+                "    def test_height(self):\n        import missing_autocode_dependency\n"
+            )
+            receipts.append(
+                verify.run_suite(verify.Framework("unittest", command), command, project, proof_dir, label, timeout=30)
+            )
+        revision = guard.source_scope.snapshot(self.project, self.state)["revision"]
+        proof = {
+            "verdict": "PASS",
+            "source_revision": revision,
+            "checks": {"suite_on_base": receipts[0], "suite_on_candidate": receipts[1]},
+        }
+        path = proof_dir / "verification.json"
+        path.write_text(json.dumps(proof))
+        self.state["regression_proof"] = {
+            "verdict": "PASS",
+            "source_revision": revision,
+            "path": str(path),
+            "receipt_sha256": guard.util.file_hash(path),
+            "execution_context": {
+                "test_role_policy": guard.test_roles.VERSION,
+                "protected_test_binding": self.state["settings"]["protected_tests"]["binding_hash"],
+            },
+        }
+        error, receipt = self.replay({("candidate", 0): receipts[1], ("original", 0): receipts[1]})
+        self.assertIsNone(error)
+        self.assertEqual("PASS", json.loads(receipt.read_text())["verdict"])
+
     def test_pytest_different_failure_detail_in_either_half_is_not_excused(self):
         proof_dir, candidate = self.pytest_failure_receipts()
         changed = copy.deepcopy(candidate)
@@ -821,6 +924,15 @@ class UndeterminedReplayTests(unittest.TestCase):
         _test_id, replay = self.record_base_failure("AssertionError: False is not true : database down")
         log = self.run_dir / "regression" / "candidate-different-message.log"
         log.write_text(Path(replay["output"]).read_text().replace("database down", "authorization failed"))
+        changed = {**replay, "output": str(log), "output_sha256": guard.util.file_hash(log)}
+        error, receipt = self.replay({("candidate", 0): changed, ("original", 0): replay})
+        self.assertIsInstance(error, guard.commands.OriginalGateFailure)
+        self.assertEqual("FAIL", json.loads(receipt.read_text())["verdict"])
+
+    def test_unittest_message_that_looks_like_an_object_address_is_not_discarded(self):
+        _test_id, replay = self.record_base_failure("AssertionError: details\nself = <Test object at 0x111>")
+        log = self.run_dir / "regression" / "different-address-message.log"
+        log.write_text(Path(replay["output"]).read_text().replace("0x111", "0x222"))
         changed = {**replay, "output": str(log), "output_sha256": guard.util.file_hash(log)}
         error, receipt = self.replay({("candidate", 0): changed, ("original", 0): replay})
         self.assertIsInstance(error, guard.commands.OriginalGateFailure)
@@ -870,6 +982,21 @@ class UndeterminedReplayTests(unittest.TestCase):
         proof["path"] = str(outside)
         proof["receipt_sha256"] = guard.util.file_hash(outside)
         error, receipt = self.replay({("candidate", 0): replay, ("original", 0): replay})
+        self.assertIsNotNone(error)
+        self.assertNotEqual("PASS", json.loads(receipt.read_text())["verdict"])
+
+    def test_preexisting_failure_cannot_excuse_a_skipped_test(self):
+        _test_id, replay = self.record_base_failure()
+        changed = copy.deepcopy(replay)
+        changed["results"]["skipped"] = ["test_layout.LayoutTests.test_other"]
+        changed["results"]["total"] = 2
+        error, receipt = self.replay({("candidate", 0): changed, ("original", 0): replay})
+        self.assertIsInstance(error, guard.commands.OriginalGateFailure)
+        self.assertEqual("FAIL", json.loads(receipt.read_text())["verdict"])
+
+    def test_preexisting_failure_cannot_excuse_an_unproven_passing_half(self):
+        _test_id, replay = self.record_base_failure()
+        error, receipt = self.replay({("candidate", 0): self.passing(), ("original", 0): replay})
         self.assertIsNotNone(error)
         self.assertNotEqual("PASS", json.loads(receipt.read_text())["verdict"])
 

@@ -4,19 +4,27 @@ The branch contains the work recorded in commit `458b1ae4a` for #3814 and #3926.
 The original handoff file was absent from this checkout, so this status records
 what was independently observed during continuation.
 
-- #3944 remains unimplemented. Protected-test replay still treats failures
-  already present in the base suite as candidate failures.
+- #3944 is in progress. A first provenance-based replay implementation now
+  accepts identical named failures from authenticated base and candidate proof
+  captures for directly recognized Python pytest and unittest commands. It
+  fails closed for other commands and for old pytest receipts without a pinned
+  result file. Those routes still need a shared recovery and comparison before
+  the issue is fixed or this branch can be merged.
 - A second #3944 regression now runs real pytest and retains separately pinned
   base and candidate JUnit captures for an original test failing on a missing
-  dependency. It too fails at protected replay on this branch. Pytest's failure
+  dependency. It failed on master and now passes on this branch. Pytest's failure
   text includes volatile object addresses, so a sound comparison must remove
   those display-only details without dropping the exception or assertion.
 - A protected-replay regression now captures identical baseline failures
-  with source-bound, hashed baseline evidence. It fails on master and this
-  branch. Companion checks require same-test different failures, tampered
+  with source-bound, hashed baseline evidence. It fails on master and passes
+  on this branch. Companion checks require same-test different failures, tampered
   baseline or candidate proof output, stale revisions and a mismatched protected
   test binding to stay blocked. The fixtures carry the current test-role policy
   and protected binding, as real current regression proofs do.
+- Separate controls reject a different project's same-named test, a skipped
+  test or an unproven passing half. For multiple projects, an authenticated
+  known failure plus a timed-out part remains NOT_VERIFIED rather than passing
+  or directing the Builder to repair an existing failure.
 - The existing suite-preservation judgment compares failure IDs alone. A
   changed assertion can fail under the same ID, so that judgment cannot
   establish the identical-failure condition for #3944. Preserve and compare
@@ -60,7 +68,16 @@ what was independently observed during continuation.
   regressions remain red here until classification is corrected. The in-test
   case mentions that dependency in an added source comment, guarding against
   treating a matching diff word alone as proof that the project provides it.
-- Ruff check and format check passed locally. Mypy passed on 965 source files.
+- Ruff check and format check passed locally. Mypy passed on 966 source files
+  after the traceback-root normalization.
+- A broader 137-test replay/architecture/scheduler run failed its old
+  architecture size limit (the capture code has since moved into the
+  lower-level scheduler and the targeted architecture check passes) and timed
+  out in `VerificationRestartCLI.test_restart_reuses_only_completed_supplemental_check_and_keeps_canonical_execution`.
+  The 180-second driver budget had 41.4 seconds left for the second Resume;
+  the Mac's load average was 40.5 on 10 CPUs when investigated. Contention is
+  plausible, not proven. Rerun this test alone and inspect its outcome before
+  treating the broader check as passing.
 - The three new `SharedSetupAnswerTests` pass on this branch and error on
   current master, which does not have the new shared setup-classification API.
 - The original #3926 public-export acceptance tests fail on master and pass
