@@ -190,6 +190,7 @@ KEYS: frozenset[str] = frozenset(
         "iteration",
         "job_failure",
         "job_retry_authorization",
+        "kept_code",
         "key",
         "kind",
         "lanes",
@@ -575,6 +576,11 @@ class RunState(TypedDict, total=False):
     investigation: Any  # an earlier runtime's bug-fix Investigator report; read by test_cases and current_behavior
     investigation_request: Any
     job_retry_authorization: Any
+    # The run's newest kept code that no saved step names (#3945, #3933): a source capture, or a marker
+    # naming the saved step the source equals; ``final`` fixes a completed run's delivery. Written only by
+    # autocode_code_checkpoints.update; read by autocode_code_checkpoints.project (the view's
+    # ``code_checkpoints.kept``) and autocode_checkpoint_cli.all_changes (where ``checkpoint --all`` ends).
+    kept_code: dict | None
     key: Any
     kind: Any
     lanes: Any

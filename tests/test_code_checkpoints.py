@@ -585,6 +585,286 @@ class AllChanges(unittest.TestCase):
         named = checkpoints.project(self.state)["all_changes"]["next_command"]
         self.assertEqual(("WORKSPACE", "RUN_DIR"), (named[2], named[4]))
 
+    # Work a run keeps without a new saved step (#3945, #3933): every durable save captures it.
+
+    def record_stage(self, stage, **row):
+        self.state["stages"].append(
+            {"stage": stage, "task_id": "bounded-task", "exit_code": 0, "finished_at": util.now(), **row}
+        )
+
+    def update(self):
+        """The durable save's checkpoint update, as `autocode_status.persist` runs it."""
+        checkpoints.update(self.state, self.run)
+        self.save()
+
+    def builder_retry(self):
+        """A Builder retry that kept its bytes and saved no step: its handoff lists no changed files."""
+        (self.workspace / "docs").mkdir()
+        (self.workspace / "docs/guide.md").write_text("guide\n")
+        (self.workspace / "README.md").write_text("readme\n")
+        revision = util.snapshot(self.workspace)["revision"]
+        self.state["implementation"]["source_revision"] = revision
+        self.record_stage("builder", source_revision=revision, changed_files=[])
+        self.update()
+
+    def inventory_fixture(self):
+        """A workspace whose start commit also tracks `keep.txt` and `.vscode/settings.json`, which the
+        source inventory leaves out, with one saved Builder step S1 that changed `app.txt`."""
+        self.workspace = self.root / "inventory"
+        self.workspace.mkdir()
+        self.git("init", "-q")
+        (self.workspace / "app.txt").write_text("baseline\n")
+        (self.workspace / "keep.txt").write_text("keep\n")
+        (self.workspace / ".vscode").mkdir()
+        (self.workspace / ".vscode/settings.json").write_text("{}\n")
+        self.git("add", ".")
+        self.git("-c", "user.name=Fixture", "-c", "user.email=f@example.test", "commit", "-qm", "base")
+        self.run = self.workspace / ".autocode/runs/fixture"
+        self.run.mkdir(parents=True)
+        (self.workspace / ".autocode/.gitignore").write_text("*\n")
+        self.state.update(
+            workspace=str(self.workspace),
+            run_dir=str(self.run),
+            stages=[],
+            code_checkpoints=[],
+            base_commit=self.git("rev-parse", "HEAD"),
+        )
+        self.state.pop("kept_code", None)
+        (self.workspace / "app.txt").write_text("step one\n")
+        return self.save_step(["app.txt"])
+
+    def test_ac1_builder_retry_without_checkpoint_is_in_all_changes(self):
+        self.builder_retry()
+        self.assertEqual(1, len(self.state["code_checkpoints"]))
+        kept = checkpoints.project(self.state)["kept"]
+        self.assertTrue(kept["available"])
+        shown = self.all_changes()
+        self.assertEqual(
+            ["README.md", "app.txt", "docs/guide.md", "link", "new file.txt", "run.sh"], shown["changed_files"]
+        )
+        self.assertEqual(kept["id"], shown["until"])
+        self.assertIn("+guide", shown["patch"])
+        self.assertIn("+readme", shown["patch"])
+        self.assertIs(False, shown["truncated"])
+        self.assertIs(True, shown["complete"])
+        self.assertIsNone(shown["note"])
+
+    def test_ac2_tester_retained_tests_are_in_all_changes(self):
+        (self.workspace / "tests").mkdir()
+        tests = self.workspace / "tests/test_json.py"
+        tests.write_text("".join(f"line {number}\n" for number in range(1, 148)))
+        second = self.save_step(["tests/test_json.py"])
+        with tests.open("a") as handle:
+            handle.write("".join(f"line {number}\n" for number in range(148, 155)))
+        self.record_stage("tester")
+        self.update()
+        shown = self.all_changes()
+        self.assertNotEqual(second, shown["until"])
+        self.assertIn("tests/test_json.py", shown["changed_files"])
+        self.assertIn("+line 147\n", shown["patch"])
+        self.assertIn("+line 154\n", shown["patch"])
+        self.assertIs(True, shown["complete"])
+
+    def test_ac3_work_kept_by_any_stage_is_in_all_changes(self):
+        cases = [
+            ("review_checkpoint", "kept by review_checkpoint\n"),
+            ("write_acceptance_tests", "kept by write_acceptance_tests\n"),
+            (None, "kept by accepted edit\n"),  # a source edit accepted at a pause: no stage row
+        ]
+        for stage, text in cases:
+            with self.subTest(stage=stage):
+                (self.workspace / "extra.txt").write_text(text)
+                if stage:
+                    self.record_stage(stage)
+                self.update()
+                shown = self.all_changes()
+                self.assertIn("extra.txt", shown["changed_files"])
+                self.assertIn("+" + text.strip(), shown["patch"])
+                self.assertEqual(1, len(self.state["code_checkpoints"]))
+
+    def test_ac4_completed_run_shows_its_delivery(self):
+        delivered = ["README.md", "app.txt", "docs/guide.md", "link", "new file.txt", "run.sh"]
+        self.builder_retry()
+        self.state["status"] = "TASK_COMPLETE"
+        self.update()
+        shown = self.all_changes()
+        self.assertEqual(delivered, shown["changed_files"])
+        self.assertIs(False, shown["truncated"])
+        self.assertIs(True, shown["complete"])
+        # A person editing after delivery does not change the delivered diff; the result says so.
+        (self.workspace / "after.txt").write_text("edited after delivery\n")
+        self.update()
+        shown = self.all_changes()
+        self.assertEqual(delivered, shown["changed_files"])
+        self.assertIs(False, shown["complete"])
+        self.assertEqual(
+            "Ends at saved code " + shown["until"] + "; changes made after it are not included.", shown["note"]
+        )
+
+    def test_ac5_unsaved_edits_are_named_not_included(self):
+        (self.workspace / "app.txt").write_text("second step\n")
+        second = self.save_step(["app.txt"])
+        (self.workspace / "app.txt").write_text("still being written\n")
+        self.state["active_stage"] = {"stage": "builder"}
+        self.update()
+        shown = self.all_changes()
+        self.assertEqual(second, shown["until"])
+        self.assertNotIn("still being written", shown["patch"])
+        self.assertIs(False, shown["complete"])
+        self.assertEqual("Ends at saved code " + second + "; changes made after it are not included.", shown["note"])
+        self.state.pop("active_stage")
+        (self.workspace / "app.txt").write_text("kept but unsaved\n")
+        with patch.object(checkpoints, "capture_tree", side_effect=ValueError("storage gone")):
+            self.update()
+        kept = checkpoints.project(self.state)["kept"]
+        self.assertEqual((False, "storage gone"), (kept["available"], kept["reason"]))
+        shown = self.all_changes()
+        self.assertEqual(second, shown["until"])
+        self.assertIs(False, shown["complete"])
+        self.assertEqual(
+            "Ends at saved code "
+            + second
+            + "; changes made after it are not included. The newest kept code could not be saved: storage gone",
+            shown["note"],
+        )
+
+    def test_ac6_kept_work_without_a_saved_step_is_offered(self):
+        # The only Builder attempt timed out; its retry kept the bytes without saving a step.
+        self.state["stages"][0]["changed_files"] = []
+        self.state["code_checkpoints"] = []
+        self.update()
+        named = checkpoints.project(self.state, run_dir=self.run, workspace=self.workspace)["all_changes"]
+        self.assertEqual(
+            ["checkpoint", "--workspace", str(self.workspace), "--run-dir", str(self.run), "--all"],
+            named["next_command"],
+        )
+        shown = self.all_changes()
+        self.assertEqual(["app.txt", "link", "new file.txt", "run.sh"], shown["changed_files"])
+        self.assertIs(True, shown["complete"])
+
+    def test_ac17_completed_run_without_kept_work_keeps_its_delivery(self):
+        self.state["status"] = "TASK_COMPLETE"
+        self.update()
+        self.assertEqual(1, len(self.state["code_checkpoints"]))
+        kept = checkpoints.project(self.state)["kept"]
+        self.assertEqual((self.ident, self.state["code_checkpoints"][0]["commit"]), (kept["id"], kept["commit"]))
+        (self.workspace / "after.txt").write_text("edited after delivery\n")
+        self.update()
+        shown = self.all_changes()
+        self.assertEqual(["app.txt", "link", "new file.txt", "run.sh"], shown["changed_files"])
+        self.assertEqual(self.ident, shown["until"])
+        self.assertIs(False, shown["complete"])
+        self.assertEqual(
+            "Ends at saved code " + self.ident + "; changes made after it are not included.", shown["note"]
+        )
+
+    def test_ac18_files_removed_by_kept_work_are_accounted_for(self):
+        # No saved step: the kept work deleted the tracked app.txt.
+        self.state["stages"][0]["changed_files"] = []
+        self.state["code_checkpoints"] = []
+        (self.workspace / "app.txt").unlink()
+        self.update()
+        shown = self.all_changes()
+        self.assertEqual(["app.txt", "link", "new file.txt", "run.sh"], shown["changed_files"])
+        self.assertIn("-baseline", shown["patch"])
+        self.assertIs(True, shown["complete"])
+        # One saved step, then the Tester's retained work removed a file the step added.
+        self.setUp()
+        (self.workspace / "new file.txt").unlink()
+        self.record_stage("tester")
+        self.update()
+        shown = self.all_changes()
+        self.assertEqual(["app.txt", "link", "run.sh"], shown["changed_files"])
+        self.assertNotIn("new at checkpoint", shown["patch"])
+        self.assertIs(True, shown["complete"])
+
+    def test_ac19_follow_up_completion_delivers_its_new_steps(self):
+        self.state["status"] = "TASK_COMPLETE"
+        self.update()
+        self.state["status"] = "PAUSED_REQUESTED"
+        (self.workspace / "later.txt").write_text("added later\n")
+        second = self.save_step(["later.txt"])
+        self.state["status"] = "TASK_COMPLETE"
+        self.update()
+        shown = self.all_changes()
+        self.assertEqual(second, shown["until"])
+        self.assertEqual(["app.txt", "later.txt", "link", "new file.txt", "run.sh"], shown["changed_files"])
+        self.assertIn("+added later", shown["patch"])
+        self.assertIs(True, shown["complete"])
+        self.assertIsNone(shown["note"])
+        self.assertEqual(second, checkpoints.project(self.state)["kept"]["id"])
+
+    def test_ac20_kept_removals_stay_inside_the_source_inventory(self):
+        self.inventory_fixture()
+        (self.workspace / "keep.txt").unlink()
+        (self.workspace / "notes.txt").write_text("kept note\n")
+        self.record_stage("tester")
+        self.update()
+        self.assertEqual("{}\n", (self.workspace / ".vscode/settings.json").read_text())
+        shown = self.all_changes()
+        self.assertEqual(["app.txt", "keep.txt", "notes.txt"], shown["changed_files"])
+        self.assertIn("-keep", shown["patch"])
+        self.assertIn("+kept note", shown["patch"])
+        self.assertNotIn("settings.json", shown["patch"])
+        self.assertIs(True, shown["complete"])
+
+    def test_ac21_kept_removal_survives_a_later_step_and_completion(self):
+        self.inventory_fixture()
+        (self.workspace / "keep.txt").unlink()
+        self.record_stage("tester")
+        self.update()
+        (self.workspace / "later.txt").write_text("added later\n")
+        second = self.save_step(["later.txt"])
+        shown = self.all_changes()
+        self.assertEqual(second, shown["until"])
+        self.assertEqual(["app.txt", "keep.txt", "later.txt"], shown["changed_files"])
+        self.assertIn("-keep", shown["patch"])
+        self.assertIn("+added later", shown["patch"])
+        self.assertNotIn("settings.json", shown["patch"])
+        self.assertIs(True, shown["complete"])
+        self.state["status"] = "TASK_COMPLETE"
+        self.update()
+        shown = self.all_changes()
+        self.assertEqual(second, shown["until"])
+        self.assertEqual(["app.txt", "keep.txt", "later.txt"], shown["changed_files"])
+        self.assertIs(True, shown["complete"])
+        self.assertIsNone(shown["note"])
+
+    def test_a_changed_kept_receipt_falls_back_to_the_newest_step_and_says_so(self):
+        self.builder_retry()
+        receipt = Path(self.state["kept_code"]["receipt"])
+        receipt.write_text(receipt.read_text() + " ")
+        shown = self.all_changes()
+        self.assertEqual(self.ident, shown["until"])
+        self.assertEqual(["app.txt", "link", "new file.txt", "run.sh"], shown["changed_files"])
+        self.assertIs(False, shown["complete"])
+        self.assertEqual(
+            "Ends at saved code "
+            + self.ident
+            + "; changes made after it are not included."
+            + " The newest kept code could not be read: The saved kept code receipt changed",
+            shown["note"],
+        )
+        # The next save cannot read where the kept code ended either: the gap is recorded, the save goes on.
+        (self.workspace / "README.md").write_text("readme again\n")
+        self.update()
+        kept = checkpoints.project(self.state)["kept"]
+        self.assertEqual((False, "The saved code checkpoint receipt changed"), (kept["available"], kept["reason"]))
+
+    def test_ac22_index_removal_survives_a_second_kept_capture(self):
+        self.inventory_fixture()
+        self.git("rm", "-q", "keep.txt")
+        self.record_stage("tester")
+        self.update()
+        (self.workspace / "notes.txt").write_text("kept note\n")
+        self.update()
+        shown = self.all_changes()
+        self.assertEqual(["app.txt", "keep.txt", "notes.txt"], shown["changed_files"])
+        self.assertIn("-keep", shown["patch"])
+        self.assertIn("+kept note", shown["patch"])
+        self.assertNotIn("settings.json", shown["patch"])
+        self.assertIs(True, shown["complete"])
+
 
 class WorkingDiff(unittest.TestCase):
     """`checkpoint --working`: what the running Builder has changed so far, display only (#1643)."""

@@ -150,11 +150,15 @@ and logs are kept, the run pauses ("Stopped by you"), and **Continue** runs that
 step again. The run's terminal Stop stays outside the chat.
 
 **Changes** offers **Show all changes** once the run has saved a code change: one diff of
-everything the run changed, from where it started to its newest saved step, read from saved code
-(`code_checkpoints.all_changes`). The chat does not offer a step-by-step history to compare or go
-back to (owner decision 2026-11-13): a person asks for a change in the chat, and AutoCode takes it
-through Requirements and the plan again on the same branch. While this chat waits for one of its
-commands to finish, the button is disabled.
+everything the run kept, from where it started to its newest kept code (for a finished run, its
+delivery), whichever stage kept it, read from saved code (`code_checkpoints.all_changes`). When the
+diff ends before the run's current files, the section and the result card say which saved code it ends
+at and that later changes are not included. The diff and the result card's file count are read again
+when the run's kept code changes (`code_checkpoints.kept`). The chat does not offer a step-by-step
+history to compare or go back to (owner decision 2026-11-13): a person asks for a change in the chat,
+and AutoCode takes it through Requirements and the plan again on the same branch. The diff is a
+display-only read, so the button stays available while a stage runs or the chat waits for one of its
+commands (#3871).
 
 **Run details** opens the detailed progress panel. The Runs list reads the local
 registry and the open project's chats, and retains unavailable pointers with their
