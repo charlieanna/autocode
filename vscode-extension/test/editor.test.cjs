@@ -1374,6 +1374,29 @@ test('chat recovery retry requires confirmation and keeps the exact job token ou
   assert.equal(env.AUTOCODE_JOB_RETRY_TOKEN, 'jr:exact-secret');
 });
 
+for (const surface of ['chat', 'details']) test(`${surface}: a saved job model answer needs no second confirmation`, async (t) => {
+  host.config.set('confirmPersonOnly', true);
+  t.after(() => host.config.delete('confirmPersonOnly'));
+  const view = {
+    status: 'PAUSED_JOB_FAILURE', done: false,
+    needs: { kind: 'retry_job', job_retry_token: 'jr:answer',
+      route: { question_id: 'route-architect', role: 'architect', candidates: [] } },
+    next_command: `AUTOCODE_JOB_RETRY_TOKEN=jr:answer autocode --answer route-architect=MODEL --job-retry-token - --workspace ${run.workspace} --run-dir ${run.runDir}`,
+  };
+  const ui = surface === 'chat' ? await openChat(t, view) : await openPanel(t, view);
+  const prompt = t.mock.method(host.vscode.window, 'showWarningMessage', async () => undefined);
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  const input = ui.document.querySelector('[data-question="route-architect"]');
+  input.value = 'gpt-6-sol@medium'; input.dispatchEvent(new ui.window.Event('input'));
+  ui.document.querySelector('#take-action').click(); await flush(); await flush();
+  assert.equal(prompt.mock.callCount(), 0, "typing and sending this exact answer is the person's decision");
+  assert.equal(launch.mock.callCount(), 1);
+  const [, args, env] = launch.mock.calls[0].arguments;
+  assert.ok(args.includes('route-architect=gpt-6-sol@medium'));
+  assert.ok(!args.includes('--resume-paused'));
+  assert.equal(env.AUTOCODE_JOB_RETRY_TOKEN, 'jr:answer');
+});
+
 test('a drifted saved effort shows the route question without offering the stale retry', async (t) => {
   const value = {
     status: 'PAUSED_JOB_FAILURE', done: false,

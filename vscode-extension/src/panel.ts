@@ -401,11 +401,12 @@ export class RunPanel {
       const state = stateFor(view, this.run, this.controller, true);
       const numeric = numericConfirmation(state, message.answers ?? {});
       const planning = planningSpendConfirmation(view, message.answers ?? {});
+      const named = view.needs?.kind === "retry_job" ? this.controller.prepare(view, this.run, message.answers ?? {}) : undefined;
       if ((message.decisionContext || numeric) && message.decisionContext !== state.decisionContext) {
         void vscode.window.showErrorMessage("AutoCode: The requested action changed; review it before continuing");
         return;
       }
-      if (numeric || planning || (requiresConfirmation(view.needs ?? null) && confirmPersonOnly())) {
+      if (numeric || planning || (requiresConfirmation(view.needs ?? null, named) && confirmPersonOnly())) {
         const button = numeric ? numericActionLabel(state) : planning?.label ?? "Continue";
         const proceed = await vscode.window.showWarningMessage(
           numeric ?? planning?.title ?? (state.actionLabel ? `${state.actionLabel}?` : "Continue AutoCode?"),
