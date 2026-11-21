@@ -96,6 +96,18 @@ pass while the strict-binding positive cases and final judgment remain open.
   directory: the real reconstruction does create that cache, so this primitive
   alone cannot yet prove the incident. A single file stamp also does not prove
   that every executing source and dependency stayed unchanged.
+  A fresh reconstruction after the pytest caches had been warmed retained
+  stable pre/post file and ancestor stamps for 3,222 / 3,224 Python source
+  files across its three runs, and all eight failures aligned in the offline
+  prototype. That experiment does not authenticate non-Python inputs or
+  dependency bytes and still uses heuristic object-repr normalization; it is
+  not proof authority. Receipts are in
+  `/private/tmp/autocode-proof-replay-real-tkdj2jfj/evidence-fresh2/`. Its first
+  fresh attempt recorded an unproven source set because the experiment omitted
+  the `executable:` identity prefix for four files; the earlier receipts remain
+  in `evidence-fresh/` and the mode-aware rerun above corrected that mistake.
+  A separate authenticated-JUnit negative confirms that the same outer error
+  type and message with a changed chained cause remains a different failure.
 - A second #3944 regression now runs real pytest and retains separately pinned
   base and candidate JUnit captures for an original test failing on a missing
   dependency. It failed on master and now passes on this branch. Pytest's failure

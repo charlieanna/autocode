@@ -60,6 +60,21 @@ class FailureCaptureTests(unittest.TestCase):
         self.assertIsNotNone(before)
         self.assertNotEqual(before, different)
 
+    def test_same_outer_error_with_a_different_chained_cause_is_not_identical(self):
+        def report(cause):
+            return (
+                '<testsuite><testcase classname="test_x.TestX" name="test_a">'
+                '<failure message="RuntimeError: same">'
+                f"E ValueError: {cause}\n"
+                "The above exception was the direct cause of the following exception:\n"
+                "E RuntimeError: same</failure></testcase></testsuite>"
+            )
+
+        before = evidence.observations(self.receipt(report("database unavailable")), root=self.root)
+        changed = evidence.observations(self.receipt(report("authorization denied")), root=self.root)
+        self.assertIsNotNone(before)
+        self.assertNotEqual(before, changed)
+
     def test_duplicate_or_wrong_test_and_doctype_are_not_failure_evidence(self):
         one = '<testcase classname="test_x.TestX" name="test_a"><failure message="bad">bad</failure></testcase>'
         for content in (
