@@ -102,7 +102,17 @@ def report_for(stage, data, common, config, run_check, requirements):
             "finding_dispositions": dispositions if code == 0 else [],
             "unverified_criteria": [],
             "criterion_results": [
-                {"id": row["id"], "status": status, "evidence_refs": list(criterion_evidence)}
+                {
+                    "id": row["id"],
+                    "status": status,
+                    "evidence_refs": list(criterion_evidence),
+                    # The scripted Tester runs only the approved greeting check (autocode_tester_probes).
+                    **(
+                        {"probe_reason": f"Scripted Tester: {row['id']} has only the fixed greeting check"}
+                        if code == 0
+                        else {}
+                    ),
+                }
                 for row in body["acceptance_criteria"]
             ],
             "end_to_end_result": {

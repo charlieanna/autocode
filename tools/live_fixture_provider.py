@@ -958,6 +958,14 @@ def main() -> int:
     saved = _saved_report(data) if repairing else {}
     if stage in ("tester", "review_checkpoint") and "changed_code_exceptions" in properties:
         report["changed_code_exceptions"] = _quote_changed_lines(data, _changed_code_reasons(data))
+    criterion_row = properties.get("criterion_results", {}).get("items", {}).get("properties", {})
+    if stage == "tester" and "probe_reason" in criterion_row:
+        # The handwritten Tester runs no probe of its own, so it records why (autocode_tester_probes).
+        for row in report["criterion_results"]:
+            if row["status"] == "PASS":
+                row["probe_reason"] = (
+                    f"Handwritten fixture Tester: {row['id']} is checked by its fixed unittest run only"
+                )
     handoff = (data.get("requirements_handoff") or {}).get("report") or {}
     if "requirement_trace" in report and any(row.get("id") == "R5" for row in handoff.get("requirements", [])):
         report["requirement_trace"].extend(_trace(("R5", "Python standard library only")))

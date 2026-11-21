@@ -603,6 +603,10 @@ def main():
                 "pending_human_criteria": [],
             },
         )
+        row_fields = schema["properties"].get("criterion_results", {}).get("items", {}).get("properties", {})
+        if stage == "tester" and "probe_reason" in row_fields:
+            # The scripted Tester runs only the approved joint suite, so it records why (autocode_tester_probes).
+            report["criterion_results"][0]["probe_reason"] = "Scripted coordination Tester: C1 has only the fixed suite"
     elif stage in ("plan_task", "review_completion", "review_checkpoint", "resolve"):
         done = (
             stage in ("review_completion", "review_checkpoint")

@@ -26,6 +26,7 @@ try:
     from . import autocode_parallel_retry_admission as parallel_retry_admission
     from . import autocode_pause_authority as pause_authority
     from . import autocode_person_text as person_text
+    from . import autocode_preflight_stop as preflight_stop
     from . import autocode_provider_auth as provider_auth
     from . import autocode_quota_route as quota_route
     from . import autocode_recovery_limits as recovery_limits
@@ -42,6 +43,7 @@ except ImportError:
     import autocode_parallel_retry_admission as parallel_retry_admission
     import autocode_pause_authority as pause_authority
     import autocode_person_text as person_text
+    import autocode_preflight_stop as preflight_stop
     import autocode_provider_auth as provider_auth
     import autocode_quota_route as quota_route
     import autocode_recovery_limits as recovery_limits
@@ -574,6 +576,8 @@ def project(state: RunState, need=None):
         if terminal
         else (
             _auth_stop(state)
+            # A stop the model access probe found names the probe, not a configured limit (#3888).
+            or preflight_stop.sentence(state, cause)
             or _seatbelt_loopback_stop(state)
             or _acceptance_tests_stop(state)
             or _job_model_stop(state, role)

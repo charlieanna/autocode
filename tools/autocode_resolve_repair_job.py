@@ -39,6 +39,7 @@ try:
     from . import autocode_stop as stop
     from . import autocode_stray_writes as stray_writes
     from . import autocode_support as support
+    from . import autocode_tester_probes as tester_probes
     from . import autocode_tool_handoff as tool_handoff
     from . import autocode_util as util
     from . import autocode_verifier_independence as verifier_independence
@@ -62,6 +63,7 @@ except ImportError:
     import autocode_stop as stop
     import autocode_stray_writes as stray_writes
     import autocode_support as support
+    import autocode_tester_probes as tester_probes
     import autocode_tool_handoff as tool_handoff
     import autocode_util as util
     import autocode_verifier_independence as verifier_independence
@@ -290,15 +292,8 @@ def queue_missing_execution(state: RunState, record: dict[str, Any], error: Exce
     contract_hash = (state.get("goal_contract") or {}).get("hash")
     if stage not in EXECUTION_RERUN_STAGES or not revision or operator_retried(state, stage):
         return False
-    for entry in state.get("resolve_repair_history") or ():
-        if (
-            isinstance(entry, dict)
-            and entry.get("kind") in ("missing_execution", "rerun_missing_execution")
-            and entry.get("stage") == stage
-            and entry.get("source_revision") == revision
-            and entry.get("contract_hash") == contract_hash
-        ):
-            return False
+    if tester_probes.rerun_used(state.get("resolve_repair_history"), stage, revision, contract_hash):
+        return False
     popped = state.pop("pending_report_repair", None)
     chosen = select_route(state, stage)
     state["resolve_repair_request"] = {

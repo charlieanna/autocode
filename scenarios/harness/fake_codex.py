@@ -2988,6 +2988,13 @@ def _main() -> int:
             "source_verdict",
             {"verdict": "PASS", "uncovered": [], "summary": "Scripted: every criterion traces to the brief"},
         )
+    row_fields = OUTPUT_SCHEMA.get("properties", {}).get("criterion_results", {}).get("items", {}).get("properties", {})
+    if stage == "tester" and "probe_reason" in row_fields and isinstance(report.get("criterion_results"), list):
+        # The scripted Tester runs only the scenario's fixed commands and varies no input of its own, so it
+        # records why for each PASS criterion (tools/autocode_tester_probes.py); review_checkpoint offers none.
+        for row in report["criterion_results"]:
+            if isinstance(row, dict) and row.get("status") == "PASS":
+                row.setdefault("probe_reason", f"Scripted scenario Tester: {row.get('id')} has only its fixed commands")
     if "--output-schema" in sys.argv:
         schema = WIRE_SCHEMA if "repair_report" in report else OUTPUT_SCHEMA
         # Runner-owned brief fields exist only for protected human declarations.

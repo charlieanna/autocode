@@ -91,8 +91,11 @@ def require_owned(pins, state: RunState, record, workspace, run_dir):
     scratch = containment.recorded_scratch([record], workspace)
     for path in pins:
         if not owned(path, workspace, run_dir, settings=state.get("settings"), scratch=scratch):
+            # #3892: name the run the receipt was expected to belong to, so a mistyped run id under
+            # .autocode/runs/ is readable in the rejection itself.
             raise ValueError(
-                f"Evidence under .autocode/ does not belong to this run: {path}. A later repair re-verifies every "
+                f"Evidence under .autocode/ does not belong to this run: {path}. The expected run is "
+                f"{Path(run_dir).name}; a later repair re-verifies every "
                 "evidence pin, so cite .autocode/ files only from this run directory, .autocode/evidence/"
                 + (f", this stage's tool_containment.scratch ({scratch[0]})" if scratch else "")
                 + ", a capture bundle's manifest.json and the artifacts it lists, or the retained design inputs."
@@ -106,7 +109,8 @@ def _owned(path, workspace, run_dir, *, artifact=False, settings=None, scratch=(
     _require(".." not in target.parts and target.is_relative_to(workspace), "Repair evidence is outside this workspace")
     _require(not artifact or target.is_relative_to(run_dir), "Stage evidence belongs to another run")
     _require(
-        owned(target, workspace, run_dir, settings=settings, scratch=scratch), "Repair evidence belongs to another run"
+        owned(target, workspace, run_dir, settings=settings, scratch=scratch),
+        f"Repair evidence belongs to another run; the expected run is {Path(run_dir).name}",
     )
     _require(
         not any(parent.is_symlink() for parent in (target, *target.parents) if parent.is_relative_to(workspace)),
