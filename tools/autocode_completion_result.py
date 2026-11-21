@@ -20,8 +20,24 @@ def before_review(state: RunState, stage, workspace, run_dir):
     Plans without executable regression cases retain the final completion gate.
 
     True when the stage must wait for another progressing local verification step,
-    or its proof sent changed guards back to plan review.
+    its proof sent changed guards back to plan review, or, before the Tester, the
+    proof of this source sent the run to the wrong-implementations study first.
     """
+    if _before_review(state, stage, workspace, run_dir) is True:
+        return True
+    if stage != "tester":
+        return False
+    try:
+        from . import autocode_source_scope as source_scope
+        from . import autocode_wrong_implementations as wrong_implementations
+    except ImportError:
+        import autocode_source_scope as source_scope
+        import autocode_wrong_implementations as wrong_implementations
+    # Only here does the Tester's proof of the current source exist: it was made just above (#3977).
+    return wrong_implementations.route(state, source_scope.snapshot(workspace, state)["revision"])
+
+
+def _before_review(state: RunState, stage, workspace, run_dir):
     try:
         from . import autocode_git_delivery as delivery
         from . import autocode_regression as regression
