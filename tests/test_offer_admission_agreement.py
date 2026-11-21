@@ -16,6 +16,7 @@ import io
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -235,6 +236,34 @@ class OfferAdmissionAgreementTests(SavedRunFixtures, unittest.TestCase):
 
     def offered(self, card, kind):
         return [row for row in card["actions"] if row["kind"] == kind]
+
+    def test_blocked_builder_public_status_never_says_to_resume(self):
+        state = self.builder()
+        state["current_task"]["kind"] = "validate"
+        (self.run / "state.json").write_text(json.dumps(state))
+        result = subprocess.run(
+            [
+                sys.executable,
+                runner.__file__,
+                "--workspace",
+                str(self.root),
+                "--run-dir",
+                str(self.run),
+                "--status",
+                "--json",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=60,
+        )
+        view = json.loads(result.stdout)["view"]
+        self.assertEqual("blocked", view["recovery"]["category"])
+        self.assertEqual("blocked", view["summary"]["state"])
+        self.assertIsNone(view["next_command"])
+        self.assertEqual("Task blocked", view["progress"]["headline"])
+        self.assertEqual("nothing needed from you", view["progress"]["needs_you"])
+        self.assertNotIn("resume", view["progress"]["line"].lower())
 
     def test_serial_builder_offer_uses_executor_admission(self):
         for variant in ("draft", "validation", "other_contract", "already_retrying"):

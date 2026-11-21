@@ -95,6 +95,7 @@ def progress(
     continuing: bool = False,
     internal_failure=None,
     liveness=None,
+    recovery=None,
 ) -> dict:
     """The progress projection of one run.
 
@@ -112,6 +113,7 @@ def progress(
               raised limit is being applied, so the stop no longer waits for the person
     liveness  the same fresh classified stage observation as the public view; an open accounting
               slot or a saved timestamp alone never establishes working activity
+    recovery  the public recovery card, including whether the core classified this pause as blocked
     """
     status = state.get("status", "")
     done = status in COMPLETE
@@ -144,6 +146,8 @@ def progress(
         headline, stage = "Continuing", None
         asked = "nothing needed from you"
         observed_continuation = True
+    elif _mapping(recovery).get("category") == "blocked":
+        headline, asked = "Task blocked", "nothing needed from you"
     elif status == "PAUSED_SOURCE_UNAVAILABLE":
         headline = "Recovering source access" if kind == "continue" else "Source access unavailable"
         asked = "nothing needed from you"
