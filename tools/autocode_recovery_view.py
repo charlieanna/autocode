@@ -105,6 +105,8 @@ def token(state: RunState):
     if state.get("status") in ACTIVE or not state.get("status"):
         return None
     value = {key: state.get(key) for key in BOUND_FIELDS}
+    if "source_link_recovery" in state:
+        value["source_link_recovery"] = state["source_link_recovery"]
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
     return "recovery-v1:" + hashlib.sha256(encoded).hexdigest()
 

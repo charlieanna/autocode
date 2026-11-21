@@ -100,7 +100,21 @@ def _unsafe_copy_source(workspace, state: RunState, current):
         raise util.Paused(STATUS, "Source inventory is incomplete; no source was accepted")
     paths = source_scope.paths(state)
     files = source_snapshot.bound_inventory(workspace, current, paths=paths)
-    return source_snapshot.first_symlinked_parent(workspace, files) is not None
+    if source_snapshot.first_symlinked_parent(workspace, files) is not None:
+        return "parent"
+    policy = state.get("source_link_recovery")
+    if policy is not None:
+        if policy not in ("strict", "protected"):
+            raise util.Paused(STATUS, "The pinned source recovery policy is invalid")
+        links = source_snapshot.unbound_symlinks(
+            workspace,
+            files,
+            lambda: util.git(workspace, "ls-files", "-z").split("\0"),
+            allow_untracked_terminal=policy == "protected",
+        )
+        if links:
+            return policy
+    return None
 
 
 def catalog_problem(state: RunState):
@@ -128,6 +142,8 @@ def prepare(runner, state: RunState, workspace):
         unsafe = _unsafe_copy_source(workspace, state, current)
     except source_snapshot.UnsafeSourcePath as error:
         raise util.Paused(STATUS, str(error)) from error
+    if unsafe in ("strict", "protected"):
+        raise util.PinnedSourceLinkRefusal(STATUS, str(state.get("stop_reason")), policy=unsafe)
     if unsafe:
         raise util.Paused(STATUS, str(state.get("stop_reason")))
     note = {

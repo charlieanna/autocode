@@ -130,6 +130,14 @@ def invalid_review_inputs(review_mutation, tests, command, files, links, expecte
     )
 
 
+def validate_protected_policy(enabled, revision, review_mutation=False, acceptance_preflight=False):
+    """Validate preflight and limit snapshot-only links to pinned ordinary replay."""
+    if type(acceptance_preflight) is not bool:
+        raise ValueError("Acceptance preflight must be a boolean")
+    if type(enabled) is not bool or (enabled and (revision is None or review_mutation)):
+        raise ValueError("Protected test link policy requires a pinned ordinary replay")
+
+
 def source_parameters(parameters, revision, review_source, protected_test_snapshot_links=False):
     """Transport the source pin and optional review scope to the owned worker."""
     if revision is not None:
@@ -191,10 +199,7 @@ def prepare(
     _on_prepared=None,
 ):
     """Existing copy operations, supplied to the owned preparation worker."""
-    if type(protected_test_snapshot_links) is not bool or (
-        protected_test_snapshot_links and expected_source_revision is None
-    ):
-        raise ValueError("Protected test link policy requires an explicit source revision")
+    validate_protected_policy(protected_test_snapshot_links, expected_source_revision)
     workspace, run_dir = Path(workspace), Path(run_dir)
     before = _source_access(source_snapshot.snapshot, workspace, paths=source_paths)
     if expected_source_revision is not None and before["revision"] != expected_source_revision:
@@ -208,7 +213,11 @@ def prepare(
         lambda: git(workspace, "ls-files", "-z").split("\0"),
         allow_untracked_terminal=protected_test_snapshot_links,
     ):
-        raise util.Paused("PAUSED_SOURCE_UNAVAILABLE", "Pinned verification source has an unbound symlink target")
+        raise util.PinnedSourceLinkRefusal(
+            "PAUSED_SOURCE_UNAVAILABLE",
+            "Pinned verification source has an unbound symlink target",
+            policy="protected" if protected_test_snapshot_links else "strict",
+        )
     head = git(workspace, "rev-parse", "HEAD").strip()
     changes = changed_files(workspace, head, source_paths=source_paths)
     if any(

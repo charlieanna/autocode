@@ -1480,24 +1480,18 @@ def scratch_run(
     ``python`` is the run's recorded interpreter (autocode_test_environment.recorded_python); without it
     the suite is detected with ``python_for``.
     """
-    if type(acceptance_preflight) is not bool:
-        raise ValueError("Acceptance preflight must be a boolean")
-    if type(protected_test_snapshot_links) is not bool or (
-        protected_test_snapshot_links and (expected_source_revision is None or review_mutation)
-    ):
-        raise ValueError("Protected test link policy requires a pinned ordinary replay")
+    scratch_preparation.validate_protected_policy(
+        protected_test_snapshot_links, expected_source_revision, review_mutation, acceptance_preflight
+    )
     workspace, run_dir = Path(workspace), Path(run_dir)
     link_guard = scratch_preparation.DependencyGuard()
     native_scope = None
     ownership_uncertain = False
     if native_execution is not None:
+        review_inputs = (review_mutation, review_mutation_deadline, review_source)
         native_checks.validate_scratch_owner(
-            native_execution, review_mutation, review_mutation_deadline, review_source, preparation.active
+            native_execution, review_inputs, preparation.active, protected_test_snapshot_links
         )
-        if protected_test_snapshot_links:
-            raise util.Paused(
-                "PAUSED_VISUAL_EVIDENCE", "Native protected replay cannot use the snapshot-only link policy"
-            )
         native_scope = native_execution.copy(
             workspace,
             run_dir,

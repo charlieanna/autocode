@@ -15,6 +15,10 @@ import shlex
 import stat
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_check_outcome as check_outcome
@@ -245,7 +249,7 @@ def observations(receipt, *, root):
         return None
 
 
-def baseline(state, revision):
+def baseline(state: RunState, revision):
     """The current proof's identical base/candidate failures, or None without authority."""
     try:
         run_dir = Path(state["run_dir"])

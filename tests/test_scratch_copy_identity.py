@@ -204,19 +204,18 @@ class ScratchCopyIdentityTests(unittest.TestCase):
         from unittest.mock import Mock
 
         native = Mock()
-        with patch.object(verify.native_checks, "validate_scratch_owner") as admission:
-            with self.assertRaises(util.Paused) as held:
-                verify.scratch_run(
-                    self.workspace,
-                    self.project.evidence,
-                    command=self.command,
-                    timeout=30,
-                    expected_source_revision="pinned",
-                    protected_test_snapshot_links=True,
-                    native_execution=native,
-                )
-        admission.assert_called_once()
+        with self.assertRaises(util.Paused) as held:
+            verify.scratch_run(
+                self.workspace,
+                self.project.evidence,
+                command=self.command,
+                timeout=30,
+                expected_source_revision="pinned",
+                protected_test_snapshot_links=True,
+                native_execution=native,
+            )
         self.assertEqual("PAUSED_VISUAL_EVIDENCE", held.exception.status)
+        self.assertIn("Original concrete native check owner", str(held.exception))
         native.copy.assert_not_called()
         self.assertFalse(self.marker.exists())
 
@@ -258,6 +257,32 @@ class ScratchCopyIdentityTests(unittest.TestCase):
                 )
         self.assertEqual(1, len(changed))
         self.assertFalse(self.marker.exists(), "A modified worker request must not launch the project check")
+
+    def test_owned_worker_transports_the_pinned_link_refusal_policy(self):
+        link = self.workspace / "absolute.py"
+        link.symlink_to(self.app)
+        git(self.workspace, "add", "absolute.py")
+        revision = source_snapshot.snapshot(self.workspace)["revision"]
+        identity = {"fixture": "pinned link refusal policy"}
+        with self.assertRaises(util.PinnedSourceLinkRefusal) as held:
+            schedule.run(
+                self.project.evidence / "obligations",
+                identity,
+                lambda out: verify.scratch_run(
+                    self.workspace,
+                    out,
+                    command=self.command,
+                    timeout=30,
+                    expected_source_revision=revision,
+                    protected_test_snapshot_links=True,
+                ),
+                reuse_allowed=False,
+                reason="fresh",
+                current_identity=lambda: identity,
+                owned_preparation=True,
+            )
+        self.assertEqual("protected", held.exception.policy)
+        self.assertFalse(self.marker.exists())
 
     def test_owned_worker_preserves_unsafe_copy_path_as_source_refusal(self):
         shared = self.workspace / "shared"

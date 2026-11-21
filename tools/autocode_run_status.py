@@ -33,6 +33,8 @@ def pause(state: RunState, status: str, reason: str | None = None, **fields) -> 
     the other keys this pause sets with it, such as ``next_stage`` or ``paused_at``.
     """
     _check_fields(fields)
+    if status != "PAUSED_SOURCE_UNAVAILABLE" or state.get("status") != status:
+        state.pop("source_link_recovery", None)
     state.update({"status": status, "phase": PAUSE_PHASE, **cast("RunState", fields)})
     if reason is not None:
         state["stop_reason"] = reason
@@ -44,6 +46,7 @@ def running(state: RunState, phase: str, **fields) -> RunState:
     _check_fields(fields)
     state.update({"status": "RUNNING", "phase": phase, **cast("RunState", fields)})
     state.pop("stop_reason", None)
+    state.pop("source_link_recovery", None)
     return state
 
 
@@ -51,6 +54,7 @@ def awaiting_approval(state: RunState, **fields) -> RunState:
     """Return to human plan approval without granting approval or execution."""
     _check_fields(fields)
     state.update({"status": "AWAITING_GOAL_APPROVAL", "phase": "AWAITING_GOAL_APPROVAL", **cast("RunState", fields)})
+    state.pop("source_link_recovery", None)
     state.pop("stop_reason", None)
     return state
 
@@ -67,6 +71,7 @@ def complete(state: RunState, **fields) -> RunState:
     """Finish ``state``'s turn: nothing waits and no stage runs next; returns it. Retires a stale stop reason."""
     _check_fields(fields)
     state.update({"status": "TASK_COMPLETE", "phase": "COMPLETE", "next_stage": None, **cast("RunState", fields)})
+    state.pop("source_link_recovery", None)
     state.pop("stop_reason", None)
     return state
 
