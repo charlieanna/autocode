@@ -396,7 +396,9 @@ class AcceptanceVerificationRetryTests(unittest.TestCase):
             stack.enter_context(patch.object(loop.acceptance_retry, "dispatch", side_effect=supersede))
             stack.enter_context(patch.object(loop.autopilot, "prepare_request", side_effect=WriterReached))
             with self.assertRaises(WriterReached):
-                loop.run(runner, args, self.state, self.run / "state.json", self.run, self.workspace, checkout_owned=True)
+                loop.run(
+                    runner, args, self.state, self.run / "state.json", self.run, self.workspace, checkout_owned=True
+                )
         after.assert_not_called()
 
     def test_a_forged_or_unapproved_replacement_cannot_discard_a_retained_report(self):
