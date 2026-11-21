@@ -4,7 +4,20 @@ import unittest
 from pathlib import Path
 
 import autocode_progress_view as progress_view
+import autocode_recovery_history as recovery_history
 import autocode_run_view as run_view
+
+# The changed-code gate's record that sent the selected tests to the independent Tester (#3924).
+STRENGTHENING = {
+    "kind": "changed_code_rework",
+    "test_owner": "write_acceptance_tests",
+    "action": "builder",
+    "round": 1,
+    "round_limit": 2,
+    "at": "2026-11-20T02:19:05+00:00",
+}
+# A review's record that sent a protected acceptance test back to the Tester for repair (#3350).
+TEST_REPAIR = {"action": "writer", "round": 1, "round_limit": 2, "at": "2026-11-20T02:19:05+00:00"}
 
 
 def state(**changes):
@@ -404,6 +417,66 @@ class TaskAndHeadlineTests(unittest.TestCase):
         checking = project(state(active_stage={"stage": "tester"}), stage="Tester")
         self.assertEqual("Tester working", checking["headline"])
         self.assertEqual("Tester finished", project(writing, stage="Tester", finished=True)["headline"])
+
+    def test_c1_strengthening_round_headline(self):
+        """#3924: after the Builder, the changed-code gate sent the selected tests back to the independent
+        Tester (Independent test strengthening, round 1 of 2) on the same stage; the status bar still read
+        "Tester writing tests first · 0 of 3 tasks done", as if the run had restarted."""
+        strengthening = state(
+            active_stage={"stage": "write_acceptance_tests"},
+            acceptance_tests={"pending_evidence_repair": {"binding": {"review_output": "tester-2"}}},
+            regression_proofs=[STRENGTHENING],
+        )
+        view = project(strengthening, stage="Tester")
+        self.assertEqual("Tester strengthening tests (round 1 of 2)", view["headline"])
+        self.assertTrue(view["line"].startswith("Tester strengthening tests (round 1 of 2) · 0 of 3 tasks done"))
+        self.assertNotIn("writing tests first", view["line"])
+        # The headline reads the round of the record the recoveries list shows.
+        self.assertEqual(
+            ["Independent test strengthening (round 1 of 2)"],
+            [row["headline"] for row in recovery_history.project(strengthening)],
+        )
+        # The same record with the strengthening done (no pending pin) is no longer the stage's purpose.
+        done = state(active_stage={"stage": "write_acceptance_tests"}, regression_proofs=[STRENGTHENING])
+        self.assertEqual("Tester writing tests first", project(done, stage="Tester")["headline"])
+
+    def test_c3_protected_test_repair_round_headline(self):
+        """A review sent a protected acceptance test back to the Tester for repair (#3350): the same stage
+        repairs tests, and its headline reads that purpose and round from the recovery record."""
+        repair = {"pending_test_repair": {"binding": {"case_ids": ["C1"]}}, "test_repairs": [TEST_REPAIR]}
+        repairing = state(active_stage={"stage": "write_acceptance_tests"}, acceptance_tests=repair)
+        view = project(repairing, stage="Tester")
+        self.assertEqual("Tester repairing tests (round 1 of 2)", view["headline"])
+        self.assertEqual(
+            ["Independent acceptance-test repair (round 1 of 2)"],
+            [row["headline"] for row in recovery_history.project(repairing)],
+        )
+        # Both pending: the runner writes the repair's next action last, so repair takes precedence.
+        both = state(
+            active_stage={"stage": "write_acceptance_tests"},
+            acceptance_tests={**repair, "pending_evidence_repair": {"binding": {"review_output": "tester-2"}}},
+            regression_proofs=[STRENGTHENING],
+        )
+        self.assertEqual("Tester repairing tests (round 1 of 2)", project(both, stage="Tester")["headline"])
+
+    def test_a_test_writer_purpose_saved_without_rounds_names_no_round(self):
+        # A record saved before rounds were recorded still names the purpose, with no round to show.
+        legacy = {key: value for key, value in STRENGTHENING.items() if key not in ("round", "round_limit")}
+        strengthening = state(
+            active_stage={"stage": "write_acceptance_tests"},
+            acceptance_tests={"pending_evidence_repair": {"binding": {}}},
+            regression_proofs=[legacy, {"kind": "changed_code_rework", "action": "builder", "round": 2}],
+        )
+        self.assertEqual("Tester strengthening tests", project(strengthening, stage="Tester")["headline"])
+        repairing = state(
+            active_stage={"stage": "write_acceptance_tests"},
+            acceptance_tests={"pending_test_repair": {"binding": {}}, "test_repairs": [{"action": "exhausted"}]},
+        )
+        self.assertEqual("Tester repairing tests", project(repairing, stage="Tester")["headline"])
+        self.assertEqual(
+            {"kind": "repair", "round": None, "round_limit": None}, recovery_history.test_writer_purpose(repairing)
+        )
+        self.assertIsNone(recovery_history.test_writer_purpose({"acceptance_tests": None}))
 
     def test_a_finished_stage_names_the_job_that_comes_next(self):
         # A finished Builder must not keep the headline across a Builder→Tester handoff (#1711).

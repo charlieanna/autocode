@@ -1488,6 +1488,9 @@ class ChatClient:
         offer = (view.get("chat") or {}).get("input") or {}
         if (view.get("recovery") or {}).get("category") == "blocked" and not offer:
             return self.hand_off(view)
+        if not need and not view.get("next_command") and offer.get("kind") == "feedback" and offer.get("next_command"):
+            # No step is left to resume, but the view still takes what should change (#3927).
+            return self.explain_change(view)
         if need.get("kind") == "approve_plan":
             return self.approve(view)
         if offer.get("kind") == "resolver_response":
@@ -1514,6 +1517,21 @@ class ChatClient:
         if any(row.kind in ("answer", "model", "effort") for row in decided):
             return self.answer(view, command, decided)
         return self.confirm(view, command, decided)
+
+    def explain_change(self, view: dict) -> bool:
+        """A stop the view offers only its feedback for: say what happened and ask once what should change.
+
+        Nothing typed leaves the run paused; the typed text goes through the view's own feedback offer."""
+        recovery = view.get("recovery") or {}
+        heading = recovery.get("title") or "AutoCode stopped here"
+        why = person_text.plain(recovery.get("what_happened") or view.get("stop_reason") or "")
+        self.say(f"\n{heading.rstrip('.')}. {why}".rstrip())
+        offer = (view.get("chat") or {}).get("input") or {}
+        reply = self.ask(f"\n{offer.get('label') or 'Explain what should change'}: ")
+        if not reply.strip():
+            self.say("Nothing sent; the run stays paused and is saved for inspection.")
+            return False
+        return self.send(reply, (view.get("chat") or {}).get("context") or "")
 
     def hand_off(self, view: dict) -> bool:
         """A need this client cannot act on: explain it without exposing internal commands."""

@@ -151,6 +151,15 @@ class RunViewTests(unittest.TestCase):
             {"status": "RUNNING", "stages": [{"role": "tester", "events": "tester.jsonl", "verification_copy": {}}]}
         )["replay_source"]["records"][0]["verification_copy"]
         self.assertEqual({"version", "manifest", "sha256", "source_revision"}, set(copy_record))
+        assumption = run_view.view(
+            {
+                "status": "RUNNING",
+                "requirements_handoff": {"report": {"proposed_assumptions": [{"id": "A1", "text": "Exit 2"}]}},
+            }
+        )["requirements"]["proposed_assumptions"][0]
+        self.assertEqual(
+            {"id", "text", "category", "convention_ref", "rationale", "confirmed", "standing"}, set(assumption)
+        )
         self.assertEqual(
             {
                 "schema",
@@ -214,6 +223,7 @@ class RunViewTests(unittest.TestCase):
                 "verification_obligation",
                 "evidence_report",
                 "acceptance_tests",
+                "acceptance_verification_retry",
                 "prompts_hash",
                 "task",
                 "task_sha256",
@@ -275,6 +285,15 @@ class RunViewTests(unittest.TestCase):
             }
         )["scope"]["external_parts"][0]
         self.assertEqual({"target", "work", "source_quote", "evidence"}, set(external_part))
+
+    def test_ac7_status_view_names_kept_code(self):
+        # The field inventory of the code_checkpoints object: `kept` is the newest kept code (#3945).
+        view = run_view.view({"status": "RUNNING"})
+        self.assertEqual(
+            {"version", "blocked_reason", "rows", "working", "all_changes", "kept", "continuation", "restores"},
+            set(view["code_checkpoints"]),
+        )
+        self.assertIsNone(view["code_checkpoints"]["kept"])
 
     def test_accounting_attempt_inventory_names_execution_identity(self):
         shown = run_view.view(
@@ -396,6 +415,110 @@ class RunViewTests(unittest.TestCase):
         # Rejected assumption is excluded from active proposed_assumptions projection.
         after_reject = run_view.view(rejected_state)["requirements"]
         self.assertEqual([], after_reject["proposed_assumptions"])
+
+    @staticmethod
+    def _standing_state():
+        """A Requirements handoff (#3898) with a behavior assumption the person must confirm (A1) and an
+        engineering convention the ledger accepts without a question (A2: nothing to read, greenfield)."""
+        report = {
+            "intended_outcome": "Build a greeting CLI",
+            "requirements": [{"id": "R1", "text": "Print Hello NAME", "source_quote": "greeting CLI"}],
+            "proposed_assumptions": [
+                {
+                    "id": "A1",
+                    "text": "Exit 2 on missing name",
+                    "category": "behavior",
+                    "convention_ref": "",
+                    "rationale": "Standard CLI usage exit code",
+                },
+                {
+                    "id": "A2",
+                    "text": "Tests use unittest",
+                    "category": "technical",
+                    "convention_ref": "tests/test_greet.py:1",
+                    "rationale": "The project's tests already use unittest",
+                },
+            ],
+            "acceptance_tests": ["greet.py Ana -> Hello, Ana"],
+        }
+        return {
+            "status": "WAITING_FOR_USER",
+            "requirements_handoff": {"report": report, "output": "/runs/r1/req-01.json"},
+        }
+
+    @staticmethod
+    def _assumption_rows(state):
+        rows = run_view.view(copy.deepcopy(state))["requirements"]["proposed_assumptions"]
+        return {row["id"]: (row["confirmed"], row.get("standing")) for row in rows}
+
+    def test_ac1_inferred_convention_standing_before_approval(self):
+        import autocode_requirements_review as requirements_review
+
+        state = self._standing_state()
+        self.assertEqual(
+            {"A1": (False, "needs_confirmation"), "A2": (True, "convention_not_approved")},
+            self._assumption_rows(state),
+        )
+        # Only A1 needs the person; the inferred convention adds no question of its own.
+        self.assertEqual(["A1"], [row["id"] for row in requirements_review.unconfirmed_assumptions(state)])
+        self.assertEqual(
+            [requirements_review.review_question(state)["id"]],
+            [row["id"] for row in requirements_review.questions(state)],
+        )
+
+    def test_ac2_assumption_standing_after_approval_and_skip(self):
+        import autocode_requirements_review as requirements_review
+
+        approved = self._standing_state()
+        before = requirements_review.questions(approved)
+        requirements_review.confirm_assumptions(approved, source="requirements_review", question_id="RQ1")
+        self.assertEqual(
+            {"A1": (True, "confirmed_by_person"), "A2": (True, "approved_with_understanding")},
+            self._assumption_rows(approved),
+        )
+        self.assertEqual(1, len(before))
+        self.assertEqual([], requirements_review.questions(approved), "approval leaves nothing pending")
+
+        skipped = self._standing_state()
+        requirements_review.confirm_assumptions(skipped, source="skip_requirements")
+        self.assertEqual(
+            {"A1": (True, "skipped_review"), "A2": (True, "skipped_review")},
+            self._assumption_rows(skipped),
+        )
+
+    def test_ac21_standing_reads_saved_confirmation_record(self):
+        import autocode_requirements_review as requirements_review
+
+        state = self._standing_state()
+        requirements_review.confirm_assumptions(state, source="requirements_review", question_id="RQ1")
+        earlier = state.pop("requirements_handoff")
+        repeated = {"report": copy.deepcopy(earlier["report"]), "output": "/runs/r1/req-02.json"}
+        state.update({"requirements_history": [earlier], "requirements_handoff": repeated})
+        self.assertEqual(
+            {"A1": (True, "confirmed_by_person"), "A2": (True, "approved_with_understanding")},
+            self._assumption_rows(state),
+        )
+        # Approving the repeated handoff asks about nothing already confirmed, and takes nothing away.
+        requirements_review.confirm_assumptions(state, source="requirements_review", question_id="RQ2")
+        self.assertEqual([], state["requirements_handoff"]["confirmed_assumptions"]["asked"])
+        self.assertEqual(
+            {"A1": (True, "confirmed_by_person"), "A2": (True, "approved_with_understanding")},
+            self._assumption_rows(state),
+        )
+
+        legacy = self._standing_state()
+        legacy["requirements_handoff"]["confirmed_assumptions"] = {
+            "source": "requirements_review",
+            "question_id": "RQ1",
+            "assumptions": [
+                {"id": row["id"], "text": row["text"]}
+                for row in legacy["requirements_handoff"]["report"]["proposed_assumptions"]
+            ],
+        }
+        self.assertEqual(
+            {"A1": (True, "approved_with_understanding"), "A2": (True, "approved_with_understanding")},
+            self._assumption_rows(legacy),
+        )
 
     def test_dev_server_is_the_callers_inspection_copied(self):
         self.assertIsNone(run_view.view({"status": "RUNNING"})["dev_server"])

@@ -24,15 +24,19 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_acceptance_retry_next as retry_next
     from . import autocode_attempt_ledger as attempt_ledger
     from . import autocode_person_text as person_text
     from . import autocode_plan_only as plan_only
+    from . import autocode_recovery_history as recovery_history
     from . import autocode_run_status as run_status
     from . import autocode_stage_activity as stage_activity
 except ImportError:
+    import autocode_acceptance_retry_next as retry_next
     import autocode_attempt_ledger as attempt_ledger
     import autocode_person_text as person_text
     import autocode_plan_only as plan_only
+    import autocode_recovery_history as recovery_history
     import autocode_run_status as run_status
     import autocode_stage_activity as stage_activity
 
@@ -59,9 +63,15 @@ STOP_CLAIM = "stopped without saving a report"
 # runs again, so naming the next one ("Next: Builder") read as work still to come.
 ENDED = "Stopped: AutoCode could not finish this task"
 # The stage in which the Tester writes the approved tests before the Builder starts
-# (autocode_acceptance_tests_job.STAGE; kept literal to avoid importing a workflow job).
+# (autocode_acceptance_tests_job.STAGE, named in recovery_history to avoid importing a workflow job).
 # "Tester working" there read as a Tester checking finished work while no task was done yet.
-TESTS_FIRST_STAGE = "write_acceptance_tests"
+TESTS_FIRST_STAGE = recovery_history.TEST_WRITER_STAGE
+# What the same stage does when it runs after the Builder or a review (recovery_history.test_writer_purpose):
+# "writing tests first" there read as a restart while the Tester strengthened finished work (#3924).
+TEST_WRITER_PURPOSE = {"strengthening": "strengthening tests", "repair": "repairing tests"}
+# The id prefix of the Requirements review gate question (autocode_requirements_review.PREFIX; kept
+# literal so the progress view reads the published record it is given, not the review module).
+REQUIREMENTS_REVIEW_PREFIX = "requirements-review-"
 
 
 def claims_a_stop(headline) -> bool:
@@ -98,6 +108,8 @@ def progress(
     recovery=None,
     next_command=None,
     person_input=None,
+    gathered: dict | None = None,
+    retained: dict | None = None,
 ) -> dict:
     """The progress projection of one run.
 
@@ -117,6 +129,10 @@ def progress(
               slot or a saved timestamp alone never establishes working activity
     recovery  the public recovery card, including whether the core classified this pause as blocked
     next_command, person_input  the public actions, so a blocked card cannot hide a real person decision
+    gathered  the status view's published Requirements record (`requirements`), so a run with no plan
+              yet names the requirements it gathered instead of "no requirements yet" (#3864)
+    retained  the status view's `acceptance_verification_retry` (autocode_acceptance_retry_next), so a resume
+              that only re-checks the Tester's saved tests, or a spent one, is named as what it is (#3927)
     """
     status = state.get("status", "")
     done = status in COMPLETE
@@ -133,9 +149,15 @@ def progress(
     if earlier:
         tasks["label"] = "no task list yet for this request"
         requirements["label"] = "no requirements yet for this request"
+    elif not requirements["items"] and (label := _gathered_label(gathered, needs)):
+        # Requirements gathered, no implementation criteria yet: `total` still counts criteria (0).
+        requirements["label"] = label
     problems = _problems(state, _rows(state.get("turns")))
     kind = (needs or {}).get("kind")
     asked = _asked(needs, state)
+    retained_next = _mapping(retained).get("next")
+    if kind == "resume" and retained_next == retry_next.RECHECK:
+        asked = "resume to re-check the saved tests"
     observed_continuation = False
     if internal_failure:
         headline = internal_failure["title"]
@@ -164,6 +186,11 @@ def progress(
         headline = f"{stage or 'The stage'} {STOP_CLAIM}"
         # A stale run's next action can be the command itself; the person reads only its words.
         asked = person_text.for_person(stopped) or "inspect the stopped stage, then resume"
+    elif retained_next == retry_next.BLOCKED and not needs and status == retry_next.PAUSE:
+        headline, asked = "Task blocked", "nothing needed from you"
+    elif retained_next == retry_next.EXHAUSTED and not needs and status == retry_next.PAUSE:
+        # No re-check of the saved tests is left and no resume is offered: never a misleading "Next: Tester".
+        headline, asked = "Paused", "explain what should change"
     elif kind in WAITING:
         headline = WAITING[kind]
     elif status == "AWAITING_GOAL_APPROVAL":
@@ -180,8 +207,16 @@ def progress(
         # Its recorded end is not a saved successful report or confirmed cleanup.
         headline = f"{stage} attempt ended"
     elif stage and working:
-        writing_first = working.get("stage") == TESTS_FIRST_STAGE
-        headline = f"{stage} writing tests first" if writing_first else f"{stage} working"
+        headline = f"{stage} working"
+        if working.get("stage") == TESTS_FIRST_STAGE:
+            # One stage, three purposes; the recovery record that dispatched it says which (#3924).
+            purpose = recovery_history.test_writer_purpose(state)
+            headline = (
+                f"{stage} {TEST_WRITER_PURPOSE[purpose['kind']]}"
+                + recovery_history.rounds(purpose["round"], purpose["round_limit"])
+                if purpose
+                else f"{stage} writing tests first"
+            )
     elif stage and open_record:
         headline = f"{stage}: activity could not be confirmed."
     elif (check := _mapping(state.get("active_runner_check"))).get("summary"):
@@ -356,6 +391,24 @@ def _requirements(state: RunState, contract, body, reviewed, legacy):
         "label": label,
         "items": items,
     }
+
+
+def _gathered_label(gathered, needs) -> str | None:
+    """The published Requirements record's count while no plan has criteria, or None when it has none.
+
+    Ready for review only while the Requirements review gate question waits for the person (#3864):
+    before it is asked, or after it is approved while the Planner drafts or asks its own question,
+    the requirements are gathered but no plan has been made from them yet."""
+    count = len(_rows(_mapping(gathered).get("requirements")))
+    if not count:
+        return None
+    needs = _mapping(needs)
+    asked = needs.get("kind") == "answer" and any(
+        str(question.get("id") or "").startswith(REQUIREMENTS_REVIEW_PREFIX)
+        for question in _rows(needs.get("questions"))
+    )
+    noun = _count(count, "gathered requirement")
+    return f"{noun} ready for review" if asked else f"{noun}, no plan yet"
 
 
 def _rebuilt_since(state: RunState, validation):

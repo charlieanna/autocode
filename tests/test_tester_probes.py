@@ -13,6 +13,7 @@ import io
 import json
 import shlex
 import subprocess
+import sys
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -264,7 +265,17 @@ class TesterProbeTests(unittest.TestCase):
                 "state": {
                     "status": "completed",
                     "input": {
-                        "command": f"autocode capture --output .autocode/evidence/{name}.json -- {shlex.join(argv)}"
+                        "command": shlex.join(
+                            [
+                                sys.executable,
+                                str(Path(support.__file__).parent / "autocode.py"),
+                                "capture",
+                                "--output",
+                                f".autocode/evidence/{name}.json",
+                                "--",
+                                *argv,
+                            ]
+                        )
                     },
                     "metadata": {"exit": 0},
                     "output": json.dumps(receipt) + "\n",

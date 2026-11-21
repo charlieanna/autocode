@@ -536,6 +536,10 @@ export interface WorkingComparison {
   patch?: string;
   truncated?: boolean;
   compared_at?: string;
+  /** `checkpoint --all`: whether the files equal the saved code the diff ends at (#3945). */
+  complete?: boolean;
+  /** `checkpoint --all`: where the diff ends and what it leaves out, when it is not complete. */
+  note?: string | null;
 }
 
 /**

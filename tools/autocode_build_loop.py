@@ -51,6 +51,7 @@ try:
     from . import autocode_tool_admission as tool_admission
     from . import autocode_transport_relocation as transport_relocation
     from . import autocode_workflow as workflow
+    from . import autocode_wrong_implementations as wrong_implementations
     from . import autopilot
     from .units import common
 except ImportError:
@@ -87,6 +88,7 @@ except ImportError:
     import autocode_tool_admission as tool_admission
     import autocode_transport_relocation as transport_relocation
     import autocode_workflow as workflow
+    import autocode_wrong_implementations as wrong_implementations
     import autopilot
     from units import common
 
@@ -226,6 +228,7 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
         workflow.guard(current)
         # spec-first: the Tester writes the tests before the Builder, for a parallel batch's whole wave (#1200)
         acceptance_tests.route(current, wave=lambda: dispatch.select(current))
+        wrong_implementations.route(current)  # report-only study of wrong implementations (#3977)
         if current.get("next_stage") in ("builder", "tester", "orchestrator", "completion"):
             dispatch.enforce_cross_model_verification(current)
         repairing_before_upgrade = (
@@ -393,11 +396,18 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
             return recovery_dispatch.dispatch_orchestrator(
                 runner, autopilot.unit_module(stage), current, workspace, run_dir, runner.orchestrator.SKIP
             )
-        if stage == acceptance_tests.STAGE and (current.get(acceptance_tests.KEY) or {}).get(acceptance_retry.KEY):
+        if (
+            stage == acceptance_tests.STAGE
+            and (current.get(acceptance_tests.KEY) or {}).get(acceptance_retry.KEY) is not None
+        ):
             record_resume(runner, args, current, state_path)
-            return acceptance_retry.dispatch(
+            retained = acceptance_retry.dispatch(
                 runner, current, stage, workspace, run_dir, apply=autopilot.unit_module(stage).apply_job
             )
+            if retained is not None:
+                return retained
+            # Test-cause Investigator advice retired the retained report: the ordinary test-writing step runs
+            # with that guidance (the resume above is recorded once per invocation).
         request = autopilot.prepare_request(
             current,
             stage,

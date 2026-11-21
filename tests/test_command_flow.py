@@ -340,6 +340,12 @@ class ConfigToolFlow(unittest.TestCase):
         self.assertEqual(0, json.loads(Path(sol["output"]).read_text())["checks"][0]["exit_code"])
         self.assertNotIn("exit_code", json.loads(Path(sol["reported_output"]).read_text())["checks"][0])
         self.assertEqual(1, len(sol["derived_check_metadata"]))
+        spec_paths = list((Path(sol["output"]).parents[2] / "planning" / "report-check").glob("tester-*.json"))
+        self.assertEqual(1, len(spec_paths))
+        attempt = json.loads(spec_paths[0].read_text()).get("claim_context", {}).get("attempt", {})
+        self.assertEqual(sol["events"], attempt.get("events"))
+        self.assertEqual("report_file", attempt.get("output_mode"))
+        self.assertEqual(sol["capture_context"], attempt.get("capture_context"))
         self.assertFalse(any(record.get("report_only") for record in state["stages"]))
 
     def test_event_stream_tool_completes_with_sessions_usage_and_event_evidence(self):

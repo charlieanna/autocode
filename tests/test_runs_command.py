@@ -14,6 +14,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import autocode_launch_record as launch_record
 import autocode_registry as registry
 import autocode_run_view as run_view
 import autocode_runs_command as runs
@@ -99,6 +100,40 @@ class FleetRowsTests(unittest.TestCase):
         self.assertEqual("checkpoint_malformed", broken["availability"])
         self.assertTrue(broken["reason"])
         self.assertIn("broken", runs.render(runs.rows(self.root), str(self.root)))
+
+    def test_live_launch_before_first_checkpoint_is_working_without_an_action(self):
+        run_dir = self.root / ".autocode" / "runs" / "starting"
+        run_dir.mkdir()
+        launch_record.write(run_dir, "resolving_models", workspace=self.root)
+        row = runs.row(self.root, run_dir, time.time())
+        self.assertEqual("working", row["bucket"])
+        self.assertEqual("starting", row["availability"])
+        self.assertIn("resolving", row["reason"])
+        self.assertIsNone(row["next_command"])
+        self.assertFalse(row["ready_to_continue"])
+
+    def test_dead_or_foreign_launch_does_not_hide_a_missing_checkpoint(self):
+        run_dir = self.root / ".autocode" / "runs" / "starting"
+        run_dir.mkdir()
+        launch_record.write(run_dir, "preparing_run", workspace=self.root)
+        record = launch_record.read(run_dir)
+        for changed in ({"owner_alive": False}, {"owner_alive": None}, {"workspace": "/other"}):
+            with (
+                self.subTest(changed=changed),
+                mock.patch.object(launch_record, "read", return_value={**record, **changed}),
+            ):
+                row = runs.row(self.root, run_dir, time.time())
+                self.assertEqual("unreadable", row["bucket"])
+                self.assertEqual("checkpoint_missing", row["availability"])
+
+    def test_live_launch_does_not_hide_a_symlinked_checkpoint(self):
+        run_dir = self.root / ".autocode" / "runs" / "starting"
+        run_dir.mkdir()
+        launch_record.write(run_dir, "preparing_run", workspace=self.root)
+        (run_dir / "state.json").symlink_to(self.root / "missing")
+        row = runs.row(self.root, run_dir, time.time())
+        self.assertEqual("unreadable", row["bucket"])
+        self.assertEqual("checkpoint_missing", row["availability"])
 
     def test_a_command_that_could_discard_an_uncertain_attempt_is_not_offered(self):
         """Only the run itself can tell a repairable report from an attempt to set aside."""

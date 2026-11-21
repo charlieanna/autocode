@@ -21,6 +21,11 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+try:
+    from . import autocode_attempt_ledger as attempt_ledger
+except ImportError:
+    import autocode_attempt_ledger as attempt_ledger
+
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
@@ -58,8 +63,10 @@ def _stage_started(active: dict) -> dict:
     }
 
 
-def _stage_finished(record: dict) -> dict:
+def _stage_finished(attempt: attempt_ledger.JournalAttempt) -> dict:
+    record = attempt.record
     tokens = (record.get("metrics") or {}).get("provider_tokens") or {}
+    own_model = record.get("model")  # a runner-owned probe names its model instead of a command
     return {
         "event": "stage_finished",
         "stage": record.get("stage"),
@@ -67,7 +74,9 @@ def _stage_finished(record: dict) -> dict:
         "route_role": record.get("route_role"),
         "iteration": record.get("iteration"),
         "engine": record.get("engine"),
-        "model": _model(record.get("command")),
+        "model": _model(record.get("command")) or (own_model if isinstance(own_model, str) else None),
+        "outcome": attempt.outcome,
+        "outcome_reason": attempt.reason,
         "task_id": record.get("task_id"),
         "started_at": record.get("started_at"),
         "finished_at": record.get("finished_at") or record.get("completed_at"),
@@ -133,6 +142,41 @@ def _last_snapshot(path: Path) -> dict | None:
     return None
 
 
+def _finished(before: dict, current: dict, state: RunState) -> list[dict]:
+    """One stage_finished per attempt identity, when the attempt ledger first knows its outcome.
+
+    The snapshot keeps the stage count plus two short digest lists (never paths): saved rows
+    appended before their outcome was known, and retained attempts already announced. A
+    snapshot saved before these lists existed reads them as empty, as the log always did.
+    """
+    found = []
+    logged = before.get("stages", 0)
+    if current["stages"] < logged:
+        found.append({"event": "stages_rewound", "from": logged, "to": current["stages"]})
+        logged = current["stages"]
+    unsettled = set(before.get("unsettled") or [])
+    retained = list(before.get("retained") or [])
+    pending = []
+    for attempt in attempt_ledger.journal(state):
+        if attempt.position is None:
+            if attempt.outcome is not None and attempt.digest not in retained:
+                found.append(_stage_finished(attempt))
+                retained.append(attempt.digest)
+            continue
+        if attempt.position < logged and attempt.digest not in unsettled:
+            continue  # announced, or skipped, when it was appended
+        announced = [digest for digest in (attempt.digest, *attempt.former) if digest in retained]
+        if attempt.outcome is None:
+            pending.append(attempt.digest)
+        elif announced:
+            # Announced while it was retained: its saved row (archived or not) is that same attempt.
+            retained = [digest for digest in retained if digest not in announced]
+        else:
+            found.append(_stage_finished(attempt))
+    current.update(unsettled=pending, retained=retained)
+    return found
+
+
 def events(previous: dict | None, current: dict, state: RunState) -> list[dict]:
     found = []
     before = previous or {}
@@ -152,12 +196,7 @@ def events(previous: dict | None, current: dict, state: RunState) -> list[dict]:
         found.append(entry)
     if current["active_stage"] and current["active_stage"] != before.get("active_stage"):
         found.append(_stage_started(state.get("active_stage") or {}))
-    stages = state.get("stages") or []
-    logged = before.get("stages", 0)
-    if len(stages) < logged:
-        found.append({"event": "stages_rewound", "from": logged, "to": len(stages)})
-        logged = len(stages)
-    found += [_stage_finished(record) for record in stages[logged:] if isinstance(record, dict)]
+    found += _finished(before, current, state)
     if previous is not None and current["findings"] != before.get("findings"):
         found.append({"event": "findings", "counts": current["findings"]})
     if current["contract_revision"] != before.get("contract_revision") and current["contract_revision"] is not None:

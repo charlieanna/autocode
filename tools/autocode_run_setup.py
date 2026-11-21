@@ -983,8 +983,10 @@ def run_locked(
     """Run under existing ownership; failure_routing is a legacy caller argument, never a guard bypass."""
     owner = None
 
-    def owned_result(code, *, ready=False):
-        return owner.result(code, ready=ready) if owner is not None else code
+    def owned_result(code, *, ready=False, reason=None):
+        # ``reason`` is only for an exit whose message is not already its saved stop_reason (#3883);
+        # the Owner applies one rule to every exit's receipt and controller_exit reason.
+        return owner.result(code, ready=ready, reason=reason) if owner is not None else code
 
     def load():
         nonlocal state
@@ -1061,7 +1063,7 @@ def run_locked(
             return owned_result(2)
         except checkout_lock.CheckoutBusy as error:
             print(str(error), file=sys.stderr)
-            return owned_result(2, ready=state.get("status") == "RUNNING")
+            return owned_result(2, ready=state.get("status") == "RUNNING", reason=str(error))
         except (runner.support.Paused, ValueError, RuntimeError, OSError) as error:
             # The Investigator has already taken or declined a spent recovery allowance (autocode_stuck_job):
             # nothing automatic remains, so the run ends with that as its recorded outcome, not a grant.

@@ -681,6 +681,104 @@ test("a stage whose newest attempt failed gets no tick, and a stopped run names 
   assert.deepEqual(recovered.map((row) => [row.mark, row.stopped]), [["✓", false]]);
 });
 
+// #3853: a job that returns to an earlier stage is decided by its newest attempt in time, and "Stopped at"
+// names the stopped stage whose failure is the newest, while every failure stays counted.
+const at = (minute: string) => ({ started_at: `2026-11-02T01:${minute}:00Z`, finished_at: `2026-11-02T01:${minute}:30Z` });
+
+test("test_c6_newest_failed_planner_draft_is_stopped", () => {
+  const shown = view({
+    pipeline: [step("planner", "Planner", "ran")],
+    usage: { accounting: { attempts: [
+      attempt("draft_plan", "Planner", { exit_code: 0, ...at("00") }),
+      attempt("revise_plan", "Planner", { exit_code: 0, ...at("02") }),
+      attempt("draft_plan", "Planner", { exit_code: 1, ...at("04") }),
+    ] } },
+  });
+  const steps = pipelineSteps(shown, STARTED);
+  assert.deepEqual(steps.map((row) => [row.label, row.stopped, row.mark, row.runs]), [["Planner", true, "✗", "3 attempts, 1 failed"]]);
+  assert.equal(section(runHeader(shown, STARTED), "pipeline")?.summary, "Stopped at Planner");
+});
+
+test("test_c7_newest_successful_planner_draft_is_not_stopped", () => {
+  const shown = view({
+    pipeline: [step("planner", "Planner", "ran")],
+    usage: { accounting: { attempts: [
+      attempt("draft_plan", "Planner", { exit_code: 0, ...at("00") }),
+      attempt("revise_plan", "Planner", { exit_code: 1, ...at("02") }),
+      attempt("draft_plan", "Planner", { exit_code: 0, ...at("04") }),
+    ] } },
+  });
+  const steps = pipelineSteps(shown, STARTED);
+  // The revision's failure is still counted; the newer draft's success decides the mark.
+  assert.deepEqual(steps.map((row) => [row.label, row.stopped, row.mark, row.runs]), [["Planner", false, "✓", "3 attempts, 1 failed"]]);
+  assert.equal(section(runHeader(shown, STARTED), "pipeline")?.summary, "1 of 1 ran");
+});
+
+test("test_c8_stop_names_the_newest_failed_job", () => {
+  const shown = view({
+    pipeline: [step("builder", "Builder", "ran"), step("tester", "Tester", "ran")],
+    usage: { accounting: { attempts: [
+      attempt("builder", "Builder", { exit_code: 0, ...at("00") }),
+      attempt("tester", "Tester", { exit_code: 1, ...at("02") }),
+      attempt("builder", "Builder", { exit_code: 1, ...at("04") }),
+    ] } },
+  });
+  const steps = pipelineSteps(shown, STARTED);
+  assert.deepEqual(steps.map((row) => [row.label, row.mark, row.failed, row.runs]), [
+    ["Builder", "✗", 1, "2 attempts, 1 failed"],
+    ["Tester", "✗", 1, ""],
+  ]);
+  assert.equal(section(runHeader(shown, STARTED), "pipeline")?.summary, "Stopped at Builder");
+});
+
+test("a job's route and failure reason come from its newest attempt, whichever stage it ran (#3853)", () => {
+  const route = (model: string, level: string) => ({ launch_route: { model, reasoning_effort: level, provider: "anthropic" } });
+  const shown = view({
+    pipeline: [step("planner", "Planner", "ran")],
+    usage: { accounting: { attempts: [
+      attempt("draft_plan", "Planner", { ...route("old-draft", "low"), ...at("00") }),
+      attempt("revise_plan", "Planner", { ...route("reviser", "medium"), timed_out: true, ...at("02") }),
+      attempt("draft_plan", "Planner", { ...route("new-draft", "high"), exit_code: 1, ...at("04") }),
+    ] } },
+  });
+  const [planner] = pipelineSteps(shown, STARTED);
+  assert.deepEqual([planner!.model, planner!.level, planner!.why, planner!.mark], ["new-draft", "high", "exit 1", "✗"]);
+  // The revision is newest: its route and reason are shown, and its failure stops the job.
+  const revised = view({
+    pipeline: [step("planner", "Planner", "ran")],
+    usage: { accounting: { attempts: [
+      attempt("draft_plan", "Planner", { ...route("drafter", "high"), exit_code: 1, ...at("00") }),
+      attempt("revise_plan", "Planner", { ...route("reviser", "medium"), timed_out: true, ...at("02") }),
+    ] } },
+  });
+  const [again] = pipelineSteps(revised, STARTED);
+  assert.deepEqual([again!.model, again!.level, again!.why, again!.mark], ["reviser", "medium", "timed out", "✗"]);
+  // The stop is named by the job's newest attempt, even when the stage it first ran in is older.
+  const both = view({
+    pipeline: [step("planner", "Planner", "ran"), step("builder", "Builder", "ran")],
+    usage: { accounting: { attempts: [
+      attempt("draft_plan", "Planner", at("00")),
+      attempt("revise_plan", "Planner", at("01")),
+      attempt("builder", "Builder", { exit_code: 1, ...at("02") }),
+      attempt("draft_plan", "Planner", { exit_code: 1, ...at("04") }),
+    ] } },
+  });
+  assert.equal(section(runHeader(both, STARTED), "pipeline")?.summary, "Stopped at Planner");
+});
+
+test("test_c9_single_failed_planner_attempt_stops_at_planner", () => {
+  // A real offline CLI run with one Planner HTTP 401: Planner ✗ and "blocked".
+  const shown = view({
+    summary: { state: "blocked", label: "Blocked", sentence: "The Planner could not sign in." },
+    pipeline: [step("planner", "Planner", "ran")],
+    usage: { accounting: { attempts: [attempt("draft_plan", "Planner", { exit_code: 1 })] } },
+  });
+  assert.deepEqual(pipelineSteps(shown, STARTED).map((row) => [row.label, row.mark]), [["Planner", "✗"]]);
+  const header = runHeader(shown, STARTED);
+  assert.equal(section(header, "pipeline")?.summary, "Stopped at Planner");
+  assert.equal(header?.state, "blocked");
+});
+
 test("the reason a run waits for never shows a command to type", () => {
   // #3309's run, 2026-11-13: "Waiting for:" carried the stop text's resume flags.
   const reason = "Automatic recovery budget exhausted; no further provider will launch. Last cause: No new provider activity "

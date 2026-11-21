@@ -25,9 +25,11 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_acceptance_retry_next as retry_next
     from . import autocode_person_text as person_text
     from . import autocode_roles as roles
 except ImportError:
+    import autocode_acceptance_retry_next as retry_next
     import autocode_person_text as person_text
     import autocode_roles as roles
 
@@ -142,10 +144,14 @@ def _times(count: int) -> str:
     return {1: "once", 2: "twice"}.get(count, f"{count} times")
 
 
-def summary(state: RunState, status: str, role: str | None, stage: str | None = None) -> dict | None:
+def summary(
+    state: RunState, status: str, role: str | None, stage: str | None = None, retained: dict | None = None
+) -> dict | None:
     """``{"what_happened", "resume_label", "resume_effect"}`` for a rejected-answer stop, or None for any other.
 
-    ``stage`` and ``role`` are the stopped stage and its screen name, as the recovery view names them."""
+    ``stage`` and ``role`` are the stopped stage and its screen name, as the recovery view names them.
+    ``retained`` is the retained acceptance retry's answer (autocode_acceptance_retry_next.decide): a resume
+    that only re-checks the saved tests is labelled as that, and a spent one says how often it ran."""
     if status not in STATUSES:
         return None
     stage = _base(stage) or None
@@ -177,6 +183,18 @@ def summary(state: RunState, status: str, role: str | None, stage: str | None = 
         joined = "; ".join(tried)
         parts.append(joined[0].upper() + joined[1:] + ("" if joined.endswith((".", "…")) else "."))
     parts.append("It stopped rather than spend more on the same answer.")
+    following = (retained or {}).get("next") if status == retry_next.PAUSE and stage == retry_next.STAGE else None
+    if following == retry_next.EXHAUSTED:
+        parts.append(retry_next.sentence(retained or {}))
+    if following == retry_next.RECHECK:
+        return {
+            "what_happened": " ".join(parts),
+            "resume_label": "Re-check the saved tests",
+            "resume_effect": (
+                "AutoCode runs the saved tests again without a new Tester attempt, and checks them the same way. "
+                "Earlier attempts and evidence are kept; existing limits and approval gates still apply."
+            ),
+        }
     return {
         "what_happened": " ".join(parts),
         "resume_label": f"Try {who} again",

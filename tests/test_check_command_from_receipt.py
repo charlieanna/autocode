@@ -8,6 +8,7 @@ verified exactly as a typed one; the receipt must still be genuine.
 import hashlib
 import json
 import shlex
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -77,7 +78,17 @@ class CommandFromReceiptTests(unittest.TestCase):
                 "state": {
                     "status": "completed",
                     "input": {
-                        "command": "autocode capture --output .autocode/evidence/check.json -- " + shlex.join(ARGV)
+                        "command": shlex.join(
+                            [
+                                sys.executable,
+                                str(Path(support.__file__).parent / "autocode.py"),
+                                "capture",
+                                "--output",
+                                ".autocode/evidence/check.json",
+                                "--",
+                                *ARGV,
+                            ]
+                        )
                     },
                     "metadata": {"exit": 0},
                     "output": output,

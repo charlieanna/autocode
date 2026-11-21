@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import base64
-import binascii
 import json
 import os
 import re
@@ -24,17 +23,19 @@ try:
     from . import autocode_stall_recovery as stall_recovery
     from . import autocode_stop_kinds as stop_kinds
     from . import autocode_util as util
+    from .autocode_capture_batch_plan import MAX_ENCODED_BYTES as MAX_ENCODED_BYTES
+    from .autocode_capture_batch_plan import MAX_PLAN_BYTES, _capture, _capture_mode, _plan
 except ImportError:
     import autocode_contract_identity as contracts
     import autocode_regression_state as regression_state
     import autocode_stall_recovery as stall_recovery
     import autocode_stop_kinds as stop_kinds
     import autocode_util as util
+    from autocode_capture_batch_plan import MAX_ENCODED_BYTES as MAX_ENCODED_BYTES
+    from autocode_capture_batch_plan import MAX_PLAN_BYTES, _capture, _capture_mode, _plan
 
 # The plan is data, never shell/Python source. Keep the tool call copyable without
 # the nested shell quotes that failed before capture in the ISO-week trial.
-MAX_PLAN_BYTES = 64 * 1024
-MAX_ENCODED_BYTES = 4 * ((MAX_PLAN_BYTES + 2) // 3)
 
 
 BUILTINS = frozenset(
@@ -120,24 +121,6 @@ def argv(command):
     ):
         return None
     return words
-
-
-def _capture():
-    """The running helper owns the launcher; copied data never selects it."""
-    return [sys.executable, str(Path(__file__).resolve().with_name("autocode.py")), "capture"]
-
-
-def _capture_mode(launcher):
-    if not isinstance(launcher, list):
-        return None
-    if launcher == _capture():
-        # Match capture's runtime default for previously offered bare launchers.
-        mode = os.environ.get("AUTOCODE_OUTPUT_MODE", "conservative")
-    elif launcher[:-2] == _capture() and launcher[-2:-1] == ["--mode"]:
-        mode = launcher[-1]
-    else:
-        return None
-    return mode if mode in ("raw", "conservative") else None
 
 
 def context(capture, commands, evidence_directory):
@@ -488,39 +471,6 @@ def withheld_context(
     if completed:
         result["completed_batch_commands"] = completed
     return result
-
-
-def _plan(encoded):
-    """Reject malformed or unbounded input before any capture is launched."""
-    if len(encoded) > MAX_ENCODED_BYTES:
-        raise ValueError("Prepared capture batch plan is too large")
-    try:
-        raw = base64.b64decode(encoded, altchars=b"-_", validate=True)
-        if len(raw) > MAX_PLAN_BYTES:
-            raise ValueError("Prepared capture batch plan is too large")
-        plan = json.loads(raw)
-    except (binascii.Error, UnicodeError, json.JSONDecodeError) as error:
-        raise ValueError("Invalid prepared capture batch plan") from error
-    if (
-        not isinstance(plan, dict)
-        or set(plan) not in ({"mode", "commands", "directory"}, {"capture", "commands", "directory"})
-        or not isinstance(plan["directory"], str)
-        or "\0" in plan["directory"]
-        or not isinstance(plan["commands"], list)
-        or not 2 <= len(plan["commands"]) <= 16
-        or not all(
-            isinstance(command, list)
-            and command
-            and all(isinstance(word, str) and "\0" not in word for word in command)
-            and command[0]
-            for command in plan["commands"]
-        )
-    ):
-        raise ValueError("Invalid prepared capture batch plan")
-    mode = plan["mode"] if "mode" in plan else _capture_mode(plan["capture"])
-    if mode not in ("raw", "conservative"):
-        raise ValueError("Invalid prepared capture batch plan")
-    return {"mode": mode, "commands": plan["commands"], "directory": plan["directory"]}
 
 
 def run(encoded):
