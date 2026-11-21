@@ -126,6 +126,15 @@ class FleetRowsTests(unittest.TestCase):
                 self.assertEqual("unreadable", row["bucket"])
                 self.assertEqual("checkpoint_missing", row["availability"])
 
+    def test_live_launch_does_not_hide_a_symlinked_checkpoint(self):
+        run_dir = self.root / ".autocode" / "runs" / "starting"
+        run_dir.mkdir()
+        launch_record.write(run_dir, "preparing_run", workspace=self.root)
+        (run_dir / "state.json").symlink_to(self.root / "missing")
+        row = runs.row(self.root, run_dir, time.time())
+        self.assertEqual("unreadable", row["bucket"])
+        self.assertEqual("checkpoint_missing", row["availability"])
+
     def test_a_command_that_could_discard_an_uncertain_attempt_is_not_offered(self):
         """Only the run itself can tell a repairable report from an attempt to set aside."""
         root = project(

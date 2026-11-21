@@ -130,7 +130,11 @@ def _row(workspace: Path, run_dir: Path, now: float, changesets, *, checkpoint) 
         updated_at = None
     availability, payload = checkpoint if checkpoint is not None else registry.read_checkpoint(state_path, workspace)
     if availability != "available":
-        starting = launch_record.read(run_dir) if availability == "checkpoint_missing" else None
+        starting = (
+            launch_record.read(run_dir)
+            if availability == "checkpoint_missing" and not os.path.lexists(state_path)
+            else None
+        )
         if (
             starting
             and starting.get("owner_alive") is True
