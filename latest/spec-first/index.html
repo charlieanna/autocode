@@ -631,6 +631,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#wrong-implementations-wrong-implementations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Wrong implementations (--wrong-implementations)
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1835,6 +1846,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#wrong-implementations-wrong-implementations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Wrong implementations (--wrong-implementations)
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1972,6 +1994,26 @@ but isolates the test code from the Builder entirely (#702):</p>
   resolves.</li>
 <li>The status view's <code>acceptance_tests</code> field marks <code>blind: true</code>.</li>
 </ul>
+<h2 id="wrong-implementations-wrong-implementations">Wrong implementations (<code>--wrong-implementations</code>)<a class="headerlink" href="#wrong-implementations-wrong-implementations" title="Permanent link">&para;</a></h2>
+<p><code>--wrong-implementations</code> (off by default; needs <code>--spec-first</code>) measures whether the acceptance tests reject
+plausible wrong code (#3977). Once a batch's regression proof passes, and before the independent Tester runs,
+a model on the Tester's route that has not seen the acceptance tests writes up to eight wrong implementations
+of the approved <code>test:</code> cases. Each is a patch plus a <code>demo</code> command that observes the violated behavior.</p>
+<p>For each one, the runner, in a scratch copy:</p>
+<ul>
+<li>drops it when it names no due <code>test:</code> case, edits a test file or does not apply (<code>invalid</code>);</li>
+<li>requires its demo to exit 0 on the candidate (<code>demo_unproven</code> otherwise) and non-zero with the patch
+  (<code>not_shown_wrong</code> otherwise), so every survivor is really wrong;</li>
+<li>runs the batch's acceptance tests with the patch: a failing test kills it, and when every test passes it
+  <code>survived</code>.</li>
+</ul>
+<p>It is recorded as <code>acceptance_tests.wrong_implementations</code>, and its survivors reach the independent Tester as
+evidence. When the Tester judges a survivor a real violation of its approved case, it fails that criterion and
+lists it in <code>acceptance_test_repairs</code> with kind <code>accepts_wrong_implementation</code>. That kind is accepted only for a
+case with a recorded survivor. The run then goes back to <code>write_acceptance_tests</code>, within the same two repair
+rounds per case as the other kinds, and the study runs again on the strengthened tests. A survivor that violates
+nothing its case states is left in the record and blocks nothing. The study asks no one anything and runs once
+per source revision and batch.</p>
 
 
 
