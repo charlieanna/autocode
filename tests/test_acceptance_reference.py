@@ -3,6 +3,7 @@
 import dataclasses
 import difflib
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -176,6 +177,57 @@ class AcceptanceReferenceTests(unittest.TestCase):
         self.in_body_new_export()
         reference = self.assert_reaches_builder(self.apply())
         self.assertEqual(["tests.test_feature.Feature.test_ac1_answer"], reference["receipt"]["results"]["failed"])
+
+    def test_project_import_observation_succeeds_with_a_fully_bound_isolated_interpreter(self):
+        self.in_body_new_export()
+        environment = self.root / "isolated-python"
+        subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(environment)], check=True)
+        interpreter = environment / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+        self.state["settings"]["regression"]["test_command"] = shlex.join(
+            [str(interpreter), "-m", "unittest", "-v", "tests.test_feature"]
+        )
+        reference = self.assert_reaches_builder(self.apply())
+        observation = reference["candidate_import_observation"]
+        self.assertTrue(observation["execution_identity"]["cache_binding_complete"])
+        self.assertEqual("semver.py", next(iter(observation["imports"].values()))["origin"])
+
+    def test_incomplete_import_identity_retains_the_rejected_observation(self):
+        self.in_body_new_export()
+        with patch.object(reference.verify, "execution_identity", return_value={"cache_binding_complete": False}):
+            result = self.collect(new_behavior=True)
+        self.assertIn("error", result)
+        self.assertNotIn("verdicts", result)
+        observation = result["candidate_import_observation"]
+        self.assertEqual({}, observation["imports"])
+        self.assertIn("not fully bound", observation["reason"])
+        self.assertTrue(Path(observation["path"]).is_file())
+
+    def test_new_export_reexported_through_unchanged_src_package_is_observed(self):
+        package = self.workspace / "src" / "release_api"
+        package.mkdir(parents=True)
+        (package / "__init__.py").write_text("from .core import *\n")
+        (package / "core.py").write_text("def old(): return 1\n")
+        self.git("add", "src")
+        self.git("commit", "-qm", "existing reexport package")
+        self.state["base_commit"] = self.git("rev-parse", "HEAD").strip()
+        (package / "core.py").write_text("def old(): return 1\ndef new(): return 42\n")
+        (self.workspace / "tests/test_feature.py").write_text(
+            "import unittest\nclass Feature(unittest.TestCase):\n"
+            "    def test_ac1_answer(self):\n        from release_api import new\n        self.assertEqual(new(), 42)\n"
+        )
+        reference = self.assert_reaches_builder(self.apply())
+        imports = reference["candidate_import_observation"]["imports"]
+        self.assertEqual("src/release_api/__init__.py", next(iter(imports.values()))["origin"])
+
+    def test_new_project_module_missing_on_base_is_observed(self):
+        (self.workspace / "release_api.py").write_text("def new(): return 42\n")
+        (self.workspace / "tests/test_feature.py").write_text(
+            "import unittest\nclass Feature(unittest.TestCase):\n"
+            "    def test_ac1_answer(self):\n        from release_api import new\n        self.assertEqual(new(), 42)\n"
+        )
+        reference = self.assert_reaches_builder(self.apply())
+        imports = reference["candidate_import_observation"]["imports"]
+        self.assertEqual("release_api.py", next(iter(imports.values()))["origin"])
 
     def test_ac7_bugfix_in_body_import_is_still_a_setup_error(self):
         self.in_body_new_export()

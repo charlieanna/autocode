@@ -9,7 +9,8 @@ the capture ownership fixture correction from `251841736` (cherry-picked as
 `493baaae5`). Focused provenance, protected-oracle, capture fixture,
 incomplete-outcome and architecture suites passed 101 tests on that rebased
 head. Full ruff and mypy passed (971 files). The three #3926 unsafe-dependency
-regressions were rerun on the same head and remain red.
+regressions were red at that head; the later acceptance-side change makes them
+pass while the strict-binding positive cases and final judgment remain open.
 
 - #3944 is in progress. A first provenance-based replay implementation now
   accepts identical named failures from authenticated base and candidate proof
@@ -76,22 +77,30 @@ regressions were rerun on the same head and remain red.
   probe share the same execution-environment digest and unchanged source
   snapshot. Tests cover a re-export through an unchanged package file, an added
   module, `src/`, test helpers, external modules and an environment change.
-  **This helper is not yet connected to acceptance-reference or final proof;**
-  the three unsafe-dependency regressions still fail. The final integration must
-  preserve the candidate scratch/ownership and launch-input guards and record
-  both the test and probe receipts.
+  The acceptance-reference path now consumes this observation and records both
+  test and probe receipts; final regression proof is not yet connected. The
+  external-dependency safety controls now pass for acceptance, but the four
+  positive import cases are currently blocked because this host's selected
+  interpreter has an unbound editable `autocode_supervisor` install. The
+  existing execution-identity contract marks that dependency inventory
+  incomplete; do not ignore it or substitute a different interpreter. A
+  general safe binding of actual editable import resolvers and their exposed
+  source trees, or a semantics-preserving same-execution observation, is still
+  required. A real acceptance case using a fresh isolated standard-library
+  interpreter passes; it does not justify changing the selected interpreter in
+  an actual run. Rejected observations retain their reason and evidence file.
 - The owned runner now records a digest of its actual scrubbed execution
   environment. The observation uses the interpreter and package directory
   from the recognized test command, rejects shell environment prefixes and
   requires matching test/probe environment digests and unchanged source.
   Six focused import-observation tests, 58 receipt/scheduler/replay tests and
-  the architecture limits pass; full mypy passes on 972 files. Integration
-  into both gates is still pending.
+  the architecture limits pass; full mypy passes on 972 files. The final
+  regression-judgment integration is still pending.
 - Unit and end-to-end acceptance-reference regressions now capture in-test
   and module-level dependency cases. The candidate test passes, while the
   original run raises a missing unrelated dependency before its assertion.
-  Both end-to-end regressions pass on master and fail on this branch. The
-  regressions remain red here until classification is corrected. The in-test
+  Both end-to-end regressions pass on master and failed on the original branch;
+  they now pass with acceptance-side fail-closed classification. The in-test
   case mentions that dependency in an added source comment, guarding against
   treating a matching diff word alone as proof that the project provides it.
 - Ruff check and format check passed locally. Mypy passed on 972 source files
@@ -109,8 +118,9 @@ regressions were rerun on the same head and remain red.
   `/private/tmp/autocode-proof-restart-branch.log`.
 - The three new `SharedSetupAnswerTests` pass on this branch and error on
   current master, which does not have the new shared setup-classification API.
-- The original #3926 public-export acceptance tests fail on master and pass
-  here for both an import inside the test and an import at module level.
+- The original #3926 public-export acceptance tests failed on master and
+  passed here before complete dependency identity was required; they are now
+  blocked by the local unbound editable described above.
 - For #3814, the two new assertion-identity tests passed on the branch. On
   current master their seven volatile-message subcases failed while the
   different-assertion guard passed.

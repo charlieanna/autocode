@@ -19,12 +19,14 @@ try:
     from . import autocode_package_scope as package_scope
     from . import autocode_python_tests as python_tests
     from . import autocode_test_setup as test_setup
+    from . import autocode_util as util
     from . import autocode_verification_schedule as schedule
 except ImportError:
     import autocode_failure_provenance as failure_provenance
     import autocode_package_scope as package_scope
     import autocode_python_tests as python_tests
     import autocode_test_setup as test_setup
+    import autocode_util as util
     import autocode_verification_schedule as schedule
 
 _MISSING_NAME = re.compile(
@@ -112,6 +114,21 @@ def command(interpreter, requests, token, *, package=None):
     return f"cd {shlex.quote(package)} && {from_command}" if package else from_command
 
 
+def identity_command(framework, test_command, tree):
+    """The exact runner interpreter, resolved from its test working directory."""
+    if framework is None or framework.name not in ("pytest", "unittest"):
+        return None
+    package, inner = package_scope.split(framework, test_command)
+    invocation = python_tests.parse(python_tests.verbose_unittest(inner))
+    if invocation is None or invocation.kind != framework.name or invocation.prefix:
+        return None
+    interpreter = invocation.python
+    path = Path(interpreter)
+    if path.parent != Path(".") and not path.is_absolute():
+        interpreter = str((Path(tree) / (package or "") / path).resolve())
+    return shlex.join([interpreter, "-m", invocation.kind])
+
+
 def project_targets(
     receipt, tree, requests, token, *, is_product, expected_environment, expected_source, source_before, source_after
 ):
@@ -173,6 +190,8 @@ def observe_candidate(
     run_suite,
     run_command,
     snapshot,
+    identity,
+    expected_source,
     is_product,
     timeout,
 ):
@@ -193,7 +212,19 @@ def observe_candidate(
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     before = snapshot(candidate_tree)
+    binding = identity(candidate_tree)
+    attempt = {"imports": {}, "requests": requests, "source_revision": before, "execution_identity": binding}
+
+    def finish(reason):
+        attempt["reason"] = reason
+        attempt["path"] = str(out / "observation.json")
+        util.atomic_json(out / "observation.json", attempt)
+        return attempt
+
+    if before != expected_source or not isinstance(binding, dict) or binding.get("cache_binding_complete") is not True:
+        return finish("Candidate source or runtime identity is not fully bound")
     candidate = run_suite(framework, test_command, candidate_tree, out, "candidate", timeout=timeout)
+    attempt["candidate"] = candidate
     results = candidate.get("results") or {}
     if (
         not schedule.intact(candidate, root=out)
@@ -203,8 +234,10 @@ def observe_candidate(
         or results.get("skipped")
         or not set(selected) <= set(results.get("passed") or ())
     ):
-        return {}
+        return finish("Selected candidate tests did not produce complete passing evidence")
     between = snapshot(candidate_tree)
+    if identity(candidate_tree) != binding:
+        return finish("Candidate execution identity changed after the selected tests")
     token = "AUTOCODE_IMPORT_" + uuid.uuid4().hex + ":"
     probe = run_command(
         command(invocation.python, requests, token, package=package),
@@ -212,7 +245,10 @@ def observe_candidate(
         out / "probe.log",
         timeout=timeout,
     )
+    attempt["probe"] = probe
     after = snapshot(candidate_tree)
+    if identity(candidate_tree) != binding:
+        return finish("Candidate execution identity changed after the import probe")
     project = project_targets(
         probe,
         candidate_tree,
@@ -224,4 +260,5 @@ def observe_candidate(
         source_before=between,
         source_after=after,
     )
-    return {"imports": project, "source_revision": before, "candidate": candidate, "probe": probe} if project else {}
+    attempt["imports"] = project
+    return finish("Project import origins observed" if project else "No project import origin was established")

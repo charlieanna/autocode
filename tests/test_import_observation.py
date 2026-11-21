@@ -174,6 +174,8 @@ class ImportObservationTests(unittest.TestCase):
             "run_suite": verify.run_suite,
             "run_command": verify.run_command,
             "snapshot": snapshot,
+            "identity": lambda _tree: {"cache_binding_complete": True, "dependencies": "fixed"},
+            "expected_source": snapshot(candidate),
             "is_product": lambda path: not path.startswith("test_"),
             "timeout": 30,
         }
@@ -208,19 +210,51 @@ class ImportObservationTests(unittest.TestCase):
             with patch.dict(os.environ, {"AUTOCODE_IMPORT_ENV_TEST": "changed"}):
                 return verify.run_command(*args, **options)
 
-        self.assertEqual(
-            {},
-            observation.observe_candidate(
-                original,
-                base,
-                candidate,
-                framework,
-                selected,
-                command,
-                output / "different-env",
-                **(kwargs | {"run_command": changed_environment}),
-            ),
+        rejected = observation.observe_candidate(
+            original,
+            base,
+            candidate,
+            framework,
+            selected,
+            command,
+            output / "different-env",
+            **(kwargs | {"run_command": changed_environment}),
         )
+        self.assertEqual({}, rejected["imports"])
+        self.assertIn("probe", rejected)
+        self.assertTrue(Path(rejected["path"]).is_file())
+        rejected = observation.observe_candidate(
+            original,
+            base,
+            candidate,
+            framework,
+            selected,
+            command,
+            output / "incomplete-identity",
+            **(kwargs | {"identity": lambda _tree: {"cache_binding_complete": False}}),
+        )
+        self.assertEqual({}, rejected["imports"])
+        self.assertIn("not fully bound", rejected["reason"])
+        self.assertTrue(Path(rejected["path"]).is_file())
+        identities = iter(
+            (
+                {"cache_binding_complete": True, "dependencies": "before"},
+                {"cache_binding_complete": True, "dependencies": "after"},
+            )
+        )
+        rejected = observation.observe_candidate(
+            original,
+            base,
+            candidate,
+            framework,
+            selected,
+            command,
+            output / "different-dependencies",
+            **(kwargs | {"identity": lambda _tree: next(identities)}),
+        )
+        self.assertEqual({}, rejected["imports"])
+        self.assertIn("candidate", rejected)
+        self.assertTrue(Path(rejected["path"]).is_file())
 
         def changed_source(*args, **options):
             receipt = verify.run_command(*args, **options)
@@ -228,19 +262,19 @@ class ImportObservationTests(unittest.TestCase):
                 stream.write("# changed during probe\n")
             return receipt
 
-        self.assertEqual(
-            {},
-            observation.observe_candidate(
-                original,
-                base,
-                candidate,
-                framework,
-                selected,
-                command,
-                output / "different-source",
-                **(kwargs | {"run_command": changed_source}),
-            ),
+        rejected = observation.observe_candidate(
+            original,
+            base,
+            candidate,
+            framework,
+            selected,
+            command,
+            output / "different-source",
+            **(kwargs | {"run_command": changed_source}),
         )
+        self.assertEqual({}, rejected["imports"])
+        self.assertIn("probe", rejected)
+        self.assertTrue(Path(rejected["path"]).is_file())
 
 
 if __name__ == "__main__":
