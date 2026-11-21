@@ -6,6 +6,10 @@ what was independently observed during continuation.
 
 - #3944 remains unimplemented. Protected-test replay still treats failures
   already present in the base suite as candidate failures.
+- The existing suite-preservation judgment compares failure IDs alone. A
+  changed assertion can fail under the same ID, so that judgment cannot
+  establish the identical-failure condition for #3944. Preserve and compare
+  authenticated failure provenance before exempting either replay half.
 - Review found a potential false proof in the #3926 work. For a new feature,
   `autocode_test_setup.not_evidence` discards even a reported missing
   third-party dependency. The module-level path also classifies an unloaded
