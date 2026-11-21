@@ -650,15 +650,17 @@ class RequirementsObservationsTests(unittest.TestCase):
         self.assertIsNotNone(lookup)
         collection = {
             "source_revision": "r",
+            "source_paths": [],
             "sha256": "a",
             "reported_collection": {"suite_command": "python3 -m pytest", "node_ids": ["a::one", "b::two"]},
         }
         execution = {
             "source_revision": "r",
+            "source_paths": [],
             "sha256": "b",
             "reported_execution": {"suite_command": "python3 -m pytest", "node_ids": ["a::one", "b::two"]},
         }
-        for change in ("subset", "suite", "source", "duplicate", "missing"):
+        for change in ("subset", "suite", "source", "scope", "missing_scope", "duplicate", "missing"):
             left, right = copy.deepcopy(collection), copy.deepcopy(execution)
             if change == "subset":
                 right["reported_execution"]["node_ids"] = ["a::one"]
@@ -666,6 +668,10 @@ class RequirementsObservationsTests(unittest.TestCase):
                 right["reported_execution"]["suite_command"] = "other suite"
             elif change == "source":
                 right["source_revision"] = "other source"
+            elif change == "scope":
+                right["source_paths"] = ["other"]
+            elif change == "missing_scope":
+                right.pop("source_paths")
             elif change == "duplicate":
                 left["reported_collection"]["node_ids"] = ["a::one", "a::one"]
             else:

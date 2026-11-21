@@ -365,7 +365,13 @@ def reported_suite_observation(state: RunState, run_dir, current_source, collect
     """Relate same-suite named reports without granting them independent proof authority."""
     collection = retained_command_output(state, "claim_evidence", run_dir, current_source, collection_command)
     execution = retained_command_output(state, "claim_evidence", run_dir, current_source, execution_command)
-    if not collection or not execution or collection["source_revision"] != execution["source_revision"]:
+    if (
+        not collection
+        or not execution
+        or collection["source_revision"] != execution["source_revision"]
+        or not source.is_canonical_paths(collection.get("source_paths"))
+        or collection["source_paths"] != execution.get("source_paths")
+    ):
         return None
     collected, executed = collection.get("reported_collection"), execution.get("reported_execution")
     if not collected or not executed or collected["suite_command"] != executed["suite_command"]:
@@ -379,6 +385,7 @@ def reported_suite_observation(state: RunState, run_dir, current_source, collect
         "suite_command": collected["suite_command"],
         "node_ids": names,
         "source_revision": collection["source_revision"],
+        "source_paths": collection["source_paths"],
         "collection_sha256": collection["sha256"],
         "execution_sha256": execution["sha256"],
     }
