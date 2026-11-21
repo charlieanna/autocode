@@ -52,3 +52,11 @@ The a87 Linux containment job separately reproduced the existing Rustup
 `update-hashes` read-only failure in both write modes; the qualified #4024
 fix must reach master before current-head CI can pass. The retained log is
 `/private/tmp/autocode-4031-a87-linux-containment.log`.
+
+The common entry parser also preserves the `chat` viewer across source,
+console and module entry points without broadening status interpreter flags.
+The new viewer control fails on 9cf8defe4 and passes on the candidate. Final
+local checks passed 65 guard tests and 128 guard, job-route, architecture and
+run-state tests, plus full Ruff/format and mypy. #4035's separate candidate
+passed its Linux actual-editor refusal/retry test; it has not yet reached
+master or completed its required CI.

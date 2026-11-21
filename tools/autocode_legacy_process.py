@@ -43,22 +43,36 @@ def _python_interpreter(path):
     return os.path.basename(path).lower().startswith("python")
 
 
+def _entry_arguments(argv, *, strict=False):
+    """The common argument tail for supported source, module and console entries."""
+    if not argv:
+        return None
+    index = 1
+    if _python_interpreter(argv[0]):
+        if any(character.isspace() for character in os.path.basename(argv[0])):
+            return None
+        while index < len(argv) and PYTHON_FLAGS.fullmatch(argv[index]):
+            if strict and argv[index] not in ("-B", "-u"):
+                return None
+            index += 1
+        if argv[index : index + 1] == ["-m"]:
+            if index + 1 >= len(argv) or argv[index + 1] not in RUNNER_MODULES:
+                return None
+            index += 2
+        elif index < len(argv) and os.path.basename(argv[index]) in OBSERVER_SCRIPTS:
+            index += 1
+        else:
+            return None
+    elif os.path.basename(argv[0]) != "autocode":
+        return None
+    return argv[index:]
+
+
 def _readonly_runner_argv(argv):
     """Accept only a complete, non-mutating public observer argument vector."""
-    if not argv:
+    args = _entry_arguments(argv, strict=True)
+    if args is None:
         return False
-    script = 0
-    if _python_interpreter(argv[0]):
-        script = 1
-        while script < len(argv) and argv[script] in ("-B", "-u"):
-            script += 1
-    if argv[script : script + 1] == ["-m"]:
-        if script + 1 >= len(argv) or argv[script + 1] not in RUNNER_MODULES:
-            return False
-        script += 1
-    elif script >= len(argv) or os.path.basename(argv[script]) not in OBSERVER_SCRIPTS:
-        return False
-    args = argv[script + 1 :]
     if args[:2] == ["coordinate", "status"]:
         reader, index = "coordinate-status", 2
     elif args[:2] == ["intervention", "inspect"]:
@@ -169,6 +183,9 @@ def not_a_runner(argv):
     """
     if not argv:
         return False
+    args = _entry_arguments(argv)
+    if args is not None:
+        return args[:1] == ["chat"] or _readonly_runner_argv(argv)
     name = os.path.basename(argv[0])
     index = 1
     if _python_interpreter(name):
@@ -176,19 +193,12 @@ def not_a_runner(argv):
             return False
         while index < len(argv) and PYTHON_FLAGS.fullmatch(argv[index]):
             index += 1
-        if argv[index : index + 1] == ["-m"]:
-            return _readonly_runner_argv(argv)
         if index >= len(argv) or argv[index].startswith("-"):
             return False
         script = os.path.basename(argv[index])
         if script not in RUNNER_SCRIPTS:
             return not any(runner in script for runner in RUNNER_SCRIPTS)
-        index += 1
-    elif name == "autocode":
-        script = name
-    else:
-        return False
-    return script in OBSERVER_SCRIPTS and (argv[index : index + 1] == ["chat"] or _readonly_runner_argv(argv))
+    return False
 
 
 def _exact_argv(pid, command):

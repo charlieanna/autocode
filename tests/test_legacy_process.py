@@ -236,6 +236,26 @@ class RunnerCommandTests(unittest.TestCase):
 class ExactArgvTests(unittest.TestCase):
     """Argument boundaries that ps text loses settle launchers and chat viewers."""
 
+    def test_chat_viewer_and_readers_share_all_supported_entry_forms(self):
+        entries = [
+            ["/usr/bin/python3", "-Bu", "/ws/autocode.py"],
+            ["/usr/bin/python3", "-Bu", "/ws/autocode_entry.py"],
+            ["/usr/bin/python3", "-Bu", "/venv/bin/autocode"],
+            ["/venv/bin/autocode"],
+            *[
+                ["/usr/bin/python3", "-Bu", "-m", module]
+                for module in ("autocode", "autocode_entry", "autocode_cli.autocode", "autocode_cli.autocode_entry")
+            ],
+        ]
+        for entry in entries:
+            with self.subTest(entry=entry):
+                self.assertTrue(legacy.not_a_runner([*entry, "chat", "--run-dir", "/ws/run"]))
+                self.assertFalse(legacy.not_a_runner([*entry, "chat about the bug", "--run-dir", "/ws/run"]))
+                if "-Bu" in entry:
+                    self.assertFalse(
+                        legacy.not_a_runner([*entry, "--status", "--workspace", "/ws", "--run-dir", "/ws/run"])
+                    )
+
     def test_launchers_and_chat_clients_run_no_stage(self):
         for argv in (
             [
@@ -276,7 +296,6 @@ class ExactArgvTests(unittest.TestCase):
             ["/venv/bin/python", "/home/u/.local/bin/autocode", "--resume", "--run-dir", "/ws/r"],
             ["/home/u/.local/bin/autocode", "--resume"],
             ["/usr/bin/python3", "-c", "import runpy", "/ws/autocode/tools/autocode.py", "chat"],
-            ["/usr/bin/python3", "-m", "autocode_cli.autocode", "chat"],
             ["/usr/bin/python3", "-X", "dev", "/ws/autocode/tools/autocode.py", "chat"],
             ["/usr/bin/python3", "-W", "ignore", "/ws/autocode/tools/autocode.py", "chat"],
             ["codex", "exec", "-o", "/ws/r/out.json"],
