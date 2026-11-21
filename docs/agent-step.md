@@ -10,8 +10,8 @@ integrations do this, with the same four operations:
 
 | Operation | Claude Code skill (`autocode_agent_step`) | MCP server (`autocode_mcp`) |
 | --- | --- | --- |
-| Start a run and work until it needs you or completes | `start "REQUEST" [--workflow KIND] -- FLAGS` | `autocode_start` |
-| Where the run stands (reads only) | `status [--full]` | `autocode_status` |
+| Start a run; it works until it needs you or completes | `start "REQUEST" [--workflow KIND] -- FLAGS` | `autocode_start` |
+| Where the run stands (reads only), waiting up to a limit for its next stop | `status [--full] [--wait SECONDS]` | `autocode_status` |
 | Pass on your decision, or continue | `answer`, `approve`, `continue` | `autocode_respond` |
 | The completed run's evidence report | `evidence [--markdown]` | `autocode_evidence` |
 
@@ -46,8 +46,20 @@ starts (the skill's `start -- FLAGS`, the MCP server's own command line); later
 calls use the run's saved settings. Each call is recorded in the run's
 [activity log](execution.md#activity-log) with the caller `agent-step` or `mcp`.
 
-A call returns when the run next needs you or completes, which can take as long
-as the work does. Raise your MCP client's tool timeout for long tasks.
+No call waits for the work (#3984). A start, an approval, an answer or a continue
+saves what it was given, hands the work to the run's next stop to a background
+process, and returns at once with `working: true`. While `working` is true the
+other fields describe a run still at work: there is nothing to decide yet. Read
+the status again, with a wait (`--wait SECONDS`, MCP `wait_seconds`) shorter than
+the agent's own tool time limit, until `working` is false, then act on that stop.
+Every advancing call takes the same wait, so a short task can still finish in one
+call. While a run works, a call that would advance it again, its evidence, and a
+new start in the same workspace are refused, never queued. The background process
+outlives the agent's call and the MCP server; if it ends without recording how,
+`background.state` is `lost` and the run's own status says what follows.
+
+The background work's records and output are in `.autocode/agent-step/` in the
+workspace (`RUN.log` holds the process's output).
 
 ## Claude Code skill
 

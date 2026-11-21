@@ -15,7 +15,7 @@ from unittest import mock
 import autocode_agent_step as agent_step
 import autocode_mcp as mcp
 
-from tests.test_agent_step import callers, fixture_workspace
+from tests.test_agent_step import callers, fixture_workspace, hold_the_provider
 from tests.test_taskrun import BRIEF, FIXTURE_OPTIONS
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -115,6 +115,7 @@ class ProtocolTests(unittest.TestCase):
             "takes no options": self.call("autocode_start", brief="Build it", options=["--engine", "opencode"]),
             "action must be one of": self.call("autocode_respond", action="approve_everything"),
             "full must be true or false": self.call("autocode_status", full="yes"),
+            "wait_seconds must be a number": self.call("autocode_status", wait_seconds=-1),
         }
         for reason, result in refusals.items():
             with self.subTest(reason=reason):
@@ -128,6 +129,7 @@ class StdioServerTests(unittest.TestCase):
 
     def setUp(self):
         self.workspace, env = fixture_workspace(self)
+        self.hold = hold_the_provider(self, env)
         self.server = subprocess.Popen(
             [sys.executable, str(SERVER), "--workspace", str(self.workspace), "--", *FIXTURE_OPTIONS],
             stdin=subprocess.PIPE,
@@ -187,8 +189,15 @@ class StdioServerTests(unittest.TestCase):
         self.send({"jsonrpc": "2.0", "method": "notifications/initialized"})
         self.assertEqual(TOOL_NAMES, [tool["name"] for tool in self.request("tools/list", {})["tools"]])
 
-        planned = self.view("autocode_start", brief=BRIEF)
-        self.assertEqual("approve_plan", planned["needs"]["kind"], planned)
+        # The start returns while the run works (#3984): the held provider keeps it working.
+        started = self.view("autocode_start", brief=BRIEF)
+        self.assertTrue(started["working"], started)
+        self.assertTrue(self.view("autocode_status", wait_seconds=1)["working"])
+        self.assertIn("still working", self.refusal("autocode_respond", action="continue"))
+        self.hold.unlink()
+        planned = self.view("autocode_status", wait_seconds=250)
+        self.assertEqual(started["run_dir"], planned["run_dir"])
+        self.assertEqual((False, "approve_plan"), (planned["working"], planned["needs"]["kind"]), planned)
         self.assertEqual(
             ("your_decision", "Your decision"), (planned["pause_category"], planned["pause_category_label"])
         )
@@ -201,7 +210,7 @@ class StdioServerTests(unittest.TestCase):
         self.assertIn("not current", self.refusal("autocode_evidence"))
         self.assertFalse((self.workspace / "greet.py").exists(), "nothing is built before the person approves")
 
-        done = self.view("autocode_respond", action="approve_plan", token=planned["needs"]["token"])
+        done = self.view("autocode_respond", action="approve_plan", token=planned["needs"]["token"], wait_seconds=250)
         self.assertEqual(("TASK_COMPLETE", True, None), (done["status"], done["done"], done["next_command"]), done)
         self.assertEqual(planned["run_dir"], done["run_dir"])
         self.assertTrue((self.workspace / "greet.py").is_file())
