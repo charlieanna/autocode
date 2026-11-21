@@ -62,6 +62,12 @@ At 3720b97a1, both editor answers timed out. The Codex action log confirmed
 the CLI rejected the answer because a run-referencing process was active; the
 Kilo test had no action log and its cause was not established. The full job is
 <https://github.com/charlieanna/autocode/actions/runs/44891347985/job/136807776432>.
+The separate Linux containment job failed both Rustup test variants because
+the contained `cargo --version` could not create its read-only update-hash
+directory; 88 of 90 tests passed. Its log is
+`/private/tmp/autocode-4022-3720-linux-containment.log`. The Rustup fix is a
+separate workstream; do not infer that its prior missing-executable error and
+this read-only-directory error are identical without verification.
 The Kilo fixture now uses the same forwarding diagnostic as the Codex fixture.
 On a busy refusal the wrapper takes a best-effort process sample after the
 CLI returns: PID, creation time, command hash and safe status-option category.
