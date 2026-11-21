@@ -390,6 +390,7 @@ class RequirementsObservationsTests(unittest.TestCase):
             "unknown",
             "duplicate",
             "partial_duplicate",
+            "same_id_duplicate",
             "oversized",
         ):
             with self.subTest(case=case):
@@ -410,9 +411,14 @@ class RequirementsObservationsTests(unittest.TestCase):
                     else "docs/example.rst::example\n358 tests collected\n"
                 )
                 self.events = [self.command("one", actual, output, **flags)]
-                if case in ("duplicate", "partial_duplicate"):
+                if case in ("duplicate", "partial_duplicate", "same_id_duplicate"):
                     self.events.append(
-                        self.command("two", command, "different\n", output_truncated=case == "partial_duplicate")
+                        self.command(
+                            "one" if case == "same_id_duplicate" else "two",
+                            command,
+                            "different\n",
+                            output_truncated=case == "partial_duplicate",
+                        )
                     )
                 self.write_events()
                 self.seal()

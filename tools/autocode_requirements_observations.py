@@ -249,6 +249,7 @@ def _rows(raw):
     values = [json.loads(line) for line in raw.decode().splitlines() if line.strip()]
     blocked = set()
     complete = set()
+    completed_ids: collections.Counter[str] = collections.Counter()
     for row in values:
         part = row.get("part") or {}
         item = row.get("item") or {}
@@ -260,6 +261,8 @@ def _rows(raw):
             or (row.get("type") == "tool_use" and state.get("status") == "completed")
         ):
             continue
+        if isinstance(ident, str) and ident:
+            completed_ids[ident] += 1
         if metadata.get("truncated") or metadata.get("output_truncated") or item.get("output_truncated"):
             blocked.add(ident)
         elif (
@@ -281,7 +284,8 @@ def _rows(raw):
         {
             **r["item"],
             "_truncated": (r.get("item") or {}).get("id") in blocked,
-            "_complete": (r.get("item") or {}).get("id") in complete,
+            "_complete": (r.get("item") or {}).get("id") in complete
+            and completed_ids[(r.get("item") or {}).get("id")] == 1,
         }
         for r in events
         if r.get("type") == "item.completed" and (r.get("item") or {}).get("type") == "command_execution"
