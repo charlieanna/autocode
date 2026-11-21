@@ -1670,6 +1670,7 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         # The retained acceptance retry's one answer (#3927) and the surfaces that read it; the CLI test
         # reaches the build loop and the status command's progress line through the in-process CLI.
         (
+            "tools/autocode_acceptance_retry_admission.py",
             "tools/autocode_acceptance_retry_next.py",
             "tools/autocode_build_loop.py",
             "tools/autocode_status_command.py",
