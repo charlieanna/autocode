@@ -3,7 +3,7 @@
 Thread "Fix recovery issues on Kilo". Issues: #3887, #3938, #3879, #3872, #3870, #3892, #3890, escalation half of #3954.
 
 ## Clusters
-- **D, run identity (#3892, #3890)**: IN PROGRESS. Branch `claude/project-thread-j0d3hi-runs` (this commit is a WIP snapshot of the Builder's milestone M1 files; M2 events/wait not built yet). Issues labelled `in progress`.
+- **D, run identity (#3892, #3890)**: IN PROGRESS. Branch `claude/project-thread-j0d3hi-runs`. M1 and the M2 polling changes are implemented; the remaining broader review, final verification and CI are pending. Issues labelled `in progress`.
 - **A, role labels in stop/rejection text (#3879, #3872)**: not started.
 - **B, re-observe recovery causes (#3887, #3938, #3954 escalation half)**: not started.
 - **C, report-repair freshness view (#3870)**: not started.
@@ -19,6 +19,7 @@ A, B, C wait until #3868 (group 3b) and group 4a (#3852/#3880/#3869 + view half 
 - The Completion Reviewer later found that an existing run-shaped directory without a checkpoint was still accepted and that the new identity unit module could not collect on the original source. After reviewing the fixture request, the operating agent authorized writing the canonical fixture checkpoint while keeping every assertion. The correction refuses checkpointless output directories before execution, lets candidate-only unit coverage skip cleanly on master, and adds a public CLI regression. The three-module focused suite passed 88 tests; three public CLI regressions fail on master.
 - The paused run could not resume after those reviewed source edits: the public resume returned "AutoResolver diagnosis requires a current approved task, source and saved source report" and the run stayed at `RESOLVER_PENDING`. The source change invalidated the diagnosis. Do not blindly retry or alter its evidence. The original worktree and attempt remain preserved.
 - Ruff and mypy for the changed runtime modules now pass; the missing type annotations in the inherited WIP were corrected.
+- Events and wait now resolve the run through the same authenticated identity helper at each poll. Two public CLI-entry regressions using a real Git worktree fail on master and pass on the branch, including the copied event history and the actual destination in the wait result. The focused suite is running.
 
 ## Resume / continue
 Status: `autocode-recov-controller/.venv/bin/autocode --run-dir <RUN> --status`
