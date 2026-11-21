@@ -1,6 +1,7 @@
 """Source access is AutoCode's recovery, never a question about Git machinery."""
 
 import copy
+import importlib
 import subprocess
 import tempfile
 import unittest
@@ -84,6 +85,11 @@ class SourceReconciliationTests(unittest.TestCase):
             controller={"kind": "ended", "checked": True, "alive": False},
             **kwargs,
         )
+
+    def test_package_import_checks_the_same_readable_source(self):
+        package = importlib.import_module("tools.autocode_source_reconciliation")
+        self.assertEqual("tools.autocode_source_snapshot", package.source_snapshot.__name__)
+        self.assertTrue(package.readable(self.workspace, self.state))
 
     def test_readable_source_names_one_bound_continuation_for_all_stages(self):
         for stage in ("draft_plan", "review_plan", "builder", "review_change", "review_completion"):
