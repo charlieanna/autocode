@@ -19,6 +19,8 @@ what was independently observed during continuation.
 - Ruff check and format check passed locally. Mypy passed on 965 source files.
 - The three new `SharedSetupAnswerTests` pass on this branch and error on
   current master, which does not have the new shared setup-classification API.
+- The original #3926 public-export acceptance tests fail on master and pass
+  here for both an import inside the test and an import at module level.
 - For #3814, the two new assertion-identity tests passed on the branch. On
   current master their seven volatile-message subcases failed while the
   different-assertion guard passed.
