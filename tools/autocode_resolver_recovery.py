@@ -259,6 +259,8 @@ def _holds(saved, state: RunState, revision):
 
 def _stale_binding_checks(saved, state: RunState, revision, within):
     """Name the failed admission checks without exposing any bound values."""
+    if not isinstance(saved, dict):
+        return ["binding"] if within else ["binding", "scope"]
     current = _binding(state, revision)
     checks = []
     if saved.get("source_revision") != current["source_revision"]:

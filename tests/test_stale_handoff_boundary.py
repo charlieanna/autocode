@@ -663,6 +663,7 @@ class PacketPauseGuardTests(unittest.TestCase):
     def test_packet_admission_names_each_failed_binding_without_settings_values(self):
         saved = recovery._binding(self.state, "s1")
         self.assertEqual([], recovery._stale_binding_checks(saved, self.state, "s1", True))
+        self.assertEqual(["binding", "scope"], recovery._stale_binding_checks(None, self.state, "s1", False))
         cases = [
             ("source", {**saved, "source_revision": "old"}, True, ["source"]),
             ("task", {**saved, "task_id": "old"}, True, ["task"]),
