@@ -8,7 +8,9 @@ PROBE = shlex.join(
         "python3",
         "-c",
         "import subprocess; r = subprocess.run(['python3', 'greet.py', 'Grace'], capture_output=True, text=True); "
-        "assert (r.returncode, r.stdout, r.stderr) == (0, 'Hello, Grace\\n', '')",
+        "assert (r.returncode, r.stdout, r.stderr) == (0, 'Hello, Grace\\n', ''); "
+        "r = subprocess.run(['python3', 'greet.py', '\\t'], capture_output=True, text=True); "
+        "assert (r.returncode, r.stdout, r.stderr) == (2, '', 'A nonempty name is required\\n')",
     ]
 )
 
