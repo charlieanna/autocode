@@ -188,7 +188,7 @@ def _saved_outcome(record):
     return "rejected" if record.get("rejected") else "completed"
 
 
-def _retained_outcome(state, record):
+def _retained_outcome(state: Mapping[str, Any], record):
     """A retained attempt is terminal only once the core rejected its result and the run stopped."""
     reason = record.get(UNUSABLE)
     finished = record.get("finished_at") or record.get("completed_at")
