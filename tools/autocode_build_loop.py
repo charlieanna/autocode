@@ -395,9 +395,13 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
             )
         if stage == acceptance_tests.STAGE and (current.get(acceptance_tests.KEY) or {}).get(acceptance_retry.KEY):
             record_resume(runner, args, current, state_path)
-            return acceptance_retry.dispatch(
+            result = acceptance_retry.dispatch(
                 runner, current, stage, workspace, run_dir, apply=autopilot.unit_module(stage).apply_job
             )
+            # Superseding an old report changes no completed stage. Restart at
+            # the saved state so the replacement writer runs before boundary
+            # callbacks or a pause-after-stage can claim work was completed.
+            return runner.orchestrator.SKIP if result is None else result
         request = autopilot.prepare_request(
             current,
             stage,

@@ -5,6 +5,7 @@ import json
 import subprocess
 import tempfile
 import unittest
+from contextlib import ExitStack
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -347,6 +348,56 @@ class AcceptanceVerificationRetryTests(unittest.TestCase):
         self.assertEqual(before["stages"], self.state["stages"])
         self.assertEqual(before["history"], self.state["history"])
         self.runtime.run_role.assert_not_called()
+
+    def test_superseded_report_restarts_build_loop_before_stage_boundary(self):
+        import autocode_build_loop as loop
+        import autopilot
+
+        class WriterReached(Exception):
+            pass
+
+        # The retained report is retired, but no stage has completed. The
+        # next pass must reach a fresh writer before the after-stage hook.
+        self.state[acceptance.KEY][retry.KEY] = {"record": {}}
+        self.state["next_stage"] = acceptance.STAGE
+        self.state["settings"]["roles"] = {}
+        runner = SimpleNamespace(
+            native_calls=Mock(),
+            orchestrator=SimpleNamespace(SKIP=autopilot.SKIP, LoopExit=autopilot.LoopExit),
+            write_json=Mock(),
+            SCHEMA_DIR=self.run / "schemas",
+        )
+        args = SimpleNamespace(unit=None, chat=False, pause_after_stage=True)
+        after = Mock()
+
+        def drive(current, dispatch, **callbacks):
+            return autopilot.drive(current, dispatch, after=after)
+
+        runner.orchestrator.drive = drive
+
+        def supersede(current_runner, current, stage, workspace, run_dir, *, apply):
+            current[acceptance.KEY].pop(retry.KEY)
+            return None
+
+        with ExitStack() as stack:
+            for module, name in (
+                (loop.model_preflight, "check"),
+                (loop.progressive, "guard_dispatch"),
+                (loop.autopilot.builder_failure, "dispatch_guard"),
+                (loop.workflow, "dispatch_guard"),
+                (loop.autopilot, "admit_validation"),
+                (loop.completion_result, "before_review"),
+                (loop.launch_inputs, "guard"),
+            ):
+                stack.enter_context(patch.object(module, name))
+            stack.enter_context(patch.object(loop.storage_budget, "conversation_only", return_value=True))
+            stack.enter_context(patch.object(loop.planning, "is_planning", return_value=False))
+            stack.enter_context(patch.object(loop.autopilot, "revalidate_resolver", return_value=False))
+            stack.enter_context(patch.object(loop.acceptance_retry, "dispatch", side_effect=supersede))
+            stack.enter_context(patch.object(loop.autopilot, "prepare_request", side_effect=WriterReached))
+            with self.assertRaises(WriterReached):
+                loop.run(runner, args, self.state, self.run / "state.json", self.run, self.workspace, checkout_owned=True)
+        after.assert_not_called()
 
     def test_a_forged_or_unapproved_replacement_cannot_discard_a_retained_report(self):
         self.start_retry()
