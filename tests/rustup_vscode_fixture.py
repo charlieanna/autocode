@@ -6,6 +6,7 @@ import dataclasses
 import hashlib
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -42,6 +43,13 @@ def provider_path(root: Path, cargo_bin: Path, inherited: str) -> str:
 
 def cargo_explicit_command(program: str, toolchain: str) -> str:
     return shlex.join([program, "+" + toolchain, "--version"])
+
+
+def normalized_review(markdown: str, program: str) -> str:
+    """Substitute only the selected program, in both plain prose and code spans."""
+    literal = shlex.quote(program)
+    escaped = re.sub(r"([\\`*{}\[\]()#+.!_>~|<>-])", r"\\\1", literal)
+    return markdown.replace(escaped, "cargo").replace(literal, "cargo")
 
 
 def main(argv: list[str]) -> int:
@@ -198,14 +206,19 @@ if agent == "autocode_builder" and os.environ.get("AUTOCODE_FIXTURE_RUSTUP_RECOR
         or criteria[0].get("verification_method") != check
         or not paths <= allowed
         or plan.get("permission_boundaries") != ["Read and edit only this scenario workspace"]
-        or hashlib.sha256(plan["review_markdown"].replace(shlex.quote(cargo_path), "cargo").encode()).hexdigest()
+        or hashlib.sha256(normalized_review(plan["review_markdown"], cargo_path).encode()).hexdigest()
         != (
             "7f2deddb564dc2e39e23bf380636808c7cb1081c18477f1d0455d1957c21829a"
             if absolute_cargo
             else "77170cecfe2dc70dd77771f010bab94aec2087c359f2c2cc4dd5f328f3a464ab"
         )
     ):
-        raise AssertionError("The exact generated plan exceeds the reviewed offline Rust task")
+        raise AssertionError(
+            "The exact generated plan exceeds the reviewed offline Rust task; "
+            f"criteria={len(criteria)}, method={criteria[0].get('verification_method') if criteria else None!r}, "
+            f"paths={sorted(paths)}, boundaries={plan.get('permission_boundaries')!r}, "
+            f"review_sha256={hashlib.sha256(normalized_review(plan['review_markdown'], cargo_path).encode()).hexdigest()}"
+        )
     review = root / "agent-plan-review.json"
     review.write_text(
         json.dumps(
