@@ -262,7 +262,7 @@ def install(fake, config: dict, trace) -> None:
             environment_command = [
                 sys.executable,
                 "-c",
-                "import os; assert os.environ.get('AUTOCODE_REPLAY_STUDY') == 'fixture'",
+                "import os; assert os.environ.get('AUTOCODE_REPLAY_STUDY') == 'fixture', 'AUTOCODE_REPLAY_STUDY missing'",
             ]
             destination = (Path.cwd() / ".autocode/evidence" / f"replay-observation-{uuid.uuid4().hex}.json").resolve()
             argv = [*shlex.split(data["capture_command"]), "--output", str(destination), "--", *environment_command]
