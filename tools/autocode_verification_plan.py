@@ -32,6 +32,7 @@ try:
     from . import autocode_brief_obligations as brief_obligations
     from . import autocode_command_supervision as command_supervision
     from . import autocode_risk_obligations as risk_obligations
+    from . import autocode_toolchain as toolchain
     from . import autocode_toolchain_requirements as toolchain_requirements
     from . import autocode_verification_expectations as expectations
     from . import autocode_verification_schedule as schedule
@@ -39,6 +40,7 @@ except ImportError:
     import autocode_brief_obligations as brief_obligations
     import autocode_command_supervision as command_supervision
     import autocode_risk_obligations as risk_obligations
+    import autocode_toolchain as toolchain
     import autocode_toolchain_requirements as toolchain_requirements
     import autocode_verification_expectations as expectations
     import autocode_verification_schedule as schedule
@@ -115,8 +117,8 @@ RUNNERS = frozenset(
 )
 # `env NAME=value ... COMMAND` with literal values: the one way a check sets its own environment, the
 # form autocode_go_tests.parse already reads (a Go repository under a go.work needs GOWORK=off, #2503).
-ENV_WORDS = ("env", "/usr/bin/env", "/bin/env")
-ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=[^$`\\]*")
+ENV_WORDS = toolchain.ENV_WORDS
+ASSIGNMENT = toolchain.ASSIGNMENT
 
 
 # Every command in backticks in a check plan is replayed as a check that must exit 0 unless its exit status is
@@ -254,11 +256,11 @@ def executable(text):
         return False
     if not words:
         return False
-    if words[0] in ENV_WORDS:
-        rest = words[1:]
-        while rest and ASSIGNMENT.fullmatch(rest[0]):
-            rest = rest[1:]
-        return 0 < len(rest) < len(words) - 1 and executable(shlex.join(rest))
+    if words[0] in ENV_WORDS or ASSIGNMENT.fullmatch(words[0]):
+        # `env NAME=value RUNNER` and the shell's own `NAME=value RUNNER` both run RUNNER (#4015).
+        rest = toolchain.program_words(words)
+        assigned = len(words) - len(rest) - (words[0] in ENV_WORDS)
+        return assigned > 0 and bool(rest) and executable(shlex.join(rest))
     name = PurePosixPath(words[0]).name
     if name == "autocode":
         return words[1:2] == ["visual-check"]  # a check, not permission to launch another task run
