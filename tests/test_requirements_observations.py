@@ -342,6 +342,10 @@ class RequirementsObservationsTests(unittest.TestCase):
         self.assertEqual(full, observed["output"])
         self.assertEqual(hashlib.sha256(full.encode()).hexdigest(), observed["sha256"])
         self.assertEqual(self.product["revision"], observed["source_revision"])
+        collection = observed["reported_collection"]
+        self.assertEqual("python3 -m pytest -q", collection["suite_command"])
+        self.assertEqual(358, len(collection["node_ids"]))
+        self.assertFalse(collection["independently_verified"])
         self.assertNotIn(full, json.dumps(self.context()), "full native output stays out of the model packet")
         self.state["stages"].append({"stage": "draft_plan"})
         self.assertIsNone(lookup(self.state, "draft_plan", self.run, lambda: source.snapshot(self.workspace), command))
@@ -495,6 +499,25 @@ class RequirementsObservationsTests(unittest.TestCase):
             self.state, "draft_plan", self.run, lambda: source.snapshot(self.workspace), "python3 -c 'print(2025)'"
         )
         self.assertEqual("2025\n", found["output"])
+
+    def test_reported_collection_requires_all_named_nodes_and_exact_suite_command(self):
+        parser = getattr(observations, "named_collection", None)
+        self.assertIsNotNone(parser)
+        command = "python3 -m pytest --collect-only -q"
+        complete = "tests/test_one.py::test_a\ntests/test_two.py::test_b\n\n2 tests collected in 0.14s\n"
+        result = parser.pytest_collection(command, complete)
+        self.assertEqual(["tests/test_one.py::test_a", "tests/test_two.py::test_b"], result["node_ids"])
+        self.assertFalse(result["independently_verified"])
+        for bad_command, bad_output in (
+            (command, "tests/test_one.py::test_a\n2 tests collected in 0.14s\n"),
+            (command, "tests/test_one.py::test_a\n"),
+            (command, complete + "unexpected output\n"),
+            (command + " -k docs", complete),
+            (command + " | head", complete),
+            ("python3 -m pytest -q", complete),
+        ):
+            with self.subTest(command=bad_command, output=bad_output):
+                self.assertIsNone(parser.pytest_collection(bad_command, bad_output))
 
     def test_running_native_event_cannot_attest_a_later_completed_output(self):
         command = "python3 -m pytest --collect-only -q"

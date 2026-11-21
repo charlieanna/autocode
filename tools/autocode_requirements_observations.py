@@ -22,10 +22,12 @@ if TYPE_CHECKING:
     from .autocode_run_state import RequirementsObservationSeal, RunState
 
 try:
+    from . import autocode_named_collection as named_collection
     from . import autocode_source_snapshot as source
     from . import autocode_util as util
     from .providers import opencode_events
 except ImportError:
+    import autocode_named_collection as named_collection
     import autocode_source_snapshot as source
     import autocode_util as util
     from providers import opencode_events
@@ -333,7 +335,12 @@ def retained_command_output(state: RunState, stage, run_dir, current_source, com
             "sha256"
         ):
             return None
-        return {**row, "source_revision": packet["source_revision"]}
+        collection = named_collection.pytest_collection(command, row["output"])
+        return {
+            **row,
+            "source_revision": packet["source_revision"],
+            **({"reported_collection": collection} if collection else {}),
+        }
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return None
 

@@ -8,6 +8,13 @@ import run_suite
 
 
 class AccessTransportConsumerTests(unittest.TestCase):
+    def test_named_collection_changes_keep_observation_custody_tests(self):
+        selected = run_suite.select_tests(
+            ["tools/autocode_named_collection.py"],
+            {"tests.test_requirements_observations": "", "tests.test_unrelated": ""},
+        )
+        self.assertIn("tests.test_requirements_observations", selected)
+
     def test_bounded_status_observation_keeps_retained_retry_consumers(self):
         consumers = {
             "tests.test_acceptance_retry_resume_cli",
