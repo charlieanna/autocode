@@ -2682,6 +2682,12 @@ run is waiting for:
 | `dependency` | a bound producer run's delivery (see [Dependencies between existing runs](#dependencies-between-existing-runs)) | `reason`, `producer_run`, `producer_workspace` | `autocode wait --run-dir <producer_run> --workspace <producer_workspace>`: returns when the producer needs a person or ends. Nothing to answer on this run: the dependency worker (`python tools/autocode_dependencies.py ... --watch`) calls `--receive-dependency MANIFEST` (`TaskRun.receive_dependency`) when the producer's verified delivery is ready |
 | `continue` | no person input; the core may name a deterministic recovery in `action` (for example, setting aside an uncertain attempt that did not finish cleanly, or resuming bounded recovery when the saved progress ledger proves another slot is unnecessary) | `action` when present | Run only the named `next_command`, then read status again |
 
+On a `retry_job` whose saved model question is the only admissible action,
+`effort_drift: true` says the saved and current recognized reasoning levels
+differ. It is display information, not permission to retry or to change the
+saved route. A concrete model/level answer still passes the normal locked
+source, token, provider and configuration checks before a new retry token is issued.
+
 A `resolver_scope` of `operational_exhaustion` or `blocker` means Resolver
 stopped the run because it could not continue safely (for example, the
 run time limit was reached). That question is for a person who has looked at

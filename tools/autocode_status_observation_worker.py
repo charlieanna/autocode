@@ -36,7 +36,14 @@ def _worker(request):
                 failure_status=support.failure_status,
                 configured_tool=getattr(opencode, "CONFIGURED", False),
             )
-            return {"allowed": False, "route_allowed": possible, "reason": str(error)}
+            question = admission.quota_route.job_question(state)
+            role = question.get("route_role") if isinstance(question, dict) else None
+            return {
+                "allowed": False,
+                "route_allowed": possible,
+                "effort_drift": possible and admission.effort_drift(state, state.get("job_failure") or {}, role),
+                "reason": str(error),
+            }
         except (ValueError, OSError, KeyError, TypeError, util.Paused) as error:
             return {"allowed": False, "reason": str(error)}
         return {"allowed": True}

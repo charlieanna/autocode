@@ -291,6 +291,8 @@ def _job_model_stop(state: RunState, role, need):
     on = f" on {route['stopped_model']}" if route.get("stopped_model") else ""
     assigned = _dict(failure.get("route_assignment")).get("to") if route else None
     if need.get("retry_unavailable") and route:
+        if need.get("effort_drift"):
+            return f"The {job}'s saved model settings changed. Review the model and reasoning level before retrying."
         return f"The {job}'s saved model settings changed. Name another model for this job before retrying."
     now = f"The {job} now runs on {assigned}; retry it once with the new token." if assigned else ""
     if cause == "PAUSED_CONTENT_FILTER":

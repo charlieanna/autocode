@@ -1374,6 +1374,25 @@ test('chat recovery retry requires confirmation and keeps the exact job token ou
   assert.equal(env.AUTOCODE_JOB_RETRY_TOKEN, 'jr:exact-secret');
 });
 
+test('a drifted saved effort shows the route question without offering the stale retry', async (t) => {
+  const value = {
+    status: 'PAUSED_JOB_FAILURE', done: false,
+    needs: { kind: 'retry_job', retry_unavailable: 'Configuration changed', effort_drift: true,
+      job_retry_token: 'jr:fixture', route: { question_id: 'route-architect', role: 'architect',
+        job: 'Design Reviewer', current_model: 'gpt-6-sol', engine: 'codex', cause: 'quota', candidates: [] } },
+    progress: { headline: 'Paused', needs_you: 'review the model and reasoning level for the Design Reviewer, then retry it' },
+    recovery: { category: 'recovery', what_happened: "The Design Reviewer's saved model settings changed. Review the model and reasoning level before retrying.", actions: [] },
+    next_command: `AUTOCODE_JOB_RETRY_TOKEN=jr:fixture autocode --answer route-architect=MODEL --job-retry-token - --workspace ${run.workspace} --run-dir ${run.runDir}`,
+  };
+  const ui = await openPanel(t, value);
+  const text = ui.document.querySelector('#app').textContent;
+  assert.match(text, /review the model and reasoning level for the Design Reviewer/i);
+  const input = ui.document.querySelector('[data-question="route-architect"]');
+  assert.ok(input, 'the core-named model question is visible');
+  assert.equal(input.value, '', 'the client does not pick a model or effort');
+  assert.doesNotMatch(text, /retry it unchanged/i);
+});
+
 for (const surface of ['chat', 'details']) for (const [label, status, confirmation, prompts] of [
   ['clean requested pause', 'PAUSED_REQUESTED', false, 0],
   ['legacy requested pause', 'PAUSED_REQUESTED', undefined, 1],

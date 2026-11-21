@@ -1545,6 +1545,12 @@ def needs(
             route_required = not admission["allowed"] and admission.get("route_allowed") is True
             if route_required:
                 need["retry_unavailable"] = admission["reason"]
+                if admission.get("effort_drift") is True:
+                    need["effort_drift"] = True
+                need["recovery_hint"] = (
+                    "The saved model or reasoning level differs from the stopped attempt. "
+                    "A valid route answer issues a new retry token; the retry rechecks the original source."
+                )
             if not admission["allowed"] and not route_required:
                 need.update(kind="recover_source", action=None, resume_unavailable=admission["reason"])
         # A job stopped on quota or by its provider's content filter (#463) keeps its model question on

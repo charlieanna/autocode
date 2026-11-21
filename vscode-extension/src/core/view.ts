@@ -33,6 +33,8 @@ export interface Needs {
   effort?: EffortNeed;
   retry_action?: string;
   job_retry_token?: string;
+  /** Display-only: the stopped role's saved and current reasoning levels differ. */
+  effort_drift?: boolean;
   new_run_required?: boolean;
   edit_required?: boolean;
   feedback_action?: string | null;
