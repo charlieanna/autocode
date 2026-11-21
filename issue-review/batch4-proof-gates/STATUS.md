@@ -18,6 +18,12 @@ what was independently observed during continuation.
   Pytest records JUnit results, while other runners have their own reporters.
   Their per-test failure details need a shared representation tied to the
   runner-owned capture. Missing or incomplete details must not count as equal.
+- The reported #3944 replay uses pytest. The normal runner currently retains
+  its JUnit XML but does not record its hash; `results_file_written` says only
+  that a file was written. Explicit JUnit mode has separate authenticated
+  capture. A common fix must bind pytest's result data too, before it can
+  rely on per-test details from that data. Old receipts without a trusted
+  capture must not be accepted as identical-failure evidence.
 - CI's unittest signature deliberately discards appended assertion messages;
   the same assertion with `database down` versus `authorization failed`
   therefore yields the same CI signature. Those are not demonstrated identical
@@ -46,7 +52,8 @@ what was independently observed during continuation.
 - For #3814, the two new assertion-identity tests passed on the branch. On
   current master their seven volatile-message subcases failed while the
   different-assertion guard passed.
-- The focused command below passed 119 tests with normal process access.
+- The focused command below passed 119 tests with normal process access
+  before adding the intentionally red dependency regressions described above.
   A sandboxed attempt produced process-access errors.
 - The branch has not been reviewed for a PR or merged.
 
