@@ -187,21 +187,36 @@ test('real editor drives the scoped SemVer reference repair', {timeout: 1_200_00
           assert.equal(JSON.parse(checked.stdout).running, false);
         }),
         ['stop owned process identities', () => {
-      if (!fs.existsSync(owners)) return;
-      let previous = '';
-      for (let pass = 0; pass < 4; pass++) {
-        const snapshot = fs.readFileSync(owners, 'utf8');
-        for (const row of snapshot.trim().split('\n').filter(Boolean).map(JSON.parse)) {
-          assert.ok(Number.isInteger(row.pid) && row.pid > 1 && Number.isFinite(row.started));
-          const inspect = () => { const r = spawnSync(python(), [path.join(REPO, 'tests/status_retry_host_cleanup.py'), 'identity', String(row.pid)], {cwd: REPO, env, encoding: 'utf8', timeout: 15_000}); assert.equal(r.status, 0, r.stderr); return JSON.parse(r.stdout); };
-          if (inspect().started !== row.started) continue;
-          const stopped = spawnSync(python(), [path.join(REPO, 'tests/status_retry_host_cleanup.py'), 'stop', String(row.pid), String(row.started)], {cwd: REPO, env, encoding: 'utf8', timeout: 15_000});
-          assert.equal(stopped.status, 0, stopped.stderr); assert.notEqual(inspect().started, row.started);
-        }
-        if (snapshot === previous && fs.readFileSync(owners, 'utf8') === snapshot) break;
-        previous = snapshot; assert.ok(pass < 3, 'owned process registry stopped changing');
-      }
-    }],
+          if (!fs.existsSync(owners)) return;
+          let previous = '';
+          for (let pass = 0; pass < 4; pass++) {
+            const snapshot = fs.readFileSync(owners, 'utf8');
+            const rows = snapshot.trim().split('\n').filter(Boolean).map(JSON.parse);
+            for (const row of rows) assert.ok(Number.isInteger(row.pid) && row.pid > 1 && Number.isFinite(row.started));
+            fs.writeFileSync(readerLog, rows.map((row) => `start ${row.pid} ${row.started}\n`).join(''));
+            const batch = () => {
+              const found = spawnSync(python(), [path.join(REPO, 'tests/host_reader_cleanup.py'), readerLog],
+                {cwd: REPO, env, encoding: 'utf8', timeout: 15_000});
+              assert.equal(found.status, 0, found.stderr);
+              return JSON.parse(found.stdout).running;
+            };
+            for (const pid of new Set(batch())) {
+              const inspect = spawnSync(python(), [path.join(REPO, 'tests/status_retry_host_cleanup.py'), 'identity', String(pid)],
+                {cwd: REPO, env, encoding: 'utf8', timeout: 15_000});
+              assert.equal(inspect.status, 0, inspect.stderr);
+              const started = JSON.parse(inspect.stdout).started;
+              const row = rows.find((item) => item.pid === pid && item.started === started);
+              if (!row) continue; // The recorded process exited or its PID was reused.
+              const stopped = spawnSync(python(), [path.join(REPO, 'tests/status_retry_host_cleanup.py'), 'stop', String(row.pid), String(row.started)],
+                {cwd: REPO, env, encoding: 'utf8', timeout: 15_000});
+              assert.equal(stopped.status, 0, stopped.stderr);
+            }
+            assert.deepEqual(batch(), [], 'every still-matching recorded process exited');
+            if (snapshot === previous && fs.readFileSync(owners, 'utf8') === snapshot) break;
+            previous = snapshot;
+            assert.ok(pass < 3, 'owned process registry stopped changing');
+          }
+        }],
         ['check unrecorded fixture readers', async () => {
           if (!ownsWarmHost) return;
           await until('no unrecorded Python process tied to the owned fixture', () => {
