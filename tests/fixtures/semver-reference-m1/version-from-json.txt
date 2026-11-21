@@ -1,0 +1,21 @@
+    @classmethod
+    def from_json(cls, text: str) -> "Version":
+        """
+        Create a Version object from a JSON object string.
+
+        The JSON object must contain the keys ``major``, ``minor``, and
+        ``patch``; ``prerelease`` and ``build`` are optional. This accepts
+        exactly the inputs :func:`semver.loads_version` accepts and raises
+        the same errors.
+
+        :param text: the JSON text of one object
+        :return: a new :class:`Version` instance
+        :raises ValueError: if the text is not a valid version object
+
+        >>> semver.Version.from_json('{"major":1,"minor":2,"patch":3}')
+        Version(major=1, minor=2, patch=3, prerelease=None, build=None)
+        """
+        from .jsonio import loads_version
+
+        return loads_version(text)
+

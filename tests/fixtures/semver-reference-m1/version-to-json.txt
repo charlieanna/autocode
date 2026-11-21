@@ -1,0 +1,18 @@
+    def to_json(self) -> str:
+        """
+        Convert the Version object to a compact JSON object string.
+
+        The JSON object contains the keys ``major``, ``minor``, ``patch``,
+        ``prerelease``, and ``build`` in that order, always emitting all
+        five keys. This is the same output as
+        :func:`semver.dumps_version`.
+
+        :return: the compact JSON object as a string
+
+        >>> semver.Version(3, 2, 1).to_json()
+        '{"major":3,"minor":2,"patch":1,"prerelease":null,"build":null}'
+        """
+        from .jsonio import dumps_version
+
+        return dumps_version(self)
+
