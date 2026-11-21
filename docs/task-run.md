@@ -2110,7 +2110,12 @@ Current task proofs enumerate eligible Python sites within the existing command
 budget and require observed named-test failures; setup, collection, timeout and
 unrun outcomes never demonstrate a kill. `verification.changed_code_evidence`
 lists exact gap IDs, file hashes/lines, `tested`, `reason_required` or `excepted`,
-the reason/evidence, and the chosen fallback. Missing tools never trigger a
+the reason/evidence, and the chosen fallback.
+Where a nonpositive mutation spans a changed line but starts elsewhere, the line's
+optional `overlapping_mutations` lists its start, end, operator, outcome and evidence
+for review; `overlapping_mutations_omitted` counts observations beyond the first three.
+This is diagnostic context; a parent mutation never proves the child line.
+Missing tools never trigger a
 project install: demonstrated per-line mutation evidence is the deterministic
 fallback, otherwise an explicit independent per-line judgment is required.
 Two direct repairs precede the existing Investigator path within saved run

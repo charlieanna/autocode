@@ -57,6 +57,7 @@ from harness.driver import (  # noqa: E402
     InterruptedDrive,
     TurnNotReached,
     changed_between,
+    default_autocode,
     leaves_for_person,
     metrics,
     model_routes,
@@ -4425,7 +4426,7 @@ class InterruptedRunTests(unittest.TestCase):
 class FakeRunTests(unittest.TestCase):
     """End to end through AutoCode's real CLI, with the scripted model (about 30 s each)."""
 
-    def run_fake(self, solution, scenario="bugfix-iso-weeks"):
+    def run_fake(self, solution, scenario="bugfix-iso-weeks", *, inspect=None):
         with tempfile.TemporaryDirectory(prefix="scenario-test-") as out:
             args = argparse.Namespace(
                 fake=True,
@@ -4436,7 +4437,90 @@ class FakeRunTests(unittest.TestCase):
                 max_steps=None,
                 timeout_minutes=10,
             )
-            return run.run_one(catalog.load(scenario), args)
+            result = run.run_one(catalog.load(scenario), args)
+            if inspect is not None:
+                inspect(result)
+            return result
+
+    def assert_surviving_mutant_stop(self, status):
+        view = status["view"]
+        self.assertEqual("PAUSED_INTERVENTION", view["status"])
+        proof = view["evidence"]["regression_proof"]
+        obligations = proof["changed_code_evidence"]["obligations"]
+        self.assertTrue(
+            any(
+                row.get("path") == "timesheet/weeks.py"
+                and row.get("line") == 14
+                and row.get("status") == "reason_required"
+                and "survived" in row.get("mutation_outcomes", [])
+                for row in obligations
+            ),
+            obligations,
+        )
+        stops = [
+            row
+            for row in status["interventions"]["applied_receipts"]
+            if row.get("actor") == "autocode" and row.get("kind") == "stop"
+        ]
+        self.assertEqual(1, len(stops))
+        outcome = stops[0]["outcome"]
+        evidence = outcome["evidence"]
+        self.assertEqual(proof["source_revision"], evidence["binding"]["source_revision"])
+        self.assertIn("timesheet/weeks.py:14", evidence["held_reason"])
+        self.assertEqual("unknown", evidence["cause"])
+        self.assertGreaterEqual(evidence["classification_attempts"]["used"], 1)
+        self.assertLessEqual(evidence["classification_attempts"]["used"], evidence["classification_attempts"]["limit"])
+
+    def test_surviving_mutant_stop_requires_current_survivor_and_bound_stop(self):
+        import copy
+
+        status = {
+            "view": {
+                "status": "PAUSED_INTERVENTION",
+                "evidence": {
+                    "regression_proof": {
+                        "source_revision": "source",
+                        "changed_code_evidence": {
+                            "obligations": [
+                                {
+                                    "path": "timesheet/weeks.py",
+                                    "line": 14,
+                                    "status": "reason_required",
+                                    "mutation_outcomes": ["survived"],
+                                }
+                            ]
+                        },
+                    }
+                },
+            },
+            "interventions": {
+                "applied_receipts": [
+                    {
+                        "actor": "autocode",
+                        "kind": "stop",
+                        "outcome": {
+                            "evidence": {
+                                "binding": {"source_revision": "source"},
+                                "held_reason": "timesheet/weeks.py:14",
+                                "cause": "unknown",
+                                "classification_attempts": {"used": 1, "limit": 3},
+                            },
+                        },
+                    }
+                ]
+            },
+        }
+        self.assert_surviving_mutant_stop(status)
+        missing = copy.deepcopy(status)
+        missing["view"]["evidence"]["regression_proof"]["changed_code_evidence"]["obligations"][0][
+            "mutation_outcomes"
+        ] = ["killed"]
+        with self.assertRaises(AssertionError):
+            self.assert_surviving_mutant_stop(missing)
+        stale = copy.deepcopy(status)
+        stale["interventions"]["applied_receipts"][0]["outcome"]["evidence"]["binding"]["source_revision"] = "other"
+        with self.assertRaises(AssertionError):
+            self.assert_surviving_mutant_stop(stale)
 
     def test_correct_solution_is_judged_pass(self):
         result = self.run_fake("reference")
@@ -4490,9 +4574,21 @@ class FakeRunTests(unittest.TestCase):
         self.assertEqual((0, 0, 1), (row["person_answers"], row["default_answers"], row["approvals"]))
 
     def test_special_case_with_real_surviving_mutants_is_refused_before_completion(self):
-        result = self.run_fake("broken/special-case")
+        def inspect(result):
+            run_dir = Path(result["run_dir"])
+            project = run_dir.parent.parent.parent
+            proc = subprocess.run(
+                [*default_autocode(), "--run-dir", str(run_dir), "--workspace", str(project), "--status", "--json"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=True,
+            )
+            self.assert_surviving_mutant_stop(json.loads(proc.stdout))
+
+        result = self.run_fake("broken/special-case", inspect=inspect)
         self.assertEqual(verdict.HONEST_BLOCKER, result["verdict"], result["summary"])
-        self.assertEqual("PAUSED_BUILDER_CLASSIFICATION", result["runner_status"])
+        self.assertEqual("PAUSED_INTERVENTION", result["runner_status"])
         self.assertEqual("", result["harness_error"])
         checks = {row["name"]: row["ok"] for row in result["checks"]}
         self.assertTrue(checks["project_tests_pass"])

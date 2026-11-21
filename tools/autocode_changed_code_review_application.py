@@ -230,7 +230,7 @@ def require_tester_decisions(state: RunState, value, record):
     problem = (
         "The missing-test FAIL leaves other offered changed lines undecided"
         if missing_tests
-        else "The PASS leaves changed lines that no added test can mark tested, because they have no mutation outcome"
+        else "The PASS leaves changed lines that no added test can mark tested, because they have no mutation outcome on those lines"
     )
     raise ValueError(
         f"{problem}: {listed}{more}. Give one changed_code_exceptions decision for each, with its "

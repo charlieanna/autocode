@@ -5,6 +5,7 @@ to retain every first failure, CLI response, source tree and provider handoff.
 """
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -269,12 +270,26 @@ class FailureRoutingCLI(unittest.TestCase):
         self.assertEqual(self.approved_token, status["contract_token"])
 
     def test_uncertain_no_source_change_investigates_before_spending_and_refuses(self):
+        # The actual offline fixture keeps the operator's inherited homes.
+        if "CODEX_HOME" in os.environ:
+            self.env["CODEX_HOME"] = os.environ["CODEX_HOME"]
+        else:
+            self.env.pop("CODEX_HOME", None)
+        self.assertEqual(self.env.get("HOME"), os.environ.get("HOME"))
         self.seed()
         self.env.update(BUILD_AUDIT_FAULT="no_change", FAILURE_ROUTING_DIAGNOSIS="unknown")
         self.drive(codes=(2,))
         status = self.status()
-        self.assertEqual("PAUSED_BUILDER_CLASSIFICATION", status["status"])
-        self.assertIn("without source changes", status["view"]["stop_reason"])
+        self.assertEqual("PAUSED_INTERVENTION", status["status"])
+        view = status["view"]
+        self.assertFalse(view["done"])
+        self.assertIsNone(view["needs"])
+        self.assertIsNone(view["next_command"])
+        outcome = view["recovery"]["outcome"]
+        self.assertEqual("could_not_finish", outcome["result"])
+        self.assertEqual("unknown", outcome["evidence"]["cause"])
+        self.assertIn("without source changes", outcome["evidence"]["held_reason"])
+        self.assertTrue(outcome["evidence"]["investigations"])
         self.assertEqual(
             ["builder", "investigate_stuck"],
             [row["stage"] for row in self.trace() if row["stage"] in ("builder", "investigate_stuck")],

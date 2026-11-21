@@ -268,3 +268,18 @@ def perl_tests(files) -> list[str]:
 def ruby_tests(files) -> list[str]:
     """The Ruby test files under the root ``test/`` directory, helpers left out."""
     return sorted(path for path in files if RUBY_TEST.match(path) and PurePosixPath(path).name != RUBY_HELPER)
+
+
+def with_project_build(framework, detect, tree):
+    """``framework``, a ``node --test`` command given as text, with the build steps its project's own test
+    script runs before it (``tsc -p tsconfig.test.json && node --test ...``), read from the suite ``detect``
+    finds in the project the command runs in. A detected suite carries them (``detect`` above); the same
+    tests given as a command, as the original-test gate replays them, ran against a missing build and could
+    not load (2026-11-21)."""
+    if framework is None or framework.name != "node" or getattr(framework, "setup", None):
+        return framework
+    directory = getattr(framework, "directory", None)
+    found = detect(Path(tree) / directory if directory else Path(tree))
+    if found is not None and found.name == "node" and getattr(found, "setup", None):
+        framework.setup = found.setup
+    return framework

@@ -518,6 +518,69 @@ class SelectedToolchainTests(unittest.TestCase):
                 self.assertEqual(0, result.returncode, (command, result.stderr))
             self.assertEqual(str(base / "toolchains" / "current" / "git"), result.stdout.strip())
 
+    def test_an_interpreter_s_own_installed_packages_are_readable_contained(self):
+        # #4015: Homebrew's site-packages is a link out of the Cellar, and Debian's dist-packages sits beside the
+        # standard library, so a contained `python3 -m pytest` found no pytest though the run's suite had passed.
+        # Homebrew's base interpreter on macOS; Debian's /usr/bin/python3 (dist-packages) on Linux. An interpreter
+        # whose packages live inside its standard library (setup-python's) never had the gap.
+        found = None
+        for candidate in (Path(getattr(sys, "_base_executable", sys.executable)), Path("/usr/bin/python3")):
+            if found or not candidate.is_file():
+                continue
+            listed = subprocess.run(
+                [str(candidate.resolve()), "-I", "-S", "-c", "import sysconfig; print(sysconfig.get_path('stdlib'))"],
+                capture_output=True,
+                text=True,
+            )
+            sites = subprocess.run(
+                [str(candidate.resolve()), "-I", "-S", "-c", toolchain.SITE_DIRECTORIES], capture_output=True, text=True
+            )
+            if listed.returncode or sites.returncode:
+                continue
+            stdlib = Path(listed.stdout.strip()).resolve()
+            for directory in json.loads(sites.stdout):
+                site = Path(directory).resolve()
+                if not site.is_dir() or site.is_relative_to(stdlib):
+                    continue
+                for entry in sorted(site.iterdir()):
+                    module = entry.stem if entry.suffix == ".py" else entry.name
+                    if not module.isidentifier() or not (entry.suffix == ".py" or (entry / "__init__.py").is_file()):
+                        continue
+                    # Only a module that imports outside the boundary shows what the boundary changes.
+                    importable = subprocess.run(
+                        [str(candidate.resolve()), "-I", "-c", f"import {module}"], capture_output=True, timeout=30
+                    )
+                    if importable.returncode == 0:
+                        found = (candidate.resolve(), module)
+                        break
+                if found:
+                    break
+        if found is None:
+            self.skipTest("requires an interpreter with a package installed outside its standard library")
+        base, package = found
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory).resolve()
+            root, bin_dir = work / "project", work / "bin"
+            root.mkdir()
+            bin_dir.mkdir()
+            (bin_dir / "python3").symlink_to(base)
+            subprocess.run(["/usr/bin/git", "init", "--quiet", str(root)], check=True)
+            env = {"PATH": f"{bin_dir}:/usr/bin:/bin"}
+            selected = toolchain.discover(root, [f"python3 -m {package} --help"], env)
+            roots = selected["read_roots"]
+            developer = Path("/Library/Developer/CommandLineTools")
+            if developer.is_dir():
+                roots = [*roots, str(developer)]
+            boundary = containment.prepare(root, read_roots=roots, links=selected["links"], environment=env)
+            result = subprocess.run(
+                [boundary["shell"], "-c", f"python3 -c 'import {package}'"],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            self.assertEqual(0, result.returncode, (package, result.stderr[-2000:]))
+
     def test_a_virtualenv_in_a_linked_directory_runs_contained(self):
         # macOS's /tmp is a link to /private/tmp: a venv named through it must run, not pause the run.
         with tempfile.TemporaryDirectory() as directory:

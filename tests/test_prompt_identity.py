@@ -139,6 +139,39 @@ class PromptIdentityTests(unittest.TestCase):
             self.assertNotEqual(original, changed)
             self.assertNotEqual(original, renamed)
 
+    def test_new_semantic_inventory_module_invalidates_verification_runtime_identity(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            project = root / "project"
+            runtime = root / "runtime"
+            project.mkdir()
+            runtime.mkdir()
+            subprocess.run(["git", "init", "-q", str(project)], check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(project),
+                    "-c",
+                    "user.name=T",
+                    "-c",
+                    "user.email=t@example.invalid",
+                    "commit",
+                    "-q",
+                    "--allow-empty",
+                    "-m",
+                    "base",
+                ],
+                check=True,
+            )
+            (runtime / "autocode_verify.py").write_text("# existing verifier\n")
+            with patch.object(verify, "__file__", str(runtime / "autocode_verify.py")):
+                before = verify.execution_identity(project, full=False)
+                (runtime / "autocode_python_semantic_lines.py").write_text("# new inventory\n")
+                after = verify.execution_identity(project, full=False)
+            self.assertEqual(before["source_revision"], after["source_revision"])
+            self.assertNotEqual(before["runtime_sources"], after["runtime_sources"])
+
     def test_sweep_rows_keep_hash_or_explicit_unknown(self):
         row = {
             "date": "date",

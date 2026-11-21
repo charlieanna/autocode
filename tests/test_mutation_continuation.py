@@ -77,6 +77,43 @@ class CollectorTests(unittest.TestCase):
                 self.assertEqual(["unmutated", "mutant-04", "mutant-05", "mutant-06"], calls)
                 self.assertEqual(first["files"][0]["mutants"][:3], final["files"][0]["mutants"][:3])
 
+    def test_a_continuations_reference_does_not_spend_its_mutants_budget(self):
+        first = self.collect(fixtures.Clock(), [])
+        for outer, expected in (
+            (None, ["unmutated", "mutant-04", "mutant-05", "mutant-06"]),
+            (900, ["unmutated", "mutant-04"]),
+        ):
+            with self.subTest(outer=outer):
+                clock, calls = fixtures.Clock(), []
+                fake = fixtures.FakeRun(self.tree, fixtures.WEAK)
+
+                def run(command, label, timeout, clock=clock, calls=calls, fake=fake):
+                    clock.now += 800 if label == "unmutated" else 100
+                    calls.append(label)
+                    row = fake(command, label, timeout)
+                    row.update(output=str(self.evidence / f"{len(calls)}-{label}.log"), command=command)
+                    row["results"].update(skipped=[], total=2, collection_errors=[])
+                    return row
+
+                final = mutation.collect_selected_tests(
+                    "unittest",
+                    fixtures.COMMAND,
+                    [fixtures.C1, fixtures.C2],
+                    self.tree,
+                    self.evidence,
+                    [("app.py", "modified")],
+                    lambda files: fixtures.DIFF,
+                    run,
+                    clock=clock,
+                    deadline=None if outer is None else clock.now + outer,
+                    enforcement=True,
+                    previous=first,
+                )
+                # The 800 s reference leaves the window's whole budget to the remaining sites; a total
+                # allowance the caller set still ends the window where it did.
+                self.assertEqual(expected, calls)
+                self.assertTrue(final["collected"])
+
     def test_changed_tests_sites_or_policy_refuse_before_reference_launch(self):
         first = self.collect(fixtures.Clock(), [])
         for change in ("tests", "site", "policy", "source"):

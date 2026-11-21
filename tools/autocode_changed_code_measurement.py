@@ -13,6 +13,7 @@ import json
 import os
 import re
 import stat
+import tokenize
 import types
 from copy import deepcopy
 from pathlib import Path, PurePosixPath
@@ -22,6 +23,7 @@ try:
     from . import autocode_diff_coverage as diff_coverage
     from . import autocode_mutants as mutants
     from . import autocode_mutation_results as mutation_results
+    from . import autocode_python_semantic_lines as python_semantic_lines
     from . import autocode_rust_inline_tests as rust_inline_tests
     from . import autocode_verification_schedule as schedule
 except ImportError:
@@ -29,6 +31,7 @@ except ImportError:
     import autocode_diff_coverage as diff_coverage
     import autocode_mutants as mutants
     import autocode_mutation_results as mutation_results
+    import autocode_python_semantic_lines as python_semantic_lines
     import autocode_rust_inline_tests as rust_inline_tests
     import autocode_verification_schedule as schedule
 
@@ -112,7 +115,15 @@ def python_lines(data: bytes) -> set[int]:
         code = pending.pop()
         lines.update(line for _, _, line in code.co_lines() if line is not None and line > 0)
         pending.extend(value for value in code.co_consts if isinstance(value, types.CodeType))
-    return ((lines - declarations - docs) | (evaluated & lines)) - inert
+    semantic = python_semantic_lines.expression_lines(data, syntax)
+    physical = python_semantic_lines.physical_lines(data)
+    legacy = ((lines - declarations - docs) | (evaluated & lines)) - inert
+    legacy = {
+        line
+        for line in legacy
+        if 0 < line <= len(physical) and physical[line - 1].strip() and not physical[line - 1].lstrip().startswith("#")
+    }
+    return legacy | (semantic - inert)
 
 
 def inventory(tree, files, diff_text) -> list[dict]:
@@ -134,7 +145,7 @@ def inventory(tree, files, diff_text) -> list[dict]:
         if name.endswith(".py"):
             try:
                 selected &= python_lines(data)
-            except (SyntaxError, ValueError, TypeError):
+            except (SyntaxError, ValueError, TypeError, tokenize.TokenError):
                 note = "Python statements could not be inventoried; changed lines require independent review"
         elif name.endswith(".pyi"):
             selected = set()
@@ -143,7 +154,7 @@ def inventory(tree, files, diff_text) -> list[dict]:
             if name.endswith(".rs") and selected:
                 selected -= rust_inline_tests.test_lines(data)
             note = "No language statement parser; coverage or independent review must classify changed lines"
-        text = data.decode("utf-8", errors="replace").splitlines()
+        text = python_semantic_lines.physical_lines(data)
         comments = ("#",) if name.endswith((".py", ".pyi", ".sh", ".rb")) else ("//",)
         block_comments = _block_comment_lines(data, name)
         selected = {
@@ -151,8 +162,7 @@ def inventory(tree, files, diff_text) -> list[dict]:
             for line in selected
             if 0 < line <= len(text)
             and line not in block_comments
-            and text[line - 1].strip()
-            and not text[line - 1].lstrip().startswith(comments)
+            and (name.endswith(".py") or text[line - 1].strip() and not text[line - 1].lstrip().startswith(comments))
         }
         rows.append({"path": name, "sha256": hashlib.sha256(data).hexdigest(), "lines": sorted(selected), "note": note})
     return rows
