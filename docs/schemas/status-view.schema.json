@@ -99,6 +99,9 @@
           "required": ["kind"],
           "properties": {
             "kind": {"type": "string"},
+            "resume_unavailable": {"type": "string", "description": "Why the saved frontier cannot take its named resume or retry yet; the view offers no next command for it."},
+            "parallel_retry_unavailable": {"type": "string", "description": "Why the previously selected parallel Builder retry cannot be named as the next command. Individual admissible member actions remain available."},
+            "stale_checks": {"type": "array", "items": {"type": "string"}, "description": "Names of the recovery packet checks that failed admission, with no bound values."},
             "confirmation_required": {"type": "boolean", "description": "False only for a plain resume of a clean requested pause: the Resume click needs no duplicate dialog. It remains person-only and never authorizes automatic continuation. Missing retains the client's confirmation policy."},
             "plan_only": {"type": "boolean", "description": "True on a plan-only run's `approve_plan` (`--plan-only`): the same displayed-token approval accepts the reviewed plan and ends the run, and nothing is built."},
             "label": {"type": "string", "description": "The core's words for the named action, when it names them: \"Accept plan\" on a plan-only approval. A client shows it in place of its own wording; it never changes the action."},

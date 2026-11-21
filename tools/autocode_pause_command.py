@@ -26,7 +26,7 @@ def command(
     Human-facing text masks them by default. Only machine-readable named actions
     opt into ``for_client``; clients extract the assignments into the child's env.
     """
-    if not need or terminal:
+    if not need or terminal or need.get("resume_unavailable") or need.get("parallel_retry_unavailable"):
         return None
     if need.get("kind") == "dependency":
         # The run's own recovery is the dependency worker's delivery, not a command on this run;

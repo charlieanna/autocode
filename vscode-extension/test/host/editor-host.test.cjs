@@ -132,7 +132,10 @@ before(async () => {
   await win.locator('.monaco-workbench').waitFor({ timeout: 120_000 });
   // Open the run as a person does: the AutoCode chat, its History, then the run's row.
   await win.locator('.activitybar [aria-label^="AutoCode"]').first().click();
-  await (await chat()).click('#history');
+  // Opening History replaces the chat webview. A Playwright click waits on the
+  // old frame after the handler succeeds and can time out even with the Runs
+  // list visible. Dispatch the setup action, then wait for the actual run row.
+  await (await chat()).dispatchEvent('#history', 'click');
   await win.locator('.monaco-list-row', { hasText: 'Bug report from the finance team' }).first().click();
   await until('the run in the chat', async () => (await chatText()).includes('rejected the saved credentials (HTTP 401)'));
 });

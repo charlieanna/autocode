@@ -46,17 +46,7 @@ except ImportError:
 
 
 def _same_context(state: RunState, binding):
-    return all(
-        binding.get(key) == value
-        for key, value in (
-            ("task_id", state.get("task_id")),
-            ("task", state.get("task")),
-            ("workspace", state.get("workspace")),
-            ("run_dir", state.get("run_dir")),
-            ("current_task", util.digest(state.get("current_task"))),
-            ("contract", human._contract(state)),
-        )
-    )
+    return disposition.same_context(state, binding)
 
 
 def _same_repair(state: RunState, binding):

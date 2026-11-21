@@ -3238,6 +3238,95 @@ class OperationalDispositionTests(unittest.TestCase):
             )
         self.assertIsNotNone(disposition.held(self.state))
 
+    def abandoned_offer_and_admission(self, writer, change=None):
+        """The view's next action and the plain resume's admission, read on one copy of the saved state."""
+        self.state = copy.deepcopy(self.state)
+        if change is not None:
+            change(self.state)
+        shown = run_view.action(copy.deepcopy(self.state), run_dir=self.run, workspace=self.root)
+        code = admission.guard(
+            writer,
+            Arguments(resume_paused=True),
+            None,
+            self.state,
+            self.run / "state.json",
+            self.run,
+            self.root,
+            actions.Decided(),
+        )
+        return shown, code
+
+    def test_ac1_abandoned_resume_offer_follows_contract_admission(self):
+        self.approved_contract()
+        _, writer, _ = self.checked_abandon()
+        self.assertEqual("PAUSED_STAGE_ABANDONED", self.state["status"])
+        pristine = copy.deepcopy(self.state)
+
+        def other_approval(state):
+            event = {"kind": "goal_approval", "actor": "user_cli", "token": "r1:another-approval"}
+            state["goal_contract"]["approval_event"] = event
+
+        def next_revision(state):
+            contract = state["goal_contract"]
+            contract["revision"] = 2
+            contract["hash"] = support.digest({key: contract[key] for key in ("task_id", "revision", "body")})
+
+        def draft(state):
+            state["goal_contract"].update(approval_status="draft", approval_event=None)
+
+        def removed(state):
+            state.pop("goal_contract")
+
+        for change in (other_approval, next_revision, draft, removed):
+            with self.subTest(change=change.__name__):
+                self.state = copy.deepcopy(pristine)
+                shown, code = self.abandoned_offer_and_admission(writer, change)
+                self.assertEqual(2, code)
+                self.assertIsNone(shown["next_command"])
+                self.assertNotEqual("resume", (shown["needs"] or {}).get("kind"))
+
+    def test_ac2_valid_abandoned_run_offers_resume_that_admission_accepts(self):
+        self.approved_contract()
+        _, writer, _ = self.checked_abandon()
+        shown, code = self.abandoned_offer_and_admission(writer)
+        self.assertIn("--resume-paused", shown["next_command"])
+        self.assertIsNone(code)
+
+    def test_ac3_changed_current_task_suppresses_abandoned_resume(self):
+        self.approved_contract()
+        _, writer, _ = self.checked_abandon()
+
+        def other_task(state):
+            state["current_task"] = {"id": "another-task", "kind": "implement"}
+
+        shown, code = self.abandoned_offer_and_admission(writer, other_task)
+        self.assertIsNone(shown["next_command"])
+        self.assertEqual(2, code)
+
+    def test_an_unsealed_contract_still_refuses_admission_and_the_view_offers_no_resume(self):
+        self.approved_contract()
+        _, writer, _ = self.checked_abandon()
+        # The body changes while the saved hash stays: the contract is no longer sealed.
+        self.state["goal_contract"]["body"]["tampered"] = True
+        before = copy.deepcopy(self.state)
+        shown = run_view.action(copy.deepcopy(self.state), run_dir=self.run, workspace=self.root)
+        self.assertIsNone(shown["next_command"])
+        self.assertNotEqual("resume", (shown["needs"] or {}).get("kind"))
+        self.assertEqual("blocked", disposition.presentation(copy.deepcopy(self.state))["category"])
+        with self.assertRaisesRegex(ValueError, "unsealed contract"):
+            admission.guard(
+                writer,
+                Arguments(resume_paused=True),
+                None,
+                self.state,
+                self.run / "state.json",
+                self.run,
+                self.root,
+                actions.Decided(),
+            )
+        self.assertEqual(before["status"], self.state["status"])
+        self.assertEqual(before["goal_contract"], self.state["goal_contract"])
+
     def test_uncertain_actual_abandon_state_commit_never_emits_checked_settlement(self):
         import autocode_action_recovery as action_recovery
 

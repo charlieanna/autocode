@@ -24,6 +24,7 @@ try:
     from . import autocode_internal_failure_view as operational_block
     from . import autocode_job_end as job_end
     from . import autocode_member_stop as member_stop
+    from . import autocode_parallel_retry_admission as parallel_retry_admission
     from . import autocode_pause_authority as pause_authority
     from . import autocode_person_text as person_text
     from . import autocode_preflight_stop as preflight_stop
@@ -42,6 +43,7 @@ except ImportError:
     import autocode_internal_failure_view as operational_block
     import autocode_job_end as job_end
     import autocode_member_stop as member_stop
+    import autocode_parallel_retry_admission as parallel_retry_admission
     import autocode_pause_authority as pause_authority
     import autocode_person_text as person_text
     import autocode_preflight_stop as preflight_stop
@@ -481,7 +483,7 @@ def _parallel_members(state: RunState):
     # without a model (information, or leaving it paused), its own control is the one way on (#541,
     # autocode_member_stop): a quota-stopped member reruns unchanged, a refused one is asked again.
     answered = cast(dict, (member_stop.answered(state) or ({},))[0]).get("milestone_id")
-    return [
+    candidates = [
         row["milestone_id"]
         for row in workers
         if isinstance(row.get("milestone_id"), str)
@@ -492,6 +494,15 @@ def _parallel_members(state: RunState):
             or row.get("status") == "INTERRUPTED"
         )
     ]
+    admitted = []
+    for member in candidates:
+        try:
+            refusal = parallel_retry_admission.member_retry_refusal(state, [member])
+        except (OSError, RuntimeError, ValueError, KeyError, TypeError):
+            continue
+        if refusal is None or getattr(refusal, "quota_worker", None):
+            admitted.append(member)
+    return admitted
 
 
 def _failures(state: RunState):
@@ -620,6 +631,9 @@ def project(state: RunState, need=None, *, retained=_UNSET):
             )
         )
         return result
+    if need.get("resume_unavailable"):
+        result.update(category="blocked", title="Task blocked", what_happened=need["resume_unavailable"])
+        return result
     if (failure := operational_block.presentation(state, include_hold=True)) and failure["category"] == "blocked":
         result.update(failure)
         # Never a dead end: the person can start the task again in a new chat, which leaves this one as it is.
@@ -735,7 +749,7 @@ def project(state: RunState, need=None, *, retained=_UNSET):
                     job_retry_token=need["job_retry_token"],
                 )
             )
-    elif members := _builder_members(state, cause):
+    elif not need.get("resume_unavailable") and (members := _builder_members(state, cause)):
         actions.append(
             _action(
                 "retry_builder",
@@ -790,6 +804,7 @@ def project(state: RunState, need=None, *, retained=_UNSET):
     elif (
         cause == "PAUSED_REPEATED_FAILURE"
         and not state.get("active_runner_check")
+        and not need.get("retry_unavailable")
         and not recovery_limits.repeated_failure_retry_refusal(state)
     ):
         actions.append(
@@ -831,6 +846,7 @@ def project(state: RunState, need=None, *, retained=_UNSET):
         and native_need is None
         and not active
         and not state.get("active_runner_check")
+        and not need.get("parallel_retry_unavailable")
         # A stopped job AutoCode settles itself offers no resume for a person to correct first.
         and not job_end.pending(state)
         and not spent

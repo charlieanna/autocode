@@ -25,10 +25,16 @@ import json
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, TypedDict
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
+
+    class _StudyIdentity(TypedDict):
+        source_revision: str
+        batch: str
+        contract_hash: str | None
+
 
 try:
     from . import autocode_acceptance_tests as acceptance
@@ -315,7 +321,7 @@ def apply(state: RunState, value: dict, record: dict, workspace, run_demo=None, 
     )
     redirect = (state.get(KEY) or {}).pop(FIELD + "_redirect", None) or {}
     result = study(value["variants"], case_files(state), runners)
-    identity = {
+    identity: _StudyIdentity = {
         "source_revision": redirect.get("source_revision") or str(record.get("source_revision") or ""),
         "batch": _batch(state),
         "contract_hash": (state.get("goal_contract") or {}).get("hash"),
