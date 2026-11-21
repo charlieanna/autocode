@@ -12,7 +12,6 @@ import contextlib
 import copy
 import datetime as dt
 import json
-import os
 import shutil
 import uuid
 from pathlib import Path
@@ -681,39 +680,12 @@ def set_aside_at_completion_gate(state: RunState, run_dir, record, error, *, per
 
 
 def assert_stage_stopped(record):
-    # A lost parent may have left a worker alive. Check without exposing args.
-    pid = record.get("pid")
-    if record.get("processes"):
-        if processes.live_processes(record["processes"]):
-            raise support.Paused("PAUSED_WORKSPACE_BUSY", "Recorded provider commands are still alive")
-    elif pid and record.get("exit_code") is None:
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            pass
-        else:
-            # A zombie has exited and only waits to be reaped. Where PID 1 never reaps orphans (a
-            # cloud container's process API), it stays a zombie for good and must not hold the
-            # workspace (#668). A process that cannot be inspected still counts as alive.
-            try:
-                row = processes.process_table({pid}).get(pid)
-            except processes.ProcessError:
-                row = {"state": "unknown"}
-            if row is not None and not row["state"].startswith("Z"):
-                raise support.Paused("PAUSED_WORKSPACE_BUSY", f"Stage process {pid} still exists; wait for it")
+    if refusal := processes.stage_stop_refusal(record):
+        raise support.Paused("PAUSED_WORKSPACE_BUSY", refusal)
 
 
 def attempt_id(record):
     return f"{record['iteration']:03d}/{Path(record['output']).stem}"
-
-
-def stage_stop_refusal(record):
-    """Return the abandonment gate's live-process refusal without changing the attempt."""
-    try:
-        assert_stage_stopped(record)
-    except support.Paused as error:
-        return str(error)
-    return None
 
 
 # The automatic-recovery budget lives in autocode_recovery_accounting; these names are kept for callers.

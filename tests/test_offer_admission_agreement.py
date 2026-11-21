@@ -245,6 +245,17 @@ class OfferAdmissionAgreementTests(SavedRunFixtures, unittest.TestCase):
         self.assertEqual("PAUSED_WORKSPACE_BUSY", code)
         self.assertIn("still exists", view["needs"]["resume_unavailable"])
 
+    def test_an_uninspectable_provider_stays_on_hold(self):
+        state = self.interrupted()
+        state["active_stage"].update(pid=os.getpid(), exit_code=None)
+        with patch("autocode_process.os.kill", side_effect=PermissionError):
+            view = run_view.view(state)
+            code, _ = self.execute(state, ["--abandon-stage", "004/builder-02"])
+        self.assertFalse(self.offered(view["recovery"], "abandon"))
+        self.assertIsNone(view["next_command"])
+        self.assertIn("Cannot verify", view["needs"]["resume_unavailable"])
+        self.assertEqual("PAUSED_WORKSPACE_BUSY", code)
+
     def test_ac22_surveyed_offers_agree_with_their_executor_admission(self):
         # (kind, status, args, admitted state, the one-field variant its executor refuses, refusal text)
         cases = (
