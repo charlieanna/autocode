@@ -105,6 +105,7 @@ SCRATCH_COPY_CONSUMERS = (
     "tests.test_review_proof",
     "tests.test_scratch_copy_identity",
     "tests.test_scratch_link_binding",
+    "tests.test_source_reconciliation",
     "tests.test_verification_preparation",
 )
 

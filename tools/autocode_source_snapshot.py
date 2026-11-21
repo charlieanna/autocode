@@ -27,6 +27,18 @@ class UnsafeSourcePath(ValueError):
     """A source path would require following an unbound parent link."""
 
 
+def symlinked_parent(root, relative, *, checked=None):
+    """Whether traversing this source name would follow a parent link."""
+    for parent in Path(relative).parents:
+        if parent == Path(".") or (checked is not None and parent in checked):
+            continue
+        if (Path(root) / parent).is_symlink():
+            return True
+        if checked is not None:
+            checked.add(parent)
+    return False
+
+
 def literal_paths(paths):
     """Validate and canonicalize a bounded, explicit source inventory policy."""
     if not isinstance(paths, (list, tuple)):
@@ -63,9 +75,8 @@ def _identity(path, info):
 def _include(root, relative, files):
     # Never dereference a parent symlink. Even an in-repository target can move
     # after this check, so the link itself is part of source, not its contents.
-    for parent in relative.parents:
-        if parent != Path(".") and (root / parent).is_symlink():
-            raise UnsafeSourcePath("Source path has a symlinked parent: " + str(relative))
+    if symlinked_parent(root, relative):
+        raise UnsafeSourcePath("Source path has a symlinked parent: " + str(relative))
     # Preserve Git boundaries; nested selection is applied recursively below.
     if any(
         files.get(parent.as_posix(), "").startswith(("submodule:", "uninitialized-submodule"))
