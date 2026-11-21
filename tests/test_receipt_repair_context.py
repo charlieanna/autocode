@@ -8,6 +8,7 @@ import copy
 import hashlib
 import json
 import shlex
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -284,7 +285,17 @@ class VerifiedReceiptRepairContextTests(unittest.TestCase):
             "item": {
                 "type": "command_execution",
                 "id": "synthetic-event",
-                "command": "synthetic capture invocation",
+                "command": shlex.join(
+                    [
+                        sys.executable,
+                        str(Path(support.__file__).resolve().with_name("autocode.py")),
+                        "capture",
+                        "--output",
+                        str(self.path),
+                        "--",
+                        *self.receipt["command"],
+                    ]
+                ),
                 "exit_code": 7,
                 "aggregated_output": json.dumps(self.receipt),
             },
@@ -292,6 +303,9 @@ class VerifiedReceiptRepairContextTests(unittest.TestCase):
         self.events.write_text(json.dumps(event) + "\n")
         value = self.reject(self.check(), receipt_only=False)
         self.assertEqual("executed_capture_event", value["authenticated_receipt"]["authority"])
+        event["item"]["command"] = "synthetic capture invocation"
+        self.events.write_text(json.dumps(event) + "\n")
+        self.assertIsNone(self.reject(self.check(), receipt_only=False)["authenticated_receipt"])
 
     def test_large_receipt_omits_context_without_changing_rejection(self):
         self.receipt["summary"] = "x" * context.MAX_RECEIPT_BYTES

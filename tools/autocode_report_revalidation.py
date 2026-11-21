@@ -71,6 +71,11 @@ def revalidate(runtime, state: RunState, run_dir, workspace, *, resolver_request
         shutil.rmtree(scratch)
         raise runtime.support.Paused("PAUSED_STALE_VALIDATION", "The saved report changed while copying it")
     candidate.pop("reported_output", None)
+    # The seal binds the attempt's sealed paths (autocode_rework_policy.capture); this candidate is a
+    # private copy, just checked byte for byte against its pin. Carried over, the seal named files the
+    # candidate does not read, so every revalidation of a sealed Tester report paused PAUSED_STALE_HANDOFF.
+    # The loader seals the copy afresh at its own path.
+    candidate.pop("rework_evidence", None)
     try:
         repaired_result.accept(
             runtime, state, run_dir, workspace, None, candidate, revalidate=True, resolver_request=resolver_request

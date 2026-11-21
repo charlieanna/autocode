@@ -269,6 +269,27 @@ class CaptureTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Review source changed"):
             proof.collect(self.workspace, self.out, self.tests, "change.patch", runner, timeout=10)
 
+    def test_copied_review_source_with_symlinked_parent_is_a_source_refusal(self):
+        external = self.root / "external"
+        external.mkdir()
+        target = external / "test_example.py"
+        target.write_text("external bytes\n")
+
+        def runner(workspace, out, **kwargs):
+            with patch.object(verify, "make_tree") as make:
+                tree = self.root / "different"
+                shutil.copytree(self.workspace, tree)
+                shutil.rmtree(tree / "review/tests")
+                (tree / "review/tests").symlink_to(external, target_is_directory=True)
+                make.return_value = tree
+                return verify.prepare_scratch_tree(workspace, out, review_source=kwargs["review_source"])
+
+        with self.assertRaises(util.Paused) as held:
+            proof.collect(self.workspace, self.out, self.tests, "change.patch", runner, timeout=10)
+        self.assertEqual("PAUSED_SOURCE_UNAVAILABLE", held.exception.status)
+        self.assertIn("symlinked parent", str(held.exception))
+        self.assertEqual("external bytes\n", target.read_text())
+
     def test_uncertain_ownership_still_holds_instead_of_becoming_a_baseline_error(self):
         def runner(workspace, out, **kwargs):
             if out.name == "base":

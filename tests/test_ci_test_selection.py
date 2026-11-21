@@ -8,6 +8,15 @@ import run_suite
 
 
 class AccessTransportConsumerTests(unittest.TestCase):
+    def test_evidence_catalogue_keeps_its_mutation_consumer(self):
+        consumer = "tests.test_catalogue_t14"
+        selected = run_suite.select_tests(
+            ["tests/test_catalogue_t06.py"],
+            {"tests.test_catalogue_t06": "", consumer: "", "tests.test_unrelated": ""},
+        )
+        retained, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+        self.assertIn(consumer, retained)
+
     def test_diagnostic_capture_keeps_bounded_ownership_consumers(self):
         available = {
             "tests.test_claim_evidence": "",
@@ -32,6 +41,24 @@ class AccessTransportConsumerTests(unittest.TestCase):
         self.assertEqual(set(available), set(selected))
         selected = run_suite.select_tests(["tools/autocode_scratch_preparation.py"], available)
         self.assertIn("tests.test_scratch_copy_identity", selected)
+
+    def test_shared_scratch_copy_changes_keep_indirect_proof_consumers(self):
+        consumers = {
+            "tests.test_autocode_protected_oracles",
+            "tests.test_design_check_job",
+            "tests.test_protected_test_links",
+            "tests.test_review_mutation_runtime",
+            "tests.test_review_proof",
+            "tests.test_scratch_copy_identity",
+            "tests.test_scratch_link_binding",
+            "tests.test_source_reconciliation",
+            "tests.test_verification_preparation",
+        }
+        available = {**dict.fromkeys(consumers, ""), "tests.test_unrelated": ""}
+        for path in ("tools/autocode_scratch_preparation.py", "tools/autocode_source_snapshot.py"):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], available)
+                self.assertEqual(consumers, set(selected))
 
     def test_named_collection_changes_keep_observation_custody_tests(self):
         selected = run_suite.select_tests(

@@ -1,6 +1,7 @@
 """Source access is AutoCode's recovery, never a question about Git machinery."""
 
 import copy
+import importlib
 import subprocess
 import tempfile
 import unittest
@@ -11,10 +12,12 @@ from unittest.mock import patch
 
 import autocode_client_actions as client
 import autocode_run_view as run_view
+import autocode_source_reconciliation as reconciliation
 import autocode_status_observation as status_observation
 import autocode_status_observation_worker as status_worker
 import autocode_status_summary as summary
 import autocode_util as util
+import autocode_verify as verify
 
 from .test_liveness import inspection, metadata
 
@@ -83,6 +86,11 @@ class SourceReconciliationTests(unittest.TestCase):
             **kwargs,
         )
 
+    def test_package_import_checks_the_same_readable_source(self):
+        package = importlib.import_module("tools.autocode_source_reconciliation")
+        self.assertEqual("tools.autocode_source_snapshot", package.source_snapshot.__name__)
+        self.assertTrue(package.readable(self.workspace, self.state))
+
     def test_readable_source_names_one_bound_continuation_for_all_stages(self):
         for stage in ("draft_plan", "review_plan", "builder", "review_change", "review_completion"):
             with self.subTest(stage=stage):
@@ -112,6 +120,136 @@ class SourceReconciliationTests(unittest.TestCase):
         self.assertEqual("blocked", view["recovery"]["category"])
         self.assertNotIn("resume", view["recovery"]["what_happened"].lower())
         self.assertEqual(before, self.state)
+
+    def test_unsafe_copy_parent_is_not_offered_or_resumed_until_source_is_safe(self):
+        shared = self.workspace / "shared"
+        shared.mkdir()
+        (shared / "test_original.py").write_text("original = True\n")
+        subprocess.run(["git", "-C", str(self.workspace), "add", "shared"], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.workspace),
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=f@example.test",
+                "commit",
+                "-qm",
+                "shared",
+            ],
+            check=True,
+        )
+        outside = tempfile.TemporaryDirectory()
+        self.addCleanup(outside.cleanup)
+        external = Path(outside.name).resolve()
+        (external / "test_original.py").write_text("external = True\n")
+        shared.rename(self.workspace / "old-shared")
+        shared.symlink_to(external, target_is_directory=True)
+        with self.assertRaises(util.Paused) as held:
+            verify.scratch_run(self.workspace, self.run / "copy", command="true", timeout=30)
+        self.assertEqual("PAUSED_SOURCE_UNAVAILABLE", held.exception.status)
+        self.state["stop_reason"] = str(held.exception)
+        view = self.view()
+        self.assertIsNone(view["next_command"])
+        self.assertIsNone(view["needs"])
+        self.state["stop_reason"] = "An unrelated source observation failed"
+        self.assertIsNone(self.view()["next_command"], "Admission must not trust stop-reason wording")
+        self.state["stop_reason"] = str(held.exception)
+        runner = SimpleNamespace(
+            native_calls=None,
+            assert_stage_stopped=lambda _active: None,
+            support=SimpleNamespace(snapshot=util.snapshot),
+        )
+        with self.assertRaises(util.Paused) as resumed:
+            reconciliation.prepare(runner, self.state, self.workspace)
+        self.assertEqual("PAUSED_SOURCE_UNAVAILABLE", resumed.exception.status)
+        with (
+            patch.object(reconciliation.source_scope, "paths", return_value=["shared/test_original.py"]),
+            self.assertRaises(util.Paused) as scoped,
+        ):
+            reconciliation.prepare(runner, self.state, self.workspace)
+        self.assertEqual("PAUSED_SOURCE_UNAVAILABLE", scoped.exception.status)
+        self.assertIn("symlinked parent", str(scoped.exception))
+        import autocode as actual_runner
+        import autocode_action_recovery as recovery
+
+        args = SimpleNamespace(
+            resume_paused=True,
+            abandon_stage=None,
+            accept_source_edit=False,
+            grant_recovery=None,
+            retry_report=None,
+            retry_failed_stage=False,
+            diagnose_failed_stage=False,
+            _resumed_pause={"status": self.state["status"]},
+        )
+        before = copy.deepcopy(self.state)
+        with (
+            patch.object(actual_runner, "assert_stage_stopped"),
+            patch.object(actual_runner, "write_json") as write,
+            patch.object(recovery.operational_admission, "guard", return_value=None),
+            patch.object(recovery.recovery_dispatch, "recover", return_value=None),
+            self.assertRaises(util.Paused),
+        ):
+            recovery.resume(
+                actual_runner,
+                args,
+                None,
+                self.state,
+                self.run / "state.json",
+                self.run,
+                self.workspace,
+                actual_runner.run_actions.Decided(),
+            )
+        write.assert_not_called()
+        self.assertEqual(before, self.state)
+        shared.unlink()
+        (self.workspace / "old-shared").rename(shared)
+        self.assertEqual("continue", self.view()["needs"]["kind"])
+
+    def test_disposable_copy_corruption_does_not_block_a_fresh_source_check(self):
+        self.state["stop_reason"] = "Source path has a symlinked parent: scratch-only/file.py"
+        self.assertEqual("continue", self.view()["needs"]["kind"])
+
+    def test_other_source_holds_still_recover_with_a_tracked_link_leaf(self):
+        (self.workspace / "source-link.txt").symlink_to("source.txt")
+        subprocess.run(["git", "-C", str(self.workspace), "add", "source-link.txt"], check=True)
+        self.state["stop_reason"] = "The source inventory could not be read"
+        self.assertEqual("continue", self.view()["needs"]["kind"])
+
+    def test_unrelated_snapshot_errors_keep_their_original_type(self):
+        runner = SimpleNamespace(
+            native_calls=None,
+            assert_stage_stopped=lambda _active: None,
+            support=SimpleNamespace(snapshot=util.snapshot),
+        )
+        with (
+            patch.object(reconciliation.source_scope, "snapshot", side_effect=ValueError("bad source contract")),
+            self.assertRaisesRegex(ValueError, "bad source contract"),
+        ):
+            reconciliation.prepare(runner, self.state, self.workspace)
+
+    def test_incomplete_snapshot_never_offers_or_accepts_source_recovery(self):
+        runner = SimpleNamespace(
+            native_calls=None,
+            assert_stage_stopped=lambda _active: None,
+            support=SimpleNamespace(snapshot=util.snapshot),
+        )
+        with (
+            patch.object(reconciliation.source_scope, "snapshot", return_value={"revision": "incomplete"}),
+            patch.object(reconciliation, "catalog_problem", return_value=None),
+            patch.object(
+                status_observation,
+                "_observe",
+                side_effect=lambda op, payload: status_worker._worker({"operation": op, "payload": payload}),
+            ),
+        ):
+            self.assertIsNone(self.view()["next_command"])
+            with self.assertRaises(util.Paused) as held:
+                reconciliation.prepare(runner, self.state, self.workspace)
+        self.assertEqual("PAUSED_SOURCE_UNAVAILABLE", held.exception.status)
 
     def test_a_readable_workspace_under_blocked_source_discovery_is_not_offered_as_readable(self):
         # Discovery under the shared source roots is the other cause of this stop; resuming while it still

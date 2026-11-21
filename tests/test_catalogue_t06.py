@@ -20,7 +20,9 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import autocode as runner
 import autocode_completion as completion_gate
+import autocode_report_repair_queue as report_repair_queue
 import autocode_support as support
+import autocode_util as util
 import autopilot_testkit as kit
 from goal_fixtures import approve_fixture, envelope, seed_greeting_workspace, write_greeting_source
 
@@ -714,6 +716,16 @@ class CompletionEvidenceCase(SolControllerCase):
                 self.run,
             )
         self.check("state_unchanged_after_failing_check", before, self.state)
+        # The controller may reject this report earlier for a missing Tester probe.
+        # Exercise the passing-evidence gate itself too, so that earlier refusal
+        # cannot hide a regression that admits a cited failing check.
+        self.expect_raises(
+            "cited_failed_check_requires_fresh_execution",
+            util.ExecutionEvidenceRequired,
+            report_repair_queue.require_executed_passes,
+            failing,
+            passing_claim=True,
+        )
         self.finish(summary="EVIDENCE_REJECTED: PASS without executed or successful checks is vacuous")
 
     def test_evd15_unavailable_verification_stays_unverified(self):

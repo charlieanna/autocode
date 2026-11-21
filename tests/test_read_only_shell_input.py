@@ -15,6 +15,7 @@ from unittest.mock import patch
 import autocode_report_check as report_check
 import autocode_tool_containment as containment
 import autocode_tool_handoff as tool_handoff
+import autocode_toolchain as toolchain
 
 ROOT = Path(__file__).resolve().parents[1]
 PIPE = "printf '%s' '<candidate JSON>' | <report_check_command>"
@@ -121,12 +122,14 @@ class ReadOnlyShellInputTests(unittest.TestCase):
             self.assertIn(PIPE, instructions)
             env = {**os.environ, "PATH": str(Path(sys.executable).parent) + os.pathsep + os.environ.get("PATH", "")}
             roots = [Path(sys.prefix).resolve(), Path(sys.base_prefix).resolve(), (ROOT / "tools").resolve()]
+            selected = toolchain.discover(workspace, (), env)
             before = snapshot(workspace)
             boundary = containment.prepare(
                 workspace,
                 allow_write=False,
                 private_run=workspace / ".autocode/runs/own",
-                read_roots=roots,
+                read_roots=[*roots, *selected["read_roots"]],
+                links=selected["links"],
                 environment=env,
             )
 
