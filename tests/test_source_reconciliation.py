@@ -148,6 +148,9 @@ class SourceReconciliationTests(unittest.TestCase):
         view = self.view()
         self.assertIsNone(view["next_command"])
         self.assertIsNone(view["needs"])
+        self.state["stop_reason"] = "An unrelated source observation failed"
+        self.assertIsNone(self.view()["next_command"], "Admission must not trust stop-reason wording")
+        self.state["stop_reason"] = str(held.exception)
         runner = SimpleNamespace(
             native_calls=None,
             assert_stage_stopped=lambda _active: None,
