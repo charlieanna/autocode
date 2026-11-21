@@ -91,3 +91,16 @@ retains all original writer-refusal and path-boundary assertions. The full
 RetrofitTest class plus real/fixture process guard checks passed 144 tests;
 full Ruff and format checks passed. Real gone-process and live-writer controls
 remain in the focused suite.
+
+The fixture-corrected head d585204d8 also passed the actual Linux VS Code host
+(6/6), including the concurrent observer and writer checks; extension units
+passed 793 with 22 skipped. Its Ubuntu suite passed after the fake-PID fixture
+correction, while Linux containment still reproduced the old Rustup failure.
+Exact logs: `/private/tmp/autocode-4031-d585-editor-success.log` and
+`/private/tmp/autocode-4031-d585-linux-failure.log`.
+
+Merged qualified master 7a569cd735, which includes the independent Rustup
+update-hash fix and owned host-cleanup corrections. The combined host keeps the
+writer and reader assertions and checks both child cleanup paths; five cleanup
+helper tests and 240 CI-selection tests pass. Actual editor and required CI on
+the merged product remain pending.
