@@ -7,10 +7,12 @@ is not the original twelve-criterion run.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import importlib.util
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -49,6 +51,47 @@ TESTS = {
     "broad-diagnostics-compatible.py": "diagnostic-test.py.txt",
     "strengthened-diagnostic.py": "strengthened-diagnostic-test.py.txt",
 }
+
+
+# The complete #9 displayed plan was independently reviewed under the owner’s
+# delegation. Only its interpreter spelling and run-specific approval identity
+# vary between fresh fixtures; every other visible term remains bound.
+REVIEWED_PLAN_DIGEST = "a4a6b85f72f5eda082402ee1d54a4635eba777387bb7ea003325b91c046c6eb0"
+
+
+def canonical_plan(plan: dict, interpreter: str) -> bytes:
+    """Canonicalize only the reviewed plan's run-specific token and interpreter."""
+    value = copy.deepcopy(plan)
+    value["hash"] = "<contract-hash>"
+    value["token"] = "<approval-token>"
+    escaped = re.sub(r"([\\`*{}\[\]()#+.!_>~|<>-])", r"\\\1", interpreter)
+
+    def scrub(item):
+        if isinstance(item, str):
+            return item.replace(escaped, "<fixture-python>").replace(interpreter, "<fixture-python>")
+        if isinstance(item, list):
+            return [scrub(entry) for entry in item]
+        if isinstance(item, dict):
+            return {key: scrub(entry) for key, entry in item.items()}
+        return item
+
+    return json.dumps(scrub(value), sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+
+
+def require_reviewed_plan(plan: dict, need: dict, interpreter: str) -> None:
+    revision, plan_hash, token = plan.get("revision"), plan.get("hash"), plan.get("token")
+    if (
+        need.get("kind") != "approve_plan"
+        or type(revision) is not int
+        or not isinstance(plan_hash, str)
+        or re.fullmatch(r"[0-9a-f]{64}", plan_hash) is None
+        or token != f"r{revision}:{plan_hash}"
+        or need.get("token") != token
+    ):
+        raise AssertionError("The exact displayed plan approval token is not current")
+    digest = hashlib.sha256(canonical_plan(plan, interpreter)).hexdigest()
+    if digest != REVIEWED_PLAN_DIGEST:
+        raise AssertionError(f"The full displayed plan differs from the reviewed fixture (sha256 {digest})")
 
 
 def git(project: Path, env: dict[str, str], *args: str) -> str:
@@ -298,8 +341,7 @@ def main(argv: list[str]) -> int:
         view = run.advance()
         record_advance(root, f"planning-{index}", run)
     plan, need = view.get("displayed_plan") or {}, view.get("needs") or {}
-    if need.get("kind") != "approve_plan" or not need.get("token") or need["token"] != plan.get("token"):
-        raise AssertionError(f"Expected exact plan approval, got {need}")
+    require_reviewed_plan(plan, need, sys.executable)
     fields = lambda rows: [(r["id"], r["criterion"], r["verification_method"]) for r in rows]
     if fields(plan["acceptance_criteria"]) != fields(criteria):
         raise AssertionError("Displayed criteria differ from the scoped task")

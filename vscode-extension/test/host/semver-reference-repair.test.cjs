@@ -130,8 +130,8 @@ test('real editor drives the scoped SemVer reference repair', {timeout: 1_200_00
     const feedback = Array.isArray(repair.runner_feedback) ? repair.runner_feedback.join('\n') : String(repair.runner_feedback);
     const receipt = feedback.match(/Runner evidence: (.+?) \(sha256 ([a-f0-9]{64})\)/);
     assert.ok(receipt, 'the real runner feedback names its rejection receipt and digest');
-    const receiptPath = path.resolve(receipt[1]);
-    assert.ok(receiptPath.startsWith(path.resolve(fixture.runDir) + path.sep), 'receipt belongs to the owned run');
+    const receiptPath = fs.realpathSync(receipt[1]);
+    assert.ok(receiptPath.startsWith(fs.realpathSync(fixture.runDir) + path.sep), 'receipt belongs to the owned run');
     assert.equal(crypto.createHash('sha256').update(fs.readFileSync(receiptPath)).digest('hex'), receipt[2]);
     assert.equal(providerHash(), manifest.provider_sha256, 'same provider bytes throughout the run');
     phase = 'observing resulting public and editor state';
