@@ -86,7 +86,7 @@ class CaptureEventContractTests(unittest.TestCase):
     def test_builder_handoff_captures_without_run_store_discovery(self):
         with tempfile.TemporaryDirectory() as temporary:
             workspace = Path(temporary).resolve()
-            # No state file or evidence directory: the supplied handoff suffices.
+            # A running Builder has a checkpoint; its evidence directory need not exist yet.
             state_path = workspace / ".autocode/runs/builder/state.json"
             state = {
                 "version": 3,
@@ -96,7 +96,20 @@ class CaptureEventContractTests(unittest.TestCase):
                 "current_task": {"id": "task", "affected_paths": ["app.py"]},
                 "goal_contract": {"hash": "approved", "body": {"constraints": ["Preserve existing tests"]}},
             }
-            with patch.object(stage_context.support, "snapshot", return_value={"revision": "r", "head": "h"}):
+            state_path.parent.mkdir(parents=True)
+            checkpoint = json.dumps(state)
+            state_path.write_text(checkpoint)
+            read_text = Path.read_text
+
+            def no_state_discovery(path, *args, **kwargs):
+                if path == state_path:
+                    raise AssertionError("the handoff must not read the run checkpoint")
+                return read_text(path, *args, **kwargs)
+
+            with (
+                patch.object(stage_context.support, "snapshot", return_value={"revision": "r", "head": "h"}),
+                patch.object(Path, "read_text", no_state_discovery),
+            ):
                 prompt, _ = stage_context.context_packet(state, "builder", state_path)
             packet = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
             instruction = packet["builder_artifact_policy"]["instruction"]
@@ -145,7 +158,7 @@ class CaptureEventContractTests(unittest.TestCase):
                     self.assertIn("existing evidence is immutable", refused.stderr)
                     self.assertFalse(sentinel.exists())
                     self.assertEqual(original, output.read_bytes())
-            self.assertFalse(state_path.exists())
+            self.assertEqual(checkpoint, state_path.read_text())
 
     def test_filtered_or_suppressed_native_output_cannot_authenticate_a_saved_receipt(self):
         with tempfile.TemporaryDirectory() as temporary:
