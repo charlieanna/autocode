@@ -1229,6 +1229,10 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     ),
     (("tools/autocode_requirements_triage.py",), ("tests.test_component_design",)),
     (
+        ("tools/autocode_job_retry_admission.py",),
+        ("tests.test_job_route", "tests.test_needs_execution_matrix", "tests.test_status_observation"),
+    ),
+    (
         (
             "tools/autocode_job_failure.py",
             "tools/autocode_job_route.py",

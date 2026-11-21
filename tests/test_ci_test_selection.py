@@ -8,6 +8,12 @@ import run_suite
 
 
 class AccessTransportConsumerTests(unittest.TestCase):
+    def test_job_retry_admission_selects_public_route_and_status_consumers(self):
+        consumers = {"tests.test_job_route", "tests.test_needs_execution_matrix", "tests.test_status_observation"}
+        available = {**dict.fromkeys(consumers, ""), "tests.test_unrelated": ""}
+        selected = run_suite.select_tests(["tools/autocode_job_retry_admission.py"], available)
+        self.assertEqual(consumers, set(selected))
+
     def test_evidence_catalogue_keeps_its_mutation_consumer(self):
         consumer = "tests.test_catalogue_t14"
         selected = run_suite.select_tests(
