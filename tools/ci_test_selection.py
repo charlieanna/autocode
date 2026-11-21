@@ -50,12 +50,20 @@ EXTENSION_HOST_RESOURCES = {
         "vscode-extension/test/host/classification-outcome.test.cjs",
     ),
     "tests/classification_vscode_fixture.py": ("vscode-extension/test/host/classification-outcome.test.cjs",),
-    "tests/test_failure_routing_cli.py": ("vscode-extension/test/host/classification-outcome.test.cjs",),
-    "tests/test_build_blackbox.py": ("vscode-extension/test/host/classification-outcome.test.cjs",),
-    "tests/failure_routing_provider.py": ("vscode-extension/test/host/classification-outcome.test.cjs",),
-    "tests/operational_fixtures.py": ("vscode-extension/test/host/classification-outcome.test.cjs",),
-    "tools/blackbox_build_provider.py": ("vscode-extension/test/host/classification-outcome.test.cjs",),
-    "tools/inprocess_cli.py": ("vscode-extension/test/host/classification-outcome.test.cjs",),
+    **dict.fromkeys(
+        (
+            "tests/test_failure_routing_cli.py",
+            "tests/test_build_blackbox.py",
+            "tests/failure_routing_provider.py",
+            "tests/operational_fixtures.py",
+            "tools/blackbox_build_provider.py",
+            "tools/inprocess_cli.py",
+        ),
+        (
+            "vscode-extension/test/host/classification-outcome.test.cjs",
+            "vscode-extension/test/host/named-proof-refusal.test.cjs",
+        ),
+    ),
     "tests/host_status_site/sitecustomize.py": ("vscode-extension/test/host/status-retry.test.cjs",),
     "tests/job_route_vscode_cli.py": (
         "vscode-extension/test/host/job-route-effort.test.cjs",
@@ -66,16 +74,7 @@ EXTENSION_HOST_RESOURCES = {
     "tests/provider_auth_fixture.py": ("vscode-extension/test/host/editor-host.test.cjs",),
     "tests/protected_link_vscode_fixture.py": ("vscode-extension/test/host/protected-link-recovery.test.cjs",),
     "tests/rustup_vscode_fixture.py": ("vscode-extension/test/host/rustup-containment.test.cjs",),
-    **dict.fromkeys(
-        (
-            "tests/named_proof_vscode_fixture.py",
-            "tests/test_failure_routing_cli.py",
-            "tests/test_build_blackbox.py",
-            "tests/failure_routing_provider.py",
-            "tools/blackbox_build_provider.py",
-        ),
-        ("vscode-extension/test/host/named-proof-refusal.test.cjs",),
-    ),
+    "tests/named_proof_vscode_fixture.py": ("vscode-extension/test/host/named-proof-refusal.test.cjs",),
     "tests/semver_reference_vscode_fixture.py": ("vscode-extension/test/host/semver-reference-repair.test.cjs",),
     "tests/semver_reference_provider.py": ("vscode-extension/test/host/semver-reference-repair.test.cjs",),
     "vscode-extension/test/host/semver-reference-cli.py": (

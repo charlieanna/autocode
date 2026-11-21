@@ -95,7 +95,7 @@ for (const mode of ['skip', 'missing']) test(`editor refuses ${mode} base named 
     const outcome = await until('the unverified task outcome', () => {
       const view = status();
       if (!transitioned && view.status === before.status && view.stop_reason === before.stop_reason &&
-          isDeepStrictEqual(view.needs, before.needs) && view.needs?.token === review.token &&
+          view.needs?.kind === before.needs?.kind && view.needs?.token === review.token &&
           isDeepStrictEqual(view.displayed_plan, review.plan)) return null;
       transitioned = true;
       if (view.recovery?.outcome?.result === 'could_not_finish') return {view};

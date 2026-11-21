@@ -1,5 +1,31 @@
 # Proof gates status
 
+### Negative named-proof editor scenarios prepared
+
+The new actual-editor scenarios approve a complete agent-reviewed plan and run
+real pytest against an existing project in two cases: the candidate test skips
+on base, or its ID is absent on base. Separate public CLI preflights 5 and 6 in
+`/private/tmp/autocode-named-proof-preflight-{5,6}` observed the candidate's named
+pass, the base skip/absence, a genuine runner FAIL receipt with empty fail-to-pass,
+two retained validation-repair rounds and no verified delivery. The first real
+preflight reached that proof but also contained a wrongly formed scripted check;
+it is retained as preflight 4 and is not the qualified result.
+
+The host test takes the editor's approval against the entire bound plan, follows
+the public finding to its owned proof receipt, checks the negative result and
+the editor's stopped outcome, and preserves unexpected pauses instead of blindly
+resuming. The active-time cap is 600 seconds. The SemVer full-plan binder is
+shared without changing its reviewed digest or its tests. The shared CI fixture
+registrations retain both classification and named-proof consumers after the
+master integration. Actual editor qualification of these two negative cases is
+still pending; #4044 remains open until it passes and the fix merges.
+
+#4050's exact scripted-event identity change and tests are included here. Its
+separate head passed 710 selected tests and advisory coverage, while its scenario
+gate remained running. It has a current-master CI-registration conflict and will
+be closed as folded only after this integrated PR passes required CI and merges;
+#4049 remains open until then.
+
 ### Actual editor qualification and current-master integration
 
 Head `89e4855c2f45e43f78423abb3aadabdcb326d4b5` passed the actual Linux
