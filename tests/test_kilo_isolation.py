@@ -8,6 +8,8 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import autocode_kilo_isolation as isolation
 import autocode_tool_containment as containment
@@ -134,6 +136,56 @@ class ClientPolicyTests(unittest.TestCase):
         self.assertEqual([], isolation._verification_denials(boundary))
         self.assertEqual([], isolation._verification_protected_paths(boundary))
 
+    def test_native_configuration_uses_discovered_roots_and_links(self):
+        owner = isolation.KiloRoleIsolation.__new__(isolation.KiloRoleIsolation)
+        owner._root = self.root
+        owner._prepared = {"target": self.target}
+        request = {"read_roots": ["/existing"], "protected_paths": [], "tool_commands": ["python -V"]}
+        selected = {"read_roots": ["/runtime"], "links": [["/alias", "/runtime"]]}
+        with (
+            patch.object(isolation.toolchain, "discover", return_value=selected) as discover,
+            patch.object(containment, "prepare", side_effect=RuntimeError("observed")) as prepare,
+            self.assertRaisesRegex(RuntimeError, "observed"),
+        ):
+            owner._configure([], {"PATH": "/bin"}, request)
+        discover.assert_called_once_with(self.root, ["python -V"], {"PATH": "/bin"})
+        self.assertEqual(["/existing", "/runtime"], prepare.call_args.kwargs["read_roots"])
+        self.assertEqual(selected["links"], prepare.call_args.kwargs["links"])
+        self.assertEqual(["/existing"], request["read_roots"])
+
+    def test_native_client_receives_the_same_discovered_roots_as_the_shell(self):
+        owner = isolation.KiloRoleIsolation.__new__(isolation.KiloRoleIsolation)
+        owner._root = self.root
+        owner._prepared = {
+            "target": self.target,
+            "agent": "fixture",
+            "files": {},
+            "prompt_file": None,
+            "os_readonly_inputs": (),
+        }
+        owner._source = SimpleNamespace(socket_path=self.root / "source.sock")
+        owner._image_preparation = None
+        shell = self.control / "shell"
+        shell.write_text("fixture")
+        fake_boundary = {"shell": str(shell), "profile": str(self.control / "policy.sb")}
+        selected = {"read_roots": ["/runtime"], "links": [["/alias", "/runtime"]]}
+        request = {"read_roots": ["/existing"], "protected_paths": []}
+        child = {"PATH": "/bin", isolation.CONFIG: json.dumps({"agent": {"fixture": {}}})}
+        with (
+            patch.object(isolation.toolchain, "discover", return_value=selected),
+            patch.object(containment, "prepare", return_value=fake_boundary) as prepare,
+            patch.object(isolation, "_relocate_client_runtime", return_value=self.scratch),
+            patch.object(owner, "_prepare_derivation_policy"),
+            patch.object(isolation, "_inherited_shell_body", return_value=b"fixture"),
+            patch.object(isolation, "_write"),
+            patch.object(isolation, "whole_client_policy", side_effect=RuntimeError("observed")) as client,
+            self.assertRaisesRegex(RuntimeError, "observed"),
+        ):
+            owner._configure([], child, request)
+        client_request = client.call_args.args[3]
+        self.assertEqual(prepare.call_args.kwargs["read_roots"], client_request["read_roots"])
+        self.assertEqual(selected["links"], client_request["runtime_links"])
+
 
 @unittest.skipUnless(SEATBELT, "requires real macOS Seatbelt enforcement")
 class ClientPolicyKernelTests(unittest.TestCase):
@@ -153,8 +205,15 @@ class ClientPolicyKernelTests(unittest.TestCase):
             subprocess.run([*git, *arguments], check=True, capture_output=True)
         roots = [Path(sys.prefix).resolve(), Path(sys.base_prefix).resolve()]
         environment = {**os.environ, "PATH": str(Path(sys.executable).parent) + ":/usr/bin:/bin"}
+        request = {"read_roots": roots, "protected_paths": [], "runtime_links": []}
+        if hasattr(isolation, "runtime_request"):
+            request = isolation.runtime_request(self.root, request, environment)
         self.boundary = containment.prepare(
-            self.root, read_roots=roots, environment=environment, verification_copy=True
+            self.root,
+            read_roots=request["read_roots"],
+            links=request["runtime_links"],
+            environment=environment,
+            verification_copy=True,
         )
         self.scratch = Path(self.boundary["scratch"])
         self.tree = self.scratch / "verification"
@@ -162,7 +221,6 @@ class ClientPolicyKernelTests(unittest.TestCase):
         target.mkdir(parents=True)
         child = {}
         isolation._relocate_client_runtime(self.boundary, child)
-        request = {"read_roots": roots, "protected_paths": []}
         text = isolation.whole_client_policy(
             self.root, target, self.boundary, request, child, str(self.root / "source.sock")
         )
@@ -176,6 +234,10 @@ class ClientPolicyKernelTests(unittest.TestCase):
             text=True,
             timeout=30,
         )
+
+    def test_python_can_load_its_runtime_dependencies_in_client_policy(self):
+        result = self.run_under_policy(shlex.join([sys.executable, "-c", "import ssl; print('ready')"]))
+        self.assertEqual((0, "ready\n"), (result.returncode, result.stdout), result.stderr)
 
     def test_the_client_policy_refuses_every_change_to_a_copied_input_and_allows_new_outputs(self):
         module, package, alias = self.tree / "pkg/module.py", self.tree / "pkg", self.tree / "alias.py"

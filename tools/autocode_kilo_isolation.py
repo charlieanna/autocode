@@ -36,6 +36,7 @@ try:
     from . import autocode_publish_guard as publish_guard
     from . import autocode_supervision as supervision
     from . import autocode_tool_containment as containment
+    from . import autocode_toolchain as toolchain
     from . import autocode_util as util
     from . import autocode_visual_profile as files
 except ImportError:
@@ -51,6 +52,7 @@ except ImportError:
     import autocode_publish_guard as publish_guard
     import autocode_supervision as supervision
     import autocode_tool_containment as containment
+    import autocode_toolchain as toolchain
     import autocode_util as util
     import autocode_visual_profile as files
 
@@ -401,6 +403,16 @@ def _verification_inputs_denied(policy, boundary):
     grants = [index for index, line in enumerate(lines) if line.startswith("(allow file-write")]
     effective = set(lines[max(grants, default=-1) + 1 :])
     return all(line in effective for line in _verification_denials(boundary))
+
+
+def runtime_request(workspace, request, environment):
+    """Bind the same discovered readonly tools to both native client and shell."""
+    selected = toolchain.discover(workspace, request.get("tool_commands", ()), environment)
+    return {
+        **request,
+        "read_roots": list(dict.fromkeys([*request["read_roots"], *selected["read_roots"]])),
+        "runtime_links": selected["links"],
+    }
 
 
 def whole_client_policy(
@@ -1117,11 +1129,13 @@ class KiloRoleIsolation:
 
     def _configure(self, command, child, request):
         target = self._prepared["target"]
+        request = runtime_request(self._root, request, child)
         boundary = containment.prepare(
             self._root,
             allow_write=False,
             environment=child,
             read_roots=request["read_roots"],
+            links=request["runtime_links"],
             protected_paths=request["protected_paths"],
             verification_copy=True,
             source_paths=request.get("source_paths", ()),
@@ -1189,6 +1203,7 @@ class KiloRoleIsolation:
                 write_paths=[runtime.parent],
                 hidden_paths=[self._root / ".autocode"],
                 cwd=self._root,
+                links=request["runtime_links"],
             )
             program = linux_boundary.write(policy_path, value)
             self._prepared["files"].update({str(path): util.file_hash(path) for path in (policy_path, program)})
