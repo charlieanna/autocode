@@ -103,10 +103,17 @@ test('real editor completes an offline task with exact multiline element evidenc
     await win.locator('.activitybar [aria-label^="AutoCode"]').first().click();
     await openHistoryRow(win.locator('.monaco-list-row', { hasText: 'Extend labels() to append the exact string added' }).first(), chat, 'multiline semantic fixture');
     let frame = await chat();
-    await until('reviewed plan in the editor', async () => {
+    await until('reviewed plan overview in the editor', async () => {
       frame = await chat();
-      const text = await frame.evaluate(() => document.body.innerText);
-      return text.includes('test_c1_added_label') && await frame.$('#take-action') ? true : null;
+      const overview = frame.locator('.plan-overview');
+      return await overview.count() && (await overview.innerText()).includes('Extend labels') &&
+        await frame.$('details.plan-evidence > summary') && await frame.$('#take-action') ? true : null;
+    });
+    await frame.locator('details.plan-evidence > summary').click();
+    await until('the expanded reviewed criterion in the editor', async () => {
+      frame = await chat();
+      const details = frame.locator('details.plan-evidence[open]');
+      return await details.count() && (await details.innerText()).includes('test_c1_added_label') ? true : null;
     });
     const before = status();
     assert.equal(before.needs.kind, 'approve_plan');
@@ -156,7 +163,14 @@ test('real editor completes an offline task with exact multiline element evidenc
     console.error(`Python semantic host failed during ${phase}: ${error.stack || error.message}`);
     if (win) {
       fs.mkdirSync(path.join(EXTENSION, '.vscode-test'), { recursive: true });
-      await win.screenshot({ path: path.join(EXTENSION, '.vscode-test/host-python-semantic.png'), timeout: 5_000 }).catch(() => {});
+      await win.screenshot({ path: path.join(EXTENSION, '.vscode-test/host-python-semantic.png'), timeout: 5_000 })
+        .catch((failure) => console.error(`Could not capture editor screenshot: ${failure.message}`));
+    }
+    if (status) {
+      try {
+        const view = status();
+        console.error(`Last public status: ${JSON.stringify({ status: view.status, stop_reason: view.stop_reason, need: view.needs?.kind })}`);
+      } catch (failure) { console.error(`Could not read final public status: ${failure.message}`); }
     }
   } finally {
     try {
