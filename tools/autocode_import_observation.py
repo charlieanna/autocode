@@ -15,16 +15,20 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 try:
+    from . import autocode_dependency_dirs as dependency_dirs
     from . import autocode_failure_provenance as failure_provenance
     from . import autocode_package_scope as package_scope
     from . import autocode_python_tests as python_tests
+    from . import autocode_source_snapshot as source_snapshot
     from . import autocode_test_setup as test_setup
     from . import autocode_util as util
     from . import autocode_verification_schedule as schedule
 except ImportError:
+    import autocode_dependency_dirs as dependency_dirs
     import autocode_failure_provenance as failure_provenance
     import autocode_package_scope as package_scope
     import autocode_python_tests as python_tests
+    import autocode_source_snapshot as source_snapshot
     import autocode_test_setup as test_setup
     import autocode_util as util
     import autocode_verification_schedule as schedule
@@ -262,3 +266,65 @@ def observe_candidate(
     )
     attempt["imports"] = project
     return finish("Project import origins observed" if project else "No project import origin was established")
+
+
+def for_regression(run, trees, on_candidate, on_base, candidate_source, runners):
+    """One project-import answer and retained checks for the final regression judgment."""
+    run_suite, run_command, execution_identity = runners
+    framework = run.framework
+    if (
+        not run.new_behavior
+        or on_base is None
+        or framework is None
+        or framework.name not in ("pytest", "unittest")
+        or "base_with_tests" not in trees
+    ):
+        return {}, None
+    base_results = on_base.get("results") or {}
+    selected = (on_candidate.get("results") or {}).get("passed") or []
+    test_command = run.commands["regression"]
+    candidate_tree = trees["candidate"]
+    identity_cmd = identity_command(framework, test_command, candidate_tree)
+    if not identity_cmd or not targets(on_base, trees["base_with_tests"], framework.name):
+        return {}, ()
+    snapshot = lambda tree: source_snapshot.snapshot(tree, paths=list(run.changes))["revision"]
+    identity = lambda tree: execution_identity(
+        tree,
+        command=identity_cmd,
+        dependencies_from=run.dependencies_from,
+        source_paths=list(run.changes),
+        generated_record=run.generated_record,
+        generated_unrecorded=run.generated_unrecorded,
+        ignored_inputs=run.ignored_inputs,
+    )
+    observed = observe_candidate(
+        on_base,
+        trees["base_with_tests"],
+        candidate_tree,
+        framework,
+        selected,
+        test_command,
+        Path(run.run_dir) / "project-import-observation",
+        run_suite=run_suite,
+        run_command=run_command,
+        snapshot=snapshot,
+        identity=identity,
+        expected_source=candidate_source,
+        is_product=lambda path: not run.roles.is_test(path) and not dependency_dirs.installed(path),
+        timeout=run.timeout,
+    )
+    if observed:
+        run.proof["project_import_observation"] = observed
+        for key in ("candidate", "probe"):
+            if key in observed:
+                run.checks["project_import_" + key] = observed[key]
+    project_imports = observed.get("imports") or {}
+    unloaded = test_setup.unloaded_failures(
+        base_results,
+        run.runnable_tests,
+        selected,
+        new_behavior=True,
+        directory=getattr(framework, "directory", None),
+        project_imports=project_imports,
+    )
+    return project_imports, unloaded or ()

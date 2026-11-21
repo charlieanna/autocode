@@ -78,7 +78,8 @@ pass while the strict-binding positive cases and final judgment remain open.
   snapshot. Tests cover a re-export through an unchanged package file, an added
   module, `src/`, test helpers, external modules and an environment change.
   The acceptance-reference path now consumes this observation and records both
-  test and probe receipts; final regression proof is not yet connected. The
+  test and probe receipts; final regression judgment now reads the same answer.
+  Its result retains the observation and receipts. The
   external-dependency safety controls now pass for acceptance, but the four
   positive import cases are currently blocked because this host's selected
   interpreter has an unbound editable `autocode_supervisor` install. The
@@ -95,7 +96,17 @@ pass while the strict-binding positive cases and final judgment remain open.
   requires matching test/probe environment digests and unchanged source.
   Six focused import-observation tests, 58 receipt/scheduler/replay tests and
   the architecture limits pass; full mypy passes on 972 files. The final
-  regression-judgment integration is still pending.
+  final regression-judgment integration also has a real owned-scratch positive
+  and missing-external-dependency negative using a fully bound isolated
+  interpreter. Both pass here; on master the missing dependency incorrectly
+  grants PASS and the recorded observation is absent. The existing first
+  Node project control also passes. These checks do not resolve the unbound
+  editable or unsupported/legacy runner gaps above.
+- The 32-test focused setup, import-observation, first Node project and
+  architecture run passed with normal process access; full ruff and mypy (972
+  files) passed. An initial sandboxed run failed four subprocess tests because
+  the supervisor could not authenticate keeper cleanup; the successful run
+  used the process-inspection access those tests require.
 - Unit and end-to-end acceptance-reference regressions now capture in-test
   and module-level dependency cases. The candidate test passes, while the
   original run raises a missing unrelated dependency before its assertion.

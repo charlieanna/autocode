@@ -60,6 +60,7 @@ try:
     from . import autocode_first_suite as first_suite
     from . import autocode_go_test_prerequisites as go_prerequisites
     from . import autocode_go_tests as go_tests
+    from . import autocode_import_observation as import_observation
     from . import autocode_investigation_workspace as investigation_workspace
     from . import autocode_junit_first_suite as junit_first
     from . import autocode_junit_proof as junit_proof
@@ -112,6 +113,7 @@ except ImportError:
     import autocode_first_suite as first_suite
     import autocode_go_test_prerequisites as go_prerequisites
     import autocode_go_tests as go_tests
+    import autocode_import_observation as import_observation
     import autocode_investigation_workspace as investigation_workspace
     import autocode_junit_first_suite as junit_first
     import autocode_junit_proof as junit_proof
@@ -1830,6 +1832,7 @@ def _prove_regression(run: _Run, trees, *, no_go_project, no_junit_project):
     ignored_inputs, new_behavior, preserve, fail = run.ignored_inputs, run.new_behavior, run.preserve, run.fail
     unverified, notes, review_reasons, checks = run.unverified, run.notes, run.review_reasons, run.checks
     proof = run.proof
+    candidate_source = source_snapshot.snapshot(trees["candidate"], paths=list(changes))["revision"]
     on_candidate, took = base_bound.timed(
         lambda: run_suite(
             framework, commands["regression"], trees["candidate"], run_dir, "regression-on-candidate", timeout=timeout
@@ -1854,22 +1857,13 @@ def _prove_regression(run: _Run, trees, *, no_go_project, no_junit_project):
         if said := base_bound.stopped(on_base, took, allowed, timeout):
             unverified.append(said)
 
-    def repeat(command, side, label):
-        if run.progress:
-            run.progress(
-                f"Checking regression test stability ({label})", command=command, output=run_dir, phase="stability"
-            )
-        tree = trees["candidate" if side == "candidate" else "base_with_tests"]
-        checks[label] = run_suite(framework, command, tree, run_dir, label, timeout=timeout)
-        return checks[label]
-
     unstable, stability = proof_stability.repeat(
         framework.name if framework else None,
         commands["regression"],
         cases,
         on_candidate,
         on_base,
-        repeat,
+        proof_stability.runner(run, trees, framework, run_suite, timeout),
         base_tree="base_with_tests" in trees,
         directory=getattr(framework, "directory", None),
     )
@@ -1891,6 +1885,9 @@ def _prove_regression(run: _Run, trees, *, no_go_project, no_junit_project):
         lambda: product_diff(workspace, base, product_files(changes, roles=run.roles)),
         lambda command, log: run_command(command, trees["candidate"], log, timeout=timeout),
     )
+    project_imports, unloaded_new = import_observation.for_regression(
+        run, trees, on_candidate, on_base, candidate_source, (run_suite, run_command, execution_identity)
+    )
     _judge_regression(
         proof_stability.without(on_candidate, unstable),
         proof_stability.without(on_base, unstable),
@@ -1900,6 +1897,8 @@ def _prove_regression(run: _Run, trees, *, no_go_project, no_junit_project):
         proof,
         review_reasons,
         new_behavior=new_behavior,
+        project_imports=project_imports,
+        unloaded_new=unloaded_new,
         preserve_only=preserve,
         absent_go_base=no_go_project and _go_test(package_scope.split(framework, commands["regression"])[1]),
         absent_junit_base=no_junit_project

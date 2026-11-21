@@ -59,6 +59,8 @@ def judge_regression(
     changed_tests=None,
     base_suite_passed=None,
     reloaded=None,
+    project_imports=(),
+    unloaded_new=None,
 ):
     """Judge the targeted runs of the changed test files.
 
@@ -173,18 +175,25 @@ def judge_regression(
         if not base.get("complete"):
             unverified.append("Per-test results on the base code were incomplete")
             return
-        setup_errors = test_setup.not_evidence(base, new_behavior=new_behavior)
+        setup_errors = test_setup.not_evidence(base, new_behavior=new_behavior, project_imports=project_imports)
         ran_and_failed = set(base["failed"]) - set(base["collection_errors"]) - set(setup_errors)
         if setup_errors:
             notes.append(test_setup.proof_note(setup_errors))
-        # New behavior: a test that did not pass on base (failed, or could not even import
-        # the code it tests) and passes now. A bug fix needs a test that ran and failed.
-        flipped = sorted(passed - set(base["passed"])) if new_behavior else sorted(ran_and_failed & passed)
+        # Preserve the runner's existing first-project rule. For Python import collection failures,
+        # only the named tests whose project import was observed may stand in for tests that did not run.
+        not_run = passed - set(base["passed"]) - set(base["failed"])
+        if new_behavior:
+            flipped_set = passed - set(base["passed"]) - set(setup_errors)
+            if unloaded_new is not None and (base.get("uncollected", base.get("collection_errors")) or []):
+                flipped_set -= not_run
+                flipped_set |= set(unloaded_new) & passed
+            flipped = sorted(flipped_set)
+        else:
+            flipped = sorted(ran_and_failed & passed)
         # Tests that ran and passed on the original code and still pass (autocode_regression.check_cases).
         kept = set(base["passed"]) & passed
         # Passing tests that never ran on the original code (their module did not import there): a
         # guard's test there is not shown to fail before, only not shown to pass (check_cases).
-        not_run = passed - set(base["passed"]) - set(base["failed"])
         if not new_behavior and not_run - set(flipped) and reloaded and reloaded():
             flipped = sorted({*flipped, *not_run})
             notes.append(UNLOADABLE)

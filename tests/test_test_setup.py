@@ -20,6 +20,7 @@ from pathlib import Path
 
 import autocode_test_setup as test_setup
 import autocode_verify as verify
+import autocode_verify_judgment as judgment
 
 TREE = "/project-545"
 RULE, SEPARATOR = "-" * 70, "=" * 70
@@ -306,7 +307,6 @@ class SharedSetupAnswerTests(unittest.TestCase):
         self.assertIsNone(test_setup.unloaded_failures(incomplete, files, [SELECTED], new_behavior=True))
         complete = base_results(failed=[SELECTED])
         self.assertEqual([], test_setup.unloaded_failures(complete, files, [SELECTED], new_behavior=True))
-        # A selected test in a file that loaded is not counted for the file that did not.
         loaded = "tests.test_other.Other.test_x"
         self.assertEqual(
             [],
@@ -318,6 +318,53 @@ class SharedSetupAnswerTests(unittest.TestCase):
                 project_imports=[UNITTEST_UNLOADED],
             ),
         )
+
+
+class RegressionImportJudgmentTests(unittest.TestCase):
+    def judge(self, base, **kwargs):
+        candidate = {
+            "exit_code": 0,
+            "timed_out": False,
+            "results_expected": True,
+            "results": {"passed": [SELECTED], "failed": [], "skipped": [], "total": 1, "complete": True},
+        }
+        original = {"exit_code": 1, "timed_out": False, "results": base}
+        failed, unverified, notes, proof, reviews = [], [], [], {}, []
+        judgment.judge_regression(
+            candidate,
+            original,
+            failed,
+            unverified,
+            notes,
+            proof,
+            reviews,
+            known_failures=lambda: set(),
+            new_behavior=True,
+            **kwargs,
+        )
+        return failed, unverified, proof
+
+    def test_unrelated_missing_dependency_cannot_prove_a_new_feature(self):
+        reason = "The test could not import its dependency on base: No module named 'external_dependency'"
+        failed, unverified, proof = self.judge(base_results(failed=[SELECTED], setup={SELECTED: reason}))
+        self.assertEqual([], proof["fail_to_pass"])
+        self.assertTrue(failed or unverified)
+
+    def test_unobserved_unloaded_test_cannot_prove_a_new_feature(self):
+        failed, unverified, proof = self.judge(base_results(unloaded=[UNITTEST_UNLOADED]), unloaded_new=())
+        self.assertEqual([], proof["fail_to_pass"])
+        self.assertTrue(failed or unverified)
+
+    def test_observed_project_imports_can_prove_new_behavior(self):
+        reason = "The test could not import its dependency on base: cannot import name 'new' from 'app'"
+        failed, unverified, proof = self.judge(
+            base_results(failed=[SELECTED], setup={SELECTED: reason}), project_imports=[SELECTED]
+        )
+        self.assertEqual([SELECTED], proof["fail_to_pass"])
+        self.assertFalse(failed or unverified)
+        failed, unverified, proof = self.judge(base_results(unloaded=[UNITTEST_UNLOADED]), unloaded_new=[SELECTED])
+        self.assertEqual([SELECTED], proof["fail_to_pass"])
+        self.assertFalse(failed or unverified)
 
 
 if __name__ == "__main__":

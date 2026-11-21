@@ -44,6 +44,7 @@ def assemble(run, *, verdict, source_revision, test_files, source_files, stats, 
         "suite_flakes": proof.get("suite_flakes"),
         "diff_coverage": proof.get("diff_coverage"),
         "test_prerequisites": proof.get("test_prerequisites"),
+        "project_import_observation": proof.get("project_import_observation"),
         "test_support": proof.get("test_support"),
         "checks": run.checks,
     }
