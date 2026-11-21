@@ -39,6 +39,18 @@ except ImportError:
 
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 OVERLAP_LIMIT = 3
+# An obligation in one of these states has its evidence: a test that fails when the line breaks, or an
+# independently accepted reason. Every other obligation is still open.
+SETTLED = ("tested", "excepted")
+
+
+def outstanding(obligations):
+    """The obligations of an assessment that still need evidence, in their recorded order.
+
+    Readers that tell a person which lines are missing read this one answer, so a line the same
+    assessment settled is never listed as missing (#3925).
+    """
+    return [row for row in obligations or [] if isinstance(row, dict) and row.get("status") not in SETTLED]
 
 
 def _text(value):

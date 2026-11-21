@@ -17,12 +17,14 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_builder_failure as builder_failure
+    from . import autocode_changed_code_evidence as changed_code_evidence
     from . import autocode_changed_code_review as review
     from . import autocode_mutation_check as mutation_check
     from . import autocode_run_status as run_status
     from . import autocode_util as util
 except ImportError:
     import autocode_builder_failure as builder_failure
+    import autocode_changed_code_evidence as changed_code_evidence
     import autocode_changed_code_review as review
     import autocode_mutation_check as mutation_check
     import autocode_run_status as run_status
@@ -284,7 +286,7 @@ def queued(state: RunState, record):
 
 # Lines the Builder has nothing to do for: a test already settles them, or the independent Tester
 # accepted their reason. Their rows stay in the regression proof.
-SETTLED = ("tested", "excepted")
+SETTLED = changed_code_evidence.SETTLED
 
 
 def _measured(row):
