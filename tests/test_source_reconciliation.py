@@ -225,6 +225,26 @@ class SourceReconciliationTests(unittest.TestCase):
         ):
             reconciliation.prepare(runner, self.state, self.workspace)
 
+    def test_incomplete_snapshot_never_offers_or_accepts_source_recovery(self):
+        runner = SimpleNamespace(
+            native_calls=None,
+            assert_stage_stopped=lambda _active: None,
+            support=SimpleNamespace(snapshot=util.snapshot),
+        )
+        with (
+            patch.object(reconciliation.source_scope, "snapshot", return_value={"revision": "incomplete"}),
+            patch.object(reconciliation, "catalog_problem", return_value=None),
+            patch.object(
+                status_observation,
+                "_observe",
+                side_effect=lambda op, payload: status_worker._worker({"operation": op, "payload": payload}),
+            ),
+        ):
+            self.assertIsNone(self.view()["next_command"])
+            with self.assertRaises(util.Paused) as held:
+                reconciliation.prepare(runner, self.state, self.workspace)
+        self.assertEqual("PAUSED_SOURCE_UNAVAILABLE", held.exception.status)
+
     def test_a_readable_workspace_under_blocked_source_discovery_is_not_offered_as_readable(self):
         # Discovery under the shared source roots is the other cause of this stop; resuming while it still
         # blocks stops at the same place again, so the view must not offer the continuation.

@@ -89,13 +89,16 @@ def readable(workspace, state: RunState) -> bool:
     """
     try:
         current = source_scope.snapshot(workspace, state)
-        return not _unsafe_copy_source(workspace, state, current) and catalog_problem(state) is None
+        return catalog_problem(state) is None and not _unsafe_copy_source(workspace, state, current)
     except (util.Paused, OSError, ValueError, RuntimeError, TypeError):
         return False
 
 
 def _unsafe_copy_source(workspace, state: RunState, current):
     """Recheck source names for parent links before offering any source recovery."""
+    files = current.get("files") if isinstance(current, dict) else None
+    if not isinstance(files, dict) or any(not isinstance(k, str) or not isinstance(v, str) for k, v in files.items()):
+        raise util.Paused(STATUS, "Source inventory is incomplete; no source was accepted")
     paths = source_scope.paths(state)
     files = source_snapshot.bound_inventory(workspace, current, paths=paths)
     checked: set[Path] = set()
@@ -122,13 +125,13 @@ def prepare(runner, state: RunState, workspace):
         runner.assert_stage_stopped(active)
     try:
         current = source_scope.snapshot(workspace, state, base_snapshot=runner.support.snapshot)
+        if problem := catalog_problem(state):
+            raise problem
         unsafe = _unsafe_copy_source(workspace, state, current)
     except source_snapshot.UnsafeSourcePath as error:
         raise util.Paused(STATUS, str(error)) from error
     if unsafe:
         raise util.Paused(STATUS, str(state.get("stop_reason")))
-    if problem := catalog_problem(state):
-        raise problem
     note = {
         "kind": "source_access_recovered",
         "actor": "runner",
