@@ -372,6 +372,8 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         internal_failure=operational_block.presentation(state, include_hold=True),
         liveness=public_view["liveness"],
         recovery=public_view.get("recovery"),
+        next_command=public_view.get("next_command"),
+        person_input=(public_view.get("chat") or {}).get("input"),
     )
     # A finished run whose verification no longer covers the current checkout names
     # a re-verification action: resume re-checks completion against the source on disk.

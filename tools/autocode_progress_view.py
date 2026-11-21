@@ -96,6 +96,8 @@ def progress(
     internal_failure=None,
     liveness=None,
     recovery=None,
+    next_command=None,
+    person_input=None,
 ) -> dict:
     """The progress projection of one run.
 
@@ -114,6 +116,7 @@ def progress(
     liveness  the same fresh classified stage observation as the public view; an open accounting
               slot or a saved timestamp alone never establishes working activity
     recovery  the public recovery card, including whether the core classified this pause as blocked
+    next_command, person_input  the public actions, so a blocked card cannot hide a real person decision
     """
     status = state.get("status", "")
     done = status in COMPLETE
@@ -146,7 +149,13 @@ def progress(
         headline, stage = "Continuing", None
         asked = "nothing needed from you"
         observed_continuation = True
-    elif _mapping(recovery).get("category") == "blocked":
+    elif (
+        _mapping(recovery).get("category") == "blocked"
+        and kind == "resume"
+        and (needs or {}).get("resume_unavailable")
+        and not next_command
+        and not person_input
+    ):
         headline, asked = "Task blocked", "nothing needed from you"
     elif status == "PAUSED_SOURCE_UNAVAILABLE":
         headline = "Recovering source access" if kind == "continue" else "Source access unavailable"

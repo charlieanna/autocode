@@ -55,6 +55,24 @@ def states(view):
 
 
 class ProgressLineTests(unittest.TestCase):
+    def test_blocked_recovery_preserves_real_questions_and_feedback(self):
+        blocked = {"category": "blocked"}
+        saved = state(status="WAITING_FOR_USER", active_stage=None)
+        question = {"kind": "answer", "questions": [{"id": "Q1", "question": "Which format?"}]}
+        view = progress_view.progress(saved, accepted=[], stage=None, needs=question, recovery=blocked)
+        self.assertEqual("Waiting for you", view["headline"])
+        self.assertIn("question", view["needs_you"])
+        unavailable = {"kind": "resume", "resume_unavailable": "Retry refused"}
+        feedback = {"kind": "feedback", "next_command": "autocode --feedback MESSAGE"}
+        view = progress_view.progress(
+            saved, accepted=[], stage=None, needs=unavailable, recovery=blocked, person_input=feedback
+        )
+        self.assertIn("resume", view["needs_you"])
+        view = progress_view.progress(
+            saved, accepted=[], stage=None, needs=unavailable, recovery=blocked, next_command="autocode --resume-paused"
+        )
+        self.assertIn("resume", view["needs_you"])
+
     def test_continuing_is_a_machine_readable_observation_not_a_saved_pause(self):
         for status in ("PAUSED_REQUESTED", "PAUSED_TOOL_CONTAINMENT", "PAUSED_TIME_LIMIT"):
             with self.subTest(status=status):
