@@ -443,7 +443,8 @@ class JobModelRouteTests(JobHarness):
         kilo.write_text(
             "#!/usr/bin/env python3\n"
             "import os,sys\nfrom pathlib import Path\n"
-            "with Path(os.environ['KILO_AUDIT']).open('a') as stream: stream.write(' '.join(sys.argv[1:])+'\\n')\n"
+            "verb=sys.argv[1] if len(sys.argv)>1 and sys.argv[1] in ('models','run','auth','--version') else 'other'\n"
+            "with Path(os.environ['KILO_AUDIT']).open('a') as stream: stream.write(verb+'\\n')\n"
             "if sys.argv[1:] == ['--version']: print('7.8.27'); raise SystemExit(0)\n"
             f"if sys.argv[1:] == ['models']: print({model!r} if os.environ['KILO_AVAILABLE'] == 'yes' else 'other/model'); raise SystemExit(0)\n"
             "if sys.argv[1:] == ['auth','list']: print('connected'); raise SystemExit(0)\n"
