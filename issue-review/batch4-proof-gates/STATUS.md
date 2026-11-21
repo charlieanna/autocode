@@ -14,7 +14,8 @@ what was independently observed during continuation.
 - Unit and end-to-end acceptance-reference regressions now capture in-test
   and module-level dependency cases. The candidate test passes, while the
   original run raises a missing unrelated dependency before its assertion.
-  These regressions fail on this branch until classification is corrected.
+  Both end-to-end regressions pass on master and fail on this branch. The
+  regressions remain red here until classification is corrected.
 - Ruff check and format check passed locally. Mypy passed on 965 source files.
 - The three new `SharedSetupAnswerTests` pass on this branch and error on
   current master, which does not have the new shared setup-classification API.
