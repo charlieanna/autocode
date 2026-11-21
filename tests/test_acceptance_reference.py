@@ -2,6 +2,7 @@
 
 import dataclasses
 import difflib
+import importlib.util
 import os
 import subprocess
 import sys
@@ -261,6 +262,28 @@ class AcceptanceReferenceTests(unittest.TestCase):
             "command": self.state["settings"]["regression"]["test_command"],
         }
         return reference.collect(**(arguments | overrides))
+
+    @unittest.skipUnless(importlib.util.find_spec("pytest"), "the recorded interpreter needs pytest")
+    def test_the_original_code_runs_with_the_recorded_interpreter_not_a_later_virtualenv(self):
+        # Live run 3 of #3977: the Builder's offline `uv sync` left an empty .venv, and the original-code check
+        # found its interpreter again by preferring any virtualenv: ".venv/bin/python: No module named pytest",
+        # no named result, and the Investigator asked the person to deliver a test environment (#4020).
+        (self.workspace / "pytest.ini").write_text("[pytest]\n")
+        (self.workspace / ".gitignore").write_text(".venv\n")
+        subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(self.workspace / ".venv")], check=True)
+        self.state["settings"]["protected_tests"] = {"command": f"{sys.executable} -m pytest -q -p no:cacheprovider"}
+        result = self.collect(command=None, selected={"AC1": ["tests.test_feature.Feature::test_ac1_answer"]})
+        self.assertEqual({"AC1": "fails"}, result.get("verdicts"), result)
+        self.assertNotIn(str(self.workspace / ".venv"), result["receipt"]["command"])
+
+    @unittest.skipUnless(importlib.util.find_spec("pytest"), "the suite's interpreter needs pytest to compare")
+    def test_an_original_reference_runner_that_never_started_is_named_so(self):
+        empty = self.root / "empty-venv"
+        subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(empty)], check=True)
+        command = f"{empty / 'bin' / 'python'} -m pytest -q tests/test_feature.py"
+        result = self.collect(command=command, selected={"AC1": ["tests.test_feature.Feature::test_ac1_answer"]})
+        self.assertIn("could not start its test runner", result["error"])
+        self.assertIn("No module named pytest", result["runner_not_started"]["tail"])
 
     def test_missing_or_unsafe_reference_inputs_hold_before_execution(self):
         with patch.object(reference.run_base, "base_commit", return_value=None):

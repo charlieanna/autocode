@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_base_patch as base_patch
+    from . import autocode_check_outcome as check_outcome
     from . import autocode_command_receipt as command_receipt
     from . import autocode_follow_up as follow_up
     from . import autocode_joint_inputs as joint_inputs
@@ -22,6 +23,7 @@ try:
     from . import autocode_run_base as run_base
     from . import autocode_source_scope as source_scope
     from . import autocode_test_cases as test_cases
+    from . import autocode_test_environment as test_environment
     from . import autocode_test_role_inventory as role_inventory
     from . import autocode_util as util
     from . import autocode_verification_commands as commands
@@ -29,6 +31,7 @@ try:
     from . import autocode_verify as verify
 except ImportError:
     import autocode_base_patch as base_patch
+    import autocode_check_outcome as check_outcome
     import autocode_command_receipt as command_receipt
     import autocode_follow_up as follow_up
     import autocode_joint_inputs as joint_inputs
@@ -37,11 +40,21 @@ except ImportError:
     import autocode_run_base as run_base
     import autocode_source_scope as source_scope
     import autocode_test_cases as test_cases
+    import autocode_test_environment as test_environment
     import autocode_test_role_inventory as role_inventory
     import autocode_util as util
     import autocode_verification_commands as commands
     import autocode_verification_schedule as schedule
     import autocode_verify as verify
+
+
+class RunnerDidNotStart(ValueError):
+    """The original-reference test command could not start (autocode_check_outcome RUNNER_NOT_STARTED): no test
+    ran on the original code, so nothing about the written tests was learned. ``run`` is its receipt."""
+
+    def __init__(self, message: str, run: dict):
+        super().__init__(message)
+        self.run = run
 
 
 def wholly_passing(named, results) -> dict[str, list[str]]:
@@ -93,7 +106,11 @@ def collect(state: RunState, workspace, run_dir, out, selected, files, command=N
         if any(not roles.is_test(path) for path in files):
             raise ValueError("reported test file has no independent test-file classification")
         overlay.update({path: "modified" for path in files})
-        framework = commands.command_framework(command) if command else verify.detect_framework(workspace)
+        framework = (
+            commands.command_framework(command)
+            if command
+            else verify.detect_framework(workspace, python=test_environment.run_python(state, workspace))
+        )
         if framework is None:
             raise ValueError("no recognized test runner for original reference")
         selected_ids = sorted({test for names in selected.values() for test in names})
@@ -133,6 +150,9 @@ def collect(state: RunState, workspace, run_dir, out, selected, files, command=N
         ):
             raise ValueError("source or launch inputs changed during original-reference check")
         if receipt.get("error") or receipt.get("timed_out") or not schedule.complete_results(receipt):
+            outcome = check_outcome.classify(receipt)
+            if outcome["reason"] == check_outcome.RUNNER_NOT_STARTED:
+                raise RunnerDidNotStart(check_outcome.describe("The original-reference test command", outcome), receipt)
             raise ValueError("original-reference execution did not produce complete named results")
         if not schedule.intact(receipt, root=out):
             raise ValueError("original-reference output capture is incomplete")
@@ -162,6 +182,11 @@ def collect(state: RunState, workspace, run_dir, out, selected, files, command=N
     except command_receipt.OwnershipUncertain:
         uncertain = True
         raise
+    except RunnerDidNotStart as error:
+        return {
+            "error": f"Cannot classify passing tests against the original reference: {error}",
+            "runner_not_started": error.run,
+        }
     except (OSError, ValueError, RuntimeError) as error:
         return {"error": f"Cannot classify passing tests against the original reference: {error}"}
     finally:
