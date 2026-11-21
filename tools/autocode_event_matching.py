@@ -82,6 +82,69 @@ def workspace_wrapped_command(executed, reported, workspace):
     return body == reported
 
 
+_SHELL_SYNTAX = set(";&|<>`$()\n")
+_CAPTURE_VALUES = {"--output", "--mode", "--known-output-sha256"}
+
+
+def _plain_words(command):
+    """The words of a command line that holds no shell syntax outside quotes, else None.
+
+    An operator, redirection, substitution or expansion makes the line more than the one
+    program its words name, so it is not read as one."""
+    quote, escaped = "", False
+    for character in command:
+        if escaped:
+            escaped = False
+        elif character == "\\" and quote != "'":
+            escaped = True
+        elif quote:
+            quote = "" if character == quote else quote
+        elif character in "'\"":
+            quote = character
+        elif character in _SHELL_SYNTAX:
+            return None
+    try:
+        return shlex.split(command)
+    except ValueError:
+        return None
+
+
+def capture_invocation(command):
+    """``(output, argv)`` when a command line is exactly one run of AutoCode's capture CLI, else None.
+
+    A Tester runs a noisy check as ``<python> .../autocode.py capture --output R -- <argv>``. The
+    check it proves is ``argv`` with receipt ``R``; the invocation itself writes ``R`` and refuses
+    to run again once it exists, so it is never the check (``receipts.mismatch``). ``--compare-base``
+    runs a different comparison and is not read as one check."""
+    words = _plain_words(command) if isinstance(command, str) else None
+    if not words:
+        return None
+    if Path(words[0]).name == "autocode" and words[1:2] == ["capture"]:
+        rest = words[2:]
+    elif len(words) > 2 and Path(words[1]).name == "autocode.py" and words[2] == "capture":
+        rest = words[3:]
+    else:
+        return None
+    output = None
+    while rest and rest[0] != "--" and rest[0].startswith("--"):
+        name, equals, value = rest[0].partition("=")
+        if name == "--no-compress" and not equals:
+            rest = rest[1:]
+            continue
+        if name not in _CAPTURE_VALUES:
+            return None
+        if not equals:
+            if len(rest) < 2:
+                return None
+            value, rest = rest[1], rest[2:]
+        else:
+            rest = rest[1:]
+        if name == "--output":
+            output = value
+    argv = rest[1:] if rest[:1] == ["--"] else rest
+    return (output, argv) if output and argv else None
+
+
 def ambiguous_native_command_ids(text):
     """IDs with conflicting completed native commands; repeated updates are one part.
 
