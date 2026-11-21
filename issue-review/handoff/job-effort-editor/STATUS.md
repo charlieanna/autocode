@@ -1,5 +1,23 @@
 # Stopped-job effort recovery editor regression
 
+## Verified outcome, 2026-11-21
+
+PR #4023 merged as `4dcd9087679c46aca89b9c79d7be2d08c176a370` after review
+of exact head `d8a0bd4d212e80c6d3ab77875c98d18201cb3d2f` and green
+[`ci-required`, run 44890470195](https://github.com/charlieanna/autocode/actions/runs/44890470195).
+The actual Linux VS Code Extension Host passed all six checks, including the
+model-and-effort answer with the default confirmation policy enabled, token
+rotation, saved medium effort and no additional provider call. The Ubuntu suite,
+lint and advisory diff coverage also passed. There were no unresolved review
+threads. The retained exact-head host log is
+`/private/tmp/autocode-4023-d8-editor-host.log`.
+
+The shared confirmation fix is complete. Kilo route admission and its actual
+editor acceptance remain separate work in #4022. Earlier failed and pending
+observations below are preserved as history, not the current outcome.
+
+## Implementation and verification history
+
 The status fix is already on master through #4004 (merge 1644ee1ef948bb6b65161e166c652ad0604d5b97). This follow-up adds a real offline Extension Development Host regression for its Codex quota case. The fixture creates a genuine stopped job with the scripted provider, changes only the saved stopped role's effort, clears saved candidate suggestions, and recomputes source identity after moving its owned checkout. The real editor must expose the core's named model decision, send the bound model and effort, observe a rotated retry token, and start no additional provider call. Its processes and warm host use a private namespace.
 
 The actual Mac VS Code host passed the candidate fbe8662e68c9561080cae00d784cbe4e71ccc7c9 with the original version of this regression (`/private/tmp/autocode-quota-route-host-final-mac.log`); that candidate and the #4004 source head c56a6e26c860f75c3900da385cd4b33d3baa6535 were byte-identical across `tools/`, extension source and package files. An actual editor control on pre-fix 067fdca13668d83f5a6be31392edcd6ce1e91a7f opened the chat and failed because the decision field was absent (`/private/tmp/autocode-quota-route-host-baseline-mac.log`). A later Mac editor control on then-master a263eba8933b06960d1bad7c768301a309240163 did not reach the chat because the activity-bar click timed out; its independent public CLI status reproduced the false blocked state. The exact public effort-drift and explanation assertions were added after the successful host run and passed against a fresh offline CLI fixture. This test-only follow-up cannot fail on current master because the product change has already landed; its pre-fix behavior comparison is recorded above.

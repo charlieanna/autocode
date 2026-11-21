@@ -53,6 +53,22 @@ class ScopeTests(unittest.TestCase):
         ):
             self.assertIn("extension", self.enabled(path))
 
+    def test_each_host_fixture_alone_selects_its_actual_extension_host_consumer(self):
+        for fixture in (
+            "tests/guard_host_hook/sitecustomize.py",
+            "tests/host_status_site/sitecustomize.py",
+            "tests/job_route_vscode_cli.py",
+            "tests/job_route_vscode_fixture.py",
+            "tests/provider_auth_fixture.py",
+            "tests/rustup_vscode_fixture.py",
+            "tests/source_recovery_vscode_fixture.py",
+            "tests/status_retry_host_cleanup.py",
+            "tests/status_retry_host_cli.py",
+            "tests/status_retry_host_fixture.py",
+        ):
+            with self.subTest(fixture=fixture):
+                self.assertIn("extension", self.enabled(fixture))
+
     def test_visual_changes_keep_their_real_browser_job(self):
         self.assertTrue({"suite", "visual", "wheel"} <= self.enabled("tools/autocode_visual_browser.cjs"))
 
