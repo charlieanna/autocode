@@ -6,6 +6,10 @@ what was independently observed during continuation.
 
 - #3944 remains unimplemented. Protected-test replay still treats failures
   already present in the base suite as candidate failures.
+- A protected-replay regression now captures identical baseline failures
+  with source-bound, hashed baseline evidence. It fails on master and this
+  branch. Companion checks require same-test different failures, tampered
+  baseline output, and stale proofs to stay blocked.
 - The existing suite-preservation judgment compares failure IDs alone. A
   changed assertion can fail under the same ID, so that judgment cannot
   establish the identical-failure condition for #3944. Preserve and compare

@@ -431,7 +431,13 @@ class UndeterminedReplayTests(unittest.TestCase):
             half = "original" if "files" in overlays else "candidate"
             index = 1 if command == self.HOME else 0
             self.calls.append((half, index, command))
-            return copy.deepcopy(receipts.get((half, index)) or self.passing())
+            result = copy.deepcopy(receipts.get((half, index)) or self.passing())
+            if result.get("output"):
+                folder.mkdir(parents=True, exist_ok=True)
+                log = folder / "output.log"
+                log.write_bytes(Path(result["output"]).read_bytes())
+                result.update(output=str(log), output_sha256=guard.util.file_hash(log))
+            return result
 
         return run
 
@@ -646,6 +652,105 @@ class UndeterminedReplayTests(unittest.TestCase):
         saved = json.loads(receipt.read_text())
         self.assertEqual("PASS", saved["verdict"])
         self.assertEqual(["test_layout.LayoutTests.test_height"], saved["superseded"]["excused_failures"])
+
+    def record_base_failure(self):
+        proof_dir = self.run_dir / "regression" / "proof-01"
+        proof_dir.mkdir(parents=True)
+        test_id = "test_layout.LayoutTests.test_height"
+        detail = "AssertionError: test dependency is missing"
+        log = proof_dir / "suite_on_base.log"
+        log.write_text(
+            "test_height (test_layout.LayoutTests) ... FAIL\n"
+            "test_other (test_layout.LayoutTests) ... ok\n"
+            + "=" * 70
+            + "\n"
+            + "FAIL: test_height (test_layout.LayoutTests)\n"
+            + "-" * 70
+            + "\n"
+            + detail
+            + "\n"
+            + "-" * 70
+            + "\nRan 2 tests in 0.01s\n\nFAILED (failures=1)\n"
+        )
+        base = self.failing()
+        base["results"]["passed"] = ["test_layout.LayoutTests.test_other"]
+        base["results"]["total"] = 2
+        base.update(command=self.state["settings"]["protected_tests"]["command"], output=str(log))
+        base["output_sha256"] = guard.util.file_hash(log)
+        proof = {
+            "verdict": "PASS",
+            "source_revision": guard.source_scope.snapshot(self.project, self.state)["revision"],
+            "checks": {"suite_on_base": base},
+        }
+        path = proof_dir / "verification.json"
+        path.write_text(json.dumps(proof))
+        self.state["regression_proof"] = {
+            "verdict": "PASS",
+            "source_revision": proof["source_revision"],
+            "path": str(path),
+            "receipt_sha256": guard.util.file_hash(path),
+        }
+        replay_log = proof_dir / "replay-source.log"
+        replay_log.write_text(
+            log.read_text()
+            .replace("test_other (test_layout.LayoutTests) ... ok\n", "")
+            .replace("Ran 2 tests", "Ran 1 test")
+        )
+        replay = self.failing()
+        replay.update(output=str(replay_log), output_sha256=guard.util.file_hash(replay_log), tail=detail)
+        return test_id, replay
+
+    def test_original_tests_failing_identically_on_base_are_recorded_without_blocking(self):
+        """A failing original test already present on base must not be blamed on the candidate (#3944)."""
+        test_id, replay = self.record_base_failure()
+        error, receipt = self.replay({("candidate", 0): replay, ("original", 0): replay})
+        self.assertIsNone(error)
+        saved = json.loads(receipt.read_text())
+        self.assertEqual("PASS", saved["verdict"])
+        self.assertIn(test_id, str(saved.get("preexisting_failures")))
+
+    def test_same_test_with_a_different_failure_is_not_excused(self):
+        _test_id, replay = self.record_base_failure()
+        log = self.run_dir / "regression" / "candidate-different.log"
+        log.write_text(Path(replay["output"]).read_text().replace("test dependency is missing", "bad changed value"))
+        changed = {
+            **replay,
+            "output": str(log),
+            "output_sha256": guard.util.file_hash(log),
+            "tail": "AssertionError: bad changed value",
+        }
+        error, receipt = self.replay({("candidate", 0): changed, ("original", 0): replay})
+        self.assertIsInstance(error, guard.commands.OriginalGateFailure)
+        self.assertEqual("FAIL", json.loads(receipt.read_text())["verdict"])
+
+    def test_original_half_with_a_different_failure_is_not_excused(self):
+        _test_id, replay = self.record_base_failure()
+        log = self.run_dir / "regression" / "original-different.log"
+        log.write_text(Path(replay["output"]).read_text().replace("test dependency is missing", "bad changed value"))
+        changed = {
+            **replay,
+            "output": str(log),
+            "output_sha256": guard.util.file_hash(log),
+            "tail": "AssertionError: bad changed value",
+        }
+        error, receipt = self.replay({("candidate", 0): replay, ("original", 0): changed})
+        self.assertIsInstance(error, guard.commands.OriginalGateFailure)
+        self.assertEqual("FAIL", json.loads(receipt.read_text())["verdict"])
+
+    def test_tampered_base_failure_evidence_is_not_excused(self):
+        _test_id, replay = self.record_base_failure()
+        proof = json.loads(Path(self.state["regression_proof"]["path"]).read_text())
+        Path(proof["checks"]["suite_on_base"]["output"]).write_text("tampered evidence\n")
+        error, receipt = self.replay({("candidate", 0): replay, ("original", 0): replay})
+        self.assertIsNotNone(error)
+        self.assertNotEqual("PASS", json.loads(receipt.read_text())["verdict"])
+
+    def test_stale_proof_cannot_excuse_an_identical_failure(self):
+        _test_id, replay = self.record_base_failure()
+        self.state["regression_proof"]["source_revision"] = "an-old-source-revision"
+        error, receipt = self.replay({("candidate", 0): replay, ("original", 0): replay})
+        self.assertIsNotNone(error)
+        self.assertNotEqual("PASS", json.loads(receipt.read_text())["verdict"])
         receipt.unlink()
         # The candidate half genuinely fails another test: the replaced failure of the original half excuses nothing.
         candidate = self.failing()
