@@ -14,7 +14,9 @@ from unittest.mock import patch
 import autocode_opencode as opencode
 import autocode_stage_context as stage_context
 import autocode_support as support
+import autocode_tool_handoff as tool_handoff
 from providers.command import CommandProvider
+from units import autoplanner
 
 
 class CaptureEventContractTests(unittest.TestCase):
@@ -105,6 +107,55 @@ class CaptureEventContractTests(unittest.TestCase):
                         + "\n"
                     )
                     support.verify_checks([dict(check)], root, events)
+
+    def test_resumed_receipt_requires_current_handoff_launcher(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            path = root / ".autocode/evidence/check.json"
+            path.parent.mkdir(parents=True)
+            raw = path.with_suffix(".log")
+            raw.write_text("ok\n")
+            receipt = {
+                "command": ["python3", "-c", "print('ok')"],
+                "exit_code": 0,
+                "full_output": str(raw),
+                "full_output_sha256": hashlib.sha256(raw.read_bytes()).hexdigest(),
+            }
+            path.write_text(json.dumps(receipt))
+            events = root / "events.jsonl"
+            check = {"command": shlex.join(receipt["command"]), "exit_code": 0, "evidence_ref": str(path)}
+            current = shlex.split(tool_handoff.capture_command("raw"))
+            self.assertEqual(current[:3], shlex.split(autoplanner.capture_command()))
+            self.assertEqual(
+                [sys.executable, str(Path(support.__file__).parent / "autocode.py"), "capture"], current[:3]
+            )
+            for prefix, expected in (
+                (current, True),
+                (["/old/venv/bin/python", *current[1:]], False),
+                ([current[0], "/old/install/autocode.py", *current[2:]], False),
+                (["autocode", "capture", "--mode", "raw"], False),
+            ):
+                command = shlex.join([*prefix, "--output", str(path), "--", *receipt["command"]])
+                events.write_text(
+                    json.dumps(
+                        {
+                            "type": "item.completed",
+                            "item": {
+                                "type": "command_execution",
+                                "command": command,
+                                "exit_code": 0,
+                                "aggregated_output": path.read_text(),
+                            },
+                        }
+                    )
+                    + "\n"
+                )
+                with self.subTest(prefix=prefix):
+                    if expected:
+                        support.verify_checks([dict(check)], root, events)
+                    else:
+                        with self.assertRaisesRegex(ValueError, "use this stage's exact capture_command"):
+                            support.verify_checks([dict(check)], root, events)
 
     def test_large_capture_authenticates_from_either_end_of_native_display(self):
         with tempfile.TemporaryDirectory() as temporary:
