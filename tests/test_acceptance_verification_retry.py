@@ -174,6 +174,18 @@ class AcceptanceVerificationRetryTests(unittest.TestCase):
     def dispatch(self):
         return retry.dispatch(self.runtime, self.state, acceptance.STAGE, self.workspace, self.run, apply=self.apply)
 
+    def test_retry_status_rechecks_source_once_only_at_an_idle_boundary(self):
+        self.start_retry()
+        self.state["status"] = "PAUSED_INVALID_OUTPUT"
+        with patch.object(source_scope, "snapshot", wraps=source_scope.snapshot) as snapshots:
+            view = run_view.view(self.state, workspace=self.workspace, run_dir=self.run)
+            self.assertEqual("recheck", view["acceptance_verification_retry"]["next"])
+            self.assertEqual(1, snapshots.call_count)
+        self.state["active_runner_check"] = {"stage": "verification", "summary": "still running"}
+        with patch.object(source_scope, "snapshot", side_effect=AssertionError("active check must not scan source")):
+            view = run_view.view(self.state, workspace=self.workspace, run_dir=self.run)
+        self.assertEqual("blocked", view["acceptance_verification_retry"]["next"])
+
     def test_changed_retry_inputs_withhold_the_resume_that_dispatch_refuses(self):
         self.start_retry()
         self.state["status"] = "PAUSED_INVALID_OUTPUT"
