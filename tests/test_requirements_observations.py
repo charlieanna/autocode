@@ -720,6 +720,57 @@ class RequirementsObservationsTests(unittest.TestCase):
         claim["text"] = "A changed unsupported assertion"
         self.assertIsNone(link(self.state, self.run, source_now, "A3", collection_command, execution_command))
 
+    def test_structured_claim_requires_exact_text_and_named_scope_without_promoting_it(self):
+        text = "All current examples pass"
+        self.report["proposed_assumptions"] = [{"id": "A3", "text": text, "category": "technical"}]
+        Path(self.record["output"]).write_text(json.dumps(self.report))
+        collect = "python3 -m pytest --collect-only -q"
+        execute = "python3 -m pytest -v"
+        nodes = ["tests/a.py::test_one", "tests/a.py::test_two"]
+        self.events = [
+            self.command(
+                "collection", collect, "\n".join(nodes) + "\n2 tests collected in 0.1s\n", output_truncated=False
+            ),
+            self.command(
+                "execution",
+                execute,
+                "collected 2 items\n"
+                + nodes[0]
+                + " PASSED [ 50%]\n"
+                + nodes[1]
+                + " PASSED [100%]\n=== 2 passed in 0.1s ===\n",
+                output_truncated=False,
+            ),
+        ]
+        self.write_events()
+        self.seal()
+        claim = {
+            "assumption_id": "A3",
+            "claim_sha256": hashlib.sha256(text.encode()).hexdigest(),
+            "kind": "all_suite_pass",
+            "node_ids": nodes,
+            "collection_command": collect,
+            "execution_command": execute,
+        }
+        check = getattr(observations, "structured_reported_suite_claim", None)
+        self.assertIsNotNone(check)
+        source_now = lambda: source.snapshot(self.workspace)
+        result = check(self.state, self.run, source_now, claim)
+        self.assertEqual("unverified", result["status"])
+        self.assertEqual(nodes, result["claimed_node_ids"])
+        for replacement in (
+            {"claim_sha256": "changed"},
+            {"node_ids": nodes[:1]},
+            {"node_ids": nodes + [nodes[0]]},
+            {"node_ids": ["src/missing.py::example"]},
+            {"kind": "unknown"},
+            {"extra": True},
+        ):
+            with self.subTest(replacement=replacement):
+                self.assertIsNone(check(self.state, self.run, source_now, {**claim, **replacement}))
+        subset = {**claim, "kind": "named_tests_pass", "node_ids": nodes[:1]}
+        self.assertEqual("unverified", check(self.state, self.run, source_now, subset)["status"])
+
     def test_running_native_event_cannot_attest_a_later_completed_output(self):
         command = "python3 -m pytest --collect-only -q"
         part = {
