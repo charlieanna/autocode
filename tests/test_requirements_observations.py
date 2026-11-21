@@ -354,10 +354,24 @@ class RequirementsObservationsTests(unittest.TestCase):
     def test_filtered_truncated_unknown_or_ambiguous_output_cannot_supply_complete_custody(self):
         command = "python3 -m pytest --collect-only -q"
         filtered = command + " | grep docs | head -25"
-        for case in ("filtered", "truncated", "unknown", "duplicate", "partial_duplicate", "oversized"):
+        for case in (
+            "filtered",
+            "wrapped_filter",
+            "truncated",
+            "unknown",
+            "duplicate",
+            "partial_duplicate",
+            "oversized",
+        ):
             with self.subTest(case=case):
                 self.record.pop(observations.FIELD, None)
-                actual = filtered if case == "filtered" else command
+                actual = (
+                    filtered
+                    if case == "filtered"
+                    else f"/bin/sh -c '{filtered}'"
+                    if case == "wrapped_filter"
+                    else command
+                )
                 flags = {"output_truncated": case == "truncated"} if case != "unknown" else {}
                 output = (
                     "x" * (observations.MAX_RETAINED_OUTPUTS + 1)

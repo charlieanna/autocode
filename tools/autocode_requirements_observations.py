@@ -293,6 +293,7 @@ def _direct(command):
     return (
         bool(words)
         and "=" not in words[0]
+        and Path(words[0]).name not in {"sh", "bash", "zsh", "fish", "dash", "ksh", "env"}
         and not any(word and all(char in ";&|<>()" for char in word) for word in words)
     )
 
