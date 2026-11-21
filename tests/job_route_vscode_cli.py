@@ -14,14 +14,20 @@ CLI = Path(__file__).resolve().parents[1] / "tools/autocode.py"
 
 def main() -> int:
     args = sys.argv[1:]
+    is_answer = "--answer" in args
+    answer = args[args.index("--answer") + 1] if is_answer and args.index("--answer") + 1 < len(args) else ""
+    log_path = Path(os.environ["AUTOCODE_ROUTE_HOST_ACTIONS"]) if is_answer else None
+    if log_path:
+        with log_path.open("a") as log:
+            log.write(json.dumps({"event": "started", "answer": answer}) + "\n")
     result = subprocess.run([sys.executable, str(CLI), *args], capture_output=True)
-    if "--answer" in args:
-        # The token is passed by the extension in its environment, not recorded here.
-        answer = args[args.index("--answer") + 1] if args.index("--answer") + 1 < len(args) else ""
-        with Path(os.environ["AUTOCODE_ROUTE_HOST_ACTIONS"]).open("a") as log:
+    if log_path:
+        # The token is passed by the extension in its environment, never recorded.
+        with log_path.open("a") as log:
             log.write(
                 json.dumps(
                     {
+                        "event": "finished",
                         "answer": answer,
                         "exit_code": result.returncode,
                         "stderr": re.sub(r"jr:[0-9a-f]+", "jr:[redacted]", result.stderr.decode(errors="replace"))[

@@ -29,6 +29,8 @@ async function executable() {
 }
 
 test('real editor offers the bound quota model and effort decision', { timeout: 180_000 }, async () => {
+  assert.equal(require('../../package.json').contributes.configuration.properties['autocode.confirmPersonOnly'].default, true,
+    'the default person-only confirmation policy remains enabled');
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'autocode-quota-route-'));
   let app;
   let win;
