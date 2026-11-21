@@ -442,6 +442,11 @@ class UndeterminedReplayTests(unittest.TestCase):
                 report = folder / "results.xml"
                 report.write_bytes(Path(capture["path"]).read_bytes())
                 result["results_capture"] = {"path": str(report), "sha256": guard.util.file_hash(report)}
+            if isinstance(result.get("supervision"), dict):
+                supervision = result["supervision"]
+                owned = folder / "supervision.json"
+                owned.write_bytes(Path(supervision["receipt"]).read_bytes())
+                result["supervision"] = {**supervision, "receipt": str(owned)}
             return result
 
         return run
@@ -722,6 +727,7 @@ class UndeterminedReplayTests(unittest.TestCase):
 
     def test_pytest_original_failure_recorded_on_base_does_not_block_replay(self):
         """The reported #3944 case uses actual pytest JUnit output, not unittest text."""
+        import autocode_verification_schedule as schedule
         import autocode_verify as verify
 
         try:
@@ -755,9 +761,13 @@ class UndeterminedReplayTests(unittest.TestCase):
             "path": str(path),
             "receipt_sha256": guard.util.file_hash(path),
         }
+        self.assertTrue(schedule.proof_intact(proof["checks"], root=proof_dir))
         error, receipt = self.replay({("candidate", 0): candidate, ("original", 0): candidate})
+        saved = json.loads(receipt.read_text())
+        self.assertTrue(schedule.intact(saved["candidate"], root=receipt.parent / "candidate"))
+        self.assertTrue(schedule.intact(saved["original"], root=receipt.parent / "original"))
         self.assertIsNone(error)
-        self.assertEqual("PASS", json.loads(receipt.read_text())["verdict"])
+        self.assertEqual("PASS", saved["verdict"])
 
     def test_same_test_with_a_different_failure_is_not_excused(self):
         _test_id, replay = self.record_base_failure()
