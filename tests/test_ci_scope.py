@@ -67,6 +67,7 @@ class ScopeTests(unittest.TestCase):
             "tests/semver_reference_vscode_fixture.py",
             "tests/source_recovery_vscode_fixture.py",
             "tests/host_reader_cleanup.py",
+            "tests/classification_vscode_fixture.py",
             "tests/status_retry_host_cleanup.py",
             "tests/status_retry_host_cli.py",
             "tests/status_retry_host_fixture.py",
@@ -124,6 +125,27 @@ class ScopeTests(unittest.TestCase):
                     ci_test_selection.EXTENSION_HOST_RESOURCES[shared],
                 )
                 self.assertIn("extension", self.enabled(shared))
+
+    def test_classification_host_resources_are_exact_and_select_the_host(self):
+        from tools import ci_test_selection
+
+        resources = (
+            "tests/classification_vscode_fixture.py",
+            "tests/test_failure_routing_cli.py",
+            "tests/test_build_blackbox.py",
+            "tests/failure_routing_provider.py",
+            "tests/operational_fixtures.py",
+            "tools/blackbox_build_provider.py",
+            "tools/inprocess_cli.py",
+        )
+        for resource in resources:
+            with self.subTest(resource=resource):
+                self.assertIn(
+                    "vscode-extension/test/host/classification-outcome.test.cjs",
+                    ci_test_selection.EXTENSION_HOST_RESOURCES[resource],
+                )
+                self.assertIn("extension", self.enabled(resource))
+        self.assertNotIn("extension", self.enabled("tests/unrelated/classification_vscode_fixture.py"))
 
     def test_visual_changes_keep_their_real_browser_job(self):
         self.assertTrue({"suite", "visual", "wheel"} <= self.enabled("tools/autocode_visual_browser.cjs"))

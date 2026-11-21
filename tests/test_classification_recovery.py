@@ -596,6 +596,68 @@ class ClassificationOfferTests(unittest.TestCase):
         state["active_stage"] = {"stage": "builder"}
         self.assertIsNone(recovery.pending(state), "an open attempt is reconciled first")
 
+    def test_completed_unknown_classification_concludes_without_a_dead_resume(self):
+        state = self.state()
+        held = state["builder_failure_hold"]
+        held.pop("classification_retry")
+        held["reason"] = state["stop_reason"] = "The Investigator could not classify the retained failure"
+        state["next_stage"] = "builder"
+        state["stuck_investigations"][0].update(
+            outcome="paused", failure_id="incident", failure_class="unknown", cause="other", user_question=""
+        )
+        self.assertEqual("unknown", recovery.pending(state)["cause"])
+        self.assertEqual({"kind": "continue", "action": "--resume-paused"}, run_view.needs(state))
+        with patch.object(recovery.source_scope, "snapshot", return_value={"revision": "source-1"}):
+            self.assertTrue(recovery.conclude(state, Path("/owned"), at="2026-11-21T00:00:00Z"))
+        outcome = recovery.stop.outcome(state)
+        self.assertEqual("could_not_finish", outcome["result"])
+        self.assertEqual("unknown", outcome["evidence"]["cause"])
+        self.assertEqual("incident", outcome["evidence"]["failure_id"])
+        self.assertEqual("unknown", outcome["evidence"]["investigations"][0]["failure_class"])
+        self.assertIsNone(run_view.needs(state))
+
+    def test_only_the_matching_finished_unknown_classification_is_settled(self):
+        state = self.state()
+        state["builder_failure_hold"].pop("classification_retry")
+        state["next_stage"] = "builder"
+        entry = state["stuck_investigations"][0]
+        entry.update(outcome="paused", failure_id="incident", failure_class="unknown", cause="other", user_question="")
+        for change in (
+            {"cause": "needs_user"},
+            {"user_question": "Which behavior should this task deliver?"},
+            {"failure_class": "execution"},
+            {"failure_class": "plan"},
+            {"failure_class": "operational"},
+            {"failure_id": "different"},
+            {"outcome": "investigating"},
+        ):
+            with self.subTest(change=change):
+                copy_state = copy.deepcopy(state)
+                copy_state["stuck_investigations"][0].update(change)
+                self.assertIsNone(recovery.pending(copy_state))
+        for field, value in (("pending_questions", [{"id": "q1"}]), ("user_request", {"id": "q1"})):
+            with self.subTest(field=field):
+                copy_state = copy.deepcopy(state)
+                copy_state[field] = value
+                self.assertIsNone(recovery.pending(copy_state))
+        with patch.object(recovery.source_scope, "snapshot", return_value={"revision": "changed"}):
+            self.assertEqual(
+                "AutoCode is checking whether this run can continue safely.", run_view.view(state)["stop_reason"]
+            )
+            self.assertFalse(recovery.conclude(state, Path("/owned"), at="2026-11-21T00:00:00Z"))
+            state["status"] = "RUNNING"
+            recovery.failure.dispatch_guard(state, "builder", Path("/owned"))
+        self.assertIsNone(recovery.stop.outcome(state))
+        self.assertNotIn("builder_failure_hold", state)
+        state = self.state()
+        state["builder_failure_hold"].pop("classification_retry")
+        state["next_stage"] = "builder"
+        state["stuck_investigations"][0].update(
+            outcome="paused", failure_id="incident", failure_class="unknown", cause="other", user_question=""
+        )
+        state["current_task"]["objective"] = "A different task"
+        self.assertIsNone(recovery.pending(state))
+
     def test_retained_resolver_proposal_is_displayed_without_assignment(self):
         state = self.state()
         request = state["builder_failure_hold"]["classification_retry"]["request"]

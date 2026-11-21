@@ -1,5 +1,24 @@
 # Proof gates status
 
+### Actual editor qualification and current-master integration
+
+Head `89e4855c2f45e43f78423abb3aadabdcb326d4b5` passed the actual Linux
+VS Code Extension Host, 11/11, including the scoped SemVer M1 task through
+exact-plan approval, the genuine AC6 rejection and retained receipt, six named
+base-fail/candidate-pass results, verified completion and the editor finish card.
+Evidence: job `136864568438` in run `44910269251`, retained locally as
+`/private/tmp/autocode-proof-89e-editor-host.log`. Native Linux containment,
+Windows fast, macOS containment, lint, wheel and visual checks also passed;
+the suite/scenario/aggregate results remain pending at this update.
+
+Master advanced to `1c6545d00` after #4048 passed required CI and 10/10 actual
+editor tests. Its integration conflicts only in CI resource registration and
+the corresponding tests; both sets of consumers and assertions are retained.
+The new integrated head needs fresh required CI and actual editor results.
+The original #3926 import-origin distinction and #3944 remain open. The scoped
+M1 recovery above does not prove the original twelve-criterion live task, and
+#4044 still needs a distinct skipped/missing-test negative editor observation.
+
 ### Integrated qualification candidate
 
 Master `2eb8e7813` is integrated, including the independently qualified #4052
