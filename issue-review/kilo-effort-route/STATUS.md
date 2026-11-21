@@ -83,7 +83,9 @@ CI-selection tests passed with process enumeration available; the log is
 unable to enumerate processes and refused test setup; its single-test control
 is `/private/tmp/autocode-kilo-integration-sandbox-failure.log`. Ruff and host
 JavaScript syntax checks passed. These local results are not final-head CI or
-actual editor verification; #4024 and #4031 are still being qualified.
+actual editor verification. #4031's qualified process-observer fix and #4032's
+Rustup update-hash correction are now integrated; #4024 remains a separate
+compatibility follow-up and is not assumed to be required by this route fix.
 
 The Kilo fixture also uses the shared, merged #4036 private-host setup and
 all-steps cleanup. It selects its private AutoCode registry before its first
@@ -93,6 +95,12 @@ the prior Kilo host because it targets an inherited host, and passes here; the
 baseline log is `/private/tmp/autocode-kilo-host-early-baseline.vFHNIp/result.log`.
 The offline fixture succeeds with its private registry preselected. This does
 not establish the final actual-editor result.
+
+After integrating #4031 and current master, 267 focused guard, observation,
+diagnostics and CI-selection tests pass with process enumeration available;
+the full extension unit suite passes 799 tests with 22 skipped. Full Ruff,
+format and repository mypy pass. The final actual Kilo and quota editor-host
+results and exact-head required CI remain pending.
 
 Still required: focused checks and master control, actual VS Code behavior on
 the final head, current-head `ci-required`, and review of unsupported or absent

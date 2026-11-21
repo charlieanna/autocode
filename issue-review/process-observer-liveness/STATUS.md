@@ -104,3 +104,11 @@ update-hash fix and owned host-cleanup corrections. The combined host keeps the
 writer and reader assertions and checks both child cleanup paths; five cleanup
 helper tests and 240 CI-selection tests pass. Actual editor and required CI on
 the merged product remain pending.
+
+Final outcome: exact head 37b029396db01e5d9e90afdba58c61436b4c68be passed
+`ci-required`, Ubuntu suite, Linux containment and the actual VS Code Extension
+Host before merging as de26b72a5852c6348e0734d4cbc29deb2a6ac1a5. The editor
+verified the held writer refusal and a bound answer while a genuine path-first
+status observer was active. Advisory diff coverage was still running at merge;
+it is not included in the required result. The earlier #4022 PID 4491 remains
+unidentified.
