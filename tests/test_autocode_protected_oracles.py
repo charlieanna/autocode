@@ -325,12 +325,18 @@ class OriginalOracleTests(unittest.TestCase):
         path = self.project / "test_layout.py"
         path.unlink()
         path.symlink_to(target)
-        with self.assertRaises(ValueError):
+        # The pinned source boundary refuses the absolute link before a test
+        # command can launch; there is no truthful command exit receipt yet.
+        with (
+            patch.object(verify, "run_suite", side_effect=AssertionError("unexpected test launch")) as run,
+            self.assertRaises(guard.util.PinnedSourceLinkRefusal) as held,
+        ):
             self.execute()
+        run.assert_not_called()
+        self.assertEqual("PAUSED_SOURCE_UNAVAILABLE", held.exception.status)
         self.assertEqual(original, target.read_bytes())
         receipts = list((self.run / "replays").glob("protected-tests/*/receipt.json"))
-        self.assertEqual(1, len(receipts))
-        self.assertEqual(1, json.loads(receipts[0].read_text())["original"]["exit_code"])
+        self.assertEqual([], receipts, "a command that did not launch cannot have an exit receipt")
 
     def test_dirty_and_untracked_tests_are_bound_at_start(self):
         (self.project / "test_layout.py").write_text(VARIANTS["expected_value"])
@@ -670,6 +676,16 @@ class UndeterminedReplayTests(unittest.TestCase):
         saved = json.loads(receipt.read_text())
         self.assertEqual("PASS", saved["verdict"])
         self.assertEqual(["test_layout.LayoutTests.test_height"], saved["superseded"]["excused_failures"])
+        receipt.unlink()
+        # The candidate half genuinely fails another test: the replaced failure of the original half excuses nothing.
+        candidate = self.failing()
+        candidate["results"]["failed"] = ["test_layout.LayoutTests.test_positive"]
+        error, receipt = self.replay({("candidate", 0): candidate, ("original", 0): self.failing()})
+        self.assertIsInstance(error, guard.commands.OriginalGateFailure)
+        self.assertIn(self.REPAIR, str(error))
+        saved = json.loads(receipt.read_text())
+        self.assertEqual("FAIL", saved["verdict"])
+        self.assertNotIn("superseded", saved)
 
     def record_base_failure(self, detail="AssertionError: test dependency is missing"):
         proof_dir = self.run_dir / "regression" / "proof-01"
@@ -728,16 +744,66 @@ class UndeterminedReplayTests(unittest.TestCase):
         replay.update(output=str(replay_log), output_sha256=guard.util.file_hash(replay_log), tail=detail)
         return test_id, replay
 
-    def test_original_tests_failing_identically_on_base_are_recorded_without_blocking(self):
-        """A failing original test already present on base must not be blamed on the candidate (#3944)."""
-        test_id, replay = self.record_base_failure()
+    def test_identical_failure_output_does_not_prove_the_cause_is_unchanged(self):
+        """Identical text alone cannot establish that a protected failure has the same cause."""
+        _test_id, replay = self.record_base_failure()
         error, receipt = self.replay({("candidate", 0): replay, ("original", 0): replay})
-        self.assertIsNone(error)
+        self.assertIsInstance(error, guard.commands.OriginalGateFailure)
         saved = json.loads(receipt.read_text())
-        self.assertEqual("PASS", saved["verdict"])
-        self.assertIn(test_id, str(saved.get("preexisting_failures")))
+        self.assertEqual("FAIL", saved["verdict"])
+        self.assertNotIn("preexisting_failures", saved)
 
-    def test_preexisting_failure_is_excused_when_another_project_part_passes(self):
+    def test_same_assertion_output_cannot_excuse_a_different_underlying_failure(self):
+        """Real runner output cannot establish hidden cause; receipts and scratch are simulated."""
+        _test_id, template = self.record_base_failure()
+        observations = []
+        with tempfile.TemporaryDirectory(prefix="protected-failure-cause-") as temp:
+            for label, reason in (("base", "dependency-unavailable"), ("candidate", "new-regression")):
+                root = (Path(temp) / label).resolve()
+                root.mkdir()
+                (root / "layout.py").write_text(
+                    f"def height():\n    open('cause.txt', 'w').write({reason!r})\n    return False\n"
+                )
+                (root / "test_layout.py").write_text(
+                    "import unittest\nfrom layout import height\nclass LayoutTests(unittest.TestCase):\n"
+                    "    def test_height(self):\n        self.assertTrue(height(), 'height unavailable')\n"
+                )
+                completed = subprocess.run(
+                    [sys.executable, "-B", "-m", "unittest", "-v", "test_layout"],
+                    cwd=root,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=15,
+                )
+                self.assertEqual(1, completed.returncode)
+                self.assertEqual(reason, (root / "cause.txt").read_text())
+                observations.append((root, completed.stdout + completed.stderr))
+
+            proof_path = Path(self.state["regression_proof"]["path"])
+            proof = json.loads(proof_path.read_text())
+            for name, (root, output) in zip(("suite_on_base", "suite_on_candidate"), observations, strict=True):
+                capture = proof["checks"][name]
+                Path(capture["output"]).write_text(output)
+                capture["output_sha256"] = guard.util.file_hash(capture["output"])
+                capture["execution_root"] = str(root)
+                capture["results"].update(passed=[], total=1)
+            proof_path.write_text(json.dumps(proof))
+            self.state["regression_proof"]["receipt_sha256"] = guard.util.file_hash(proof_path)
+            receipts = {}
+            for half, source in (("candidate", "suite_on_candidate"), ("original", "suite_on_base")):
+                source_receipt = proof["checks"][source]
+                receipts[(half, 0)] = {
+                    **copy.deepcopy(template),
+                    "output": source_receipt["output"],
+                    "output_sha256": source_receipt["output_sha256"],
+                    "execution_root": source_receipt["execution_root"],
+                }
+            error, receipt = self.replay(receipts)
+            self.assertIsInstance(error, guard.commands.OriginalGateFailure)
+            self.assertEqual("FAIL", json.loads(receipt.read_text())["verdict"])
+
+    def test_failure_is_not_excused_when_another_project_part_passes(self):
         self.two_parts()
         _test_id, replay = self.record_base_failure()
         log = self.run_dir / "regression" / "other-project.log"
@@ -753,10 +819,10 @@ class UndeterminedReplayTests(unittest.TestCase):
         }
         error, receipt = self.replay(receipts)
         self.assertEqual(4, len(self.calls), self.calls)
-        self.assertIsNone(error)
-        self.assertEqual("PASS", json.loads(receipt.read_text())["verdict"])
+        self.assertIsInstance(error, guard.commands.OriginalGateFailure)
+        self.assertEqual("FAIL", json.loads(receipt.read_text())["verdict"])
 
-    def test_preexisting_failure_does_not_hide_a_timed_out_project_part(self):
+    def test_known_failure_takes_precedence_over_a_timed_out_project_part(self):
         self.two_parts()
         _test_id, replay = self.record_base_failure()
         log = self.run_dir / "regression" / "other-project.log"
@@ -772,10 +838,8 @@ class UndeterminedReplayTests(unittest.TestCase):
             ("original", 1): other,
         }
         error, receipt = self.replay(receipts)
-        self.assertIsInstance(error, guard.util.Paused)
-        self.assertNotIsInstance(error, guard.commands.OriginalGateFailure)
-        self.assertEqual("PAUSED_VERIFICATION_UNCERTAIN", error.status)
-        self.assertEqual("NOT_VERIFIED", json.loads(receipt.read_text())["verdict"])
+        self.assertIsInstance(error, guard.commands.OriginalGateFailure)
+        self.assertEqual("FAIL", json.loads(receipt.read_text())["verdict"])
 
     def test_same_named_failure_in_another_project_is_not_excused(self):
         self.two_parts()
@@ -839,7 +903,7 @@ class UndeterminedReplayTests(unittest.TestCase):
         self.assertTrue(schedule.proof_intact(proof["checks"], root=proof_dir))
         return proof_dir, candidate
 
-    def test_pytest_original_failure_recorded_on_base_does_not_block_replay(self):
+    def test_pytest_failure_recorded_on_base_still_blocks_replay(self):
         """The reported #3944 case uses actual pytest JUnit output, not unittest text."""
         import autocode_verification_schedule as schedule
 
@@ -848,10 +912,10 @@ class UndeterminedReplayTests(unittest.TestCase):
         saved = json.loads(receipt.read_text())
         self.assertTrue(schedule.intact(saved["candidate"], root=receipt.parent / "candidate"))
         self.assertTrue(schedule.intact(saved["original"], root=receipt.parent / "original"))
-        self.assertIsNone(error)
-        self.assertEqual("PASS", saved["verdict"])
+        self.assertIsInstance(error, guard.commands.OriginalGateFailure)
+        self.assertEqual("FAIL", saved["verdict"])
 
-    def test_unittest_failure_matches_across_distinct_scratch_roots(self):
+    def test_unittest_failure_still_blocks_across_distinct_scratch_roots(self):
         import autocode_verify as verify
 
         proof_dir = self.run_dir / "regression" / "unittest-proof"
@@ -887,11 +951,11 @@ class UndeterminedReplayTests(unittest.TestCase):
             },
         }
         error, receipt = self.replay({("candidate", 0): receipts[1], ("original", 0): receipts[1]})
-        self.assertIsNone(error)
-        self.assertEqual("PASS", json.loads(receipt.read_text())["verdict"])
+        self.assertIsInstance(error, guard.commands.OriginalGateFailure)
+        self.assertEqual("FAIL", json.loads(receipt.read_text())["verdict"])
 
     @unittest.skipUnless(shutil.which("go"), "Go is required for the native test-event check")
-    def test_go_failure_matches_across_distinct_scratch_roots(self):
+    def test_go_failure_still_blocks_across_distinct_scratch_roots(self):
         import autocode_verify as verify
 
         proof_dir = self.run_dir / "regression" / "go-proof"
@@ -931,8 +995,8 @@ class UndeterminedReplayTests(unittest.TestCase):
             },
         }
         error, receipt = self.replay({("candidate", 0): receipts[1], ("original", 0): receipts[1]})
-        self.assertIsNone(error)
-        self.assertEqual("PASS", json.loads(receipt.read_text())["verdict"])
+        self.assertIsInstance(error, guard.commands.OriginalGateFailure)
+        self.assertEqual("FAIL", json.loads(receipt.read_text())["verdict"])
 
         receipt.unlink()
         output = proof_dir / "different-go.log"
@@ -1062,16 +1126,6 @@ class UndeterminedReplayTests(unittest.TestCase):
         error, receipt = self.replay({("candidate", 0): replay, ("original", 0): replay})
         self.assertIsNotNone(error)
         self.assertNotEqual("PASS", json.loads(receipt.read_text())["verdict"])
-        receipt.unlink()
-        # The candidate half genuinely fails another test: the replaced failure of the original half excuses nothing.
-        candidate = self.failing()
-        candidate["results"]["failed"] = ["test_layout.LayoutTests.test_positive"]
-        error, receipt = self.replay({("candidate", 0): candidate, ("original", 0): self.failing()})
-        self.assertIsInstance(error, guard.commands.OriginalGateFailure)
-        self.assertIn(self.REPAIR, str(error))
-        saved = json.loads(receipt.read_text())
-        self.assertEqual("FAIL", saved["verdict"])
-        self.assertNotIn("superseded", saved)
 
     def test_a_replaced_original_failure_in_an_incomplete_supervision_receipt_is_not_excused(self):
         self.approve_replacing_test_height()

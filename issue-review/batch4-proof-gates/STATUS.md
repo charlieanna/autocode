@@ -2,6 +2,38 @@
 
 The branch contains the work recorded in commit `458b1ae4a` for #3814 and #3926.
 
+**Current protected-failure authority:** #3944 remains open and this PR remains
+draft. Identical named failure text, even a complete traceback from pinned
+receipts, is diagnostic and cannot establish that the underlying cause stayed
+the same. Two real unittest executions recorded different causes in the product
+while producing the same normalized assertion traceback. In a focused replay
+using those real outputs with simulated proof custody and scratch transport,
+the previous branch incorrectly returned PASS and labeled both failures
+preexisting (`/private/tmp/autocode-proof-cause-public.log`). The regression
+failed before the correction (`/private/tmp/autocode-protected-cause-red.log`)
+and now requires the original protected gate to fail closed. The branch-only
+fingerprint exemption and its unused module were removed; raw runner captures
+remain available as diagnostics. This supersedes earlier historical statements
+below about normalized fingerprints authorizing an exemption. No same-cause
+authority or #3944 fix is claimed.
+
+**Agent-reviewed original-test replacement:** the master test
+`test_replacement_symlink_cannot_write_through_to_source` expected an original
+command to run and produce an exit-1 receipt after an absolute source link was
+introduced. The strengthened source pin now rejects that unbound link before
+any command starts. Under the owner's delegated plan/test review, its obsolete
+receipt expectation is replaced by the typed `PAUSED_SOURCE_UNAVAILABLE`
+refusal, an explicit no-test-launch check, no fabricated receipt, and the
+original unchanged-source assertion. The link is not followed. A permitted
+inventoried protected-link positive remains covered by
+`test_protected_copy_policy_binds_inventoried_untracked_terminal_direct_and_owned`.
+The agent review also restored the original approved-supersession test's
+candidate-failure assertions to that master test. The combined
+protected/setup/acceptance/incomplete-outcome run passed 116 tests; after the
+restoration the protected module passed 47 tests. Architecture and CI-selection
+checks passed 195 tests; the explicit link, collision and owned-copy controls,
+Ruff/format and mypy also passed.
+
 **2026-11-20 source-boundary and failure-identity follow-up:** #3926 and
 #3944 remain incomplete and this PR must remain draft. The existing native
 readonly-check boundary cannot be substituted for the reported executions: it

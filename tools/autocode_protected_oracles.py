@@ -34,7 +34,6 @@ from pathlib import Path, PurePosixPath
 try:
     from . import autocode_check_outcome as check_outcome
     from . import autocode_command_receipt as command_receipt
-    from . import autocode_failure_provenance as failure_provenance
     from . import autocode_package_scope as package_scope
     from . import autocode_plan_command_roles as plan_roles
     from . import autocode_plan_proof_command as plan_command
@@ -55,7 +54,6 @@ try:
 except ImportError:
     import autocode_check_outcome as check_outcome
     import autocode_command_receipt as command_receipt
-    import autocode_failure_provenance as failure_provenance
     import autocode_package_scope as package_scope
     import autocode_plan_command_roles as plan_roles
     import autocode_plan_proof_command as plan_command
@@ -462,25 +460,6 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=N
         # One reading of each half (autocode_check_outcome): a genuine failure of either half wins; a half
         # that could not establish a result keeps completion blocked without directing a product edit.
         outcomes = {half: check_outcome.classify(result[half]) for half in ("candidate", "original")}
-        if any(outcome["outcome"] == check_outcome.FAILED for outcome in outcomes.values()):
-            known = failure_provenance.baseline(state, revision)
-            preexisting = {}
-            for half, outcome in outcomes.items():
-                if outcome["outcome"] == check_outcome.FAILED and known:
-                    revised, names = failure_provenance.adjudicate(result[half], known, root=Path(state["run_dir"]))
-                    if names:
-                        preexisting[half] = names
-                        outcomes[half] = revised
-            if preexisting:
-                for half, outcome in outcomes.items():
-                    if outcome["outcome"] == check_outcome.PASSED and half not in preexisting:
-                        outcomes[half], _ = failure_provenance.adjudicate(
-                            result[half], known, root=Path(state["run_dir"])
-                        )
-                result["preexisting_failures"] = {
-                    "halves": preexisting,
-                    "reason": "The authenticated base and candidate proof recorded the identical failure details.",
-                }
         if any(outcome["outcome"] == check_outcome.FAILED for outcome in outcomes.values()):
             result["verdict"] = "FAIL"
         elif undetermined := {
