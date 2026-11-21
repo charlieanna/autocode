@@ -8,7 +8,7 @@ const path = require('node:path');
 const { test } = require('node:test');
 const { openHistoryRow } = require('./open-history.cjs');
 const { privateHostEnvironment, ownedWarmHostSteps, settleFixture } = require('../owned-fixture-cleanup.cjs');
-const { sameApproval, settledAfterApproval } = require('../python-semantic-transition.cjs');
+const { afterApproval } = require('../python-semantic-transition.cjs');
 
 const EXTENSION = path.resolve(__dirname, '../..');
 const REPO = path.resolve(EXTENSION, '..');
@@ -123,11 +123,10 @@ test('real editor completes an offline task with exact multiline element evidenc
     phase = 'approving the exact reviewed plan in the editor';
     await frame.locator('#take-action').click();
     phase = 'waiting for the public task outcome';
-    let transitioned = false;
+    const isSettled = afterApproval(before);
     const after = await until('a settled public task outcome', () => {
       const current = status();
-      if (!sameApproval(current, before)) transitioned = true;
-      return settledAfterApproval(current, before, transitioned) ? current : null;
+      return isSettled(current) ? current : null;
     }, 300_000);
     assert.equal(after.status, 'TASK_COMPLETE', JSON.stringify({ status: after.status, reason: after.stop_reason, needs: after.needs }));
     assert.equal(after.delivery?.verified_complete, true);
@@ -169,7 +168,9 @@ test('real editor completes an offline task with exact multiline element evidenc
     if (status) {
       try {
         const view = status();
-        console.error(`Last public status: ${JSON.stringify({ status: view.status, stop_reason: view.stop_reason, need: view.needs?.kind })}`);
+        console.error(`Last public status: ${JSON.stringify({ status: view.status, stop_reason: view.stop_reason, need: view.needs?.kind,
+          continuing: view.progress?.continuing, controller: { kind: view.controller?.kind, checked: view.controller?.checked,
+            alive: view.controller?.alive }, liveness: { kind: view.liveness?.kind, reason: view.liveness?.reason } })}`);
       } catch (failure) { console.error(`Could not read final public status: ${failure.message}`); }
     }
   } finally {
@@ -219,6 +220,9 @@ test('real editor completes an offline task with exact multiline element evidenc
       testError || (!passed ? new Error('editor test did not complete') : undefined));
     } catch (error) {
       console.error(`Preserved Python semantic host fixture at ${root}`);
+      for (const failure of (error instanceof AggregateError ? error.errors : [error]).slice(0, 8)) {
+        console.error(`Editor or cleanup failure: ${String(failure?.stack || failure).slice(0, 4000)}`);
+      }
       throw error;
     }
   }
