@@ -133,7 +133,11 @@ For each one, the runner, in a scratch copy:
 - runs the batch's acceptance tests with the patch: a failing test kills it, and when every test passes it
   `survived`.
 
-The study is report only. It is recorded as `acceptance_tests.wrong_implementations`, and its survivors reach
-the independent Tester as evidence. It changes no verdict, sends nothing back and asks no one anything. It runs
-once per source revision and batch.
+It is recorded as `acceptance_tests.wrong_implementations`, and its survivors reach the independent Tester as
+evidence. When the Tester judges a survivor a real violation of its approved case, it fails that criterion and
+lists it in `acceptance_test_repairs` with kind `accepts_wrong_implementation`. That kind is accepted only for a
+case with a recorded survivor. The run then goes back to `write_acceptance_tests`, within the same two repair
+rounds per case as the other kinds, and the study runs again on the strengthened tests. A survivor that violates
+nothing its case states is left in the record and blocks nothing. The study asks no one anything and runs once
+per source revision and batch.
 
