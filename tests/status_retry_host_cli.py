@@ -13,11 +13,23 @@ import autocode_status_observation as observation  # noqa: E402
 original = observation._observe
 
 
+def record(message):
+    target = os.environ.get("AUTOCODE_HOST_OBSERVATION_LOG")
+    if target:
+        with Path(target).open("a", encoding="utf-8") as output:
+            output.write(message + "\n")
+
+
+if "--status" in sys.argv:
+    marker = os.environ.get("AUTOCODE_HOST_OBSERVATION_TIMEOUT")
+    record(f"status {os.getpid()} marker={bool(marker and Path(marker).is_file())}")
+
+
 def observe(operation, payload, *, timeout=None):
     marker = os.environ.get("AUTOCODE_HOST_OBSERVATION_TIMEOUT")
+    record(f"observe {operation} {os.getpid()}")
     if marker and Path(marker).is_file() and operation in ("job_retry", "failure_retry"):
-        with Path(os.environ["AUTOCODE_HOST_OBSERVATION_LOG"]).open("a", encoding="utf-8") as output:
-            output.write(f"{operation} {os.getpid()}\n")
+        record(f"timeout {operation} {os.getpid()}")
         raise subprocess.TimeoutExpired("controlled-status-observation", 0)
     return original(operation, payload, timeout=timeout)
 

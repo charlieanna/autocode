@@ -35,6 +35,8 @@ for (const kind of ['job', 'repeat']) {
     const marker = path.join(root, 'timeout');
     const log = path.join(root, 'observations');
     let app;
+    let win;
+    let lastState;
     try {
       const env = { ...process.env, HOME: path.join(root, 'home') };
       delete env.GIT_CONFIG_COUNT;
@@ -64,16 +66,19 @@ for (const kind of ['job', 'repeat']) {
           '--disable-workspace-trust', `--user-data-dir=${userData}`, `--extensions-dir=${path.join(root, 'extensions')}`,
           `--extensionDevelopmentPath=${EXTENSION}`, fixture.workspace],
       });
-      const win = await app.firstWindow();
+      win = await app.firstWindow();
       await win.locator('.monaco-workbench').waitFor({ timeout: 120_000 });
       const chat = () => until('chat', async () => {
         for (const frame of win.frames()) if (await frame.$('#chat-tabs').catch(() => null)) return frame;
         return null;
       });
-      const state = async () => (await chat()).evaluate(() => ({
-        text: document.body.textContent,
-        action: document.querySelector('#take-action')?.textContent ?? null,
-      }));
+      const state = async () => {
+        lastState = await (await chat()).evaluate(() => ({
+          text: document.body.textContent,
+          action: document.querySelector('#take-action')?.textContent ?? null,
+        }));
+        return lastState;
+      };
       await win.locator('.activitybar [aria-label^="AutoCode"]').first().click();
       const title = `Offline ${kind} status deadline verification`;
       await openHistoryRow(win.locator('.monaco-list-row', { hasText: title }).first(), chat, title);
@@ -81,7 +86,7 @@ for (const kind of ['job', 'repeat']) {
       await until('healthy retry action', async () => (await state()).action === retryLabel);
       fs.writeFileSync(marker, '');
       const operation = kind === 'job' ? 'job_retry' : 'failure_retry';
-      await until('injected timeout', () => fs.existsSync(log) && fs.readFileSync(log, 'utf8').includes(operation));
+      await until('injected timeout', () => fs.existsSync(log) && fs.readFileSync(log, 'utf8').includes(`timeout ${operation}`));
       if (kind === 'job') {
         await until('blocked job in the chat', async () => {
           const shown = await state();
@@ -99,6 +104,12 @@ for (const kind of ['job', 'repeat']) {
       }
       fs.rmSync(marker);
       await until('recovered retry action', async () => (await state()).action === retryLabel);
+    } catch (error) {
+      console.log(`Host diagnostics for ${kind}:`, JSON.stringify({
+        lastState, observations: fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '(no wrapper log)',
+      }));
+      await win?.screenshot({ path: path.join(EXTENSION, '.vscode-test', `status-retry-${kind}.png`) }).catch(() => {});
+      throw error;
     } finally {
       fs.rmSync(marker, { force: true });
       await app?.close().catch(() => {});
