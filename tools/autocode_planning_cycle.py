@@ -19,8 +19,10 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_plan_defects as plan_defects
     from . import autocode_roles as role_names
 except ImportError:
+    import autocode_plan_defects as plan_defects
     import autocode_roles as role_names
 
 
@@ -66,6 +68,7 @@ INHERITED_KEYS = (
     "review_call_limit_origin",
     "adaptive",
     "internal_answer_renewals",
+    "internal_answer_renewal_round",
     "revision_review_renewals",
     "revision_review_renewal",
 )
@@ -143,15 +146,32 @@ def _inherit_review(state: RunState, archived):
     explicit = planning.get("review_call_limit_origin") == "user_explicit" or bool(
         (state.get("settings") or {}).get("planning_review_call_limit_origin")
     )
-    if remaining_reviews(state, planning) == 0 and not planning.get("internal_answer_renewals") and not explicit:
-        # The final review asked the question, so the allowance is spent: one more call, once per run, so the
-        # redraft gets its final review instead of a budget pause nobody can answer. A limit the person chose
-        # (a flag or config.toml) is never raised here.
+    round_ = person_rounds(state)
+    renewed = planning.get("internal_answer_renewals") and planning.get("internal_answer_renewal_round", 0) >= round_
+    if remaining_reviews(state, planning) == 0 and not renewed and not explicit:
+        # The final review asked the question, so the allowance is spent: one more call, once per round of the
+        # person's input, so the redraft gets its final review instead of a budget pause nobody can answer. Once
+        # per run was not enough: after the person approved the corrected plan, the tool boundary refused one of
+        # its commands, and that second correction paused asking the person to raise the review limit (#4015).
+        # A round needs the person, so AutoCode never loops here. A limit the person chose (a flag or
+        # config.toml) is never raised here.
         limit = review_limit(state, planning)
         planning.update(
-            review_call_limit=limit + 1, review_call_limit_origin="runner_default", internal_answer_renewals=1
+            review_call_limit=limit + 1,
+            review_call_limit_origin="runner_default",
+            internal_answer_renewals=int(planning.get("internal_answer_renewals") or 0) + 1,
+            internal_answer_renewal_round=round_,
         )
         planning["inherited_review"]["renewed"] = {"from": limit, "to": limit + 1}
+
+
+def person_rounds(state: RunState) -> int:
+    """How many rounds of the person's input the run has had: answers, feedback, goal edits and approvals."""
+    return sum(
+        1
+        for event in state.get("user_events") or []
+        if event.get("actor") == "user_cli" and event.get("kind") in plan_defects.USER_INPUT
+    )
 
 
 def new_cycle(state: RunState, *, new_turn=False):
