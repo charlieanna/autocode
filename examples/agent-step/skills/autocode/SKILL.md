@@ -17,12 +17,12 @@ Run every step with the Python that has AutoCode installed:
 STEP="${AUTOCODE_PYTHON:-python3} -m autocode_cli.autocode_agent_step"
 ```
 
-Each step prints one JSON summary of the run: `run_dir`, `status`, `done`,
-`pause_category_label`, `needs`, `next_command`, `progress`, `explanation`, and
-`plan` while a plan waits for approval. A step that is refused exits 1 and says
-why on stderr. Run steps from the repository root, or add `--workspace PATH`.
-When the workspace has more than one run, add `--run-dir RUN` with the
-`run_dir` the start printed.
+Each step prints one JSON summary of the run: `run_dir`, `working`, `status`,
+`done`, `pause_category_label`, `needs`, `next_command`, `progress`,
+`explanation`, and `plan` while a plan waits for approval. A step that is
+refused exits 1 and says why on stderr. Run steps from the repository root, or
+add `--workspace PATH`. When the workspace has more than one run, add
+`--run-dir RUN` with the `run_dir` the start printed.
 
 ## Start
 
@@ -33,18 +33,23 @@ Use the engine and model flags the person chose; ask if they did not say.
 $STEP start "THE PERSON'S REQUEST, IN THEIR WORDS" -- --engine claude
 ```
 
-The step returns when the run first needs the person or completes. That can
-take as long as the work does. To look again later:
+The step returns at once: the run works in the background, and `working` is
+true until it stops. Wait for the stop with a limit shorter than your own command
+time limit, and repeat while `working` is still true:
 
 ```sh
-$STEP status
+$STEP status --wait 50
 ```
+
+`approve`, `answer` and `continue` also return at once while the run goes on, and
+take the same `--wait SECONDS`. While `working` is true there is nothing to tell
+the person yet beyond `progress`; a step that would advance the run is refused.
 
 ## At every stop
 
-Tell the person `pause_category_label`, `progress` and `explanation`, and show
-`next_command`: it is the command they can run themselves. Then, by
-`needs.kind`:
+A stop is a summary with `working` false. Tell the person
+`pause_category_label`, `progress` and `explanation`, and show `next_command`:
+it is the command they can run themselves. Then, by `needs.kind`:
 
 - `answer`: show each question in `needs.questions` with its `options` and
   `proposed_default`. Do not choose for them. Pass on the person's answer to one
