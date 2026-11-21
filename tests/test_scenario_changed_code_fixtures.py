@@ -21,18 +21,82 @@ from tests import test_follow_up_acceptance_cli as follow_up
 REFERENCE = Path(__file__).resolve().parents[1] / "scenarios/catalog/feature-stock-refusals/reference"
 
 
-def delimiter_inventory(proof, path, digest):
+def delimiter_inventory(proof, path, digest, *, root=None, lines=()):
+    mutants = []
+    receipts = []
+    for line in lines:
+        base = root.resolve() / ".autocode/runs/fixture/regression/proof-01/mutation-check"
+        base.mkdir(parents=True, exist_ok=True)
+        output = base / f"mutant-{line}.log"
+        output.write_text("named test failed\n")
+        supervisor_file = base / f"supervision-{line}.json"
+        supervisor = {
+            "receipt": str(supervisor_file),
+            "schema": 1,
+            "nonce": "a" * 32,
+            "owner": {"pid": 1, "birth_identity": 10},
+            "keeper": {"pid": 2, "birth_identity": 20},
+            "provider": {"pid": 3, "birth_identity": 30},
+            "started_at": "time",
+        }
+        terminal = {
+            **supervisor,
+            "phase": "stopped",
+            "cause": "provider_stopped",
+            "cleanup_error": None,
+            "observed_at": "time",
+            "processes": [supervisor["provider"]],
+        }
+        supervisor_file.write_text(json.dumps(terminal))
+        test = "tests.test_selected"
+        receipts.append(
+            {
+                "output": str(output),
+                "output_sha256": hashlib.sha256(output.read_bytes()).hexdigest(),
+                "exit_code": 1,
+                "timed_out": False,
+                "results_expected": True,
+                "results": {
+                    "complete": True,
+                    "failed": [test],
+                    "collection_errors": [],
+                    "uncollected": [],
+                    "skipped": [],
+                },
+                "supervision_errors": [],
+                "supervision": supervisor,
+                "supervision_sha256": hashlib.sha256(supervisor_file.read_bytes()).hexdigest(),
+            }
+        )
+        start = line - 1
+        while start in lines:
+            start -= 1
+        mutants.append(
+            {
+                "line": start,
+                "end_line": line,
+                "outcome": "killed",
+                "source_sha256": digest,
+                "failed_tests": [test],
+                "selected_tests": [test],
+                "evidence": [str(output)],
+            }
+        )
+    if not mutants:
+        mutants = [{"line": 1, "end_line": 1, "outcome": "killed", "source_sha256": digest}]
+    proof["changed_code_receipts"] = receipts
     proof["mutation_check"] = {
         "collected": True,
         "selection": "all_eligible_changed_sites",
         "limit_per_file": 100,
+        "selected_tests": ["tests.test_selected"],
         "test_selection": {"unobserved_mutants": 0},
         "files": [
             {
                 "path": path,
                 "sha256": digest,
                 "notes": [],
-                "mutants": [{"line": 1, "end_line": 1, "outcome": "killed", "source_sha256": digest}],
+                "mutants": mutants,
             }
         ],
     }
@@ -1073,7 +1137,9 @@ class LeaseCleanupFixtureReviewTests(unittest.TestCase):
                 row = data["regression_proof"]["changed_code_evidence"]["obligations"][0]
                 row["mutation_outcomes"] = []
                 row["source_line"] = source[line - 1].strip()
-                delimiter_inventory(data["regression_proof"], self.path, self.source_digest)
+                delimiter_inventory(
+                    data["regression_proof"], self.path, self.source_digest, root=self.root, lines=[line]
+                )
                 save_delimiter_proof(data, self.root)
                 reasons = fixture.judgments(data, self.root, producer=self.producer)
                 self.assertEqual([row["gap_id"]], [reason["gap_id"] for reason in reasons])
@@ -1155,6 +1221,16 @@ class LeaseCleanupFixtureReviewTests(unittest.TestCase):
                         self.assertEqual([], fixture.judgments(data, self.root, producer=self.producer))
                     finally:
                         path.write_bytes(before)
+
+    def test_delimiter_reason_requires_an_observed_killed_parent(self):
+        line = self.delimiter_lines[0]
+        data = self.data(line)
+        row = data["regression_proof"]["changed_code_evidence"]["obligations"][0]
+        row["mutation_outcomes"] = []
+        row["source_line"] = (self.root / self.path).read_text().splitlines()[line - 1].strip()
+        delimiter_inventory(data["regression_proof"], self.path, self.source_digest)
+        save_delimiter_proof(data, self.root)
+        self.assertEqual([], fixture.judgments(data, self.root, producer=self.producer))
 
     def test_exact_cleanup_observations_require_the_delivered_transaction_test(self):
         for line in self.cleanup_lines:
@@ -1319,7 +1395,7 @@ class LifecycleFixtureReviewTests(unittest.TestCase):
                             },
                         }
                     }
-                    delimiter_inventory(data["regression_proof"], path, digest)
+                    delimiter_inventory(data["regression_proof"], path, digest, root=root, lines=[line])
                     save_delimiter_proof(data, root)
                     reasons = fixture.judgments(data, root)
                     self.assertEqual([row["gap_id"]], [reason["gap_id"] for reason in reasons])
@@ -1461,7 +1537,13 @@ class LifecycleFixtureReviewTests(unittest.TestCase):
                         },
                     }
                 }
-                delimiter_inventory(data["regression_proof"], path, digest)
+                delimiter_inventory(
+                    data["regression_proof"],
+                    path,
+                    digest,
+                    root=root,
+                    lines=[i for i, reason in reasons.items() if reason == fixture._CLOSING_DELIMITER],
+                )
                 save_delimiter_proof(data, root)
                 rows = fixture.judgments(data, root)
                 self.assertEqual({gaps[i] for i in reasons}, {row["gap_id"] for row in rows})

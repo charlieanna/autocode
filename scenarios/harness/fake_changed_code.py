@@ -898,6 +898,7 @@ def _delimiter_without_sites(data, proof, row, root, source_path, digest):
     mutants, limit = matches[0].get("mutants"), check.get("limit_per_file")
     if not isinstance(mutants, list) or not mutants or type(limit) is not int or len(mutants) >= limit:
         return False
+    observed_parent = False
     for mutant in mutants:
         if not isinstance(mutant, dict):
             return False
@@ -911,9 +912,11 @@ def _delimiter_without_sites(data, proof, row, root, source_path, digest):
             return False
         if start == line:
             return False
-        if start < line <= end and not _killed_overlap(saved, check, mutant, artifact.parent):
-            return False
-    return True
+        if start < line <= end:
+            if not _killed_overlap(saved, check, mutant, artifact.parent):
+                return False
+            observed_parent = True
+    return observed_parent
 
 
 def _killed_overlap(saved, check, mutant, proof_root):
