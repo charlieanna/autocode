@@ -22,6 +22,7 @@ try:
     from . import autocode_run_base as run_base
     from . import autocode_source_scope as source_scope
     from . import autocode_test_cases as test_cases
+    from . import autocode_test_environment as test_environment
     from . import autocode_test_role_inventory as role_inventory
     from . import autocode_util as util
     from . import autocode_verification_commands as commands
@@ -37,6 +38,7 @@ except ImportError:
     import autocode_run_base as run_base
     import autocode_source_scope as source_scope
     import autocode_test_cases as test_cases
+    import autocode_test_environment as test_environment
     import autocode_test_role_inventory as role_inventory
     import autocode_util as util
     import autocode_verification_commands as commands
@@ -85,7 +87,11 @@ def collect(state: RunState, workspace, run_dir, out, selected, files, command=N
         if any(not roles.is_test(path) for path in files):
             raise ValueError("reported test file has no independent test-file classification")
         overlay.update({path: "modified" for path in files})
-        framework = commands.command_framework(command) if command else verify.detect_framework(workspace)
+        framework = (
+            commands.command_framework(command)
+            if command
+            else verify.detect_framework(workspace, python=test_environment.run_python(state, workspace))
+        )
         if framework is None:
             raise ValueError("no recognized test runner for original reference")
         selected_ids = sorted({test for names in selected.values() for test in names})
