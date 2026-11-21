@@ -653,11 +653,10 @@ class UndeterminedReplayTests(unittest.TestCase):
         self.assertEqual("PASS", saved["verdict"])
         self.assertEqual(["test_layout.LayoutTests.test_height"], saved["superseded"]["excused_failures"])
 
-    def record_base_failure(self):
+    def record_base_failure(self, detail="AssertionError: test dependency is missing"):
         proof_dir = self.run_dir / "regression" / "proof-01"
         proof_dir.mkdir(parents=True)
         test_id = "test_layout.LayoutTests.test_height"
-        detail = "AssertionError: test dependency is missing"
         log = proof_dir / "suite_on_base.log"
         log.write_text(
             "test_height (test_layout.LayoutTests) ... FAIL\n"
@@ -726,6 +725,17 @@ class UndeterminedReplayTests(unittest.TestCase):
             "output_sha256": guard.util.file_hash(log),
             "tail": "AssertionError: bad changed value",
         }
+        error, receipt = self.replay({("candidate", 0): changed, ("original", 0): replay})
+        self.assertIsInstance(error, guard.commands.OriginalGateFailure)
+        self.assertEqual("FAIL", json.loads(receipt.read_text())["verdict"])
+
+    def test_same_assertion_with_different_appended_failure_detail_is_not_excused(self):
+        # CI attribution intentionally ignores unittest's appended message. It cannot establish
+        # identical failures: those messages can describe different underlying failures.
+        _test_id, replay = self.record_base_failure("AssertionError: False is not true : database down")
+        log = self.run_dir / "regression" / "candidate-different-message.log"
+        log.write_text(Path(replay["output"]).read_text().replace("database down", "authorization failed"))
+        changed = {**replay, "output": str(log), "output_sha256": guard.util.file_hash(log)}
         error, receipt = self.replay({("candidate", 0): changed, ("original", 0): replay})
         self.assertIsInstance(error, guard.commands.OriginalGateFailure)
         self.assertEqual("FAIL", json.loads(receipt.read_text())["verdict"])
