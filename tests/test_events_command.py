@@ -7,6 +7,7 @@ import io
 import itertools
 import json
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,6 +16,7 @@ from unittest import mock
 import autocode_events_command as events
 import autocode_subcommands as subcommands
 import autocode_util as util
+import autocode_workspaces as workspaces
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = ROOT / "docs" / "schemas" / "run-event.schema.json"
@@ -48,6 +50,55 @@ def project(**written) -> Path:
     return root
 
 
+def moving_project(test: unittest.TestCase):
+    """Build a real Git worktree and return a move to perform after the first poll."""
+    temporary = tempfile.TemporaryDirectory(prefix="events-move-")
+    test.addCleanup(temporary.cleanup)
+    root = Path(temporary.name).resolve() / "project"
+    root.mkdir()
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(root),
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.test",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "base",
+        ],
+        check=True,
+    )
+    old = saved_run(root)
+    tree = Path(workspaces.create(root, "move-test")["workspace"])
+    child = tree / ".autocode" / "runs" / old.name
+    child.mkdir(parents=True)
+
+    def move(_seconds):
+        original = json.loads((old / "state.json").read_text())
+        copied = {
+            **original,
+            "workspace": str(tree),
+            "status": "TASK_COMPLETE",
+            "user_events": [*original["user_events"], {"kind": "finished", "actor": "runner"}],
+            "build_worktree": {"state": "building", "moved_from": {"workspace": str(root), "run_dir": str(old)}},
+        }
+        (child / "state.json").write_text(json.dumps(copied))
+        original.update(
+            status="PAUSED_REQUESTED",
+            stop_reason="Moved to its own worktree to build",
+            build_worktree={"state": "moved", "moved_to": {"workspace": str(tree), "run_dir": str(child)}},
+        )
+        (old / "state.json").write_text(json.dumps(original))
+
+    return root, old, tree, child, move
+
+
 class EventsCommandTests(unittest.TestCase):
     def capture(self, argv: list[str]) -> tuple[int, str, str]:
         out, err = io.StringIO(), io.StringIO()
@@ -65,6 +116,14 @@ class EventsCommandTests(unittest.TestCase):
         self.assertEqual("", err)
         self.assertEqual(RECORDED, self.lines(out))
         self.assertEqual([json.dumps(event) for event in RECORDED], out.splitlines())
+
+    def test_follow_tracks_a_move_after_the_stream_started_without_repeating_events(self):
+        root, old, tree, child, move = moving_project(self)
+        with mock.patch.object(util, "sleep", side_effect=move):
+            code, out, err = self.capture(["--workspace", str(root), "--run-dir", str(old), "--follow"])
+        self.assertEqual(0, code, err)
+        self.assertEqual([*RECORDED, {"kind": "finished", "actor": "runner"}], self.lines(out))
+        self.assertIn("TASK_COMPLETE", err)
 
     def test_a_workspace_with_no_run_is_named_rather_than_guessed(self):
         root = Path(tempfile.mkdtemp()).resolve()

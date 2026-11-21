@@ -34,15 +34,15 @@ import sys
 from pathlib import Path
 
 try:
-    from . import autocode_build_worktree as build_worktree
     from . import autocode_registry as registry
     from . import autocode_resolver_human as resolver_human
+    from . import autocode_run_identity as run_identity
     from . import autocode_run_view as run_view
     from . import autocode_util as util
 except ImportError:
-    import autocode_build_worktree as build_worktree
     import autocode_registry as registry
     import autocode_resolver_human as resolver_human
+    import autocode_run_identity as run_identity
     import autocode_run_view as run_view
     import autocode_util as util
 
@@ -86,12 +86,7 @@ def resolve(workspace: Path | None, run_dir: Path | None) -> tuple[Path, Path]:
 
 
 def _followed(run_dir: Path, workspace: Path) -> tuple[Path, Path]:
-    try:
-        state = json.loads((run_dir / "state.json").read_text())
-    except (OSError, ValueError):
-        return run_dir, workspace
-    found = build_worktree.resolve(workspace, run_dir, cast("RunState", state)) if isinstance(state, dict) else None
-    return (found[1], found[0]) if found else (run_dir, workspace)
+    return run_identity.follow(run_dir, workspace)
 
 
 def events_of(state: RunState) -> list[dict]:
@@ -134,6 +129,7 @@ def _load(run_dir: Path, workspace: Path) -> tuple[RunState | None, str]:
 
 def stream(run_dir: Path, workspace: Path, *, follow: bool = False, timeout: float | None = None) -> int:
     """Print the run's events; with `follow`, keep printing until the run ends the stream."""
+    run_dir, workspace = _followed(run_dir, workspace)
     state, message = _load(run_dir, workspace)
     if state is None:
         print(f"autocode events: {message}", file=sys.stderr)
@@ -154,6 +150,7 @@ def stream(run_dir: Path, workspace: Path, *, follow: bool = False, timeout: flo
             print(f"autocode events: --timeout {timeout:g}s reached with the run still working", file=sys.stderr)
             return 2
         util.sleep(POLL_SECONDS)
+        run_dir, workspace = _followed(run_dir, workspace)
         state, message = _load(run_dir, workspace)
         if state is None:
             print(f"autocode events: {message}", file=sys.stderr)

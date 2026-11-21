@@ -16,6 +16,8 @@ import autocode_subcommands as subcommands
 import autocode_util as util
 import autocode_wait_command as wait_command
 
+from tests.test_events_command import moving_project
+
 RUNNING_CONTROLLER = {"kind": "running", "reason": "Birth-bound controller is alive", "checked": True, "alive": True}
 
 
@@ -108,6 +110,19 @@ class WaitCommandTests(unittest.TestCase):
         self.assertIn("needs_you", out)
         self.assertEqual(1, sleep.call_count)
         self.assertEqual(1, inspect.call_count)
+
+    def test_wait_tracks_a_move_after_polling_starts(self):
+        root, old, tree, child, move = moving_project(self)
+        with (
+            mock.patch.object(controller_owner, "inspect", return_value=dict(RUNNING_CONTROLLER)),
+            mock.patch.object(util, "sleep", side_effect=move),
+        ):
+            code, out, err = self.capture(["--workspace", str(root), "--run-dir", str(old), "--json"])
+        self.assertEqual(0, code, err)
+        result = json.loads(out)
+        self.assertEqual("complete", result["outcome"])
+        self.assertEqual(str(child), result["run_dir"])
+        self.assertEqual(str(tree), result["workspace"])
 
     def test_a_bounded_wait_reports_the_last_observed_state(self):
         root = project()

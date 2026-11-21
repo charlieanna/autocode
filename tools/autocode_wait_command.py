@@ -126,6 +126,7 @@ def wait(run_dir: Path, workspace: Path, *, timeout: float | None = None, as_jso
     started = util.monotonic()
     deadline = None if timeout is None else util.monotonic() + timeout
     while True:
+        run_dir, workspace = events._followed(run_dir, workspace)
         state, message = _load(run_dir, workspace)
         if state is None:
             _report(
