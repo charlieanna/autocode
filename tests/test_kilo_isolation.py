@@ -141,7 +141,13 @@ class ClientPolicyTests(unittest.TestCase):
         owner._root = self.root
         owner._prepared = {"target": self.target}
         request = {"read_roots": ["/existing"], "protected_paths": [], "tool_commands": ["python -V"]}
-        selected = {"read_roots": ["/runtime"], "links": [["/alias", "/runtime"]], "probes": ["python -V"]}
+        selected = {
+            "read_roots": ["/runtime"],
+            "links": [["/alias", "/runtime"]],
+            "probes": ["python -V"],
+            "environment": {"RUSTUP_HOME": "/rustup"},
+            "tool_aliases": [{"index": 0, "path": "/bin", "proxy": "/proxy", "names": ["rustc"]}],
+        }
         with (
             patch.object(isolation.toolchain, "discover", return_value=selected) as discover,
             patch.object(containment, "prepare", side_effect=RuntimeError("observed")) as prepare,
@@ -151,6 +157,7 @@ class ClientPolicyTests(unittest.TestCase):
         discover.assert_called_once_with(self.root, ["python -V"], {"PATH": "/bin"})
         self.assertEqual(["/existing", "/runtime"], prepare.call_args.kwargs["read_roots"])
         self.assertEqual(selected["links"], prepare.call_args.kwargs["links"])
+        self.assertEqual(selected, prepare.call_args.kwargs["tool_setup"])
         self.assertEqual(["/existing"], request["read_roots"])
 
     def test_native_client_receives_the_same_discovered_roots_as_the_shell(self):

@@ -1172,6 +1172,50 @@ class KernelReceiptTests(unittest.TestCase):
             "tools": {"bash": True, "read": False},
         }
 
+    def test_native_writer_keeps_selected_tool_setup_for_both_prepares(self):
+        import autocode_toolchain
+
+        selected = {
+            "read_roots": ["/selected/runtime"],
+            "links": [],
+            "probes": [],
+            "environment": {"RUSTUP_HOME": "/selected/rustup"},
+            "tool_aliases": {"selected": "/selected/cargo"},
+        }
+        writer = {**self.boundary, "writer_path_kinds": {"result.txt": "missing"}}
+        kinds = {"result.txt": "missing"}
+        with (
+            patch.object(containment, "backend", return_value="seatbelt"),
+            patch.object(containment.shutil, "which", return_value="/owned/opencode"),
+            patch.object(
+                containment,
+                "_tool_version",
+                return_value=SimpleNamespace(returncode=0, stdout=containment.SUPPORTED_VERSION),
+            ),
+            patch.object(containment, "writer_footprint", return_value=["result.txt"]),
+            patch.object(containment, "_writer_path_kinds", return_value=kinds),
+            patch.object(containment, "_native_debug", return_value=lambda: self.agent),
+            patch.object(autocode_toolchain, "discover", return_value=selected),
+            patch.object(containment, "prepare", side_effect=[self.boundary, writer]) as prepare,
+            patch.object(containment, "_check_native_shell"),
+            patch.object(containment, "_shell_probe", return_value=("control", "probe", "result", "receipt")),
+            patch.object(containment, "_toolchain_checks", return_value=[]),
+            patch.object(containment, "_footprint_probe", return_value={}),
+            patch.object(containment, "_retain", side_effect=lambda boundary, *args, **kwargs: boundary),
+        ):
+            containment.configure(
+                self.command,
+                self.environment,
+                self.workspace,
+                allow_write=True,
+                request={"write_paths": ["result.txt"]},
+                retain_launch_identity=True,
+            )
+        self.assertEqual(2, prepare.call_count)
+        self.assertTrue(all(call.kwargs.get("tool_setup") is selected for call in prepare.call_args_list))
+        self.assertFalse(prepare.call_args_list[0].kwargs["allow_write"])
+        self.assertTrue(prepare.call_args_list[1].kwargs["allow_write"])
+
     def test_native_permission_refusal_names_policy_without_exposing_provider_stderr(self):
         denial = "The user has specified a rule which prevents you from using this specific tool call."
         for diagnostic, expected in (
