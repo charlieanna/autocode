@@ -32,6 +32,7 @@ try:
     from . import autocode_plan_command_roles as plan_roles
     from . import autocode_project_kinds as project_kinds
     from . import autocode_test_cases as test_cases
+    from . import autocode_test_environment as test_environment
     from . import autocode_test_homes as test_homes
     from . import autocode_test_parts as test_parts
     from . import autocode_test_results as test_results
@@ -45,6 +46,7 @@ except ImportError:
     import autocode_plan_command_roles as plan_roles
     import autocode_project_kinds as project_kinds
     import autocode_test_cases as test_cases
+    import autocode_test_environment as test_environment
     import autocode_test_homes as test_homes
     import autocode_test_parts as test_parts
     import autocode_test_results as test_results
@@ -367,7 +369,7 @@ def check(state: RunState, body, *, origin=None) -> None:
     tests, workspace = planned_tests(body), state.get("workspace")
     if not workspace or not Path(workspace).is_dir():
         return
-    python = options.get("python") or verify.python_for(state.get("project_workspace") or workspace)
+    python = options.get("python") or test_environment.run_python(state, workspace)
     settings = state.get("settings")
     framework = verify.detect_framework(workspace, python=python, **package_scope.detection(settings))
     detect = lambda directory: verify.detect_framework(directory, python=python)  # noqa: E731

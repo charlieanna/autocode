@@ -38,6 +38,7 @@ try:
     from . import autocode_preflight_worker as workers
     from . import autocode_runner_check as runner_check
     from . import autocode_storage_budget as storage_budget
+    from . import autocode_test_environment as test_environment
     from . import autocode_util as util
     from . import autocode_verify as verify
 except ImportError:
@@ -49,6 +50,7 @@ except ImportError:
     import autocode_preflight_worker as workers
     import autocode_runner_check as runner_check
     import autocode_storage_budget as storage_budget
+    import autocode_test_environment as test_environment
     import autocode_util as util
     import autocode_verify as verify
 
@@ -186,7 +188,7 @@ def _proof_commands(state: RunState, workspace, checks):
     )
     framework = framework or verify.detect_framework(
         workspace,
-        python=options.get("python") or verify.python_for(workspace),
+        python=options.get("python") or test_environment.run_python(state, workspace),
         **package_scope.detection(state["settings"]),
     )
     for command in commands:
@@ -201,7 +203,7 @@ def _proof_commands(state: RunState, workspace, checks):
 
 def _binding(state: RunState, workspace, config, checks, worker=None):
     settings = state["settings"]
-    python = verify.python_for(workspace)
+    python = test_environment.run_python(state, workspace)
     environment = verify.test_environment(workspace)
     executables = []
     for check in checks:
@@ -369,7 +371,7 @@ def guard(state: RunState, workspace, run_dir, *, worker=None, persist=lambda _p
                                     cast(Path, root) / path,
                                     root,
                                     output,
-                                    python=verify.python_for(workspace),
+                                    python=test_environment.run_python(state, workspace),
                                     paused=lambda: (Path(run_dir) / "pause-requested").exists(),
                                 )
                             receipts.append({"id": "design-access", "context": context, "path": path, **result})
@@ -381,7 +383,7 @@ def guard(state: RunState, workspace, run_dir, *, worker=None, persist=lambda _p
                 timeout = state["settings"].get("limits", {}).get("tool_timeout_seconds", verify.DEFAULT_TIMEOUT)
                 for check in checks:
                     for context, root in (("workspace", Path(workspace)), ("scratch", tree)):
-                        command = shlex.join(_command(check, root, verify.python_for(workspace)))
+                        command = shlex.join(_command(check, root, test_environment.run_python(state, workspace)))
                         output = directory / f"{check['id']}-{context}.log"
                         summary = f"{phase}: {check['id']} ({context})"
                         with runner_check.track(state, run_dir, "task_preflight", summary, persist) as update:
@@ -390,7 +392,7 @@ def guard(state: RunState, workspace, run_dir, *, worker=None, persist=lambda _p
                             if check.get("execution") == "worker":
                                 result, result_text = workers.execute(
                                     worker,
-                                    _command(check, root, verify.python_for(workspace)),
+                                    _command(check, root, test_environment.run_python(state, workspace)),
                                     root,
                                     output,
                                     timeout=check["timeout_seconds"],
@@ -398,7 +400,7 @@ def guard(state: RunState, workspace, run_dir, *, worker=None, persist=lambda _p
                                 )
                             elif body["version"] == 2:
                                 result = workers.run(
-                                    _command(check, root, verify.python_for(workspace)),
+                                    _command(check, root, test_environment.run_python(state, workspace)),
                                     root,
                                     output,
                                     timeout=check["timeout_seconds"],

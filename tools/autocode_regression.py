@@ -101,6 +101,7 @@ try:
     from . import autocode_runner_check as runner_check
     from . import autocode_status as status
     from . import autocode_test_cases as test_cases
+    from . import autocode_test_environment as test_environment
     from . import autocode_test_homes as test_homes
     from . import autocode_test_parts as test_parts
     from . import autocode_test_role_inventory as role_inventory
@@ -149,6 +150,7 @@ except ImportError:
     import autocode_runner_check as runner_check
     import autocode_status as status
     import autocode_test_cases as test_cases
+    import autocode_test_environment as test_environment
     import autocode_test_homes as test_homes
     import autocode_test_parts as test_parts
     import autocode_test_role_inventory as role_inventory
@@ -905,7 +907,7 @@ def _prove_once(state: RunState, workspace, run_dir, current, *, all_due=False):
     python = (
         (framework.python if framework and framework.name in ("pytest", "unittest") else None)
         or options.get("python")
-        or verify.python_for(state.get("project_workspace") or workspace)
+        or test_environment.run_python(state, workspace)
     )
     base = base_commit(state, workspace)
     detection = rooted(options)

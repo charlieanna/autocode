@@ -29,6 +29,7 @@ try:
     from . import autocode_package_scope as package_scope
     from . import autocode_regression_state as regression_state
     from . import autocode_run_base as run_base
+    from . import autocode_test_environment as test_environment
     from . import autocode_util as util
     from . import autocode_verification_schedule as schedule
     from . import autocode_verify as verify
@@ -39,6 +40,7 @@ except ImportError:
     import autocode_package_scope as package_scope
     import autocode_regression_state as regression_state
     import autocode_run_base as run_base
+    import autocode_test_environment as test_environment
     import autocode_util as util
     import autocode_verification_schedule as schedule
     import autocode_verify as verify
@@ -160,7 +162,7 @@ def select_suite(state: RunState, workspace: Path, run_dir: Path, *, all_due: bo
     python = (
         (framework.python if framework and framework.name in ("pytest", "unittest") else None)
         or options.get("python")
-        or verify.python_for(state.get("project_workspace") or workspace)
+        or test_environment.run_python(state, workspace)
     )
 
     detection = {"base": base}
