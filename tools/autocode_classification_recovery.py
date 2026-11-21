@@ -44,13 +44,14 @@ except ImportError:
 
 ACTION = "--resume-paused --retry-failed-stage --job-retry-token TOKEN"
 STATUS = "PAUSED_BUILDER_CLASSIFICATION"
-# What a saved checkpoint shows until its next resume ends it (autocode_action_retained_recovery).
-NOTICE = "AutoCode will close the spent Builder failure classification with a recorded outcome."
+# The locked continuation checks whether the held source still matches before settling it.
+NOTICE = "AutoCode is checking whether this run can continue safely."
 CAUSES = {
     "disabled": "the Investigator is disabled for this run",
     "allowance": "this milestone's classification allowance is spent",
     "repair_limits": "the retained report is held by its spent failure or repair limits",
     "lost_request": "an older checkpoint did not retain its failed classification request",
+    "unknown": "the Investigator could not determine the retained failure's class",
 }
 STAGE = "investigate_stuck"
 BOUNDARY_BOUNDS = ("max_seconds", "max_cost_usd", "iteration_ceiling")
@@ -276,12 +277,11 @@ def _bound(state: RunState, held) -> bool:
 def exhausted(state: RunState) -> dict | None:
     """A held Builder failure that no automatic classification can take any more, or None.
 
-    Three holds reach here: a retained failed classification whose allowance, policy or repair
-    limits are spent; an older checkpoint whose failed request was not retained; and a failure
-    held unclassified because the milestone's allowance was already spent or the Investigator is
-    off (autocode_builder_failure.queue), which no resume could release. A hold awaiting
-    reconciliation (an attempt still open, uncertain artifacts, another repair) is not spent.
-    Pure: the caller checks the source revision (``conclude``)."""
+    Four holds reach here: a retained failed classification whose allowance, policy or repair
+    limits are spent; an older checkpoint whose failed request was not retained; a failure held
+    unclassified because the allowance was already spent or the Investigator is off; and a
+    completed matching Investigator diagnosis that explicitly remains unknown and asks no question.
+    A hold awaiting reconciliation is not spent. Pure: the caller checks source in ``conclude``."""
     held = state.get("builder_failure_hold") or {}
     if (
         state.get("status") != STATUS
@@ -310,11 +310,28 @@ def exhausted(state: RunState) -> dict | None:
         return {**found, "cause": "lost_request"}
     if state.get("pending_report_repair"):
         return None
-    looked = any(
-        row.get("identity") == "builder-failure:" + held["failure_id"]
-        for row in state.get("stuck_investigations") or []
+    looked = next(
+        (
+            row
+            for row in reversed(state.get("stuck_investigations") or [])
+            if row.get("identity") == "builder-failure:" + held["failure_id"]
+        ),
+        None,
     )
     if looked:
+        if (
+            looked.get("trigger") == "builder_failure"
+            and looked.get("outcome") == "paused"
+            and looked.get("failure_id") == held["failure_id"]
+            and looked.get("failure_class") == "unknown"
+            and looked.get("cause")
+            in ("stage_output", "role_disagreement", "missing_information", "environment", "other")
+            and isinstance(looked.get("user_question"), str)
+            and not looked["user_question"].strip()
+            and not state.get("pending_questions")
+            and not state.get("user_request")
+        ):
+            return {**found, "cause": "unknown"}
         return None  # A prior diagnosis of this failure is reused at resume (builder_failure).
     if not investigation_policy.enabled(state):
         return {**found, "cause": "disabled"}
