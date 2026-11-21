@@ -165,6 +165,16 @@ test('real editor shows the active-writer refusal', { timeout: 300_000 }, async 
     const after = publicStatus();
     assert.equal(after.needs.job_retry_token, before.needs.job_retry_token, 'refused action does not rotate the token');
     assert.equal(fs.readFileSync(fixture.calls, 'utf8'), originalCalls, 'refusal launches no model');
+    const retryFrame = await chat();
+    await retryFrame.locator('[data-question="route-architect"]').fill('gpt-6-sol@medium');
+    await retryFrame.locator('#take-action').click();
+    const accepted = await until('the answer to be accepted after the writer exits', () => {
+      const view = publicStatus();
+      return view.needs?.job_retry_token && view.needs.job_retry_token !== before.needs.job_retry_token ? view : null;
+    });
+    assert.equal(accepted.routes.architect.model, 'gpt-6-sol');
+    assert.equal(accepted.routes.architect.reasoning_effort, 'medium');
+    assert.equal(fs.readFileSync(fixture.calls, 'utf8'), originalCalls, 'answering launches no model');
     passed = true;
   } catch (error) {
     const actions = path.join(root, 'actions.jsonl');
