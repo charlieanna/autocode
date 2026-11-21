@@ -414,7 +414,15 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=N
 
         def run_part(part, folder, label, overlays):
             def execute(folder):
-                return scratch_run(workspace, folder, command=part, timeout=timeout, **overlays)
+                return scratch_run(
+                    workspace,
+                    folder,
+                    command=part,
+                    timeout=timeout,
+                    source_paths=source_scope.paths(state),
+                    expected_source_revision=revision,
+                    **overlays,
+                )
 
             if run_check is None:
                 return execute(folder)

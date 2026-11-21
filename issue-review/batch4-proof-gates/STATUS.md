@@ -161,6 +161,19 @@ pass while the strict-binding positive cases and final judgment remain open.
   records a complete runtime identity, but **still holds** because its import
   origin is module-reported, not independently authenticated. Its receipts are
   in `/private/tmp/autocode-proof-real-semver-ldl_8rer/evidence/observation/`.
+- Shared scratch preparation now compares the actual copied source against the
+  inventoried source before applying a deliberate patch or retained overlay,
+  checks its Git HEAD, rejects unpinned source paths, and rechecks the live
+  source. A caller may additionally supply an independently pinned source
+  revision with its authorized path scope; that value is carried through the
+  owned preparation worker. Pinned copies reject unbound symlink targets.
+  Direct and real admitted-worker controls change a source during copying and
+  restore it before the later check; both now refuse before running the
+  command. The direct race controls fail on master. Nested Git and selected
+  ignored paths remain supported, as do deliberate overlays after the copy
+  check. Protected-test replay now supplies its own current source revision and
+  approved scope. The independent claim-evidence caller must still adopt its
+  sealed Requirements revision and scope in its separate follow-up.
 - Unit and end-to-end acceptance-reference regressions now capture in-test
   and module-level dependency cases. The candidate test passes, while the
   original run raises a missing unrelated dependency before its assertion.
