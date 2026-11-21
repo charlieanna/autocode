@@ -555,7 +555,10 @@ class RetrofitTest(unittest.TestCase):
         # the guard skips its lineage by design, and a container runner may really hold pid 101 (#2446).
         pid = next(candidate for candidate in itertools.count(101) if candidate not in legacy_process.own_lineage())
         result = subprocess.CompletedProcess([], 0, stdout=f"{pid} python tools/autocode.py --run-dir {self.run}\n")
-        with patch.object(s.subprocess, "run", return_value=result):
+        with (
+            patch.object(s.subprocess, "run", return_value=result),
+            patch.object(legacy_process, "_exact_argv", return_value=None),
+        ):
             with self.assertRaisesRegex(s.Paused, str(pid)):
                 s.assert_no_legacy_process(self.run, self.root)
         with patch.object(s.subprocess, "run", return_value=subprocess.CompletedProcess([], 1, stdout="")):
@@ -575,6 +578,7 @@ class RetrofitTest(unittest.TestCase):
                 patch.object(
                     s.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout=f"{pid} {command}\n")
                 ),
+                patch.object(legacy_process, "_exact_argv", return_value=None),
             ):
                 s.assert_no_legacy_process(self.run, self.root)
         # Same-run controller and provider output remain protected, including
@@ -590,6 +594,7 @@ class RetrofitTest(unittest.TestCase):
                 patch.object(
                     s.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout=f"{pid} {command}\n")
                 ),
+                patch.object(legacy_process, "_exact_argv", return_value=None),
             ):
                 with self.assertRaisesRegex(s.Paused, f"Existing run process {pid}"):
                     s.assert_no_legacy_process(self.run, self.root)

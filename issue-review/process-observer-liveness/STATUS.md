@@ -74,3 +74,20 @@ combined editor case preserves the visible refusal and unchanged token, then
 holds a real status render during the accepted answer and checks its result.
 The merged CI-selection consumers pass 240 focused tests. The integrated host
 has not yet run; #4024's Rustup editor fix and the final required CI remain open.
+
+Integrated head 83b3e99cc passed the actual Linux VS Code Extension Host,
+6/6 cases. In the combined case the editor displayed the exact held-writer
+refusal, retained the retry token, then accepted the same no-provider answer
+while a genuine path-first status command remained held at render; the token
+rotated and the released status returned valid JSON. Extension units passed
+793 with 22 skipped. Full log: `/private/tmp/autocode-4031-83b3-editor-success.log`.
+This is an interim head; current-head required CI and #4024 integration remain.
+
+The 83b3 required suite failed five assertions in two `test_autocode` fixtures:
+their invented ps PIDs were positively absent, so the new gone-process guard
+correctly skipped them. The identical failures were reproduced against 83b3.
+The test-only correction explicitly marks those fake identities unknown and
+retains all original writer-refusal and path-boundary assertions. The full
+RetrofitTest class plus real/fixture process guard checks passed 144 tests;
+full Ruff and format checks passed. Real gone-process and live-writer controls
+remain in the focused suite.
