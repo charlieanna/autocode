@@ -9137,8 +9137,8 @@ test('test_ac3_assumption_label_follows_standing', async (t) => {
     assumption('A6', true),
     assumption('A7', false),
   ]);
+  assert.equal(shown.A2.label, 'reported convention, not independently verified or approved');
   assert.equal(shown.A1.label, 'confirmed by you');
-  assert.equal(shown.A2.label, 'project convention, not yet approved');
   assert.equal(shown.A3.label, 'approved with your understanding');
   assert.equal(shown.A4.label, 'review skipped');
   assert.equal(shown.A5.label, 'needs confirmation');

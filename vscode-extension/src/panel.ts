@@ -1152,7 +1152,7 @@ function el(tag, cls, text) {
    A row from an older core, with no standing, keeps the confirmed / needs confirmation label. */
 const ASSUMPTION_STANDING = {
   confirmed_by_person: { label: 'confirmed by you', done: true },
-  convention_not_approved: { label: 'project convention, not yet approved', done: false },
+  convention_not_approved: { label: 'reported convention, not independently verified or approved', done: false },
   approved_with_understanding: { label: 'approved with your understanding', done: false },
   skipped_review: { label: 'review skipped', done: false },
   needs_confirmation: { label: 'needs confirmation', done: false },
