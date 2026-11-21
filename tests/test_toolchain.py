@@ -238,22 +238,43 @@ class SelectedToolchainTests(unittest.TestCase):
     def test_an_interpreter_s_own_installed_packages_are_readable_contained(self):
         # #4015: Homebrew's site-packages is a link out of the Cellar, and Debian's dist-packages sits beside the
         # standard library, so a contained `python3 -m pytest` found no pytest though the run's suite had passed.
-        base = Path(getattr(sys, "_base_executable", sys.executable)).resolve()
-        listed = subprocess.run(
-            [str(base), "-I", "-S", "-c", toolchain.SITE_DIRECTORIES], capture_output=True, text=True, check=True
-        )
-        package = next(
-            (
-                entry.name
-                for directory in json.loads(listed.stdout)
-                if Path(directory).is_dir() and not Path(directory).resolve().is_relative_to(base.parent.parent)
-                for entry in sorted(Path(directory).resolve().iterdir())
-                if entry.name.isidentifier() and (entry / "__init__.py").is_file()
-            ),
-            None,
-        )
-        if package is None:
-            self.skipTest("requires a base interpreter with a package installed outside its standard library")
+        # Homebrew's base interpreter on macOS; Debian's /usr/bin/python3 (dist-packages) on Linux. An interpreter
+        # whose packages live inside its standard library (setup-python's) never had the gap.
+        found = None
+        for candidate in (Path(getattr(sys, "_base_executable", sys.executable)), Path("/usr/bin/python3")):
+            if found or not candidate.is_file():
+                continue
+            listed = subprocess.run(
+                [str(candidate.resolve()), "-I", "-S", "-c", "import sysconfig; print(sysconfig.get_path('stdlib'))"],
+                capture_output=True,
+                text=True,
+            )
+            sites = subprocess.run(
+                [str(candidate.resolve()), "-I", "-S", "-c", toolchain.SITE_DIRECTORIES], capture_output=True, text=True
+            )
+            if listed.returncode or sites.returncode:
+                continue
+            stdlib = Path(listed.stdout.strip()).resolve()
+            for directory in json.loads(sites.stdout):
+                site = Path(directory).resolve()
+                if not site.is_dir() or site.is_relative_to(stdlib):
+                    continue
+                for entry in sorted(site.iterdir()):
+                    module = entry.stem if entry.suffix == ".py" else entry.name
+                    if not module.isidentifier() or not (entry.suffix == ".py" or (entry / "__init__.py").is_file()):
+                        continue
+                    # Only a module that imports outside the boundary shows what the boundary changes.
+                    importable = subprocess.run(
+                        [str(candidate.resolve()), "-I", "-c", f"import {module}"], capture_output=True, timeout=30
+                    )
+                    if importable.returncode == 0:
+                        found = (candidate.resolve(), module)
+                        break
+                if found:
+                    break
+        if found is None:
+            self.skipTest("requires an interpreter with a package installed outside its standard library")
+        base, package = found
         with tempfile.TemporaryDirectory() as directory:
             work = Path(directory).resolve()
             root, bin_dir = work / "project", work / "bin"
