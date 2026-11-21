@@ -624,6 +624,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
         "scenarios/harness/fake_codex.py",
         (
+            "tests.test_fake_codex_event_identity",
             "tests.test_brief_cli",
             "tests.test_risk_cli",
             "tests.test_requirements_job_cli",
