@@ -39,7 +39,7 @@ except ImportError:
     import autocode_util as util
     import autocode_verify as verify
 
-VERSION = 5
+VERSION = 6
 
 
 def collect(
