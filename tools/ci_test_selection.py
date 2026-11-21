@@ -50,6 +50,23 @@ EXTENSION_HOST_RESOURCES = {
     "tests/provider_auth_fixture.py": ("vscode-extension/test/host/editor-host.test.cjs",),
     "tests/protected_link_vscode_fixture.py": ("vscode-extension/test/host/protected-link-recovery.test.cjs",),
     "tests/rustup_vscode_fixture.py": ("vscode-extension/test/host/rustup-containment.test.cjs",),
+    "tests/semver_reference_vscode_fixture.py": ("vscode-extension/test/host/semver-reference-repair.test.cjs",),
+    "tests/semver_reference_provider.py": ("vscode-extension/test/host/semver-reference-repair.test.cjs",),
+    **dict.fromkeys(
+        (
+            "tests/fixtures/semver-reference-m1/criteria.json",
+            "tests/fixtures/semver-reference-m1/product-78c.patch",
+            "tests/fixtures/semver-reference-m1/initial-test.py.txt",
+            "tests/fixtures/semver-reference-m1/strengthened-test.py.txt",
+            "tests/fixtures/semver-reference-m1/repaired-test.py.txt",
+            "tests/fixtures/semver-reference-m1/diagnostic-test.py.txt",
+            "tests/fixtures/semver-reference-m1/control-missing-export.py",
+            "tests/fixtures/semver-reference-m1/control-missing-field.py",
+            "tests/fixtures/semver-reference-m1/control-grounded.py",
+            "tests/fixtures/semver-reference-m1/control-api.py",
+        ),
+        ("vscode-extension/test/host/semver-reference-repair.test.cjs",),
+    ),
     "tests/source_recovery_vscode_fixture.py": ("vscode-extension/test/host/source-recovery.test.cjs",),
     "tests/status_retry_host_cleanup.py": (
         "vscode-extension/test/host/editor-host.test.cjs",

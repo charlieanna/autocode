@@ -64,6 +64,7 @@ class ScopeTests(unittest.TestCase):
             "tests/provider_auth_fixture.py",
             "tests/protected_link_vscode_fixture.py",
             "tests/rustup_vscode_fixture.py",
+            "tests/semver_reference_vscode_fixture.py",
             "tests/source_recovery_vscode_fixture.py",
             "tests/host_reader_cleanup.py",
             "tests/status_retry_host_cleanup.py",
@@ -81,6 +82,32 @@ class ScopeTests(unittest.TestCase):
             ci_test_selection.EXTENSION_HOST_RESOURCES["tests/protected_link_vscode_fixture.py"],
         )
         self.assertNotIn("extension", self.enabled("tests/unrelated/protected_link_vscode_fixture.py"))
+
+    def test_semver_reference_fixture_selects_only_its_registered_host_path(self):
+        from tools import ci_test_selection
+
+        resources = (
+            "tests/semver_reference_vscode_fixture.py",
+            "tests/semver_reference_provider.py",
+            "tests/fixtures/semver-reference-m1/criteria.json",
+            "tests/fixtures/semver-reference-m1/product-78c.patch",
+            "tests/fixtures/semver-reference-m1/initial-test.py.txt",
+            "tests/fixtures/semver-reference-m1/strengthened-test.py.txt",
+            "tests/fixtures/semver-reference-m1/repaired-test.py.txt",
+            "tests/fixtures/semver-reference-m1/diagnostic-test.py.txt",
+            "tests/fixtures/semver-reference-m1/control-missing-export.py",
+            "tests/fixtures/semver-reference-m1/control-missing-field.py",
+            "tests/fixtures/semver-reference-m1/control-grounded.py",
+            "tests/fixtures/semver-reference-m1/control-api.py",
+        )
+        for resource in resources:
+            with self.subTest(resource=resource):
+                self.assertEqual(
+                    ("vscode-extension/test/host/semver-reference-repair.test.cjs",),
+                    ci_test_selection.EXTENSION_HOST_RESOURCES[resource],
+                )
+                self.assertIn("extension", self.enabled(resource))
+        self.assertNotIn("extension", self.enabled("tests/unrelated/semver_reference_vscode_fixture.py"))
 
     def test_visual_changes_keep_their_real_browser_job(self):
         self.assertTrue({"suite", "visual", "wheel"} <= self.enabled("tools/autocode_visual_browser.cjs"))

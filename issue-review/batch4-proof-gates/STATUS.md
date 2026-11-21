@@ -80,6 +80,13 @@ host-registry, CI-selection, fixture and discovery controls passed
 local integration and any M1 host fixture still require their own exact-head
 CI and editor result before readiness.
 
+The M1 editor fixture, its scripted provider and ten named fixture resources
+are registered by exact path to the intended host test, with unrelated same-name
+paths excluded. The new registration is absent on master `af28f4dff`; the CI
+scope and selection controls passed 179 tests on this local candidate
+(`/private/tmp/autocode-semver-host-resource-controls.log`). The fixture itself
+and its actual editor outcome remain separate pending work.
+
 **2026-11-20 source-boundary and failure-identity follow-up:** #3926 and
 #3944 remain incomplete and this PR must remain draft. The existing native
 readonly-check boundary cannot be substituted for the reported executions: it
