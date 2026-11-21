@@ -3908,6 +3908,13 @@ test('a refused command shows the core\'s reason without the argparse usage line
   assert.equal(cli.tail(refused), '--run-dir /ws/.autocode/runs/x has no state.json');
   assert.equal(cli.tail({ code: 1, stdout: '', stderr: 'Run: /ws\nsomething failed', rejected: false }), 'Run: /ws\nsomething failed');
   assert.equal(cli.tail({ code: 2, stdout: '', stderr: 'usage: autocode [TASK] [OPTIONS]', rejected: false }), 'usage: autocode [TASK] [OPTIONS]');
+  const stdoutRefusal = cli.tail({ code: 2, stdout: 'Input rejected: stale answer\n', stderr: 'A prior warning\n', rejected: true });
+  assert.match(stdoutRefusal, /^Input rejected: stale answer/);
+  assert.match(stdoutRefusal, /A prior warning/);
+  const longRefusal = cli.tail({ code: 2, stdout: '', stderr: 'autocode: writer is active\n' + 'later detail\n'.repeat(30), rejected: true });
+  assert.match(longRefusal, /^autocode: writer is active/);
+  assert.match(longRefusal, /later detail/);
+  assert.ok(longRefusal.length <= 800);
 });
 
 test('Full chat starts a greeting without the spend dialog when the core defers it to planning', async (t) => {

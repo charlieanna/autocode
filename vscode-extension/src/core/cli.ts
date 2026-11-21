@@ -330,11 +330,15 @@ function withoutCapabilityNotice(text: string): string {
   return text.split("\n").filter((line) => line.replace(/\r$/, "") !== CAPABILITY_NOTICE).join("\n");
 }
 
+function refusalLine(stdout: string, stderr: string): string | undefined {
+  return [withoutCapabilityNotice(stderr), stdout].flatMap((text) => text.split(/\r?\n/))
+    .find((line) => line.startsWith("Input rejected:") || line.startsWith("autocode:"));
+}
+
 function isRejection(code: number | null, stdout: string, stderr: string): boolean {
   if (code !== 2) return false;
   const error = withoutCapabilityNotice(stderr);
-  return error.startsWith("usage:") || [stdout, error].some((text) =>
-    text.split(/\r?\n/).some((line) => line.startsWith("Input rejected:") || line.startsWith("autocode:")));
+  return error.startsWith("usage:") || refusalLine(stdout, stderr) !== undefined;
 }
 
 /** `autocode --workspace W --run-dir R --status`, as a parsed view. */
@@ -359,5 +363,11 @@ export function tail(result: CliResult): string {
   const lines = text.split("\n")
     .filter((line) => !/^usage: /.test(line))
     .map((line) => line.replace(/^[\w.-]+: error: /, ""));
-  return (lines.length ? lines : text.split("\n")).slice(-6).join("\n");
+  const detail = (lines.length ? lines : text.split("\n")).slice(-6).join("\n");
+  const rawReason = result.code === 2 ? refusalLine(result.stdout, result.stderr) : undefined;
+  if (!rawReason) return detail;
+  const reason = rawReason.replace(/^[\w.-]+: error: /, "").slice(0, 800);
+  const rest = detail.split("\n").filter((line) => line !== reason).join("\n").trim();
+  const room = 800 - reason.length - 3;
+  return reason + (rest && room > 0 ? ` … ${rest.slice(-room)}` : "");
 }

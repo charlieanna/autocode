@@ -15,7 +15,9 @@ limit changes return 0 on save and 2 on refusal. Only those documented named
 decisions are classified as save-only; advancing and `--reconcile-only` keep
 their existing pause/reconciliation exit-2 behavior. The CLI adapter also uses
 TaskRun's established line-start refusal envelopes on either output stream and
-ignores only the exact capability-drop notice. It does not grant new authority.
+ignores only the exact capability-drop notice. Its bounded error detail keeps
+the refusal reason first even when the other stream has a warning or later
+output is long. It does not grant new authority.
 The controller is shared by sidebar, Run Details and extension commands.
 
 Six targeted tests failed on base (sidebar, Run Details, answer, approval,
@@ -27,3 +29,13 @@ The narrowed version passes the full extension suite (793 passed, 22 skipped),
 typecheck, full Ruff/format and mypy. The headless refusal-envelope regression
 also failed on base and passes after the alignment. The tests mock failures;
 they do not establish the actual editor outcome.
+
+The offline host regression now holds a process with writer-shaped real CLI
+argv, submits the exact saved-model answer and requires a visible refusal and
+unchanged token, then releases the owned process and requires a successful
+answer/token rotation. The held process stops at an injected test barrier and
+does not execute the synthetic writer action; no model is called. The test
+waits for the second action to finish before its status poll, so it does not
+depend on the separate, unmerged path-first observer guard fix (#4031).
+HOME and CODEX_HOME remain inherited in this new host scenario. Actual Linux
+host and exact-head required CI are pending.
