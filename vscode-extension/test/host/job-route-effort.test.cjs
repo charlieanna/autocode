@@ -91,6 +91,9 @@ test('real editor offers the bound quota model and effort decision', { timeout: 
     });
     const before = publicStatus();
     assert.equal(before.needs.kind, 'retry_job');
+    assert.equal(before.needs.effort_drift, true);
+    assert.equal(before.recovery.what_happened, "The Design Reviewer's saved model settings changed. Review the model and reasoning level before retrying.");
+    assert.equal(before.progress.needs_you, 'review the model and reasoning level for the Design Reviewer, then retry it');
     assert.match(before.next_command ?? '', /--answer route-architect=MODEL/);
     assert.ok(before.needs.job_retry_token);
     assert.equal(before.recovery.actions.some((action) => action.kind === 'retry_job'), false);
@@ -109,7 +112,7 @@ test('real editor offers the bound quota model and effort decision', { timeout: 
     passed = true;
   } catch (error) {
     console.error('Quota route host diagnostics:', JSON.stringify({ root, lastState }));
-    await win?.screenshot({ path: path.join(EXTENSION, '.vscode-test', 'quota-route-last.png'), timeout: 5_000 }).catch(() => {});
+    await win?.screenshot({ path: path.join(EXTENSION, '.vscode-test', 'host-quota-route.png'), timeout: 5_000 }).catch(() => {});
     throw error;
   } finally {
     if (app) {
