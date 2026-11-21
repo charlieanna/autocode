@@ -795,6 +795,12 @@ def main() -> int:
         schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
         if stage in ("tester", "review_checkpoint") and "changed_code_exceptions" in schema.get("properties", {}):
             report["changed_code_exceptions"] = quote_changed_lines(data, changed_code_reasons(spec, data))
+        row_fields = schema.get("properties", {}).get("criterion_results", {}).get("items", {}).get("properties", {})
+        if stage == "tester" and "probe_reason" in row_fields:
+            # The scripted Tester runs only the component's one check, so it records why (autocode_tester_probes).
+            for row in report.get("criterion_results") or []:
+                if row.get("status") == "PASS":
+                    row.setdefault("probe_reason", f"Scripted component Tester: {row['id']} has only its fixed check")
         if "source_verdict" in schema.get("properties", {}):
             report.setdefault(
                 "source_verdict",

@@ -125,6 +125,8 @@ def report(data):
                 {"id": f"C{i}", "status": "PASS" if i < 3 or done else "NOT_VERIFIED", "evidence_refs": ["event:check"]}
                 for i in (1, 2, 3)
             ],
+            # The scripted Tester reads the outputs once and varies no input, so it records why for each PASS
+            # criterion (autocode_tester_probes).
             "end_to_end_result": {
                 "status": "PASS" if done else "NOT_VERIFIED",
                 "summary": "Read combined output" if done else "Inputs pass; combined output is not built yet",
@@ -134,6 +136,9 @@ def report(data):
             },
             "finding_dispositions": [],
         }
+        for row in value["criterion_results"]:
+            if row["status"] == "PASS":
+                row["probe_reason"] = f"Scripted Tester: {row['id']} is a fixed output file; no input can vary"
         if data["current_task"].get("milestone_ids"):
             value["milestone_results"] = [
                 {"milestone_id": mid, "status": "PASS", "summary": "Output executed", "evidence_refs": ["event:check"]}

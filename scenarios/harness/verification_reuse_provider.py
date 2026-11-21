@@ -41,7 +41,17 @@ def report_for(data, common, emit):
         "unverified_criteria": [],
         "checks": [{"command": command, "exit_code": result.returncode, "evidence_ref": "event:check"}],
         "criterion_results": [
-            {"id": row["id"], "status": status, "evidence_refs": ["check:1"]}
+            {
+                "id": row["id"],
+                "status": status,
+                "evidence_refs": ["check:1"],
+                # The supplemental run varies no input of its own, so the Tester records why (autocode_tester_probes).
+                **(
+                    {"probe_reason": f"Scripted Tester: {row['id']} has only its fixed test run"}
+                    if status == "PASS"
+                    else {}
+                ),
+            }
             for row in data["goal_contract"]["body"]["acceptance_criteria"]
         ],
         "end_to_end_result": {

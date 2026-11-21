@@ -1067,6 +1067,15 @@ if stage in ("tester", "review_checkpoint") and "changed_code_exceptions" in val
         }.values()
     )  # one reason per gap: the gate refuses a duplicate gap_id
     validation_report["changed_code_exceptions"] = quote_changed_lines(data, reasons[:cap])
+criterion_row = validation_schema.get("criterion_results", {}).get("items", {}).get("properties", {})
+if stage == "tester" and (not schema or "probe_reason" in criterion_row):
+    # A scripted Tester runs no probe of its own beyond its one scripted CLI check, so it records why for
+    # each PASS criterion (autocode_tester_probes); review_checkpoint's schema offers no probe_reason.
+    for row in validation_report.get("criterion_results") or []:
+        if row.get("status") == "PASS":
+            row.setdefault(
+                "probe_reason", f"Scripted fixture Tester: {row['id']} is checked by its fixed scripted CLI flow only"
+            )
 if "--output-schema" in sys.argv:
     if "workspace_scope" in schema.get("properties", {}):
         result.setdefault("workspace_scope", {"spans_repositories": False, "external_parts": []})
