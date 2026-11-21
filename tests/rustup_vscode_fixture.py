@@ -40,6 +40,10 @@ def provider_path(root: Path, cargo_bin: Path, inherited: str) -> str:
     return os.pathsep.join((str(root / "bin"), str(Path(sys.executable).parent), str(cargo_bin), inherited))
 
 
+def cargo_explicit_command(program: str, toolchain: str) -> str:
+    return shlex.join([program, "+" + toolchain, "--version"])
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 1:
         raise SystemExit("usage: rustup_vscode_fixture.py ROOT")
@@ -120,9 +124,10 @@ if agent == "autocode_builder" and os.environ.get("AUTOCODE_FIXTURE_RUSTUP_RECOR
         try:
             details["phase"] = "executing contained Cargo"; note()
             shell = config.get("shell") or os.environ["SHELL"]
-            explicit = subprocess.run([shell, "-c", shlex.quote(os.environ["AUTOCODE_FIXTURE_CARGO_PROGRAM"]) + " " + shlex.quote("+" + os.environ["AUTOCODE_FIXTURE_RUSTUP_EXPLICIT"]) + " --version"], capture_output=True, text=True, timeout=120)
+            explicit_command = os.environ["AUTOCODE_FIXTURE_RUSTUP_COMMAND"]
+            explicit = subprocess.run([shell, "-c", explicit_command], capture_output=True, text=True, timeout=120)
             result = subprocess.run([shell, "-c", os.environ["AUTOCODE_FIXTURE_CARGO_CHECK"]], capture_output=True, text=True, timeout=120)
-            Path(os.environ["AUTOCODE_FIXTURE_RUSTUP_RECORD"]).write_text(json.dumps({"exit":result.returncode,"stdout":result.stdout,"stderr":result.stderr,"shell":shell,"explicit_command":shlex.quote(os.environ["AUTOCODE_FIXTURE_CARGO_PROGRAM"]) + " +" + os.environ["AUTOCODE_FIXTURE_RUSTUP_EXPLICIT"] + " --version","explicit_exit":explicit.returncode,"explicit_stdout":explicit.stdout,"explicit_stderr":explicit.stderr}))
+            Path(os.environ["AUTOCODE_FIXTURE_RUSTUP_RECORD"]).write_text(json.dumps({"exit":result.returncode,"stdout":result.stdout,"stderr":result.stderr,"shell":shell,"explicit_command":explicit_command,"explicit_exit":explicit.returncode,"explicit_stdout":explicit.stdout,"explicit_stderr":explicit.stderr}))
             details["phase"] = "waiting for fixture release"; note()
             if not select.select([fd], [], [], 120)[0]: raise SystemExit(124)
             os.read(fd, 1)
@@ -155,6 +160,7 @@ if agent == "autocode_builder" and os.environ.get("AUTOCODE_FIXTURE_RUSTUP_RECOR
         AUTOCODE_FIXTURE_RUSTUP_EXPLICIT=explicit,
         AUTOCODE_FIXTURE_CARGO_CHECK=check,
         AUTOCODE_FIXTURE_CARGO_PROGRAM=cargo_path if absolute_cargo else "cargo",
+        AUTOCODE_FIXTURE_RUSTUP_COMMAND=cargo_explicit_command(cargo_path if absolute_cargo else "cargo", explicit),
     )
     run_driver = driver.Driver(
         project,
@@ -225,6 +231,7 @@ if agent == "autocode_builder" and os.environ.get("AUTOCODE_FIXTURE_RUSTUP_RECOR
         "AUTOCODE_FIXTURE_RUSTUP_EXPLICIT",
         "AUTOCODE_FIXTURE_CARGO_CHECK",
         "AUTOCODE_FIXTURE_CARGO_PROGRAM",
+        "AUTOCODE_FIXTURE_RUSTUP_COMMAND",
         "AUTOCODE_REPLAY_EMITTER_COMMAND",
         "AUTOCODE_REPLAY_FIXTURE_ROOT",
     )

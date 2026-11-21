@@ -113,7 +113,7 @@ for (const absoluteCargo of [false, true]) test(`real editor runs ${absoluteCarg
     const observed = await until('real Cargo execution through the selected shell', () =>
       fs.existsSync(record) ? JSON.parse(fs.readFileSync(record, 'utf8')) : null, 240_000);
     assert.equal(observed.exit, 0, observed.stderr);
-    assert.equal(observed.explicit_command, `${env.AUTOCODE_FIXTURE_CARGO_PROGRAM} +${env.AUTOCODE_FIXTURE_RUSTUP_EXPLICIT} --version`);
+    assert.equal(observed.explicit_command, env.AUTOCODE_FIXTURE_RUSTUP_COMMAND);
     assert.equal(observed.explicit_exit, 0, observed.explicit_stderr);
     assert.match(observed.explicit_stdout, /cargo \d/);
     assert.match(observed.stdout + observed.stderr, absoluteCargo ? /cargo \d/ : /test result: ok/);
