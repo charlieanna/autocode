@@ -12,6 +12,17 @@ import autocode_plan_file as plan_file
 import autocode_util as util
 
 
+class CurrentBehaviorEvidenceTests(unittest.TestCase):
+    def test_model_report_of_passing_baseline_is_identified_as_unverified(self):
+        plan = body()
+        plan["acceptance_criteria"][0]["current_behavior"] = (
+            "The whole suite passed, verified by pytest --collect-only."
+        )
+        shown = plan_file.review_markdown(plan)
+        self.assertIn("Reported current behavior (not independently verified):", shown)
+        self.assertIn("The whole suite passed", shown)
+
+
 def body() -> dict:
     """A contract body with every section a plan can carry, and text that is awkward to quote."""
     return {

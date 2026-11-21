@@ -584,9 +584,13 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
       label: view.code_checkpoints.all_changes.label ?? "Show all changes",
       // The core compares saved code. Its public checkpoint identities change even when
       // the named command and chat stay the same; timing and log updates do not.
+      // The newest kept code is part of it (#3945): work a stage kept without a new step changes the diff.
       context: JSON.stringify([view.code_checkpoints.all_changes.next_command,
         (view.code_checkpoints.rows ?? []).filter((row) => row.available)
-          .map((row) => [row.id, row.source_revision, row.commit])]),
+          .map((row) => [row.id, row.source_revision, row.commit]),
+        view.code_checkpoints.kept
+          ? [view.code_checkpoints.kept.id, view.code_checkpoints.kept.source_revision, view.code_checkpoints.kept.commit]
+          : null]),
     } : null,
     workingDiff: view.code_checkpoints?.working?.next_command ? { label: view.code_checkpoints.working.label ?? "Show changes so far" } : null,
     plan,
@@ -1148,6 +1152,21 @@ function el(tag, cls, text) {
   return node;
 }
 
+/* Where an assumption's standing comes from (#3898): only the person's own confirmation reads as done.
+   A row from an older core, with no standing, keeps the confirmed / needs confirmation label. */
+const ASSUMPTION_STANDING = {
+  confirmed_by_person: { label: 'confirmed by you', done: true },
+  convention_not_approved: { label: 'reported convention, not independently verified or approved', done: false },
+  approved_with_understanding: { label: 'approved with your understanding', done: false },
+  skipped_review: { label: 'review skipped', done: false },
+  needs_confirmation: { label: 'needs confirmation', done: false },
+};
+function assumptionStanding(item) {
+  const known = Object.prototype.hasOwnProperty.call(ASSUMPTION_STANDING, item.standing) ? ASSUMPTION_STANDING[item.standing] : null;
+  if (known) return known;
+  return item.confirmed ? { label: 'confirmed', done: true } : { label: 'needs confirmation', done: false };
+}
+
 /* The "---" and "+++" file headers must be named before the "+" and "-" line kinds, or the two
    lines that introduce every file in the patch read as a removed and an added line. */
 const DIFF_HEADER = /^(diff |index |--- |\\+\\+\\+ |new file|deleted file|old mode|new mode|similarity|dissimilarity|rename |copy |Binary files)/;
@@ -1377,6 +1396,8 @@ function renderFinish(state) {
     const shown = files.slice(0, 6).join(', ') + (files.length > 6 ? ' and ' + (files.length - 6) + ' more' : '');
     fact('Changed', files.length + (files.length === 1 ? ' file: ' : ' files: ') + shown, 'files');
   }
+  const note = allChangesNote(allChangesCompare);
+  if (note) fact('Not included', note, 'all-changes-note');
   if (finish.seconds !== null) fact('Stage time', formatDuration(finish.seconds));
   if (state.meter && state.meter.total) fact('Cost', state.meter.total.replace(/^Cost /, ''));
   if (facts.childNodes.length) {
@@ -1391,7 +1412,8 @@ function renderFinish(state) {
   if (state.allChanges) {
     const show = el('button', null, 'Show changes');
     show.id = 'finish-show-changes';
-    show.disabled = Boolean(state.taking || state.unreadable);
+    // A display-only read: available while the chat waits for another command (#3871).
+    show.disabled = Boolean(state.unreadable);
     show.addEventListener('click', () => {
       requestAllChanges(state);
       const target = document.getElementById('all-changes');
@@ -1409,7 +1431,7 @@ function renderFinish(state) {
 }
 
 function requestAllChanges(state, show = true) {
-  if (!state.allChanges || state.taking || state.unreadable) return;
+  if (!state.allChanges || state.unreadable) return;
   if (show) allChangesVisible = true;
   allChangesRequested = true;
   allChangesCompare = { loading: true };
@@ -1417,6 +1439,13 @@ function requestAllChanges(state, show = true) {
   render(state);
   vscode.postMessage({ type: 'all_changes', runKey: state.workspace + '\\n' + state.runDir,
     requestId: ++allChangesRequest });
+}
+
+/** Where the whole-run diff ends and what it leaves out, when it is not the whole change (#3945). */
+function allChangesNote(compare) {
+  const comparison = compare && compare.comparison;
+  return comparison && comparison.complete === false && typeof comparison.note === 'string' && comparison.note
+    ? comparison.note : null;
 }
 
 /** The run's result: one diff of everything it changed, never a step-by-step history to pick from. */
@@ -1428,7 +1457,7 @@ function renderAllChanges(state) {
   const box = el('div', 'decision');
   const show = el('button', 'secondary', state.allChanges.label);
   show.id = 'all-changes-show';
-  show.disabled = Boolean(state.taking || state.unreadable);
+  show.disabled = Boolean(state.unreadable);
   show.addEventListener('click', () => requestAllChanges(state));
   box.appendChild(show);
   if (allChangesCompare && allChangesCompare.loading) {
@@ -1439,6 +1468,8 @@ function renderAllChanges(state) {
     const comparison = allChangesCompare.comparison || {};
     const files = (comparison.changed_files || []).length;
     box.appendChild(el('div', 'why', files + ' file(s) changed in this run' + (comparison.truncated ? ' · diff truncated' : '')));
+    const note = allChangesNote(allChangesCompare);
+    if (note) box.appendChild(el('div', 'why all-changes-note', note));
     box.appendChild(diffBlock(comparison.patch, 'This run has not changed any files.'));
   }
   app.appendChild(box);
@@ -1822,7 +1853,8 @@ function render(state) {
               const head = el('div', 'assumption-head');
               head.appendChild(el('span', 'state', item.id));
               if (item.category) head.appendChild(el('span', 'meta', item.category));
-              head.appendChild(el('span', 'state ' + (item.confirmed ? 'done' : ''), item.confirmed ? 'confirmed' : 'needs confirmation'));
+              const standing = assumptionStanding(item);
+              head.appendChild(el('span', 'state ' + (standing.done ? 'done' : ''), standing.label));
               row.appendChild(head);
               row.appendChild(el('div', 'q', item.text));
               if (item.rationale) row.appendChild(el('div', 'why', 'Why: ' + item.rationale));

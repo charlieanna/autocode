@@ -381,6 +381,7 @@ def validate(state: RunState, value, record, workspace):
         value,
         stage="resolve",
         covered_case_ids=acceptance_tests.covered(state),
+        survivor_case_ids=acceptance_test_repair.survivor_case_ids(state),
     )
     resolver_recovery.validate_decision(state, value, record)
 

@@ -28,6 +28,9 @@ try:
         autocode_check_refs as check_refs,
     )
     from . import (
+        autocode_claim_evidence as claim_evidence,
+    )
+    from . import (
         autocode_code_citations as code_citations,
     )
     from . import autocode_plan_retention as retention
@@ -64,6 +67,7 @@ except ImportError:
     import autocode_acceptance_tests as acceptance_tests
     import autocode_brief_obligations as brief_obligations
     import autocode_check_refs as check_refs
+    import autocode_claim_evidence as claim_evidence
     import autocode_code_citations as code_citations
     import autocode_plan_retention as retention
     import autocode_plan_revision_reference as revision_reference
@@ -114,6 +118,7 @@ def build_spec(
     workspace: Path,
     schema: dict[str, Any],
     state: RunState | None = None,
+    events_path: Path | None = None,
 ) -> dict[str, Any]:
     """Build a public, self-contained report-check specification from schema and public cues."""
     spec: dict[str, Any] = {
@@ -126,6 +131,11 @@ def build_spec(
         return spec
     if stage in acceptance_test_repair.ALL_STAGES:
         spec["covered_acceptance_cases"] = sorted(acceptance_tests.covered(state))
+    if stage in claim_evidence.CLAIM_STAGES:
+        # The claim judge's inputs (#3904, #3947): admission reads the same context from the run.
+        spec[claim_evidence.SPEC_KEY] = claim_evidence.context(
+            state, workspace, record={"events": str(events_path)} if events_path else None
+        )
     if stage == "tester":
         # The approved required commands, so a PASS criterion citing only them is refused here as the runner
         # refuses it (autocode_tester_probes).
@@ -389,6 +399,19 @@ def _check_evidence_binding(stage: str, data: dict[str, Any], errors: list[str])
         errors.extend(check_refs.unbound_message(*row) for row in check_refs.public_unbound_events(target))
 
 
+def _check_claims(stage: str, data: dict[str, Any], spec: dict[str, Any], workspace: Path, errors: list[str]):
+    """Runner admission's claim judgment (autocode_claim_evidence), on the same inputs (#3904, #3947).
+
+    A spec built without run state still judges exit-code statements against the workspace's captures.
+    """
+    if stage not in claim_evidence.CLAIM_STAGES:
+        return
+    context = spec.get(claim_evidence.SPEC_KEY)
+    if not isinstance(context, dict):
+        context = {"workspace": str(workspace), "evidence_dirs": claim_evidence.evidence_dirs(workspace, None)}
+    errors.extend(claim_evidence.judge(stage, data, context)[0])
+
+
 def _check_investigate_stuck(data: dict[str, Any], errors: list[str]) -> None:
     if not str(data.get("diagnosis") or "").strip():
         errors.append("An investigation must say what it found")
@@ -452,6 +475,7 @@ def check_report(raw_text: str, *, spec: dict[str, Any]) -> list[str]:
     elif stage in _VALIDATOR_STAGES or stage == "review_plan":
         _check_validator(data, workspace, errors)
         _check_evidence_binding(stage, data, errors)
+        _check_claims(stage, data, spec, workspace, errors)
         if stage == "tester":
             _check_tester_probes(data, spec, workspace, errors)
     elif stage == "investigate_stuck":

@@ -1,6 +1,7 @@
 """Ready check batches preserve literal argv and the individual capture fallback."""
 
 import base64
+import hashlib
 import json
 import os
 import shlex
@@ -12,11 +13,36 @@ from pathlib import Path
 from unittest.mock import patch
 
 import autocode_ready_capture_batch as ready
+import autocode_receipt_auth as receipt_auth
 import autocode_stage_context as context
 import autocode_support as support
 
 
 class ReadyCaptureBatchTests(unittest.TestCase):
+    def test_native_batch_override_requires_its_owned_scratch_binding(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            control = "tool-containment-" + "a" * 32
+            scratch = root / ".autocode" / control / "scratch"
+            scratch.mkdir(parents=True)
+            receipt = scratch / ("ready-" + "b" * 32 + "-1.json")
+            plan = {"directory": str(root / ".autocode/evidence")}
+            manifest = scratch.parent / "verification-copy.json"
+            manifest.write_text("copy metadata")
+            binding = {"verification_copy": {"manifest_sha256": hashlib.sha256(manifest.read_bytes()).hexdigest()}}
+            self.assertTrue(receipt_auth._batch_location(plan, receipt, root, binding))
+            manifest.write_text("changed")
+            self.assertFalse(receipt_auth._batch_location(plan, receipt, root, binding))
+            manifest.unlink()
+            writer = scratch.parent / "writer-capture.json"
+            writer.write_text(
+                json.dumps({"version": 1, "workspace": str(root), "scratch": str(scratch), "control": control})
+            )
+            self.assertFalse(receipt_auth._batch_location(plan, receipt, root, {}))
+            writer.chmod(0o444)
+            self.assertTrue(receipt_auth._batch_location(plan, receipt, root, {}))
+            self.assertFalse(receipt_auth._batch_location(plan, root / "elsewhere" / receipt.name, root, binding))
+
     def packet(self, commands, stage="tester"):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
@@ -444,7 +470,22 @@ class ReadyCaptureBatchTests(unittest.TestCase):
                 "aggregated_output": ran.stdout + ran.stderr,
             }
             events.write_text(json.dumps({"type": "item.completed", "item": item}) + "\n")
-            support.verify_checks(checks, root, events)
+            with self.assertRaisesRegex(ValueError, "validation attempt"):
+                support.verify_checks(checks, root, events)
+            support.verify_checks(checks, root, events, capture_context=identity)
+            wrong_batch = ready.context(capture, commands, root / ".autocode/other-evidence")
+            for altered in (
+                {**item, "command": wrong_batch["command"]},
+                {
+                    **item,
+                    "aggregated_output": (ran.stdout + ran.stderr).replace(
+                        checks[0]["evidence_ref"], "/other/old.json"
+                    ),
+                },
+            ):
+                events.write_text(json.dumps({"type": "item.completed", "item": altered}) + "\n")
+                with self.assertRaisesRegex(ValueError, "independently executed"):
+                    support.verify_checks([dict(checks[0])], root, events, capture_context=identity)
             native = {
                 "type": "tool_use",
                 "sessionID": "batch-session",
@@ -462,7 +503,7 @@ class ReadyCaptureBatchTests(unittest.TestCase):
                 },
             }
             events.write_text(json.dumps(native) + "\n")
-            support.verify_checks(checks, root, events)
+            support.verify_checks(checks, root, events, capture_context=identity)
             support.verify_checks(checks, root, events, receipt_only=True, capture_context=identity)
             for changed in ({"nonce": "stale"}, {"source_revision": "different"}, {"attempt": "earlier"}):
                 with self.subTest(changed=changed), self.assertRaisesRegex(ValueError, "validation attempt"):
@@ -473,7 +514,7 @@ class ReadyCaptureBatchTests(unittest.TestCase):
             item.pop("exit_code")
             events.write_text(json.dumps({"type": "item.completed", "item": item}) + "\n")
             with self.assertRaisesRegex(ValueError, "independently executed"):
-                support.verify_checks(checks, root, events)
+                support.verify_checks(checks, root, events, capture_context=identity)
             Path(checks[0]["evidence_ref"]).unlink()
             with self.assertRaises(ValueError):
                 support.verify_checks(checks, root, events, receipt_only=True, capture_context=identity)

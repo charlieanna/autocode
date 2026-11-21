@@ -14,16 +14,23 @@ export interface WaitNotice {
  * dependency waits on another run, so neither says "waiting for you": the core's own line for them is
  * "nothing needed from you", and the notice said both at once.
  */
+function unavailableResume(view: StatusView): boolean {
+  return Boolean(view.recovery?.category === "blocked" && view.needs?.kind === "resume"
+    && view.needs.resume_unavailable && !view.next_command && !view.chat?.input?.next_command);
+}
+
 function outcomeFor(view: StatusView, tail: string): string {
   if (view.done) return "finished.";
+  if (unavailableResume(view)) return `is blocked - ${view.recovery?.what_happened || "no action is available."}`;
   if (view.needs?.kind === "continue") return "stopped. No decision is needed; press Continue in its chat to go on.";
   if (view.needs?.kind === "dependency") return "is waiting for another run to deliver. Nothing is needed from you.";
   return `is waiting for you - ${tail}`;
 }
 
-function needIdentity(need: Needs): string {
+function needIdentity(need: Needs, recoveryCategory?: string): string {
   return JSON.stringify([
     need.kind,
+    recoveryCategory ?? null,
     need.request_id ?? null,
     need.resolver_token ?? null,
     need.resolver_request_id ?? null,
@@ -40,13 +47,13 @@ function waitNotice(view: StatusView | null | undefined): WaitNotice | null {
   if (!need) return null;
   if (need.kind === "continue" && isWorking(view)) return null;
   const tail = needsSummary(view);
-  return { identity: needIdentity(need), tail, outcome: outcomeFor(view, tail) };
+  return { identity: needIdentity(need, unavailableResume(view) ? "blocked" : undefined), tail, outcome: outcomeFor(view, tail) };
 }
 
 /** True while the run waits on the person: an open need that is not live work. A finished run is not waiting. */
 export function waitsForPerson(view: StatusView | null | undefined): boolean {
   return Boolean(view && typeof view === "object" && !view.done && view.needs?.kind !== "continue"
-    && view.needs?.kind !== "dependency" && waitNotice(view));
+    && view.needs?.kind !== "dependency" && !unavailableResume(view) && waitNotice(view));
 }
 
 /** The notice the tab's new status earns over its previous one, or null when the run is only working. */

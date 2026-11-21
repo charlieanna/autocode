@@ -1,11 +1,16 @@
 """The pause a client may request while a run works (#1598): pure offer rules and the status view."""
 
+import copy
 import json
 import subprocess
 import unittest
+from pathlib import Path
 
 import autocode as runner
+import autocode_interventions as interventions
 import autocode_pause_offer as pause_offer
+import autocode_run_setup as run_setup
+import autocode_stop as stop
 import autocode_support as support
 
 from tests import test_subprocess
@@ -90,6 +95,20 @@ class StopNowOfferTests(unittest.TestCase):
         self.assertTrue(stopping["stop_now"]["requested"])
         self.assertIsNone(stopping["stop_now"]["next_command"])
         self.assertIsNone(stopping["next_command"])
+
+
+class ControllerCapabilityTests(unittest.TestCase):
+    def test_setup_records_the_capability_the_controller_writer_stamps(self):
+        # #3869: setup recorded only supported and version, so a resumed run's view offered no Stop now
+        # until the controller's own writer next stamped the rest; the two must not drift apart.
+        written = []
+        write = stop.state_writer(lambda path, value: written.append(copy.deepcopy(value)), None)
+        write(Path("state.json"), {"intervention_capability": {"supported": True, "version": 1}})
+        self.assertEqual(written[0]["intervention_capability"], run_setup.CONTROLLER_CAPABILITY)
+        self.assertEqual(interventions.INBOX_VERSION, run_setup.CONTROLLER_CAPABILITY["version"])
+        state = {"intervention_capability": dict(run_setup.CONTROLLER_CAPABILITY)}
+        offer = pause_offer.project(state, LIVE, run_dir="/w/.autocode/runs/r", workspace="/w")
+        self.assertEqual([*offer["next_command"][:-1], "--now", "--json"], offer["stop_now"]["next_command"])
 
 
 class PauseOfferStatusTests(unittest.TestCase):

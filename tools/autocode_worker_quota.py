@@ -10,27 +10,23 @@ the question was answered without a model, --retry-builder is that member's one 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
     from . import autocode_member_stop as member_stop
-    from . import autocode_provider_refusal as provider_refusal
     from . import autocode_quota_route as quota_route
-    from . import autocode_roles as roles
     from . import autocode_status
-    from . import autocode_support as support
     from . import autocode_util as util
+    from . import autocode_worker_retry_policy as retry_policy
 except ImportError:
     import autocode_member_stop as member_stop
-    import autocode_provider_refusal as provider_refusal
     import autocode_quota_route as quota_route
-    import autocode_roles as roles
     import autocode_status
-    import autocode_support as support
     import autocode_util as util
+    import autocode_worker_retry_policy as retry_policy
 
 
 def payload(state: RunState, directory, workspace):
@@ -48,30 +44,7 @@ def payload(state: RunState, directory, workspace):
     }
 
 
-def stop(state: RunState, row, result, directory):
-    """The parent's stop for a batch member its model stopped, or None for any other result.
-
-    A refusal is named from the worker's own events, never from its saved reason: after a restart that
-    reason gives a command only the worker takes (--abandon-stage of its own attempt).
-    """
-    worker, status, milestone = result.get("quota_worker"), result.get("status"), row["milestone_id"]
-    if not worker or status not in quota_route.STATUSES:
-        return None
-    if status == quota_route.QUOTA_STATUS:
-        reason = f"PAUSED_BUDGET: Builder {milestone} stopped on quota"
-    elif status == quota_route.OUTPUT_STATUS:
-        reason = f"Builder {milestone} exhausted its response output limit on {worker.get('model')}"
-    elif status == quota_route.CONTEXT_STATUS:
-        reason = f"Builder {milestone} ran out of its model's context window on {worker.get('model')}"
-    else:
-        job = roles.screen_name("builder", state)
-        reason = f"Milestone {milestone}: " + (
-            provider_refusal.explain(support.events(worker["events"]), job=job, model=worker.get("model"))
-            or f"{job}: the provider's content filter refused the response"
-        )
-    error: Any = util.Paused(status, f"{reason}; {directory}")
-    error.quota_worker = worker
-    return error
+stop = retry_policy.stop
 
 
 def stopped(state: RunState, error):
@@ -138,141 +111,11 @@ def asked_again(state: RunState, error, origin):
     return error
 
 
-ROUTE = ("engine", "model", "provider", "reasoning_effort")
-
-
-def _builder_route(settings):
-    """The effective Builder route, including inherited engine and provider defaults."""
-    route = ((settings.get("roles") or {}).get("builder") or {}).copy()
-    route["engine"] = quota_route.engine(settings, "builder")
-    route["provider"] = (
-        route.get("provider") or "openai" if route["engine"] == "codex" else settings.get("provider") or "opencode"
-    )
-    return route
-
-
-def retry_route_refusal(state: RunState, selected, before, after, *, asked=None):
-    """Why a member retry would silently use a route different from its parent's settings.
-
-    The child's saved route is changed by assign_child when its route-builder question is answered.
-    A settings flag on the parent alone, saved with the retry or earlier, cannot move that route.
-    Unreadable child settings leave the existing worker-checkpoint recovery checks in charge.
-    """
-    old, new = (((settings.get("roles") or {}).get("builder") or {}) for settings in (before, after))
-    changed = any(old.get(key) != new.get(key) for key in ROUTE)
-    current_route = _builder_route(after)
-    rows = {row["milestone_id"]: row for row in (state.get("orchestration_batch") or {}).get("workers", [])}
-    for mid in (mid for mid in selected if mid in rows):
-        try:
-            child_settings = util.read(Path(rows[mid]["run_dir"]) / "state.json")["settings"]
-            model = child_settings["roles"]["builder"].get("model")
-            child_route = _builder_route(child_settings)
-        except (OSError, ValueError, KeyError, TypeError, AttributeError):
-            model, child_route = None, None
-        differing = [key for key in ROUTE if child_route and child_route.get(key) != current_route.get(key)]
-        if changed:
-            message = (
-                f"Builder {mid}'s retry runs on the Builder route its batch started it with"
-                + (f" ({model})" if model else "")
-                + ", so a Builder model, provider or reasoning effort given with --retry-builder would not reach it"
-            )
-        else:
-            if not differing:
-                continue
-            detail = "; ".join(
-                f"{key.replace('_', ' ')}: member {child_route.get(key) or 'default'}, "
-                f"run {current_route.get(key) or 'default'}"
-                for key in differing
-            )
-            message = (
-                f"Builder {mid}'s saved route differs from the run's current Builder route ({detail}), "
-                "so --retry-builder would rerun the member's saved route"
-            )
-        if asked == mid and rows[mid].get("status") in quota_route.STATUSES:
-            return (
-                message
-                + (
-                    "; it continues on another model named in answer to its route-builder question "
-                    "(--answer route-builder=MODEL), keeping the member's other route settings"
-                )
-                + (
-                    "; restore the run's other Builder route settings separately to match the member before retrying"
-                    if any(key != "model" for key in differing)
-                    else ""
-                )
-            )
-        return message + (
-            "; restore the run's Builder route to the member's saved route in a separate settings command "
-            "before retrying it"
-        )
-    return None
-
-
-def asked_member(state: RunState, public):
-    """What the open request asks about: a member's milestone ID, "" for another request, None for none."""
-    if not public and not state.get("pending_questions"):
-        return None
-    try:
-        origin = state["resolver"]["human_escalations"][public["request_id"]]["identity"]["proposal"]["origin"]
-        return origin["quota_worker"]["milestone_id"] if public["scope"] == "operational_exhaustion" else ""
-    except (KeyError, TypeError):
-        return ""
-
-
-def refused_retry(state: RunState, row, result, *, asked):
-    """The error --retry-builder raises for this batch member, or None when it may rerun it.
-
-    A member its provider's content filter refused reruns only on another model: the one a person names
-    in answer to its route-builder question, which moves its saved route (#465). While a request is open
-    (``asked``, from asked_member) the retry is refused (ValueError) and points at that member's question
-    only when it is the one asked. With none open (the request was answered with information or left
-    paused, #541) the member's saved stop is collected again instead: the returned Paused carries it, so
-    AutoResolver asks its route-builder question again, and nothing launches. That is the answered member's
-    control (autocode_member_stop); another refused member is asked about after the answered member
-    continues, whichever way it stopped. A quota stop keeps
-    #458's explicit same-model retry.
-    """
-    worker = result.get("quota_worker")
-    if (
-        result.get("status") not in (quota_route.REFUSAL_STATUS, quota_route.OUTPUT_STATUS, quota_route.CONTEXT_STATUS)
-        or not worker
-    ):
-        return None
-    try:
-        routed = util.read(Path(row["run_dir"]) / "state.json")["settings"]["roles"]["builder"].get("model")
-    except (OSError, ValueError, KeyError, TypeError):
-        routed = None  # unreadable: never assume the route moved
-    if worker.get("model") and routed and routed != worker["model"]:
-        return None
-    milestone = row["milestone_id"]
-    first = cast(dict, (member_stop.answered(state) or ({},))[0]).get("milestone_id")
-    if asked is None and first in (None, milestone):
-        return stop(state, row, result, Path(row["run_dir"]))
-    if asked is None:
-        then = (
-            f"AutoCode continues from Builder {first}'s stop first, with --resume-paused --retry-builder "
-            f"{first}, and asks which model this member continues on after it."
-        )
-    elif asked == milestone:
-        then = (
-            "It continues on the model a person names in answer to its open route-builder question "
-            "(--answer route-builder=MODEL)."
-        )
-    else:
-        then = (
-            "AutoCode asks which model it continues on once the open request"
-            + (f" about Builder {asked}" if asked else "")
-            + " is answered."
-        )
-    again = {
-        quota_route.OUTPUT_STATUS: "exhaust its output limit",
-        quota_route.CONTEXT_STATUS: "run out of context window",
-    }.get(result["status"], "refuse it")
-    return ValueError(
-        f"Builder {milestone} {quota_route.stop_description(result['status'])} on "
-        f"{worker.get('model') or 'its model'}, and the same model is likely to {again} again, so "
-        f"--retry-builder does not rerun it there. {then}"
-    )
+ROUTE = retry_policy.ROUTE
+_builder_route = retry_policy._builder_route
+retry_route_refusal = retry_policy.retry_route_refusal
+asked_member = retry_policy.asked_member
+refused_retry = retry_policy.refused_retry
 
 
 def validate_model(model, worker, family):

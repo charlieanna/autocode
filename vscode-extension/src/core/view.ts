@@ -19,6 +19,8 @@ export interface Needs {
   token?: string;
   reason?: string;
   action?: string | null;
+  /** The saved frontier cannot take its named resume yet; the core offers no next command. */
+  resume_unavailable?: string;
   questions?: Question[];
   criteria?: { id: string; criterion?: string }[];
   question?: string;
@@ -88,7 +90,16 @@ export interface ProposedAssumption {
   convention_ref: string;
   rationale: string;
   confirmed: boolean;
+  /** Where `confirmed` comes from (#3898); absent from an older core. */
+  standing?: AssumptionStanding;
 }
+
+export type AssumptionStanding =
+  | 'needs_confirmation'
+  | 'convention_not_approved'
+  | 'confirmed_by_person'
+  | 'approved_with_understanding'
+  | 'skipped_review';
 
 export type RequirementConflict = string | { requirement_ids: string[]; description: string };
 
@@ -205,6 +216,16 @@ export interface CodeCheckpointRow {
   actions?: CheckpointAction[];
 }
 
+/** `code_checkpoints.kept`: the run's newest kept code, or why it could not be saved. */
+export interface KeptCode {
+  id?: string;
+  source_revision?: string | null;
+  commit?: string | null;
+  at?: string | null;
+  available?: boolean;
+  reason?: string | null;
+}
+
 /** `code_checkpoints` in the status view: saved code steps and their named actions. */
 export interface CodeCheckpoints {
   version?: number;
@@ -212,8 +233,10 @@ export interface CodeCheckpoints {
   rows?: CodeCheckpointRow[];
   /** While a Builder step runs: the display-only diff of what it has changed so far (`checkpoint --working`). */
   working?: CheckpointAction | null;
-  /** Once a step is saved: the display-only diff of everything the run changed (`checkpoint --all`). */
+  /** Once a step or kept code is saved: the display-only diff of everything the run kept (`checkpoint --all`). */
   all_changes?: CheckpointAction | null;
+  /** The newest kept code the whole-run diff ends at (#3945); a change of it means a new diff. */
+  kept?: KeptCode | null;
   continuation?: Record<string, unknown> | null;
   restores?: Record<string, unknown>[] | null;
 }

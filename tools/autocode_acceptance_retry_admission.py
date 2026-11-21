@@ -122,8 +122,8 @@ def record_current(state: RunState, record, workspace):
     )
 
 
-def problem(state: RunState, pending, workspace):
-    """Why this exact retained report cannot be rechecked; never mutate or execute it."""
+def preflight(state: RunState, pending):
+    """Refuse cheap state-only cases before inspecting any filesystem."""
     if invalid := shape_problem(pending):
         return invalid
     if state.get("next_stage") != acceptance.STAGE:
@@ -133,6 +133,13 @@ def problem(state: RunState, pending, workspace):
         for key in ("active_stage", "active_runner_check", "uncertain_artifacts", "pending_report_repair")
     ):
         return "Acceptance verification still has active or uncertain work"
+    return None
+
+
+def problem(state: RunState, pending, workspace):
+    """Why this exact retained report cannot be rechecked; never mutate or execute it."""
+    if refusal := preflight(state, pending):
+        return refusal
     try:
         record = pending["record"]
         if not isinstance(record, dict) or not evidence_intact(pending) or not record_current(state, record, workspace):

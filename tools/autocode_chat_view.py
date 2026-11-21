@@ -397,7 +397,7 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
             "Send plan feedback" if blocker_hold else "Explain what should change",
             "--feedback",
         )
-    if blocked:
+    if blocked and not (blocker_hold and need.get("resume_unavailable")):
         action = None
     context_token = context(state, public)
     message_input = None

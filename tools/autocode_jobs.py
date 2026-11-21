@@ -24,6 +24,7 @@ try:
     from . import autocode_requirements_answer as requirements_answer
     from . import autocode_resolve_repair_job as resolve_repair_job
     from . import autocode_stuck_job as stuck_job
+    from . import autocode_wrong_implementations as wrong_implementations
 except ImportError:
     import autocode_acceptance_tests_job as acceptance_tests_job
     import autocode_approval_provenance as approval_provenance
@@ -35,8 +36,9 @@ except ImportError:
     import autocode_requirements_answer as requirements_answer
     import autocode_resolve_repair_job as resolve_repair_job
     import autocode_stuck_job as stuck_job
+    import autocode_wrong_implementations as wrong_implementations
 
-JOBS = (design_check_job, stuck_job, resolve_repair_job, design_intake, acceptance_tests_job)
+JOBS = (design_check_job, stuck_job, resolve_repair_job, design_intake, acceptance_tests_job, wrong_implementations)
 # Which unit prepares and applies each job's stage (autopilot.unit_for). Units
 # expose apply_job(stage, state, value, record, workspace).
 UNIT = {
@@ -45,6 +47,7 @@ UNIT = {
     resolve_repair_job.STAGE: "autoresolver",
     design_intake.STAGE: "autoreview",
     acceptance_tests_job.STAGE: "autoreview",
+    wrong_implementations.STAGE: "autoreview",
 }
 STAGES = tuple(UNIT)
 

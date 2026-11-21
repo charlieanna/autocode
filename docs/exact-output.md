@@ -50,6 +50,16 @@ retrieval is verified. It **still executes the command**, returns its fresh exit
 status and creates a fresh receipt. References, shortened displays and earlier
 PASS results never substitute for current verification or independent acceptance.
 
+Within an AutoCode stage, use the exact `capture_command` in its handoff when
+the stage cites a receipt as a check. The runner binds the executed event to
+its own qualified launcher and to the specific output path and command; a
+bare `autocode` or `python` name does not establish which executable ran.
+For a filtered display, use a qualified system filter or run the named capture
+without a filter; an unqualified filter does not establish its executable either.
+An older receipt without a matching qualified event is not proof: capture the
+check again with the stage's named command and a fresh receipt. Standalone
+interactive use of the commands above is unchanged.
+
 ## Recovery and retained data
 
 The full command log remains beside its receipt. Exact copies live in

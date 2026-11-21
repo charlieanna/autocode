@@ -190,6 +190,7 @@ KEYS: frozenset[str] = frozenset(
         "iteration",
         "job_failure",
         "job_retry_authorization",
+        "kept_code",
         "key",
         "kind",
         "lanes",
@@ -395,7 +396,7 @@ class RunState(TypedDict, total=False):
     # task and the source revision (#3045); written only by autocode_implementation_discrepancy.record, read there
     # for the reviewers' context packet (autocode_stage_context) and the status view's implementation_discrepancy.
     implementation_discrepancies: list
-    acceptance_tests: dict  # spec-first receipts/history, redirect, contract-bound pending test names/evidence repair and bounded Tester rewrites; route pins, job qualifies receipts; read by job/check/run_view
+    acceptance_tests: dict  # spec-first receipts/history, wrong_implementations study (#3977) and its redirect, contract-bound pending test names/evidence repair and bounded Tester rewrites; route pins, job qualifies receipts; read by job/check/run_view
     # autocode_acceptance_verification_retry owns nested verification_retry and verification_retries:
     # pinned completed reports, local retry counts and preserved failures; dispatch and public resume consume them.
     criteria_revision: str | None  # hash of the criteria; follow_up clears it before a fresh plan
@@ -576,6 +577,11 @@ class RunState(TypedDict, total=False):
     investigation: Any  # an earlier runtime's bug-fix Investigator report; read by test_cases and current_behavior
     investigation_request: Any
     job_retry_authorization: Any
+    # The run's newest kept code that no saved step names (#3945, #3933): a source capture, or a marker
+    # naming the saved step the source equals; ``final`` fixes a completed run's delivery. Written only by
+    # autocode_code_checkpoints.update; read by autocode_code_checkpoints.project (the view's
+    # ``code_checkpoints.kept``) and autocode_checkpoint_cli.all_changes (where ``checkpoint --all`` ends).
+    kept_code: dict | None
     key: Any
     kind: Any
     lanes: Any

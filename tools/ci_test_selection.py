@@ -1681,6 +1681,7 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         (
             "tools/autocode_acceptance_retry_admission.py",
             "tools/autocode_acceptance_retry_next.py",
+            "tools/autocode_status_observation.py",
             "tools/autocode_build_loop.py",
             "tools/autocode_status_command.py",
             "tools/autocode_progress_view.py",

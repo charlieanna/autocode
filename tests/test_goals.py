@@ -2567,6 +2567,26 @@ class GoalTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             lifecycle.install_draft(self.state, draft, origin="test")
 
+    def test_plan_review_labels_baseline_by_recorded_evidence(self):
+        import autocode_current_behavior as current_behavior
+        import autocode_run_view as run_view
+
+        self.draft()
+        contract = self.state["goal_contract"]
+        claim = "The full suite passes after collect-only."
+        contract["body"]["acceptance_criteria"][0]["current_behavior"] = claim
+        contract["hash"] = s.digest({k: contract[k] for k in ("task_id", "revision", "body")})
+        self.state.update(status="AWAITING_GOAL_APPROVAL", phase="AWAITING_GOAL_APPROVAL")
+        self.state["displayed_goal"] = g.token(contract)
+        with patch.object(current_behavior, "evidence", return_value={"text": "A different observation"}):
+            shown = run_view.view(self.state)["displayed_plan"]["review_markdown"]
+        self.assertIn("Reported current behavior (not independently verified):", shown)
+        with patch.object(current_behavior, "evidence", return_value={"text": claim}):
+            shown = run_view.view(self.state)["displayed_plan"]["review_markdown"]
+        self.assertIn(
+            "Investigator-reported current behavior (probe recorded, claim not independently verified):", shown
+        )
+
     def test_existing_v3_brief_can_be_approved_without_rewriting_its_contract(self):
         self.draft()
         contract = self.state["goal_contract"]

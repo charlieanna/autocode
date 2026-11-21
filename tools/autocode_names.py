@@ -177,6 +177,7 @@ FILE_SLUGS = {
     "diagnose": "diagnosis",
     "resolve_repair": "resolve-repair",
     "write_acceptance_tests": "acceptance-tests",
+    "write_wrong_implementations": "wrong-implementations",
 }
 _SLUG_STAGES = {slug: code for code, slug in FILE_SLUGS.items()}
 _ATTEMPT_NUMBER = re.compile(r"-\d+$")

@@ -381,6 +381,9 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         continuing=controller_owner.continuing(state, owner),
         internal_failure=operational_block.presentation(state, include_hold=True),
         liveness=public_view["liveness"],
+        recovery=public_view.get("recovery"),
+        next_command=public_view.get("next_command"),
+        person_input=(public_view.get("chat") or {}).get("input"),
         # The published Requirements record, so the label and the view read one record (#3864).
         gathered=public_view.get("requirements"),
         # The retained acceptance retry's one answer, as the view computed it with this workspace (#3927).

@@ -774,6 +774,7 @@ JOB_ROUTES = {
     "investigate_stuck": "stuck_investigator",
     "resolve_repair": "repair_resolver",
     "write_acceptance_tests": "acceptance_tester",
+    "write_wrong_implementations": "acceptance_tester",
 }
 
 

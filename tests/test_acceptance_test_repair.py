@@ -564,6 +564,48 @@ class PostBuildProtectedTestRepairTests(unittest.TestCase):
             "accounted": True,
         }
 
+    def test_a_wrong_implementation_the_tests_accept_sends_them_back_to_the_writer(self):
+        """#3977: a survivor the Tester judges a real violation routes like the other repair kinds."""
+        with tempfile.TemporaryDirectory() as root:
+            workspace = Path(root) / "ws"
+            run_dir = workspace / ".autocode" / "runs" / "run-1"
+            state = self._seed_spec_first_candidate(
+                workspace,
+                run_dir,
+                product_rel="inc.py",
+                base_product="def other():\n    return 0\n",
+                candidate_product="def other():\n    return 0\n\ndef inc(x):\n    return x + 1\n",
+                test_rel="tests/test_inc.py",
+                broken_test=(
+                    "import unittest\n\nclass IncTests(unittest.TestCase):\n"
+                    "    def test_c1_inc(self):\n"
+                    "        import inc\n"
+                    "        self.assertEqual(2, inc.inc(1))\n"
+                ),
+                case_text="inc adds one to any integer",
+                case_method="test: test_c1_inc",
+            )
+            state.setdefault("acceptance_tests", {})["wrong_implementations"] = {
+                "contract_hash": state["goal_contract"]["hash"],
+                "survivors": [
+                    {"case_id": "C1", "mistake": "returns 2 only for the documented 1", "category": "hardcoded"}
+                ],
+            }
+            repairs = [
+                {
+                    "case_id": "C1",
+                    "kind": test_repair.WRONG_IMPLEMENTATION,
+                    "reason": "returns 2 only for the documented 1, and the test checks only inc(1)",
+                }
+            ]
+            t_val = self._tester_fail_report(state, repairs)
+            t_rec = self._record_review_stage(state, run_dir, "tester", "tester", t_val)
+            autopilot.apply_result(runner, state, "tester", t_val, t_rec, workspace, run_dir)
+            self.assertEqual("builder", state["next_stage"])
+            acceptance.route(state)
+            self.assertEqual(acceptance.STAGE, state["next_stage"])
+            self.assertEqual(repairs, acceptance_job.packet(state)["test_repair"]["repairs"])
+
     def test_contradicts_case_from_tester_routes_to_writer_before_builder_and_handles_cannot_write(self):
         with tempfile.TemporaryDirectory() as root:
             workspace = Path(root) / "ws"
@@ -1321,3 +1363,49 @@ class ReportCheckAcceptanceTestRepairTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WrongImplementationKindTests(unittest.TestCase):
+    """#3977: accepts_wrong_implementation needs a survivor the runner recorded for that case."""
+
+    REPORT = {
+        "verdict": "FAIL",
+        "criterion_results": [{"id": "C1", "status": "FAIL"}],
+        "acceptance_test_repairs": [
+            {"case_id": "C1", "kind": "accepts_wrong_implementation", "reason": "hard-codes the example"}
+        ],
+    }
+
+    def state(self, survivors=("C1",), contract="h1"):
+        return {
+            "goal_contract": {"hash": "h1"},
+            "acceptance_tests": {
+                "wrong_implementations": {
+                    "contract_hash": contract,
+                    "survivors": [{"case_id": cid, "mistake": "m", "category": "hardcoded"} for cid in survivors],
+                }
+            },
+        }
+
+    def validate(self, state):
+        return test_repair.validate_report(
+            self.REPORT,
+            stage="tester",
+            covered_case_ids={"C1"},
+            survivor_case_ids=test_repair.survivor_case_ids(state),
+        )
+
+    def test_a_recorded_survivor_allows_the_kind(self):
+        self.assertEqual("accepts_wrong_implementation", self.validate(self.state())[0]["kind"])
+
+    def test_without_a_survivor_for_the_case_the_report_is_refused(self):
+        with self.assertRaisesRegex(ValueError, "none is recorded"):
+            self.validate(self.state(survivors=("C2",)))
+
+    def test_a_survivor_of_another_contract_does_not_count(self):
+        with self.assertRaisesRegex(ValueError, "none is recorded"):
+            self.validate(self.state(contract="old"))
+
+    def test_a_pre_submit_check_without_run_state_leaves_it_to_final_validation(self):
+        rows = test_repair.validate_report(self.REPORT, stage="tester", covered_case_ids={"C1"})
+        self.assertEqual("C1", rows[0]["case_id"])
