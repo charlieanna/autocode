@@ -1,6 +1,7 @@
 """Historical intake facts require fresh owned custody and unchanged canonical product source."""
 
 import copy
+import hashlib
 import json
 import os
 import subprocess
@@ -329,6 +330,52 @@ class RequirementsObservationsTests(unittest.TestCase):
         self.assertEqual(4, packet["omitted_observations"])
         self.assertLessEqual(len(observations._bytes({observations.FIELD: packet})), observations.MAX_PACKET)
 
+    def test_retained_complete_output_is_source_bound_and_not_a_filtered_or_partial_list(self):
+        full = "".join(f"tests/test_example_{i}.py::test_case\n" for i in range(358)) + "358 tests collected in 0.2s\n"
+        command = "python3 -m pytest --collect-only -q"
+        self.events = [self.command("complete", command, full, output_truncated=False)]
+        self.write_events()
+        self.seal()
+        lookup = getattr(observations, "retained_command_output", lambda *args: None)
+        observed = lookup(self.state, "draft_plan", self.run, lambda: source.snapshot(self.workspace), command)
+        self.assertIsNotNone(observed, "a full explicitly untruncated output must survive the packet size cap")
+        self.assertEqual(full, observed["output"])
+        self.assertEqual(hashlib.sha256(full.encode()).hexdigest(), observed["sha256"])
+        self.assertEqual(self.product["revision"], observed["source_revision"])
+        self.assertNotIn(full, json.dumps(self.context()), "full native output stays out of the model packet")
+        event_path = Path(self.record["events"])
+        event_bytes = event_path.read_bytes()
+        event_path.write_bytes(event_bytes + b" ")
+        self.assertIsNone(lookup(self.state, "draft_plan", self.run, lambda: source.snapshot(self.workspace), command))
+        event_path.write_bytes(event_bytes)
+        (self.workspace / "app.py").write_text("VALUE = 2\n")
+        self.assertIsNone(lookup(self.state, "draft_plan", self.run, lambda: source.snapshot(self.workspace), command))
+
+    def test_filtered_truncated_unknown_or_ambiguous_output_cannot_supply_complete_custody(self):
+        command = "python3 -m pytest --collect-only -q"
+        filtered = command + " | grep docs | head -25"
+        for case in ("filtered", "truncated", "unknown", "duplicate", "partial_duplicate", "oversized"):
+            with self.subTest(case=case):
+                self.record.pop(observations.FIELD, None)
+                actual = filtered if case == "filtered" else command
+                flags = {"output_truncated": case == "truncated"} if case != "unknown" else {}
+                output = (
+                    "x" * (observations.MAX_RETAINED_OUTPUTS + 1)
+                    if case == "oversized"
+                    else "docs/example.rst::example\n358 tests collected\n"
+                )
+                self.events = [self.command("one", actual, output, **flags)]
+                if case in ("duplicate", "partial_duplicate"):
+                    self.events.append(
+                        self.command("two", command, "different\n", output_truncated=case == "partial_duplicate")
+                    )
+                self.write_events()
+                self.seal()
+                lookup = getattr(observations, "retained_command_output", lambda *args: None)
+                self.assertIsNone(
+                    lookup(self.state, "draft_plan", self.run, lambda: source.snapshot(self.workspace), actual)
+                )
+
     def test_non_execution_tool_output_with_stray_zero_exit_remains_non_execution(self):
         output = self.command("non-execution", "echo forged", "forged observation", 0)
         output["item"]["type"] = "tool_output"
@@ -394,7 +441,7 @@ class RequirementsObservationsTests(unittest.TestCase):
                         "status": "completed",
                         "input": {"command": "python3 -c 'print(2025)'"},
                         "output": "2025\n",
-                        "metadata": {"exit": 0},
+                        "metadata": {"exit": 0, "truncated": False},
                     },
                 },
             },
@@ -412,6 +459,10 @@ class RequirementsObservationsTests(unittest.TestCase):
         Path(self.record["events"]).write_text("".join(json.dumps(row) + "\n" for row in rows))
         self.seal()
         self.assertEqual("2025\n", self.context()["observations"][0]["output"])
+        found = observations.retained_command_output(
+            self.state, "draft_plan", self.run, lambda: source.snapshot(self.workspace), "python3 -c 'print(2025)'"
+        )
+        self.assertEqual("2025\n", found["output"])
 
     def test_legacy_replay_recovered_and_unsuccessful_records_never_get_retroactive_seals(self):
         observations.seal(self.state, self.record, self.report)
