@@ -125,6 +125,35 @@ class CommandFromReceiptTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "needs a command"):
             support.verify_checks([check], self.workspace, self.events)
 
+    def test_a_check_citing_its_capture_event_is_the_captured_command_with_its_receipt(self):
+        # A live Tester cited `event:` for a captured ruff check with command null. The runner filled the
+        # capture invocation in, and the clean-copy replay ran that invocation again, which refuses an
+        # existing receipt, so a passing report paused PAUSED_INVALID_OUTPUT.
+        wrapped = self.wrapped()
+        for check in (
+            {"command": None, "exit_code": None, "evidence_ref": "event:capture-1"},
+            {"command": wrapped, "exit_code": 0, "evidence_ref": "event:capture-1"},
+            {"command": wrapped, "exit_code": 0, "evidence_ref": "event:"},
+            {"command": wrapped, "exit_code": 0, "evidence_ref": ".autocode/evidence/check.json"},
+        ):
+            with self.subTest(check=check):
+                checks = [dict(check)]
+                support.verify_checks(checks, self.workspace, self.events)
+                self.assertEqual(
+                    [{"command": shlex.join(ARGV), "exit_code": 0, "evidence_ref": ".autocode/evidence/check.json"}],
+                    checks,
+                )
+
+    def test_a_capture_event_whose_receipt_differs_keeps_its_event(self):
+        receipt_path = self.workspace / ".autocode" / "evidence" / "check.json"
+        receipt_path.write_text(json.dumps(dict(self.receipt, exit_code=1)))
+        checks = [{"command": None, "exit_code": None, "evidence_ref": "event:capture-1"}]
+        support.verify_checks(checks, self.workspace, self.events)
+        self.assertEqual([{"command": self.wrapped(), "exit_code": 0, "evidence_ref": "event:capture-1"}], checks)
+
+    def wrapped(self):
+        return json.loads(self.events.read_text())["part"]["state"]["input"]["command"]
+
     def test_the_tester_schema_accepts_a_null_command(self):
         schema = json.loads(
             (Path(support.__file__).parent / "autocode-schemas" / "v2" / "sol-report.schema.json").read_text()

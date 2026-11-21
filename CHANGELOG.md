@@ -23,6 +23,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **A Tester check run through the capture tool no longer fails its clean replay**: when a Tester captured a noisy check (`autocode capture --output R -- <command>`) and cited its event, or left the command for the runner to fill in, the check kept the capture invocation as its command. The clean-copy replay then ran that invocation again, which refuses an existing receipt ("existing evidence is immutable"), and a passing report paused `PAUSED_INVALID_OUTPUT`. Such a check is now the captured command, proved by the receipt the capture wrote and authenticated as a cited receipt is. A capture whose receipt is missing or names another command or exit code keeps its event citation.
+
 - **A slow suite's mutation check no longer stops short in every continuation window**: each continuation window runs the unmutated tests again, and that run's time was taken from the window's mutant budget. With a reference over half the window, no mutant that runs every selected test had enough time, in that window or any later one. The window now gets the reference's time back, still within the run's total allowance.
 
 - **A Node project's tests replayed as a command run its build first**: the original-test check replays changed tests as a command such as `cd vscode-extension && node --test test/editor.test.cjs`, but the project's own test script builds first (`tsc -p tsconfig.test.json && node --test ...`). The replay skipped that build, so the test file failed to load on both the original code and the change. A `node --test` command now takes the build steps from the test script of the project it runs in.
