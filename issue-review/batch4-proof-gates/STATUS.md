@@ -27,12 +27,16 @@ path normalization; their failure details now stay byte-exact rather than
 assuming such a line came from the runner. The independently parsed unittest
 traceback normalization remains restricted to frames before the exception.
 
-**Unfixed pinned dependency boundary:** the new transient-retarget regression
-fails on current master `6b803f17e` and this branch: a command can replace its
-generated `.venv` link, read a foreign dependency, and restore the original
-link before the before/after guard checks it. The test is deliberately kept
-failing in this draft until an owned execution boundary prevents or observes
-the whole change. A canonical macOS Seatbelt prototype denied link replacement,
+**Unfixed evidence execution boundary:** on current master `6b803f17e` and this
+branch, a pinned scratch command can replace its generated `.venv` link, read a
+foreign dependency and restore the original link before the before/after guard
+checks it. It can likewise create a temporary dependency link and remove it.
+Both are reproduced by `PYTHONPATH=.:tools python
+issue-review/batch4-proof-gates/reproduce_dependency_boundary.py` using the
+repository test environment. A source pin alone makes no promise about all
+command inputs; ordinary scratch commands must retain their output behavior.
+Evidence authority needs a separately scoped boundary before it can rely on
+in-flight dependency identity. A canonical macOS Seatbelt prototype denied link replacement,
 unlink, rename, chmod and parent rename while allowing normal sibling outputs
 and writes inside the dependency target. It does not authenticate dependency
 contents, guard unrelated host processes, or establish Linux support. Its
