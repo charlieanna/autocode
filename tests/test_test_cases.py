@@ -39,8 +39,12 @@ SEED = {
 }
 FEATURE = {
     "calc.py": SEED["calc.py"] + "\n\ndef sub(a, b):\n    return a - b\n",
-    "test_calc.py": SEED["test_calc.py"].replace("from calc import add", "from calc import add, sub")
-    + "\n    def test_c2_subtracts(self):\n        self.assertEqual(2, sub(5, 3))\n",
+    "test_calc.py": SEED["test_calc.py"].replace("from calc import add", "from calc import add\nimport calc")
+    + "\n    def test_c2_subtracts(self):\n        self.assertEqual(2, calc.sub(5, 3))\n",
+}
+UNLOADABLE_FEATURE = {
+    **FEATURE,
+    "test_calc.py": FEATURE["test_calc.py"].replace("import calc\n", "import calc\nfrom calc import sub\n"),
 }
 
 
@@ -915,10 +919,8 @@ class DiagnosedMilestoneScopeTests(unittest.TestCase):
         candidate["calc.py"] = candidate["calc.py"].replace(
             "def mul(a, b):\n    return a + b", "def mul(a, b):\n    return a * b"
         )
-        candidate["test_calc.py"] = candidate["test_calc.py"].replace(
-            "from calc import add, sub", "from calc import add, sub, mul"
-        ) + (
-            "\n    def test_t2_multiplies(self):\n        self.assertEqual(6, mul(2, 3))\n"
+        candidate["test_calc.py"] += (
+            "\n    def test_t2_multiplies(self):\n        self.assertEqual(6, calc.mul(2, 3))\n"
             "\n    def test_t3_adds(self):\n        self.assertEqual(3, add(1, 2))\n"
         )
         project.write(candidate)
@@ -980,10 +982,8 @@ class TwoMilestoneProofTests(unittest.TestCase):
 
     MUL = {
         "calc.py": FEATURE["calc.py"] + "\n\ndef mul(a, b):\n    return a * b\n",
-        "test_calc.py": FEATURE["test_calc.py"]
-        .replace("test_c2_subtracts", "test_c1_subtracts")
-        .replace("from calc import add, sub", "from calc import add, sub, mul")
-        + "\n    def test_c2_multiplies(self):\n        self.assertEqual(6, mul(2, 3))\n",
+        "test_calc.py": FEATURE["test_calc.py"].replace("test_c2_subtracts", "test_c1_subtracts")
+        + "\n    def test_c2_multiplies(self):\n        self.assertEqual(6, calc.mul(2, 3))\n",
     }
 
     def prove(self, files, current, accepted=()):
@@ -1038,13 +1038,15 @@ class NewBehaviorVerifyTests(unittest.TestCase):
     def project(self):
         project = Project(SEED)
         self.addCleanup(project.close)
-        project.write(FEATURE)
+        project.write(UNLOADABLE_FEATURE)
         return project
 
-    def test_a_new_test_that_cannot_import_on_base_proves_a_feature(self):
+    def test_a_new_test_that_cannot_import_on_base_does_not_prove_a_feature(self):
         result = self.project().verify(new_behavior=True)
-        self.assertEqual(verify.PASS, result["verdict"], result["failures"] + result["unverified"])
-        self.assertIn("test_calc.CalcTests.test_c2_subtracts", result["fail_to_pass"])
+        self.assertEqual(verify.FAIL, result["verdict"], result["failures"] + result["unverified"])
+        self.assertNotIn("test_calc.CalcTests.test_c2_subtracts", result["fail_to_pass"])
+        self.assertIn("test_calc.CalcTests.test_c2_subtracts", result["not_run_on_base"])
+        self.assertTrue(any("could not collect" in reason for reason in result["failures"]), result["failures"])
 
     def test_the_same_change_is_not_a_bug_reproduction(self):
         result = self.project().verify()
@@ -1180,15 +1182,16 @@ class FeatureProofTests(unittest.TestCase):
         self.assertEqual("PASS", proof["verdict"], proof["failures"] + proof["unverified"])
         self.assertEqual(["test_guard.GuardTests.test_c4_add_still_works"], proof["case_tests"]["C4"])
 
-    def test_a_guard_that_could_not_run_before_counts_with_a_note(self):
+    def test_a_guard_that_could_not_run_before_does_not_prove_the_feature(self):
         # Its file imports sub, which the change adds, so on the original code the file does not import.
         proof = self.prove(
-            [EXAMPLE, self.GUARD], {**FEATURE, "test_calc.py": FEATURE["test_calc.py"] + self.GUARD_TEST}
+            [EXAMPLE, self.GUARD],
+            {**UNLOADABLE_FEATURE, "test_calc.py": UNLOADABLE_FEATURE["test_calc.py"] + self.GUARD_TEST},
         )
-        self.assertEqual("PASS", proof["verdict"], proof["failures"] + proof["unverified"])
-        self.assertEqual(["test_calc.CalcTests.test_c4_add_still_works"], proof["case_tests"]["C4"])
-        self.assertTrue(any("not shown to have passed before" in note for note in proof["notes"]), proof["notes"])
-        self.assertEqual(proof["notes"], json.loads(Path(proof["path"]).read_text())["notes"])
+        self.assertEqual("FAIL", proof["verdict"], proof["failures"] + proof["unverified"])
+        self.assertEqual([], proof["case_tests"]["C2"])
+        self.assertFalse(proof["fail_to_pass"])
+        self.assertEqual(proof["failures"], json.loads(Path(proof["path"]).read_text())["failures"])
 
     def test_a_guard_whose_test_ran_and_failed_before_the_change_is_mis_tagged(self):
         new_behavior = {**self.GUARD, "id": "C5", "verification_method": "guard: test_c5_sub_exists"}
