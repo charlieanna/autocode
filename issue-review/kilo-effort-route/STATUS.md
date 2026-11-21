@@ -58,6 +58,16 @@ visible text during the transient "Opening this chat" state. The failed job is
 This is scripted Kilo-shaped coverage, not a live Kilo model task. The required
 gate and final integrated-head host outcome remain open.
 
+At 3720b97a1, both editor answers timed out. The Codex action log confirmed
+the CLI rejected the answer because a run-referencing process was active; the
+Kilo test had no action log and its cause was not established. The full job is
+<https://github.com/charlieanna/autocode/actions/runs/44891347985/job/136807776432>.
+The Kilo fixture now uses the same forwarding diagnostic as the Codex fixture.
+On a busy refusal the wrapper takes a best-effort process sample after the
+CLI returns: PID, creation time, command hash and safe status-option category.
+The sample can be absent or describe a reused PID; it grants no authority and
+does not establish which process the earlier guard observed.
+
 Still required: focused checks and master control, actual VS Code behavior on
 the final head, current-head `ci-required`, and review of unsupported or absent
 structural candidates. Do not close #4005 on this partial increment alone.
