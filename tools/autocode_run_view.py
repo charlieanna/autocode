@@ -90,6 +90,7 @@ try:
     from . import autocode_recovery_view as recovery_view
     from . import autocode_report_repair_view as report_repair_view
     from . import autocode_report_retry as report_retry
+    from . import autocode_report_retry_admission as report_retry_admission
     from . import autocode_request_usage as request_usage
     from . import autocode_requirements_review as requirements_review
     from . import autocode_resolver_human as resolver_human
@@ -166,6 +167,7 @@ except ImportError:
     import autocode_recovery_view as recovery_view
     import autocode_report_repair_view as report_repair_view
     import autocode_report_retry as report_retry
+    import autocode_report_retry_admission as report_retry_admission
     import autocode_request_usage as request_usage
     import autocode_requirements_review as requirements_review
     import autocode_resolver_human as resolver_human
@@ -1793,8 +1795,14 @@ def needs(state: RunState, *, stale_report_repair=False, human_projection=None) 
             and isinstance(rejected.get("iteration"), int)
             and rejected.get("output")
         ):
-            need["retry_report_attempt"] = f"{rejected['iteration']:03d}/{Path(rejected['output']).stem}"
-            need["action"] = f"--resume-paused --retry-report {need['retry_report_attempt']}"
+            selected = f"{rejected['iteration']:03d}/{Path(rejected['output']).stem}"
+            try:
+                report_retry_admission.validate(state, state.get("workspace"), selected)
+            except (OSError, RuntimeError, ValueError, TypeError, KeyError):
+                pass
+            else:
+                need["retry_report_attempt"] = selected
+                need["action"] = f"--resume-paused --retry-report {selected}"
         # The CLI refuses --retry-failed-stage while the attempt or report repair behind this pause is
         # unreconciled, so naming it here would be a command the person is then rejected for (#1897).
         # Say why the retry waits, as a novelty hold does, and name the resume the CLI does take.

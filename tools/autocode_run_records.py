@@ -686,8 +686,7 @@ def assert_stage_stopped(record):
         raise support.Paused("PAUSED_WORKSPACE_BUSY", refusal)
 
 
-def attempt_id(record):
-    return f"{record['iteration']:03d}/{Path(record['output']).stem}"
+attempt_id = util.attempt_id
 
 
 # The automatic-recovery budget lives in autocode_recovery_accounting; these names are kept for callers.

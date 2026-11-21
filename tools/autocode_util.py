@@ -55,6 +55,11 @@ GIT_REPOSITORY_VARIABLES = (
 )
 
 
+def attempt_id(record):
+    """Identify the iteration and output of a saved stage attempt."""
+    return f"{record['iteration']:03d}/{Path(record['output']).stem}"
+
+
 def drop_git_repository_variables(environ=None) -> list[str]:
     """Remove inherited repository-location variables in place; return the names removed."""
     target = os.environ if environ is None else environ

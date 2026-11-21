@@ -305,6 +305,38 @@ class OfferAdmissionAgreementTests(SavedRunFixtures, unittest.TestCase):
                 self.assertNotEqual(0, code)
                 (self.root / "README.md").write_text(SOURCE)
 
+    def test_report_retry_offer_matches_the_executor_frontier(self):
+        flags = ["--resume-paused", "--retry-report", "004/validator-01"]
+        current = self.report()
+        self.assertTrue(self.offered(self.card(current), "retry_report"))
+        code, _ = self.execute(current, flags)
+        self.assertEqual("RUNNING", current["status"])
+        self.assertIsNone(code)
+
+        unavailable = self.report()
+        with patch("autocode_source_scope.snapshot", side_effect=RuntimeError("unavailable")):
+            self.assertFalse(self.offered(self.card(unavailable), "retry_report"))
+
+        for change in ("source", "contract", "schema", "pins", "next_stage"):
+            with self.subTest(change=change):
+                state = self.report()
+                pending = state["pending_report_repair"]
+                schema = Path(pending["original"]["schema"])
+                if change == "source":
+                    (self.root / "README.md").write_text("changed source\n")
+                elif change == "contract":
+                    pending["contract_hash"] = "different"
+                elif change == "schema":
+                    schema.unlink()
+                elif change == "pins":
+                    pending["pins"] = {str(schema): "invalid"}
+                else:
+                    state["next_stage"] = "builder"
+                self.assertFalse(self.offered(self.card(state), "retry_report"))
+                code, _ = self.execute(state, flags)
+                self.assertNotEqual(0, code)
+                (self.root / "README.md").write_text(SOURCE)
+
     def test_ac22_surveyed_offers_agree_with_their_executor_admission(self):
         # (kind, status, args, admitted state, the one-field variant its executor refuses, refusal text)
         cases = (
