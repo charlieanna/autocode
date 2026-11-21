@@ -88,6 +88,14 @@ pass while the strict-binding positive cases and final judgment remain open.
   the runner must still authenticate the exact executing source and every
   normalized runner-owned value, preserve chains and parameters, and capture
   fresh base evidence. Old unpinned JUnit must not be upgraded.
+  A second non-authoritative primitive now captures a pinned source file via
+  descriptor-relative, no-follow reads and checks its file and ancestor
+  inode/ctime stamps after execution. Controls reject a changed-and-restored
+  file, a directory swapped out and back, hardlinks and symlink escapes. It
+  deliberately holds even for an ignored `.pytest_cache` created in a watched
+  directory: the real reconstruction does create that cache, so this primitive
+  alone cannot yet prove the incident. A single file stamp also does not prove
+  that every executing source and dependency stayed unchanged.
 - A second #3944 regression now runs real pytest and retains separately pinned
   base and candidate JUnit captures for an original test failing on a missing
   dependency. It failed on master and now passes on this branch. Pytest's failure

@@ -1,7 +1,8 @@
 """Source-level identities for traceback locations; no result grants proof authority.
 
-The caller must independently bind the source bytes and the runner's traceback
-to the exact execution before comparing these identities.
+The caller must independently bind the runner's traceback and every executing
+source input to the exact execution before comparing these identities. A stamp
+for one file does not establish that another executing file was unchanged.
 """
 
 from __future__ import annotations
@@ -9,9 +10,79 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import os
+import stat
+from contextlib import ExitStack
+from pathlib import Path
 
 MAX_SOURCE_BYTES = 2_000_000
 MAX_NODES = 100_000
+
+
+def _stamp(info):
+    return [info.st_dev, info.st_ino, info.st_mode, info.st_size, info.st_mtime_ns, info.st_ctime_ns, info.st_nlink]
+
+
+def _read_captured(root, name, expected):
+    """Read bounded, pinned source without following a file or parent link."""
+    if not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_DIRECTORY") or os.open not in os.supports_dir_fd:
+        return None
+    if not isinstance(name, str) or not name or "\\" in name or "\x00" in name:
+        return None
+    relative = Path(name)
+    if (
+        not relative.parts
+        or relative.is_absolute()
+        or relative.as_posix() != name
+        or any(part in ("", ".", "..", ".git", ".autocode", ".autocode-ui") for part in relative.parts)
+    ):
+        return None
+    try:
+        root = Path(root)
+        if root.is_symlink():
+            return None
+        with ExitStack() as opened:
+            parent = os.open(root.resolve(strict=True), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            opened.callback(os.close, parent)
+            directories = [parent]
+            for part in relative.parts[:-1]:
+                parent = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+                opened.callback(os.close, parent)
+                directories.append(parent)
+            descriptor = os.open(relative.parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+            with os.fdopen(descriptor, "rb") as handle:
+                before_dirs = [_stamp(os.fstat(directory)) for directory in directories]
+                before = os.fstat(handle.fileno())
+                if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or before.st_size > MAX_SOURCE_BYTES:
+                    return None
+                content = handle.read(MAX_SOURCE_BYTES + 1)
+                after = os.fstat(handle.fileno())
+                after_dirs = [_stamp(os.fstat(directory)) for directory in directories]
+            actual = ("executable:" if before.st_mode & 0o111 else "") + hashlib.sha256(content).hexdigest()
+            if (
+                len(content) > MAX_SOURCE_BYTES
+                or actual != expected
+                or _stamp(before) != _stamp(after)
+                or before_dirs != after_dirs
+            ):
+                return None
+            return {"text": content.decode("utf-8"), "stamp": {"file": _stamp(before), "directories": before_dirs}}
+    except (OSError, ValueError, TypeError, UnicodeError, RuntimeError, OverflowError):
+        return None
+
+
+def source_stamp(root, name, expected):
+    """Capture a source file and its ancestor identities before the owned execution."""
+    observed = _read_captured(root, name, expected)
+    return observed["stamp"] if observed else None
+
+
+def pinned_identity(root, name, line, expected, before):
+    """Return a site only if pinned source and every ancestor remain unchanged."""
+    observed = _read_captured(root, name, expected)
+    if not observed or before is None or observed["stamp"] != before:
+        return None
+    return identity(observed["text"], line)
 
 
 def identity(source, line):
