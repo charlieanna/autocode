@@ -36,16 +36,24 @@ for (const kind of ['job', 'repeat']) {
     const log = path.join(root, 'observations');
     let app;
     let win;
+    let env;
     let lastState;
     try {
-      const env = { ...process.env, HOME: path.join(root, 'home') };
+      const temp = path.join(root, 'tmp');
+      fs.mkdirSync(temp);
+      env = { ...process.env, HOME: path.join(root, 'home'), TMPDIR: temp };
       delete env.GIT_CONFIG_COUNT;
       delete env.GIT_CONFIG_KEY_0;
       delete env.GIT_CONFIG_VALUE_0;
       const made = spawnSync(python, [path.join(REPO, 'tests/status_retry_host_fixture.py'), root, kind], { cwd: REPO, encoding: 'utf8', env });
       assert.equal(made.status, 0, `offline ${kind} fixture: ${made.stderr}`);
       const fixture = JSON.parse(made.stdout);
-      Object.assign(env, { AUTOCODE_HOME: fixture.registry, AUTOCODE_HOST_OBSERVATION_TIMEOUT: marker, AUTOCODE_HOST_OBSERVATION_LOG: log });
+      Object.assign(env, {
+        AUTOCODE_HOME: fixture.registry,
+        AUTOCODE_HOST_OBSERVATION_TIMEOUT: marker,
+        AUTOCODE_HOST_OBSERVATION_LOG: log,
+        PYTHONPATH: [path.join(REPO, 'tests/host_status_site'), process.env.PYTHONPATH].filter(Boolean).join(path.delimiter),
+      });
       const userData = path.join(root, 'user-data');
       fs.mkdirSync(path.join(userData, 'User'), { recursive: true });
       fs.writeFileSync(path.join(userData, 'User/settings.json'), JSON.stringify({
@@ -83,7 +91,10 @@ for (const kind of ['job', 'repeat']) {
       const title = `Offline ${kind} status deadline verification`;
       await openHistoryRow(win.locator('.monaco-list-row', { hasText: title }).first(), chat, title);
       const retryLabel = kind === 'job' ? 'Retry the inspected step' : 'Retry the failed step once';
-      await until('healthy retry action', async () => (await state()).action === retryLabel);
+      const retryVisible = (shown) => kind === 'job'
+        ? ['Continue', retryLabel].includes(shown.action) && shown.text.includes('The step failed.')
+        : shown.action === retryLabel;
+      await until('healthy retry action', async () => retryVisible(await state()));
       fs.writeFileSync(marker, '');
       const operation = kind === 'job' ? 'job_retry' : 'failure_retry';
       await until('injected timeout', () => fs.existsSync(log) && fs.readFileSync(log, 'utf8').includes(`timeout ${operation}`));
@@ -103,16 +114,33 @@ for (const kind of ['job', 'repeat']) {
         console.log('Repeated failure timeout action:', blocked.action ?? '(none)');
       }
       fs.rmSync(marker);
-      await until('recovered retry action', async () => (await state()).action === retryLabel);
+      await until('recovered retry action', async () => retryVisible(await state()));
     } catch (error) {
       console.log(`Host diagnostics for ${kind}:`, JSON.stringify({
         lastState, observations: fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '(no wrapper log)',
       }));
-      await win?.screenshot({ path: path.join(EXTENSION, '.vscode-test', 'host-last.png') }).catch(() => {});
+      await win?.screenshot({ path: path.join(EXTENSION, '.vscode-test', 'host-last.png'), timeout: 5_000 }).catch(() => {});
       throw error;
     } finally {
       fs.rmSync(marker, { force: true });
       await app?.close().catch(() => {});
+      if (env) {
+        // The default warm host has a unique TMPDIR/socket owned by this fixture.
+        const stopped = spawnSync(python, [path.join(REPO, 'tests/status_retry_host_cli.py'), 'serve', '--stop', '--json'],
+          { cwd: REPO, env, encoding: 'utf8', timeout: 15_000 });
+        const checked = spawnSync(python, [path.join(REPO, 'tests/status_retry_host_cli.py'), 'serve', '--status', '--json'],
+          { cwd: REPO, env, encoding: 'utf8', timeout: 15_000 });
+        assert.equal(stopped.status, 0, `stop isolated warm host: ${stopped.stderr}`);
+        assert.equal(checked.status, 0, `check isolated warm host: ${checked.stderr}`);
+        assert.equal(JSON.parse(checked.stdout).running, false, 'isolated warm host exited');
+        if (fs.existsSync(log)) {
+          const lines = fs.readFileSync(log, 'utf8').trim().split('\n');
+          const pids = lines.filter((line) => line.startsWith('status ')).map((line) => Number(line.split(' ')[1]));
+          await until('all owned status CLI processes to exit', () => pids.every((pid) => {
+            try { process.kill(pid, 0); return false; } catch (error) { if (error.code === 'ESRCH') return true; throw error; }
+          }), 15_000);
+        }
+      }
       fs.rmSync(root, { recursive: true, force: true, maxRetries: 3 });
     }
   });
