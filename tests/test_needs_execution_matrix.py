@@ -837,6 +837,27 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
         self.assertIn("recovery_grant", [e["kind"] for e in saved["user_events"]])
         self.provider.assert_not_called()
 
+    def test_job_retry_status_fails_closed_when_source_observation_times_out(self):
+        self.state.update(status="PAUSED_JOB_FAILURE", next_stage="check_design")
+        self.state["job_failure"] = {
+            "reason": "The Design Reviewer stopped",
+            "stage": "check_design",
+            "attempt_id": "001/check_design-01",
+            "job_retry_token": "jr:fixture",
+            "archive": str(self.directory / "archive"),
+            "source_identity": support.digest(job_source.identity(self.workspace)),
+            "configuration": job_failure.configuration(self.state),
+            "write_diagnosis": {},
+            "unrestored": [],
+        }
+        with patch.object(
+            run_view.status_observation.captured, "run", side_effect=subprocess.TimeoutExpired("status-worker", 15)
+        ):
+            need = run_view.needs(self.state)
+        self.assertEqual("recover_source", need["kind"])
+        self.assertIsNone(need["action"])
+        self.assertIn("could not be checked", need["resume_unavailable"])
+
     def test_exact_job_retry_checks_source_and_current_token(self):
         (self.workspace / "docs").mkdir(exist_ok=True)
         (self.workspace / "docs/greet.md").write_text("# Greeting\n\nThe greeting reads one name from argv.\n")
@@ -864,9 +885,16 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
         source = (self.workspace / "greet.py").read_bytes()
         edited = source + b"\n# Source changed after the failed job\n"
         (self.workspace / "greet.py").write_bytes(edited)
-        self.refuse(lambda: self.run.retry_job(before["needs"]["job_retry_token"]), before, "Source changed|stale")
+        with self.assertRaisesRegex(taskrun.TaskRunError, "Source changed|stale"):
+            self.run.retry_job(before["needs"]["job_retry_token"])
+        changed = self.run.status()
+        self.assertEqual("recover_source", changed["needs"]["kind"])
+        self.assertIsNone(changed["next_command"])
+        self.assertEqual(self.protected(before), self.protected(changed))
+        self.provider.assert_not_called()
         self.assertEqual(edited, (self.workspace / "greet.py").read_bytes())
         (self.workspace / "greet.py").write_bytes(source)
+        self.assertEqual("retry_job", self.run.status()["needs"]["kind"])
 
         def answer(**kwargs):
             output = self.directory / "design-check-fixture.json"

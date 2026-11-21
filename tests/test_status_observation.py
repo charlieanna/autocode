@@ -7,8 +7,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import autocode_job_retry_admission as job_retry_admission
 import autocode_status_observation as observation
 import autocode_status_observation_worker as worker
+import autocode_util as util
 import autocode_verification_inspection as verification
 
 
@@ -48,6 +50,25 @@ class StatusObservationTests(unittest.TestCase):
         with patch.object(observation.captured, "run", run):
             project()
         self.assertEqual(1, run.call_count)
+
+    def test_job_retry_worker_preserves_refusal_and_unavailable_source(self):
+        request = {"operation": "job_retry", "payload": {"state": {}, "workspace": "/project", "token": "token"}}
+        with patch.object(job_retry_admission, "validate_retry", return_value={}):
+            self.assertEqual({"allowed": True}, worker._worker(request))
+        for error in (ValueError("Source changed"), util.Paused("PAUSED_SOURCE_UNAVAILABLE", "Git unavailable")):
+            with self.subTest(error=error), patch.object(job_retry_admission, "validate_retry", side_effect=error):
+                self.assertEqual({"allowed": False, "reason": str(error)}, worker._worker(request))
+
+    def test_job_retry_timeout_or_unconfirmed_cleanup_fails_closed(self):
+        for error in (subprocess.TimeoutExpired("worker", 1), observation.captured.ProcessError("uncertain")):
+            with self.subTest(error=error), patch.object(observation.captured, "run", side_effect=error):
+                result = observation.job_retry({}, "/project", "token")
+                self.assertFalse(result["allowed"])
+                self.assertIn("could not be checked", result["reason"])
+        with patch.object(observation, "_observe", return_value={"allowed": True}):
+            self.assertTrue(observation.job_retry({}, "/project", "token")["allowed"])
+        with patch.object(observation, "_observe", return_value={"allowed": "yes"}):
+            self.assertFalse(observation.job_retry({}, "/project", "token")["allowed"])
 
     def test_evidence_worker_rereads_old_checkpoint_with_saved_name_migration(self):
         with tempfile.TemporaryDirectory() as temp:

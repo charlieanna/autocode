@@ -12,6 +12,16 @@ def _worker(request):
         import autocode_acceptance_retry_next as retry_next
 
         return retry_next.decide(payload["state"], payload["workspace"])
+    if request.get("operation") == "job_retry":
+        import autocode_job_retry_admission as admission
+        import autocode_util as util
+
+        state = payload["state"]
+        try:
+            admission.validate_retry(state, payload["workspace"], payload["token"])
+        except (ValueError, OSError, KeyError, TypeError, util.Paused) as error:
+            return {"allowed": False, "reason": str(error)}
+        return {"allowed": True}
     if request.get("operation") == "source_snapshot":
         import autocode_source_scope as source_scope
         import autocode_support as support

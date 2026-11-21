@@ -132,6 +132,25 @@ def report_repair(state: RunState, workspace, revision=None):
     return None
 
 
+def job_retry(state: RunState, workspace, token):
+    """Bound retry admission's source scan; execution revalidates independently."""
+    unavailable = {"allowed": False, "reason": "The failed job's source could not be checked"}
+    try:
+        value = _observe(
+            "job_retry",
+            {"state": state, "workspace": str(workspace) if workspace is not None else None, "token": token},
+        )
+        if (
+            isinstance(value, dict)
+            and type(value.get("allowed")) is bool
+            and (value["allowed"] or isinstance(value.get("reason"), str) and value["reason"])
+        ):
+            return value
+    except (OSError, TypeError, ValueError, subprocess.SubprocessError, captured.ProcessError):
+        pass
+    return unavailable
+
+
 def source_snapshot(state: RunState, workspace):
     """Return a bounded snapshot or None when freshness is unknown."""
     try:

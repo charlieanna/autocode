@@ -1523,14 +1523,9 @@ def needs(state: RunState, *, stale_report_repair=False, human_projection=None, 
             ),
         }
         if known_source:
-            try:
-                from . import autocode_job_retry_admission as retry_admission
-            except ImportError:
-                import autocode_job_retry_admission as retry_admission
-            try:
-                retry_admission.validate_retry(state, state.get("workspace"), failure.get("job_retry_token"))
-            except (ValueError, OSError, KeyError, TypeError) as error:
-                need.update(kind="recover_source", action=None, resume_unavailable=str(error))
+            admission = status_observation.job_retry(state, state.get("workspace"), failure.get("job_retry_token"))
+            if not admission["allowed"]:
+                need.update(kind="recover_source", action=None, resume_unavailable=admission["reason"])
         # A job stopped on quota or by its provider's content filter (#463) keeps its model question on
         # the failure: --answer route-ROLE=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN) names another model and issues a
         # new token for the exact retry. Same shape as the answer need's ``route``.
@@ -1540,12 +1535,17 @@ def needs(state: RunState, *, stale_report_repair=False, human_projection=None, 
             # Until a person names another model (job_failure.route_assignment), the exact retry of a
             # refused job would replay the refused model: the next step is the answer. job_retry_token
             # stays, since the CLI still accepts it. A quota stop keeps the retry (the quota resets).
-            if need["route"]["cause"] in (
-                "content_filter",
-                "output_limit",
-                "authentication",
-                "timeout",
-            ) and not isinstance(failure.get("route_assignment"), dict):
+            if (
+                need["kind"] == "retry_job"
+                and need["route"]["cause"]
+                in (
+                    "content_filter",
+                    "output_limit",
+                    "authentication",
+                    "timeout",
+                )
+                and not isinstance(failure.get("route_assignment"), dict)
+            ):
                 # A timeout whose model declares a lighter variant names that answer itself (#1902).
                 value = (need["route"].get("lower_effort") or {}).get("answer") or "MODEL"
                 need["action"] = (

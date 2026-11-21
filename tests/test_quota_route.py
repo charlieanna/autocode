@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import autocode_builder_policy as builder_policy
 import autocode_dispatch as dispatch
@@ -813,6 +814,32 @@ class QuotaRouteTests(unittest.TestCase):
             route=quota_route.question(state, self.stopped(state)),
         )
         return state
+
+    def test_source_observation_failure_holds_status_instead_of_raising(self):
+        state = self.routed_job()
+        state["workspace"] = str(self.root / "missing-project")
+        view = run_view.view(state)
+        self.assertEqual("recover_source", view["needs"]["kind"])
+        self.assertIsNone(view["next_command"])
+        self.assertIsNone(view["needs"]["action"])
+        self.assertTrue(view["needs"]["resume_unavailable"])
+
+    def test_model_question_is_actionable_only_after_current_retry_source_is_observed(self):
+        state = self.routed_job()
+        with patch.object(run_view.status_observation, "job_retry", return_value={"allowed": True}):
+            ready = run_view.view(state)
+        self.assertEqual("retry_job", ready["needs"]["kind"])
+        self.assertIn("--answer route-tester=MODEL", ready["next_command"])
+        with patch.object(
+            run_view.status_observation,
+            "job_retry",
+            return_value={"allowed": False, "reason": "Source changed since the failed attempt"},
+        ):
+            blocked = run_view.view(state)
+        self.assertEqual("recover_source", blocked["needs"]["kind"])
+        self.assertIsNone(blocked["needs"]["action"])
+        self.assertIsNone(blocked["next_command"])
+        self.assertEqual("route-tester", blocked["needs"]["route"]["question_id"])
 
     def test_the_retry_job_need_carries_the_jobs_model_question(self):
         state = self.routed_job()
