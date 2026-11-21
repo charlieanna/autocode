@@ -174,6 +174,12 @@ pass while the strict-binding positive cases and final judgment remain open.
   check. Protected-test replay now supplies its own current source revision and
   approved scope. The independent claim-evidence caller must still adopt its
   sealed Requirements revision and scope in its separate follow-up.
+  Flattening now reuses the pinned root snapshot and checks every nested Git
+  snapshot against that pin; a changed nested file is refused. On one local
+  1,500-file fixture with nested Git and a selected ignored file, three-run
+  preparation medians were 0.647 s on master and 0.899 s with the check. This
+  is a synthetic measurement, not a production latency bound. Existing worker
+  preparation and command deadlines are unchanged.
 - Unit and end-to-end acceptance-reference regressions now capture in-test
   and module-level dependency cases. The candidate test passes, while the
   original run raises a missing unrelated dependency before its assertion.
