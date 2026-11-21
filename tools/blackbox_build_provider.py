@@ -760,6 +760,12 @@ def main():
                 result["changed_code_exceptions"][0]["evidence_refs"] = [
                     str(Path(data["regression_proof"]["path"]).parent / "mutation-check/raw.log")
                 ]
+        row_fields = schema.get("properties", {}).get("criterion_results", {}).get("items", {}).get("properties", {})
+        if "probe_reason" in row_fields:
+            # The scripted Tester runs only each criterion's fixed check, so it records why (autocode_tester_probes).
+            for row in result.get("criterion_results") or []:
+                if row.get("status") == "PASS":
+                    row.setdefault("probe_reason", f"Scripted Tester: {row['id']} has only its fixed product check")
     Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))
     record("finish")
     print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}), flush=True)

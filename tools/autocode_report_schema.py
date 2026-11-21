@@ -15,12 +15,14 @@ try:
     from . import autocode_changed_code_review as changed_code_review
     from . import autocode_design_coverage as design_coverage
     from . import autocode_planning_report_policy as planning_policy
+    from . import autocode_tester_probes as tester_probes
 except ImportError:
     import autocode_acceptance_test_repair as acceptance_test_repair
     import autocode_acceptance_tests as acceptance_tests
     import autocode_changed_code_review as changed_code_review
     import autocode_design_coverage as design_coverage
     import autocode_planning_report_policy as planning_policy
+    import autocode_tester_probes as tester_probes
 
 
 def normalize_absent_authority(value, schema, record):
@@ -32,7 +34,7 @@ def normalize_absent_authority(value, schema, record):
     """
     result = changed_code_review.normalize_absent(value, schema, record)
     result = acceptance_test_repair.normalize_absent(result, schema, record)
-    result = copy.deepcopy(result)
+    result = copy.deepcopy(tester_probes.default_reason(result, schema))
     properties = schema.get("properties", {})
     for target, fields in (
         (result, properties),
@@ -89,6 +91,13 @@ def review_generation_schema(schema, state: RunState, stage):
     if stage not in ("tester", "review_completion", "review_checkpoint"):
         return result
     props = result.get("properties", {})
+    row = props.get("criterion_results", {}).get("items", {}).get("properties")
+    if stage == "tester" and isinstance(row, dict):
+        # The Tester's recorded reason a PASS criterion has no probe of its own (autocode_tester_probes).
+        # Nullable, and an omitted one is null (tester_probes.default_reason), so saved reports stay valid under
+        # strict schemas; the role schema, and with it the Builder self-assessment and review_checkpoint
+        # schemas, never offers it.
+        row["probe_reason"] = {"type": ["string", "null"]}
     contract = state.get("goal_contract") or {}
     for field, value in (
         ("contract_hash", contract.get("hash")),

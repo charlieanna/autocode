@@ -38,6 +38,10 @@ except ImportError:
 FILE = "controller-owner.json"
 STATUS = "PAUSED_CONTROLLER_EXIT"
 COMPLETE = ("TASK_COMPLETE", "COMPLETE")
+# What a deliberate ready handoff's receipt and its inspection say (#3883).
+READY_REASON = "Saved user action or unit handoff is ready to advance"
+HELD_REASON = "Checkpoint persistence outcome held"
+REASON_LIMIT = 500
 MAX_BYTES = 16384
 # A launch marker also retains argv/context; its process identities use the same
 # strict reader, but it is not a small controller receipt. Keep both bounds finite.
@@ -283,7 +287,7 @@ def inspect(state: RunState, run_dir, workspace, *, run_locked=False, checkout_l
                 and receipt["exit_code"] in (0, 2)
                 and receipt["checkpoint"] == util.digest(state)
             ):
-                result.update(kind="ready", reason="Saved user action or unit handoff is ready to advance")
+                result.update(kind="ready", reason=READY_REASON)
                 return result
             if state.get("status") != "RUNNING":
                 result.update(kind="boundary", reason="Controller reached the saved task boundary")
@@ -448,7 +452,7 @@ class Owner:
             "exited_at": None,
             "reason": None,
         }
-        self.code, self.ready = None, False
+        self.code, self.ready, self.exit_reason = None, False, None
         self._persistence_held = False
 
     def _save(self):
@@ -467,9 +471,26 @@ class Owner:
         self._persistence_held = True
         self.ready = False
 
-    def result(self, code, *, ready=False):
+    def result(self, code, *, ready=False, reason=None):
+        """Record this exit. ``reason`` is a message the exit has but has not saved as its stop_reason
+        (a checkout-lock refusal); an exit whose reason is the saved stop_reason passes none."""
         self.code, self.ready = code, bool(ready and code in (0, 2) and not self._persistence_held)
+        self.exit_reason = str(reason) if reason else None
         return code
+
+    def _reason(self, error, saved: RunState, ready):
+        """The one rule for the receipt and controller_exit reason, bounded (#3883)."""
+        if self._persistence_held:
+            return HELD_REASON
+        if error is not None:
+            return type(error).__name__
+        if self.exit_reason:
+            reason = self.exit_reason
+        elif ready:
+            reason = READY_REASON
+        else:
+            reason = saved.get("stop_reason") or "Saved task boundary"
+        return str(reason)[:REASON_LIMIT]
 
     def __enter__(self):
         key = str(self.run_dir.resolve())
@@ -494,11 +515,7 @@ class Owner:
                 exit_code=self.code,
                 exited_at=now(),
                 disposition="ready" if ready else "boundary" if self.state.get("status") != "RUNNING" else "unexpected",
-                reason=(
-                    str(self.state.get("stop_reason") or "Saved task boundary")[:500]
-                    if error is None
-                    else type(error).__name__
-                ),
+                reason=self._reason(error, self.state, ready),
             )
             if (
                 self.state.get("status") == "RUNNING"
@@ -516,22 +533,13 @@ class Owner:
                 )
                 self.persist(self.run_dir / "state.json", self.state)
             durable = util.read(self.run_dir / "state.json")
+            ready = ready and durable.get("status") == "RUNNING"
             self.receipt.update(
                 disposition=(
-                    "ready"
-                    if ready and durable.get("status") == "RUNNING"
-                    else "unexpected"
-                    if durable.get("status") in ("RUNNING", STATUS)
-                    else "boundary"
+                    "ready" if ready else "unexpected" if durable.get("status") in ("RUNNING", STATUS) else "boundary"
                 ),
-                reason=(
-                    str(durable.get("stop_reason") or "Saved task boundary")[:500]
-                    if error is None
-                    else type(error).__name__
-                ),
+                reason=self._reason(error, durable, ready),
             )
-            if self._persistence_held:
-                self.receipt["reason"] = "Checkpoint persistence outcome held"
             self.checkpoint(durable)
             # Receipt metadata, never prompt/argv/environment/model content.
             try:

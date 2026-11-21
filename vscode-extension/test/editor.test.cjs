@@ -9203,6 +9203,29 @@ test('structured Requirements & Assumptions card renders assumptions, rationale,
   assert.ok(args.includes('requirements-review-r1=Change A1: exit 1 on missing name to match legacy script'));
 });
 
+test('complete Requirements details remain accessible without assumptions after a question', async (t) => {
+  const constraints = Array.from({length: 9}, (_, index) => `Constraint ${index + 1}`);
+  const examples = Array.from({length: 13}, (_, index) => `Example ${index + 1}`);
+  const view = {
+    status: 'WAITING_FOR_USER', done: false,
+    needs: {kind: 'answer', resolver_token: 'review:tok',
+      questions: [{id: 'requirements-review-r1', question: understanding, options: [], proposed_default: 'plan', allow_custom: true}]},
+    next_command: `autocode --answer requirements-review-r1=ANSWER --resolver-token - --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    requirements: {handoff_ref: 'ref', intended_outcome: 'Task', requirements: [],
+      proposed_assumptions: [], conflicts: [], acceptance_tests: examples, constraints},
+    chat: {phase: 'requirements', context: 'review',
+      input: {kind: 'feedback', label: 'Send reply', next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --feedback MESSAGE`},
+      messages: [{id: 'requirements-question-r1', role: 'assistant', text: understanding}],
+      review: {question_id: 'requirements-review-r1', answer: 'plan',
+        label: 'Approve understanding and prepare plan', summary: understanding}},
+  };
+  const ui = await openChat(t, view, run, {controller: new RunController(host.log)});
+  const details = ui.document.querySelector('#app .requirements-details');
+  assert.ok(details, 'complete details remain available after the question was shown');
+  assert.ok(details.textContent.includes('Constraint 9'));
+  assert.ok(details.textContent.includes('Example 13'));
+});
+
 function recordedStageEvidence(context, path) {
   const working = context === 'working';
   const done = context === 'done';

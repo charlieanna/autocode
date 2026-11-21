@@ -921,7 +921,11 @@ class PreflightCheckTests(unittest.TestCase):
         self.assertEqual("PAUSED_BILLING_ROUTE", caught.exception.status)
         self.assertIn("openai/gpt-5.3-codex-spark", str(caught.exception))
         self.assertIn("role: builder", str(caught.exception))
-        self.assertIn("not supported when using Codex with a ChatGPT account", str(caught.exception))
+        # The stop names the access check and its fixed cause; the provider's words stay in the probe's
+        # saved record and evidence (#3888).
+        self.assertIn("model access check", str(caught.exception))
+        self.assertIn("billing route", str(caught.exception))
+        self.assertNotIn("not supported when using Codex with a ChatGPT account", str(caught.exception))
         self.assertEqual(["openai/gpt-5.3-codex-spark"], self.calls)
         self.assertTrue(probed(self.run_dir)["openai/gpt-5.3-codex-spark"]["blocking"])
 

@@ -6,13 +6,16 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import autocode_activity_log as activity_log
+import autocode_preflight_attempts as preflight_attempts
 import autocode_status
 
 SECRET = "SECRET-CONTENT-7f3a"
+DRIFT = "Repository changed during read-only review; preserve result and revalidate"
 
 
 def state(**extra):
@@ -62,6 +65,39 @@ class ActivityLogTests(unittest.TestCase):
 
     def entries(self):
         return [json.loads(line) for line in (self.run_dir / "activity.jsonl").read_text().splitlines()]
+
+    def finished(self, stage_name):
+        return [e for e in self.entries() if e["event"] == "stage_finished" and e["stage"] == stage_name]
+
+    def probe(self, run, clock):
+        def save():
+            autocode_status.persist(self.path, run)
+
+        adapter = SimpleNamespace(NAME="opencode")
+        return preflight_attempts.Attempt(SimpleNamespace(), run, self.run_dir, adapter, "zai/glm-test", save, clock)
+
+    def retained_review(self, **extra):
+        base = self.run_dir / "iterations" / "001" / "review-completion-01"
+        return {
+            "stage": "review_completion",
+            "role": "review_completion",
+            "iteration": 1,
+            "engine": "codex",
+            "command": ["codex", "exec", "--model", "gpt-x"],
+            "events": str(base.with_suffix(".jsonl")),
+            "output": str(base.with_suffix(".json")),
+            "started_at": "2026-11-20T10:00:00+00:00",
+            "finished_at": "2026-11-20T10:01:00+00:00",
+            "duration_seconds": 60.0,
+            "exit_code": 0,
+            "after_ref": str(base.with_suffix(".after.json")),
+            **extra,
+        }
+
+    def assert_no_attempt_paths(self, record):
+        text = (self.run_dir / "activity.jsonl").read_text()
+        self.assertNotIn(record["events"], text)
+        self.assertNotIn(record["output"], text)
 
     def test_persist_logs_invocation_transitions_and_stages_without_content(self):
         argv = ["autocode", "--run-dir", "r", f"--answer=Q1={SECRET}", "--feedback", SECRET]
@@ -153,6 +189,107 @@ class ActivityLogTests(unittest.TestCase):
         )
         events = [(e["event"], e.get("status") or e.get("criterion")) for e in self.entries()[-2:]]
         self.assertEqual([("plan_approval", "approved"), ("human_review", "C1")], events)
+
+    def test_ac1_preflight_probe_finishes_once_with_timing(self):
+        run = state()
+        autocode_status.persist(self.path, run)
+        ticks = iter([100.0, 102.5])
+        attempt = self.probe(run, lambda: next(ticks))
+        attempt.admit({"schema": 1})  # _publish appends the admitted record and saves the checkpoint
+        self.assertEqual([], self.finished("model_preflight"))
+        attempt.finish({"exit_code": 0, "timed_out": False, "metrics": {}})
+        finished = self.finished("model_preflight")
+        self.assertEqual(1, len(finished))
+        self.assertEqual(
+            ("zai/glm-test", 0, 2.5), tuple(finished[0][k] for k in ("model", "exit_code", "duration_seconds"))
+        )
+        self.assertIsNotNone(finished[0]["finished_at"])
+        autocode_status.persist(self.path, run)
+        autocode_status.persist(self.path, run)
+        activity_log._announced.clear()  # re-projection from a new process
+        autocode_status.persist(self.path, run)
+        self.assertEqual(1, len(self.finished("model_preflight")))
+        self.assert_no_attempt_paths(attempt.record)
+
+    def test_ac2_drift_stopped_review_has_one_unaccepted_outcome(self):
+        review = self.retained_review(unusable_reason=DRIFT)
+        autocode_status.persist(self.path, state(next_stage="review_completion", active_stage=review))
+        self.assertEqual([], self.finished("review_completion"))
+        paused = state(status="PAUSED_STALE_VALIDATION", stop_reason=DRIFT, active_stage=review)
+        autocode_status.persist(self.path, paused)
+        finished = self.finished("review_completion")
+        self.assertEqual(1, len(finished))
+        self.assertEqual(
+            ("unaccepted", DRIFT, "2026-11-20T10:01:00+00:00", 60.0),
+            tuple(finished[0][k] for k in ("outcome", "outcome_reason", "finished_at", "duration_seconds")),
+        )
+        autocode_status.persist(self.path, paused)
+        activity_log._announced.clear()  # re-projection from a new process
+        autocode_status.persist(self.path, paused)
+        autocode_status.persist(self.path, state(stages=[review]))  # recovery moves the record into stages
+        self.assertEqual(1, len(self.finished("review_completion")))
+        self.assert_no_attempt_paths(review)
+
+    def test_drift_rejected_review_set_aside_with_archived_artifacts_is_not_announced_again(self):
+        review = self.retained_review(unusable_reason=DRIFT)
+        autocode_status.persist(
+            self.path, state(status="PAUSED_STALE_VALIDATION", stop_reason=DRIFT, active_stage=review)
+        )
+        archive = self.run_dir / "iterations" / "001" / "rejected-1"
+        set_aside = {
+            **review,
+            "events": str(archive / Path(review["events"]).name),
+            "output": str(archive / Path(review["output"]).name),
+            "archived_paths": {
+                review["events"]: str(archive / Path(review["events"]).name),
+                review["output"]: str(archive / Path(review["output"]).name),
+            },
+            "rejected": True,
+        }
+        autocode_status.persist(self.path, state(stages=[set_aside]))  # --abandon-stage archives the attempt
+        autocode_status.persist(self.path, state(stages=[set_aside, stage("builder")]))
+        self.assertEqual(["unaccepted"], [e["outcome"] for e in self.finished("review_completion")])
+        self.assertEqual(1, len(self.finished("builder")))
+        self.assertNotIn(str(archive), (self.run_dir / "activity.jsonl").read_text())
+
+    def test_ac3_uncertain_probe_waits_until_settled(self):
+        run = state()
+        ticks = iter([10.0, 12.0])
+        attempt = self.probe(run, lambda: next(ticks))
+        unverifiable = {
+            "schema": 1,
+            "receipt": str(self.run_dir / "missing" / "supervision.json"),  # no keeper receipt to verify
+            "owner": {"pid": 101, "birth_identity": 1},
+            "keeper": {"pid": 102, "birth_identity": 2},
+            "provider": {"pid": 103, "birth_identity": 3},
+        }
+        attempt.admit(unverifiable)
+        attempt.finish(error=RuntimeError("transport lost"))
+        self.assertIsNotNone(attempt.record["finished_at"])
+        self.assertIs(False, attempt.record["preflight_complete"])
+        self.assertEqual([], self.finished("model_preflight"))
+        attempt.record["preflight_complete"] = True  # as reconciliation records once cleanup is verified
+        attempt.record["preflight_outcome"]["status"] = "PAUSED_PROVIDER_UNCERTAIN"
+        autocode_status.persist(self.path, run)
+        autocode_status.persist(self.path, run)
+        finished = self.finished("model_preflight")
+        self.assertEqual(1, len(finished))
+        self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", finished[0].get("outcome"))
+
+    def test_ac19_unmarked_retained_attempt_waits_for_its_saved_row(self):
+        review = self.retained_review()
+        uncertain = state(status="PAUSED_UNCERTAIN_STAGE", stop_reason="Inspect the stage", active_stage=review)
+        autocode_status.persist(self.path, uncertain)
+        self.assertEqual([], self.finished("review_completion"))
+        autocode_status.persist(self.path, state(stages=[review]))
+        autocode_status.persist(self.path, state(stages=[review]))
+        autocode_status.persist(self.path, state(stages=[review]))
+        finished = self.finished("review_completion")
+        self.assertEqual(1, len(finished))
+        self.assertEqual(
+            ("completed", "2026-11-20T10:01:00+00:00"), (finished[0].get("outcome"), finished[0]["finished_at"])
+        )
+        self.assert_no_attempt_paths(review)
 
     def test_logging_failure_never_fails_the_checkpoint(self):
         (self.run_dir / "activity.jsonl").mkdir()  # appending to a directory raises
