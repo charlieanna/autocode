@@ -638,6 +638,44 @@ class ModuleTimeoutTests(unittest.TestCase):
             lines,
         )
 
+    def test_a_run_without_module_timeout_still_bounds_every_module_by_its_measured_class(self):
+        # #4011: CI's Linux suite and diff-coverage pass no --module-timeout, and a stuck module then held the job to
+        # its own six-hour limit without saying which module it was. Every module now has a bound, the slow ones a
+        # longer one, and --module-timeout still sets one bound for all, or none with 0.
+        given = {}
+
+        def run_module(module, _verbosity, timeout=None):
+            given[module] = timeout
+            return {"module": module, "ok": True, "timed_out": False, "seconds": 0.0, "tests": 1, "output": ""}
+
+        with tempfile.TemporaryDirectory(prefix="suite-default-bound-") as directory:
+            root = Path(directory)
+            (root / "slow.json").write_text(json.dumps({"tests.test_long": "a measured slow module"}))
+            for argv, expected in (
+                ([], {"tests.test_quick": 3600.0, "tests.test_long": 7200.0}),
+                (["--module-timeout", "600"], {"tests.test_quick": 600.0, "tests.test_long": 600.0}),
+                (["--module-timeout", "0"], {"tests.test_quick": None, "tests.test_long": None}),
+            ):
+                given.clear()
+                with (
+                    self.subTest(argv=argv),
+                    mock.patch.object(run_suite, "compile_runtime"),
+                    mock.patch.object(run_suite, "discover", return_value=unittest.TestSuite()),
+                    mock.patch.object(run_suite, "test_modules", return_value=["tests.test_quick", "tests.test_long"]),
+                    mock.patch.object(run_suite, "scenario_modules", return_value=[]),
+                    mock.patch.object(run_suite, "DEFAULT_SLOW_PATH", root / "slow.json"),
+                    mock.patch.object(run_suite, "run_module", run_module),
+                    contextlib.redirect_stdout(io.StringIO()),
+                ):
+                    code = run_suite.main(["--exclusions", str(root / "none.json"), "--jobs", "2", *argv])
+                self.assertEqual((0, expected), (code, given))
+
+    def test_the_default_bounds_cover_the_longest_modules_measured_on_hosted_linux(self):
+        # The bound is only useful if a genuinely long module still finishes inside it (#4011's evidence, 2026-11-21).
+        self.assertGreater(run_suite.FAST_MODULE_TIMEOUT, 2551 * 1.25)
+        self.assertGreater(run_suite.SLOW_MODULE_TIMEOUT, 4613 * 1.25)
+        self.assertLess(run_suite.SLOW_MODULE_TIMEOUT, 360 * 60, "the bound must end a module before the job limit")
+
 
 class ModuleEnvironmentTests(unittest.TestCase):
     def test_each_module_and_its_children_have_private_machine_state(self):
