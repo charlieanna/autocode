@@ -32,12 +32,22 @@ The bounded status worker resolves the saved run-wide facade even when the
 stopped role uses Codex, and holds replay routes until their facade can be
 reconstructed safely. Mixed-role saved transport changes also hold.
 
-At f9b2df001, 228 focused retry/status/architecture tests, repository Ruff and
-format, and mypy passed. Subsequent transport-parity changes require their own
-focused checks and exact-head CI. A separate actual-editor test uses a local
-fake Kilo provider, never a live model call; its final host result is pending.
+At f9b2df001, 228 focused retry/status/architecture tests passed. After the
+transport-parity changes, 374 focused retry/status/architecture/CI-selection
+tests passed on c86720319; subsequent e24c3863f changes only fake audit logging,
+whose public CLI test also passed. Repository Ruff, format and mypy passed.
+At e24c3863f, the Ubuntu suite, lint and advisory diff coverage passed, but `ci-required` failed with
+the actual Linux editor check:
+the synthetic Kilo question appeared and status made no model listing, but the
+token did not rotate after its answer. The existing Codex host test failed at
+the same step. Full log: `/private/tmp/autocode-4022-extension-e24.log`. The
+GitHub job is <https://github.com/charlieanna/autocode/actions/runs/44889392491/job/136801825878>.
+The test uses a local fake Kilo provider, never a live model call.
 An automatic approval review rejected an earlier smoke that changed HOME, and
 that action was not run. Status-only controls with inherited HOME passed.
+The separately diagnosed #4023 editor defect shows an extra confirmation dialog
+after a typed stopped-job answer; its correction is needed before claiming the
+answer was accepted in the actual Kilo editor scenario.
 
 Still required: focused checks and master control, actual VS Code behavior on
 the final head, current-head `ci-required`, and review of unsupported or absent
