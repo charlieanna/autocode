@@ -347,6 +347,14 @@ def replay_parts(command, changed, workspace, *, detected=True, homes=None) -> l
 
     placed = test_homes.replay_commands(homes, sorted(changed), intact) if detected and homes else {}
     rest = {name for name in changed if name not in placed}
+    groups = project_suite.groups(sorted(rest), workspace) if detected else []
+    if len(groups) > 1:
+        # Changed tests of more than one runner (Python beside a Node project's tests): no one command runs
+        # them all, so each group runs with its own, as when only one of them changed. Any group that needs
+        # the whole bound suite (a changed helper, a deleted test) keeps the whole suite for all of them.
+        split = [replay_command(command, group, workspace, detected=detected) for group in groups]
+        if command not in split and None not in split:
+            return [*split, *sorted(set(placed.values()) - set(split))]
     single = replay_command(command, rest, workspace, detected=detected) if rest or not placed else None
     return [*([single] if single else []), *sorted(set(placed.values()))]
 
