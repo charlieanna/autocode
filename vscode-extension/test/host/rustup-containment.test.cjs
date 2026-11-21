@@ -45,6 +45,7 @@ for (const absoluteCargo of [false, true]) test(`real editor runs ${absoluteCarg
     AUTOCODE_FIXTURE_RUSTUP_RECORD: record, AUTOCODE_FIXTURE_RUSTUP_RELEASE: release, AUTOCODE_FIXTURE_RUSTUP_OWNERS: owners,
     AUTOCODE_FIXTURE_RUSTUP_DIAGNOSTIC: providerDiagnostic};
   if (absoluteCargo) env.AUTOCODE_FIXTURE_ABSOLUTE_CARGO = '1';
+  else delete env.AUTOCODE_FIXTURE_ABSOLUTE_CARGO;
   for (const key of ['OPENAI_API_KEY', 'CODEX_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'KILO_API_KEY', 'ZAI_API_KEY']) delete env[key];
   let fixture, app, win, editorPid, editorStarted, passed = false, testError, phase = "preparing fixture";
   const cleanupErrors = [];
