@@ -1,5 +1,25 @@
 # Proof gates status
 
+### Combined semantic-evidence candidate
+
+The reviewed #4053 candidate `eff10dfa4` is integrated with its ancestry so this
+branch can verify semantic line inventory together with SemVer recovery and both
+negative named-proof editor cases. Conflicts were limited to CI registration:
+all consumers and their tests are retained. The two new editor fixtures now use
+the same tested post-approval transition helper; their unchanged original
+approval view is tolerated only until the action starts, and later pauses or
+questions are exposed immediately.
+
+#4053's first editor attempt on `54e1c1c71` failed before approval while waiting
+for text in the collapsed full plan; all ten other host cases passed. The revised
+fixture explicitly opens the full plan before checking the criterion, and the
+existing PNG-only artifact upload now includes its hidden directory. The revised
+actual editor outcome is still pending. This combined candidate passed 287
+focused inventory, mutation, plan-binding, CI-selection, architecture and
+run-state checks, the shared post-approval Node control, and full Ruff/format
+and mypy (994 source files). Its SemVer CLI rehearsal and required CI remain
+pending. These are candidates, not merged or fully qualified fixes.
+
 ### Negative named-proof editor scenarios prepared
 
 The new actual-editor scenarios approve a complete agent-reviewed plan and run

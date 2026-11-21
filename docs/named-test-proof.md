@@ -608,7 +608,7 @@ from `tools/autocode_mutants.py`).
   cookie spells it), files that do not parse with the runner's Python and files
   with a carriage return no line feed follows (Python and git number their lines
   differently) are never changed; the record notes why.
-- **What.** Ten operators: negate a condition (`if`, `while`, a conditional
+- **What.** The operators negate a condition (`if`, `while`, a conditional
   expression, `assert`, a comprehension filter or a `case` guard); swap a bound
   (`<` and `<=`, `>` and `>=`); drop a branch (an `if` body or its `else` becomes
   `pass`, a decorated definition with its decorators; an `elif` is mutated as
@@ -625,6 +625,8 @@ from `tools/autocode_mutants.py`).
   clause catches `()` (nothing), the context manager of a `with` and the value
   of an augmented assignment (`count += 1`) become `None`, and a keyword argument
   or dictionary entry on a line of its own takes another constant or `None`. A
+  list or tuple element on its own changed line also takes another constant,
+  subject to the same import-safety and exact-mutation checks. A
   mutant counts for the line it starts on, so the later statements of a dropped
   branch get their own sites. A line holding only `try:` or `pass` does nothing a
   test could notice and is not a changed-line obligation at all. No mutant is
@@ -771,6 +773,14 @@ not ignore them: the runner leaves them out of the inventory and records their c
 directories as `changed_code_inputs.installed_dependencies` (#3164). The gate's reason
 names the first 40 open lines and counts the rest; every line stays in `obligations`. Empty survivor lists and the old six-site sample never prove that
 all changed lines were tested.
+
+Python's source inventory includes runtime-expression tokens as well as compiler
+line-table entries, because constant folding can move a multiline element onto
+another line in the bytecode. It retains meaningful string contents and delimiters
+conservatively, excludes actual comments and existing inert declarations, and
+uses Git's physical line numbering for the line quoted to the reviewer. A mutant
+that starts on a parent line cannot prove a changed child line; nonpositive parent
+observations spanning that line remain visible as diagnostic context.
 
 A handle only names a line; it cannot show that the reason under it is about
 that line. An accepted S6 report (#2977) put the reason for one line under the

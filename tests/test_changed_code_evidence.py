@@ -45,6 +45,34 @@ def exception(obligation):
 
 
 class ChangedCodeEvidenceTests(unittest.TestCase):
+    def test_parent_mutant_survivor_is_visible_but_parent_kill_gives_no_child_credit(self):
+        for outcome in ("survived", "killed"):
+            with self.subTest(outcome=outcome):
+                parent = {**mutant(1, outcome), "end_line": 4, "operator": "none_assignment"}
+                result = assess(coverage(), mutations([parent]))
+                self.assertEqual("UNVERIFIED", result["status"])
+                for row in result["obligations"]:
+                    self.assertFalse(row["mutation_demonstrated"])
+                    if outcome == "survived":
+                        overlap = row.get("overlapping_mutations") or []
+                        self.assertTrue(overlap)
+                        self.assertEqual("survived", overlap[0]["outcome"])
+                        self.assertEqual(1, overlap[0]["line"])
+
+        parent = {**mutant(1, "survived"), "end_line": 4, "operator": "none_assignment"}
+        direct = assess(coverage(), mutations([parent, mutant(3), mutant(4)]))
+        self.assertEqual("PASS", direct["status"])
+        self.assertTrue(all(row["mutation_demonstrated"] for row in direct["obligations"]))
+        self.assertTrue(all(row.get("overlapping_mutations") for row in direct["obligations"]))
+
+    def test_parent_overlap_context_is_bounded_and_discloses_omissions(self):
+        parents = [{**mutant(1, "survived"), "end_line": 4, "operator": f"site-{n}"} for n in range(7)]
+        result = assess(coverage(), mutations(parents))
+        for row in result["obligations"]:
+            self.assertEqual(3, len(row["overlapping_mutations"]))
+            self.assertEqual(4, row["overlapping_mutations_omitted"])
+            self.assertFalse(row["mutation_demonstrated"])
+
     def test_each_executable_line_needs_current_behavioral_evidence(self):
         result = assess(coverage(), mutations())
         self.assertEqual("PASS", result["status"])

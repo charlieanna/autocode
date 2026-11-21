@@ -38,6 +38,31 @@ PUBLIC_FLOW_CONSUMERS = ("tests.test_launch_state_cli", "tests.test_completion_s
 # These helpers are loaded dynamically by the extension-host tests, not by a
 # Python import. Keep the consuming test named so fixture-only edits run it.
 EXTENSION_HOST_RESOURCES = {
+    "vscode-extension/test/python-semantic-transition.cjs": (
+        "vscode-extension/test/host/named-proof-refusal.test.cjs",
+        "vscode-extension/test/host/python-semantic.test.cjs",
+    ),
+    "vscode-extension/test/host/held_cli.py": (
+        "vscode-extension/test/host/editor-host.test.cjs",
+        "vscode-extension/test/host/python-semantic.test.cjs",
+    ),
+    "vscode-extension/test/owned-fixture-cleanup.cjs": (
+        "vscode-extension/test/host/classification-outcome.test.cjs",
+        "vscode-extension/test/host/editor-host.test.cjs",
+        "vscode-extension/test/host/job-route-effort.test.cjs",
+        "vscode-extension/test/host/kilo-route-effort.test.cjs",
+        "vscode-extension/test/host/named-proof-refusal.test.cjs",
+        "vscode-extension/test/host/python-semantic.test.cjs",
+        "vscode-extension/test/host/semver-reference-repair.test.cjs",
+    ),
+    "tools/autocode_changed_code_evidence.py": ("vscode-extension/test/host/python-semantic.test.cjs",),
+    "tools/autocode_changed_code_measurement.py": ("vscode-extension/test/host/python-semantic.test.cjs",),
+    "tools/autocode_changed_code_rework.py": ("vscode-extension/test/host/python-semantic.test.cjs",),
+    "tools/autocode_changed_code_review.py": ("vscode-extension/test/host/python-semantic.test.cjs",),
+    "tools/autocode_changed_code_review_application.py": ("vscode-extension/test/host/python-semantic.test.cjs",),
+    "tools/autocode_diff_coverage.py": ("vscode-extension/test/host/python-semantic.test.cjs",),
+    "tools/autocode_mutants.py": ("vscode-extension/test/host/python-semantic.test.cjs",),
+    "tools/autocode_python_semantic_lines.py": ("vscode-extension/test/host/python-semantic.test.cjs",),
     "tests/guard_host_hook/sitecustomize.py": ("vscode-extension/test/host/job-route-effort.test.cjs",),
     "tests/fixture_plan_review.py": (
         "vscode-extension/test/host/named-proof-refusal.test.cjs",
@@ -48,6 +73,7 @@ EXTENSION_HOST_RESOURCES = {
         "vscode-extension/test/host/named-proof-refusal.test.cjs",
         "vscode-extension/test/host/semver-reference-repair.test.cjs",
         "vscode-extension/test/host/classification-outcome.test.cjs",
+        "vscode-extension/test/host/python-semantic.test.cjs",
     ),
     "tests/classification_vscode_fixture.py": ("vscode-extension/test/host/classification-outcome.test.cjs",),
     **dict.fromkeys(
@@ -73,18 +99,13 @@ EXTENSION_HOST_RESOURCES = {
     "tests/kilo_route_vscode_fixture.py": ("vscode-extension/test/host/kilo-route-effort.test.cjs",),
     "tests/provider_auth_fixture.py": ("vscode-extension/test/host/editor-host.test.cjs",),
     "tests/protected_link_vscode_fixture.py": ("vscode-extension/test/host/protected-link-recovery.test.cjs",),
+    "tests/python_semantic_vscode_fixture.py": ("vscode-extension/test/host/python-semantic.test.cjs",),
+    "tests/fixtures/python-semantic-host/displayed-plan.json": ("vscode-extension/test/host/python-semantic.test.cjs",),
     "tests/rustup_vscode_fixture.py": ("vscode-extension/test/host/rustup-containment.test.cjs",),
     "tests/named_proof_vscode_fixture.py": ("vscode-extension/test/host/named-proof-refusal.test.cjs",),
     "tests/semver_reference_vscode_fixture.py": ("vscode-extension/test/host/semver-reference-repair.test.cjs",),
     "tests/semver_reference_provider.py": ("vscode-extension/test/host/semver-reference-repair.test.cjs",),
     "vscode-extension/test/host/semver-reference-cli.py": (
-        "vscode-extension/test/host/semver-reference-repair.test.cjs",
-    ),
-    "vscode-extension/test/owned-fixture-cleanup.cjs": (
-        "vscode-extension/test/host/editor-host.test.cjs",
-        "vscode-extension/test/host/job-route-effort.test.cjs",
-        "vscode-extension/test/host/kilo-route-effort.test.cjs",
-        "vscode-extension/test/host/named-proof-refusal.test.cjs",
         "vscode-extension/test/host/semver-reference-repair.test.cjs",
     ),
     **dict.fromkeys(
@@ -113,6 +134,7 @@ EXTENSION_HOST_RESOURCES = {
         "vscode-extension/test/host/job-route-effort.test.cjs",
         "vscode-extension/test/host/kilo-route-effort.test.cjs",
         "vscode-extension/test/host/named-proof-refusal.test.cjs",
+        "vscode-extension/test/host/python-semantic.test.cjs",
         "vscode-extension/test/host/status-retry.test.cjs",
         "vscode-extension/test/host/semver-reference-repair.test.cjs",
     ),

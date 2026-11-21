@@ -88,7 +88,7 @@ def _no_site(rows, mutation_report):
     return (
         str(why)
         if why
-        else "the mutation check made no mutant for them (no mutation site), so only the Tester's reasons settle "
+        else "the mutation check made no mutant starting on them (no mutation site on those lines), so only the Tester's reasons settle "
         + _listed(rows)
     )
 
@@ -289,7 +289,9 @@ SETTLED = ("tested", "excepted")
 
 def _measured(row):
     """An open line something observed: a mutant outcome, an evidence file or a recorded execution."""
-    return bool(row.get("mutation_outcomes") or row.get("evidence") or row.get("executed"))
+    return bool(
+        row.get("mutation_outcomes") or row.get("overlapping_mutations") or row.get("evidence") or row.get("executed")
+    )
 
 
 def builder_evidence(assessment):

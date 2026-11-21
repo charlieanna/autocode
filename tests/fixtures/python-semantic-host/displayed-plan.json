@@ -1,0 +1,52 @@
+{
+  "revision": 2,
+  "hash": "<run-plan-hash>",
+  "token": "<run-plan-token>",
+  "review_summary_markdown": "Plan revision 2 · not approved\n\nExtend labels\\(\\) to append the exact string added after the 25 existing labels, in order, and retain existing behavior\\.\n\n## Proposed approach\n\n- Implement the requested change: Extend labels\\(\\) to append the exact string added after the 25 existing labels, in order, and retain existing behavior\\.\n\n## Work stages\n\n1. Extend labels\\(\\) to append the exact string added after the 25 existing labels, in order, and retain existing behavior\\.\n\n## Effort and cost\n\nPlanned scope: 1 stage; 1 acceptance criterion. Duration and execution cost are not estimated. Model calls and retries affect actual usage.\n\n## Boundaries and uncertainty\n\n- Constraint: Change only the paths the reference solution touches\n- Out of scope: Anything outside the scenario brief\n- Assumption: The request describes the intended behavior completely\n\n## Decisions before approval\n\nNo blocking questions recorded in the plan.\n\nThis overview is condensed. The full plan below contains all terms, acceptance criteria and source evidence.",
+  "review_markdown": "Extend labels\\(\\) to append the exact string added after the 25 existing labels, in order, and retain existing behavior\\.\n\nFor: The person who made the request\n\nJob type: build\n\n## Deliverables\n\n- labels\\.py\n- test\\_added\\.py\n- test\\_existing\\.py\n\n## Required behaviors\n\n- Extend labels\\(\\) to append the exact string added after the 25 existing labels, in order, and retain existing behavior\\.\n\n## Important failure cases\n\n- The scenario check command fails\n\n## Out of scope\n\n- Anything outside the scenario brief\n\n## Constraints\n\n- Change only the paths the reference solution touches\n\n## Permissions\n\n- Read and edit only this scenario workspace\n\n## End-to-end flow\n\n- Make the change\n- Run python3 \\-m unittest \\-v test\\_added test\\_existing\n\n## Technical approach\n\n- Implement the requested change: Extend labels\\(\\) to append the exact string added after the 25 existing labels, in order, and retain existing behavior\\.\n\n## Acceptance criteria\n\n### C1\n\ntest: test\\_c1\\_added\\_label verifies the exact ordered labels\n\nVerified by: `test: test_c1_added_label verifies the exact ordered labels`\n\nNo separate person review is required.\n\nQuoted from the request:\n\n- Extend labels\\(\\) to append the exact string added after the 25 existing labels, in order, and retain existing behavior\\.\n\n## Milestones\n\n### M1\n\nExtend labels\\(\\) to append the exact string added after the 25 existing labels, in order, and retain existing behavior\\.\n\n- Criteria: C1\n- After: none\n- May change: `labels.py`, `test_added.py`, `test_existing.py`\n\n## First task\n\nExtend labels\\(\\) to append the exact string added after the 25 existing labels, in order, and retain existing behavior\\.\n\n- Kind: implement\n- Milestone: M1\n- Criteria: C1\n- May change: `labels.py`, `test_added.py`, `test_existing.py`\n- Requirement: Extend labels\\(\\) to append the exact string added after the 25 existing labels, in order, and retain existing behavior\\.\n- Check: `python3 -m unittest -v test_added test_existing`\n\n## Decisions\n\n- Assumed (proposed in this plan): The request describes the intended behavior completely",
+  "acceptance_criteria": [
+    {
+      "criterion": "test: test_c1_added_label verifies the exact ordered labels",
+      "current_behavior": "",
+      "human_review": false,
+      "id": "C1",
+      "sources": [
+        {
+          "quote": "Extend labels() to append the exact string added after the 25 existing labels, in order, and retain existing behavior.",
+          "source_id": "task:0"
+        }
+      ],
+      "supersedes": [],
+      "verification_method": "test: test_c1_added_label verifies the exact ordered labels"
+    }
+  ],
+  "constraints": [
+    "Change only the paths the reference solution touches"
+  ],
+  "permission_boundaries": [
+    "Read and edit only this scenario workspace"
+  ],
+  "git_delivery": null,
+  "scope_exclusions": [
+    "Anything outside the scenario brief"
+  ],
+  "milestones": [
+    {
+      "acceptance_criteria": [
+        "C1"
+      ],
+      "affected_paths": [
+        "labels.py",
+        "test_added.py",
+        "test_existing.py"
+      ],
+      "depends_on": [],
+      "id": "M1",
+      "objective": "Extend labels() to append the exact string added after the 25 existing labels, in order, and retain existing behavior."
+    }
+  ],
+  "end_to_end_flow": [
+    "Make the change",
+    "Run python3 -m unittest -v test_added test_existing"
+  ]
+}

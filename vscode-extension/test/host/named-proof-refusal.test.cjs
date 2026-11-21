@@ -5,10 +5,10 @@ const {spawnSync} = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const {isDeepStrictEqual} = require('node:util');
 const {test} = require('node:test');
 const {openHistoryRow} = require('./open-history.cjs');
 const {settleFixture} = require('../owned-fixture-cleanup.cjs');
+const {sameApproval, settledAfterApproval} = require('../python-semantic-transition.cjs');
 
 const EXTENSION = path.resolve(__dirname, '../..');
 const REPO = path.resolve(EXTENSION, '..');
@@ -94,14 +94,10 @@ for (const mode of ['skip', 'missing']) test(`editor refuses ${mode} base named 
     let transitioned = false;
     const outcome = await until('the unverified task outcome', () => {
       const view = status();
-      if (!transitioned && view.status === before.status && view.stop_reason === before.stop_reason &&
-          view.needs?.kind === before.needs?.kind && view.needs?.token === review.token &&
-          isDeepStrictEqual(view.displayed_plan, review.plan)) return null;
-      transitioned = true;
+      if (!sameApproval(view, before)) transitioned = true;
       if (view.recovery?.outcome?.result === 'could_not_finish') return {view};
       const kind = view.needs?.kind;
-      if (view.done || view.status?.startsWith('PAUSED_') || view.status?.startsWith('WAITING') ||
-          (kind && kind !== 'continue') || (!view.next_command && view.stop_reason)) {
+      if (settledAfterApproval(view, before, transitioned)) {
         return {unexpected: {status: view.status, needs: kind, reason: view.stop_reason}};
       }
       return null;
