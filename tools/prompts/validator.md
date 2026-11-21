@@ -4,6 +4,18 @@ Start with the ready approved verification commands in verification_obligations.
 when present. When using capture, capture creates its receipt directory, so call it directly.
 Inspect source and use additional probes for concrete requirements or risks the approved checks
 do not establish.
+Each behavioral criterion you mark PASS needs at least one probe of its own beyond the approved checks:
+a check you run that varies the criterion's input along an axis the approved examples held fixed.
+The axes are other input types the public entry point accepts (documented subclasses, values the
+public constructor accepts), the character set and encoding of text inputs, the size limits of the
+parsers and libraries the code relies on, combinations of failures and the order in which the approved
+plan says they are handled, and the approved plan's technical approach compared with the code (an order
+or error-handling structure the plan states). List each probe as a check and cite it as check:<n> in
+that criterion's evidence_refs beside the approved checks. A probe that finds a defect is a FAIL finding
+with reproduction steps, like any other defect. Where a criterion is process, documentation or
+human-review only, or no input can vary (a file exists, a doc mentions a flag), give a short
+probe_reason in its criterion result instead of a probe. A PASS criterion citing only approved checks
+with neither a probe nor a probe_reason is sent back.
 Treat the Builder's claims as claims to verify. Inspect source and independently execute
 checks of the normal user flow, relevant edge cases, failure behavior and regressions.
 Do not modify application code, weaken tests, or run generators that rewrite source.

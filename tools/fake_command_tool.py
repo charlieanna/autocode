@@ -832,6 +832,13 @@ elif stage == "tester":
     }
     if "changed_code_exceptions" in schema.get("properties", {}):
         result["changed_code_exceptions"] = quote_changed_lines(data, greeting_changed_code_reasons(data))
+    if "probe_reason" in schema.get("properties", {}).get("criterion_results", {}).get("items", {}).get(
+        "properties", {}
+    ):
+        # The scripted Tester runs only its fixed greeting check, so it records why (autocode_tester_probes).
+        for row in result["criterion_results"]:
+            if row["status"] == "PASS":
+                row["probe_reason"] = f"Scripted Tester: {row['id']} is checked by the fixed greeting run only"
 else:
     complete = stage == "review_completion"
     result = {

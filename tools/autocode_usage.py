@@ -39,6 +39,7 @@ from pathlib import Path
 
 try:
     from . import autocode_attempt_ledger as attempt_ledger
+    from . import autocode_names as names
     from . import autocode_prices as prices
     from . import autocode_request_usage as request_usage
     from . import autocode_roles as roles
@@ -51,6 +52,7 @@ try:
     from .autocode_attempt_ledger import finished_records, run_identity, running_stage
 except ImportError:
     import autocode_attempt_ledger as attempt_ledger
+    import autocode_names as names
     import autocode_prices as prices
     import autocode_request_usage as request_usage
     import autocode_roles as roles
@@ -193,6 +195,22 @@ def _model(record):
     return ""
 
 
+def attempt_route(record) -> str:
+    """The route that ran an attempt (#3903): the one answer every grouping by route reads.
+
+    The recorded `route_role` first, then the role of its `execution_identity`, and only then the
+    legacy `role` field, read through autocode_names so an old code name is shown by its job name.
+    The legacy field can name another route than the one that ran (a Plan Reviewer attempt on the
+    task_planner route was saved with role `task_planner`), so it is the last resort.
+    """
+    record = _dict(record)
+    for value in (record.get("route_role"), _dict(record.get("execution_identity")).get("role")):
+        if isinstance(value, str) and value:
+            return value
+    legacy = record.get("role")
+    return names.route(legacy) if isinstance(legacy, str) and legacy else ""
+
+
 def pending_workers(state: RunState):
     """The parallel Builder rows still running: their spend reaches the parent only when the batch is accounted."""
     workers = _dict(state.get("orchestration_batch")).get("workers") or []
@@ -260,7 +278,7 @@ def stage_rows(state: RunState, estimator=None):
         rows.append(
             {
                 "stage": record.get("stage"),
-                "role": str(record.get("role") or record.get("route_role") or ""),
+                "role": attempt_route(record),
                 "model": model,
                 "tokens": row_tokens,
                 "partial": metrics.get("provider_tokens_partial") is True

@@ -68,9 +68,11 @@ try:
     from . import autocode_route_ladder as route_ladder
     from . import autocode_stuck_job as stuck
     from . import autocode_support as support
+    from . import autocode_tester_probes as tester_probes
     from . import autocode_unit_request as unit_request
     from . import autocode_validate_task_steps as validate_task_steps
     from . import autocode_validation_rounds as validation_rounds
+    from . import autocode_verification_plan as verification_plan
     from . import autocode_verify as verify
     from . import autocode_visual_runtime as visual_runtime
     from . import autocode_workflow as workflow
@@ -123,9 +125,11 @@ except ImportError:
     import autocode_route_ladder as route_ladder
     import autocode_stuck_job as stuck
     import autocode_support as support
+    import autocode_tester_probes as tester_probes
     import autocode_unit_request as unit_request
     import autocode_validate_task_steps as validate_task_steps
     import autocode_validation_rounds as validation_rounds
+    import autocode_verification_plan as verification_plan
     import autocode_verify as verify
     import autocode_visual_runtime as visual_runtime
     import autocode_workflow as workflow
@@ -832,6 +836,15 @@ def apply_review_result(runtime, state: RunState, stage, value, record, workspac
     native = getattr(runtime, "native_calls", None)
     native_execution = native.verification_execution(state, record) if native is not None else None
     replay_context = progressive_state.context(state)
+    if (record.get("original_stage") or record.get("stage") or stage) == "tester":  # not review_checkpoint
+        rerun = tester_probes.rerun_used(
+            state.get("resolve_repair_history"),
+            "tester",
+            record.get("source_revision"),
+            (state.get("goal_contract") or {}).get("hash"),
+        )
+        approved = verification_plan.approved_commands(state, progressive_context=replay_context)
+        validation["tester_probes"] = tester_probes.admit(value, approved, rerun_used=rerun or not modern)
     whole = human_pending or brief_obligations.whole_product_claim(state, value, progressive_context=replay_context)
     clean_run, clean_identity = launch_inputs.runners(
         state, workspace, run_dir, verify.scratch_run, verify.execution_identity if native is None else None

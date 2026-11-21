@@ -34,10 +34,10 @@ from contextvars import copy_context
 from pathlib import Path
 
 try:
-    from . import codex_sandbox, env_prep
+    from . import auth_routes, codex_sandbox, env_prep
     from . import opencode as _opencode_events
 except ImportError:  # Script-style execution from tools/.
-    from providers import codex_sandbox, env_prep
+    from providers import auth_routes, codex_sandbox, env_prep
     from providers import opencode as _opencode_events
 
 
@@ -288,10 +288,11 @@ class CommandProvider:
             )
         summary = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", result.stdout + result.stderr)
         for route in selected:
-            found = re.findall(route["pattern"], summary, re.MULTILINE)
-            if not found or any(mode != route["expect"] for mode in found):
+            if auth_routes.connected(route, summary) is None:
+                found = auth_routes.found(route, summary)
                 raise RuntimeError(
-                    f"{name} {route['models']} models require login mode {route['expect']!r}; found {found or 'nothing'}"
+                    f"{name} {route['models']} models require login mode {auth_routes.describe(route)}; "
+                    f"found {found or 'nothing'}"
                 )
         return None
 
@@ -300,8 +301,9 @@ class CommandProvider:
 
         Each route names the model prefix it serves, the login name the tool prints
         (``name``, defaulting to the prefix), how that login bills (``billing``, None
-        when the config does not say) and the pattern plus expected mode that prove
-        the login is connected. Tools without ``[auth]`` have no table.
+        when the config does not say, or a table by mode) and the pattern plus the
+        accepted modes (``expect``) that prove the login is connected
+        (``providers.auth_routes``). Tools without ``[auth]`` have no table.
         """
         auth = self._config.get("auth") or {}
         routes = auth.get("routes") or []
@@ -681,7 +683,6 @@ def _validate_auth(auth) -> None:
             raise ValueError("[auth] routes entries must be tables")
         prefix = route.get("models")
         pattern = route.get("pattern")
-        expect = route.get("expect")
         if not isinstance(prefix, str) or not prefix.strip():
             raise ValueError("[auth] route models must be a non-empty prefix")
         if not isinstance(pattern, str):
@@ -692,12 +693,11 @@ def _validate_auth(auth) -> None:
             raise ValueError(f"[auth] route pattern is not a valid regular expression: {error}") from error
         if compiled.groups != 1:
             raise ValueError("[auth] route pattern must have exactly one capture group")
-        if not isinstance(expect, str) or not expect.strip():
-            raise ValueError("[auth] route expect must be a non-empty string")
+        problems = auth_routes.problems(route)
+        if problems:
+            raise ValueError(problems[0])
         if route.get("name") is not None and (not isinstance(route["name"], str) or not route["name"].strip()):
             raise ValueError("[auth] route name must be a non-empty string when set")
-        if route.get("billing") is not None and route["billing"] not in ("subscription", "pay per token"):
-            raise ValueError("[auth] route billing must be 'subscription' or 'pay per token' when set")
 
 
 def _validate_template(parts, allowed) -> None:

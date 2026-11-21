@@ -312,7 +312,7 @@ def provider_check(name: str, resolve=autocode_providers.resolve) -> Check:
 
 # What connects a default OpenCode route's model, by its provider prefix (docs/install.md).
 LOGINS = {
-    "openai/": "sign in to ChatGPT (`opencode auth login`, choose OpenAI)",
+    "openai/": "connect OpenAI with a ChatGPT login or an API key (`opencode auth login`, choose OpenAI)",
     "zai-coding-plan/": "connect the Z.AI Coding Plan (`opencode auth login`, choose Z.AI Coding Plan, "
     "not the pay-per-token Z.AI)",
 }

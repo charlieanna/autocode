@@ -30,6 +30,7 @@ try:
     from . import autocode_run_status as run_status
     from . import autocode_stop as stop
     from . import autocode_support as support
+    from . import autocode_tester_probes as tester_probes
     from . import autocode_util as util
     from . import autocode_verification_plan as verification_plan
 except ImportError:
@@ -41,6 +42,7 @@ except ImportError:
     import autocode_run_status as run_status
     import autocode_stop as stop
     import autocode_support as support
+    import autocode_tester_probes as tester_probes
     import autocode_util as util
     import autocode_verification_plan as verification_plan
 
@@ -72,6 +74,8 @@ def executed_checks(record: dict) -> list[dict]:
 
 def classify_rejection(state: RunState, record: dict, error: Exception) -> str:
     """Classify a stage rejection as ``tests_failed``, ``missing_execution``, or ``report_defect``."""
+    if isinstance(error, tester_probes.ProbeEvidenceRequired):
+        return "missing_execution"  # a Tester probe is missing, whatever its exploratory commands exited
     if isinstance(error, verification_plan.ReportedCheckFailure):
         return "report_defect"  # a false report, settled by autocode_reported_check_rerun and the existing route
     if isinstance(error, verification_plan.PlannedCheckFailure):

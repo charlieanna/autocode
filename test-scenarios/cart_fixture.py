@@ -382,6 +382,9 @@ def validate(cwd: str | None = None, data: dict | None = None) -> dict:
         approved.append(cid)
     if not approved:
         approved = ["C1"]
+    # Each roll-up cites the fixture's own behavior checks (fixture:behavior:R<n>), which vary the cart's
+    # input beyond the approved suite: they are the Tester's probes, so no probe_reason is needed
+    # (tools/autocode_tester_probes.py).
     criterion_results = [{
         "id": cid,
         "status": "PASS" if rollup_ok else "FAIL",
