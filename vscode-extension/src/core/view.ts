@@ -33,6 +33,8 @@ export interface Needs {
   effort?: EffortNeed;
   retry_action?: string;
   job_retry_token?: string;
+  /** Display-only: the stopped role's saved and current reasoning levels differ. */
+  effort_drift?: boolean;
   new_run_required?: boolean;
   edit_required?: boolean;
   feedback_action?: string | null;
@@ -111,6 +113,15 @@ export interface RequirementsView {
   acceptance_tests: string[];
   constraints?: string[];
   conflicts: RequirementConflict[];
+  /** Historical provider output, with no independent execution or claim authority. */
+  suite_reports?: Array<{
+    kind: 'collection' | 'execution';
+    command: string;
+    reported_count: number;
+    paths: string[];
+    omitted_paths: number;
+    independently_verified: false;
+  }>;
 }
 
 export interface ChatGate {

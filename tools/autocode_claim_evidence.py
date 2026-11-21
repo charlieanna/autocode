@@ -40,12 +40,14 @@ if TYPE_CHECKING:
 try:
     from . import autocode_evidence_events as event_log
     from . import autocode_receipt_auth as receipt_auth
+    from . import autocode_reference_diagnostics as reference_diagnostics
     from . import autocode_run_base as run_base
     from . import autocode_util as util
     from . import autocode_verification_commands as verification_commands
 except ImportError:
     import autocode_evidence_events as event_log
     import autocode_receipt_auth as receipt_auth
+    import autocode_reference_diagnostics as reference_diagnostics
     import autocode_run_base as run_base
     import autocode_util as util
     import autocode_verification_commands as verification_commands
@@ -72,9 +74,10 @@ def context(state: RunState, workspace, run_dir=None, *, record=None) -> dict[st
         for row in rows
         if isinstance(row, dict) and row.get("id")
     }
+    documents = reference_diagnostics.linked_sphinx_documents(workspace, criteria, state.get("changed_files"))
     run_dir = run_dir or state.get("run_dir")
     base = state.get("base_commit")
-    if not base and workspace and any(reference_claim(text) for text in criteria.values()):
+    if not base and workspace and (documents or any(reference_claim(text) for text in criteria.values())):
         try:  # only a reference claim reads the base; recorded by the run, else its first stage's HEAD
             base = run_base.base_commit(state, workspace)
         except (OSError, ValueError):
@@ -82,7 +85,9 @@ def context(state: RunState, workspace, run_dir=None, *, record=None) -> dict[st
     return {
         "workspace": str(workspace or ""),
         "criteria": criteria,
+        "linked_sphinx_documents": documents,
         "base_commit": base or "",
+        "source_revision": record.get("source_revision") if isinstance(record, dict) else None,
         "evidence_dirs": evidence_dirs(workspace, run_dir),
         "attempt": {key: record.get(key) for key in ("events", "output_mode", "capture_context")}
         if isinstance(record, dict)
@@ -173,7 +178,9 @@ def _authenticated(path: Path, receipt: dict, claim_context: dict) -> bool:
             path,
             workspace,
             outputs,
-            receipt_only=attempt.get("output_mode") == "report_file",
+            # A provider can see its report-file nonce. Reference sensitivity
+            # requires an observed invocation as well as attempt binding.
+            receipt_only=attempt.get("output_mode") == "report_file" and "sphinx_reference_control" not in receipt,
             capture_context=attempt.get("capture_context"),
         )
         if receipt.get("kind") == COMPARISON:
@@ -303,6 +310,7 @@ def _cited_observations(refs, checks, claim_context):
 def reference_claims(report: dict, claim_context: dict) -> tuple[list[str], list[dict]]:
     """Problems and unverified rows for PASS results of approved criteria that claim references resolve."""
     criteria = claim_context.get("criteria") or {}
+    documents = claim_context.get("linked_sphinx_documents") or {}
     checks = [check for check in report.get("checks") or [] if isinstance(check, dict)]
     base = str(claim_context.get("base_commit") or "")
     problems, rows = [], []
@@ -311,40 +319,79 @@ def reference_claims(report: dict, claim_context: dict) -> tuple[list[str], list
             continue
         cid = str(result.get("id") or "")
         text = criteria.get(cid, "")
-        if not reference_claim(text):
+        linked = documents.get(cid) or []
+        if not (reference_claim(text) or linked):
             continue
+        subject = (
+            f"Criterion {cid} delivers linked Sphinx documentation ({', '.join(linked)})"
+            if linked
+            else f"Criterion {cid} claims references resolve"
+        )
+        check = "COMMAND"
+        control_options = ""
+        if linked:
+            control_options = " ".join(f"--reference-doc {shlex.quote(doc)}" for doc in linked) + " "
+            check = "sphinx-build -E -a -n -W --keep-going -b html SOURCE .autocode/scratch/REFERENCE-HTML"
         comparisons, single = _cited_observations(result.get("evidence_refs") or [], checks, claim_context)
         if not comparisons:
             cited = ", ".join(f"`{item}`" for item in dict.fromkeys(single)) or "no observation"
             problems.append(
-                f"Criterion {cid} claims references resolve, but its PASS cites only a single run of {cited}: a "
-                "single run cannot show what the change added. Run the base-versus-candidate comparison instead, "
-                f"adding `--compare-base {base or 'BASE'} --output .autocode/evidence/<name>.json "
-                "-- COMMAND` to the exact capture_command your handoff names, where COMMAND must be a build that "
+                f"{subject}, but a single run cannot show what the change added. Its PASS cites {cited}. "
+                "Run the base-versus-candidate comparison instead, "
+                f"adding `--compare-base {base or 'BASE'} {control_options}--output .autocode/evidence/<name>.json "
+                f"-- {check}` to the exact capture_command your handoff names, where COMMAND must be a build that "
                 f"reports unresolved references, and cite that receipt for {cid}."
             )
             continue
         found = []
+        checked_documents = set()
         for path, receipt in comparisons:
-            command = _command_text(receipt)
             recorded = str(receipt.get("base_revision") or "")
             new = [str(line) for line in receipt.get("new_diagnostics") or []]
             if base and recorded != base:
                 found.append(
-                    f"Criterion {cid} cites the diagnostics comparison {path} of `{command}` made against base "
+                    f"Criterion {cid} cites the diagnostics comparison {path} made against base "
                     f"{recorded or 'unknown'}, not the run's base {base}: the comparison was not made against the "
                     "run's base, so it cannot see the defect the change may have added."
                 )
             elif new:
                 found.append(
-                    f"Criterion {cid} claims references resolve, but the diagnostics comparison {path} of "
-                    f"`{command}` recorded new diagnostics the change added: " + "; ".join(new)
+                    f"{subject}, but the diagnostics comparison {path} recorded new diagnostics the change added: "
+                    + "; ".join(new)
                 )
+            elif reference_diagnostics.sphinx_cache_reused(receipt):
+                found.append(
+                    f"Criterion {cid} cites the diagnostics comparison {path}, but Sphinx reused "
+                    "a cached reference environment. Repeat the comparison with fresh output directories and "
+                    "Sphinx's `-E -a -n` flags so both builds check the current references."
+                )
+            elif linked and _sensitive_reference_check(receipt, claim_context):
+                checked_documents.update(receipt["sphinx_reference_control"]["documents"])
         if found:
             problems += found
             continue
         path, receipt = comparisons[0]
         command = _command_text(receipt)
+        reason = (
+            f"The diagnostics comparison {path} of `{command}` against the run's base shows no new "
+            "diagnostics, but a comparison with no new diagnostics does not show that the command reports "
+            "unresolved references, so AutoCode has not observed that they resolve."
+        )
+        if linked:
+            if not base:
+                problems.append(f"{subject}, but the run's original base revision could not be verified.")
+                continue
+            if unchecked := sorted(set(linked) - checked_documents):
+                problems.append(
+                    f"{subject}, but the cited comparison did not demonstrate a fresh checker that detects a broken "
+                    f"reference in {', '.join(unchecked)}. Use the exact capture_command with {control_options.strip()} "
+                    f"and `{check}`, then cite its control receipt."
+                )
+                continue
+            reason = (
+                "The fresh Sphinx comparisons detected their injected controls and added no observed reference "
+                "diagnostics. This evidence leaves the checker's executable and the validity of every link unverified."
+            )
         rows.append(
             {
                 "source": "criterion_results",
@@ -352,14 +399,23 @@ def reference_claims(report: dict, claim_context: dict) -> tuple[list[str], list
                 "claim": text,
                 "observation": path,
                 "status": UNVERIFIED,
-                "reason": (
-                    f"The diagnostics comparison {path} of `{command}` against the run's base shows no new "
-                    "diagnostics, but a comparison with no new diagnostics does not show that the command reports "
-                    "unresolved references, so AutoCode has not observed that they resolve."
-                ),
+                "reason": reason,
             }
         )
     return problems, rows
+
+
+def _sensitive_reference_check(receipt: dict, claim_context: dict) -> bool:
+    capture = (claim_context.get("attempt") or {}).get("capture_context") or {}
+    revision = capture.get("source_revision") or claim_context.get("source_revision")
+    proof = receipt.get("sphinx_reference_control") or {}
+    return (
+        isinstance(revision, str)
+        and bool(revision)
+        and isinstance(proof, dict)
+        and proof.get("source_revision") == revision
+        and reference_diagnostics.sensitivity_passed(receipt, Path(claim_context["workspace"]))
+    )
 
 
 # Admission --------------------------------------------------------------------------------------------

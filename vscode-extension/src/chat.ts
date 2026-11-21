@@ -888,7 +888,8 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
         if (message.decisionContext !== state.decisionContext) throw new Error("The requested action changed; review it before continuing");
         const numeric = numericConfirmation(state, message.answers ?? {});
         const planning = planningSpendConfirmation(view, message.answers ?? {});
-        if (numeric || planning || (requiresConfirmation(view.needs ?? null) && vscode.workspace.getConfiguration("autocode").get("confirmPersonOnly", true))) {
+        const named = view.needs?.kind === "retry_job" ? this.controller.prepare(view, run, message.answers ?? {}) : undefined;
+        if (numeric || planning || (requiresConfirmation(view.needs ?? null, named) && vscode.workspace.getConfiguration("autocode").get("confirmPersonOnly", true))) {
           const button = numeric ? numericActionLabel(state) : planning?.label ?? "Continue";
           // The dialog is the only place the question shows: say in the chat that one is open,
           // or a dialog that misses the person's attention reads as a dead button.

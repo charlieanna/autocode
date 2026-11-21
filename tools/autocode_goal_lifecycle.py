@@ -69,6 +69,7 @@ try:
     from . import autocode_plan_chat as plan_chat
     from . import autocode_plan_retention as plan_retention
     from . import autocode_plan_test_suite as plan_test_suite
+    from . import autocode_plan_tool_admission as plan_tool_admission
     from . import autocode_planning_cycle as planning_cycle
     from . import autocode_progressive_state as progressive_state
     from . import autocode_proof_declarations as proof_declarations
@@ -127,6 +128,7 @@ except ImportError:
     import autocode_plan_chat as plan_chat
     import autocode_plan_retention as plan_retention
     import autocode_plan_test_suite as plan_test_suite
+    import autocode_plan_tool_admission as plan_tool_admission
     import autocode_planning_cycle as planning_cycle
     import autocode_progressive_state as progressive_state
     import autocode_proof_declarations as proof_declarations
@@ -438,6 +440,10 @@ def install_draft(state: RunState, body, *, origin, allow_legacy=False, changes=
         )
     changes = revision_guard(progressive_state.planning_revision_state(state), body, changes or [], origin)
     progressive_state.finish_draft(state)
+    if queue_human and origin not in UNAUTHORED_DRAFTS and (boundary := plan_tool_admission.defect(state, body)):
+        # A command the contained code stages would refuse is the Planner's to correct before approval (#4015).
+        held = [q for q in body.get("open_blocking_questions") or [] if q.get("id") != boundary["id"]]
+        body = {**body, "open_blocking_questions": [*held, boundary]}
     previous = state.get("goal_contract")
     if previous:
         state.setdefault("contract_history", []).append(copy.deepcopy(previous))

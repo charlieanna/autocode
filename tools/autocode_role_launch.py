@@ -141,7 +141,7 @@ def prepare_schema_and_report_check(
     return schema, prompt
 
 
-def bind_report_check_attempt(run_dir, base, stage, record, save):
+def bind_report_check_attempt(run_dir, base, stage, record, save, *, source_revision=None):
     """Bind the pre-submit claim judge to this launch, after its capture context exists."""
     spec_path = run_dir / "planning" / "report-check" / f"{stage}-{base.parent.name}-{base.name}.json"
     if not spec_path.exists():
@@ -158,6 +158,8 @@ def bind_report_check_attempt(run_dir, base, stage, record, save):
     ):
         raise ValueError("Report-check specification does not belong to this stage attempt")
     context["attempt"] = {key: record.get(key) for key in ("events", "output_mode", "capture_context")}
+    if source_revision:
+        context["source_revision"] = source_revision
     save(spec_path, spec)
 
 

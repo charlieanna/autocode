@@ -673,6 +673,20 @@ def view(
     # proxy_reason, from the trace that produced the current contract; [] when none or no plan yet.
     result["proxied_requirements"] = trace_coverage.proxied_rows(plan_retention.validated_trace(state))
     result["requirements"] = requirements_view(state)
+    if (
+        result["requirements"] is not None
+        and run_dir is not None
+        and workspace is not None
+        and state.get("status") == "WAITING_FOR_USER"
+        and state.get("next_stage") in ("requirements_gather", "draft_plan")
+        and any(
+            isinstance(stage, dict)
+            and isinstance(stage.get("requirements_observations"), dict)
+            and stage["requirements_observations"].get("status") == "sealed"
+            for stage in state.get("stages") or []
+        )
+    ):
+        result["requirements"]["suite_reports"] = status_observation.suite_reports(state, workspace, run_dir)
     result["chat"] = chat_view.project(state, result, run_dir=run_dir, workspace=workspace)
     result["attention"] = attention.project(
         state, result, workspace=workspace, run_dir=run_dir, context=result["chat"]["context"]
@@ -1265,7 +1279,14 @@ def action(
             ),
         }
     status = display_state.get("status", "")
-    need = needs(state, stale_report_repair=stale_report_repair, human_projection=human_projection, retained=retained)
+    need = needs(
+        state,
+        stale_report_repair=stale_report_repair,
+        human_projection=human_projection,
+        retained=retained,
+        run_dir=run_dir,
+        workspace=workspace,
+    )
     category = pause_category.category(status, need)
     # This status also names novelty/source holds; only its bound hold needs a larger limit.
     resume_flags = (
@@ -1273,6 +1294,9 @@ def action(
         if status == "PAUSED_NO_PROGRESS" and not recovery_limits.no_progress_bound_holds(state)
         else operational_information.resume_flags(state, (need or {}).get("pause_origin") or status)
     )
+    if (need or {}).get("retry_unavailable"):
+        # Do not resurrect a refused retry through the generic pause fallback.
+        resume_flags = None
     inputs: list | None = None if terminal or not category else command_inputs.project(state, need, resume_flags)
     # A bound row whose raise is not next_command names its own command (#2044). Pending information is
     # reviewed first, as for the attached offers, so it is offered once that review has held.
@@ -1370,7 +1394,9 @@ def _person_facing(need: dict) -> dict:
 
 
 @status_observation.budgeted
-def needs(state: RunState, *, stale_report_repair=False, human_projection=None, retained=_UNSET) -> dict | None:
+def needs(
+    state: RunState, *, stale_report_repair=False, human_projection=None, retained=_UNSET, run_dir=None, workspace=None
+) -> dict | None:
     """What must happen next, or None when complete, an internal failure offers no person action, or the
     Tester's retained report has no re-check left (autocode_acceptance_retry_next; ``retained`` is its answer).
 
@@ -1522,15 +1548,25 @@ def needs(state: RunState, *, stale_report_repair=False, human_projection=None, 
                 "The current checkout cannot establish the missing original identity."
             ),
         }
+        route_required = False
         if known_source:
-            try:
-                from . import autocode_job_retry_admission as retry_admission
-            except ImportError:
-                import autocode_job_retry_admission as retry_admission
-            try:
-                retry_admission.validate_retry(state, state.get("workspace"), failure.get("job_retry_token"))
-            except (ValueError, OSError, KeyError, TypeError) as error:
-                need.update(kind="recover_source", action=None, resume_unavailable=str(error))
+            admission = status_observation.job_retry(
+                state,
+                workspace or state.get("workspace"),
+                failure.get("job_retry_token"),
+                run_dir or state.get("run_dir"),
+            )
+            route_required = not admission["allowed"] and admission.get("route_allowed") is True
+            if route_required:
+                need["retry_unavailable"] = admission["reason"]
+                if admission.get("effort_drift") is True:
+                    need["effort_drift"] = True
+                need["recovery_hint"] = (
+                    "The saved model or reasoning level differs from the stopped attempt. "
+                    "A valid route answer issues a new retry token; the retry rechecks the original source."
+                )
+            if not admission["allowed"] and not route_required:
+                need.update(kind="recover_source", action=None, resume_unavailable=admission["reason"])
         # A job stopped on quota or by its provider's content filter (#463) keeps its model question on
         # the failure: --answer route-ROLE=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN) names another model and issues a
         # new token for the exact retry. Same shape as the answer need's ``route``.
@@ -1540,12 +1576,11 @@ def needs(state: RunState, *, stale_report_repair=False, human_projection=None, 
             # Until a person names another model (job_failure.route_assignment), the exact retry of a
             # refused job would replay the refused model: the next step is the answer. job_retry_token
             # stays, since the CLI still accepts it. A quota stop keeps the retry (the quota resets).
-            if need["route"]["cause"] in (
-                "content_filter",
-                "output_limit",
-                "authentication",
-                "timeout",
-            ) and not isinstance(failure.get("route_assignment"), dict):
+            if need["kind"] == "retry_job" and (
+                route_required
+                or need["route"]["cause"] in ("content_filter", "output_limit", "authentication", "timeout")
+                and not isinstance(failure.get("route_assignment"), dict)
+            ):
                 # A timeout whose model declares a lighter variant names that answer itself (#1902).
                 value = (need["route"].get("lower_effort") or {}).get("answer") or "MODEL"
                 need["action"] = (
@@ -1742,6 +1777,7 @@ def needs(state: RunState, *, stale_report_repair=False, human_projection=None, 
             # The recovery card preserves the evidence and explains the hold.
             return None
         need = {"kind": "resume", "reason": state.get("stop_reason") or status}
+        retry_observation_unavailable = None
         if status == "PAUSED_STALE_HANDOFF":
             stale_checks = (state.get("resolution_request") or {}).get("stale_checks")
             if isinstance(stale_checks, list) and all(isinstance(name, str) for name in stale_checks):
@@ -1832,14 +1868,11 @@ def needs(state: RunState, *, stale_report_repair=False, human_projection=None, 
             # The hold admits no retry yet; say what must happen first instead of implying a resume will do.
             need["retry_unavailable"] = blocked
         if status == "PAUSED_REPEATED_FAILURE" and not recovery_limits.repeated_failure_retry_refusal(state):
-            try:
-                from . import autocode_failure_retry_admission as failure_retry_admission
-            except ImportError:
-                import autocode_failure_retry_admission as failure_retry_admission
-            try:
-                failure_retry_admission.failure_retry_frontier(state, state.get("workspace"))
-            except (ValueError, OSError, KeyError, TypeError) as error:
-                need["retry_unavailable"] = str(error)
+            admission = status_observation.failure_retry(state, workspace or state.get("workspace"))
+            if not admission["allowed"]:
+                need["retry_unavailable"] = admission["reason"]
+                if admission.get("unavailable") is True:
+                    retry_observation_unavailable = admission["reason"]
                 need.pop("retry_action", None)
                 if need.get("action") == retry:
                     need.pop("action", None)
@@ -1932,6 +1965,10 @@ def needs(state: RunState, *, stale_report_repair=False, human_projection=None, 
             need["resume_unavailable"] = (
                 "The saved blocker remains unresolved. A plain resume cannot continue at this same frontier."
             )
+        if retry_observation_unavailable and not need.get("action"):
+            # The source could not be observed; plain resume may repeat this hold.
+            # Preserve other named continuations, such as a dispatchable report repair.
+            need["resume_unavailable"] = retry_observation_unavailable
         if "action" not in need and pause_authority.requested_only(state):
             need["confirmation_required"] = False
         action = need.get("action")

@@ -891,6 +891,23 @@ requested outcome; plan review and the person's plan approval follow as usual. O
 part of the plan, concerns a rejected assumption, or follows another settled plan defect before the
 person has answered anything reaches the person as an ordinary decision, with that reason in its why.
 
+AutoCode raises one such defect itself (#4015, `tools/autocode_plan_tool_admission.py`). When a run's
+code stages launch in the kernel tool boundary (OpenCode or Kilo, without the saved
+`--allow-uncontained-tools`), each draft's criterion commands are admitted, without a model, by the same
+`autocode_toolchain.discover` the launch applies. A command whose program the boundary has no rule for
+(`uv`, `make`, `bundle`, `yarn`) or cannot find becomes a `plan-tool-boundary` plan defect naming those
+criteria, so the Planner corrects it before the plan is shown for approval. A second refusal in the same
+round reaches the person as a decision about the test environment. A plan already approved with such a
+command (approved before this check, or whose admission changed since) is reopened the same way before its
+next launch: the approval returns to draft, the Planner corrects the plan and the person approves the
+correction. Only a second refusal in the same round pauses `PAUSED_TOOL_CONTAINMENT`, naming the plan's
+program rather than the tool.
+
+The boundary admits git, Python and pytest, Node with npm and npx, Go, Cargo (#4017) and the
+POSIX shells (`autocode_toolchain.ADMITTED`). Cargo runs from its installed toolchain, or through a rustup
+proxy with `RUSTUP_HOME`'s toolchains readable; `CARGO_HOME` stays the stage's scratch directory, so the
+person's registry credentials are never readable.
+
 `handoff_conversation(expected_revision=..., expected_plan_token=...)` records the
 reviewed current draft's handoff to that same run. It does not approve the plan or
 start a second task. Read the current plan and use the separate `approve_plan()`
@@ -1521,7 +1538,11 @@ current, and something the options do not cover goes in `--feedback` (`/feedback
 `--chat`, which asks again after a rejected answer). A question without options takes any
 nonempty text. When the current turn has an accepted Requirements handoff, `view.requirements`
 projects `{handoff_ref, intended_outcome, requirements, proposed_assumptions, acceptance_tests, constraints, conflicts, job, clarity}`
-(`null` otherwise; `job` and `clarity` are what that report named, each `null` when it named none, #3630), and `--delegate-all` / `--reject-assumption` bind `--review-token` to
+(`null` otherwise; `job` and `clarity` are what that report named, each `null` when it named none, #3630),
+and, when available for the current source, `suite_reports`. These bounded historical provider reports
+name their exact command, whether they report collection or execution, test count and reported paths;
+`omitted_paths` marks a truncated path list. They are explicitly not independently verified, and
+collection never establishes execution or a free-text assumption. `--delegate-all` / `--reject-assumption` bind `--review-token` to
 `handoff_ref` before a goal contract exists (#3650). The terminal CLI also shows the remaining question IDs and
 the exact `--answer` command on stderr after each successful answer and on `--status`; that
 command names `--resolver-token -`, which reads the current token from the run it names, so the
@@ -2677,10 +2698,16 @@ run is waiting for:
 | `review` | a person to accept specific acceptance criteria | `criteria`, `token`, `question` | Approve a review, per criterion |
 | `planning_budget` | more plan-review calls | `reason` | Plan feedback, or `--planning-review-call-limit N` |
 | `recover_source` | an investigation's own job without a saved original source identity, or a held native planning cleanup (every other job pause without one ends with a recorded outcome at its next resume, `autocode_job_end`) | retained retry metadata, `recovery_hint`; `action` is null | Inspect the archive and current changes before a new run |
-| `retry_job` | inspection of a stopped workflow job | `job_retry_token`, `archive`, `write_diagnosis`, `recovery_hint`; `route` after quota, a content-filter refusal, an authenticated output limit, authentication failure or a fully stopped exploration-budget timeout (a hard stage deadline is extended by AutoCode and then retried exactly, with no `route`, #2605) | Exact retry after restoring original source; with `route`, name another model first |
+| `retry_job` | inspection of a stopped workflow job | `job_retry_token`, `archive`, `write_diagnosis`, `recovery_hint`; `retry_unavailable` says when the saved retry configuration requires a model answer before retrying; `route` after quota, a content-filter refusal, an authenticated output limit, authentication failure or a fully stopped exploration-budget timeout (a hard stage deadline is extended by AutoCode and then retried exactly, with no `route`, #2605) | Exact retry after restoring original source; with `route`, name another model first |
 | `resume` | a person to inspect a pause and resolve its cause | `reason`; `resume_unavailable` explains a held frontier and the view names no next command; `stale_checks` names failed recovery-packet checks without bound values; `new_run_required` with `action=fresh_run` preserves an immutable caller-binding failure and requires a new run; `edit_required` at a repairable component-plan stop prescribes `action` (`--edit-goal FILE`) or `feedback_action` (`--feedback TEXT`), then fresh approval; at `PAUSED_ACCEPTANCE_TESTS` (the Tester's pause) `action` is `--resume-paused`, which reruns the Tester and a fresh proof on the same plan, `chat.input` offers the `feedback` message that revises the plan and returns the run to plan approval, and `guidance` names both (a yes takes the named command, so it never carries a placeholder for the person's words); otherwise `action` when one command continues, such as `--resume-paused --no-progress-limit N` at a `PAUSED_NO_PROGRESS` its unchanged-batch limit caused, with `no_progress_batches`, the retained count N must exceed (or N is `0`), or `--resume-paused --retry-builder M` at a parallel Builder member's quota, content-filter or output-limit stop whose request was answered without a model, or `--resume-paused --retry-failed-stage` (also as `retry_action`) at a recovery novelty hold whose request is not yet published, where a plain resume would hold again; when that hold cannot take the retry yet, `retry_unavailable` instead says why (an owned or uncertain attempt to reconcile, or a different pending decision), the same reason the CLI gives; an attempt that exited cleanly with a recorded finish (a verification hold or stale source check stands on its result) keeps `abandon_stage` and its `--abandon-stage ATTEMPT then --resume-paused` action as a `resume`, because archiving it would discard that result; at a `PAUSED_REPEATED_FAILURE` whose active attempt, uncertain artifacts or pending report repair its retry gate will not authorize over, `retry_unavailable` carries that CLI refusal verbatim and `action` is the plain `--resume-paused`, never the rejected `--retry-failed-stage` (#1897) | Start a fresh run when required; otherwise correct and freshly approve an edit-required plan, or resume once resolved |
 | `dependency` | a bound producer run's delivery (see [Dependencies between existing runs](#dependencies-between-existing-runs)) | `reason`, `producer_run`, `producer_workspace` | `autocode wait --run-dir <producer_run> --workspace <producer_workspace>`: returns when the producer needs a person or ends. Nothing to answer on this run: the dependency worker (`python tools/autocode_dependencies.py ... --watch`) calls `--receive-dependency MANIFEST` (`TaskRun.receive_dependency`) when the producer's verified delivery is ready |
 | `continue` | no person input; the core may name a deterministic recovery in `action` (for example, setting aside an uncertain attempt that did not finish cleanly, or resuming bounded recovery when the saved progress ledger proves another slot is unnecessary) | `action` when present | Run only the named `next_command`, then read status again |
+
+On a `retry_job` whose saved model question is the only admissible action,
+`effort_drift: true` says the saved and current recognized reasoning levels
+differ. It is display information, not permission to retry or to change the
+saved route. A concrete model/level answer still passes the normal locked
+source, token, provider and configuration checks before a new retry token is issued.
 
 A `resolver_scope` of `operational_exhaustion` or `blocker` means Resolver
 stopped the run because it could not continue safely (for example, the

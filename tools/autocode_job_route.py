@@ -240,9 +240,7 @@ def answer(runner, args, state: RunState, run_dir, workspace):
         role = asked["route_role"]
         # MODEL@LEVEL also names the effort (#1902): the same model at a lighter variant is a change.
         model, effort = quota_route.split_effort(model)
-        bound = ((failure.get("configuration") or {}).get("roles") or {}).get(role) or {}
-        if effort == bound.get("reasoning_effort"):
-            effort = None
+        effort = job_failure.retry_admission.answer_effort(state, failure, role, effort)
         if failure.get("pause_status") in (
             quota_route.REFUSAL_STATUS,
             quota_route.OUTPUT_STATUS,

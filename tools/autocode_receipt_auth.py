@@ -168,6 +168,12 @@ def _invocation(command, path, workspace, receipt, *, allow_batch, output):
         outputs += [word.split("=", 1)[1] for word in options if word.startswith("--output=")]
         if len(outputs) != 1 or args[end + 1 :] != receipt.get("command"):
             return False
+        if "sphinx_reference_control" in receipt:
+            proof = receipt["sphinx_reference_control"]
+            documents = [options[i + 1] for i, word in enumerate(options[:-1]) if word == "--reference-doc"]
+            documents += [word.split("=", 1)[1] for word in options if word.startswith("--reference-doc=")]
+            if not isinstance(proof, dict) or sorted(documents) != proof.get("documents"):
+                return False
         target = Path(outputs[0])
         return (target if target.is_absolute() else cwd / target).resolve() == path.resolve()
     except (OSError, TypeError, ValueError, IndexError):

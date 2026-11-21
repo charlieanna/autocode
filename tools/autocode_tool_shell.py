@@ -74,8 +74,16 @@ def search_path(runtime: dict, path: str) -> str:
     return str(Path(runtime["alias"]).parent) + os.pathsep + path
 
 
-def environment(runtime, scratch, control_name, original, verification):
-    """Tools receive only their owned temporary area and nonsecret runtime setup."""
+# The only variables a selected toolchain's rule may hand the contained shell (autocode_toolchain.discover):
+# each names a read-only toolchain location, never a credential or the person's own configuration.
+TOOL_VARIABLES = ("RUSTUP_HOME",)
+
+
+def environment(runtime, scratch, control_name, original, verification, tools=None):
+    """Tools receive only their owned temporary area and nonsecret runtime setup.
+
+    ``tools`` is the selected toolchains' own setup (autocode_toolchain.discover's ``environment``): only the
+    names in ``TOOL_VARIABLES`` are taken, each a read-only toolchain location."""
     safe = {
         "GIT_CONFIG_NOSYSTEM": "1",
         "GIT_CONFIG_GLOBAL": "/dev/null",
@@ -98,6 +106,10 @@ def environment(runtime, scratch, control_name, original, verification):
         "AUTOCODE_TOOL_CONTAINMENT_ID": control_name,
         "AUTOCODE_OUTPUT_STORE": str(scratch / "output-store"),
     }
+    for name, value in (tools or {}).items():
+        if name not in TOOL_VARIABLES or not isinstance(value, str):
+            raise ValueError(f"Unsupported toolchain variable for tool containment: {name}")
+        safe[name] = value
     if verification:
         safe["AUTOCODE_VERIFICATION_COPY"] = verification["manifest"]
         safe["AUTOCODE_VERIFICATION_COPY_SHA256"] = verification["sha256"]

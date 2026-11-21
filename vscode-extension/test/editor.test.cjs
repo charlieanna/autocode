@@ -1374,6 +1374,48 @@ test('chat recovery retry requires confirmation and keeps the exact job token ou
   assert.equal(env.AUTOCODE_JOB_RETRY_TOKEN, 'jr:exact-secret');
 });
 
+for (const surface of ['chat', 'details']) test(`${surface}: a saved job model answer needs no second confirmation`, async (t) => {
+  host.config.set('confirmPersonOnly', true);
+  t.after(() => host.config.delete('confirmPersonOnly'));
+  const view = {
+    status: 'PAUSED_JOB_FAILURE', done: false,
+    needs: { kind: 'retry_job', job_retry_token: 'jr:answer',
+      route: { question_id: 'route-architect', role: 'architect', candidates: [] } },
+    next_command: `AUTOCODE_JOB_RETRY_TOKEN=jr:answer autocode --answer route-architect=MODEL --job-retry-token - --workspace ${run.workspace} --run-dir ${run.runDir}`,
+  };
+  const ui = surface === 'chat' ? await openChat(t, view) : await openPanel(t, view);
+  const prompt = t.mock.method(host.vscode.window, 'showWarningMessage', async () => undefined);
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  const input = ui.document.querySelector('[data-question="route-architect"]');
+  input.value = 'gpt-6-sol@medium'; input.dispatchEvent(new ui.window.Event('input'));
+  ui.document.querySelector('#take-action').click(); await flush(); await flush();
+  assert.equal(prompt.mock.callCount(), 0, "typing and sending this exact answer is the person's decision");
+  assert.equal(launch.mock.callCount(), 1);
+  const [, args, env] = launch.mock.calls[0].arguments;
+  assert.ok(args.includes('route-architect=gpt-6-sol@medium'));
+  assert.ok(!args.includes('--resume-paused'));
+  assert.equal(env.AUTOCODE_JOB_RETRY_TOKEN, 'jr:answer');
+});
+
+test('a drifted saved effort shows the route question without offering the stale retry', async (t) => {
+  const value = {
+    status: 'PAUSED_JOB_FAILURE', done: false,
+    needs: { kind: 'retry_job', retry_unavailable: 'Configuration changed', effort_drift: true,
+      job_retry_token: 'jr:fixture', route: { question_id: 'route-architect', role: 'architect',
+        job: 'Design Reviewer', current_model: 'gpt-6-sol', engine: 'codex', cause: 'quota', candidates: [] } },
+    progress: { headline: 'Paused', needs_you: 'review the model and reasoning level for the Design Reviewer, then retry it' },
+    recovery: { category: 'recovery', what_happened: "The Design Reviewer's saved model settings changed. Review the model and reasoning level before retrying.", actions: [] },
+    next_command: `AUTOCODE_JOB_RETRY_TOKEN=jr:fixture autocode --answer route-architect=MODEL --job-retry-token - --workspace ${run.workspace} --run-dir ${run.runDir}`,
+  };
+  const ui = await openPanel(t, value);
+  const text = ui.document.querySelector('#app').textContent;
+  assert.match(text, /review the model and reasoning level for the Design Reviewer/i);
+  const input = ui.document.querySelector('[data-question="route-architect"]');
+  assert.ok(input, 'the core-named model question is visible');
+  assert.equal(input.value, '', 'the client does not pick a model or effort');
+  assert.doesNotMatch(text, /retry it unchanged/i);
+});
+
 for (const surface of ['chat', 'details']) for (const [label, status, confirmation, prompts] of [
   ['clean requested pause', 'PAUSED_REQUESTED', false, 0],
   ['legacy requested pause', 'PAUSED_REQUESTED', undefined, 1],
@@ -9169,6 +9211,8 @@ test('structured Requirements & Assumptions card renders assumptions, rationale,
       ],
       acceptance_tests: ['greet.py Ana prints Hello, Ana'],
       conflicts: ['Legacy script exited 1 on usage errors'],
+      suite_reports: [{kind: 'collection', command: 'python3 -m pytest --collect-only -q',
+        reported_count: 2, paths: ['docs/guide.rst', 'tests/test_cli.py'], omitted_paths: 1, independently_verified: false}],
     },
     chat: {
       phase: 'requirements',
@@ -9187,6 +9231,9 @@ test('structured Requirements & Assumptions card renders assumptions, rationale,
   assert.ok(reqCard.textContent.includes('Exit 2 when no name is passed'));
   assert.ok(reqCard.textContent.includes('Matches repository CLI exit code convention'));
   assert.ok(reqCard.textContent.includes('Legacy script exited 1 on usage errors'));
+  assert.ok(reqCard.textContent.includes('Reported test observations (not independently verified)'));
+  assert.ok(reqCard.textContent.includes('Collection lists tests; it does not run them.'));
+  assert.ok(reqCard.textContent.includes('docs/guide.rst, tests/test_cli.py (1 more omitted)'));
 
   // Typing an inline override switches the primary action from 'plan' to the override text.
   const override = reqCard.querySelector('[data-review-override="requirements-review-r1"]');

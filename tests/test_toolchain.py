@@ -121,6 +121,90 @@ class SelectedToolchainTests(unittest.TestCase):
             self.assertEqual("private fixture", outside.read_text())
             self.assertEqual("package sample\nfunc Sum(a,b int) int { return a+b }\n", source.read_text())
 
+    def test_rustup_s_proxy_is_known_by_its_file_not_its_name(self):
+        # Linux rustup installs ~/.cargo/bin/cargo as a hard link of rustup, so its name is cargo (#4017).
+        with tempfile.TemporaryDirectory() as directory:
+            bin_dir = Path(directory).resolve()
+            (bin_dir / "rustup").write_bytes(b"proxy")
+            os.link(bin_dir / "rustup", bin_dir / "cargo")
+            (bin_dir / "other").write_bytes(b"proxy")
+            (bin_dir / "rustup-init").symlink_to(bin_dir / "rustup")
+            self.assertTrue(toolchain._rustup_proxy(bin_dir / "cargo"))
+            self.assertTrue(toolchain._rustup_proxy((bin_dir / "rustup-init").resolve()))
+            self.assertFalse(toolchain._rustup_proxy(bin_dir / "other"))
+
+    def test_cargo_through_rustup_runs_contained_without_the_person_s_cargo_home(self):
+        # #4017: every Rust project was refused, since discovery selects cargo for a Cargo.toml.
+        candidates = [shutil.which("cargo"), str(Path.home() / ".cargo/bin/cargo")]
+        candidates += sorted(str(p) for p in Path("/opt/homebrew/Cellar/rustup").glob("*/libexec/bin/cargo"))
+        cargo = next(
+            (Path(c) for c in candidates if c and Path(c).is_file() and toolchain._rustup_proxy(Path(c).resolve())),
+            None,
+        )
+        if cargo is None:
+            self.skipTest("requires cargo through a native rustup proxy")
+        env = {**os.environ, "PATH": f"{cargo.parent}:{os.environ.get('PATH', '')}"}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve() / "crate"
+            (root / "src").mkdir(parents=True)
+            (root / "Cargo.toml").write_text('[package]\nname = "sample"\nversion = "0.1.0"\nedition = "2021"\n')
+            (root / ".gitignore").write_text("/target\n")  # as `cargo new` writes it
+            (root / "src/lib.rs").write_text(
+                "pub fn sum(a: i32, b: i32) -> i32 { a + b }\n"
+                "#[cfg(test)]\nmod tests { #[test] fn adds() { assert_eq!(super::sum(2, 3), 5); } }\n"
+            )
+            subprocess.run(["/usr/bin/git", "init", "--quiet", str(root)], check=True)
+            subprocess.run(["/usr/bin/git", "-C", str(root), "add", "-A"], check=True)
+            subprocess.run(
+                [
+                    "/usr/bin/git",
+                    "-C",
+                    str(root),
+                    "-c",
+                    "user.name=t",
+                    "-c",
+                    "user.email=t@example.com",
+                    "commit",
+                    "-qm",
+                    "c",
+                ],
+                check=True,
+            )
+            selected = toolchain.discover(root, ["cargo test --offline"], env)
+            self.assertEqual(["RUSTUP_HOME"], sorted(selected["environment"]))
+            cargo_home = Path(env.get("CARGO_HOME") or Path.home() / ".cargo").resolve()
+            for read in selected["read_roots"]:
+                with self.subTest(read=read):
+                    self.assertFalse(Path(read) == cargo_home or (cargo_home / "credentials.toml").is_relative_to(read))
+            developer = [str(p) for p in (Path("/Library/Developer/CommandLineTools"),) if p.is_dir()]
+            for allow_write in (True, False):
+                with self.subTest(allow_write=allow_write):
+                    boundary = containment.prepare(
+                        root,
+                        allow_write=allow_write,
+                        read_roots=[*selected["read_roots"], *developer],
+                        links=selected["links"],
+                        environment=env,
+                        tool_environment=selected["environment"],
+                        verification_copy=not allow_write,
+                    )
+                    cwd = root
+                    if not allow_write:  # a readonly stage builds in its verification copy
+                        import autocode_verification_copy as copies
+
+                        cwd, _ = copies.execution(
+                            boundary["verification_copy"], boundary["verification_copy_sha256"], root
+                        )
+                    for command in (
+                        *selected["probes"],
+                        "cargo test --offline",
+                        'test "$HOME" != ' + shlex.quote(str(Path.home())),
+                    ):
+                        result = subprocess.run(
+                            [boundary["shell"], "-c", command], cwd=cwd, capture_output=True, text=True, timeout=600
+                        )
+                        self.assertEqual(0, result.returncode, (command, result.stdout[-2000:], result.stderr[-2000:]))
+
     def test_tool_found_through_a_symlinked_toolchain_directory_runs_contained(self):
         # A version manager's `current` link, then a link to the real binary: both outside every mount.
         git = shutil.which("git")

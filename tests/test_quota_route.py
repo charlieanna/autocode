@@ -4,9 +4,11 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import autocode_builder_policy as builder_policy
 import autocode_dispatch as dispatch
+import autocode_progress_view as progress_view
 import autocode_quota_route as quota_route
 import autocode_resolver_recovery as resolver_recovery
 import autocode_run_view as run_view
@@ -814,6 +816,50 @@ class QuotaRouteTests(unittest.TestCase):
         )
         return state
 
+    def test_source_observation_failure_holds_status_instead_of_raising(self):
+        state = self.routed_job()
+        state["workspace"] = str(self.root / "missing-project")
+        view = run_view.view(state)
+        self.assertEqual("recover_source", view["needs"]["kind"])
+        self.assertIsNone(view["next_command"])
+        self.assertIsNone(view["needs"]["action"])
+        self.assertTrue(view["needs"]["resume_unavailable"])
+
+    def test_model_question_is_actionable_only_after_current_retry_source_is_observed(self):
+        state = self.routed_job()
+        with patch.object(run_view.status_observation, "job_retry", return_value={"allowed": True}):
+            ready = run_view.view(state)
+        self.assertEqual("retry_job", ready["needs"]["kind"])
+        self.assertIn("--answer route-tester=MODEL", ready["next_command"])
+        with patch.object(
+            run_view.status_observation,
+            "job_retry",
+            return_value={"allowed": False, "reason": "Source changed since the failed attempt"},
+        ):
+            blocked = run_view.view(state)
+        self.assertEqual("recover_source", blocked["needs"]["kind"])
+        self.assertIsNone(blocked["needs"]["action"])
+        self.assertIsNone(blocked["next_command"])
+        self.assertEqual("route-tester", blocked["needs"]["route"]["question_id"])
+
+    def test_route_only_admission_does_not_offer_the_stale_quota_retry(self):
+        state = self.routed_job(QUOTA, "PAUSED_BUDGET")
+        state["job_failure"]["route_assignment"] = {"role": "tester", "to": "gpt-6-luna"}
+        with patch.object(
+            run_view.status_observation,
+            "job_retry",
+            return_value={"allowed": False, "route_allowed": True, "reason": "Configuration changed"},
+        ):
+            view = run_view.view(state)
+        self.assertEqual("retry_job", view["needs"]["kind"])
+        self.assertIn("--answer route-tester=MODEL", view["next_command"])
+        self.assertNotIn("--retry-failed-stage", view["next_command"])
+        self.assertNotIn("retry_job", [row["kind"] for row in view["recovery"]["actions"]])
+        self.assertNotIn("retry it unchanged", view["recovery"]["what_happened"])
+        progress = progress_view.progress(state, accepted=(), stage=None, needs=view["needs"])
+        self.assertIn("name another model", progress["needs_you"])
+
+    @patch.object(run_view.status_observation, "job_retry", new=lambda *_: {"allowed": True})
     def test_the_retry_job_need_carries_the_jobs_model_question(self):
         state = self.routed_job()
         view = run_view.view(state)
@@ -845,6 +891,7 @@ class QuotaRouteTests(unittest.TestCase):
         del state["job_failure"]["route"]
         self.assertNotIn("route", run_view.view(state)["needs"])
 
+    @patch.object(run_view.status_observation, "job_retry", new=lambda *_: {"allowed": True})
     def test_a_stopped_job_offers_its_exact_retry_after_a_model_is_named_or_a_quota_stop(self):
         retry = "--resume-paused --retry-failed-stage --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)"
 

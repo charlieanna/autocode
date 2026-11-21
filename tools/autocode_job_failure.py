@@ -719,16 +719,8 @@ def reroute(runtime, state: RunState, run_dir, workspace, assignment):
         if failure.get("unrestored"):
             raise ValueError("Unrestored source blocks job retry: " + ", ".join(failure["unrestored"]))
         raise ValueError("Source changed since the failed attempt; retry is stale")
-    expected = copy.deepcopy(failure["configuration"])
-    bound = (expected.get("roles") or {}).get(role)
     current = configuration(state)
-    if not isinstance(bound, dict):
-        raise ValueError("Provider configuration or limits changed; retry is stale")
-    bound["model"] = assignment.get("to")
-    if isinstance(assignment.get("effort"), dict):
-        # The answer moved the role's effort to a variant the named model declares (#2006): bound too.
-        bound["reasoning_effort"] = assignment["effort"].get("to")
-    if current != expected:
+    if not retry_admission.route_configuration_matches(state, failure, assignment):
         raise ValueError("Provider configuration or limits changed; retry is stale")
     previous = failure["job_retry_token"]
     failure.update(configuration=current, route_assignment=copy.deepcopy(assignment))

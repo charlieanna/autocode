@@ -12,11 +12,68 @@ def _worker(request):
         import autocode_acceptance_retry_next as retry_next
 
         return retry_next.decide(payload["state"], payload["workspace"])
+    if request.get("operation") == "job_retry":
+        import autocode_job_retry_admission as admission
+        import autocode_util as util
+
+        state = payload["state"]
+        try:
+            admission.validate_retry(state, payload["workspace"], payload["token"])
+        except admission.RetryConfigurationChanged as error:
+            from pathlib import Path
+
+            import autocode_dispatch as dispatch
+            import autocode_interventions as interventions
+            import autocode_opencode as opencode
+            import autocode_support as support
+
+            run_dir = payload.get("run_dir") or state.get("run_dir")
+            if not isinstance(run_dir, str) or interventions.pending(Path(run_dir)):
+                return {"allowed": False, "reason": str(error)}
+            possible = admission.route_is_repairable(
+                state,
+                cross_check=dispatch.enforce_cross_model_verification,
+                failure_status=support.failure_status,
+                configured_tool=getattr(opencode, "CONFIGURED", False),
+            )
+            question = admission.quota_route.job_question(state)
+            role = question.get("route_role") if isinstance(question, dict) else None
+            return {
+                "allowed": False,
+                "route_allowed": possible,
+                "effort_drift": possible and admission.effort_drift(state, state.get("job_failure") or {}, role),
+                "reason": str(error),
+            }
+        except (ValueError, OSError, KeyError, TypeError, util.Paused) as error:
+            return {"allowed": False, "reason": str(error)}
+        return {"allowed": True}
+    if request.get("operation") == "failure_retry":
+        import autocode_failure_retry_admission as admission
+        import autocode_util as util
+
+        try:
+            admission.failure_retry_frontier(payload["state"], payload["workspace"])
+        except admission.FailureRetryFrontierRefused as error:
+            return {"allowed": False, "reason": str(error), "unavailable": False}
+        except (ValueError, OSError, KeyError, TypeError, util.Paused) as error:
+            return {"allowed": False, "reason": str(error), "unavailable": True}
+        return {"allowed": True}
     if request.get("operation") == "source_snapshot":
         import autocode_source_scope as source_scope
         import autocode_support as support
 
         return source_scope.snapshot(payload["workspace"], payload["state"], base_snapshot=support.snapshot)
+    if request.get("operation") == "suite_reports":
+        import autocode_source_scope as source_scope
+        import autocode_suite_observation_view as suites
+        import autocode_support as support
+
+        state, workspace = payload["state"], payload["workspace"]
+        return suites.project(
+            state,
+            payload["run_dir"],
+            lambda: source_scope.snapshot(workspace, state, base_snapshot=support.snapshot),
+        )
     if request.get("operation") == "evidence_inspection":
         from pathlib import Path
 

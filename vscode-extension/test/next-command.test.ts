@@ -330,6 +330,26 @@ test("the core can suppress a duplicate resume dialog without authorizing automa
   assert.equal(leavesForPerson({ kind: "answer", resolver_scope: "blocker" }), true);
 });
 
+test("only the exact token-bound save-only job answer avoids a second dialog", () => {
+  const need = { kind: "retry_job", job_retry_token: "jr:current",
+    route: { question_id: "route-architect", role: "architect" } };
+  const action = { argv: ["--answer", "route-architect=gpt-6-sol@medium", "--job-retry-token", "-"],
+    env: { AUTOCODE_JOB_RETRY_TOKEN: "jr:current" }, advancing: false };
+  assert.equal(requiresConfirmation(need, action), false);
+  assert.equal(leavesForPerson(need), true, "the client still waits for the person's answer");
+  for (const unsafe of [
+    { ...action, argv: ["--resume-paused", "--retry-failed-stage", "--job-retry-token", "-"], advancing: true },
+    { ...action, argv: [...action.argv, "--resume-paused"], advancing: true },
+    { ...action, argv: [...action.argv, "--retry-failed-stage"], advancing: false },
+    { ...action, argv: [...action.argv, "--max-seconds", "1000"] },
+    { ...action, argv: ["--answer", "route-architect=", "--job-retry-token", "-"] },
+    { ...action, env: { AUTOCODE_JOB_RETRY_TOKEN: "jr:stale" } },
+    { ...action, env: { ...action.env, OTHER: "value" } },
+  ]) assert.equal(requiresConfirmation(need, unsafe), true);
+  assert.equal(requiresConfirmation({ ...need, route: { question_id: "route-other", role: "architect" } }, action), true);
+  assert.equal(requiresConfirmation(need), true);
+});
+
 test("a change set's actions are taken only as changeset status names them (#2066)", () => {
   const source = "/ws/.autocode/runs/a";
   const summary: ChangesetSummary = {

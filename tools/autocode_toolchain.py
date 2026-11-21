@@ -25,6 +25,21 @@ except ImportError:
     import autocode_tool_shell as tool_shell
 
 
+# The programs a contained stage's declared command may begin with: each has a family rule below that
+# selects its read-only runtime without running project code (pytest through its interpreter, npm and npx
+# through node). The pre-approval plan check names them to the Planner (autocode_plan_tool_admission).
+ADMITTED = ("git", "python", "python3", "pytest", "node", "npm", "npx", "go", "cargo", "sh", "bash")
+
+
+class Unadmitted(RuntimeError):
+    """A declared command's program this boundary cannot admit: absent from PATH, or without a family rule."""
+
+    def __init__(self, message, program, *, missing=False):
+        super().__init__(message)
+        self.program = program
+        self.missing = missing  # absent from PATH: installing it lets the same plan run
+
+
 def _binary_dependencies(tool):
     """The loader files a selected tool needs: Mach-O on macOS, ELF on Linux (#709)."""
     return (macho if sys.platform == "darwin" else elf).dependencies(tool)
@@ -76,9 +91,21 @@ def _python_executable(tool):
     return executable
 
 
+def _rustup_proxy(tool):
+    """Whether this cargo is rustup's proxy: a link to rustup (macOS Homebrew) or a hard link of it (Linux)."""
+    if tool.name.startswith("rustup"):
+        return True
+    rustup = tool.parent / "rustup"
+    try:
+        return rustup.is_file() and os.path.samefile(tool, rustup.resolve())
+    except OSError:
+        return False
+
+
 def discover(workspace, commands, environment):
     root = Path(workspace).resolve()
     paths, probes, selected, links = set(), [], set(), []
+    tool_environment: dict[str, str] = {}
     # Linked worktrees keep object/index metadata outside the task checkout.
     # Read only the locations named by Git's own pointer files, not the main
     # checkout (which can contain unrelated source and credentials).
@@ -111,7 +138,7 @@ def discover(workspace, commands, environment):
         resolved = str(root / name) if "/" in name and not Path(name).is_absolute() else name
         located = shutil.which(resolved, path=search_path)
         if not located:
-            raise RuntimeError(f"Approved tool is unavailable before launch: {name}")
+            raise Unadmitted(f"Approved tool is unavailable before launch: {name}", name, missing=True)
         original, tool = Path(located).absolute(), Path(located).resolve()
         links.extend(hop for hop in _symlink_hops(original) if hop not in links)
         family = original.name
@@ -129,6 +156,28 @@ def discover(workspace, commands, environment):
             pending.append("node")
             probes.append(shlex.join([str(original), "--version"]))
             continue
+        if family == "cargo":
+            paths.update(_binary_dependencies(tool))
+            install = tool.parent.parent
+            if not (install / "lib/rustlib").is_dir() and _rustup_proxy(tool):
+                # rustup's proxy runs a toolchain from RUSTUP_HOME. The contained HOME is the stage's scratch, so
+                # the proxy is told where the installed toolchains are, read-only; CARGO_HOME stays in that
+                # scratch, so no registry credential of the person's ~/.cargo is readable (#4017).
+                home = environment.get("RUSTUP_HOME") or str(Path(environment.get("HOME") or Path.home()) / ".rustup")
+                rustup_home = Path(home).resolve()
+                if not (rustup_home / "toolchains").is_dir():
+                    raise RuntimeError(f"Cannot identify the selected rustup toolchains: {name}")
+                paths.add(rustup_home / "toolchains")
+                if (rustup_home / "settings.toml").is_file():
+                    paths.add(rustup_home / "settings.toml")
+                tool_environment["RUSTUP_HOME"] = str(rustup_home)  # one of tool_shell.TOOL_VARIABLES
+            else:
+                # A cargo installed beside its toolchain: the prefix holding bin/cargo, rustc and lib/rustlib.
+                if not (install / "lib/rustlib").is_dir():
+                    raise RuntimeError(f"Cannot identify the selected Rust toolchain: {name}")
+                paths.add(install)
+            probes.append(shlex.join([str(original), "--version"]))
+            continue
         if family in ("sh", "bash"):
             # Approvals may use the documented shell negative-control form.
             # Only the fixed native shells qualify, never a PATH shim
@@ -143,7 +192,12 @@ def discover(workspace, commands, environment):
             probes.append(shlex.join([str(original), "-c", ":"]))
             continue
         if family not in ("git", "node", "go", "python", "python3") and not family.startswith("python3."):
-            raise RuntimeError(f"Contained toolchain discovery does not support {name}; no model launched")
+            raise Unadmitted(
+                f"Contained toolchain discovery does not support {name} (it admits "
+                + ", ".join(ADMITTED)
+                + "); no model launched",
+                name,
+            )
         paths.update(_binary_dependencies(tool))
         if family.startswith("python"):
             tool = _python_executable(tool)
@@ -194,4 +248,5 @@ def discover(workspace, commands, environment):
         "read_roots": [str(p) for p in sorted(paths) if not p.is_relative_to(root)],
         "probes": probes,
         "links": [hop for hop in links if not Path(hop[0]).is_relative_to(root)],
+        "environment": tool_environment,
     }
