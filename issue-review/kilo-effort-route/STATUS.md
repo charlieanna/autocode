@@ -45,9 +45,18 @@ GitHub job is <https://github.com/charlieanna/autocode/actions/runs/44889392491/
 The test uses a local fake Kilo provider, never a live model call.
 An automatic approval review rejected an earlier smoke that changed HOME, and
 that action was not run. Status-only controls with inherited HOME passed.
-The separately diagnosed #4023 editor defect shows an extra confirmation dialog
-after a typed stopped-job answer; its correction is needed before claiming the
-answer was accepted in the actual Kilo editor scenario.
+The separately diagnosed #4023 editor defect showed an extra confirmation
+dialog after a typed stopped-job answer; #4023 corrected the shared path.
+
+After integrating #4023, the Linux Extension Development Host at 6645afdfa
+passed the synthetic Kilo answer end to end: the route was visible, the named
+answer rotated the retry token, and the fake provider logged no model run. The
+same host job failed the Codex test before submission because it checked its
+visible text during the transient "Opening this chat" state. The failed job is
+<https://github.com/charlieanna/autocode/actions/runs/44890540651/job/136805417902>;
+`/private/tmp/autocode-4022-extension-6645.log` preserves the full output.
+This is scripted Kilo-shaped coverage, not a live Kilo model task. The required
+gate and final integrated-head host outcome remain open.
 
 Still required: focused checks and master control, actual VS Code behavior on
 the final head, current-head `ci-required`, and review of unsupported or absent
