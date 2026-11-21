@@ -3,11 +3,11 @@
 Thread "Fix recovery issues on Kilo". Issues: #3887, #3938, #3879, #3872, #3870, #3892, #3890, escalation half of #3954.
 
 ## Clusters
-- **D, run identity (#3892, #3890)**: IN PROGRESS. Branch `claude/project-thread-j0d3hi-runs`. M1 and the M2 polling changes are implemented; the remaining broader review, final verification and CI are pending. Issues labelled `in progress`.
-- **A, role labels in stop/rejection text (#3879, #3872)**: not started.
+- **D, run identity (#3892, #3890)**: merged as #3974 and follow-up #3976, both with required CI green; both issues closed. #3976 also covers a move published during a checkpoint read.
+- **A, role labels in stop/rejection text (#3879, #3872)**: implemented. Both sites use the shared stage-to-screen-name mapping. Public abandonment and rejection regressions fail on master and pass on the branch; 32 focused tests passed.
 - **B, re-observe recovery causes (#3887, #3938, #3954 escalation half)**: not started.
-- **C, report-repair freshness view (#3870)**: not started.
-A, B, C wait until #3868 (group 3b) and group 4a (#3852/#3880/#3869 + view half of #3954) merge; they share recovery/report-repair files.
+- **C, report-repair freshness view (#3870)**: implemented for verification. Public status compares the report's candidate to one observed workspace revision, instead of the assignment revision; unavailable source stays explicitly unavailable. Controls cover later source, stage, task and contract changes, and the public regression fails on master. The combined A/C status, architecture and contract suite passed 74 tests; repository Ruff, formatting and mypy passed.
+A and C are under independent review; B still waits for group 4a (#3852/#3880/#3869 + view half of #3954), whose recovery files overlap. Integrate that work before merging this remaining batch.
 
 ## Cluster D run (on Ankur's Mac, Kilo engine, saved stage models; uses no Claude)
 - Controller: `/Users/ankurkothari/Documents/workspace/autocode-recov-controller` (detached at master 38e247b23, own .venv)

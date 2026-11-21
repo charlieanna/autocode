@@ -289,6 +289,8 @@ def view(
     completion_current=None,
     visual_acceptance=None,
     stale_report_repair=False,
+    report_repair_revision=None,
+    report_repair_source_unavailable=False,
     liveness=None,
     runner_check_liveness=None,
     verification_obligation=None,
@@ -584,7 +586,12 @@ def view(
         # Retired with the bug-fix Investigator, the only stage that offered report recovery (2026-11-10);
         # always null, kept because the status view never drops a field.
         "job_report_recovery": None,
-        "report_repair": report_repair_view.project(state, stale=stale_report_repair),
+        "report_repair": report_repair_view.project(
+            state,
+            stale=stale_report_repair,
+            current_revision=report_repair_revision,
+            source_unavailable=report_repair_source_unavailable,
+        ),
         # The pause a client may request while the run works (autocode_pause_offer, #1598); status supplies it.
         "pause": None,
         # Another run holds the folder this ready run's next step needs (autocode_checkout_wait); status supplies it.

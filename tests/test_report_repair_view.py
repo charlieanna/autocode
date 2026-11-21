@@ -5,9 +5,11 @@ import hashlib
 import json
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import autocode_report_repair_view as repair_view
 import autocode_run_view as run_view
+import autocode_source_scope as source_scope
 import autocode_util as util
 
 from . import test_json_output
@@ -92,7 +94,6 @@ class ReportRepairViewTests(unittest.TestCase):
             {"next_stage": "builder"},
             {"goal_contract": {"hash": "b" * 64}},
             {"current_task": {"id": "different"}},
-            {"current_task": {"source_revision": "b" * 64}},
         ):
             state = self.state()
             state.update(change)
@@ -113,6 +114,13 @@ class ReportRepairViewTests(unittest.TestCase):
         state["pending_report_repair"]["original"]["task_id"] = "M1"
         self.assertEqual("recorded", repair_view.project(state)["freshness"])
         self.assertTrue(repair_view.project(state)["active"])
+
+    def test_assignment_source_is_not_the_report_candidate(self):
+        state = self.state()
+        state["current_task"] = {"source_revision": "b" * 64}
+        shown = repair_view.project(state)
+        self.assertEqual("recorded", shown["freshness"])
+        self.assertTrue(shown["active"])
 
     def test_no_source_binding_exposes_no_reason_or_authority(self):
         for source in (None, {}, "short", "x" * 64):
@@ -213,6 +221,66 @@ class ReportRepairStatusCliTests(unittest.TestCase):
         self.assertEqual("evidence_binding", shown["report_repair"]["reason"]["category"])
         self.assertFalse(shown["done"])
         self.assertEqual(before, (self.run_dir / "state.json").read_bytes())
+
+    def test_status_compares_the_running_repair_to_the_observed_candidate(self):
+        assignment = source_scope.snapshot(self.root, self.state)["revision"]
+        (self.root / "greet.py").write_text("# Builder candidate B\n")
+        candidate = source_scope.snapshot(self.root, self.state)["revision"]
+        self.assertNotEqual(assignment, candidate)
+        fixture = ReportRepairViewTests().state()
+        self.state.update({key: value for key, value in fixture.items() if key != "settings"})
+        self.state["settings"]["report_repair"] = fixture["settings"]["report_repair"]
+        self.state["current_task"] = {"id": "task-1", "source_revision": assignment}
+        self.state["active_stage"].update(iteration=1, output=str(self.run_dir / "repair.json"))
+        pending = self.state["pending_report_repair"]
+        pending["original"].update(source_revision=candidate, task_id="task-1")
+        pending["latest_rejected"] = {"source_revision": candidate}
+        pending["contract_hash"] = self.state["goal_contract"]["hash"]
+        pending["pins"] = {}
+
+        def shown():
+            util.atomic_json(self.run_dir / "state.json", self.state)
+            before = (self.run_dir / "state.json").read_bytes()
+            code, stdout, stderr = self.invoke("--status")
+            self.assertEqual(0, code, stderr)
+            self.assertEqual(before, (self.run_dir / "state.json").read_bytes())
+            return json.loads(stdout)["view"]["report_repair"]
+
+        result = shown()
+        self.assertEqual("recorded", result["freshness"])
+        self.assertTrue(result["active"])
+        (self.root / "greet.py").write_text("# later workspace edit C\n")
+        result = shown()
+        self.assertEqual("stale", result["freshness"])
+        self.assertFalse(result["active"])
+        (self.root / "greet.py").write_text("# Builder candidate B\n")
+        current = copy.deepcopy(self.state)
+        for change in ("stage", "task", "contract"):
+            with self.subTest(change=change):
+                self.state = copy.deepcopy(current)
+                if change == "stage":
+                    self.state["next_stage"] = "builder"
+                elif change == "task":
+                    self.state["current_task"]["id"] = "other-task"
+                else:
+                    self.state["pending_report_repair"]["contract_hash"] = "other-contract"
+                result = shown()
+                self.assertEqual("stale", result["freshness"])
+                self.assertFalse(result["active"])
+
+    def test_status_keeps_the_run_readable_when_repair_source_cannot_be_observed(self):
+        fixture = ReportRepairViewTests().state()
+        self.state.update({key: value for key, value in fixture.items() if key != "settings"})
+        self.state["settings"]["report_repair"] = fixture["settings"]["report_repair"]
+        self.state["active_stage"].update(iteration=1, output=str(self.run_dir / "repair.json"))
+        self.state["pending_report_repair"]["contract_hash"] = self.state["goal_contract"]["hash"]
+        util.atomic_json(self.run_dir / "state.json", self.state)
+        with patch("autocode_status_command.source_scope.snapshot", side_effect=OSError("source unavailable")):
+            code, stdout, stderr = self.invoke("--status")
+        self.assertEqual(0, code, stderr)
+        shown = json.loads(stdout)["view"]["report_repair"]
+        self.assertEqual("unavailable", shown["freshness"])
+        self.assertFalse(shown["active"])
 
 
 if __name__ == "__main__":

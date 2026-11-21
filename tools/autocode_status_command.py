@@ -173,11 +173,18 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         and not controller_owner.continuing(state, owner)
     )
     strict_visual = runner.visual_runtime.requested(state)
-    current: Any = (
-        source_scope.snapshot(workspace, state, base_snapshot=runner.support.snapshot)
-        if state["status"] == "TASK_COMPLETE" or strict_visual or state.get("settings", {}).get("design_manifest")
-        else None
+    completion_snapshot = (
+        state["status"] == "TASK_COMPLETE" or strict_visual or state.get("settings", {}).get("design_manifest")
     )
+    current: Any = None
+    report_source_unavailable = False
+    if completion_snapshot or state.get("pending_report_repair"):
+        try:
+            current = source_scope.snapshot(workspace, state, base_snapshot=runner.support.snapshot)
+        except (OSError, ValueError, util.Paused):
+            if completion_snapshot:
+                raise
+            report_source_unavailable = True
     # Public --status stays lock-free. Scoped visual acceptance needs the runner's
     # CODE scope authority (exclusive locks); without it, projection reports UNKNOWN
     # and completion_current stays unknown rather than a false NOT_READY denial (#1255).
@@ -250,7 +257,10 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         liveness=liveness,
         runner_check_liveness=check_liveness,
         verification_obligation=preparation.frontier(run_dir / "check-replay" / "obligations", check),
-        stale_report_repair=runner.stale_report_repair(state, workspace) is not None,
+        stale_report_repair=not report_source_unavailable
+        and runner.stale_report_repair(state, workspace, revision=current["revision"] if current else None) is not None,
+        report_repair_revision=current["revision"] if current and state.get("pending_report_repair") else None,
+        report_repair_source_unavailable=report_source_unavailable,
         design_input_preview=design_input_preview,
         run_dir=run_dir,
         workspace=workspace,
