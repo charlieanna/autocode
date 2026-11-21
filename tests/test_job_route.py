@@ -445,12 +445,13 @@ class JobModelRouteTests(JobHarness):
             "import os,sys\nfrom pathlib import Path\n"
             "with Path(os.environ['KILO_AUDIT']).open('a') as stream: stream.write(' '.join(sys.argv[1:])+'\\n')\n"
             "if sys.argv[1:] == ['--version']: print('7.8.27'); raise SystemExit(0)\n"
-            f"if sys.argv[1:] == ['models']: print({model!r}); raise SystemExit(0)\n"
+            f"if sys.argv[1:] == ['models']: print({model!r} if os.environ['KILO_AVAILABLE'] == 'yes' else 'other/model'); raise SystemExit(0)\n"
             "if sys.argv[1:] == ['auth','list']: print('connected'); raise SystemExit(0)\n"
             "raise SystemExit(7)\n"
         )
         kilo.chmod(0o755)
         run.env["KILO_AUDIT"] = str(audit)
+        run.env["KILO_AVAILABLE"] = "no"
         checkpoint = run.run_dir / "state.json"
         state = json.loads(checkpoint.read_text())
         state["settings"].update(engine="opencode", provider="kilocode")
@@ -471,6 +472,17 @@ class JobModelRouteTests(JobHarness):
         self.assertTrue(view["needs"]["effort_drift"])
         self.assertIn("--answer route-architect=MODEL", view["next_command"])
         self.assertFalse(audit.exists() and "models" in audit.read_text(), "status must not list models")
+        self.rejected(
+            run,
+            "--answer",
+            f"route-architect={model}@medium",
+            "--job-retry-token",
+            need["job_retry_token"],
+            message="Models unavailable",
+        )
+        # A different explicit provider environment has its own preflight key;
+        # the owner-approved cache intentionally retains the earlier roster.
+        run.env["KILO_AVAILABLE"] = "yes"
         proc = self.cli(
             run, "--answer", f"route-architect={model}@medium", "--job-retry-token", need["job_retry_token"]
         )
