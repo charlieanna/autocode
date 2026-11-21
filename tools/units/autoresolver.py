@@ -110,7 +110,15 @@ def apply_job(stage, state: RunState, value, record, workspace, run_dir=None, ru
     def against(command, edit, files):
         return counterexample.runner(contained, workspace, probes, timeout=PROBE_TIMEOUT, files=files)(command, edit)
 
-    return stuck_job.apply(state, value, record, workspace, run_probe=probe, run_counterexample=against)
+    return stuck_job.apply(
+        state,
+        value,
+        record,
+        workspace,
+        run_probe=probe,
+        run_counterexample=against,
+        ask_planning=lifecycle.ask_planning_question,
+    )
 
 
 def wait_on_existing_diagnosis(state: RunState, decision, record, request, *, source_stage):
