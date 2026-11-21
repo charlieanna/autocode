@@ -21,6 +21,8 @@ def with_independent_probe(report):
     rows = [row for row in result.get("criterion_results", []) if row.get("status") == "PASS"]
     if not rows:
         return result
+    if any(row.get("id") != "C1" for row in rows):
+        raise ValueError("The greeting probe only covers criterion C1")
     result["checks"].append({"command": PROBE, "exit_code": 0, "evidence_ref": "event:independent-probe"})
     result["checks_run"].append(PROBE)
     for row in rows:
