@@ -71,6 +71,59 @@ class PytestToolchainTests(unittest.TestCase):
             self.assertEqual("private fixture", outside.read_text())
 
 
+@unittest.skipIf(os.name == "nt", "POSIX absolute executable and PATH discovery")
+class ManifestDiscoveryTests(unittest.TestCase):
+    def test_explicit_manifest_tool_does_not_require_a_second_path_lookup(self):
+        for family, manifest in (("cargo", "Cargo.toml"), ("go", "go.mod"), ("npm", "package.json")):
+            with self.subTest(family=family), tempfile.TemporaryDirectory() as directory:
+                owned = Path(directory).resolve()
+                root, install = owned / "project", owned / "runtime"
+                root.mkdir()
+                (root / manifest).write_text("{}" if family == "npm" else "fixture")
+                binary = install / "bin" / family
+                binary.parent.mkdir(parents=True)
+                binary.write_text("selected executable")
+                binary.chmod(0o700)
+                if family == "cargo":
+                    (install / "lib/rustlib").mkdir(parents=True)
+                elif family == "go":
+                    (install / "src/runtime").mkdir(parents=True)
+                    (install / "pkg/tool").mkdir(parents=True)
+                else:
+                    (install / "package.json").write_text('{"name":"npm"}')
+                    (install / "bin/node").write_text("node executable")
+
+                def which(name, path=None):
+                    return {
+                        "git": "/usr/bin/git",
+                        str(binary): str(binary),
+                        "node": str(install / "bin/node"),
+                    }.get(name)
+
+                with (
+                    patch.object(toolchain.shutil, "which", side_effect=which),
+                    patch.object(toolchain, "_binary_dependencies", side_effect=lambda executable: {executable}),
+                ):
+                    selected = toolchain.discover(root, [str(binary) + " --version"], {"PATH": "/usr/bin:/bin"})
+                self.assertTrue(any(str(binary) in probe for probe in selected["probes"]))
+
+    def test_manifest_still_requires_its_tool_when_no_command_selected_it(self):
+        for family, manifest in (("cargo", "Cargo.toml"), ("go", "go.mod"), ("npm", "package.json")):
+            with self.subTest(family=family), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory).resolve()
+                (root / manifest).write_text("{}" if family == "npm" else "fixture")
+                with (
+                    patch.object(
+                        toolchain.shutil,
+                        "which",
+                        side_effect=lambda name, path=None: "/usr/bin/git" if name == "git" else None,
+                    ),
+                    patch.object(toolchain, "_binary_dependencies", side_effect=lambda executable: {executable}),
+                    self.assertRaisesRegex(toolchain.Unadmitted, family),
+                ):
+                    toolchain.discover(root, [], {"PATH": "/usr/bin:/bin"})
+
+
 @unittest.skipUnless(NATIVE_PROBLEM is None, f"requires a real kernel sandbox: {NATIVE_PROBLEM}")
 class SelectedToolchainTests(unittest.TestCase):
     def test_selected_git_node_and_go_run_without_outside_read_or_source_write(self):
