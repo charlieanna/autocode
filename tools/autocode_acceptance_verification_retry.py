@@ -155,6 +155,41 @@ def _diagnosed_retry(state: RunState, pending):
     )
 
 
+def _replacement_plan(state: RunState, pending):
+    """A distinct, later approved plan can retire a previous plan's retained report."""
+    current = state.get("goal_contract") or {}
+    record = pending.get("record") or {}
+    if (
+        not identity.approved(state)
+        or not isinstance(state.get("current_task"), dict)
+        or not state["current_task"].get("id")
+        or any(state.get(key) for key in ("pending_questions", "user_request"))
+        or record.get("stage") != acceptance.STAGE
+        or not record.get("contract_hash")
+        or record.get("contract_hash") == current.get("hash")
+    ):
+        return None
+    previous = [
+        row
+        for row in state.get("contract_history") or []
+        if isinstance(row, dict) and row.get("hash") == record["contract_hash"] and identity.sealed(row)
+    ]
+    if len(previous) != 1:
+        return None
+    old = previous[0]
+    old_approval = identity.historical_approval(state, old)
+    events = state.get("user_events") or []
+    if (
+        not old_approval
+        or old.get("task_id") != current.get("task_id")
+        or old["revision"] >= current["revision"]
+        or events.index(old_approval) >= events.index(current["approval_event"])
+        or identity.equivalent_reviewed_body(old["body"], current["body"])
+    ):
+        return None
+    return {"revision": current["revision"], "contract_hash": current["hash"]}
+
+
 def dispatch(runtime, state: RunState, stage, workspace, run_dir, *, apply):
     """Apply a pinned report through ordinary owned checks, without saving/charging it twice."""
     pending = (state.get(acceptance.KEY) or {}).get(KEY)
@@ -168,6 +203,18 @@ def dispatch(runtime, state: RunState, stage, workspace, run_dir, *, apply):
             for key in ("active_stage", "active_runner_check", "uncertain_artifacts", "pending_report_repair")
         ):
             raise ValueError("Acceptance verification still has active or uncertain work")
+        if replacement := _replacement_plan(state, pending):
+            candidate = copy.deepcopy(state)
+            retained = candidate[acceptance.KEY][KEY]
+            retained["superseded_by"] = replacement
+            finish(candidate)
+            candidate.setdefault("user_events", []).append(
+                {"kind": "acceptance_report_superseded", "actor": "runner", "at": util.now(), **replacement}
+            )
+            runtime.write_json(Path(run_dir) / "state.json", candidate)
+            state.clear()
+            state.update(candidate)
+            return None
         attempts = pending.get("attempts")
         if type(attempts) is not int or attempts < 0:
             raise ValueError("The saved acceptance verification retry count is invalid")

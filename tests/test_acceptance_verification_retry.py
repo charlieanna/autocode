@@ -322,6 +322,71 @@ class AcceptanceVerificationRetryTests(unittest.TestCase):
                         target.write_bytes(previous) if previous is not None else target.unlink()
         self.assertEqual(1, self.reference.call_count)
 
+    def test_new_approved_plan_supersedes_only_the_old_retained_report(self):
+        self.start_retry()
+        old = copy.deepcopy(self.state["goal_contract"])
+        pending = copy.deepcopy(self.state[acceptance.KEY][retry.KEY])
+        revised = {"task_id": old["task_id"], "revision": old["revision"] + 1, "body": copy.deepcopy(old["body"])}
+        revised["body"]["acceptance_criteria"][0]["criterion"] = "corrected answer"
+        revised["hash"] = util.digest(revised)
+        approval = {"kind": "goal_approval", "actor": "user_cli", "token": identity.token(revised)}
+        revised.update(approval_status="approved", approval_event=approval)
+        self.state["contract_history"] = [old]
+        self.state["goal_contract"] = revised
+        self.state["user_events"].append(approval)
+        self.state["current_task"] = {"id": "T2"}
+        self.state["next_stage"] = acceptance.STAGE
+
+        before = copy.deepcopy(self.state)
+        self.assertIsNone(self.dispatch(), "the normal dispatch must run a fresh writer")
+        self.assertNotIn(retry.KEY, self.state[acceptance.KEY])
+        archived = self.state[acceptance.KEY]["verification_retries"][-1]
+        for key, value in pending.items():
+            self.assertEqual(value, archived[key])
+        self.assertEqual(revised["hash"], archived["superseded_by"]["contract_hash"])
+        self.assertEqual(before["stages"], self.state["stages"])
+        self.assertEqual(before["history"], self.state["history"])
+        self.runtime.run_role.assert_not_called()
+
+    def test_a_forged_or_unapproved_replacement_cannot_discard_a_retained_report(self):
+        self.start_retry()
+        old = copy.deepcopy(self.state["goal_contract"])
+        revised = {"task_id": old["task_id"], "revision": old["revision"] + 1, "body": copy.deepcopy(old["body"])}
+        revised["body"]["acceptance_criteria"][0]["criterion"] = "corrected answer"
+        revised["hash"] = util.digest(revised)
+        approval = {"kind": "goal_approval", "actor": "user_cli", "token": identity.token(revised)}
+        revised.update(approval_status="approved", approval_event=approval)
+        self.state["contract_history"] = [old]
+        self.state["goal_contract"] = revised
+        self.state["user_events"].append(approval)
+        original = copy.deepcopy(self.state)
+        for fault in ("draft", "old_approval_missing", "new_approval_missing", "unchanged", "uncertain"):
+            with self.subTest(fault=fault):
+                self.state = copy.deepcopy(original)
+                if fault == "draft":
+                    self.state["goal_contract"]["approval_status"] = "draft"
+                elif fault == "old_approval_missing":
+                    self.state["user_events"].pop(0)
+                elif fault == "new_approval_missing":
+                    self.state["user_events"].pop()
+                elif fault == "unchanged":
+                    same = {
+                        "task_id": old["task_id"],
+                        "revision": old["revision"] + 1,
+                        "body": copy.deepcopy(old["body"]),
+                    }
+                    same["hash"] = util.digest(same)
+                    same_approval = {"kind": "goal_approval", "actor": "user_cli", "token": identity.token(same)}
+                    same.update(approval_status="approved", approval_event=same_approval)
+                    self.state["goal_contract"] = same
+                    self.state["user_events"][-1] = same_approval
+                else:
+                    self.state["uncertain_artifacts"] = ["pending"]
+                pending = copy.deepcopy(self.state[acceptance.KEY][retry.KEY])
+                with self.assertRaises(util.Paused):
+                    self.dispatch()
+                self.assertEqual(pending, self.state[acceptance.KEY][retry.KEY])
+
     def test_uncertain_cleanup_propagates_and_spent_retry_survives(self):
         self.start_retry()
         self.reference.side_effect = receipts.OwnershipUncertain("uncertain command")
