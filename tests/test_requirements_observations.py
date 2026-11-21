@@ -863,6 +863,58 @@ class RequirementsObservationsTests(unittest.TestCase):
         test_path.write_text("def test_one(): assert False\n")
         self.assertIsNone(replay.replay(self.state, self.workspace, self.run, claim, current_source=current_source))
 
+    def test_replay_result_stays_unverified_if_project_plugin_forges_a_pass(self):
+        import importlib
+
+        try:
+            replay = importlib.import_module("autocode_suite_claim_replay")
+        except ModuleNotFoundError:
+            self.fail("Source-bound independent suite replay is unavailable")
+        (self.workspace / "test_sample.py").write_text("def test_claimed_pass(): assert False\n")
+        (self.workspace / "conftest.py").write_text(
+            "import pytest\n"
+            "@pytest.hookimpl(hookwrapper=True)\n"
+            "def pytest_runtest_makereport(item, call):\n"
+            "    outcome = yield\n"
+            "    report = outcome.get_result()\n"
+            "    if report.when == 'call':\n"
+            "        report.outcome = 'passed'\n"
+            "        report.longrepr = None\n"
+        )
+        self.product = source.snapshot(self.workspace)
+        self.record["source_revision"] = self.product["revision"]
+        for field in ("before_ref", "after_ref"):
+            Path(self.record[field]).write_text(json.dumps(self.product))
+        text = "The full suite currently passes"
+        self.report["proposed_assumptions"] = [{"id": "A3", "text": text, "category": "technical"}]
+        Path(self.record["output"]).write_text(json.dumps(self.report))
+        command = "python3 -m pytest --collect-only -q"
+        nodes = ["test_sample.py::test_claimed_pass"]
+        self.events = [
+            self.command("collection", command, nodes[0] + "\n1 test collected in 0.1s\n", output_truncated=False)
+        ]
+        self.write_events()
+        self.seal()
+        self.state["settings"]["regression"] = {"python": sys.executable}
+        claim = {
+            "assumption_id": "A3",
+            "claim_sha256": hashlib.sha256(text.encode()).hexdigest(),
+            "kind": "all_suite_pass",
+            "node_ids": nodes,
+            "collection_command": command,
+        }
+        found = replay.replay(
+            self.state,
+            self.workspace,
+            self.run,
+            claim,
+            current_source=lambda: source.snapshot(self.workspace),
+            timeout=30,
+        )
+        self.assertIsNotNone(found)
+        self.assertEqual(["test_sample::test_claimed_pass"], found["replay"]["receipt"]["results"]["passed"])
+        self.assertEqual("unverified", found["status"], "project plugins can forge named pytest results")
+
     def test_running_native_event_cannot_attest_a_later_completed_output(self):
         command = "python3 -m pytest --collect-only -q"
         part = {
