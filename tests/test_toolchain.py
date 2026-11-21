@@ -77,7 +77,7 @@ class ManifestDiscoveryTests(unittest.TestCase):
         for family, manifest in (("cargo", "Cargo.toml"), ("go", "go.mod"), ("npm", "package.json")):
             with self.subTest(family=family), tempfile.TemporaryDirectory() as directory:
                 owned = Path(directory).resolve()
-                root, install = owned / "project", owned / "runtime"
+                root, install = owned / "project", owned / "runtime with spaces"
                 root.mkdir()
                 (root / manifest).write_text("{}" if family == "npm" else "fixture")
                 binary = install / "bin" / family
@@ -104,7 +104,9 @@ class ManifestDiscoveryTests(unittest.TestCase):
                     patch.object(toolchain.shutil, "which", side_effect=which),
                     patch.object(toolchain, "_binary_dependencies", side_effect=lambda executable: {executable}),
                 ):
-                    selected = toolchain.discover(root, [str(binary) + " --version"], {"PATH": "/usr/bin:/bin"})
+                    selected = toolchain.discover(
+                        root, [shlex.join([str(binary), "--version"])], {"PATH": "/usr/bin:/bin"}
+                    )
                 self.assertTrue(any(str(binary) in probe for probe in selected["probes"]))
 
     def test_manifest_still_requires_its_tool_when_no_command_selected_it(self):
@@ -122,6 +124,33 @@ class ManifestDiscoveryTests(unittest.TestCase):
                     self.assertRaisesRegex(toolchain.Unadmitted, family),
                 ):
                     toolchain.discover(root, [], {"PATH": "/usr/bin:/bin"})
+
+    def test_other_manifest_and_selected_program_helpers_remain_required(self):
+        with tempfile.TemporaryDirectory() as directory:
+            owned = Path(directory).resolve()
+            root, install = owned / "project", owned / "runtime"
+            root.mkdir()
+            (root / "package.json").write_text("{}")
+            (root / "go.mod").write_text("fixture")
+            npm = install / "bin/npm"
+            npm.parent.mkdir(parents=True)
+            npm.write_text("selected npm")
+            npm.chmod(0o700)
+            (install / "package.json").write_text('{"name":"npm"}')
+            choices = {"git": "/usr/bin/git", str(npm): str(npm)}
+            with (
+                patch.object(toolchain.shutil, "which", side_effect=lambda name, path=None: choices.get(name)),
+                patch.object(toolchain, "_binary_dependencies", side_effect=lambda executable: {executable}),
+                self.assertRaisesRegex(toolchain.Unadmitted, "go"),
+            ):
+                toolchain.discover(root, [shlex.join([str(npm), "--version"])], {"PATH": "/usr/bin:/bin"})
+            (root / "go.mod").unlink()
+            with (
+                patch.object(toolchain.shutil, "which", side_effect=lambda name, path=None: choices.get(name)),
+                patch.object(toolchain, "_binary_dependencies", side_effect=lambda executable: {executable}),
+                self.assertRaisesRegex(toolchain.Unadmitted, "node"),
+            ):
+                toolchain.discover(root, [shlex.join([str(npm), "--version"])], {"PATH": "/usr/bin:/bin"})
 
 
 @unittest.skipUnless(NATIVE_PROBLEM is None, f"requires a real kernel sandbox: {NATIVE_PROBLEM}")
