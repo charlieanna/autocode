@@ -137,13 +137,19 @@ before(async () => {
   // old frame after the handler succeeds and can time out even with the Runs
   // list visible. Dispatch the setup action, then wait for the actual run row.
   const row = win.locator('.monaco-list-row', { hasText: 'Bug report from the finance team' }).first();
-  await openHistoryRow(row, chat, 'Bug report from the finance team');
+  try {
+    await openHistoryRow(row, chat, 'Bug report from the finance team');
+  } catch (error) {
+    // Preserve this host's state separately: later host tests run even if this setup fails.
+    console.log('Stock host frames after failed chat setup:', JSON.stringify(win.frames().map((frame) => frame.url().split('?')[0])));
+    throw error;
+  }
   await until('the run in the chat', async () => (await chatText()).includes('rejected the saved credentials (HTTP 401)'));
 });
 
 after(async () => {
   // The window as the suite left it, for a failed CI run's artifact.
-  await win?.screenshot({ path: path.join(EXTENSION, '.vscode-test', 'host-last.png') }).catch(() => {});
+  await win?.screenshot({ path: path.join(EXTENSION, '.vscode-test', 'host-stock.png') }).catch(() => {});
   await app?.close().catch(() => {});
   // Read-only diagnostic for #4012: identify the stock host, if it survives the editor.
   // Never stop a service here: this fixture does not yet own a private socket.
