@@ -68,7 +68,7 @@ def validate_scratch_owner(execution, review_mutation, deadline, review_source, 
         raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Native readonly checks cannot run review mutations")
     if type(execution) is not NativeCheckExecution:
         raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Original concrete native check owner required")
-    if preparation_active:
+    if preparation_active():
         raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Native checks cannot share scheduled preparation ownership")
 
 
