@@ -24,7 +24,6 @@ def _worker(request):
 
             import autocode_dispatch as dispatch
             import autocode_interventions as interventions
-            import autocode_opencode as opencode
             import autocode_providers as providers
             import autocode_role_transport as role_transport
             import autocode_support as support
@@ -38,14 +37,10 @@ def _worker(request):
                 return {"allowed": False, "reason": str(error)}
             try:
                 saved = state.get("settings") or {}
-                facade = (
-                    providers.resolve(providers.select(None, saved, default="opencode"))
-                    if admission.quota_route.engine(saved, role) == "opencode"
-                    else opencode
-                )
+                if saved.get("replay_recording"):
+                    return {"allowed": False, "reason": "The saved replay provider could not be inspected"}
+                facade = providers.resolve(providers.select(None, saved, default="opencode"))
                 if admission.quota_route.engine(saved, role) == "opencode":
-                    if saved.get("replay_recording"):
-                        return {"allowed": False, "reason": "The saved replay provider could not be inspected"}
                     role_transport.adapter(saved, role, facade, payload["workspace"])
             except (OSError, TypeError, ValueError, RuntimeError, util.Paused):
                 return {"allowed": False, "reason": "The saved provider could not be inspected"}

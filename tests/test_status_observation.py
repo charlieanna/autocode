@@ -153,6 +153,58 @@ class StatusObservationTests(unittest.TestCase):
             self.assertEqual({"allowed": False, "reason": "drift"}, worker._worker(request))
         resolve.assert_not_called()
 
+    def test_codex_role_holds_when_the_saved_run_provider_is_missing(self):
+        import autocode_providers as providers
+
+        settings = {"engine": "codex", "provider": "kilocode", "roles": {"architect": {"engine": "codex"}}}
+        request = {
+            "operation": "job_retry",
+            "payload": {"state": {"settings": settings}, "workspace": "/tmp", "run_dir": "/tmp/run", "token": "t"},
+        }
+        with (
+            patch.object(
+                job_retry_admission,
+                "validate_retry",
+                side_effect=job_retry_admission.RetryConfigurationChanged("drift"),
+            ),
+            patch.object(job_retry_admission.quota_route, "job_question", return_value={"route_role": "architect"}),
+            patch.object(interventions, "pending", return_value=[]),
+            patch.object(providers, "resolve", side_effect=ValueError("missing")),
+            patch.object(job_retry_admission, "route_is_repairable") as repairable,
+        ):
+            self.assertEqual(
+                {"allowed": False, "reason": "The saved provider could not be inspected"}, worker._worker(request)
+            )
+        repairable.assert_not_called()
+
+    def test_replay_route_is_held_without_reconstructing_its_facade(self):
+        import autocode_providers as providers
+
+        request = {
+            "operation": "job_retry",
+            "payload": {
+                "state": {"settings": {"replay_recording": {"path": "saved"}}},
+                "workspace": "/tmp",
+                "run_dir": "/tmp/run",
+                "token": "t",
+            },
+        }
+        with (
+            patch.object(
+                job_retry_admission,
+                "validate_retry",
+                side_effect=job_retry_admission.RetryConfigurationChanged("drift"),
+            ),
+            patch.object(job_retry_admission.quota_route, "job_question", return_value={"route_role": "architect"}),
+            patch.object(interventions, "pending", return_value=[]),
+            patch.object(providers, "resolve") as resolve,
+        ):
+            self.assertEqual(
+                {"allowed": False, "reason": "The saved replay provider could not be inspected"},
+                worker._worker(request),
+            )
+        resolve.assert_not_called()
+
     def test_suite_reports_fail_closed_on_timeout_or_malformed_worker_output(self):
         with patch.object(observation, "_observe", side_effect=subprocess.TimeoutExpired("worker", 1)):
             self.assertEqual([], observation.suite_reports({}, "/tmp/project", "/tmp/run"))

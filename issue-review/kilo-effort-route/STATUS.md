@@ -28,6 +28,16 @@ That failed attempt is preserved; this follow-up does not alter the cache policy
 
 The CI selector also retains the public route, needs and status tests for future
 changes to the shared retry-admission module. Its regression fails on the base.
+The bounded status worker resolves the saved run-wide facade even when the
+stopped role uses Codex, and holds replay routes until their facade can be
+reconstructed safely. Mixed-role saved transport changes also hold.
+
+At f9b2df001, 228 focused retry/status/architecture tests, repository Ruff and
+format, and mypy passed. Subsequent transport-parity changes require their own
+focused checks and exact-head CI. A separate actual-editor test uses a local
+fake Kilo provider, never a live model call; its final host result is pending.
+An automatic approval review rejected an earlier smoke that changed HOME, and
+that action was not run. Status-only controls with inherited HOME passed.
 
 Still required: focused checks and master control, actual VS Code behavior on
 the final head, current-head `ci-required`, and review of unsupported or absent
