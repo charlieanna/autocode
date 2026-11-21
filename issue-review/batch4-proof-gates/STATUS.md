@@ -23,6 +23,10 @@ test can fail on base and pass on candidate for an unrelated setup failure.
 For a module-level collection error no individual test ran on base at all.
 Do not infer source from matching names, changed-file words, or an untrusted
 finder; these cases remain held until there is independent evidence.
+The final judgment also excludes collection-failure IDs before deciding that a
+candidate test ran and failed on base. A direct control where the collection
+failure shares the candidate test's exact ID failed at `caa53371a`; matching
+IDs alone do not turn failed collection into an executed test.
 An owned-runner control also shows why a separate standard `PathFinder`
 probe is insufficient: it finds the project's `release_api.py`, while the
 actual candidate test first installs a custom finder and loads an external

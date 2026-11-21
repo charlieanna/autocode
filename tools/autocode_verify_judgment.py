@@ -184,8 +184,10 @@ def judge_regression(
         not_run = passed - set(base["passed"]) - set(base["failed"])
         if new_behavior:
             flipped_set = passed - set(base["passed"]) - set(setup_errors)
-            if unloaded_new is not None and (base.get("uncollected", base.get("collection_errors")) or []):
+            if unloaded_new is not None and (base.get("uncollected") or base.get("collection_errors")):
                 flipped_set -= not_run
+                flipped_set -= set(base.get("collection_errors") or ())
+                flipped_set -= set(base.get("uncollected") or ())
                 flipped_set |= set(unloaded_new) & passed
             flipped = sorted(flipped_set)
         else:
