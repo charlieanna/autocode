@@ -1812,7 +1812,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/a263eba8933b06960d1bad7c768301a309240163/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/5335ff6e6895b1203c42bc650a37119d380ac744/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -2623,6 +2623,21 @@ the <code>plan_parts</code> it named and the reason) and the Planner corrects th
 requested outcome; plan review and the person's plan approval follow as usual. One that names no
 part of the plan, concerns a rejected assumption, or follows another settled plan defect before the
 person has answered anything reaches the person as an ordinary decision, with that reason in its why.</p>
+<p>AutoCode raises one such defect itself (#4015, <code>tools/autocode_plan_tool_admission.py</code>). When a run's
+code stages launch in the kernel tool boundary (OpenCode or Kilo, without the saved
+<code>--allow-uncontained-tools</code>), each draft's criterion commands are admitted, without a model, by the same
+<code>autocode_toolchain.discover</code> the launch applies. A command whose program the boundary has no rule for
+(<code>uv</code>, <code>make</code>, <code>bundle</code>, <code>yarn</code>) or cannot find becomes a <code>plan-tool-boundary</code> plan defect naming those
+criteria, so the Planner corrects it before the plan is shown for approval. A second refusal in the same
+round reaches the person as a decision about the test environment. A plan already approved with such a
+command (approved before this check, or whose admission changed since) is reopened the same way before its
+next launch: the approval returns to draft, the Planner corrects the plan and the person approves the
+correction. Only a second refusal in the same round pauses <code>PAUSED_TOOL_CONTAINMENT</code>, naming the plan's
+program rather than the tool.</p>
+<p>The boundary admits git, Python and pytest, Node with npm and npx, Go, Cargo (#4017) and the
+POSIX shells (<code>autocode_toolchain.ADMITTED</code>). Cargo runs from its installed toolchain, or through a rustup
+proxy with <code>RUSTUP_HOME</code>'s toolchains readable; <code>CARGO_HOME</code> stays the stage's scratch directory, so the
+person's registry credentials are never readable.</p>
 <p><code>handoff_conversation(expected_revision=..., expected_plan_token=...)</code> records the
 reviewed current draft's handoff to that same run. It does not approve the plan or
 start a second task. Read the current plan and use the separate <code>approve_plan()</code>
@@ -3122,7 +3137,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/a263eba8933b06960d1bad7c768301a309240163/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/5335ff6e6895b1203c42bc650a37119d380ac744/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3396,7 +3411,11 @@ current, and something the options do not cover goes in <code>--feedback</code> 
 <code>--chat</code>, which asks again after a rejected answer). A question without options takes any
 nonempty text. When the current turn has an accepted Requirements handoff, <code>view.requirements</code>
 projects <code>{handoff_ref, intended_outcome, requirements, proposed_assumptions, acceptance_tests, constraints, conflicts, job, clarity}</code>
-(<code>null</code> otherwise; <code>job</code> and <code>clarity</code> are what that report named, each <code>null</code> when it named none, #3630), and <code>--delegate-all</code> / <code>--reject-assumption</code> bind <code>--review-token</code> to
+(<code>null</code> otherwise; <code>job</code> and <code>clarity</code> are what that report named, each <code>null</code> when it named none, #3630),
+and, when available for the current source, <code>suite_reports</code>. These bounded historical provider reports
+name their exact command, whether they report collection or execution, test count and reported paths;
+<code>omitted_paths</code> marks a truncated path list. They are explicitly not independently verified, and
+collection never establishes execution or a free-text assumption. <code>--delegate-all</code> / <code>--reject-assumption</code> bind <code>--review-token</code> to
 <code>handoff_ref</code> before a goal contract exists (#3650). The terminal CLI also shows the remaining question IDs and
 the exact <code>--answer</code> command on stderr after each successful answer and on <code>--status</code>; that
 command names <code>--resolver-token -</code>, which reads the current token from the run it names, so the
@@ -4004,7 +4023,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/a263eba8933b06960d1bad7c768301a309240163/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/5335ff6e6895b1203c42bc650a37119d380ac744/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
@@ -4771,7 +4790,7 @@ run is waiting for:</p>
 <tr>
 <td><code>retry_job</code></td>
 <td>inspection of a stopped workflow job</td>
-<td><code>job_retry_token</code>, <code>archive</code>, <code>write_diagnosis</code>, <code>recovery_hint</code>; <code>route</code> after quota, a content-filter refusal, an authenticated output limit, authentication failure or a fully stopped exploration-budget timeout (a hard stage deadline is extended by AutoCode and then retried exactly, with no <code>route</code>, #2605)</td>
+<td><code>job_retry_token</code>, <code>archive</code>, <code>write_diagnosis</code>, <code>recovery_hint</code>; <code>retry_unavailable</code> says when the saved retry configuration requires a model answer before retrying; <code>route</code> after quota, a content-filter refusal, an authenticated output limit, authentication failure or a fully stopped exploration-budget timeout (a hard stage deadline is extended by AutoCode and then retried exactly, with no <code>route</code>, #2605)</td>
 <td>Exact retry after restoring original source; with <code>route</code>, name another model first</td>
 </tr>
 <tr>
@@ -4794,6 +4813,11 @@ run is waiting for:</p>
 </tr>
 </tbody>
 </table>
+<p>On a <code>retry_job</code> whose saved model question is the only admissible action,
+<code>effort_drift: true</code> says the saved and current recognized reasoning levels
+differ. It is display information, not permission to retry or to change the
+saved route. A concrete model/level answer still passes the normal locked
+source, token, provider and configuration checks before a new retry token is issued.</p>
 <p>A <code>resolver_scope</code> of <code>operational_exhaustion</code> or <code>blocker</code> means Resolver
 stopped the run because it could not continue safely (for example, the
 run time limit was reached). That question is for a person who has looked at

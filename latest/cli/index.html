@@ -2354,7 +2354,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/a263eba8933b06960d1bad7c768301a309240163/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/5335ff6e6895b1203c42bc650a37119d380ac744/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2606,7 +2606,7 @@ they do not represent charges.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/a263eba8933b06960d1bad7c768301a309240163/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/5335ff6e6895b1203c42bc650a37119d380ac744/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -3246,7 +3246,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/a263eba8933b06960d1bad7c768301a309240163/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/5335ff6e6895b1203c42bc650a37119d380ac744/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -3863,8 +3863,13 @@ also accepts <code>-h</code> / <code>--help</code>.</p>
 </tr>
 <tr>
 <td><code>autocode capture</code></td>
-<td><code>--output</code>, <code>--no-compress</code>, <code>--mode</code>, <code>--known-output-sha256</code>, <code>--compare-base</code></td>
-<td>Retained output, full display, <code>raw</code>/<code>conservative</code> display and verified unchanged-output reference; a command follows <code>--</code>. <code>--compare-base REV</code> runs the command on REV (extracted with <code>git archive</code> under <code>.autocode/scratch</code>, then removed) and in the workspace, and writes a <code>diagnostics_comparison</code> receipt with both exit codes and <code>new_diagnostics</code>: the candidate's output lines naming a whole-word warning, error or fatal that the base did not print, compared with digit runs ignored so a moved line number is not new. It exits 0 when the comparison completes. A Tester cites such a receipt for a criterion that claims references resolve (#3947).</td>
+<td><code>--output</code>, <code>--no-compress</code>, <code>--mode</code>, <code>--known-output-sha256</code>, <code>--compare-base</code>, <code>--reference-doc</code></td>
+<td>Retains the original output and controls its display. A command follows <code>--</code>. <code>--compare-base REV</code> records the base and candidate exit codes and additional warning, error or fatal output in a <code>diagnostics_comparison</code> receipt. The comparison ignores changed line and column numbers in diagnostics. The capture exits 0 when the comparison completes.</td>
+</tr>
+<tr>
+<td><code>autocode capture</code></td>
+<td><code>--compare-base REV --reference-doc DOC</code></td>
+<td>Repeat <code>--reference-doc</code> for up to eight repository-relative Sphinx source documents. From the repository root, use <code>sphinx-build -E -a -n -W --keep-going -b html SOURCE OUTPUT</code> with a repository-relative source directory and output under <code>.autocode/scratch</code>. AutoCode builds fresh base and candidate copies and checks that a separate candidate copy reports an injected broken reference in each named document. It also compares unlinked Python references on those pages and on local source pages reachable through their rendered tables of contents. The comparison retains its receipt and exits 1 when new diagnostics appear or the checker misses its control.</td>
 </tr>
 <tr>
 <td><code>autocode output</code></td>
@@ -4346,7 +4351,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/a263eba8933b06960d1bad7c768301a309240163/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/5335ff6e6895b1203c42bc650a37119d380ac744/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,
