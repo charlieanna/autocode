@@ -190,6 +190,21 @@ class SelectTestsTests(unittest.TestCase):
         )
         self.assertEqual({"tests.test_public_cli": run_suite.REQUIRED + "tests/offline_provider.py"}, selected)
 
+    def test_nested_host_hook_does_not_select_unrelated_same_basename(self):
+        selected = run_suite.select_tests(
+            ["tests/guard_host_hook/sitecustomize.py"],
+            {
+                "tests.test_importer": "import tests.guard_host_hook.sitecustomize\n",
+                "tests.test_path": "HOOK = 'tests/guard_host_hook/sitecustomize.py'\n",
+                "tests.test_parts": "HOOK = ROOT / 'guard_host_hook' / 'sitecustomize.py'\n",
+                "tests.test_pythonpath": "HOOKS = ROOT / 'guard_host_hook'\n",
+                "tests.test_unrelated": "HOOK = 'sitecustomize.py'\n",
+            },
+        )
+        self.assertEqual(
+            {"tests.test_importer", "tests.test_path", "tests.test_parts", "tests.test_pythonpath"}, set(selected)
+        )
+
     def test_changed_shared_test_selects_relative_import_consumers_even_if_slow(self):
         sources = {
             "tests.test_subprocess": "",

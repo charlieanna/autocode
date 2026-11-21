@@ -170,14 +170,17 @@ def select(paths: list[str], *, full: bool = False) -> dict[str, bool]:
         ):
             selected["scenarios"] = True
         # The VS Code client is TypeScript over the CLI, so it has its own Node gate (#884).
-        if path.startswith(("vscode-extension/", "tools/autocode_chat_")) or path in (
-            "tools/autocode_run_view.py",
-            "tools/autocode_quota_route.py",
-            "tools/autocode_roles.py",
-            "tools/autocode_usage.py",
-            "tools/autocode_progress_view.py",
-            # The Extension Host suite's offline run (#3860).
-            "tests/provider_auth_fixture.py",
+        if (
+            path.startswith(("vscode-extension/", "tools/autocode_chat_"))
+            or path
+            in (
+                "tools/autocode_run_view.py",
+                "tools/autocode_quota_route.py",
+                "tools/autocode_roles.py",
+                "tools/autocode_usage.py",
+                "tools/autocode_progress_view.py",
+            )
+            or path in run_suite.ci_test_selection.EXTENSION_HOST_RESOURCES
         ):
             selected["extension"] = True
         if path.startswith(("tools/autocode_visual", "tools/autocode_image", "tests/test_visual", "tests/test_image")):
