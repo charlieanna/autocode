@@ -56,6 +56,29 @@ class SessionScanIncomplete(ProcessError):
     """A changing PID frontier cannot yet certify an empty admitted SID."""
 
 
+def stage_stop_refusal(record):
+    """Return why an attempt cannot be abandoned while its recorded process is live."""
+    pid = record.get("pid")
+    if record.get("processes"):
+        if live_processes(record["processes"]):
+            return "Recorded provider commands are still alive"
+    elif pid and record.get("exit_code") is None:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            pass
+        except PermissionError:
+            return f"Cannot verify stage process {pid} has stopped"
+        else:
+            try:
+                row = process_table({pid}).get(pid)
+            except ProcessError:
+                row = {"state": "unknown"}
+            if row is not None and not row["state"].startswith("Z"):
+                return f"Stage process {pid} still exists; wait for it"
+    return None
+
+
 def settled_sample(tree, *, initial=False, notify=True):
     """Give transient PID churn a bounded chance to produce the exact proof.
 

@@ -1095,7 +1095,10 @@ class RunViewTests(unittest.TestCase):
                 "latest_rejected": {"iteration": 1, "output": "/run/tester_report_repair-02.json"},
             },
         }
-        self.assertEqual("001/tester_report_repair-02", run_view.needs(state)["retry_report_attempt"])
+        # This projection fixture has no on-disk report; the admission tests use
+        # real schema and evidence files and cover rejection of stale inputs.
+        with patch("autocode_report_retry_admission.validate"):
+            self.assertEqual("001/tester_report_repair-02", run_view.needs(state)["retry_report_attempt"])
 
     def test_legacy_job_without_source_identity_exposes_recovery_not_retry(self):
         failure = {

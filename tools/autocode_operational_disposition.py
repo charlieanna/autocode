@@ -693,21 +693,39 @@ def decision(state: RunState):
     }
 
 
-def presentation(state: RunState):
-    ledger = _Ledger(state)
-    rows = incidents(state, _ledger=ledger)
-    if stop.applied_stop(state) or not rows:
-        return None
-    same_ctx = lambda row: all(  # noqa: E731
-        ((row.get("receipt") or {}).get("evaluation_binding") or {}).get(key) == value
+def same_context(state: RunState, binding):
+    """Whether an incident's evaluation binding is this run's task, place, current task and contract.
+
+    Recovery admission and the public resume offer both read this one answer. An unsealed saved
+    contract raises ValueError (contract_identity.approval_identity).
+    """
+    return all(
+        binding.get(key) == value
         for key, value in (
             ("task_id", state.get("task_id")),
             ("task", state.get("task")),
             ("workspace", state.get("workspace")),
             ("run_dir", state.get("run_dir")),
             ("current_task", util.digest(state.get("current_task"))),
+            ("contract", contract_identity.approval_identity(state)),
         )
     )
+
+
+def presentation(state: RunState):
+    ledger = _Ledger(state)
+    rows = incidents(state, _ledger=ledger)
+    if stop.applied_stop(state) or not rows:
+        return None
+
+    def same_ctx(row):
+        # The admission's own context check, contract identity included (#3852). An unsealed
+        # contract refuses there; here it only means the saved settlement is not offered.
+        try:
+            return same_context(state, (row.get("receipt") or {}).get("evaluation_binding") or {})
+        except ValueError:
+            return False
+
     abandoned_ready = state.get("status") == "PAUSED_STAGE_ABANDONED"
     unresolved = [
         row

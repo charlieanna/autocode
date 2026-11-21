@@ -128,7 +128,7 @@ class JsonContractTests(unittest.TestCase):
                 self.assertTrue(done["view"]["done"])
                 break
             reached.append(need["kind"])
-            self.assertEqual("your_decision", view["pause_category"])
+            self.assertEqual("your_decision", view["pause_category"], view)
             # A plain relaunch leaves a waiting run where it is.
             held = self.run_payload("stopped", self.autocode(*on_run, "--no-chat", "--json"))
             self.assertEqual((view["status"], view["needs"]), (held["view"]["status"], held["view"]["needs"]))
