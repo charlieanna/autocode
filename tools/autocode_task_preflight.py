@@ -38,6 +38,7 @@ try:
     from . import autocode_preflight_worker as workers
     from . import autocode_runner_check as runner_check
     from . import autocode_storage_budget as storage_budget
+    from . import autocode_test_environment as test_environment
     from . import autocode_util as util
     from . import autocode_verify as verify
 except ImportError:
@@ -49,6 +50,7 @@ except ImportError:
     import autocode_preflight_worker as workers
     import autocode_runner_check as runner_check
     import autocode_storage_budget as storage_budget
+    import autocode_test_environment as test_environment
     import autocode_util as util
     import autocode_verify as verify
 
@@ -186,7 +188,7 @@ def _proof_commands(state: RunState, workspace, checks):
     )
     framework = framework or verify.detect_framework(
         workspace,
-        python=options.get("python") or verify.python_for(workspace),
+        python=options.get("python") or test_environment.run_python(state, workspace),
         **package_scope.detection(state["settings"]),
     )
     for command in commands:
@@ -201,7 +203,7 @@ def _proof_commands(state: RunState, workspace, checks):
 
 def _binding(state: RunState, workspace, config, checks, worker=None):
     settings = state["settings"]
-    python = verify.python_for(workspace)
+    python = test_environment.run_python(state, workspace)
     environment = verify.test_environment(workspace)
     executables = []
     for check in checks:

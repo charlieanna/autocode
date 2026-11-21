@@ -20,6 +20,10 @@ import sys
 import tempfile
 import tomllib
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_python_tests as python_tests
@@ -104,6 +108,20 @@ def recorded_python(settings, project):
     protected = settings.get("protected_tests")
     command = protected.get("command") if isinstance(protected, dict) else None
     return python_for_test_command(project, command) if isinstance(command, str) and command else None
+
+
+def run_python(state: RunState | None, workspace) -> str:
+    """The interpreter a run's own checks use: the one it recorded with its suite, else ``python_for``.
+
+    ``python_for`` takes whichever virtualenv is in the project now. A run whose suite was recorded with
+    one Python and that later gained a ``.venv`` (a Builder's ``uv sync`` without network leaves an empty
+    one) ran its regression proof with that venv's Python, which had no pytest: no test ran and the
+    Resolver asked the person for a test environment (#4020). Every check of the run reads the one
+    answer the run recorded (``recorded_python``, #3790).
+    """
+    state = state or {}
+    project = state.get("project_workspace") or workspace
+    return recorded_python(state.get("settings"), project) or python_for(project)
 
 
 def _owned_private_dir(path: Path) -> bool:
