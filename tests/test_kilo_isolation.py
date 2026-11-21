@@ -210,6 +210,7 @@ class ClientPolicyTests(unittest.TestCase):
             return isolation.rules.VERSION.encode() if argv[-1] == "--version" else response
 
         with (
+            patch.object(isolation.sys, "platform", "linux"),
             patch.object(isolation.toolchain, "discover", return_value=selected),
             patch.object(containment, "prepare", return_value=fake_boundary),
             patch.object(isolation, "_relocate_client_runtime", return_value=self.scratch),
@@ -217,6 +218,10 @@ class ClientPolicyTests(unittest.TestCase):
             patch.object(isolation, "_inherited_shell_body", return_value=b"fixture"),
             patch.object(isolation, "_write"),
             patch.object(isolation, "whole_client_policy", return_value="fixture"),
+            patch.object(isolation.linux_boundary, "policy", return_value={}),
+            patch.object(isolation.linux_boundary, "write", return_value=self.control / "filter"),
+            patch.object(isolation.linux_boundary, "prefix", return_value=[]),
+            patch.object(isolation.util, "file_hash", return_value="fixture-hash"),
             patch.object(isolation, "_run", side_effect=run),
             patch.object(containment, "shell_permissions", return_value={"bash": {"*": "allow"}}),
             patch.object(owner, "_observe", return_value={}),
