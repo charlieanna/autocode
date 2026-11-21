@@ -8,6 +8,24 @@ import run_suite
 
 
 class AccessTransportConsumerTests(unittest.TestCase):
+    def test_diagnostic_capture_keeps_bounded_ownership_consumers(self):
+        available = {
+            "tests.test_claim_evidence": "",
+            "tests.test_captured_process": "",
+            "tests.test_metadata_custody": "",
+        }
+        for path in (
+            "tools/autocode_diagnostics_comparison.py",
+            "tools/autocode_capture_command.py",
+            "tools/autocode_captured_process.py",
+        ):
+            selected = run_suite.select_tests([path], available)
+            self.assertIn("tests.test_claim_evidence", selected)
+            if path.endswith("autocode_captured_process.py"):
+                self.assertIn("tests.test_captured_process", selected)
+            if not path.endswith("autocode_capture_command.py"):
+                self.assertIn("tests.test_metadata_custody", selected)
+
     def test_scratch_source_identity_keeps_its_safety_tests(self):
         available = {"tests.test_scratch_copy_identity": "", "tests.test_scratch_link_binding": ""}
         selected = run_suite.select_tests(["tools/autocode_source_snapshot.py"], available)

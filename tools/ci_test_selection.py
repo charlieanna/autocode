@@ -429,6 +429,12 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tools/autocode_source_snapshot.py", ("tests.test_scratch_copy_identity", "tests.test_scratch_link_binding")),
     ("tools/autocode_named_collection.py", ("tests.test_requirements_observations",)),
     ("tools/autocode_suite_claim_replay.py", ("tests.test_requirements_observations",)),
+    ("tools/autocode_diagnostics_comparison.py", ("tests.test_claim_evidence", "tests.test_metadata_custody")),
+    ("tools/autocode_capture_command.py", ("tests.test_claim_evidence",)),
+    (
+        "tools/autocode_captured_process.py",
+        ("tests.test_captured_process", "tests.test_claim_evidence", "tests.test_metadata_custody"),
+    ),
     ("tools/autocode_test_examples.py", ("tests.test_builder_source_examples_cli",)),
     (
         "tools/prompts/fragments/test-examples/",

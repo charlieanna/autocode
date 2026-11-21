@@ -7,7 +7,10 @@ this file loads on the original code and each regression test fails there by ass
 
 from __future__ import annotations
 
+import argparse
+import contextlib
 import copy
+import io
 import json
 import os
 import shlex
@@ -16,8 +19,10 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import autocode as runner
+import autocode_capture_command as capture_command
 import autocode_claim_evidence as claim_evidence
 import autocode_diagnostics_comparison as comparison
 import autocode_goal_lifecycle as lifecycle
@@ -417,6 +422,107 @@ class CompareBaseCaptureTests(unittest.TestCase):
             text=True,
             timeout=120,
         )
+
+    def test_timeout_retains_attempt_and_removes_base_copy_without_running_candidate(self):
+        self.assertTrue(hasattr(comparison, "captured_process"), "comparison must own and bound its checker")
+        self.checker = "print('safe')\n"
+        root = self.repository("ok\n", "new\n")
+        evidence = root / ".autocode/evidence"
+        evidence.mkdir(parents=True)
+        command = [sys.executable, "check.py", "a; echo not-a-command"]
+
+        def expired(words, **kwargs):
+            kwargs["output_stream"].write(b"partial diagnostic\n")
+            raise subprocess.TimeoutExpired(words, kwargs["timeout"])
+
+        with mock.patch.object(comparison.captured_process, "run_metadata", side_effect=expired) as run:
+            with self.assertRaises(subprocess.TimeoutExpired):
+                comparison.compare(command, "HEAD", root, evidence / "comparison.json")
+        self.assertEqual(1, run.call_count, "a timed-out base must not run the candidate")
+        self.assertEqual(command, run.call_args.args[0])
+        self.assertGreater(run.call_args.kwargs["timeout"], 0)
+        self.assertLessEqual(run.call_args.kwargs["timeout"], comparison.COMPARISON_TIMEOUT)
+        self.assertTrue(run.call_args.kwargs["merge_output"])
+        self.assertEqual("partial diagnostic\n", (evidence / "comparison.base.log").read_text())
+        self.assertEqual([], list((root / ".autocode/scratch").iterdir()))
+        self.assertFalse((evidence / "comparison.json").exists())
+
+    def test_uncertain_descendant_cleanup_does_not_create_a_comparison(self):
+        self.assertTrue(hasattr(comparison, "captured_process"), "comparison must own and bound its checker")
+        self.checker = "print('safe')\n"
+        root = self.repository("ok\n", "new\n")
+        evidence = root / ".autocode/evidence"
+        evidence.mkdir(parents=True)
+        error = comparison.captured_process.ProcessError("descendant cleanup uncertain")
+        with mock.patch.object(comparison.captured_process, "run_metadata", side_effect=error):
+            with self.assertRaisesRegex(comparison.captured_process.ProcessError, "descendant cleanup uncertain"):
+                comparison.compare([sys.executable, "check.py"], "HEAD", root, evidence / "comparison.json")
+        self.assertEqual([], list((root / ".autocode/scratch").iterdir()))
+        self.assertFalse((evidence / "comparison.json").exists())
+
+    def test_capture_reports_uncertain_cleanup_without_publishing_a_receipt(self):
+        self.assertTrue(hasattr(comparison, "captured_process"), "comparison must own and bound its checker")
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(__import__("shutil").rmtree, root)
+        receipt = root / "comparison.json"
+        error = comparison.captured_process.ProcessError("descendant cleanup uncertain")
+        stderr = io.StringIO()
+        with (
+            mock.patch.object(comparison, "compare", side_effect=error),
+            contextlib.redirect_stderr(stderr),
+            self.assertRaises(SystemExit) as failure,
+        ):
+            capture_command._compare(argparse.ArgumentParser(prog="capture"), "HEAD", ["checker"], receipt, None)
+        self.assertEqual(2, failure.exception.code)
+        self.assertIn("no comparison was published", stderr.getvalue())
+        self.assertIn("descendant cleanup uncertain", stderr.getvalue())
+        self.assertFalse(receipt.exists())
+
+    def test_missing_executable_remains_a_start_error(self):
+        self.checker = "print('safe')\n"
+        root = self.repository("ok\n", "new\n")
+        evidence = root / ".autocode/evidence"
+        evidence.mkdir(parents=True)
+        with self.assertRaises(FileNotFoundError):
+            comparison.compare([str(root / "no-such-checker")], "HEAD", root, evidence / "comparison.json")
+        self.assertEqual([], list((root / ".autocode/scratch").iterdir()))
+        self.assertFalse((evidence / "comparison.json").exists())
+
+    def test_real_comparison_preserves_exact_argv_and_combined_stream_order(self):
+        self.checker = (
+            "import sys\n"
+            "sys.stdout.write('stdout:' + sys.argv[1] + '\\n'); sys.stdout.flush()\n"
+            "sys.stderr.write('stderr:' + sys.argv[1] + '\\n'); sys.stderr.flush()\n"
+        )
+        root = self.repository("ok\n", "new\n")
+        evidence = root / ".autocode/evidence"
+        evidence.mkdir(parents=True)
+        word = "literal; $(echo expanded)"
+        found = comparison.compare([sys.executable, "check.py", word], "HEAD", root, evidence / "comparison.json")
+        output = f"stdout:{word}\nstderr:{word}\n"
+        self.assertEqual((0, 0), (found["base_exit_code"], found["candidate_exit_code"]))
+        self.assertEqual(output, Path(found["base_output"]).read_text())
+        self.assertEqual(output, Path(found["full_output"]).read_text())
+
+    def test_base_and_candidate_share_one_budget_and_keep_nonzero_exits(self):
+        self.assertTrue(hasattr(comparison, "COMPARISON_TIMEOUT"), "comparison needs one bounded budget")
+        self.checker = "print('safe')\n"
+        root = self.repository("ok\n", "new\n")
+        evidence = root / ".autocode/evidence"
+        evidence.mkdir(parents=True)
+        deadlines = []
+
+        def completed(_command, _cwd, log, deadline):
+            deadlines.append(deadline)
+            log.write_text("WARNING: added\n" if len(deadlines) == 2 else "")
+            return len(deadlines) + 1
+
+        with mock.patch.object(comparison, "_run", side_effect=completed):
+            found = comparison.compare([sys.executable, "check.py"], "HEAD", root, evidence / "comparison.json")
+        self.assertEqual(2, len(deadlines))
+        self.assertEqual(deadlines[0], deadlines[1])
+        self.assertEqual((2, 3), (found["base_exit_code"], found["candidate_exit_code"]))
+        self.assertEqual(["WARNING: added"], found["new_diagnostics"])
 
     def test_ac9_compare_diagnostics_records_new_warning_lines(self):
         self.checker = "for line in open('doc.txt').read().splitlines():\n    if 'BROKEN' in line:\n        print('WARNING: ' + line)\n"
