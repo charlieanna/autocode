@@ -1521,7 +1521,11 @@ current, and something the options do not cover goes in `--feedback` (`/feedback
 `--chat`, which asks again after a rejected answer). A question without options takes any
 nonempty text. When the current turn has an accepted Requirements handoff, `view.requirements`
 projects `{handoff_ref, intended_outcome, requirements, proposed_assumptions, acceptance_tests, constraints, conflicts, job, clarity}`
-(`null` otherwise; `job` and `clarity` are what that report named, each `null` when it named none, #3630), and `--delegate-all` / `--reject-assumption` bind `--review-token` to
+(`null` otherwise; `job` and `clarity` are what that report named, each `null` when it named none, #3630),
+and, when available for the current source, `suite_reports`. These bounded historical provider reports
+name their exact command, whether they report collection or execution, test count and reported paths;
+`omitted_paths` marks a truncated path list. They are explicitly not independently verified, and
+collection never establishes execution or a free-text assumption. `--delegate-all` / `--reject-assumption` bind `--review-token` to
 `handoff_ref` before a goal contract exists (#3650). The terminal CLI also shows the remaining question IDs and
 the exact `--answer` command on stderr after each successful answer and on `--status`; that
 command names `--resolver-token -`, which reads the current token from the run it names, so the

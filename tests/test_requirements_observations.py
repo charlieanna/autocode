@@ -915,6 +915,74 @@ class RequirementsObservationsTests(unittest.TestCase):
         self.assertEqual(["test_sample::test_claimed_pass"], found["replay"]["receipt"]["results"]["passed"])
         self.assertEqual("unverified", found["status"], "project plugins can forge named pytest results")
 
+    def test_public_suite_observations_distinguish_collection_from_execution_and_expire(self):
+        import autocode_suite_observation_view as suite_view
+
+        collected = "docs/guide.rst::example\ntests/test_api.py::test_one\n\n2 tests collected in 0.1s\n"
+        executed = (
+            "collected 2 items\ndocs/guide.rst::example PASSED [ 50%]\n"
+            "tests/test_api.py::test_one PASSED [100%]\n=== 2 passed in 0.1s ===\n"
+        )
+        self.events = [
+            self.command("collect", "python3 -m pytest --collect-only -q", collected, output_truncated=False),
+            self.command("run", "python3 -m pytest -v", executed, output_truncated=False),
+        ]
+        self.write_events()
+        self.seal()
+        rows = suite_view.project(self.state, self.run, lambda: source.snapshot(self.workspace))
+        self.assertEqual(["collection", "execution"], [row["kind"] for row in rows])
+        self.assertEqual([2, 2], [row["reported_count"] for row in rows])
+        self.assertEqual(["docs/guide.rst", "tests/test_api.py"], rows[0]["paths"])
+        self.assertTrue(all(row["independently_verified"] is False for row in rows))
+        import autocode_status_observation_worker as worker
+
+        actual = worker._worker(
+            {
+                "operation": "suite_reports",
+                "payload": {"state": self.state, "workspace": str(self.workspace), "run_dir": str(self.run)},
+            }
+        )
+        self.assertEqual(rows, actual)
+        import autocode_run_view as run_view
+
+        self.state.update(status="WAITING_FOR_USER", next_stage="draft_plan")
+        public = run_view.view(self.state, workspace=self.workspace, run_dir=self.run)
+        self.assertEqual(rows, public["requirements"]["suite_reports"])
+        (self.workspace / "app.py").write_text("VALUE = 2\n")
+        self.assertEqual([], suite_view.project(self.state, self.run, lambda: source.snapshot(self.workspace)))
+
+    def test_public_suite_reports_omit_incomplete_events(self):
+        import autocode_suite_observation_view as suite_view
+
+        self.events = [
+            self.command(
+                "collect", "python3 -m pytest --collect-only -q", "test_x.py::test_a\n1 test collected in 0.1s\n"
+            ),
+        ]
+        self.write_events()
+        self.seal()
+        self.assertEqual([], suite_view.project(self.state, self.run, lambda: source.snapshot(self.workspace)))
+
+    def test_public_suite_report_marks_omitted_paths(self):
+        import autocode_suite_observation_view as suite_view
+
+        nodes = [f"tests/test_{number:02}.py::test_case" for number in range(45)]
+        self.events = [
+            self.command(
+                "collection",
+                "python3 -m pytest --collect-only -q",
+                "\n".join(nodes) + "\n45 tests collected in 0.1s\n",
+                output_truncated=False,
+            )
+        ]
+        self.write_events()
+        self.seal()
+        rows = suite_view.project(self.state, self.run, lambda: source.snapshot(self.workspace))
+        self.assertEqual(1, len(rows))
+        self.assertEqual(45, rows[0]["reported_count"])
+        self.assertEqual(40, len(rows[0]["paths"]))
+        self.assertEqual(5, rows[0]["omitted_paths"])
+
     def test_running_native_event_cannot_attest_a_later_completed_output(self):
         command = "python3 -m pytest --collect-only -q"
         part = {

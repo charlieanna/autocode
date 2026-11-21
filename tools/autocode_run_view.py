@@ -673,6 +673,20 @@ def view(
     # proxy_reason, from the trace that produced the current contract; [] when none or no plan yet.
     result["proxied_requirements"] = trace_coverage.proxied_rows(plan_retention.validated_trace(state))
     result["requirements"] = requirements_view(state)
+    if (
+        result["requirements"] is not None
+        and run_dir is not None
+        and workspace is not None
+        and state.get("status") == "WAITING_FOR_USER"
+        and state.get("next_stage") in ("requirements_gather", "draft_plan")
+        and any(
+            isinstance(stage, dict)
+            and isinstance(stage.get("requirements_observations"), dict)
+            and stage["requirements_observations"].get("status") == "sealed"
+            for stage in state.get("stages") or []
+        )
+    ):
+        result["requirements"]["suite_reports"] = status_observation.suite_reports(state, workspace, run_dir)
     result["chat"] = chat_view.project(state, result, run_dir=run_dir, workspace=workspace)
     result["attention"] = attention.project(
         state, result, workspace=workspace, run_dir=run_dir, context=result["chat"]["context"]
