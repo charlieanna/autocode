@@ -7,6 +7,7 @@ what filesystem authority they might need.
 
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -29,6 +30,25 @@ except ImportError:
 # selects its read-only runtime without running project code (pytest through its interpreter, npm and npx
 # through node). The pre-approval plan check names them to the Planner (autocode_plan_tool_admission).
 ADMITTED = ("git", "python", "python3", "pytest", "node", "npm", "npx", "go", "cargo", "sh", "bash")
+
+
+ENV_WORDS = ("env", "/usr/bin/env", "/bin/env")
+ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=[^$`\\]*")
+
+
+def program_words(command) -> list[str]:
+    """A command's words from its program on: a leading ``env`` and ``NAME=value`` assignments are not the program.
+
+    ``PYTHONPATH=src pytest -q`` runs pytest. Reading its first word as the program admitted nothing, so the
+    contained stage could not read pytest and the plan check had no command to check (#4015). The plan's
+    command extraction (autocode_verification_plan.executable) reads the same answer.
+    """
+    words = shlex.split(command) if isinstance(command, str) else list(command)
+    if words and words[0] in ENV_WORDS:
+        words = words[1:]
+    while words and ASSIGNMENT.fullmatch(words[0]):
+        words = words[1:]
+    return words
 
 
 class Unadmitted(RuntimeError):
@@ -102,10 +122,32 @@ def _rustup_proxy(tool):
         return False
 
 
+def _rustup_cargo(proxy: Path, tool: Path, root: Path, environment) -> Path:
+    """The cargo of the toolchain rustup's proxy would run in this project (``rustup which cargo``)."""
+    rustup = proxy.parent / "rustup"
+    if not rustup.is_file():
+        rustup = tool  # the proxy's own file, named rustup (macOS Homebrew)
+    try:
+        result = subprocess.run(
+            [str(rustup), "which", "cargo"],
+            cwd=root,
+            env={**environment, "RUSTUP_FORCE_ARG0": "rustup"},
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise RuntimeError(f"Cannot identify the selected rustup toolchain: {error}") from error
+    cargo = Path(result.stdout.strip())
+    if result.returncode != 0 or not cargo.is_absolute() or not cargo.is_file():
+        raise RuntimeError(f"Cannot identify the selected rustup toolchain: {result.stderr.strip()[-300:]}")
+    return cargo
+
+
 def discover(workspace, commands, environment):
     root = Path(workspace).resolve()
     paths, probes, selected, links = set(), [], set(), []
-    tool_environment: dict[str, str] = {}
+    path_prefix: list[str] = []
     # Linked worktrees keep object/index metadata outside the task checkout.
     # Read only the locations named by Git's own pointer files, not the main
     # checkout (which can contain unrelated source and credentials).
@@ -123,7 +165,8 @@ def discover(workspace, commands, environment):
     search_path = ":".join(
         str(root / part) if not Path(part).is_absolute() else part for part in search_path.split(":")
     )
-    pending = ["git", *[shlex.split(command)[0] for command in commands if command.strip()]]
+    programs = [program_words(command) for command in commands if command.strip()]
+    pending = ["git", *[words[0] for words in programs if words]]
     # Validators use Python for JSON and CLI assertions even in non-Python
     # projects. Qualify the actual PATH interpreters, not a substituted runtime.
     pending.extend(name for name in ("python", "python3") if shutil.which(name, path=search_path))
@@ -157,25 +200,22 @@ def discover(workspace, commands, environment):
             probes.append(shlex.join([str(original), "--version"]))
             continue
         if family == "cargo":
-            paths.update(_binary_dependencies(tool))
             install = tool.parent.parent
             if not (install / "lib/rustlib").is_dir() and _rustup_proxy(tool):
-                # rustup's proxy runs a toolchain from RUSTUP_HOME. The contained HOME is the stage's scratch, so
-                # the proxy is told where the installed toolchains are, read-only; CARGO_HOME stays in that
-                # scratch, so no registry credential of the person's ~/.cargo is readable (#4017).
-                home = environment.get("RUSTUP_HOME") or str(Path(environment.get("HOME") or Path.home()) / ".rustup")
-                rustup_home = Path(home).resolve()
-                if not (rustup_home / "toolchains").is_dir():
-                    raise RuntimeError(f"Cannot identify the selected rustup toolchains: {name}")
-                paths.add(rustup_home / "toolchains")
-                if (rustup_home / "settings.toml").is_file():
-                    paths.add(rustup_home / "settings.toml")
-                tool_environment["RUSTUP_HOME"] = str(rustup_home)  # one of tool_shell.TOOL_VARIABLES
-            else:
-                # A cargo installed beside its toolchain: the prefix holding bin/cargo, rustc and lib/rustlib.
-                if not (install / "lib/rustlib").is_dir():
-                    raise RuntimeError(f"Cannot identify the selected Rust toolchain: {name}")
-                paths.add(install)
+                # rustup's proxy runs a toolchain under RUSTUP_HOME and writes there as it starts (its
+                # update-hashes), which a read-only boundary refuses. The proxy names the toolchain it would
+                # run for this project (its rust-toolchain file included), so that toolchain's own cargo is
+                # selected: its prefix is read-only and its bin directory leads the stage's PATH, so cargo and
+                # rustc resolve there and the proxy never runs. CARGO_HOME stays in the stage's scratch, so no
+                # registry credential of the person's ~/.cargo is readable (#4017).
+                original = _rustup_cargo(original, tool, root, environment)
+                tool, install = original.resolve(), original.parent.parent
+                path_prefix.append(str(original.parent))
+            if not (install / "lib/rustlib").is_dir():
+                raise RuntimeError(f"Cannot identify the selected Rust toolchain: {name}")
+            # The installed toolchain: the prefix holding bin/cargo, rustc and lib/rustlib.
+            paths.update(_binary_dependencies(tool))
+            paths.add(install)
             probes.append(shlex.join([str(original), "--version"]))
             continue
         if family in ("sh", "bash"):
@@ -248,5 +288,5 @@ def discover(workspace, commands, environment):
         "read_roots": [str(p) for p in sorted(paths) if not p.is_relative_to(root)],
         "probes": probes,
         "links": [hop for hop in links if not Path(hop[0]).is_relative_to(root)],
-        "environment": tool_environment,
+        "path_prefix": path_prefix,
     }
