@@ -412,6 +412,7 @@ def runtime_request(workspace, request, environment):
         **request,
         "read_roots": list(dict.fromkeys([*request["read_roots"], *selected["read_roots"]])),
         "runtime_links": selected["links"],
+        "runtime_probes": selected["probes"],
     }
 
 
@@ -1269,6 +1270,7 @@ class KiloRoleIsolation:
             ]
         )
         native = containment._check_kernel_receipt(response, probe, control, scratch, sentinel)
+        tool_receipts = containment._toolchain_checks(debug, self._root, request["runtime_probes"])
         self._prepared.update(command=final_command, environment=deepcopy(child), config=config)
         client = self._client_probe(final_command, child)
         proof = {
@@ -1276,6 +1278,7 @@ class KiloRoleIsolation:
             "native_version": rules.VERSION,
             "launch_identity": observed,
             "native_receipt": native,
+            "toolchain_checks": tool_receipts,
             "client_profile": str(policy_path),
             "client_profile_sha256": util.file_hash(policy_path),
             "client_command": final_command,

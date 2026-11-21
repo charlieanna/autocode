@@ -141,7 +141,7 @@ class ClientPolicyTests(unittest.TestCase):
         owner._root = self.root
         owner._prepared = {"target": self.target}
         request = {"read_roots": ["/existing"], "protected_paths": [], "tool_commands": ["python -V"]}
-        selected = {"read_roots": ["/runtime"], "links": [["/alias", "/runtime"]]}
+        selected = {"read_roots": ["/runtime"], "links": [["/alias", "/runtime"]], "probes": ["python -V"]}
         with (
             patch.object(isolation.toolchain, "discover", return_value=selected) as discover,
             patch.object(containment, "prepare", side_effect=RuntimeError("observed")) as prepare,
@@ -168,7 +168,7 @@ class ClientPolicyTests(unittest.TestCase):
         shell = self.control / "shell"
         shell.write_text("fixture")
         fake_boundary = {"shell": str(shell), "profile": str(self.control / "policy.sb")}
-        selected = {"read_roots": ["/runtime"], "links": [["/alias", "/runtime"]]}
+        selected = {"read_roots": ["/runtime"], "links": [["/alias", "/runtime"]], "probes": ["python -V"]}
         request = {"read_roots": ["/existing"], "protected_paths": []}
         child = {"PATH": "/bin", isolation.CONFIG: json.dumps({"agent": {"fixture": {}}})}
         with (
@@ -185,6 +185,49 @@ class ClientPolicyTests(unittest.TestCase):
         client_request = client.call_args.args[3]
         self.assertEqual(prepare.call_args.kwargs["read_roots"], client_request["read_roots"])
         self.assertEqual(selected["links"], client_request["runtime_links"])
+
+    def test_failed_native_toolchain_probe_stops_before_client_conformance(self):
+        owner = isolation.KiloRoleIsolation.__new__(isolation.KiloRoleIsolation)
+        owner._root = self.root
+        owner._prepared = {
+            "target": self.target,
+            "agent": "fixture",
+            "files": {},
+            "prompt_file": None,
+            "os_readonly_inputs": (),
+        }
+        owner._source = SimpleNamespace(socket_path=self.root / "source.sock")
+        owner._image_preparation = None
+        shell = self.control / "shell"
+        shell.write_text("fixture")
+        fake_boundary = {"shell": str(shell), "profile": str(self.control / "policy.sb"), "scratch": str(self.scratch)}
+        selected = {"read_roots": ["/runtime"], "links": [], "probes": ["python -V"]}
+        request = {"read_roots": [], "protected_paths": []}
+        child = {"PATH": "/bin", isolation.CONFIG: json.dumps({"agent": {"fixture": {}}})}
+        response = json.dumps({"permission": {}, "result": {"metadata": {"exit": 0}}}).encode()
+
+        def run(argv, **_kwargs):
+            return isolation.rules.VERSION.encode() if argv[-1] == "--version" else response
+
+        with (
+            patch.object(isolation.toolchain, "discover", return_value=selected),
+            patch.object(containment, "prepare", return_value=fake_boundary),
+            patch.object(isolation, "_relocate_client_runtime", return_value=self.scratch),
+            patch.object(owner, "_prepare_derivation_policy"),
+            patch.object(isolation, "_inherited_shell_body", return_value=b"fixture"),
+            patch.object(isolation, "_write"),
+            patch.object(isolation, "whole_client_policy", return_value="fixture"),
+            patch.object(isolation, "_run", side_effect=run),
+            patch.object(containment, "shell_permissions", return_value={"bash": {"*": "allow"}}),
+            patch.object(owner, "_observe", return_value={}),
+            patch.object(containment, "_check_kernel_receipt", return_value={}),
+            patch.object(containment, "_toolchain_checks", side_effect=RuntimeError("probe failed")) as probes,
+            patch.object(owner, "_client_probe") as client,
+            self.assertRaisesRegex(RuntimeError, "probe failed"),
+        ):
+            owner._configure(["fixture-kilo"], child, request)
+        self.assertEqual(selected["probes"], probes.call_args.args[2])
+        client.assert_not_called()
 
 
 @unittest.skipUnless(SEATBELT, "requires real macOS Seatbelt enforcement")
