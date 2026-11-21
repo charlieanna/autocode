@@ -425,6 +425,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "tools/prompts/fragments/stage-context/implementation-discrepancy.md",
         ("tests.test_implementation_discrepancy",),
     ),
+    ("tools/autocode_named_collection.py", ("tests.test_requirements_observations",)),
     ("tools/autocode_test_examples.py", ("tests.test_builder_source_examples_cli",)),
     (
         "tools/prompts/fragments/test-examples/",

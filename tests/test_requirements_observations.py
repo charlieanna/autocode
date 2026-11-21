@@ -1,9 +1,12 @@
 """Historical intake facts require fresh owned custody and unchanged canonical product source."""
 
 import copy
+import hashlib
 import json
 import os
+import shlex
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -329,6 +332,121 @@ class RequirementsObservationsTests(unittest.TestCase):
         self.assertEqual(4, packet["omitted_observations"])
         self.assertLessEqual(len(observations._bytes({observations.FIELD: packet})), observations.MAX_PACKET)
 
+    def test_retained_complete_output_is_source_bound_and_not_a_filtered_or_partial_list(self):
+        full = "".join(f"tests/test_example_{i}.py::test_case\n" for i in range(358)) + "358 tests collected in 0.2s\n"
+        command = "python3 -m pytest --collect-only -q"
+        self.events = [self.command("complete", command, full, output_truncated=False)]
+        self.write_events()
+        self.seal()
+        lookup = getattr(observations, "retained_command_output", lambda *args: None)
+        observed = lookup(self.state, "draft_plan", self.run, lambda: source.snapshot(self.workspace), command)
+        self.assertIsNotNone(observed, "a full explicitly untruncated output must survive the packet size cap")
+        self.assertEqual(full, observed["output"])
+        self.assertEqual(hashlib.sha256(full.encode()).hexdigest(), observed["sha256"])
+        self.assertEqual(self.product["revision"], observed["source_revision"])
+        self.assertEqual([], observed["source_paths"])
+        collection = observed["reported_collection"]
+        self.assertEqual("python3 -m pytest", collection["suite_command"])
+        self.assertEqual(358, len(collection["node_ids"]))
+        self.assertFalse(collection["independently_verified"])
+        self.assertNotIn(full, json.dumps(self.context()), "full native output stays out of the model packet")
+        self.state["stages"].append({"stage": "draft_plan"})
+        self.assertIsNone(lookup(self.state, "draft_plan", self.run, lambda: source.snapshot(self.workspace), command))
+        later = lookup(self.state, "claim_evidence", self.run, lambda: source.snapshot(self.workspace), command)
+        self.assertEqual(observed, later, "the evidence reader retains custody after planning starts")
+        self.state["settings"]["replay_recording"] = {"checks": "fresh"}
+        self.assertIsNone(
+            lookup(self.state, "claim_evidence", self.run, lambda: source.snapshot(self.workspace), command)
+        )
+        self.state["settings"].pop("replay_recording")
+        self.state["turns"] = [{"stage_index": 1}]
+        self.assertIsNone(
+            lookup(self.state, "claim_evidence", self.run, lambda: source.snapshot(self.workspace), command)
+        )
+        self.state["turns"] = [{"previous": {"requirements_output": self.record["output"]}}]
+        self.assertIsNone(
+            lookup(self.state, "claim_evidence", self.run, lambda: source.snapshot(self.workspace), command)
+        )
+        self.state.pop("turns")
+        event_path = Path(self.record["events"])
+        event_bytes = event_path.read_bytes()
+        event_path.write_bytes(event_bytes + b" ")
+        self.assertIsNone(
+            lookup(self.state, "claim_evidence", self.run, lambda: source.snapshot(self.workspace), command)
+        )
+        event_path.write_bytes(event_bytes)
+        (self.workspace / "app.py").write_text("VALUE = 2\n")
+        self.assertIsNone(
+            lookup(self.state, "claim_evidence", self.run, lambda: source.snapshot(self.workspace), command)
+        )
+
+    def test_retained_source_policy_includes_authorized_ignored_files(self):
+        (self.workspace / ".gitignore").write_text("ignored.txt\n")
+        (self.workspace / "ignored.txt").write_text("first\n")
+        scoped = source.snapshot(self.workspace, paths=["ignored.txt"])
+        self.record["source_revision"] = scoped["revision"]
+        for field in ("before_ref", "after_ref"):
+            Path(self.record[field]).write_text(json.dumps(scoped))
+        command = "python3 -m pytest --collect-only -q"
+        self.events = [
+            self.command("complete", command, "test_a.py::test_x\n1 test collected in 0.1s\n", output_truncated=False)
+        ]
+        self.write_events()
+        self.seal()
+        reader = lambda: source.snapshot(self.workspace, paths=["ignored.txt"])
+        found = observations.retained_command_output(self.state, "claim_evidence", self.run, reader, command)
+        self.assertEqual(["ignored.txt"], found["source_paths"])
+        (self.workspace / "ignored.txt").write_text("changed\n")
+        self.assertIsNone(observations.retained_command_output(self.state, "claim_evidence", self.run, reader, command))
+
+    def test_filtered_truncated_unknown_or_ambiguous_output_cannot_supply_complete_custody(self):
+        command = "python3 -m pytest --collect-only -q"
+        filtered = command + " | grep docs | head -25"
+        for case in (
+            "filtered",
+            "wrapped_filter",
+            "newline_chain",
+            "truncated",
+            "unknown",
+            "duplicate",
+            "partial_duplicate",
+            "same_id_duplicate",
+            "oversized",
+        ):
+            with self.subTest(case=case):
+                self.record.pop(observations.FIELD, None)
+                actual = (
+                    filtered
+                    if case == "filtered"
+                    else f"/bin/sh -c '{filtered}'"
+                    if case == "wrapped_filter"
+                    else command + "\necho filtered"
+                    if case == "newline_chain"
+                    else command
+                )
+                flags = {"output_truncated": case == "truncated"} if case != "unknown" else {}
+                output = (
+                    "x" * (observations.MAX_RETAINED_OUTPUTS + 1)
+                    if case == "oversized"
+                    else "docs/example.rst::example\n358 tests collected\n"
+                )
+                self.events = [self.command("one", actual, output, **flags)]
+                if case in ("duplicate", "partial_duplicate", "same_id_duplicate"):
+                    self.events.append(
+                        self.command(
+                            "one" if case == "same_id_duplicate" else "two",
+                            command,
+                            "different\n",
+                            output_truncated=case == "partial_duplicate",
+                        )
+                    )
+                self.write_events()
+                self.seal()
+                lookup = getattr(observations, "retained_command_output", lambda *args: None)
+                self.assertIsNone(
+                    lookup(self.state, "draft_plan", self.run, lambda: source.snapshot(self.workspace), actual)
+                )
+
     def test_non_execution_tool_output_with_stray_zero_exit_remains_non_execution(self):
         output = self.command("non-execution", "echo forged", "forged observation", 0)
         output["item"]["type"] = "tool_output"
@@ -394,7 +512,7 @@ class RequirementsObservationsTests(unittest.TestCase):
                         "status": "completed",
                         "input": {"command": "python3 -c 'print(2025)'"},
                         "output": "2025\n",
-                        "metadata": {"exit": 0},
+                        "metadata": {"exit": 0, "truncated": False},
                     },
                 },
             },
@@ -412,6 +530,236 @@ class RequirementsObservationsTests(unittest.TestCase):
         Path(self.record["events"]).write_text("".join(json.dumps(row) + "\n" for row in rows))
         self.seal()
         self.assertEqual("2025\n", self.context()["observations"][0]["output"])
+        found = observations.retained_command_output(
+            self.state, "draft_plan", self.run, lambda: source.snapshot(self.workspace), "python3 -c 'print(2025)'"
+        )
+        self.assertEqual("2025\n", found["output"])
+
+    def test_reported_collection_requires_all_named_nodes_and_exact_suite_command(self):
+        parser = getattr(observations, "named_collection", None)
+        self.assertIsNotNone(parser)
+        command = "python3 -m pytest --collect-only -q"
+        complete = "tests/test_one.py::test_a\ntests/test_two.py::test_b\n\n2 tests collected in 0.14s\n"
+        result = parser.pytest_collection(command, complete)
+        self.assertEqual(["tests/test_one.py::test_a", "tests/test_two.py::test_b"], result["node_ids"])
+        self.assertFalse(result["independently_verified"])
+        for bad_command, bad_output in (
+            (command, "tests/test_one.py::test_a\n2 tests collected in 0.14s\n"),
+            (command, "tests/test_one.py::test_a\n"),
+            (command, complete + "unexpected output\n"),
+            (command + " -k docs", complete),
+            (command + " | head", complete),
+            ("python3 -m pytest -q", complete),
+        ):
+            with self.subTest(command=bad_command, output=bad_output):
+                self.assertIsNone(parser.pytest_collection(bad_command, bad_output))
+
+    def test_pytest_junit_name_mapping_uses_known_unique_source_paths(self):
+        parser = getattr(observations, "named_collection", None)
+        self.assertIsNotNone(parser)
+        command = "python3 -m pytest --collect-only -q"
+        text = (
+            "tests/test_api.py::Group::test_case[hello world]\n"
+            "docs/usage/guide.rst::guide.rst\n\n"
+            "=============== tests coverage ===============\n"
+            "TOTAL 100%\n2 tests collected in 0.14s\n"
+        )
+        collection = parser.pytest_collection(command, text)
+        paths = {"tests/test_api.py", "docs/usage/guide.rst"}
+        self.assertEqual(
+            ["tests.test_api.Group::test_case[hello world]", "docs.usage.guide.rst::guide.rst"],
+            parser.pytest_junit_identities(collection, paths),
+        )
+        self.assertIsNone(parser.pytest_junit_identities(collection, {"tests/test_api.py"}))
+        self.assertIsNone(parser.pytest_junit_identities(collection, paths | {"tests/test_api/Group.py"}))
+        self.assertIsNone(
+            parser.pytest_junit_identities(
+                collection, {"tests/test_api.py": "symlink:elsewhere", "docs/usage/guide.rst": "a" * 64}
+            )
+        )
+        self.assertIsNone(parser.pytest_junit_identities({"node_ids": ["../bad.py::test_a"]}, {"../bad.py"}))
+        self.assertIsNone(parser.pytest_junit_identities(collection, [["not a source path"]]))
+        self.assertIsNone(
+            parser.pytest_junit_identities({"node_ids": ["tests/test_api.py::x", "tests/test_api.py::x"]}, paths)
+        )
+        self.assertIsNone(parser.pytest_collection(command, text.replace("2 tests collected", "3 tests collected")))
+
+    def test_actual_named_pytest_collection_and_execution_are_distinct_reported_observations(self):
+        parser = getattr(observations, "named_collection", None)
+        self.assertIsNotNone(parser)
+        test_file = self.workspace / "test_real.py"
+        test_file.write_text("def test_one():\n    assert True\n\ndef test_two():\n    assert True\n")
+        env = {**os.environ, "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"}
+        env.pop("PYTEST_ADDOPTS", None)
+        collection_args = [sys.executable, "-m", "pytest", "--collect-only", "-q"]
+        execution_args = [sys.executable, "-m", "pytest", "-v"]
+        collected = subprocess.run(
+            collection_args, cwd=self.workspace, env=env, capture_output=True, text=True, timeout=20
+        )
+        executed = subprocess.run(
+            execution_args, cwd=self.workspace, env=env, capture_output=True, text=True, timeout=20
+        )
+        self.assertEqual(0, collected.returncode, collected.stderr)
+        self.assertEqual(0, executed.returncode, executed.stderr)
+        reported_collection = parser.pytest_collection(shlex.join(collection_args), collected.stdout)
+        reported_execution = parser.pytest_execution(shlex.join(execution_args), executed.stdout)
+        self.assertEqual(reported_collection["node_ids"], reported_execution["node_ids"])
+        self.assertEqual(reported_collection["suite_command"], reported_execution["suite_command"])
+        self.assertFalse(reported_collection["independently_verified"])
+        self.assertFalse(reported_execution["independently_verified"])
+        self.assertIsNone(parser.pytest_execution(shlex.join(collection_args), collected.stdout))
+        self.assertIsNone(parser.pytest_execution(shlex.join(execution_args + ["-k", "one"]), executed.stdout))
+        test_file.write_text("def test_one():\n    assert False\n\ndef test_two():\n    assert True\n")
+        failed = subprocess.run(execution_args, cwd=self.workspace, env=env, capture_output=True, text=True, timeout=20)
+        self.assertNotEqual(0, failed.returncode)
+        self.assertIsNone(parser.pytest_execution(shlex.join(execution_args), failed.stdout))
+
+    def test_matching_reported_collection_and_execution_never_grant_proof(self):
+        collection_command = "python3 -m pytest --collect-only -q"
+        execution_command = "python3 -m pytest -v"
+        names = ["tests/test_a.py::test_one", "tests/test_a.py::test_two"]
+        collected = "\n".join(names) + "\n\n2 tests collected in 0.14s\n"
+        executed = (
+            "collected 2 items\n"
+            + names[0]
+            + " PASSED [ 50%]\n"
+            + names[1]
+            + " PASSED [100%]\n====== 2 passed in 0.10s ======\n"
+        )
+        self.events = [
+            self.command("collection", collection_command, collected, output_truncated=False),
+            self.command("execution", execution_command, executed, output_truncated=False),
+        ]
+        self.write_events()
+        self.seal()
+        lookup = getattr(observations, "reported_suite_observation", lambda *args: None)
+        result = lookup(
+            self.state, self.run, lambda: source.snapshot(self.workspace), collection_command, execution_command
+        )
+        self.assertIsNotNone(result)
+        self.assertEqual("unverified", result["status"])
+        self.assertEqual(names, result["node_ids"])
+        self.assertIn("independent replay", result["reason"])
+        self.assertIsNone(
+            lookup(
+                self.state, self.run, lambda: source.snapshot(self.workspace), collection_command, collection_command
+            )
+        )
+        (self.workspace / "app.py").write_text("VALUE = 2\n")
+        self.assertIsNone(
+            lookup(self.state, self.run, lambda: source.snapshot(self.workspace), collection_command, execution_command)
+        )
+
+    def test_reported_suite_rejects_subset_different_suite_source_and_duplicate_nodes(self):
+        lookup = getattr(observations, "reported_suite_observation", None)
+        self.assertIsNotNone(lookup)
+        collection = {
+            "source_revision": "r",
+            "source_paths": [],
+            "sha256": "a",
+            "reported_collection": {"suite_command": "python3 -m pytest", "node_ids": ["a::one", "b::two"]},
+        }
+        execution = {
+            "source_revision": "r",
+            "source_paths": [],
+            "sha256": "b",
+            "reported_execution": {"suite_command": "python3 -m pytest", "node_ids": ["a::one", "b::two"]},
+        }
+        for change in ("subset", "suite", "source", "scope", "missing_scope", "duplicate", "missing"):
+            left, right = copy.deepcopy(collection), copy.deepcopy(execution)
+            if change == "subset":
+                right["reported_execution"]["node_ids"] = ["a::one"]
+            elif change == "suite":
+                right["reported_execution"]["suite_command"] = "other suite"
+            elif change == "source":
+                right["source_revision"] = "other source"
+            elif change == "scope":
+                right["source_paths"] = ["other"]
+            elif change == "missing_scope":
+                right.pop("source_paths")
+            elif change == "duplicate":
+                left["reported_collection"]["node_ids"] = ["a::one", "a::one"]
+            else:
+                right.pop("reported_execution")
+            with (
+                self.subTest(change=change),
+                mock.patch.object(observations, "retained_command_output", side_effect=[left, right]),
+            ):
+                self.assertIsNone(lookup(self.state, self.run, self.product, "collect", "execute"))
+
+    def test_reported_suite_claim_binds_exact_current_assumption_but_remains_unverified(self):
+        claim = {"id": "A3", "text": "The whole suite currently passes", "category": "technical"}
+        self.report["proposed_assumptions"] = [claim]
+        Path(self.record["output"]).write_text(json.dumps(self.report))
+        collection_command = "python3 -m pytest --collect-only -q"
+        execution_command = "python3 -m pytest -v"
+        self.events = [
+            self.command(
+                "collection",
+                collection_command,
+                "tests/a.py::test_one\n1 test collected in 0.1s\n",
+                output_truncated=False,
+            ),
+            self.command(
+                "execution",
+                execution_command,
+                "collected 1 item\ntests/a.py::test_one PASSED [100%]\n=== 1 passed in 0.1s ===\n",
+                output_truncated=False,
+            ),
+        ]
+        self.write_events()
+        self.seal()
+        link = getattr(observations, "reported_assumption_suite_claim", None)
+        self.assertIsNotNone(link)
+        source_now = lambda: source.snapshot(self.workspace)
+        result = link(self.state, self.run, source_now, "A3", collection_command, execution_command)
+        self.assertEqual("unverified", result["status"])
+        self.assertEqual(claim["text"], result["claim"])
+        self.assertEqual(hashlib.sha256(claim["text"].encode()).hexdigest(), result["claim_sha256"])
+        self.assertIsNone(link(self.state, self.run, source_now, "other", collection_command, execution_command))
+        claim["text"] = "A changed unsupported assertion"
+        self.assertIsNone(link(self.state, self.run, source_now, "A3", collection_command, execution_command))
+
+    def test_running_native_event_cannot_attest_a_later_completed_output(self):
+        command = "python3 -m pytest --collect-only -q"
+        part = {
+            "id": "probe",
+            "tool": "bash",
+            "state": {
+                "status": "running",
+                "input": {"command": command},
+                "metadata": {"truncated": False},
+            },
+        }
+        completed = copy.deepcopy(part)
+        completed["state"] = {
+            "status": "completed",
+            "input": {"command": command},
+            "output": "partial\n",
+            "metadata": {"exit": 0},
+        }
+        self.events = [
+            {"type": "step_start", "sessionID": "session", "part": {"id": "start", "type": "step-start"}},
+            {"type": "tool_use", "sessionID": "session", "part": part},
+            {"type": "tool_use", "sessionID": "session", "part": completed},
+            {
+                "type": "step_finish",
+                "sessionID": "session",
+                "part": {
+                    "id": "finish",
+                    "type": "step-finish",
+                    "reason": "stop",
+                    "tokens": {"input": 1, "output": 1, "reasoning": 0, "cache": {"read": 0, "write": 0}},
+                },
+            },
+        ]
+        self.write_events(terminal=False)
+        self.seal()
+        self.assertIsNone(
+            observations.retained_command_output(
+                self.state, "draft_plan", self.run, lambda: source.snapshot(self.workspace), command
+            )
+        )
 
     def test_legacy_replay_recovered_and_unsuccessful_records_never_get_retroactive_seals(self):
         observations.seal(self.state, self.record, self.report)
