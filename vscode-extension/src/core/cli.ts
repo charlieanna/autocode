@@ -260,7 +260,7 @@ function execute(
       if (outRest) onOutput?.(outRest);
       if (errRest) onOutput?.(errRest);
       phases?.deliver();
-      resolve({ code, stdout, stderr, rejected: isRejection(code, stderr) });
+      resolve({ code, stdout, stderr, rejected: isRejection(code, stdout, stderr) });
     };
     if (timeoutMs && timeoutMs > 0) {
       timer = setTimeout(() => {
@@ -324,9 +324,17 @@ function execute(
   });
 }
 
-function isRejection(code: number | null, stderr: string): boolean {
+const CAPABILITY_NOTICE = "autocode: dropped CAP_SYS_PTRACE and CAP_SYS_ADMIN for this invocation";
+
+function withoutCapabilityNotice(text: string): string {
+  return text.split("\n").filter((line) => line.replace(/\r$/, "") !== CAPABILITY_NOTICE).join("\n");
+}
+
+function isRejection(code: number | null, stdout: string, stderr: string): boolean {
   if (code !== 2) return false;
-  return stderr.includes("usage:") || stderr.includes("Input rejected:");
+  const error = withoutCapabilityNotice(stderr);
+  return error.startsWith("usage:") || [stdout, error].some((text) =>
+    text.split(/\r?\n/).some((line) => line.startsWith("Input rejected:") || line.startsWith("autocode:")));
 }
 
 /** `autocode --workspace W --run-dir R --status`, as a parsed view. */
@@ -346,7 +354,7 @@ export async function readStatus<T>(options: CliOptions, workspace: string, runD
  * reads only the why, so the usage line and the prefix are dropped; the core's words are kept.
  */
 export function tail(result: CliResult): string {
-  const text = (result.stderr || result.stdout || "").trim();
+  const text = withoutCapabilityNotice(result.stderr).trim() || result.stdout.trim();
   if (!text) return `autocode exited ${result.code}`;
   const lines = text.split("\n")
     .filter((line) => !/^usage: /.test(line))

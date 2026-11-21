@@ -55,6 +55,19 @@ export interface ActionPlan {
   unsupplied: string | null;
 }
 
+/** The documented save-only decision controls return 0 when saved and 2 when refused. */
+function saveOnlyDecision(argv: string[]): boolean {
+  const flags = ["--answer", "--approve-goal", "--approve-review", "--reject-review", "--feedback",
+    "--follow-up", "--resolver-request", "--planning-review-call-limit"];
+  return !isAdvancing(argv) && argv.some((word) => flags.includes(word));
+}
+
+/** An advancing or reconciliation action may stop at a saved pause with exit 2. */
+function checkActionResult(result: CliResult, pauseAllowed: boolean): void {
+  if (result.rejected) throw new Error(`AutoCode rejected the command:\n${tail(result)}`);
+  if (result.code !== 0 && !(pauseAllowed && result.code === 2)) throw new Error(tail(result));
+}
+
 export class RunController {
   constructor(private readonly log: vscode.OutputChannel) {}
 
@@ -292,8 +305,7 @@ export class RunController {
     const result = await this.mutating([run, own], () =>
       stream(this.settings, args, action.env, (chunk) => this.log.append(chunk)));
     this.log.appendLine(`[autocode exited ${result.code}]`);
-    if (result.rejected) throw new Error(`AutoCode rejected the command:\n${tail(result)}`);
-    if (result.code !== 0 && result.code !== 2) throw new Error(tail(result));
+    checkActionResult(result, !saveOnlyDecision(action.argv));
     return result;
   }
 
@@ -325,8 +337,7 @@ export class RunController {
     const result = await this.mutating([run, own], () =>
       stream(this.settings, args, offer.named.env, (chunk) => this.log.append(chunk)));
     this.log.appendLine(`[autocode exited ${result.code}]`);
-    if (result.rejected) throw new Error(`AutoCode rejected the command:\n${tail(result)}`);
-    if (result.code !== 0 && result.code !== 2) throw new Error(tail(result));
+    checkActionResult(result, isAdvancing(argv));
     return result;
   }
 
@@ -350,8 +361,7 @@ export class RunController {
     const result = await this.mutating([run, own], () =>
       stream(this.settings, args, offer.named.env, (chunk) => this.log.append(chunk)));
     this.log.appendLine(`[autocode exited ${result.code}]`);
-    if (result.rejected) throw new Error(`AutoCode rejected the command:\n${tail(result)}`);
-    if (result.code !== 0 && result.code !== 2) throw new Error(tail(result));
+    checkActionResult(result, isAdvancing(argv));
     return result;
   }
 

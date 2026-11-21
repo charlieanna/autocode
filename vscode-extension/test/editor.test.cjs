@@ -1397,6 +1397,96 @@ for (const surface of ['chat', 'details']) test(`${surface}: a saved job model a
   assert.equal(env.AUTOCODE_JOB_RETRY_TOKEN, 'jr:answer');
 });
 
+for (const surface of ['chat', 'details']) test(`${surface}: a refused save-only job answer remains visible`, async (t) => {
+  const ownController = new RunController(host.log);
+  const view = {
+    status: 'PAUSED_JOB_FAILURE', done: false,
+    needs: { kind: 'retry_job', job_retry_token: 'jr:answer',
+      route: { question_id: 'route-architect', role: 'architect', candidates: [] } },
+    next_command: `AUTOCODE_JOB_RETRY_TOKEN=jr:answer autocode --answer route-architect=MODEL --job-retry-token - --workspace ${run.workspace} --run-dir ${run.runDir}`,
+  };
+  const ui = surface === 'chat' ? await openChat(t, view, run, { controller: ownController }) : await openPanel(t, view, undefined, ownController);
+  const warning = t.mock.method(host.vscode.window, 'showErrorMessage', async () => undefined);
+  const launch = t.mock.method(cli, 'stream', async () => ({ ...ok, code: 2, stderr: 'Existing run process 4448 is active; leave it untouched' }));
+  const input = ui.document.querySelector('[data-question="route-architect"]');
+  input.value = 'gpt-6-sol@medium'; input.dispatchEvent(new ui.window.Event('input'));
+  ui.document.querySelector('#take-action').click(); await flush(); await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 1);
+  if (surface === 'chat') assert.match(ui.document.querySelector('#chat-error').textContent, /Existing run process 4448 is active/);
+  else assert.match(warning.mock.calls.map((call) => call.arguments[0]).join('\n'), /Existing run process 4448 is active/);
+});
+
+for (const action of ['answer', 'approval', 'job-time', 'bound-raise']) test(`save-only ${action} rejects exit 2`, async (t) => {
+  const refused = { ...ok, code: 2, stderr: 'Existing run process 4448 is active; leave it untouched' };
+  t.mock.method(cli, 'stream', async () => refused);
+  const route = {
+    status: 'PAUSED_JOB_FAILURE', done: false,
+    needs: { kind: 'retry_job', job_retry_token: 'jr:answer',
+      route: { question_id: 'route-architect', role: 'architect', candidates: [] } },
+    next_command: `AUTOCODE_JOB_RETRY_TOKEN=jr:answer autocode --answer route-architect=MODEL --job-retry-token - --workspace ${run.workspace} --run-dir ${run.runDir}`,
+  };
+  const plan = approvalView();
+  const limit = planningAllowanceView(true);
+  limit.needs.command_inputs[0].command = limit.next_command;
+  const take = {
+    answer: () => controller.take(route, run, { 'route-architect': 'gpt-6-sol@medium' }),
+    approval: () => controller.take(plan, run, {}, plan.needs.token),
+    'job-time': () => controller.setJobTime(failedJobTimeView(), run, 'max_stage_seconds', '1800'),
+    'bound-raise': () => controller.raise(limit, run, '4'),
+  }[action];
+  await assert.rejects(take(), /Existing run process 4448 is active/);
+});
+
+test('a named advancing action can still return a saved pause with exit 2', async (t) => {
+  const paused = { ...ok, code: 2, stderr: 'Paused: waiting for a decision' };
+  t.mock.method(cli, 'stream', async () => paused);
+  const result = await controller.take({ status: 'PAUSED', done: false, needs: { kind: 'resume' },
+    next_command: `autocode --resume-paused --workspace ${run.workspace} --run-dir ${run.runDir}` }, run);
+  assert.equal(result.code, 2);
+  assert.equal((await controller.raise(heldCostView(), run, '4')).code, 2, 'an advancing bound raise may pause');
+  const reconcile = { status: 'RUNNING', done: false, needs: { kind: 'continue' },
+    next_command: `AUTOCODE_RECONCILE_ONLY_TOKEN=checkpoint-v1:one autocode --workspace ${run.workspace} --run-dir ${run.runDir} --reconcile-only -` };
+  assert.equal((await controller.take(reconcile, run)).code, 2, 'supervision reconciliation retains its bounded retry contract');
+});
+
+test('CLI refusal envelopes match the headless contract without confusing a capability notice for a refusal', async (t) => {
+  const { EventEmitter } = require('node:events');
+  const notice = 'autocode: dropped CAP_SYS_PTRACE and CAP_SYS_ADMIN for this invocation';
+  const rows = [
+    { out: '', err: `${notice}\nautocode: Existing run process 4448 is active; leave it untouched\n`, refused: true },
+    { out: 'Input rejected: stale answer\n', err: `${notice}\n`, refused: true },
+    { out: 'autocode: Existing run process 4448 is active\n', err: '', refused: true },
+    { out: '', err: `${notice}\nusage: autocode [TASK]\n`, refused: true },
+    { out: '', err: `${notice}\n`, refused: false },
+    { out: 'A quoted Input rejected: is not an envelope\n', err: '', refused: false },
+  ];
+  const spawn = t.mock.method(require('node:child_process'), 'spawn', () => {
+    const row = rows.shift();
+    const child = new EventEmitter(); child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
+    setImmediate(() => {
+      if (row.out) child.stdout.emit('data', Buffer.from(row.out));
+      if (row.err) child.stderr.emit('data', Buffer.from(row.err));
+      child.emit('close', 2);
+    });
+    return child;
+  });
+  for (let i = 0; i < 6; i += 1) {
+    const expected = [true, true, true, true, false, false][i];
+    const result = await cli.stream({ command: 'autocode', prefix: [] }, ['--resume-paused']);
+    assert.equal(result.rejected, expected, `case ${i}`);
+    if (i === 0) assert.doesNotMatch(cli.tail(result), /dropped CAP_SYS_PTRACE/);
+    if (i === 1) assert.equal(cli.tail(result), 'Input rejected: stale answer');
+  }
+  assert.equal(spawn.mock.callCount(), 6);
+});
+
+test('an advancing action still reports a core rejection envelope', async (t) => {
+  t.mock.method(cli, 'stream', async () => ({ ...ok, code: 2, rejected: true,
+    stderr: 'autocode: Existing run process 4448 is active; leave it untouched' }));
+  await assert.rejects(controller.take({ status: 'PAUSED', done: false, needs: { kind: 'resume' },
+    next_command: `autocode --resume-paused --workspace ${run.workspace} --run-dir ${run.runDir}` }, run), /Existing run process 4448 is active/);
+});
+
 test('a drifted saved effort shows the route question without offering the stale retry', async (t) => {
   const value = {
     status: 'PAUSED_JOB_FAILURE', done: false,
