@@ -572,6 +572,11 @@ class RequirementsObservationsTests(unittest.TestCase):
         )
         self.assertIsNone(parser.pytest_junit_identities(collection, {"tests/test_api.py"}))
         self.assertIsNone(parser.pytest_junit_identities(collection, paths | {"tests/test_api/Group.py"}))
+        self.assertIsNone(
+            parser.pytest_junit_identities(
+                collection, {"tests/test_api.py": "symlink:elsewhere", "docs/usage/guide.rst": "a" * 64}
+            )
+        )
         self.assertIsNone(parser.pytest_junit_identities({"node_ids": ["../bad.py::test_a"]}, {"../bad.py"}))
         self.assertIsNone(parser.pytest_junit_identities(collection, [["not a source path"]]))
         self.assertIsNone(

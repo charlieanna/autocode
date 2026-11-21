@@ -113,10 +113,15 @@ def pytest_junit_identities(collection, source_paths):
             return None
         pieces = node.split("::")
         path = pieces[0]
+        identity = source_paths.get(path) if isinstance(source_paths, dict) else None
         if (
             len(pieces) < 2
             or not all(pieces)
             or path not in paths
+            or (
+                isinstance(source_paths, dict)
+                and (not isinstance(identity, str) or not re.fullmatch(r"(?:executable:)?[0-9a-f]{64}", identity))
+            )
             or path.startswith("/")
             or "\\" in path
             or any(part in ("", ".", "..") for part in path.split("/"))
