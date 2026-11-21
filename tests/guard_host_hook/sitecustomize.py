@@ -1,10 +1,28 @@
-"""Hold only the owned synthetic competing writer for the editor test."""
+"""Hold only an owned real CLI process at a deterministic editor-test boundary."""
 
 import os
 import sys
 from pathlib import Path
 
-if os.environ.get("AUTOCODE_GUARD_HOST_HOLD") == "writer":
-    Path(os.environ["AUTOCODE_GUARD_HOST_MARKER"]).write_text("ready")
+kind = os.environ.get("AUTOCODE_GUARD_HOST_HOLD")
+marker = os.environ.get("AUTOCODE_GUARD_HOST_MARKER")
+
+
+def hold():
+    Path(marker).write_text("ready")
     sys.stdin.readline()
-    os._exit(0)  # Never execute the synthetic writer action.
+
+
+if kind == "writer":
+    hold()
+    os._exit(0)  # This synthetic competing writer never takes its requested action.
+elif kind == "status":
+    import autocode_status_command
+
+    original_render = autocode_status_command.render
+
+    def render(*args, **kwargs):
+        hold()  # The real status has reached its render, after loading the run.
+        return original_render(*args, **kwargs)
+
+    autocode_status_command.render = render
