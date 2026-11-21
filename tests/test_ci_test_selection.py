@@ -42,6 +42,24 @@ class AccessTransportConsumerTests(unittest.TestCase):
         selected = run_suite.select_tests(["tools/autocode_scratch_preparation.py"], available)
         self.assertIn("tests.test_scratch_copy_identity", selected)
 
+    def test_shared_scratch_copy_changes_keep_indirect_proof_consumers(self):
+        consumers = {
+            "tests.test_autocode_protected_oracles",
+            "tests.test_design_check_job",
+            "tests.test_protected_test_links",
+            "tests.test_review_mutation_runtime",
+            "tests.test_review_proof",
+            "tests.test_scratch_copy_identity",
+            "tests.test_scratch_link_binding",
+            "tests.test_source_reconciliation",
+            "tests.test_verification_preparation",
+        }
+        available = {**dict.fromkeys(consumers, ""), "tests.test_unrelated": ""}
+        for path in ("tools/autocode_scratch_preparation.py", "tools/autocode_source_snapshot.py"):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], available)
+                self.assertEqual(consumers, set(selected))
+
     def test_named_collection_changes_keep_observation_custody_tests(self):
         selected = run_suite.select_tests(
             ["tools/autocode_named_collection.py"],
