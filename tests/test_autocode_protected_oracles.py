@@ -677,10 +677,17 @@ class UndeterminedReplayTests(unittest.TestCase):
         base["results"]["total"] = 2
         base.update(command=self.state["settings"]["protected_tests"]["command"], output=str(log))
         base["output_sha256"] = guard.util.file_hash(log)
+        candidate_log = proof_dir / "suite_on_candidate.log"
+        candidate_log.write_bytes(log.read_bytes())
+        candidate = {
+            **copy.deepcopy(base),
+            "output": str(candidate_log),
+            "output_sha256": guard.util.file_hash(candidate_log),
+        }
         proof = {
             "verdict": "PASS",
             "source_revision": guard.source_scope.snapshot(self.project, self.state)["revision"],
-            "checks": {"suite_on_base": base},
+            "checks": {"suite_on_base": base, "suite_on_candidate": candidate},
         }
         path = proof_dir / "verification.json"
         path.write_text(json.dumps(proof))
@@ -748,6 +755,14 @@ class UndeterminedReplayTests(unittest.TestCase):
     def test_stale_proof_cannot_excuse_an_identical_failure(self):
         _test_id, replay = self.record_base_failure()
         self.state["regression_proof"]["source_revision"] = "an-old-source-revision"
+        error, receipt = self.replay({("candidate", 0): replay, ("original", 0): replay})
+        self.assertIsNotNone(error)
+        self.assertNotEqual("PASS", json.loads(receipt.read_text())["verdict"])
+
+    def test_tampered_candidate_failure_evidence_is_not_excused(self):
+        _test_id, replay = self.record_base_failure()
+        proof = json.loads(Path(self.state["regression_proof"]["path"]).read_text())
+        Path(proof["checks"]["suite_on_candidate"]["output"]).write_text("tampered evidence\n")
         error, receipt = self.replay({("candidate", 0): replay, ("original", 0): replay})
         self.assertIsNotNone(error)
         self.assertNotEqual("PASS", json.loads(receipt.read_text())["verdict"])
