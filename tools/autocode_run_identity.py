@@ -163,8 +163,8 @@ def output_refusal(output, roots, capture_context=None) -> str | None:
 
     The path is refused when it is aimed inside ``<root>/runs/<id>/`` whose directory is not a
     run's own canonical record: missing — capture would create a run-shaped directory no run owns —
-    or a symlink pointing at another run's directory, which has no checkpoint of its own. A
-    directory that exists as a directory of its own keeps today's behaviour: whether the run owns
+    or a directory without a checkpoint, including a symlink to another run. A
+    directory with its own canonical checkpoint keeps today's behaviour: whether the run owns
     the receipt is the acceptance rule's to check (autocode_rework_policy), not capture's. The
     refusal names the addressed run directory and, when exactly one is known, the run the output
     was expected to belong to."""
@@ -172,7 +172,7 @@ def output_refusal(output, roots, capture_context=None) -> str | None:
     if addressed is None:
         return None
     run_dir, _ = addressed
-    if not run_dir.is_symlink() and run_dir.is_dir():
+    if checkpoint(run_dir) is not None:
         return None
     owner = expected_owner(roots, capture_context)
     expected = (

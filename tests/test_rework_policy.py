@@ -270,6 +270,7 @@ class ReworkPolicyTests(unittest.TestCase):
 
     def capture_case(self, *, shared, directory=None):
         case = self.case(seal=False)
+        (case.run / "state.json").write_text(json.dumps(case.state))
         directory = directory or (self.workspace / ".autocode" / "evidence" if shared else case.run / "evidence")
         path = directory / (str(self.count) + ".json")
         command = [

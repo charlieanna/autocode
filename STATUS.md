@@ -16,6 +16,8 @@ A, B, C wait until #3868 (group 3b) and group 4a (#3852/#3880/#3869 + view half 
 - Brief: `/private/tmp/ac-recov/brief-runs.md`; log `/private/tmp/ac-recov/runs.log`; tmux session `ac-recov-runs6`
 - Plan r7 approved (agent review under the AGENTS.md delegation): new `tools/autocode_run_identity.py`; capture refuses `--output` under `.autocode/runs/<id>/` with no checkpoint before mkdir/exec and names the expected owner; rework_policy rejection names the expected run; events --follow / wait re-resolve the moved run on every poll. 15 criteria, milestones M1 (capture) and M2 (events/wait).
 - At 23:20 UTC: M1 built, regression checks running locally (no model active).
+- The Completion Reviewer later found that an existing run-shaped directory without a checkpoint was still accepted and that the new identity unit module could not collect on the original source. After reviewing the fixture request, the operating agent authorized writing the canonical fixture checkpoint while keeping every assertion. The correction refuses checkpointless output directories before execution, lets candidate-only unit coverage skip cleanly on master, and adds a public CLI regression. The three-module focused suite passed 88 tests; three public CLI regressions fail on master.
+- The paused run could not resume after those reviewed source edits: the public resume returned "AutoResolver diagnosis requires a current approved task, source and saved source report" and the run stayed at `RESOLVER_PENDING`. The source change invalidated the diagnosis. Do not blindly retry or alter its evidence. The original worktree and attempt remain preserved.
 
 ## Resume / continue
 Status: `autocode-recov-controller/.venv/bin/autocode --run-dir <RUN> --status`

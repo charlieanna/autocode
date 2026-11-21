@@ -203,6 +203,15 @@ class CaptureRunIdentityTests(unittest.TestCase):
         self.assertTrue(alias.is_symlink())
         self.assertFalse((self.project / "marker.txt").exists())
 
+    def test_capture_refuses_an_existing_directory_without_a_checkpoint(self):
+        orphan = self.runs / TYPO_RUN
+        orphan.mkdir()
+        code, errors = self.run_capture(orphan / "evidence" / "repro.json")
+        self.assertEqual(2, code)
+        self.assertIn("not an existing run", errors)
+        self.assertEqual([], list(orphan.iterdir()))
+        self.assertFalse((self.project / "marker.txt").exists())
+
     def test_ac2_capture_refusal_names_the_expected_owner(self):
         output = self.runs / TYPO_RUN / "evidence" / "repro.json"
         # (a) the runner's capture context names the owning run from its attempt path.
