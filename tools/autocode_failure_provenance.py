@@ -214,7 +214,7 @@ def observations(receipt, *, root):
         if "results_capture" in receipt:
             return _xml(receipt, failures)
         return _unittest(receipt, failures)
-    except (OSError, ValueError, TypeError, KeyError, ET.ParseError):
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, ET.ParseError, RecursionError, OverflowError):
         return None
 
 
@@ -249,7 +249,7 @@ def baseline(state, revision):
             return None
         failures = {name: fingerprint for name, fingerprint in before.items() if after.get(name) == fingerprint}
         return {"project": project, "failures": failures} if failures else None
-    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, RecursionError, OverflowError):
         return None
 
 

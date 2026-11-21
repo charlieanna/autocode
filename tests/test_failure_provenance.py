@@ -126,6 +126,28 @@ class FailureCaptureTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertIsNone(evidence._project({"command": command}))
 
+    def test_over_nested_proof_is_refused_without_crashing(self):
+        directory = self.root / "regression"
+        directory.mkdir()
+        path = directory / "proof.json"
+        path.write_text("[" * 2000 + "]" * 2000)
+        proof = {
+            "verdict": "PASS",
+            "source_revision": "revision",
+            "path": str(path),
+            "receipt_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "execution_context": {"test_role_policy": evidence.test_roles.VERSION, "protected_test_binding": "binding"},
+        }
+        state = {
+            "run_dir": str(self.root),
+            "settings": {"protected_tests": {"binding_hash": "binding"}},
+            "regression_proof": proof,
+        }
+        self.assertIsNone(evidence.baseline(state, "revision"))
+
+    def test_malformed_multi_suite_capture_is_refused_without_crashing(self):
+        self.assertIsNone(evidence.observations({"suites": [None]}, root=self.root))
+
 
 if __name__ == "__main__":
     unittest.main()
