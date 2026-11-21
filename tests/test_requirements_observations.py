@@ -4,7 +4,9 @@ import copy
 import hashlib
 import json
 import os
+import shlex
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -343,7 +345,7 @@ class RequirementsObservationsTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(full.encode()).hexdigest(), observed["sha256"])
         self.assertEqual(self.product["revision"], observed["source_revision"])
         collection = observed["reported_collection"]
-        self.assertEqual("python3 -m pytest -q", collection["suite_command"])
+        self.assertEqual("python3 -m pytest", collection["suite_command"])
         self.assertEqual(358, len(collection["node_ids"]))
         self.assertFalse(collection["independently_verified"])
         self.assertNotIn(full, json.dumps(self.context()), "full native output stays out of the model packet")
@@ -518,6 +520,36 @@ class RequirementsObservationsTests(unittest.TestCase):
         ):
             with self.subTest(command=bad_command, output=bad_output):
                 self.assertIsNone(parser.pytest_collection(bad_command, bad_output))
+
+    def test_actual_named_pytest_collection_and_execution_are_distinct_reported_observations(self):
+        parser = getattr(observations, "named_collection", None)
+        self.assertIsNotNone(parser)
+        test_file = self.workspace / "test_real.py"
+        test_file.write_text("def test_one():\n    assert True\n\ndef test_two():\n    assert True\n")
+        env = {**os.environ, "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"}
+        env.pop("PYTEST_ADDOPTS", None)
+        collection_args = [sys.executable, "-m", "pytest", "--collect-only", "-q"]
+        execution_args = [sys.executable, "-m", "pytest", "-v"]
+        collected = subprocess.run(
+            collection_args, cwd=self.workspace, env=env, capture_output=True, text=True, timeout=20
+        )
+        executed = subprocess.run(
+            execution_args, cwd=self.workspace, env=env, capture_output=True, text=True, timeout=20
+        )
+        self.assertEqual(0, collected.returncode, collected.stderr)
+        self.assertEqual(0, executed.returncode, executed.stderr)
+        reported_collection = parser.pytest_collection(shlex.join(collection_args), collected.stdout)
+        reported_execution = parser.pytest_execution(shlex.join(execution_args), executed.stdout)
+        self.assertEqual(reported_collection["node_ids"], reported_execution["node_ids"])
+        self.assertEqual(reported_collection["suite_command"], reported_execution["suite_command"])
+        self.assertFalse(reported_collection["independently_verified"])
+        self.assertFalse(reported_execution["independently_verified"])
+        self.assertIsNone(parser.pytest_execution(shlex.join(collection_args), collected.stdout))
+        self.assertIsNone(parser.pytest_execution(shlex.join(execution_args + ["-k", "one"]), executed.stdout))
+        test_file.write_text("def test_one():\n    assert False\n\ndef test_two():\n    assert True\n")
+        failed = subprocess.run(execution_args, cwd=self.workspace, env=env, capture_output=True, text=True, timeout=20)
+        self.assertNotEqual(0, failed.returncode)
+        self.assertIsNone(parser.pytest_execution(shlex.join(execution_args), failed.stdout))
 
     def test_running_native_event_cannot_attest_a_later_completed_output(self):
         command = "python3 -m pytest --collect-only -q"

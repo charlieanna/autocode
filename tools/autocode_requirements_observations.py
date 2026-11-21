@@ -336,10 +336,12 @@ def retained_command_output(state: RunState, stage, run_dir, current_source, com
         ):
             return None
         collection = named_collection.pytest_collection(command, row["output"])
+        execution = named_collection.pytest_execution(command, row["output"])
         return {
             **row,
             "source_revision": packet["source_revision"],
             **({"reported_collection": collection} if collection else {}),
+            **({"reported_execution": execution} if execution else {}),
         }
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return None
