@@ -239,6 +239,13 @@ required mapped slow tests still run. A green PR describes that selected scope,
 and does not close unrelated failures on master. Every selected head check must
 pass, and master and manual runs keep their complete coverage.
 
+Each test module running in parallel has a time limit, so one stuck module ends
+as a named timed-out failure, with its process group ended, instead of holding
+the job to its own limit (#4011): an hour, or two for a module in
+`tests/suite_slow.json`. Those bounds come from the longest modules measured on
+hosted Linux CI, including under coverage.py. `--module-timeout SECONDS` sets one
+limit for every module (the Windows job uses 600), and `--module-timeout 0` none.
+
 `tools/run_suite.py --failed-out PATH` writes a versioned JSON report with failed
 modules, test identities, failure signatures and timeout markers, in parallel or
 serial mode. The informational attribution step reruns only those modules in an
