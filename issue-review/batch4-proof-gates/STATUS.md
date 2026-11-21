@@ -1,5 +1,24 @@
 # Proof gates status
 
+### Combined rehearsal failure and fixture correction
+
+The frozen combined `283a1fc09` SemVer rehearsal is preserved at
+`/private/var/folders/n2/dv1vdhq91fj3dzzffg704bjh0000gn/T/autocode-semver-combined-jgtt1npt`.
+It exercised both reference-repair handoffs but stopped at
+`PAUSED_PROVIDER_UNCERTAIN`: the scripted Tester refused five newly observed
+closing-delimiter obligations. All 44 actual mutations were killed. This is a
+fixture evidence gap, not a verified completion; the failed run was not resumed,
+and its owned-process cleanup reported no errors.
+
+The reviewed #4053 observer correction `da4fb666c` is integrated with ancestry.
+Both new editor hosts now use one stateful observer of the public
+`progress.continuing` contract. It waits while a live controller saves its next
+state, including the intermediate old status with no action. A return to the old
+approval after that transition remains an unexpected stop. Both sequence controls
+pass; the negative named-proof host also expands and checks its full criterion
+before taking the exact bound approval. No proof gate or product state handling
+was relaxed. Actual editor qualification of the corrected candidate is pending.
+
 ### Combined semantic-evidence candidate
 
 The reviewed #4053 candidate `eff10dfa4` is integrated with its ancestry so this

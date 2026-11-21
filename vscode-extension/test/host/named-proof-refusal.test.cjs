@@ -8,7 +8,7 @@ const path = require('node:path');
 const {test} = require('node:test');
 const {openHistoryRow} = require('./open-history.cjs');
 const {settleFixture} = require('../owned-fixture-cleanup.cjs');
-const {sameApproval, settledAfterApproval} = require('../python-semantic-transition.cjs');
+const {afterApproval} = require('../python-semantic-transition.cjs');
 
 const EXTENSION = path.resolve(__dirname, '../..');
 const REPO = path.resolve(EXTENSION, '..');
@@ -83,6 +83,11 @@ for (const mode of ['skip', 'missing']) test(`editor refuses ${mode} base named 
       frame = await chat(); const text = await frame.evaluate(() => document.body.innerText);
       return text.includes('The new feature returns 42') && await frame.$('#take-action') ? true : null;
     });
+    await frame.locator('details.plan-evidence > summary').click();
+    await until('the full reviewed criterion in the editor', async () => {
+      frame = await chat(); const details = frame.locator('details.plan-evidence[open]');
+      return await details.count() && (await details.innerText()).includes('import app; assert app.new() == 42') ? true : null;
+    });
     const before = status(); const review = JSON.parse(fs.readFileSync(fixture.planReview, 'utf8'));
     assert.equal(before.needs.kind, 'approve_plan');
     assert.equal(before.needs.token, fixture.planToken);
@@ -91,13 +96,13 @@ for (const mode of ['skip', 'missing']) test(`editor refuses ${mode} base named 
     assert.deepEqual(before.displayed_plan, review.plan, 'the operating agent reviewed this complete exact plan');
     assert.match(review.review, /Operating agent review/);
     await frame.locator('#take-action').click();
-    let transitioned = false;
+    const isSettled = afterApproval(before);
     const outcome = await until('the unverified task outcome', () => {
       const view = status();
-      if (!sameApproval(view, before)) transitioned = true;
-      if (view.recovery?.outcome?.result === 'could_not_finish') return {view};
+      const settled = isSettled(view);
+      if (settled && view.recovery?.outcome?.result === 'could_not_finish') return {view};
       const kind = view.needs?.kind;
-      if (settledAfterApproval(view, before, transitioned)) {
+      if (settled) {
         return {unexpected: {status: view.status, needs: kind, reason: view.stop_reason}};
       }
       return null;
@@ -175,7 +180,10 @@ for (const mode of ['skip', 'missing']) test(`editor refuses ${mode} base named 
       }],
     ], () => fs.rmSync(root, {recursive: true, force: true, maxRetries: 3}), testError);
   } catch (error) {
-    console.error(`Preserved classification editor fixture at ${root}`);
+    console.error(`Preserved named-proof editor fixture at ${root}`);
+    for (const failure of (error instanceof AggregateError ? error.errors : [error]).slice(0, 8)) {
+      console.error(`Editor or cleanup failure: ${String(failure?.stack || failure).slice(0, 4000)}`);
+    }
     throw error;
   }
 });
