@@ -26,7 +26,7 @@ from goal_fixtures import body
 
 ABSENT = "autocode-absent-program-4015"
 # Runners the boundary has no rule for: each is refused whether or not this host has it installed.
-REFUSED = ("uv run pytest -q tests/", "make test", "bundle exec rspec", "cargo test")
+REFUSED = ("uv run pytest -q tests/", "make test", "bundle exec rspec", "yarn test")
 
 
 def plan(*commands):

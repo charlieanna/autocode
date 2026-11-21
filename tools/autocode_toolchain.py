@@ -28,7 +28,7 @@ except ImportError:
 # The programs a contained stage's declared command may begin with: each has a family rule below that
 # selects its read-only runtime without running project code (pytest through its interpreter, npm and npx
 # through node). The pre-approval plan check names them to the Planner (autocode_plan_tool_admission).
-ADMITTED = ("git", "python", "python3", "pytest", "node", "npm", "npx", "go", "sh", "bash")
+ADMITTED = ("git", "python", "python3", "pytest", "node", "npm", "npx", "go", "cargo", "sh", "bash")
 
 
 class Unadmitted(RuntimeError):
@@ -91,9 +91,21 @@ def _python_executable(tool):
     return executable
 
 
+def _rustup_proxy(tool):
+    """Whether this cargo is rustup's proxy: a link to rustup (macOS Homebrew) or a hard link of it (Linux)."""
+    if tool.name.startswith("rustup"):
+        return True
+    rustup = tool.parent / "rustup"
+    try:
+        return rustup.is_file() and os.path.samefile(tool, rustup.resolve())
+    except OSError:
+        return False
+
+
 def discover(workspace, commands, environment):
     root = Path(workspace).resolve()
     paths, probes, selected, links = set(), [], set(), []
+    tool_environment: dict[str, str] = {}
     # Linked worktrees keep object/index metadata outside the task checkout.
     # Read only the locations named by Git's own pointer files, not the main
     # checkout (which can contain unrelated source and credentials).
@@ -142,6 +154,28 @@ def discover(workspace, commands, environment):
                 raise RuntimeError(f"Cannot identify the selected npm installation: {name}")
             paths.add(package)
             pending.append("node")
+            probes.append(shlex.join([str(original), "--version"]))
+            continue
+        if family == "cargo":
+            paths.update(_binary_dependencies(tool))
+            install = tool.parent.parent
+            if not (install / "lib/rustlib").is_dir() and _rustup_proxy(tool):
+                # rustup's proxy runs a toolchain from RUSTUP_HOME. The contained HOME is the stage's scratch, so
+                # the proxy is told where the installed toolchains are, read-only; CARGO_HOME stays in that
+                # scratch, so no registry credential of the person's ~/.cargo is readable (#4017).
+                home = environment.get("RUSTUP_HOME") or str(Path(environment.get("HOME") or Path.home()) / ".rustup")
+                rustup_home = Path(home).resolve()
+                if not (rustup_home / "toolchains").is_dir():
+                    raise RuntimeError(f"Cannot identify the selected rustup toolchains: {name}")
+                paths.add(rustup_home / "toolchains")
+                if (rustup_home / "settings.toml").is_file():
+                    paths.add(rustup_home / "settings.toml")
+                tool_environment["RUSTUP_HOME"] = str(rustup_home)  # one of tool_shell.TOOL_VARIABLES
+            else:
+                # A cargo installed beside its toolchain: the prefix holding bin/cargo, rustc and lib/rustlib.
+                if not (install / "lib/rustlib").is_dir():
+                    raise RuntimeError(f"Cannot identify the selected Rust toolchain: {name}")
+                paths.add(install)
             probes.append(shlex.join([str(original), "--version"]))
             continue
         if family in ("sh", "bash"):
@@ -214,4 +248,5 @@ def discover(workspace, commands, environment):
         "read_roots": [str(p) for p in sorted(paths) if not p.is_relative_to(root)],
         "probes": probes,
         "links": [hop for hop in links if not Path(hop[0]).is_relative_to(root)],
+        "environment": tool_environment,
     }
