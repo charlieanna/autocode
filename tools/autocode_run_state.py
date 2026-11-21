@@ -296,6 +296,7 @@ KEYS: frozenset[str] = frozenset(
         "setup_check_retries",
         "source_log",
         "source_revision",
+        "source_catalog_receipt",
         "source_snapshot",
         "stages",
         "status",
@@ -648,6 +649,7 @@ class RunState(TypedDict, total=False):
     requirements_body: Any
     requirements_handoff: Any
     requirements_history: Any
+    source_catalog_receipt: str  # content-addressed source inventory selected by catalog reconciliation
     # Retired triage pass record (#2940, #3652): preserved for loading and replaying saved runs
     # whose first Requirements pass recorded {pass, outcome, questions, at}.
     requirements_triage: Any

@@ -7,7 +7,6 @@ their existing owners; a source read never proves a model result or a test.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -90,9 +89,7 @@ def catalog_problem(state: RunState):
     discovery = repo_catalog.discover()
     if stopped := repo_catalog.blocking(discovery):
         return catalog_context.DiscoveryIncomplete(stopped, discovery.get("catalog_roots") or ())
-    run_dir = state.get("run_dir")
-    receipt = Path(run_dir) / "planning/source-catalog.json" if run_dir else None
-    saved = util.read_object(receipt) if receipt and receipt.is_file() else None
+    saved = catalog_context.saved_inventory(state)
     if changes := catalog_context.binding_changes(saved, discovery):
         return catalog_context.CatalogChanged(changes)
     return None
@@ -125,16 +122,21 @@ def presentation(state: RunState, need):
     if state.get("status") != STATUS:
         return None
     ready = (need or {}).get("kind") == "continue"
+    catalog_recovery = str((need or {}).get("action") or "").startswith("--reconcile-only catalog-v1:")
     changed = str(state.get("stop_reason") or "").startswith("The task's source catalog changed:")
     return {
-        "title": "Recovering source access"
+        "title": "Updating the task source"
+        if catalog_recovery
+        else "Recovering source access"
         if ready
         else "Task source changed"
         if changed
         else "AutoCode cannot read the task source",
         "category": "recovery" if ready else "blocked",
         "what_happened": (
-            "Source access is readable again. AutoCode is reconciling the saved attempt; "
+            "Source bindings changed. AutoCode is recording the new inventory and revisiting Requirements and the plan."
+            if catalog_recovery
+            else "Source access is readable again. AutoCode is reconciling the saved attempt; "
             "model choices, limits, usage and failed attempts are retained."
             if ready
             else str(state.get("stop_reason")) + ". The original inventory remains recorded."

@@ -83,6 +83,7 @@ def prepare(
     replay_context=None,
     planning_report_recovery=False,
     report_only=False,
+    source_catalog_receipt=None,
 ):
     """Return (command, environment, overrides, worker) for one stage launch.
 
@@ -216,7 +217,12 @@ def prepare(
                     from . import autocode_catalog_context as source_catalog
                 except ImportError:
                     import autocode_catalog_context as source_catalog
-                roots.update(Path(path) for path in source_catalog.read_roots({"run_dir": str(run_dir)}))
+                roots.update(
+                    Path(path)
+                    for path in source_catalog.read_roots(
+                        {"run_dir": str(run_dir), "source_catalog_receipt": source_catalog_receipt}
+                    )
+                )
             containment = {
                 "source_paths": list(source_paths),
                 "tool_commands": list(tool_commands),

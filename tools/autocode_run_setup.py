@@ -598,10 +598,15 @@ def load_locked(runner, args, parser, state: RunState, state_path, run_dir, work
             parser.error(str(error))
         if getattr(args, "reconcile_only", None) is not None:
             try:
+                from . import autocode_catalog_reconciliation as catalog_reconciliation
                 from . import autocode_checkpoint_reconciliation as reconciliation
             except ImportError:
+                import autocode_catalog_reconciliation as catalog_reconciliation
                 import autocode_checkpoint_reconciliation as reconciliation
-            reconciliation.require_binding(state, args.reconcile_only)
+            if args.reconcile_only.startswith(catalog_reconciliation.PREFIX):
+                catalog_reconciliation.require_binding(state, args.reconcile_only)
+            else:
+                reconciliation.require_binding(state, args.reconcile_only)
             return state  # Metadata-only control keeps configuration, migrations and allowances untouched.
         recovery = state.get("recovery_context") or {}
         archived = (state.get("stages") or [{}])[-1]

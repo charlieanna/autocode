@@ -75,6 +75,15 @@ that machinery. A retired, mismatched or ordinary standalone build retains its
 normal Requirements flow. No Requirements confirmation is recorded on the
 person's behalf, and the consolidated plan still requires exact approval.
 
+At a safe planning boundary a changed catalog is reported with the changed
+bindings. Plain continuation does not adopt it or launch a model. A fresh status
+may name an automatic, token-bound `--reconcile-only -` metadata action: it
+rechecks discovery, retains the original receipt, records a content-addressed
+replacement and returns to Requirements. The old plan's approval cannot carry
+across that change. Routes, limits, usage and previous attempts stay recorded;
+the new plan requires its own exact approval. Uncertain work, pending decisions,
+stale tokens, unreadable sources and incomplete discovery stay held.
+
 `view.request_sources` carries the authenticated live human source texts as
 `{id, kind, text}` records, including Requirements clarifications. It excludes
 model prose and discarded answers. Coordination pins those exact records and

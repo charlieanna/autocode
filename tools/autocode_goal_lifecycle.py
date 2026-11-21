@@ -1216,6 +1216,13 @@ def _seal_and_assign_approved_goal(
 
 def _retain_equivalent_approval(state: RunState, origin, record) -> bool:
     """Carry an authenticated person approval forward when a runner-only re-review leaves every contract term and review judgment unchanged."""
+    for event in reversed(state.get("user_events") or []):
+        if not isinstance(event, dict):
+            continue
+        if event.get("kind") == "goal_approval" and event.get("actor") == "user_cli":
+            break
+        if event.get("kind") == "source_catalog_reconciled":
+            return False
     if origin not in workflows.FINAL_REVIEW_ORIGINS:
         return False
     settings = state.get("settings") or {}

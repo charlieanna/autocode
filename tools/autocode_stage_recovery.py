@@ -1494,6 +1494,7 @@ def restore_launchable_unlaunchable_repair(runner, state: RunState, run_dir, wor
             provider=route.get("provider"),
             enforce_tool_boundary=False,
             source_paths=runner.source_scope.paths(state),
+            source_catalog_receipt=state.get("source_catalog_receipt"),
             settings=state["settings"],
             planning_report_recovery=True,
             report_only=True,

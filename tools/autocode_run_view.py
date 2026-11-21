@@ -404,6 +404,24 @@ def view(
                     recovery_token=recovery_view.token(saved_state),
                 ),
             }
+        else:
+            try:
+                from . import autocode_catalog_reconciliation as catalog_reconciliation
+            except ImportError:
+                import autocode_catalog_reconciliation as catalog_reconciliation
+            catalog_resume = catalog_reconciliation.offer(saved_state, controller=controller, stop_pending=stop_pending)
+            if catalog_resume is not None:
+                next_action = {
+                    "needs": catalog_resume,
+                    "pause_category": None,
+                    "pause_category_label": None,
+                    "next_command": pause_command.command(
+                        catalog_resume,
+                        for_client=True,
+                        run_dir=run_dir or state.get("run_dir"),
+                        workspace=workspace or state.get("workspace"),
+                    ),
+                }
     continuing = controller_owner.continuing(saved_state, controller)
     if continuing:
         # The live controller will save its own next state; an action taken now is refused by the run lock.
@@ -557,6 +575,10 @@ def view(
         # The provider those OpenCode-engine routes launch through ("opencode", "claude", a configured
         # tool's name); None when every role runs on Codex (#717).
         "provider": quota_route.provider(state),
+        # The selected source receipt is a read-only binding for cross-run citation checks.
+        "source_catalog_receipt": state.get("source_catalog_receipt")
+        if state.get("source_catalog_receipt") is None or isinstance(state.get("source_catalog_receipt"), str)
+        else "invalid",
         "route_assignments": quota_route.assignments(state),
         # Whether a person may change this started run's stage models now, why not, and the read-only
         # list whose `set` arrays change one between stages (autocode_run_stage_models); None before routes.

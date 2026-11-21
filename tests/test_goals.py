@@ -3376,6 +3376,24 @@ class GoalTests(unittest.TestCase):
         reviewed = brief_obligations.reviewed_body(self.state, plan_body, proposals, record, trace=trace_payload)
         return reviewed, record
 
+    def test_catalog_rediscovery_requires_a_new_exact_plan_approval(self):
+        first_body, first_record = self._sealed_joint_plan(1)
+        lifecycle.install_draft(self.state, first_body, origin="finalize_plan", record=first_record)
+        self.state["planning"]["final_token"] = g.token(self.state["goal_contract"])
+        lifecycle.human.evaluate(self.state)
+        lifecycle.present(self.state, self.run)
+        first_token = g.token(self.state["goal_contract"])
+        lifecycle.approve(self.state, first_token)
+        self.state["user_events"].append({"kind": "source_catalog_reconciled", "actor": "runner"})
+        lifecycle.install_draft(self.state, copy.deepcopy(first_body), origin="revise_plan")
+        second_body, second_record = self._sealed_joint_plan(2)
+        lifecycle.install_draft(self.state, second_body, origin="finalize_plan", record=second_record)
+        self.state["planning"]["final_token"] = g.token(self.state["goal_contract"])
+        lifecycle.human.evaluate(self.state)
+        self.assertEqual("AWAITING_GOAL_APPROVAL", self.state["status"])
+        self.assertFalse(g.approved(self.state))
+        self.assertNotEqual(first_token, g.token(self.state["goal_contract"]))
+
     def test_reviewed_plan_matching_approved_revision_except_review_provenance_retains_approval(self):
         import autocode_approval_provenance as approval_provenance
         import autocode_chat_history as chat_history

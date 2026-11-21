@@ -88,6 +88,7 @@ class ProviderLaunchTests(unittest.TestCase):
                 "version": 2,
                 "iteration": 1,
                 "next_stage": "review_change",
+                "source_catalog_receipt": "a" * 64,
                 "stages": [],
                 "settings": {
                     "engine": "opencode",
@@ -118,6 +119,7 @@ class ProviderLaunchTests(unittest.TestCase):
                     )
                 self.assertEqual(report_only, prepare.call_args.kwargs["planning_report_recovery"])
                 self.assertEqual("zai-coding-plan/glm-5.3", prepare.call_args.kwargs["model"])
+                self.assertEqual("a" * 64, prepare.call_args.kwargs["source_catalog_receipt"])
                 observed = state["efficiency_observations"][-1]
                 self.assertEqual("source_launcher_preparation", observed["provenance"]["phase"])
                 self.assertEqual("exception", observed["provenance"]["outcome"])
@@ -162,10 +164,13 @@ class ProviderLaunchTests(unittest.TestCase):
                         chatgpt=False,
                         provider=None,
                         planning_report_recovery=repair,
+                        source_catalog_receipt="a" * 64,
                     )
                 actual = (adapter.containment or {}).get("read_roots", [])
                 self.assertEqual(not write and not repair, "/authorized/external" in actual)
                 self.assertEqual(not write and not repair, roots.called)
+                if roots.called:
+                    roots.assert_called_once_with({"run_dir": str(run), "source_catalog_receipt": "a" * 64})
 
     def test_tool_free_repair_handoff_matches_the_recorded_launch_boundary(self):
         data = {"report_repair": True, "original_report": {"content": {"diagnosis": "saved"}}}

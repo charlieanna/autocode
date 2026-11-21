@@ -25,7 +25,7 @@
         "verification", "review_result", "verification_obligation", "code_checkpoints", "runner", "runner_check", "dependency",
         "prompts_hash", "interaction_timing", "replay_source", "replay_progress", "replay_result",
         "escalation_outcomes", "escalations", "request_context", "output_transport", "direct_rework_assignments", "routes",
-        "provider", "route_assignments", "stage_models", "project_notes", "implementation_discrepancy", "information_review", "tool_containment", "job_report_recovery", "report_repair",
+        "provider", "source_catalog_receipt", "route_assignments", "stage_models", "project_notes", "implementation_discrepancy", "information_review", "tool_containment", "job_report_recovery", "report_repair",
         "efficiency", "conversation", "chat", "workspace", "run_dir", "planning_depth", "plan_review", "stage_policy", "stage_decisions", "pause", "package",
         "tool_containment_backend", "changes_by_criterion", "dev_server", "execution", "observation", "attention",
         "scope", "coordination", "related_profile", "proxied_requirements", "requirements", "request_sources", "run_metrics", "pipeline", "worktree", "checkout_wait"
@@ -1000,6 +1000,7 @@
             "stop_now": {"type": "object", "description": "The same pause, also ending the running step now (#3263): label, effect, requested and next_command. Present only when the run's runner can end a step on request.",
               "properties": {"label": {"type": "string"}, "effect": {"type": "string"}, "requested": {"type": "boolean"}, "next_command": {"type": ["array", "null"], "items": {"type": "string"}}},
               "required": ["label", "effect", "requested", "next_command"]}}},
+        "source_catalog_receipt": {"type": ["string", "null"], "description": "Content identity of the selected source inventory, or null for the original inventory. Read-only; grants no plan or repository access."},
         "package": {"type": ["string", "null"], "description": "The repository directory a run started with --package works in; null for a run of the whole repository."},
         "tool_containment_backend": {"type": ["object", "null"], "description": "The kernel boundary the latest contained launch ran in; null until a stage launches contained."},
         "changes_by_criterion": {"type": ["object", "null"], "description": "Saved Builder steps attributed to the approved plan's criteria; null until a plan is approved. Attribution, not proof."},
