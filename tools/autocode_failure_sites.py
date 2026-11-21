@@ -34,7 +34,7 @@ def _read_captured(root, name, expected):
         not relative.parts
         or relative.is_absolute()
         or relative.as_posix() != name
-        or any(part in ("", ".", "..", ".git", ".autocode", ".autocode-ui") for part in relative.parts)
+        or any(part.casefold() in ("", ".", "..", ".git", ".autocode", ".autocode-ui") for part in relative.parts)
     ):
         return None
     try:
@@ -100,7 +100,7 @@ def identity(source, line, *, path):
         or not Path(path).parts
         or Path(path).is_absolute()
         or Path(path).as_posix() != path
-        or any(part in ("", ".", "..", ".git", ".autocode", ".autocode-ui") for part in Path(path).parts)
+        or any(part.casefold() in ("", ".", "..", ".git", ".autocode", ".autocode-ui") for part in Path(path).parts)
         or not isinstance(source, str)
         or type(line) is not int
         or line < 1

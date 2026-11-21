@@ -51,6 +51,7 @@ class FailureSiteIdentityTests(unittest.TestCase):
         self.assertIsNone(self.identify("def broken(:\n", 1))
         self.assertIsNone(self.identify("\ud800", 1))
         self.assertIsNone(self.identify("pass\n", 0))
+        self.assertIsNone(self.identify("pass\n", 1, path=".GIT/config.py"))
         self.assertIsNone(self.identify("if True: raise ValueError('same')\n", 1))
 
 
@@ -105,6 +106,7 @@ class PinnedFailureSourceTests(unittest.TestCase):
 
     def test_links_hardlinks_and_noncanonical_paths_are_refused(self):
         self.assertIsNone(sites.source_stamp(self.root, "../pkg/module.py", self.expected))
+        self.assertIsNone(sites.source_stamp(self.root, ".GIT/config.py", self.expected))
         self.assertIsNone(sites.source_stamp(self.root, "pkg//module.py", self.expected))
         outside = self.root / "hardlink.py"
         os.link(self.file, outside)
