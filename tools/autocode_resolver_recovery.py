@@ -257,6 +257,25 @@ def _holds(saved, state: RunState, revision):
     return False
 
 
+def _stale_binding_checks(saved, state: RunState, revision, within):
+    """Name the failed admission checks without exposing any bound values."""
+    current = _binding(state, revision)
+    checks = []
+    if saved.get("source_revision") != current["source_revision"]:
+        checks.append("source")
+    if saved.get("task_id") != current["task_id"]:
+        checks.append("task")
+    if any(saved.get(key) != current[key] for key in ("contract_hash", "contract_revision")):
+        checks.append("contract")
+    if not _holds({**current, "settings_hash": saved.get("settings_hash")}, state, revision):
+        checks.append("settings")
+    if not within:
+        checks.append("scope")
+    if not checks and not _holds(saved, state, revision):
+        checks.append("binding")
+    return checks
+
+
 def _escalated(state: RunState):
     """``state``, then ``state`` on each other route of the Builder lane it is on now.
 
@@ -1856,6 +1875,7 @@ def _dispatch_frontier(state: RunState, record, workspace, run_dir):
         expected = admission["binding"]
         within = _narrows(packet["scope"], scope, _decided(packet))
     if not _holds(expected, state, revision) or not within:
+        request["stale_checks"] = _stale_binding_checks(expected, state, revision, within)
         _stale("current source, task, settings, contract or scope changed before admission")
     return request, pointer, packet, revision, bound
 

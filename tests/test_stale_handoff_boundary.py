@@ -658,6 +658,29 @@ class PacketPauseGuardTests(unittest.TestCase):
             recovery.admit_dispatch(self.state, {"stage": "resolve"}, self.root, self.run)
         self.assertEqual("PAUSED_STALE_HANDOFF", caught.exception.status)
         self.assertEqual(PACKET_REASON, str(caught.exception))
+        self.assertEqual(["settings"], self.request["stale_checks"])
+
+    def test_packet_admission_names_each_failed_binding_without_settings_values(self):
+        saved = recovery._binding(self.state, "s1")
+        self.assertEqual([], recovery._stale_binding_checks(saved, self.state, "s1", True))
+        cases = [
+            ("source", {**saved, "source_revision": "old"}, True, ["source"]),
+            ("task", {**saved, "task_id": "old"}, True, ["task"]),
+            ("contract", {**saved, "contract_hash": "old"}, True, ["contract"]),
+            ("settings", {**saved, "settings_hash": "secret-value"}, True, ["settings"]),
+            ("scope", saved, False, ["scope"]),
+            (
+                "mixed",
+                {**saved, "source_revision": "old", "settings_hash": "secret-value"},
+                False,
+                ["source", "settings", "scope"],
+            ),
+        ]
+        for label, binding, within, expected in cases:
+            with self.subTest(label=label):
+                names = recovery._stale_binding_checks(binding, self.state, "s1", within)
+                self.assertEqual(expected, names)
+                self.assertNotIn("secret-value", str(names))
 
 
 if __name__ == "__main__":
