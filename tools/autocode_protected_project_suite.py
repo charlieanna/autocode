@@ -67,6 +67,21 @@ def command(names, workspace) -> str | None:
     return found.targeted(names)
 
 
+def groups(names, workspace) -> list:
+    """``names`` in the groups one replay command each can run: the Python test files together (the bound
+    runner narrows to them), and every other file with the others of the innermost project holding it. A
+    file in no project of its own is grouped with the Python files, where the bound suite decides."""
+    python: list[str] = []
+    projects: dict[str, list[str]] = {}
+    for name in names:
+        found = None if name.endswith((".py", ".pyi")) else package_scope.enclosing(workspace, [name], _detect)
+        if found is None or project_kinds.is_test_path(found.directory + "/_"):
+            python.append(name)
+        else:
+            projects.setdefault(found.directory, []).append(name)
+    return [group for group in (python, *projects.values()) if group]
+
+
 # Options of a Python runner whose value is a path, read from where the command runs.
 _PATH_OPTIONS = ("-c", "--rootdir", "--confcutdir", "--ignore", "--ignore-glob", "--deselect")
 
