@@ -341,6 +341,9 @@ def retained_command_output(state: RunState, stage, run_dir, current_source, com
             "sha256"
         ):
             return None
+        source_paths = payload.get("source_paths")
+        if source_paths is not None and not source.is_canonical_paths(source_paths):
+            return None
         collection = named_collection.pytest_collection(command, row["output"])
         if collection:
             identities = named_collection.pytest_junit_identities(collection, payload["source"]["files"])
@@ -350,6 +353,7 @@ def retained_command_output(state: RunState, stage, run_dir, current_source, com
         return {
             **row,
             "source_revision": packet["source_revision"],
+            **({"source_paths": source_paths} if source_paths is not None else {}),
             **({"reported_collection": collection} if collection else {}),
             **({"reported_execution": execution} if execution else {}),
         }
@@ -522,7 +526,10 @@ def _seal(state: RunState, record, accepted_report, *, owner, repair_binding=Non
             ):
                 return
         before, after = (json.loads(raw[key]) for key in ("before", "after"))
-        current = source.snapshot(Path(state["workspace"]), paths=before.get("source_paths", []))
+        source_paths = before.get("source_paths", [])
+        if not source.is_canonical_paths(source_paths):
+            return
+        current = source.snapshot(Path(state["workspace"]), paths=source_paths)
         product = _product(before)
         if (
             product != _product(after)
@@ -533,6 +540,7 @@ def _seal(state: RunState, record, accepted_report, *, owner, repair_binding=Non
         payload = {
             "version": 1,
             "source": product,
+            "source_paths": source_paths,
             "report_digest": util.digest(accepted_report),
             "record_digest": util.digest({key: record.get(key) for key in BINDING}),
             "inputs": {key: hashlib.sha256(value).hexdigest() for key, value in raw.items()},

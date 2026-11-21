@@ -344,6 +344,7 @@ class RequirementsObservationsTests(unittest.TestCase):
         self.assertEqual(full, observed["output"])
         self.assertEqual(hashlib.sha256(full.encode()).hexdigest(), observed["sha256"])
         self.assertEqual(self.product["revision"], observed["source_revision"])
+        self.assertEqual([], observed["source_paths"])
         collection = observed["reported_collection"]
         self.assertEqual("python3 -m pytest", collection["suite_command"])
         self.assertEqual(358, len(collection["node_ids"]))
@@ -378,6 +379,25 @@ class RequirementsObservationsTests(unittest.TestCase):
         self.assertIsNone(
             lookup(self.state, "claim_evidence", self.run, lambda: source.snapshot(self.workspace), command)
         )
+
+    def test_retained_source_policy_includes_authorized_ignored_files(self):
+        (self.workspace / ".gitignore").write_text("ignored.txt\n")
+        (self.workspace / "ignored.txt").write_text("first\n")
+        scoped = source.snapshot(self.workspace, paths=["ignored.txt"])
+        self.record["source_revision"] = scoped["revision"]
+        for field in ("before_ref", "after_ref"):
+            Path(self.record[field]).write_text(json.dumps(scoped))
+        command = "python3 -m pytest --collect-only -q"
+        self.events = [
+            self.command("complete", command, "test_a.py::test_x\n1 test collected in 0.1s\n", output_truncated=False)
+        ]
+        self.write_events()
+        self.seal()
+        reader = lambda: source.snapshot(self.workspace, paths=["ignored.txt"])
+        found = observations.retained_command_output(self.state, "claim_evidence", self.run, reader, command)
+        self.assertEqual(["ignored.txt"], found["source_paths"])
+        (self.workspace / "ignored.txt").write_text("changed\n")
+        self.assertIsNone(observations.retained_command_output(self.state, "claim_evidence", self.run, reader, command))
 
     def test_filtered_truncated_unknown_or_ambiguous_output_cannot_supply_complete_custody(self):
         command = "python3 -m pytest --collect-only -q"
