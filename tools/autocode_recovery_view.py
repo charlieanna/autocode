@@ -827,6 +827,7 @@ def project(state: RunState, need=None):
         and native_need is None
         and not active
         and not state.get("active_runner_check")
+        and not need.get("parallel_retry_unavailable")
         # A stopped job AutoCode settles itself offers no resume for a person to correct first.
         and not job_end.pending(state)
     ):

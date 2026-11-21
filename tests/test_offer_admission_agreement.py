@@ -383,6 +383,27 @@ class OfferAdmissionAgreementTests(SavedRunFixtures, unittest.TestCase):
         with self.subTest("live sibling"), patch("autocode_process.live_processes", return_value=[{"pid": 123}]):
             workers[1]["processes"] = [{"pid": 123}]
             check(True)
+        workers[1].pop("processes")
+
+        # A held multi-member instruction can be stale for just one worker.
+        # Do not turn it into plain resume, and keep the other worker's own card.
+        saved = Path(workers[0]["run_dir"]) / "result.json"
+        saved.write_text(json.dumps({"status": "BUILT"}))
+        projection = {"status": "held", "action": "--resume-paused --retry-builder M1 --retry-builder M2"}
+        with patch("autocode_operational_information.projection", return_value=projection):
+            view = run_view.view(state, workspace=self.root, run_dir=self.run)
+        self.assertIsNone(view["next_command"])
+        self.assertTrue(view["needs"]["parallel_retry_unavailable"])
+        actions = view["recovery"]["actions"]
+        self.assertEqual([["M2"]], [a["milestone_ids"] for a in self.offered(view["recovery"], "retry_builder")])
+        self.assertFalse(any(a["kind"] == "resume" for a in actions))
+
+        # A corrupt result for one member refuses only that member's retry.
+        saved.write_text("{invalid")
+        with self.assertRaises(ValueError):
+            dispatch.member_retry_refusal(state, ["M1"])
+        view = run_view.view(state, workspace=self.root, run_dir=self.run)
+        self.assertEqual([["M2"]], [a["milestone_ids"] for a in self.offered(view["recovery"], "retry_builder")])
 
     def test_ac22_surveyed_offers_agree_with_their_executor_admission(self):
         # (kind, status, args, admitted state, the one-field variant its executor refuses, refusal text)

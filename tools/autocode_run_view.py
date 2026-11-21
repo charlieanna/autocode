@@ -1861,5 +1861,8 @@ def needs(state: RunState, *, stale_report_repair=False, human_projection=None) 
             selected_members = [words[i + 1] for i, word in enumerate(words[:-1]) if word == "--retry-builder"]
             if selected_members and not set(selected_members) <= set(recovery_view._parallel_members(state)):
                 need.pop("action", None)
+                need["parallel_retry_unavailable"] = (
+                    "The selected Builder retry is no longer admissible. Review the available member actions."
+                )
         return need
     return {"kind": "continue"}
