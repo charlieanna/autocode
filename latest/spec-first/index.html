@@ -2001,7 +2001,10 @@ a model on the Tester's route that has not seen the acceptance tests writes up t
 of the approved <code>test:</code> cases. Each is a patch plus a <code>demo</code> command that observes the violated behavior.</p>
 <p>For each one, the runner, in a scratch copy:</p>
 <ul>
-<li>drops it when it names no due <code>test:</code> case, edits a test file or does not apply (<code>invalid</code>);</li>
+<li>applies its patch to copies of the files it changes with <code>git apply --recount --unidiff-zero</code>, which takes a
+  hand-written hunk with no context lines or inexact line counts, and overlays them on the copy;</li>
+<li>drops it when it names no due <code>test:</code> case, edits a test file, deletes or renames a file, or does not apply
+  (<code>invalid</code>, with git's reason);</li>
 <li>requires its demo to exit 0 on the candidate (<code>demo_unproven</code> otherwise) and non-zero with the patch
   (<code>not_shown_wrong</code> otherwise), so every survivor is really wrong;</li>
 <li>runs the batch's acceptance tests with the patch: a failing test kills it, and when every test passes it
