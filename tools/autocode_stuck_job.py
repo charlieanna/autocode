@@ -735,8 +735,45 @@ def release_route(state: RunState) -> dict:
     return report_repair_route.release(state, ROUTE)
 
 
+def ask_person(state: RunState, request: dict, value: dict, record: dict, ask_planning) -> bool:
+    """Whether the Investigator's question for the person was asked, in place of restoring the stage's pause.
+
+    A planning stage whose cause is ``needs_user`` waits on that question as planning waits on its own
+    (``ask_planning``, the unit's lifecycle.ask_planning_question), so the person answers it and planning
+    continues with the answer (#3993). The rejected report's pending repair is retired: the answer, not
+    another repair of the same report, is what the next attempt needs."""
+    question = str(value.get("user_question") or "").strip()
+    if value["cause"] != "needs_user" or not question or ask_planning is None or request["stage"] not in PLANNING:
+        return False
+    origin = {
+        "stage": STAGE,
+        **{key: record[key] for key in ("output", "source_revision", "task_id") if record.get(key)},
+    }
+    if not ask_planning(
+        state,
+        question,
+        value["diagnosis"],
+        origin=origin,
+        evidence={"diagnosis": value["diagnosis"], "evidence_refs": list(value.get("evidence_refs") or [])},
+    ):
+        return False
+    pending = request.get("pending_report_repair")
+    if pending:
+        state.setdefault("report_repair_archive", []).append(
+            {"at": now(), "reason": "Superseded by the Investigator's question for the person", "repair": pending}
+        )
+    state.pop("pending_report_repair", None)
+    return True
+
+
 def apply(
-    state: RunState, value: dict, record: dict, workspace, run_probe=None, run_counterexample=None
+    state: RunState,
+    value: dict,
+    record: dict,
+    workspace,
+    run_probe=None,
+    run_counterexample=None,
+    ask_planning=None,
 ) -> dict | None:
     """``run_probe(command, files)`` runs the probe in a scratch tree with ``files`` copied in (the unit
     passes autocode_verify.scratch_run), and ``run_counterexample(command, counterexample, files)`` runs
@@ -891,6 +928,9 @@ def apply(
         }
     state["next_stage"] = request["stage"]
     if not retry:
+        if ask_person(state, request, value, record, ask_planning):
+            entry["asked"] = True
+            return None
         restore(state, request, annotate(state, request["status"], request["reason"]))
         return None
     pending = request.get("pending_report_repair")

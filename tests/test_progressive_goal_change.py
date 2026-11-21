@@ -24,6 +24,8 @@ import autocode_resolver_human as human
 import autocode_util as util
 import goal_fixtures
 
+from tests.progressive_test_support import with_independent_probe
+
 COMMAND = "python3 -m unittest test_greeting.py"
 
 
@@ -106,6 +108,8 @@ class GoalChangeTests(unittest.TestCase):
         }
 
     def stage(self, stage, report):
+        if stage == "tester":
+            report = with_independent_probe(report)
         self.state["next_stage"] = stage
         output = self.run_dir / (stage + "-" + str(len(self.state.get("stages", []))) + ".json")
         output.write_text(json.dumps(report))
@@ -128,23 +132,25 @@ class GoalChangeTests(unittest.TestCase):
             record["events"] = str(events)
         if stage == "tester":
             record["role"] = "tester"
-            result = subprocess.run(COMMAND, shell=True, cwd=self.workspace, capture_output=True, text=True, check=True)
             events = output.with_suffix(".jsonl")
-            events.write_text(
-                json.dumps(
+            rows = []
+            for check in report["checks"]:
+                result = subprocess.run(
+                    check["command"], shell=True, cwd=self.workspace, capture_output=True, text=True, check=True
+                )
+                rows.append(
                     {
                         "type": "item.completed",
                         "item": {
-                            "id": "check",
+                            "id": check["evidence_ref"].removeprefix("event:"),
                             "type": "command_execution",
-                            "command": COMMAND,
+                            "command": check["command"],
                             "exit_code": result.returncode,
                             "aggregated_output": result.stdout + result.stderr,
                         },
                     }
                 )
-                + "\n"
-            )
+            events.write_text("\n".join(json.dumps(row) for row in rows) + "\n")
             record["events"] = str(events)
         if stage in ("review_plan", "finalize_plan"):
             try:

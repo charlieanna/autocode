@@ -768,6 +768,77 @@ class ApplyTests(unittest.TestCase):
         self.assertEqual({"attempts": 2}, state["pending_report_repair"])
         self.assertNotIn("stuck_investigation", state)
 
+    def planning_stall(self, **extra):
+        """A spec-first revise_plan whose report repair was rejected, as in the live run behind #3993."""
+        state = self.investigated(
+            "PAUSED_INVALID_OUTPUT",
+            stage="revise_plan",
+            phase="PLANNING",
+            pending_report_repair={"attempts": 1, "original": {"stage": "revise_plan"}},
+            **extra,
+        )
+        self.addCleanup(shutil.rmtree, state["workspace"])
+        output = Path(state["workspace"]) / "diagnosis.json"
+        output.write_text("{}\n")
+        autoresolver.apply_job(
+            stuck.STAGE,
+            state,
+            report("pause", user_question="Should the round trip cover only Versions with valid identifiers?"),
+            {"output": str(output), "changed_files": []},
+            state["workspace"],
+            run_dir=Path(state["workspace"]),
+        )
+        return state
+
+    def test_a_planning_stage_that_needs_the_person_asks_them_and_planning_continues_with_the_answer(self):
+        # #3993: the Investigator's needs_user question was left in the restored PAUSED_INVALID_OUTPUT's
+        # reason, so the view offered only --resume-paused, which reran revise_plan into the same conflict.
+        import autocode_goals as goals
+        import autocode_resolver_human as human
+        import autocode_run_view as run_view
+        import autocode_user_authority as authority
+
+        draft = {
+            "task_id": "t1",
+            "revision": 1,
+            "approval_status": "draft",
+            "body": {
+                "intended_outcome": "JSON round trip",
+                "acceptance_criteria": [
+                    {"id": "AC1", "criterion": "Every Version round-trips", "verification_method": "test: t"}
+                ],
+                "open_blocking_questions": [],
+            },
+        }
+        state = self.planning_stall(goal_contract=draft)
+        self.assertEqual("escalate", human.evaluate(state))
+        shown = run_view.view(copy.deepcopy(state))
+        question = state["pending_questions"][0]
+        self.assertEqual(("WAITING_FOR_USER", "answer"), (state["status"], shown["needs"]["kind"]))
+        self.assertEqual("Should the round trip cover only Versions with valid identifiers?", question["question"])
+        self.assertIn(f"--answer {question['id']}=ANSWER", shown["next_command"])
+        self.assertNotIn("--resume-paused", shown["next_command"])
+        self.assertEqual([question], state["goal_contract"]["body"]["open_blocking_questions"])
+        self.assertNotIn("pending_report_repair", state)
+        self.assertEqual(
+            "Superseded by the Investigator's question for the person", state["report_repair_archive"][-1]["reason"]
+        )
+        self.assertTrue(state["stuck_investigations"][-1]["asked"])
+
+        goals.answer(state, question["id"], "Only Versions with valid SemVer identifiers; loading stays strict.")
+        self.assertEqual(
+            ("RUNNING", "DISCOVERING", "draft_plan"), (state["status"], state["phase"], state["next_stage"])
+        )
+        # The answer is the person's own basis, which a revision changing the protected promise must cite.
+        self.assertTrue(authority.saved_user_basis(state, "user_answer", question["id"]))
+        self.assertEqual([], state["goal_contract"]["body"]["open_blocking_questions"])
+
+    def test_without_a_draft_to_ask_in_the_planning_pause_is_restored_as_before(self):
+        state = self.planning_stall()
+        self.assertEqual(("PAUSED_INVALID_OUTPUT", "revise_plan"), (state["status"], state["next_stage"]))
+        self.assertIn("Needs you: Should the round trip", state["stop_reason"])
+        self.assertEqual({"attempts": 1, "original": {"stage": "revise_plan"}}, state["pending_report_repair"])
+
     def test_a_diagnose_only_pause_is_never_retried(self):
         state = self.investigated("PAUSED_BUILDER_RETRY_LIMIT")
         stuck.apply(state, report(), {}, state["workspace"])
