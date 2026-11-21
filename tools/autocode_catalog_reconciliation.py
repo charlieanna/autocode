@@ -14,6 +14,7 @@ try:
     from . import autocode_repo_catalog as catalog
     from . import autocode_roles as roles
     from . import autocode_run_status as run_status
+    from . import autocode_stop as stop
     from . import autocode_util as util
     from . import autocode_workflows as workflows
 except ImportError:
@@ -21,6 +22,7 @@ except ImportError:
     import autocode_repo_catalog as catalog
     import autocode_roles as roles
     import autocode_run_status as run_status
+    import autocode_stop as stop
     import autocode_util as util
     import autocode_workflows as workflows
 
@@ -30,6 +32,7 @@ PREFIX = "catalog-v1:"
 def candidate(state: RunState):
     """Return current and original inventories only at a safe planning boundary."""
     v2 = roles.planning_flow(state) == "v2"
+    pause = state.get("pause_intent")
     if (
         state.get("status") != "PAUSED_SOURCE_UNAVAILABLE"
         or not str(state.get("stop_reason") or "").startswith("The task's source catalog changed:")
@@ -48,11 +51,12 @@ def candidate(state: RunState):
                 "user_request",
                 "resolver_human_proposal",
                 "resolver_human_request",
-                "pause_intent",
                 "changeset_approval",
                 "parent_run",
             )
         )
+        or (pause and (not isinstance(pause, dict) or not pause.get("acknowledged_at")))
+        or stop.applied_stop(state) is not None
     ):
         return None
     old = context.saved_inventory(state)

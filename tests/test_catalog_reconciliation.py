@@ -285,6 +285,28 @@ class CatalogReconciliationTests(unittest.TestCase):
                 self.assertEqual(2, current["planning"]["plan_review_calls"])
                 self.assertNotIn("goal_contract", current)
 
+    def test_acknowledged_pause_does_not_block_but_pending_pause_or_stop_does(self):
+        self.changed_state()
+        current = copy.deepcopy(self.state)
+        current["pause_intent"] = {"acknowledged_at": "2026-11-20T00:00:00Z"}
+        offer = reconciliation.offer(current, controller={"kind": "ended"})
+        self.assertIsNotNone(offer)
+        token = offer["action"].split()[-1]
+        for pause in ({"requested_at": "earlier"}, "malformed"):
+            changed = copy.deepcopy(current)
+            changed["pause_intent"] = pause
+            self.assertIsNone(reconciliation.offer(changed, controller={"kind": "ended"}))
+            with self.assertRaises(ValueError):
+                reconciliation.require_binding(changed, token)
+        stopped = copy.deepcopy(current)
+        stopped["applied_interventions"] = [{"kind": "stop"}]
+        self.assertIsNone(reconciliation.offer(stopped, controller={"kind": "ended"}))
+        self.assertIsNone(reconciliation.offer(current, controller={"kind": "ended"}, stop_pending=True))
+        reconciliation.reconcile(
+            SimpleNamespace(goals=goals, write_json=util.atomic_json), current, current["run_dir"], token
+        )
+        self.assertEqual("requirements_gather", current["next_stage"])
+
 
 class CatalogReconciliationCliTests(unittest.TestCase):
     setUp = cli_fixtures.JsonActionCliTests.setUp
