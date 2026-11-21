@@ -705,6 +705,10 @@ class UndeterminedReplayTests(unittest.TestCase):
             "source_revision": proof["source_revision"],
             "path": str(path),
             "receipt_sha256": guard.util.file_hash(path),
+            "execution_context": {
+                "test_role_policy": guard.test_roles.VERSION,
+                "protected_test_binding": self.state["settings"]["protected_tests"]["binding_hash"],
+            },
         }
         replay_log = proof_dir / "replay-source.log"
         replay_log.write_text(
@@ -760,6 +764,10 @@ class UndeterminedReplayTests(unittest.TestCase):
             "source_revision": revision,
             "path": str(path),
             "receipt_sha256": guard.util.file_hash(path),
+            "execution_context": {
+                "test_role_policy": guard.test_roles.VERSION,
+                "protected_test_binding": self.state["settings"]["protected_tests"]["binding_hash"],
+            },
         }
         self.assertTrue(schedule.proof_intact(proof["checks"], root=proof_dir))
         error, receipt = self.replay({("candidate", 0): candidate, ("original", 0): candidate})
@@ -834,6 +842,13 @@ class UndeterminedReplayTests(unittest.TestCase):
     def test_stale_proof_cannot_excuse_an_identical_failure(self):
         _test_id, replay = self.record_base_failure()
         self.state["regression_proof"]["source_revision"] = "an-old-source-revision"
+        error, receipt = self.replay({("candidate", 0): replay, ("original", 0): replay})
+        self.assertIsNotNone(error)
+        self.assertNotEqual("PASS", json.loads(receipt.read_text())["verdict"])
+
+    def test_proof_bound_to_another_test_inventory_cannot_excuse_failure(self):
+        _test_id, replay = self.record_base_failure()
+        self.state["regression_proof"]["execution_context"]["protected_test_binding"] = "stale-binding"
         error, receipt = self.replay({("candidate", 0): replay, ("original", 0): replay})
         self.assertIsNotNone(error)
         self.assertNotEqual("PASS", json.loads(receipt.read_text())["verdict"])

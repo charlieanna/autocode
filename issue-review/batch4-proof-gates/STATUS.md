@@ -14,7 +14,9 @@ what was independently observed during continuation.
 - A protected-replay regression now captures identical baseline failures
   with source-bound, hashed baseline evidence. It fails on master and this
   branch. Companion checks require same-test different failures, tampered
-  baseline or candidate proof output, and stale proofs to stay blocked.
+  baseline or candidate proof output, stale revisions and a mismatched protected
+  test binding to stay blocked. The fixtures carry the current test-role policy
+  and protected binding, as real current regression proofs do.
 - The existing suite-preservation judgment compares failure IDs alone. A
   changed assertion can fail under the same ID, so that judgment cannot
   establish the identical-failure condition for #3944. Preserve and compare
