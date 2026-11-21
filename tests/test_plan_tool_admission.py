@@ -15,9 +15,11 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import autocode_completion_result as completion_result
 import autocode_goal_lifecycle as lifecycle
 import autocode_plan_defects as plan_defects
 import autocode_plan_tool_admission as admission
+import autocode_regression as regression
 import autocode_tool_admission as tool_admission
 import autocode_toolchain as toolchain
 from goal_fixtures import body
@@ -129,6 +131,50 @@ class InstallTests(WorkspaceCase):
                 lifecycle.install_draft(current, copy.deepcopy(draft), origin="planner_draft")
                 self.assertEqual([], self.corrections(current))
                 self.assertNotEqual("WAITING_FOR_USER", current["status"])
+
+
+class ReopenTests(WorkspaceCase):
+    """A plan approved before the check (or whose admission changed since) goes back to the Planner (#4015)."""
+
+    def approved(self, command, **settings):
+        current = self.state(**settings)
+        with mock.patch.object(admission, "defect", return_value=None):  # approved before the check existed
+            lifecycle.install_draft(current, plan("python3 -m pytest -q", command), origin="planner_draft")
+        current["goal_contract"].update(approval_status="approved", approval_event={"id": "approval-1"})
+        current.update(status="RUNNING", phase="EXECUTING", next_stage="builder")
+        return current
+
+    def before_launch(self, current):
+        # No proof is spent on a launch the boundary would refuse.
+        with mock.patch.object(regression, "before_review", side_effect=AssertionError("proof ran")):
+            return completion_result.before_review(current, "builder", self.root, self.root / "run")
+
+    def test_an_approved_plan_the_boundary_refuses_returns_to_the_planner_before_any_launch(self):
+        current = self.approved("uv run pytest -q tests/")
+        self.assertIs(True, self.before_launch(current))
+        self.assertEqual(
+            ("RUNNING", "DISCOVERING", "draft_plan"), tuple(current[k] for k in ("status", "phase", "next_stage"))
+        )
+        self.assertEqual(
+            ("draft", None), (current["goal_contract"]["approval_status"], current["goal_contract"]["approval_event"])
+        )
+        [event] = [e for e in current["user_events"] if e.get("settled_as") == plan_defects.KIND]
+        self.assertEqual((admission.QUESTION_ID, ["C2"]), (event["question_id"], event["plan_parts"]))
+        self.assertIn("`uv run pytest -q tests/`", event["text"])
+
+    def test_an_admitted_or_unapproved_plan_and_a_second_refusal_in_the_round_launch_as_before(self):
+        admitted = self.approved("python3 -m pytest tests/")
+        unapproved = self.approved("uv run pytest -q tests/")
+        unapproved["goal_contract"]["approval_status"] = "draft"
+        spent = self.approved("uv run pytest -q tests/")
+        spent["user_events"].append(
+            {"kind": "technical_decision", "actor": "autocode", "settled_as": plan_defects.KIND}
+        )
+        for name, current in (("admitted", admitted), ("unapproved", unapproved), ("spent", spent)):
+            with self.subTest(name):
+                before = copy.deepcopy(current)
+                self.assertIs(False, admission.reopen(current))
+                self.assertEqual(before, current)
 
 
 class PauseTextTests(unittest.TestCase):

@@ -21,8 +21,16 @@ def before_review(state: RunState, stage, workspace, run_dir):
 
     True when the stage must wait for another progressing local verification step,
     its proof sent changed guards back to plan review, or, before the Tester, the
-    proof of this source sent the run to the wrong-implementations study first.
+    proof of this source sent the run to the wrong-implementations study first; or, before any launch, the
+    approved plan runs a program the tool boundary refuses and went back to the Planner (#4015).
     """
+    try:
+        from . import autocode_plan_tool_admission as plan_tool_admission
+    except ImportError:
+        import autocode_plan_tool_admission as plan_tool_admission
+    # First, so no proof is spent on a launch the boundary would refuse: the plan's commands cannot change.
+    if plan_tool_admission.reopen(state):
+        return True
     if _before_review(state, stage, workspace, run_dir) is True:
         return True
     if stage != "tester":
