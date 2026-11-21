@@ -42,6 +42,30 @@ and writes inside the dependency target. It does not authenticate dependency
 contents, guard unrelated host processes, or establish Linux support. Its
 results are at `/private/var/folders/n2/dv1vdhq91fj3dzzffg704bjh0000gn/T/autocode-dependency-attacks-_jwsg_zt/result.json`.
 Do not treat the prototype as a product fix or claim in-flight identity.
+
+**Real-fixture boundary follow-up:** a fresh copy of the original SemVer AC6
+test ran with its selected `qaenv` interpreter under an experimental macOS
+source-readonly policy that allowed `.coverage*` and `.pytest_cache` output.
+The original failed on missing `dumps_version`, and the candidate passed;
+there were no warnings in those two captured logs. This was a standalone
+reconstruction, not an authenticated runner receipt or a proof that the
+sandbox preserves all semantics. See
+`/private/var/folders/n2/dv1vdhq91fj3dzzffg704bjh0000gn/T/autocode-real-semver-sandbox-qb7rj053/summary.json`.
+A synthetic test in a second copy of the same candidate and interpreter read
+the real project module as a decoy, then loaded external `semver` through a
+custom finder and passed. Its result is
+`/private/var/folders/n2/dv1vdhq91fj3dzzffg704bjh0000gn/T/autocode-real-semver-decoy-3nicj_8i/result.json`.
+A further synthetic test under a source-readonly policy loaded a `semver`
+module from an allowed `.coverage` output. That run passed with coverage/cache
+warnings and is only a negative control; a narrower policy had already failed
+before tests because SQLite could not open its coverage journal. Both results
+are retained under
+`/private/var/folders/n2/dv1vdhq91fj3dzzffg704bjh0000gn/T/autocode-real-semver-writable-output-j527napp/`.
+Thus authentic file-read events alone cannot identify what was imported, and
+allowing output writes in a readonly source tree is not an executable-source
+boundary. A same-execution, independently authenticated import identity or an
+equivalent evidence boundary is still needed; module reports, custom finder
+self-reports and Python-level audit events cannot supply that authority.
 The original handoff file was absent from this checkout, so this status records
 what was independently observed during continuation.
 
