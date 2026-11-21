@@ -23,6 +23,13 @@ test can fail on base and pass on candidate for an unrelated setup failure.
 For a module-level collection error no individual test ran on base at all.
 Do not infer source from matching names, changed-file words, or an untrusted
 finder; these cases remain held until there is independent evidence.
+An owned-runner control also shows why a separate standard `PathFinder`
+probe is insufficient: it finds the project's `release_api.py`, while the
+actual candidate test first installs a custom finder and loads an external
+module. The project file returns 0 and the external one returns 42, so the
+test passes only with the external import. Authenticating the resolver and
+module state at the exact import in the actual test process is still needed;
+the existing runner records no such events.
 
 The branch was rebased onto master `6ae029754` and additionally incorporates
 the capture ownership fixture correction from `251841736` (cherry-picked as

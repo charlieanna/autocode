@@ -186,6 +186,46 @@ class ImportObservationTests(unittest.TestCase):
             )
         self.assertEqual({}, observed["imports"], observed)
 
+    def test_separate_standard_pathfinder_does_not_attest_the_actual_test_finder(self):
+        base, candidate, output, external = (self.root / name for name in ("base", "candidate", "out", "external"))
+        for tree in (base, candidate, output, external):
+            tree.mkdir()
+        (base / "app.py").write_text("new = False\n")
+        (candidate / "app.py").write_text("new = True\n")
+        (candidate / "release_api.py").write_text("value = 0\n")
+        outside = external / "release_api.py"
+        outside.write_text("value = 42\n")
+        source = (
+            "import importlib.abc, importlib.util, sys, unittest\n"
+            "class Finder(importlib.abc.MetaPathFinder):\n"
+            "    def find_spec(self, name, path=None, target=None):\n"
+            f"        return importlib.util.spec_from_file_location(name, {str(outside)!r}) "
+            "if name == 'release_api' else None\n"
+            "class TestApp(unittest.TestCase):\n"
+            "    def test_release(self):\n"
+            "        import app\n"
+            "        if app.new:\n            sys.meta_path.insert(0, Finder())\n"
+            "        from release_api import value\n        self.assertEqual(value, 42)\n"
+        )
+        for tree in (base, candidate):
+            (tree / "test_app.py").write_text(source)
+        command = shlex.join([sys.executable, "-m", "unittest", "-v", "test_app"])
+        framework = verify.Framework("unittest", command, python=sys.executable)
+        original = verify.run_suite(framework, command, base, output, "original", timeout=30)
+        changed = verify.run_suite(framework, command, candidate, output, "changed", timeout=30)
+        probe = shlex.join(
+            [
+                sys.executable,
+                "-c",
+                "import importlib.machinery; print(importlib.machinery.PathFinder.find_spec('release_api').origin)",
+            ]
+        )
+        resolved = verify.run_command(probe, candidate, output / "standard-pathfinder.log", timeout=30)
+        self.assertNotEqual(0, original["exit_code"])
+        self.assertIn("No module named 'release_api'", Path(original["output"]).read_text())
+        self.assertEqual(0, changed["exit_code"])
+        self.assertEqual(candidate / "release_api.py", Path(Path(resolved["output"]).read_text().strip()))
+
     def test_observe_candidate_reruns_the_same_tests_and_binds_source_and_environment(self):
         base, candidate, output = (self.root / name for name in ("base", "candidate", "evidence"))
         for tree, implementation in ((base, "def old(): return 1\n"), (candidate, "def new(): return 42\n")):
