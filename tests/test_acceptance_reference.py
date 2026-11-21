@@ -182,6 +182,17 @@ class AcceptanceReferenceTests(unittest.TestCase):
         self.bugfix()
         self.assert_refused(self.apply())
 
+    def test_new_behavior_does_not_accept_a_missing_third_party_dependency_as_a_failure(self):
+        (self.workspace / "tests/test_feature.py").write_text(
+            "import unittest\nfrom app import answer\n"
+            "class Feature(unittest.TestCase):\n"
+            "    def test_ac1_answer(self):\n"
+            "        if answer() == 0:\n"
+            "            import missing_autocode_audit_dependency\n"
+            "        self.assertEqual(answer(), 42)\n"
+        )
+        self.assert_refused(self.apply())
+
     def test_ac11_new_behavior_module_level_import_is_a_base_failure(self):
         self.module_level_new_name()
         reference = self.assert_reaches_builder(self.apply())
