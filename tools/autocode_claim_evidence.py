@@ -319,8 +319,8 @@ def reference_claims(report: dict, claim_context: dict) -> tuple[list[str], list
             problems.append(
                 f"Criterion {cid} claims references resolve, but its PASS cites only a single run of {cited}: a "
                 "single run cannot show what the change added. Run the base-versus-candidate comparison instead, "
-                f"`autocode capture --compare-base {base or 'BASE'} --output .autocode/evidence/<name>.json "
-                "-- COMMAND` (with the capture command your handoff names), where COMMAND must be a build that "
+                f"adding `--compare-base {base or 'BASE'} --output .autocode/evidence/<name>.json "
+                "-- COMMAND` to the exact capture_command your handoff names, where COMMAND must be a build that "
                 f"reports unresolved references, and cite that receipt for {cid}."
             )
             continue

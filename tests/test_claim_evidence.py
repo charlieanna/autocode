@@ -270,6 +270,8 @@ class ReportCheckClaimTests(unittest.TestCase):
         self.assertIn(f"--compare-base {BASE}", error)
         self.assertIn("-- COMMAND`", error)
         self.assertIn("COMMAND must be a build that reports unresolved references", error)
+        self.assertIn("exact capture_command your handoff names", error)
+        self.assertNotIn("`autocode capture", error)
         self.assertNotIn(f"-- {SINGLE_BUILD}", error)
 
     def test_ac8_reference_claim_judged_by_diagnostics_comparison(self):
