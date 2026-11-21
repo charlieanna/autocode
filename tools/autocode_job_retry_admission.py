@@ -113,6 +113,33 @@ def route_configuration_matches(state: RunState, failure, assignment):
     return configuration(state) == expected
 
 
+def answer_effort(state: RunState, failure, role, effort):
+    """Keep an explicitly named bound effort when it restores a drifted current route."""
+    bound = ((failure.get("configuration") or {}).get("roles") or {}).get(role) or {}
+    current = (((state.get("settings") or {}).get("roles") or {}).get(role)) or {}
+    if not isinstance(bound, dict) or not isinstance(current, dict):
+        raise ValueError("The stopped job's saved route is malformed")
+    if effort == bound.get("reasoning_effort") and effort == current.get("reasoning_effort"):
+        return None
+    return effort
+
+
+def effort_drift(state: RunState, failure, role):
+    """A recognized saved and current effort differ for this route."""
+    bound = ((failure.get("configuration") or {}).get("roles") or {}).get(role) or {}
+    current = (((state.get("settings") or {}).get("roles") or {}).get(role)) or {}
+    if not isinstance(bound, dict) or not isinstance(current, dict):
+        return False
+    saved_effort, current_effort = bound.get("reasoning_effort"), current.get("reasoning_effort")
+    return (
+        isinstance(saved_effort, str)
+        and saved_effort in quota_route.route_fit.SCALE
+        and isinstance(current_effort, str)
+        and current_effort in quota_route.route_fit.SCALE
+        and saved_effort != current_effort
+    )
+
+
 def route_is_repairable(state: RunState, *, cross_check, failure_status, configured_tool=False):
     """Try saved offered models against the same concrete assignment configuration gate."""
     question = quota_route.job_question(state)
@@ -149,16 +176,31 @@ def route_is_repairable(state: RunState, *, cross_check, failure_status, configu
                     # A route question is free form. This observes only model drift;
                     # its concrete answer still passes every normal locked gate.
                     return True
-    candidates = question.get("candidates")
-    if not isinstance(candidates, list):
+    saved_candidates = question.get("candidates")
+    candidates = list(saved_candidates) if isinstance(saved_candidates, list) else []
+    bound = ((failure.get("configuration") or {}).get("roles") or {}).get(role) or {}
+    if not isinstance(bound, dict):
         return False
+    saved_model, saved_effort = bound.get("model"), bound.get("reasoning_effort")
+    if (
+        isinstance(saved_model, str)
+        and isinstance(saved_effort, str)
+        and effort_drift(state, failure, role)
+        and quota_route.engine(state.get("settings") or {}, role) != "opencode"
+    ):
+        candidates.append(f"{saved_model}@{saved_effort}")
+        routes = (state.get("settings") or {}).get("roles") or {}
+        if isinstance(routes, dict) and len(routes) <= 32:
+            candidates.extend(
+                f"{route['model']}@{saved_effort}"
+                for route in routes.values()
+                if isinstance(route, dict) and isinstance(route.get("model"), str)
+            )
     for answer in candidates:
         if not isinstance(answer, str):
             continue
         model, effort = quota_route.split_effort(answer)
-        bound = ((failure.get("configuration") or {}).get("roles") or {}).get(role) or {}
-        if effort == bound.get("reasoning_effort"):
-            effort = None
+        effort = answer_effort(state, failure, role, effort)
         if failure.get("pause_status") in (
             quota_route.REFUSAL_STATUS,
             quota_route.OUTPUT_STATUS,
