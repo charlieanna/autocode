@@ -23,18 +23,28 @@ from tests.test_verify import Project, git, isolated_python
 
 ARCHITECTURE = {"README.md": "Two components.\n", "architecture/components.json": '[{"id":"gateway"},{"id":"store"}]\n'}
 SERVER = "def health():\n    return {status!r}\n"
-NEW_TEST = (
+BASE_TEST = (
     "import os\nimport sys\nimport unittest\n"
     "sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))\n"
     "import server\nclass GatewayTests(unittest.TestCase):\n"
     "    def test_c1_health_answers_ok(self):\n        self.assertEqual('ok', server.health())\n"
 )
+NEW_TEST = (
+    BASE_TEST.replace("import unittest\n", "import unittest\nimport importlib.util\n")
+    .replace("import server\n", "")
+    .replace(
+        "    def test_c1_health_answers_ok(self):\n",
+        "    def test_c1_health_answers_ok(self):\n"
+        "        self.assertIsNotNone(importlib.util.find_spec('server'))\n"
+        "        import server\n",
+    )
+)
 OLD_TEST = (
-    NEW_TEST.replace("GatewayTests", "ExistingTests")
+    BASE_TEST.replace("GatewayTests", "ExistingTests")
     .replace("test_c1_health_answers_ok", "test_health_is_string")
     .replace("self.assertEqual('ok', server.health())", "self.assertIsInstance(server.health(), str)")
 )
-SMOKE_TEST = NEW_TEST.replace("self.assertEqual('ok', server.health())", "self.assertTrue(server.health())")
+SMOKE_TEST = BASE_TEST.replace("self.assertEqual('ok', server.health())", "self.assertTrue(server.health())")
 CRITERION = {
     "id": "C1",
     "criterion": "GET /health answers ok",

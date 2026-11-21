@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import subprocess
 import uuid
 from pathlib import Path
@@ -122,8 +123,47 @@ def intact(receipt, *, root=None):
             and output.is_file()
             and util.file_hash(output) == receipt["output_sha256"]
             and (receipt.get("results_format") != "junit" or junit_proof.report_intact(receipt, junit, root=root))
+            and ("results_capture" not in receipt or results_capture_intact(receipt, root=root))
         )
     except (OSError, KeyError, TypeError):
+        return False
+
+
+def record_result_capture(receipt, path, command, *, retain):
+    """Record a runner-named results file, respecting shell-quoted evidence paths."""
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        words = [command]
+    if not any(str(path) in word for word in words):
+        return
+    receipt["results_file_written"] = path.is_file()
+    if retain and receipt["results_file_written"]:
+        capture = {"path": str(path), "sha256": None}
+        try:
+            if not path.is_symlink() and path.stat().st_nlink == 1:
+                capture["sha256"] = util.file_hash(path)
+        except OSError:
+            pass  # The integrity check refuses an unavailable result file.
+        receipt["results_capture"] = capture
+
+
+def results_capture_intact(receipt, *, root=None):
+    """Authenticate the runner's retained per-test output before reading its details."""
+    try:
+        capture = receipt["results_capture"]
+        path = Path(capture["path"])
+        output = Path(receipt["output"])
+        boundary = Path(root) if root is not None else output.parent
+        return bool(
+            path.parent == output.parent
+            and command_receipt.owned_relative(path, boundary)
+            and not path.is_symlink()
+            and path.is_file()
+            and path.stat().st_nlink == 1
+            and util.file_hash(path) == capture["sha256"]
+        )
+    except (OSError, KeyError, TypeError, ValueError):
         return False
 
 

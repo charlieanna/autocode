@@ -10,7 +10,15 @@ from unittest import mock
 import attribute_failure
 import run_suite
 
-from .ci_failure_fixture import failure_output, ref_failure_output
+from .ci_failure_fixture import (
+    STRING_CODE,
+    STRING_DIFF,
+    TEMP_BASE,
+    TEMP_HEAD,
+    assertion_output,
+    failure_output,
+    ref_failure_output,
+)
 
 
 class FirstSkipTests(unittest.TestCase):
@@ -107,6 +115,19 @@ class ClassifyTests(unittest.TestCase):
             self.assertEqual(
                 attribute_failure.DIFFERENT,
                 attribute_failure.classify("tests.value", self.base, 60, head_failures=head),
+            )
+
+    def test_ac2_failure_with_a_new_temp_path_is_pre_existing(self):
+        self.module("test_runs", "# fixture exists\n")
+        head = attribute_failure.failure_signatures.signatures(
+            assertion_output("/head", STRING_CODE, STRING_DIFF + TEMP_HEAD), Path("/head")
+        )
+        output = assertion_output(str(self.base), STRING_CODE, STRING_DIFF + TEMP_BASE)
+        probe = type("Probe", (), {"returncode": 1, "stdout": "", "stderr": output})()
+        with mock.patch.object(attribute_failure.subprocess, "run", return_value=probe):
+            self.assertEqual(
+                attribute_failure.PRE_EXISTING,
+                attribute_failure.classify("tests.test_runs", self.base, 60, head_failures=head),
             )
 
     def test_incomplete_base_output_cannot_exonerate_matching_failures(self):

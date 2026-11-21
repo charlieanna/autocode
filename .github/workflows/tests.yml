@@ -95,7 +95,7 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y -q bubblewrap xvfb
           python3 -m venv .venv
-          .venv/bin/python -m pip install -e '.[test]'
+          .venv/bin/python -m pip install -e '.[test,coverage]' 'pytest-cov>=6,<8'
       - name: Test held status reads and a blocked Planner in the Extension Host
         run: xvfb-run -a npm run test:host
         working-directory: vscode-extension

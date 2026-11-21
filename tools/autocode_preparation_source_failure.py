@@ -28,6 +28,8 @@ def capture(answer):
         if not util.source_unavailable(error) or answer["operation"] not in ("prepare", "execute"):
             raise
         answer["source_refusal"] = {"status": error.status, "reason": util.redact(str(error))[:4000]}
+        if isinstance(error, util.PinnedSourceLinkRefusal):
+            answer["source_refusal"]["link_policy"] = error.policy
 
 
 def rethrow(
@@ -40,7 +42,8 @@ def rethrow(
             set(answer) != {"operation", "nonce", "request_sha256", "source_refusal"}
             or answer["operation"] not in ("prepare", "execute")
             or not isinstance(refused, dict)
-            or set(refused) != {"status", "reason"}
+            or set(refused) not in ({"status", "reason"}, {"status", "reason", "link_policy"})
+            or ("link_policy" in refused and refused["link_policy"] not in ("strict", "protected"))
             or refused["status"] != "PAUSED_SOURCE_UNAVAILABLE"
             or not isinstance(refused["reason"], str)
             or not 0 < len(refused["reason"]) <= 4000
@@ -76,4 +79,6 @@ def rethrow(
                 recovery.hold("source refusal inner owner is outside the original worker")
     except (OSError, ValueError, KeyError, TypeError) as error:
         recovery.hold("source refusal evidence is unavailable: " + str(error))
+    if "link_policy" in refused:
+        raise util.PinnedSourceLinkRefusal(refused["status"], refused["reason"], policy=refused["link_policy"])
     raise util.Paused(refused["status"], refused["reason"])

@@ -1,0 +1,113 @@
+"""
+JSON interchange for a single semver version.
+
+Provides :func:`dumps_version` and :func:`loads_version` to convert a
+single :class:`~semver.version.Version` to a compact JSON object and
+back, so a release manifest can store its individual fields and
+reconstruct the original version.
+"""
+
+import json
+from typing import Any, Dict, List, Tuple, Union
+
+from .version import Version
+
+
+#: The known keys of the JSON object, in their emission order
+_KEYS = ("major", "minor", "patch", "prerelease", "build")
+
+
+def _object_without_duplicates(pairs: List[Tuple[str, Any]]) -> Dict[str, Any]:
+    """
+    Build a dict from JSON object pairs, rejecting duplicate keys.
+
+    :param pairs: the key/value pairs of one JSON object
+    :return: the resulting dictionary
+    :raises ValueError: if a key occurs more than once
+    """
+    result: Dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate key in JSON object: {!r}".format(key))
+        result[key] = value
+    return result
+
+
+def dumps_version(value: Union[Version, str]) -> str:
+    """
+    Convert a version to a compact JSON object string.
+
+    The JSON object contains the keys ``major``, ``minor``, ``patch``,
+    ``prerelease``, and ``build`` in that order. All five keys are always
+    emitted; ``prerelease`` and ``build`` are their string values or
+    ``null``.
+
+    :param value: a :class:`~semver.version.Version` instance or a
+        version string accepted by :meth:`~semver.version.Version.parse`
+    :return: the compact JSON object as a string
+
+    >>> semver.dumps_version("1.2.3-rc.1+007")
+    '{"major":1,"minor":2,"patch":3,"prerelease":"rc.1","build":"007"}'
+    >>> semver.dumps_version(Version(1, 2, 3))
+    '{"major":1,"minor":2,"patch":3,"prerelease":null,"build":null}'
+    """
+    if isinstance(value, Version):
+        version = value
+    elif isinstance(value, str):
+        version = Version.parse(value)
+    else:
+        raise TypeError("not expecting type '%s'" % type(value))
+    return json.dumps(version.to_dict(), separators=(",", ":"))
+
+
+def loads_version(text: str) -> Version:
+    """
+    Convert a JSON object to a version.
+
+    The JSON object must contain ``major``, ``minor``, and ``patch`` as
+    nonnegative JSON integers (booleans, strings, and fractional numbers
+    are invalid). ``prerelease`` and ``build`` may be missing or ``null``;
+    otherwise they must be valid semver prerelease/build strings. Unknown
+    keys, duplicate keys, malformed JSON, and non-object inputs are
+    rejected.
+
+    :param text: the JSON text of one object
+    :return: a new :class:`~semver.version.Version` instance
+    :raises ValueError: if the text is not a valid version object
+
+    >>> semver.loads_version('{"major":1,"minor":2,"patch":3}')
+    Version(major=1, minor=2, patch=3, prerelease=None, build=None)
+    """
+    data = json.loads(text, object_pairs_hook=_object_without_duplicates)
+    if not isinstance(data, dict):
+        raise ValueError("not a JSON object: {!r}".format(data))
+    unknown = [key for key in data if key not in _KEYS]
+    if unknown:
+        raise ValueError(
+            "unknown key(s) in JSON object: {}".format(
+                ", ".join(repr(key) for key in unknown)
+            )
+        )
+    for name in ("major", "minor", "patch"):
+        if name not in data:
+            raise ValueError("missing required key {!r} in JSON object".format(name))
+        number = data[name]
+        if isinstance(number, bool) or not isinstance(number, int):
+            raise ValueError(
+                "key {!r} must be a nonnegative integer, got {!r}".format(name, number)
+            )
+    optional: Dict[str, Any] = {}
+    for name in ("prerelease", "build"):
+        item = data.get(name, None)
+        if item is not None and not isinstance(item, str):
+            raise ValueError(
+                "key {!r} must be a string or null, got {!r}".format(name, item)
+            )
+        optional[name] = item
+    version = Version(data["major"], data["minor"], data["patch"], **optional)
+    reparsed = Version.parse(str(version))
+    if reparsed.to_tuple() != version.to_tuple():
+        raise ValueError(
+            "invalid semver prerelease or build in JSON object: {!r}".format(data)
+        )
+    return version

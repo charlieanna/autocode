@@ -1,0 +1,172 @@
+"""
+Acceptance tests for the JSON interchange of a single Version (AC1-AC6).
+
+The tests exercise semver.dumps_version/semver.loads_version and
+Version.to_json/Version.from_json through the public package API with the
+exact values from the approved acceptance criteria.
+"""
+
+import importlib
+
+import pytest
+
+import semver
+from semver import Version
+
+
+INVALID_JSON_TEXTS = [
+    # Booleans, strings and fractional numbers are invalid number fields
+    '{"major":true,"minor":2,"patch":3}',
+    '{"major":"1","minor":2,"patch":3}',
+    '{"major":1,"minor":2,"patch":1.5}',
+    # Negative and missing number fields
+    '{"major":1,"minor":2,"patch":-1}',
+    '{"major":1,"patch":3}',
+    # Unknown and duplicate keys
+    '{"major":1,"minor":2,"patch":3,"extra":1}',
+    '{"major":1,"minor":2,"patch":3,"major":2}',
+    # Malformed JSON, ending early
+    '{"major":1,',
+    # Non-object inputs
+    '[1,2,3]',
+    '"1.2.3"',
+    '3',
+    # SemVer-invalid optional fields
+    '{"major":1,"minor":2,"patch":3,"prerelease":"rc.01"}',
+    '{"major":1,"minor":2,"patch":3,"build":"x y"}',
+    '{"major":1,"minor":2,"patch":3,"prerelease":""}',
+    '{"major":1,"minor":2,"patch":3,"build":""}',
+    # A plus sign inside a prerelease must not be split into prerelease+build
+    '{"major":1,"minor":2,"patch":3,"prerelease":"rc.1+007"}',
+    # Optional fields that are neither missing, null nor strings
+    '{"major":1,"minor":2,"patch":3,"prerelease":1}',
+    '{"major":1,"minor":2,"patch":3,"build":1}',
+]
+
+
+def test_ac1_dumps_version_compact_five_key_output():
+    assert (
+        semver.dumps_version("1.2.3-rc.1+007")
+        == '{"major":1,"minor":2,"patch":3,"prerelease":"rc.1","build":"007"}'
+    )
+    assert (
+        semver.dumps_version(Version(1, 2, 3))
+        == '{"major":1,"minor":2,"patch":3,"prerelease":null,"build":null}'
+    )
+
+
+def test_ac2_loads_version_valid_and_round_trip():
+    result = semver.loads_version(
+        '{"major":1,"minor":2,"patch":3,"prerelease":"rc.1","build":"007"}'
+    )
+    assert isinstance(result, Version)
+    assert str(result) == "1.2.3-rc.1+007"
+    assert result.prerelease == "rc.1"
+    assert result.build == "007"
+
+    result = semver.loads_version(semver.dumps_version("3.2.1"))
+    assert str(result) == "3.2.1"
+    assert result == Version(3, 2, 1)
+
+    result = semver.loads_version('{"major":1,"minor":2,"patch":3}')
+    assert result == Version(1, 2, 3)
+    assert str(result) == "1.2.3"
+
+    result = semver.loads_version(
+        '{"major":1,"minor":2,"patch":3,"prerelease":null,"build":null}'
+    )
+    assert result == Version(1, 2, 3)
+    assert str(result) == "1.2.3"
+
+    result = semver.loads_version('{"major":0,"minor":0,"patch":0}')
+    assert result == Version(0, 0, 0)
+    assert str(result) == "0.0.0"
+
+    big_major = 9223372036854775808  # 2**63
+    result = semver.loads_version(semver.dumps_version(Version(big_major, 2, 3)))
+    assert str(result) == "9223372036854775808.2.3"
+    assert result.major == big_major
+
+
+def test_ac3_loads_version_rejects_invalid_inputs():
+    for text in INVALID_JSON_TEXTS:
+        with pytest.raises(ValueError):
+            semver.loads_version(text)
+
+    # Full-build control: a record with only build metadata stays valid
+    result = semver.loads_version('{"major":1,"minor":2,"patch":3,"build":"007"}')
+    assert str(result) == "1.2.3+007"
+    assert result.build == "007"
+
+    # Existing diagnostics identify the invalid field without fixing exact wording.
+    field_errors = [
+        ('{"major":1,"minor":2,"patch":3,"extra":1}', "extra"),
+        ('{"major":true,"minor":2,"patch":3}', "major"),
+        ('{"major":1,"minor":2,"patch":-1}', "patch"),
+        ('{"major":1,"minor":2,"patch":3,"build":1}', "build"),
+        ('{"major":1,"minor":2,"patch":3,"prerelease":""}', "prerelease"),
+    ]
+    for text, field in field_errors:
+        with pytest.raises(ValueError) as info:
+            semver.loads_version(text)
+        assert field in str(info.value)
+
+
+def test_ac4_dumps_version_rejects_invalid_input():
+    with pytest.raises(ValueError):
+        semver.dumps_version("1.2")
+    with pytest.raises(TypeError):
+        semver.dumps_version(42)
+    with pytest.raises(TypeError):
+        semver.dumps_version(b"1.2.3")
+
+
+def test_ac5_version_json_methods_agree():
+    assert Version.parse("1.2.3").to_json() == semver.dumps_version("1.2.3")
+    assert (
+        Version.parse("1.2.3-rc.1+007").to_json()
+        == semver.dumps_version("1.2.3-rc.1+007")
+    )
+
+    valid_texts = [
+        '{"major":1,"minor":2,"patch":3,"prerelease":"rc.1","build":"007"}',
+        '{"major":1,"minor":2,"patch":3}',
+        '{"major":1,"minor":2,"patch":3,"prerelease":null,"build":null}',
+        '{"major":1,"minor":2,"patch":3,"build":"007"}',
+        semver.dumps_version("3.2.1"),
+        semver.dumps_version(Version(9223372036854775808, 2, 3)),
+    ]
+    for text in valid_texts:
+        from_json_result = Version.from_json(text)
+        loads_result = semver.loads_version(text)
+        assert isinstance(from_json_result, Version)
+        assert str(from_json_result) == str(loads_result)
+        assert from_json_result.to_dict() == loads_result.to_dict()
+
+    for text in INVALID_JSON_TEXTS:
+        with pytest.raises(ValueError) as loads_info:
+            semver.loads_version(text)
+        with pytest.raises(ValueError) as from_json_info:
+            Version.from_json(text)
+        assert type(from_json_info.value) is type(loads_info.value)
+
+
+def test_ac6_package_exports():
+    import subprocess, sys
+    probe = subprocess.run([sys.executable, "-c", "from semver import dumps_version, loads_version"], capture_output=True, text=True)
+    assert probe.returncode == 0, probe.stderr
+    from semver import dumps_version, loads_version
+
+    assert callable(dumps_version)
+    assert callable(loads_version)
+    assert "dumps_version" in semver.__all__
+    assert "loads_version" in semver.__all__
+
+    module_name = semver.dumps_version.__module__
+    assert module_name.startswith("semver.")
+    assert semver.loads_version.__module__ == module_name
+    module = importlib.import_module(module_name)
+    assert callable(getattr(module, "dumps_version"))
+    assert callable(getattr(module, "loads_version"))
+    assert callable(getattr(semver, 'dumps_version', None))
+    assert callable(getattr(semver, 'loads_version', None))

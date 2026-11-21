@@ -685,9 +685,10 @@ def run_command(
         if type(native_execution) is not native_checks.NativeCheckExecution:
             raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Original concrete native check owner required")
         return native_execution.run_command(command, cwd, log_path, timeout=timeout, env=env, checkpoint=checkpoint)
-    return command_supervision.run(
-        command, cwd, log_path, timeout=timeout, env=test_environment(cwd, env), checkpoint=checkpoint
-    )
+    environment = test_environment(cwd, env)
+    environment_hash = util.digest(environment)
+    receipt = command_supervision.run(command, cwd, log_path, timeout=timeout, env=environment, checkpoint=checkpoint)
+    return {**receipt, "execution_environment_sha256": environment_hash}
 
 
 with_results = test_results.with_results
@@ -1146,12 +1147,10 @@ def run_suite(framework, command, tree, evidence_dir, label, *, timeout, native_
     receipt = run_command(
         actual, tree, Path(evidence_dir) / f"{label}.log", timeout=timeout, native_execution=native_execution
     )
+    receipt["execution_root"] = str(Path(tree).resolve())
     receipt["results"] = per_test_results(framework, receipt, xml, tree=root)
     receipt["results_expected"] = expects_results(framework, command, root, scripts=scripts)
-    if str(xml) in actual:
-        # The command was told to write its per-test results here; a runner that never started writes none
-        # (autocode_check_outcome RUNNER_NOT_STARTED). A runner that parses its own output names no file.
-        receipt["results_file_written"] = xml.is_file()
+    schedule.record_result_capture(receipt, xml, actual, retain=native_execution is None)
     if native_execution is not None:
         native_execution.retain_results(receipt)
     return receipt
@@ -1178,11 +1177,9 @@ def execution_identity(
     """
     workspace = Path(workspace)
     source_snapshot_value = source_snapshot.snapshot(workspace, paths=source_paths)
-    source_symlinks = [
-        name
-        for name, value in source_snapshot_value.get("files", {}).items()
-        if value.startswith("symlink:") and name not in DEPENDENCY_DIRS
-    ]
+    source_symlinks = source_snapshot.unbound_symlinks(
+        workspace, source_snapshot_value["files"], lambda: _read_git(workspace, "ls-files", "-z").split("\0")
+    )
     source_metadata = source_snapshot.metadata(workspace, source_snapshot_value.get("files", {}))
     environment = test_environment(workspace)
     # The command executes in the workspace, or the package ``cd PACKAGE && RUNNER``
@@ -1473,6 +1470,7 @@ def scratch_run(
     acceptance_preflight=False,
     python=None,
     expected_source_revision=None,
+    protected_test_snapshot_links=False,
 ) -> dict:
     """Execute in a copy of HEAD plus current changes and an optional reviewed patch.
     File/link overlays preserve cited inputs. Review mutation returns a typed
@@ -1480,15 +1478,17 @@ def scratch_run(
     ``python`` is the run's recorded interpreter (autocode_test_environment.recorded_python); without it
     the suite is detected with ``python_for``.
     """
-    if type(acceptance_preflight) is not bool:
-        raise ValueError("Acceptance preflight must be a boolean")
+    scratch_preparation.validate_protected_policy(
+        protected_test_snapshot_links, expected_source_revision, review_mutation, acceptance_preflight
+    )
     workspace, run_dir = Path(workspace), Path(run_dir)
     link_guard = scratch_preparation.DependencyGuard()
     native_scope = None
     ownership_uncertain = False
     if native_execution is not None:
+        review_inputs = (review_mutation, review_mutation_deadline, review_source)
         native_checks.validate_scratch_owner(
-            native_execution, review_mutation, review_mutation_deadline, review_source, preparation.active
+            native_execution, review_inputs, preparation.active, protected_test_snapshot_links
         )
         native_scope = native_execution.copy(
             workspace,
@@ -1512,7 +1512,9 @@ def scratch_run(
         parameters = preparation.scratch_parameters(
             patch, files, links, source_paths, dependencies_from, generated_record, generated_unrecorded, ignored_inputs
         )
-        scratch_preparation.source_parameters(parameters, expected_source_revision, review_source)
+        scratch_preparation.source_parameters(
+            parameters, expected_source_revision, review_source, protected_test_snapshot_links
+        )
         if preparation.active():
             answer = preparation.execute(
                 workspace,
@@ -1855,22 +1857,13 @@ def _prove_regression(run: _Run, trees, *, no_go_project, no_junit_project):
         if said := base_bound.stopped(on_base, took, allowed, timeout):
             unverified.append(said)
 
-    def repeat(command, side, label):
-        if run.progress:
-            run.progress(
-                f"Checking regression test stability ({label})", command=command, output=run_dir, phase="stability"
-            )
-        tree = trees["candidate" if side == "candidate" else "base_with_tests"]
-        checks[label] = run_suite(framework, command, tree, run_dir, label, timeout=timeout)
-        return checks[label]
-
     unstable, stability = proof_stability.repeat(
         framework.name if framework else None,
         commands["regression"],
         cases,
         on_candidate,
         on_base,
-        repeat,
+        proof_stability.runner(run, trees, framework, run_suite, timeout),
         base_tree="base_with_tests" in trees,
         directory=getattr(framework, "directory", None),
     )
@@ -1901,6 +1894,8 @@ def _prove_regression(run: _Run, trees, *, no_go_project, no_junit_project):
         proof,
         review_reasons,
         new_behavior=new_behavior,
+        compiled_framework=framework.name if framework is not None else None,
+        absent_first_suite=judgment.first_suite_absent(base_suite, base, commands["suite"]),
         preserve_only=preserve,
         absent_go_base=no_go_project and _go_test(package_scope.split(framework, commands["regression"])[1]),
         absent_junit_base=no_junit_project

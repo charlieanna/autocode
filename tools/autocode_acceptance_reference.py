@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -23,6 +24,7 @@ try:
     from . import autocode_source_scope as source_scope
     from . import autocode_test_cases as test_cases
     from . import autocode_test_role_inventory as role_inventory
+    from . import autocode_test_setup as test_setup
     from . import autocode_util as util
     from . import autocode_verification_commands as commands
     from . import autocode_verification_schedule as schedule
@@ -38,10 +40,20 @@ except ImportError:
     import autocode_source_scope as source_scope
     import autocode_test_cases as test_cases
     import autocode_test_role_inventory as role_inventory
+    import autocode_test_setup as test_setup
     import autocode_util as util
     import autocode_verification_commands as commands
     import autocode_verification_schedule as schedule
     import autocode_verify as verify
+
+
+class SetupEvidenceRequired(ValueError):
+    """A named reference test ran but its setup failure cannot prove behavior."""
+
+    def __init__(self, errors, receipt):
+        super().__init__("selected original-reference tests failed during test setup")
+        self.errors = errors
+        self.receipt = receipt
 
 
 def wholly_passing(named, results) -> dict[str, list[str]]:
@@ -75,12 +87,16 @@ def candidate_problem(run):
     return ""
 
 
-def collect(state: RunState, workspace, run_dir, out, selected, files, command=None):
-    """Run exactly the observed cases on original product code plus today's tests."""
-    workspace, out = Path(workspace), Path(out)
+def collect(state: RunState, workspace, run_dir, out, selected, files, command=None, *, new_behavior=False):
+    """Run exactly the observed cases on original product code plus today's tests.
+
+    ``new_behavior`` is whether the approved task adds behavior rather than fixing a bug. The shared setup
+    classifier excludes preparation failures from proof for both; incomplete collection stays unverified."""
+    workspace, out = Path(workspace), Path(out) / f"attempt-{uuid4().hex}"
     tree = out / "tree"
     uncertain = False
     try:
+        out.mkdir(parents=True, exist_ok=False)
         base = run_base.base_commit(state, workspace)
         if not base:
             raise ValueError("no recorded original reference")
@@ -132,15 +148,19 @@ def collect(state: RunState, workspace, run_dir, out, selected, files, command=N
             after_inputs.identity if after_inputs else None
         ):
             raise ValueError("source or launch inputs changed during original-reference check")
+        results = receipt.get("results")
         if receipt.get("error") or receipt.get("timed_out") or not schedule.complete_results(receipt):
             raise ValueError("original-reference execution did not produce complete named results")
         if not schedule.intact(receipt, root=out):
             raise ValueError("original-reference output capture is incomplete")
-        results = receipt["results"]
         passed, failed = set(results["passed"]), set(results["failed"])
         if set(results["skipped"]) & set(selected_ids) or not set(selected_ids) <= passed | failed:
             raise ValueError("original-reference cases were skipped or not executed")
-        if set(results.get("setup_errors") or {}) & set(selected_ids):
+        setup_errors = test_setup.not_evidence(results, new_behavior=new_behavior)
+        selected_setup = {name: setup_errors[name] for name in selected_ids if name in setup_errors}
+        if selected_setup:
+            if new_behavior:
+                raise SetupEvidenceRequired(selected_setup, receipt)
             raise ValueError("selected original-reference tests failed during test setup")
         verdicts = {}
         for cid, names in selected.items():
@@ -159,11 +179,26 @@ def collect(state: RunState, workspace, run_dir, out, selected, files, command=N
             "receipt": receipt,
             "verdicts": verdicts,
         }
+    except SetupEvidenceRequired as error:
+        rejected = {
+            "error": f"Cannot classify passing tests against the original reference: {error}",
+            "setup_errors": error.errors,
+            "receipt": error.receipt,
+            "base": base,
+            "source_revision": before["revision"],
+            "selected": selected,
+            "test_files": {path: util.file_hash(workspace / path) for path in files},
+        }
+        path = out / f"original-reference-rejection-{uuid4().hex}.json"
+        util.atomic_json(path, rejected)
+        return {**rejected, "evidence": {"path": str(path), "sha256": util.file_hash(path)}}
     except command_receipt.OwnershipUncertain:
         uncertain = True
         raise
     except (OSError, ValueError, RuntimeError) as error:
-        return {"error": f"Cannot classify passing tests against the original reference: {error}"}
+        return {
+            "error": f"Cannot classify passing tests against the original reference: {error}",
+        }
     finally:
         if not uncertain and tree.exists():
             verify.remove_tree(workspace, tree)

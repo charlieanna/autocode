@@ -130,12 +130,22 @@ def invalid_review_inputs(review_mutation, tests, command, files, links, expecte
     )
 
 
-def source_parameters(parameters, revision, review_source):
+def validate_protected_policy(enabled, revision, review_mutation=False, acceptance_preflight=False):
+    """Validate preflight and limit snapshot-only links to pinned ordinary replay."""
+    if type(acceptance_preflight) is not bool:
+        raise ValueError("Acceptance preflight must be a boolean")
+    if type(enabled) is not bool or (enabled and (revision is None or review_mutation)):
+        raise ValueError("Protected test link policy requires a pinned ordinary replay")
+
+
+def source_parameters(parameters, revision, review_source, protected_test_snapshot_links=False):
     """Transport the source pin and optional review scope to the owned worker."""
     if revision is not None:
         parameters["expected_source_revision"] = revision
     if review_source is not None:
         parameters["review_source"] = review_source
+    if protected_test_snapshot_links:
+        parameters["protected_test_snapshot_links"] = True
     return parameters
 
 
@@ -185,18 +195,29 @@ def prepare(
     _before_patch=None,
     review_source=None,
     expected_source_revision=None,
+    protected_test_snapshot_links=False,
     _on_prepared=None,
 ):
     """Existing copy operations, supplied to the owned preparation worker."""
+    validate_protected_policy(protected_test_snapshot_links, expected_source_revision)
     workspace, run_dir = Path(workspace), Path(run_dir)
     before = _source_access(source_snapshot.snapshot, workspace, paths=source_paths)
     if expected_source_revision is not None and before["revision"] != expected_source_revision:
         raise util.Paused("PAUSED_SOURCE_UNAVAILABLE", "Verification source no longer matches its pinned revision")
     expected_files = _source_access(source_snapshot.bound_inventory, workspace, before, paths=source_paths)
+    if unsafe := source_snapshot.first_symlinked_parent(workspace, expected_files):
+        raise util.Paused("PAUSED_SOURCE_UNAVAILABLE", "Source path has a symlinked parent: " + unsafe)
     if expected_source_revision is not None and source_snapshot.unbound_symlinks(
-        workspace, expected_files, lambda: git(workspace, "ls-files", "-z").split("\0")
+        workspace,
+        expected_files,
+        lambda: git(workspace, "ls-files", "-z").split("\0"),
+        allow_untracked_terminal=protected_test_snapshot_links,
     ):
-        raise util.Paused("PAUSED_SOURCE_UNAVAILABLE", "Pinned verification source has an unbound symlink target")
+        raise util.PinnedSourceLinkRefusal(
+            "PAUSED_SOURCE_UNAVAILABLE",
+            "Pinned verification source has an unbound symlink target",
+            policy="protected" if protected_test_snapshot_links else "strict",
+        )
     head = git(workspace, "rev-parse", "HEAD").strip()
     changes = changed_files(workspace, head, source_paths=source_paths)
     if any(

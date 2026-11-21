@@ -475,6 +475,25 @@ class NativeCheckExecutionTests(_ControlledNativeCheckFixture, unittest.TestCase
     def setUp(self):
         self.prepare()
 
+    def test_original_native_owner_refuses_snapshot_only_protected_link_policy(self):
+        command = "python3 -m unittest -v empty_tests"
+        self.declare([command])
+        current = self.approve()
+        execution = self.execution()
+        with patch.object(execution, "copy") as create:
+            with self.assertRaises(util.Paused) as held:
+                verify.scratch_run(
+                    self.root,
+                    self.run / "checks" / "unsupported-link-policy",
+                    command=command,
+                    timeout=30,
+                    expected_source_revision=current["revision"],
+                    protected_test_snapshot_links=True,
+                    native_execution=execution,
+                )
+        self.assertEqual("PAUSED_VISUAL_EVIDENCE", held.exception.status)
+        create.assert_not_called()
+
     @requires_native_check_host
     def test_original_initial_validate_runs_clean_check_without_builder(self):
         current = self.approve()

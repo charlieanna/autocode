@@ -170,7 +170,9 @@ def per_test_results(
                 continue
             if problem is not None:
                 failed.add(test)
-                reason = test_setup.setup_error(problem.text or "", tree, is_test)
+                # Pytest's JUnit message names the outer failure; its body may
+                # also quote stderr from a child with an unrelated traceback.
+                reason = test_setup.setup_error(problem.text or "", tree, is_test, outer_message=problem.get("message"))
                 if reason:
                     setup_errors[test] = reason
                 if not case.get("classname") or "collection failure" in (problem.get("message") or ""):

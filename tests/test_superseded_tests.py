@@ -72,6 +72,24 @@ class Matching(unittest.TestCase):
             with self.subTest(test_id=test_id):
                 self.assertTrue(superseded.matches(ENTRY, test_id))
 
+    def test_pytest_ids_by_module_and_class_match(self):
+        # pytest's JUnit names a test by its dotted module and class, not its file; a live self-build's proof
+        # counted the plan's superseded test as one that disappeared because this id form was not read.
+        for test_id in (
+            "tests.test_shipping.Shipping::test_fifty_dollar_order_pays_standard_fee",
+            "tests.test_shipping::test_fifty_dollar_order_pays_standard_fee",
+            "tests.test_shipping.Shipping::test_fifty_dollar_order_pays_standard_fee[5000]",
+        ):
+            with self.subTest(test_id=test_id):
+                self.assertTrue(superseded.matches(ENTRY, test_id))
+        for test_id in (
+            "tests.test_other.Shipping::test_fifty_dollar_order_pays_standard_fee",
+            "tests.test_shipping.Shipping::test_fifty_dollar_order_pays_standard_fee_twice",
+            "tests.test_shipping.Shipping::test_small_order_pays_fee",
+        ):
+            with self.subTest(test_id=test_id):
+                self.assertFalse(superseded.matches(ENTRY, test_id))
+
     def test_another_test_or_file_or_fixture_does_not_match(self):
         for test_id in (
             "tests.test_shipping.Shipping.test_small_order_pays_fee",

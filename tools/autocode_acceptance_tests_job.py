@@ -142,10 +142,11 @@ class TestsNeedRewriting(ExecutionEvidenceRequired):
     (case id -> {"name", "tests"}) is set only when every fault is a guard whose test ran and failed on its own
     assertion: once the rewrites are spent, those may be cases the plan labelled wrongly (_guards_to_tests)."""
 
-    def __init__(self, message: str, *, skipped=(), failing_guards=None):
+    def __init__(self, message: str, *, skipped=(), failing_guards=None, original_reference=None):
         super().__init__(message)
         self.skipped = sorted(skipped)
         self.failing_guards = dict(failing_guards or {})
+        self.original_reference = original_reference
 
 
 class ReferenceEvidenceRequired(ExecutionEvidenceRequired):
@@ -226,6 +227,7 @@ def _rewrite(state: RunState, error: TestsNeedRewriting, record: dict) -> bool:
             "feedback": str(error),
             "output": record.get("output"),
             "skipped": skipped,
+            **({"original_reference": error.original_reference} if error.original_reference else {}),
         }
     )
     run_status.running(state, "EXECUTING", next_stage=STAGE)
@@ -723,6 +725,20 @@ def apply(
             _verdicts(state, cases, value, workspace, run, inherited=inherited, retained=selected)
             original_reference = run_reference(selected, files)
             if original_reference.get("error"):
+                setup_errors = original_reference.get("setup_errors")
+                if setup_errors and original_reference.get("receipt"):
+                    evidence = original_reference.get("evidence") or {}
+                    raise TestsNeedRewriting(
+                        "The original-reference runner classified the following failures as setup-related, "
+                        "so they are not accepted as behavior proof: "
+                        + "; ".join(f"{name}: {reason}" for name, reason in sorted(setup_errors.items()))
+                        + ". Preserve the approved behavior and all existing assertions. Make the named test "
+                        "run an assertion of the exact approved behavior on both the original and candidate. "
+                        "Do not hide or substitute for a genuinely missing dependency. "
+                        f"Runner evidence: {evidence.get('path', 'unavailable')} "
+                        f"(sha256 {evidence.get('sha256', 'unavailable')}).",
+                        original_reference=original_reference,
+                    )
                 raise ReferenceEvidenceRequired(original_reference["error"])
             classifications = original_reference.get("verdicts") or {}
             if set(classifications) != set(selected) or any(
@@ -747,6 +763,10 @@ def apply(
             return
         if isinstance(error, TestsNeedRewriting):
             if _rewrite(state, error, record):
+                if error.original_reference:
+                    # A retained verification retry cannot edit tests. Archive it before
+                    # scheduling the Tester or it would replay the same report instead.
+                    verification_retry.finish(state)
                 return
             if _guards_to_tests(state, error, files, record, send_back, run_reference):
                 return
@@ -762,6 +782,7 @@ def apply(
                 )
                 + ".",
                 skipped=error.skipped,
+                original_reference=error.original_reference,
             ) from error
         if isinstance(error, ReferenceEvidenceRequired):
             if verification_retry.retain(state, value, record, workspace, error):

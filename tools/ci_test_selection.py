@@ -38,7 +38,11 @@ PUBLIC_FLOW_CONSUMERS = ("tests.test_launch_state_cli", "tests.test_completion_s
 # These helpers are loaded dynamically by the extension-host tests, not by a
 # Python import. Keep the consuming test named so fixture-only edits run it.
 EXTENSION_HOST_RESOURCES = {
-    "vscode-extension/test/python-semantic-transition.cjs": ("vscode-extension/test/host/python-semantic.test.cjs",),
+    "vscode-extension/test/python-semantic-transition.cjs": (
+        "vscode-extension/test/host/named-proof-refusal.test.cjs",
+        "vscode-extension/test/host/python-semantic.test.cjs",
+        "vscode-extension/test/host/semver-reference-repair.test.cjs",
+    ),
     "vscode-extension/test/host/held_cli.py": (
         "vscode-extension/test/host/editor-host.test.cjs",
         "vscode-extension/test/host/python-semantic.test.cjs",
@@ -48,7 +52,9 @@ EXTENSION_HOST_RESOURCES = {
         "vscode-extension/test/host/editor-host.test.cjs",
         "vscode-extension/test/host/job-route-effort.test.cjs",
         "vscode-extension/test/host/kilo-route-effort.test.cjs",
+        "vscode-extension/test/host/named-proof-refusal.test.cjs",
         "vscode-extension/test/host/python-semantic.test.cjs",
+        "vscode-extension/test/host/semver-reference-repair.test.cjs",
     ),
     "tools/autocode_changed_code_evidence.py": ("vscode-extension/test/host/python-semantic.test.cjs",),
     "tools/autocode_changed_code_measurement.py": ("vscode-extension/test/host/python-semantic.test.cjs",),
@@ -59,18 +65,32 @@ EXTENSION_HOST_RESOURCES = {
     "tools/autocode_mutants.py": ("vscode-extension/test/host/python-semantic.test.cjs",),
     "tools/autocode_python_semantic_lines.py": ("vscode-extension/test/host/python-semantic.test.cjs",),
     "tests/guard_host_hook/sitecustomize.py": ("vscode-extension/test/host/job-route-effort.test.cjs",),
+    "tests/fixture_plan_review.py": (
+        "vscode-extension/test/host/named-proof-refusal.test.cjs",
+        "vscode-extension/test/host/semver-reference-repair.test.cjs",
+    ),
     "tests/host_reader_cleanup.py": (
         "vscode-extension/test/host/editor-host.test.cjs",
+        "vscode-extension/test/host/named-proof-refusal.test.cjs",
+        "vscode-extension/test/host/semver-reference-repair.test.cjs",
         "vscode-extension/test/host/classification-outcome.test.cjs",
         "vscode-extension/test/host/python-semantic.test.cjs",
     ),
     "tests/classification_vscode_fixture.py": ("vscode-extension/test/host/classification-outcome.test.cjs",),
-    "tests/test_failure_routing_cli.py": ("vscode-extension/test/host/classification-outcome.test.cjs",),
-    "tests/test_build_blackbox.py": ("vscode-extension/test/host/classification-outcome.test.cjs",),
-    "tests/failure_routing_provider.py": ("vscode-extension/test/host/classification-outcome.test.cjs",),
-    "tests/operational_fixtures.py": ("vscode-extension/test/host/classification-outcome.test.cjs",),
-    "tools/blackbox_build_provider.py": ("vscode-extension/test/host/classification-outcome.test.cjs",),
-    "tools/inprocess_cli.py": ("vscode-extension/test/host/classification-outcome.test.cjs",),
+    **dict.fromkeys(
+        (
+            "tests/test_failure_routing_cli.py",
+            "tests/test_build_blackbox.py",
+            "tests/failure_routing_provider.py",
+            "tests/operational_fixtures.py",
+            "tools/blackbox_build_provider.py",
+            "tools/inprocess_cli.py",
+        ),
+        (
+            "vscode-extension/test/host/classification-outcome.test.cjs",
+            "vscode-extension/test/host/named-proof-refusal.test.cjs",
+        ),
+    ),
     "tests/host_status_site/sitecustomize.py": ("vscode-extension/test/host/status-retry.test.cjs",),
     "tests/job_route_vscode_cli.py": (
         "vscode-extension/test/host/job-route-effort.test.cjs",
@@ -79,17 +99,46 @@ EXTENSION_HOST_RESOURCES = {
     "tests/job_route_vscode_fixture.py": ("vscode-extension/test/host/job-route-effort.test.cjs",),
     "tests/kilo_route_vscode_fixture.py": ("vscode-extension/test/host/kilo-route-effort.test.cjs",),
     "tests/provider_auth_fixture.py": ("vscode-extension/test/host/editor-host.test.cjs",),
+    "tests/protected_link_vscode_fixture.py": ("vscode-extension/test/host/protected-link-recovery.test.cjs",),
     "tests/python_semantic_vscode_fixture.py": ("vscode-extension/test/host/python-semantic.test.cjs",),
     "tests/fixtures/python-semantic-host/displayed-plan.json": ("vscode-extension/test/host/python-semantic.test.cjs",),
     "tests/rustup_vscode_fixture.py": ("vscode-extension/test/host/rustup-containment.test.cjs",),
+    "tests/named_proof_vscode_fixture.py": ("vscode-extension/test/host/named-proof-refusal.test.cjs",),
+    "tests/semver_reference_vscode_fixture.py": ("vscode-extension/test/host/semver-reference-repair.test.cjs",),
+    "tests/semver_reference_provider.py": ("vscode-extension/test/host/semver-reference-repair.test.cjs",),
+    "vscode-extension/test/host/semver-reference-cli.py": (
+        "vscode-extension/test/host/semver-reference-repair.test.cjs",
+    ),
+    **dict.fromkeys(
+        (
+            "tests/fixtures/semver-reference-m1/criteria.json",
+            "tests/fixtures/semver-reference-m1/jsonio-source.py.txt",
+            "tests/fixtures/semver-reference-m1/version-to-json.txt",
+            "tests/fixtures/semver-reference-m1/version-from-json.txt",
+            "tests/fixtures/semver-reference-m1/initial-test.py.txt",
+            "tests/fixtures/semver-reference-m1/strengthened-test.py.txt",
+            "tests/fixtures/semver-reference-m1/strengthened-diagnostic-test.py.txt",
+            "tests/fixtures/semver-reference-m1/repaired-test.py.txt",
+            "tests/fixtures/semver-reference-m1/diagnostic-test.py.txt",
+            "tests/fixtures/semver-reference-m1/control-missing-export.py",
+            "tests/fixtures/semver-reference-m1/control-missing-field.py",
+            "tests/fixtures/semver-reference-m1/control-initial-field.py",
+            "tests/fixtures/semver-reference-m1/control-grounded.py",
+            "tests/fixtures/semver-reference-m1/control-delimiters.py",
+            "tests/fixtures/semver-reference-m1/control-api.py",
+        ),
+        ("vscode-extension/test/host/semver-reference-repair.test.cjs",),
+    ),
     "tests/source_recovery_vscode_fixture.py": ("vscode-extension/test/host/source-recovery.test.cjs",),
     "tests/status_retry_host_cleanup.py": (
         "vscode-extension/test/host/classification-outcome.test.cjs",
         "vscode-extension/test/host/editor-host.test.cjs",
         "vscode-extension/test/host/job-route-effort.test.cjs",
         "vscode-extension/test/host/kilo-route-effort.test.cjs",
+        "vscode-extension/test/host/named-proof-refusal.test.cjs",
         "vscode-extension/test/host/python-semantic.test.cjs",
         "vscode-extension/test/host/status-retry.test.cjs",
+        "vscode-extension/test/host/semver-reference-repair.test.cjs",
     ),
     "tests/status_retry_host_cli.py": ("vscode-extension/test/host/status-retry.test.cjs",),
     "tests/status_retry_host_fixture.py": ("vscode-extension/test/host/status-retry.test.cjs",),
@@ -212,6 +261,9 @@ SCENARIO_SELECTION_INPUTS = {
 # Prefixes deliberately include resource fragments, whose callers generally do
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("tests/fixture_plan_review.py", ("tests.test_semver_reference_plan_review",)),
+    ("tests/semver_reference_vscode_fixture.py", ("tests.test_semver_reference_plan_review",)),
+    ("tests/semver_reference_provider.py", ("tests.test_semver_reference_provider",)),
     *(
         (
             path,
@@ -659,6 +711,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
         "scenarios/harness/fake_codex.py",
         (
+            "tests.test_fake_codex_event_identity",
             "tests.test_brief_cli",
             "tests.test_risk_cli",
             "tests.test_requirements_job_cli",

@@ -245,6 +245,23 @@ class RunSetupBoundaryTests(unittest.TestCase):
         self.runtime.pause_command.recovery.assert_not_called()
         self.runtime.resolver_runtime.record_operational_exhaustion.assert_not_called()
 
+    def test_runner_persists_only_the_typed_pinned_link_refusal(self):
+        self.runtime.build_loop.run.side_effect = util.PinnedSourceLinkRefusal(
+            "PAUSED_SOURCE_UNAVAILABLE", "unbound source", policy="protected"
+        )
+        self.assertEqual(2, self.run_locked())
+        saved = util.read(self.path)
+        self.assertEqual("PAUSED_SOURCE_UNAVAILABLE", saved["status"])
+        self.assertEqual("protected", saved["source_link_recovery"])
+        unrelated = util.Paused("PAUSED_SOURCE_UNAVAILABLE", "unrelated source failure")
+        unrelated.policy = "protected"  # A lookalike attribute is not the runner-owned typed refusal.
+        self.runtime.build_loop.run.side_effect = unrelated
+        self.assertEqual(2, self.run_locked())
+        self.assertEqual("protected", util.read(self.path)["source_link_recovery"])
+        self.state.pop("source_link_recovery")
+        self.assertEqual(2, self.run_locked())
+        self.assertNotIn("source_link_recovery", util.read(self.path))
+
     def test_ordinary_errors_after_preload_still_use_the_runtime_pause_handler(self):
         self.runtime.build_loop.run.side_effect = RuntimeError("runtime failure")
         self.assertEqual(2, self.run_locked())

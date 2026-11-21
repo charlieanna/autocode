@@ -39,6 +39,12 @@ def symlinked_parent(root, relative, *, checked=None):
     return False
 
 
+def first_symlinked_parent(root, names):
+    """Name the first inventoried source whose parent traversal follows a link."""
+    checked: set[Path] = set()
+    return next((name for name in names if symlinked_parent(root, name, checked=checked)), None)
+
+
 def literal_paths(paths):
     """Validate and canonicalize a bounded, explicit source inventory policy."""
     if not isinstance(paths, (list, tuple)):
@@ -214,14 +220,19 @@ def metadata(workspace, files):
     return result
 
 
-def unbound_symlinks(workspace, files, tracked_paths):
-    """Links not bound by this inventory and a tracked, ordinary in-tree target.
+# POSIX requires at least eight link traversals; keep longer chains unbound.
+_MAX_FILE_LINK_CHAIN = 8
 
-    Resolve no symlink chain: every target and its parent directories must be
-    ordinary paths, and both the link and target must occur in Git's index and
-    this snapshot. This deliberately leaves directories, cycles, missing and
-    ignored targets, and links through another link unbound.
+
+def unbound_symlinks(workspace, files, tracked_paths, *, allow_untracked_terminal=False):
+    """Links not bound by this inventory and tracked, ordinary in-tree targets.
+
+    Every link is tracked; its terminal regular file must be tracked unless
+    an explicitly scoped copy permits an inventoried untracked terminal. All
+    bytes still match this snapshot; escapes and unsafe parent links are held.
     """
+    if type(allow_untracked_terminal) is not bool:
+        raise ValueError("Untracked terminal policy must be a boolean")
     links = [name for name, value in files.items() if value.startswith("symlink:")]
     if not links:
         return []
@@ -233,29 +244,53 @@ def unbound_symlinks(workspace, files, tracked_paths):
     unbound = []
     for name in links:
         try:
-            link = root / name
-            text = os.readlink(link)
-            if name not in tracked or files[name] != "symlink:" + text or os.path.isabs(text) or text.endswith("/"):
-                raise ValueError("unbound link")
-            if any((root / parent).is_symlink() for parent in Path(name).parents if parent != Path(".")):
-                raise ValueError("symlinked link parent")
-            target = link.parent
-            parts = Path(text).parts
-            for index, part in enumerate(parts):
-                target = target.parent if part == ".." else target / part
-                target.relative_to(root)
-                if target.is_symlink() or (index < len(parts) - 1 and not target.is_dir()):
-                    raise ValueError("symlink chain or invalid parent")
-            relative = target.relative_to(root)
-            info = target.lstat()
-            actual = _identity(target, info)
-            if (
-                relative.as_posix() not in tracked
-                or not stat.S_ISREG(info.st_mode)
-                or info.st_nlink != 1
-                or files.get(relative.as_posix()) != actual
-            ):
-                raise ValueError("unbound target")
+            current = name
+            visited = set()
+            while True:
+                if current in visited or len(visited) >= _MAX_FILE_LINK_CHAIN:
+                    raise ValueError("symlink cycle or chain exceeds portable resolution bound")
+                visited.add(current)
+                link = root / current
+                text = os.readlink(link)
+                if (
+                    current not in tracked
+                    or files.get(current) != "symlink:" + text
+                    or os.path.isabs(text)
+                    or Path(text).drive
+                    or "\\" in text
+                    or text.endswith("/")
+                ):
+                    raise ValueError("unbound link")
+                if any((root / parent).is_symlink() for parent in Path(current).parents if parent != Path(".")):
+                    raise ValueError("symlinked link parent")
+                target = link.parent
+                # Preserve literal dot components: ``file/.`` still traverses
+                # the file as a directory, which Path(text).parts would erase.
+                parts = text.split("/")
+                for index, part in enumerate(parts):
+                    if part == "..":
+                        target = target.parent
+                    elif part not in ("", "."):
+                        target /= part
+                    target.relative_to(root)
+                    if index < len(parts) - 1 and (target.is_symlink() or not target.is_dir()):
+                        raise ValueError("symlinked or invalid parent")
+                relative = target.relative_to(root).as_posix()
+                info = target.lstat()
+                if files.get(relative) != _identity(target, info):
+                    raise ValueError("unbound target")
+                if stat.S_ISLNK(info.st_mode):
+                    if relative not in tracked:
+                        raise ValueError("untracked link")
+                    current = relative
+                    continue
+                if (
+                    not stat.S_ISREG(info.st_mode)
+                    or info.st_nlink != 1
+                    or (relative not in tracked and not allow_untracked_terminal)
+                ):
+                    raise ValueError("unbound target")
+                break
         except (OSError, ValueError, RuntimeError):
             unbound.append(name)
     return sorted(unbound)

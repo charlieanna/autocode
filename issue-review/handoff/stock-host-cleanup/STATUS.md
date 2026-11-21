@@ -50,3 +50,14 @@ Actual Linux VS Code Extension Host and exact-head ci-required remain pending.
 Do not close #4012 or merge this branch until both have passed, the actual
 stock cleanup diagnostic says stopped, and final job cleanup is inspected.
 No live model call was made; no operator or unrelated workspace host was stopped.
+
+Final outcome (2026-11-21): exact head `eee6d8eb63e9c1799aca180cbc9ee5a257836bc5`
+passed `ci-required` and every selected job in run `44902500568`, including
+advisory coverage. The actual Linux Extension Host passed all eight cases.
+Its stock host reported `running:false`, `pid:null` on its private socket;
+recorded/unrecorded reader checks passed and final GitHub cleanup reported no
+terminated orphan process. Log `/private/tmp/autocode-4041-eee6-editor.log`.
+PR #4041 merged as `e5df5caa7b588000bde9f6c0676da59f926cf2cf`; #4012 is closed.
+PR comment `7062474227` records the exact merge evidence. This local status
+append will be committed with the next required integration rather than changing
+the qualified head merely to repeat its checks for documentation.

@@ -177,6 +177,51 @@ class AcceptanceVerificationRetryTests(unittest.TestCase):
     def dispatch(self):
         return retry.dispatch(self.runtime, self.state, acceptance.STAGE, self.workspace, self.run, apply=self.apply)
 
+    def test_reference_setup_rejection_retires_pending_retry_for_bounded_tester_repair(self):
+        self.start_retry()
+        self.reference.side_effect = None
+        rejected = {
+            "error": "The original reference was classified as setup-related",
+            "setup_errors": {"tests.test_feature.Feature.test_answer": "unresolved import"},
+            "receipt": {"output": str(self.run / "reference.log")},
+            "source_revision": "selected-source",
+        }
+        self.reference.return_value = rejected
+        self.dispatch()
+        saved = self.state[acceptance.KEY]
+        self.assertNotIn(retry.KEY, saved)
+        self.assertEqual(1, saved["verification_retries"][-1]["attempts"])
+        self.assertTrue(saved["verification_retries"][-1]["failures"])
+        self.assertEqual(rejected, saved["rewrites"][-1]["original_reference"])
+        self.assertEqual(acceptance.STAGE, self.state["next_stage"])
+        self.assertFalse(acceptance.receipts(self.state))
+
+    def test_exhausted_reference_setup_keeps_packet_when_transaction_rolls_back(self):
+        self.start_retry()
+        saved = self.state[acceptance.KEY]
+        saved["rewrites"] = [
+            {
+                "contract_hash": self.state["goal_contract"]["hash"],
+                "case_ids": sorted(saved["pending_case_ids"]),
+                "feedback": "earlier refusal",
+            }
+            for _ in range(job.MAX_REWRITES)
+        ]
+        rejected = {
+            "error": "The original reference was classified as setup-related",
+            "setup_errors": {"tests.test_feature.Feature.test_answer": "unresolved import"},
+            "receipt": {"output": str(self.run / "reference.log")},
+            "evidence": {"path": str(self.run / "reference.json"), "sha256": "fixture-pin"},
+        }
+        self.reference.side_effect = None
+        self.reference.return_value = rejected
+        with self.assertRaises(util.Paused):
+            self.dispatch()
+        pending = self.state[acceptance.KEY][retry.KEY]
+        self.assertEqual(rejected, pending["failures"][-1]["original_reference"])
+        self.assertEqual(job.MAX_REWRITES, len(self.state[acceptance.KEY]["rewrites"]))
+        self.assertFalse(acceptance.receipts(self.state))
+
     def test_retry_status_rechecks_source_once_only_at_an_idle_boundary(self):
         self.start_retry()
         self.state["status"] = "PAUSED_INVALID_OUTPUT"

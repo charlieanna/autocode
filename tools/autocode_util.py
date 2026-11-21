@@ -430,6 +430,16 @@ class Paused(RuntimeError):
         self.status = status
 
 
+class PinnedSourceLinkRefusal(Paused):
+    """A runner-owned source pin cannot bind a link under the recorded policy."""
+
+    def __init__(self, status, reason, *, policy):
+        if status != "PAUSED_SOURCE_UNAVAILABLE" or policy not in ("strict", "protected"):
+            raise ValueError("Invalid pinned source link refusal")
+        super().__init__(status, reason)
+        self.policy = policy
+
+
 def source_unavailable(error) -> bool:
     """A source observation is deferred; it makes no claim about a model report."""
     return isinstance(error, Paused) and error.status == "PAUSED_SOURCE_UNAVAILABLE"

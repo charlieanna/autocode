@@ -87,6 +87,7 @@ try:
     from . import autocode_task_input as task_input
     from . import autocode_task_preflight as task_preflight
     from . import autocode_test_root as test_roots
+    from . import autocode_util as util
     from . import autocode_verification_repair as verification_repair
     from . import autocode_verify as verify
     from . import autocode_worker_binding as worker_binding
@@ -139,6 +140,7 @@ except ImportError:
     import autocode_task_input as task_input
     import autocode_task_preflight as task_preflight
     import autocode_test_root as test_roots
+    import autocode_util as util
     import autocode_verification_repair as verification_repair
     import autocode_verify as verify
     import autocode_worker_binding as worker_binding
@@ -1078,11 +1080,13 @@ def run_locked(
                 return owned_result(2)
             blocked = operational_block.record(state, error, run_dir=run_dir, workspace=workspace)
             if not blocked:
+                link_policy = error.policy if isinstance(error, util.PinnedSourceLinkRefusal) else None
                 run_status.pause(
                     state,
                     getattr(error, "status", "PAUSED_INVALID_OUTPUT"),
                     str(error),
                     paused_at=runner.now(),
+                    **({"source_link_recovery": link_policy} if link_policy else {}),
                 )
                 if native is None and isinstance(error, runner.support.Paused) and error.status != "PAUSED_JOB_FAILURE":
                     runner.resolver_runtime.record_operational_exhaustion(runner, state, run_dir, error)

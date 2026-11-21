@@ -50,6 +50,7 @@ class ScopeTests(unittest.TestCase):
             "tools/autocode_usage.py",
             "tools/autocode_progress_view.py",
             "tests/provider_auth_fixture.py",
+            "tests/protected_link_vscode_fixture.py",
         ):
             self.assertIn("extension", self.enabled(path))
 
@@ -72,9 +73,11 @@ class ScopeTests(unittest.TestCase):
             "tests/job_route_vscode_fixture.py",
             "tests/kilo_route_vscode_fixture.py",
             "tests/provider_auth_fixture.py",
+            "tests/protected_link_vscode_fixture.py",
             "tests/python_semantic_vscode_fixture.py",
             "tests/fixtures/python-semantic-host/displayed-plan.json",
             "tests/rustup_vscode_fixture.py",
+            "tests/semver_reference_vscode_fixture.py",
             "tests/source_recovery_vscode_fixture.py",
             "tests/host_reader_cleanup.py",
             "tests/classification_vscode_fixture.py",
@@ -84,6 +87,96 @@ class ScopeTests(unittest.TestCase):
         ):
             with self.subTest(fixture=fixture):
                 self.assertIn("extension", self.enabled(fixture))
+
+    def test_protected_link_fixture_selects_only_its_registered_host_path(self):
+        from tools import ci_test_selection
+
+        self.assertEqual(
+            ("vscode-extension/test/host/protected-link-recovery.test.cjs",),
+            ci_test_selection.EXTENSION_HOST_RESOURCES["tests/protected_link_vscode_fixture.py"],
+        )
+        self.assertNotIn("extension", self.enabled("tests/unrelated/protected_link_vscode_fixture.py"))
+
+    def test_named_proof_fixture_resources_select_their_real_host(self):
+        from tools import ci_test_selection
+
+        host = "vscode-extension/test/host/named-proof-refusal.test.cjs"
+        for resource in (
+            "tests/named_proof_vscode_fixture.py",
+            "tests/fixture_plan_review.py",
+            "tests/test_failure_routing_cli.py",
+            "tests/test_build_blackbox.py",
+            "tests/failure_routing_provider.py",
+            "tests/operational_fixtures.py",
+            "tools/blackbox_build_provider.py",
+            "tools/inprocess_cli.py",
+            "tests/host_reader_cleanup.py",
+            "tests/status_retry_host_cleanup.py",
+            "vscode-extension/test/owned-fixture-cleanup.cjs",
+        ):
+            with self.subTest(resource=resource):
+                self.assertIn(host, ci_test_selection.EXTENSION_HOST_RESOURCES[resource])
+                self.assertIn("extension", self.enabled(resource))
+        self.assertNotIn("extension", self.enabled("tests/unrelated/named_proof_vscode_fixture.py"))
+        self.assertIn(
+            "vscode-extension/test/host/semver-reference-repair.test.cjs",
+            ci_test_selection.EXTENSION_HOST_RESOURCES["tests/fixture_plan_review.py"],
+        )
+
+    def test_semver_reference_fixture_selects_only_its_registered_host_path(self):
+        from tools import ci_test_selection
+
+        resources = (
+            "tests/semver_reference_vscode_fixture.py",
+            "tests/semver_reference_provider.py",
+            "vscode-extension/test/host/semver-reference-cli.py",
+            "tests/fixtures/semver-reference-m1/criteria.json",
+            "tests/fixtures/semver-reference-m1/jsonio-source.py.txt",
+            "tests/fixtures/semver-reference-m1/version-to-json.txt",
+            "tests/fixtures/semver-reference-m1/version-from-json.txt",
+            "tests/fixtures/semver-reference-m1/initial-test.py.txt",
+            "tests/fixtures/semver-reference-m1/strengthened-test.py.txt",
+            "tests/fixtures/semver-reference-m1/strengthened-diagnostic-test.py.txt",
+            "tests/fixtures/semver-reference-m1/repaired-test.py.txt",
+            "tests/fixtures/semver-reference-m1/diagnostic-test.py.txt",
+            "tests/fixtures/semver-reference-m1/control-missing-export.py",
+            "tests/fixtures/semver-reference-m1/control-missing-field.py",
+            "tests/fixtures/semver-reference-m1/control-initial-field.py",
+            "tests/fixtures/semver-reference-m1/control-grounded.py",
+            "tests/fixtures/semver-reference-m1/control-delimiters.py",
+            "tests/fixtures/semver-reference-m1/control-api.py",
+        )
+        for resource in resources:
+            with self.subTest(resource=resource):
+                self.assertEqual(
+                    ("vscode-extension/test/host/semver-reference-repair.test.cjs",),
+                    ci_test_selection.EXTENSION_HOST_RESOURCES[resource],
+                )
+                self.assertIn("extension", self.enabled(resource))
+        self.assertNotIn("extension", self.enabled("tests/unrelated/semver_reference_vscode_fixture.py"))
+
+    def test_shared_post_approval_observer_selects_all_its_hosts(self):
+        from tools import ci_test_selection
+
+        self.assertEqual(
+            (
+                "vscode-extension/test/host/named-proof-refusal.test.cjs",
+                "vscode-extension/test/host/python-semantic.test.cjs",
+                "vscode-extension/test/host/semver-reference-repair.test.cjs",
+            ),
+            ci_test_selection.EXTENSION_HOST_RESOURCES["vscode-extension/test/python-semantic-transition.cjs"],
+        )
+        for shared in (
+            "tests/host_reader_cleanup.py",
+            "tests/status_retry_host_cleanup.py",
+            "vscode-extension/test/owned-fixture-cleanup.cjs",
+        ):
+            with self.subTest(shared=shared):
+                self.assertIn(
+                    "vscode-extension/test/host/semver-reference-repair.test.cjs",
+                    ci_test_selection.EXTENSION_HOST_RESOURCES[shared],
+                )
+                self.assertIn("extension", self.enabled(shared))
 
     def test_classification_host_resources_are_exact_and_select_the_host(self):
         from tools import ci_test_selection
