@@ -13,6 +13,17 @@ Legitimate project-import positives now hold as well. Independently establish
 the actual loaded source without trusting module/finder self-report before
 restoring authority. This issue is separate from the unbound editable below.
 
+The existing runner-owned fail-to-pass observation alone does not establish
+the missing import's source. An added module can give the same base missing-
+module error and candidate pass whether a project file or an external
+resolver provides it. A re-export can give the same missing-name error and
+candidate pass without proving where the exported object came from. The
+missing-external-dependency end-to-end negative confirms that an identical
+test can fail on base and pass on candidate for an unrelated setup failure.
+For a module-level collection error no individual test ran on base at all.
+Do not infer source from matching names, changed-file words, or an untrusted
+finder; these cases remain held until there is independent evidence.
+
 The branch was rebased onto master `6ae029754` and additionally incorporates
 the capture ownership fixture correction from `251841736` (cherry-picked as
 `493baaae5`). Focused provenance, protected-oracle, capture fixture,
