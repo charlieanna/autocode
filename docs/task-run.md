@@ -904,9 +904,13 @@ correction. Only a second refusal in the same round pauses `PAUSED_TOOL_CONTAINM
 program rather than the tool.
 
 The boundary admits git, Python and pytest, Node with npm and npx, Go, Cargo (#4017) and the
-POSIX shells (`autocode_toolchain.ADMITTED`). Cargo runs from its installed toolchain, or through a rustup
-proxy with `RUSTUP_HOME`'s toolchains readable; `CARGO_HOME` stays the stage's scratch directory, so the
-person's registry credentials are never readable.
+POSIX shells (`autocode_toolchain.ADMITTED`), each read past a leading `env` and `NAME=value` assignments
+(`autocode_toolchain.program_words`, which the plan's command extraction reads too). Cargo runs from its
+installed toolchain. For rustup's proxy, the toolchain the proxy would run in the project (`rustup which
+cargo`) is selected instead: its prefix is read-only and its `bin` leads the stage's `PATH`, so the proxy,
+which writes under `RUSTUP_HOME` as it starts, never runs. `CARGO_HOME` stays the stage's scratch
+directory, so the person's registry credentials are never readable. A command the boundary refuses alone,
+for any reason (unsupported, missing, or a launcher it cannot qualify), is the plan's to correct.
 
 `handoff_conversation(expected_revision=..., expected_plan_token=...)` records the
 reviewed current draft's handoff to that same run. It does not approve the plan or

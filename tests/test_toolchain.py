@@ -172,11 +172,16 @@ class SelectedToolchainTests(unittest.TestCase):
                 check=True,
             )
             selected = toolchain.discover(root, ["cargo test --offline"], env)
-            self.assertEqual(["RUSTUP_HOME"], sorted(selected["environment"]))
+            # The toolchain's own cargo, not the proxy: rustup writes under RUSTUP_HOME as it starts, which the
+            # read-only boundary refuses on Linux ("could not create update-hash directory").
+            [toolchain_bin] = selected["path_prefix"]
+            self.assertTrue((Path(toolchain_bin).parent / "lib/rustlib").is_dir(), toolchain_bin)
+            self.assertFalse(toolchain._rustup_proxy((Path(toolchain_bin) / "cargo").resolve()))
             cargo_home = Path(env.get("CARGO_HOME") or Path.home() / ".cargo").resolve()
             for read in selected["read_roots"]:
                 with self.subTest(read=read):
                     self.assertFalse(Path(read) == cargo_home or (cargo_home / "credentials.toml").is_relative_to(read))
+                    self.assertFalse(cargo.resolve().is_relative_to(read), "the proxy is never readable")
             developer = [str(p) for p in (Path("/Library/Developer/CommandLineTools"),) if p.is_dir()]
             for allow_write in (True, False):
                 with self.subTest(allow_write=allow_write):
@@ -186,7 +191,7 @@ class SelectedToolchainTests(unittest.TestCase):
                         read_roots=[*selected["read_roots"], *developer],
                         links=selected["links"],
                         environment=env,
-                        tool_environment=selected["environment"],
+                        path_prefix=selected["path_prefix"],
                         verification_copy=not allow_write,
                     )
                     cwd = root
@@ -199,11 +204,18 @@ class SelectedToolchainTests(unittest.TestCase):
                     for command in (
                         *selected["probes"],
                         "cargo test --offline",
+                        'test "$(command -v cargo)" = ' + shlex.quote(str(Path(toolchain_bin) / "cargo")),
                         'test "$HOME" != ' + shlex.quote(str(Path.home())),
                     ):
                         result = subprocess.run(
                             [boundary["shell"], "-c", command], cwd=cwd, capture_output=True, text=True, timeout=600
                         )
+                        if command.startswith("cargo test") and not allow_write and sys.platform.startswith("linux"):
+                            # #4033: bubblewrap mounts the whole verification copy read-only, so cargo cannot
+                            # make target/ beside the sources as it can on macOS. When that is fixed, this
+                            # pin fails and the case joins the others.
+                            self.assertIn("Read-only file system", result.stderr, (command, result.returncode))
+                            continue
                         self.assertEqual(0, result.returncode, (command, result.stdout[-2000:], result.stderr[-2000:]))
 
     def test_tool_found_through_a_symlinked_toolchain_directory_runs_contained(self):
