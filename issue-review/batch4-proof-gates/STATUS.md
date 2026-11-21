@@ -33,6 +33,10 @@ what was independently observed during continuation.
   An unreadable capture also fails closed; its regression fails on the first
   capture revision and passes with the follow-up. The receipt and scheduling
   suites passed 72 tests, and ruff and mypy passed for the capture revision.
+  A further real-pytest regression found that shell quoting hid a result path
+  containing an apostrophe and spaces; the shared command-word check now
+  recognizes it. Existing Vitest, Node and Cargo suites ran 71 tests with six
+  Cargo-dependent tests skipped because Cargo is unavailable on this host.
   This is a prerequisite only: replay still needs a shared per-test provenance
   comparison, and old receipts without a trusted capture must not be accepted
   as identical-failure evidence. Explicit JUnit mode has separate capture.
