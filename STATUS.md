@@ -20,6 +20,7 @@ A, B, C wait until #3868 (group 3b) and group 4a (#3852/#3880/#3869 + view half 
 - The paused run could not resume after those reviewed source edits: the public resume returned "AutoResolver diagnosis requires a current approved task, source and saved source report" and the run stayed at `RESOLVER_PENDING`. Its named feedback action returned the same rejection. The source change invalidated the diagnosis. Do not blindly retry or alter its evidence. The original worktree and attempt remain preserved.
 - Ruff and mypy for the changed runtime modules now pass; the missing type annotations in the inherited WIP were corrected.
 - Events and wait now resolve the run through the same authenticated identity helper at each poll. Two public CLI-entry regressions using a real Git worktree fail on master and pass on the branch, including the copied event history and the actual destination in the wait result. The six-module focused suite passed 135 tests.
+- A move published between resolving the path and reading its checkpoint previously still stopped both followers at the old pause. They now follow the authenticated move in the actual checkpoint they read; two new regressions fail on master and pass on the branch. The six-module focused suite passed 138 tests; Ruff and mypy passed for the affected modules.
 - Capture also rejects malformed checkpoint files. Its new CLI regression fails on master and the 27 targeted capture and identity tests pass on the branch.
 
 ## Resume / continue

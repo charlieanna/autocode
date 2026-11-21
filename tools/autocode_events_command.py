@@ -127,10 +127,27 @@ def _load(run_dir: Path, workspace: Path) -> tuple[RunState | None, str]:
     return cast("RunState", payload["state"]), ""
 
 
+def load_followed(run_dir, workspace, load):
+    """Read the canonical checkpoint, including a move published during the read."""
+    run_dir, workspace = _followed(run_dir, workspace)
+    visited = set()
+    while (run_dir, workspace) not in visited:
+        visited.add((run_dir, workspace))
+        state, message = load(run_dir, workspace)
+        if state is None:
+            return run_dir, workspace, state, message
+        destination = run_identity.follow_record(run_dir, workspace, state)
+        if destination == (run_dir, workspace):
+            return run_dir, workspace, state, message
+        if destination in visited:
+            raise ValueError("Run move records form a cycle")
+        run_dir, workspace = destination
+    raise ValueError("Run move records form a cycle")
+
+
 def stream(run_dir: Path, workspace: Path, *, follow: bool = False, timeout: float | None = None) -> int:
     """Print the run's events; with `follow`, keep printing until the run ends the stream."""
-    run_dir, workspace = _followed(run_dir, workspace)
-    state, message = _load(run_dir, workspace)
+    run_dir, workspace, state, message = load_followed(run_dir, workspace, _load)
     if state is None:
         print(f"autocode events: {message}", file=sys.stderr)
         return 2
@@ -150,8 +167,7 @@ def stream(run_dir: Path, workspace: Path, *, follow: bool = False, timeout: flo
             print(f"autocode events: --timeout {timeout:g}s reached with the run still working", file=sys.stderr)
             return 2
         util.sleep(POLL_SECONDS)
-        run_dir, workspace = _followed(run_dir, workspace)
-        state, message = _load(run_dir, workspace)
+        run_dir, workspace, state, message = load_followed(run_dir, workspace, _load)
         if state is None:
             print(f"autocode events: {message}", file=sys.stderr)
             return 2

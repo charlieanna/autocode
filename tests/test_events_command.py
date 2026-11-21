@@ -125,6 +125,23 @@ class EventsCommandTests(unittest.TestCase):
         self.assertEqual([*RECORDED, {"kind": "finished", "actor": "runner"}], self.lines(out))
         self.assertIn("TASK_COMPLETE", err)
 
+    def test_follow_tracks_a_move_between_resolution_and_checkpoint_read(self):
+        root, old, _tree, _child, move = moving_project(self)
+        original_load = events._load
+        moved = False
+
+        def load(run_dir, workspace):
+            nonlocal moved
+            if run_dir == old and not moved:
+                moved = True
+                move(0)
+            return original_load(run_dir, workspace)
+
+        with mock.patch.object(events, "_load", side_effect=load):
+            code, out, err = self.capture(["--workspace", str(root), "--run-dir", str(old), "--follow"])
+        self.assertEqual(0, code, err)
+        self.assertEqual([*RECORDED, {"kind": "finished", "actor": "runner"}], self.lines(out))
+
     def test_a_workspace_with_no_run_is_named_rather_than_guessed(self):
         root = Path(tempfile.mkdtemp()).resolve()
         code, out, err = self.capture(["--workspace", str(root)])
