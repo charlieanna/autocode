@@ -2,8 +2,9 @@
 
 A contained stage (a Kilo or OpenCode Builder, Tester or other code stage in the kernel tool boundary)
 admits the plan's commands when it launches: ``autocode_toolchain.discover`` selects a read-only runtime
-for each command's program and refuses a program it has no rule for (``uv``, ``make``, ``bundle``) or
-cannot find. That launch came only after approval, so a plan that ran ``uv run pytest`` was approved and
+for each command's program (past a leading ``env`` and ``NAME=value`` assignments) and refuses a program
+it has no rule for (``uv``, ``make``, ``bundle``), cannot find or cannot qualify. That launch came only
+after approval, so a plan that ran ``uv run pytest`` was approved and
 then paused ``PAUSED_TOOL_CONTAINMENT`` before its first stage, and resuming paused again: the approved
 commands could not change.
 
@@ -117,14 +118,15 @@ def _refused(workspace, rows, environment):
         toolchain.discover(workspace, (), environment)
     except ERRORS:
         return []  # the boundary refuses with no plan command: the host's setup, reported at launch
+    # The boundary admits no command at all, so a command it refuses alone is refused for its own program,
+    # whichever rule refuses it: an unsupported or missing program, or one it cannot qualify (a pytest
+    # launcher not paired with its interpreter). Observed, not listed.
     found = []
     for ident, command in rows:
         try:
             toolchain.discover(workspace, [command], environment)
-        except toolchain.Unadmitted as error:
+        except ERRORS as error:
             found.append((ident, command, str(error)))
-        except ERRORS:
-            continue  # not the command's program: reported by the launch with its own reason
     return found
 
 

@@ -22,6 +22,7 @@ import autocode_plan_tool_admission as admission
 import autocode_regression as regression
 import autocode_tool_admission as tool_admission
 import autocode_toolchain as toolchain
+import autocode_verification_plan as verification_plan
 from goal_fixtures import body
 
 ABSENT = "autocode-absent-program-4015"
@@ -90,6 +91,50 @@ class RefusalTests(WorkspaceCase):
         with self.assertRaises(toolchain.Unadmitted) as caught:
             toolchain.discover(self.root, [f"{ABSENT} run"], self.environment)
         self.assertEqual((ABSENT, True), (caught.exception.program, caught.exception.missing))
+
+
+class CommandProgramTests(WorkspaceCase):
+    """A live plan ran `PYTHONPATH=src:tests pytest -q tests/`: read by its first word, it named no program,
+    so the check admitted it, the contained Tester could not read pytest, and the Resolver asked the person
+    for a test environment (#4015)."""
+
+    def test_a_command_s_program_is_read_past_env_and_assignments(self):
+        for command, words in (
+            ("PYTHONPATH=src:tests pytest -q tests/", ["pytest", "-q", "tests/"]),
+            ("env A=1 B=2 python3 -m pytest", ["python3", "-m", "pytest"]),
+            ("pytest -q", ["pytest", "-q"]),
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(words, toolchain.program_words(command))
+                self.assertEqual([command], verification_plan.commands(f"Run `{command}` and confirm it exits 0."))
+        # An assignment of a computed value is still not a plain command, nor is an assignment alone.
+        self.assertEqual([], verification_plan.commands("Run `A=$HOME pytest -q`."))
+        self.assertEqual([], verification_plan.commands("Run `A=1`."))
+        selected = toolchain.discover(self.root, ["PYTHONPATH=src python3 -m pytest -q"], self.environment)
+        self.assertTrue(any("python3" in probe for probe in selected["probes"]), selected["probes"])
+        found = admission.refusals(self.root, plan("PYTHONPATH=src uv run pytest -q"), self.environment)
+        self.assertEqual(["C1"], [ident for ident, _command, _error in found])
+
+    def test_a_program_the_boundary_cannot_qualify_is_refused_before_approval(self):
+        # A pytest launcher not paired with its interpreter (Homebrew's /opt/homebrew/bin/pytest) is refused
+        # by its own rule, not as an unsupported program: the command alone is refused, so it is the plan's.
+        bin_dir = self.root.parent / f"{self.root.name}-bin"
+        bin_dir.mkdir()
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(bin_dir)], check=False)
+        launcher = bin_dir / "pytest"
+        launcher.write_text(f"#!{sys.executable}\nimport sys\nfrom pytest import console_main\nconsole_main()\n")
+        launcher.chmod(0o755)
+        environment = {**self.environment, "PATH": os.pathsep.join([str(bin_dir), self.environment["PATH"]])}
+        found = admission.refusals(self.root, plan("python3 -m pytest -q", "PYTHONPATH=src pytest -q"), environment)
+        self.assertEqual(["C2"], [ident for ident, _command, _error in found])
+        self.assertIn("Cannot qualify the selected pytest console launcher", found[0][2])
+        # An approved plan that reaches the boundary with it pauses naming the plan's program, not Kilo.
+        with self.assertRaises(toolchain.Unadmitted) as raised:
+            toolchain.discover(self.root, ["PYTHONPATH=src pytest -q"], environment)
+        self.assertEqual("pytest", raised.exception.program)
+        paused = str(tool_admission.failure(raised.exception, kilo_readonly=True))
+        self.assertIn("The approved plan runs `pytest`", paused)
+        self.assertNotIn("Restore a qualified Kilo", paused)
 
 
 class InstallTests(WorkspaceCase):

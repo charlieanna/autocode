@@ -260,7 +260,7 @@ function execute(
       if (outRest) onOutput?.(outRest);
       if (errRest) onOutput?.(errRest);
       phases?.deliver();
-      resolve({ code, stdout, stderr, rejected: isRejection(code, stderr) });
+      resolve({ code, stdout, stderr, rejected: isRejection(code, stdout, stderr) });
     };
     if (timeoutMs && timeoutMs > 0) {
       timer = setTimeout(() => {
@@ -324,9 +324,21 @@ function execute(
   });
 }
 
-function isRejection(code: number | null, stderr: string): boolean {
+const CAPABILITY_NOTICE = "autocode: dropped CAP_SYS_PTRACE and CAP_SYS_ADMIN for this invocation";
+
+function withoutCapabilityNotice(text: string): string {
+  return text.split("\n").filter((line) => line.replace(/\r$/, "") !== CAPABILITY_NOTICE).join("\n");
+}
+
+function refusalLine(stdout: string, stderr: string): string | undefined {
+  return [withoutCapabilityNotice(stderr), stdout].flatMap((text) => text.split(/\r?\n/))
+    .find((line) => line.startsWith("Input rejected:") || line.startsWith("autocode:"));
+}
+
+function isRejection(code: number | null, stdout: string, stderr: string): boolean {
   if (code !== 2) return false;
-  return stderr.includes("usage:") || stderr.includes("Input rejected:");
+  const error = withoutCapabilityNotice(stderr);
+  return error.startsWith("usage:") || refusalLine(stdout, stderr) !== undefined;
 }
 
 /** `autocode --workspace W --run-dir R --status`, as a parsed view. */
@@ -346,10 +358,16 @@ export async function readStatus<T>(options: CliOptions, workspace: string, runD
  * reads only the why, so the usage line and the prefix are dropped; the core's words are kept.
  */
 export function tail(result: CliResult): string {
-  const text = (result.stderr || result.stdout || "").trim();
+  const text = withoutCapabilityNotice(result.stderr).trim() || result.stdout.trim();
   if (!text) return `autocode exited ${result.code}`;
   const lines = text.split("\n")
     .filter((line) => !/^usage: /.test(line))
     .map((line) => line.replace(/^[\w.-]+: error: /, ""));
-  return (lines.length ? lines : text.split("\n")).slice(-6).join("\n");
+  const detail = (lines.length ? lines : text.split("\n")).slice(-6).join("\n");
+  const rawReason = result.code === 2 ? refusalLine(result.stdout, result.stderr) : undefined;
+  if (!rawReason) return detail;
+  const reason = rawReason.replace(/^[\w.-]+: error: /, "").slice(0, 800);
+  const rest = detail.split("\n").filter((line) => line !== reason).join("\n").trim();
+  const room = 800 - reason.length - 3;
+  return reason + (rest && room > 0 ? ` … ${rest.slice(-room)}` : "");
 }

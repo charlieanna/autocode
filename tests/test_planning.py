@@ -2460,6 +2460,32 @@ class InternalAnswerInheritanceTests(unittest.TestCase):
             planning.charge(state, "finalize_plan")
         self.assertEqual("PAUSED_PLANNING_BUDGET", raised.exception.status)
 
+    def test_the_renewal_returns_with_the_persons_next_round(self):
+        # Live run 3 of #3977: the person approved the corrected plan, the tool boundary then refused one of
+        # its commands, and the second correction paused asking the person to raise the review limit (#4015).
+        state = self.reviewed(calls=2)
+        state.setdefault("user_events", []).append({"kind": "answer", "actor": "user_cli"})
+        cycle.internal_answer_restart(state)
+        cycle.start(state)
+        planning.charge(state, "finalize_plan")
+        self.assertEqual((3, 3), (state["planning"]["plan_review_calls"], state["planning"]["review_call_limit"]))
+        state["user_events"].append({"kind": "goal_approval", "actor": "user_cli"})
+        cycle.internal_answer_restart(state)
+        cycle.start(state)
+        record = state["planning"]
+        self.assertEqual(
+            (3, 4, 2), (record["plan_review_calls"], record["review_call_limit"], record["internal_answer_renewals"])
+        )
+        self.assertEqual({"from": 3, "to": 4}, record["inherited_review"]["renewed"])
+        planning.charge(state, "finalize_plan")
+        # Within that round, nothing is renewed again: a round needs the person.
+        state["user_events"].append({"kind": "permission_answer", "actor": "user_cli"})
+        cycle.internal_answer_restart(state)
+        cycle.start(state)
+        with self.assertRaises(support.Paused) as raised:
+            planning.charge(state, "finalize_plan")
+        self.assertEqual("PAUSED_PLANNING_BUDGET", raised.exception.status)
+
     def test_a_limit_the_person_chose_is_never_raised(self):
         explicit = self.reviewed(calls=2, limit=2)
         explicit["planning"]["review_call_limit_origin"] = "user_explicit"
