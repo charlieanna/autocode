@@ -2,13 +2,16 @@
 
 import copy
 import json
+import os
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import autocode_contract_identity as identity
 import autocode_protected_oracles as guard
@@ -886,6 +889,58 @@ class UndeterminedReplayTests(unittest.TestCase):
         error, receipt = self.replay({("candidate", 0): receipts[1], ("original", 0): receipts[1]})
         self.assertIsNone(error)
         self.assertEqual("PASS", json.loads(receipt.read_text())["verdict"])
+
+    @unittest.skipUnless(shutil.which("go"), "Go is required for the native test-event check")
+    def test_go_failure_matches_across_distinct_scratch_roots(self):
+        import autocode_verify as verify
+
+        proof_dir = self.run_dir / "regression" / "go-proof"
+        proof_dir.mkdir(parents=True)
+        cache = self.run_dir / "go-cache"
+        command = "go test ./..."
+        receipts = []
+        with patch.dict(
+            os.environ, {"GOCACHE": str(cache), "GOTOOLCHAIN": "local", "GOPROXY": "off", "GOSUMDB": "off"}
+        ):
+            for label in ("base", "candidate"):
+                project = self.run_dir / ("go-" + label)
+                project.mkdir()
+                (project / "go.mod").write_text("module example.org/proof\n\ngo 1.21\n")
+                (project / "value_test.go").write_text(
+                    'package proof\nimport "testing"\nfunc TestValue(t *testing.T) { t.Fatal("dependency missing") }\n'
+                )
+                receipts.append(
+                    verify.run_suite(verify.Framework("go", command), command, project, proof_dir, label, timeout=120)
+                )
+        revision = guard.source_scope.snapshot(self.project, self.state)["revision"]
+        proof = {
+            "verdict": "PASS",
+            "source_revision": revision,
+            "checks": {"suite_on_base": receipts[0], "suite_on_candidate": receipts[1]},
+        }
+        path = proof_dir / "verification.json"
+        path.write_text(json.dumps(proof))
+        self.state["regression_proof"] = {
+            "verdict": "PASS",
+            "source_revision": revision,
+            "path": str(path),
+            "receipt_sha256": guard.util.file_hash(path),
+            "execution_context": {
+                "test_role_policy": guard.test_roles.VERSION,
+                "protected_test_binding": self.state["settings"]["protected_tests"]["binding_hash"],
+            },
+        }
+        error, receipt = self.replay({("candidate", 0): receipts[1], ("original", 0): receipts[1]})
+        self.assertIsNone(error)
+        self.assertEqual("PASS", json.loads(receipt.read_text())["verdict"])
+
+        receipt.unlink()
+        output = proof_dir / "different-go.log"
+        output.write_text(Path(receipts[1]["output"]).read_text().replace("dependency missing", "different failure"))
+        changed = {**receipts[1], "output": str(output), "output_sha256": guard.util.file_hash(output)}
+        error, receipt = self.replay({("candidate", 0): changed, ("original", 0): receipts[1]})
+        self.assertIsInstance(error, guard.commands.OriginalGateFailure)
+        self.assertEqual("FAIL", json.loads(receipt.read_text())["verdict"])
 
     def test_pytest_different_failure_detail_in_either_half_is_not_excused(self):
         proof_dir, candidate = self.pytest_failure_receipts()

@@ -6,8 +6,9 @@ what was independently observed during continuation.
 
 - #3944 is in progress. A first provenance-based replay implementation now
   accepts identical named failures from authenticated base and candidate proof
-  captures for directly recognized Python pytest and unittest commands. It
-  fails closed for other commands and for old pytest receipts without a pinned
+  captures for directly recognized Python pytest and unittest commands and Go
+  test events. Real Go, pytest and unittest controls run in separate scratch
+  roots. It fails closed for other commands and for old pytest receipts without a pinned
   result file. Those routes still need a shared recovery and comparison before
   the issue is fixed or this branch can be merged.
 - A second #3944 regression now runs real pytest and retains separately pinned
@@ -76,8 +77,11 @@ what was independently observed during continuation.
   out in `VerificationRestartCLI.test_restart_reuses_only_completed_supplemental_check_and_keeps_canonical_execution`.
   The 180-second driver budget had 41.4 seconds left for the second Resume;
   the Mac's load average was 40.5 on 10 CPUs when investigated. Contention is
-  plausible, not proven. Rerun this test alone and inspect its outcome before
-  treating the broader check as passing.
+  plausible, not proven. The same test subsequently passed alone on master in
+  98 seconds and on this branch in 87 seconds; the original combined-run
+  failure remains evidence, not a passing result. Logs are retained at
+  `/private/tmp/autocode-proof-restart-master.log` and
+  `/private/tmp/autocode-proof-restart-branch.log`.
 - The three new `SharedSetupAnswerTests` pass on this branch and error on
   current master, which does not have the new shared setup-classification API.
 - The original #3926 public-export acceptance tests fail on master and pass

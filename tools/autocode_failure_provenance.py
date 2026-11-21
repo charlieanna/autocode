@@ -19,6 +19,7 @@ from pathlib import Path
 try:
     from . import autocode_check_outcome as check_outcome
     from . import autocode_command_receipt as command_receipt
+    from . import autocode_go_tests as go_tests
     from . import autocode_junit as junit
     from . import autocode_package_scope as package_scope
     from . import autocode_python_test_roles as test_roles
@@ -28,6 +29,7 @@ try:
 except ImportError:
     import autocode_check_outcome as check_outcome
     import autocode_command_receipt as command_receipt
+    import autocode_go_tests as go_tests
     import autocode_junit as junit
     import autocode_package_scope as package_scope
     import autocode_python_test_roles as test_roles
@@ -86,6 +88,13 @@ def _project(receipt):
         return None
     entered = package_scope.entered(command)
     project, inner = entered if entered else ("", command)
+    go = go_tests.parse(inner)
+    if go is not None:
+        if go.prefix or any(
+            arg == "-C" or arg.startswith("-C=") or arg == "-exec" or arg.startswith("-exec=") for arg in go.arguments
+        ):
+            return None
+        return project
     try:
         lexer = shlex.shlex(inner, posix=True, punctuation_chars=";&|<>")
         lexer.whitespace_split = True
@@ -175,6 +184,42 @@ def _unittest(receipt, failures):
     return seen if set(seen) == failures else None
 
 
+def _go(receipt, failures):
+    text = _read_pinned(receipt["output"], receipt["output_sha256"]).decode(errors="replace")
+    rows = {name: {"run": 0, "fail": 0, "output": []} for name in failures}
+    for line in text.splitlines():
+        if not line.startswith("{"):
+            continue
+        event = json.loads(line)
+        if not isinstance(event, dict) or not isinstance(event.get("Test"), str):
+            continue
+        name = f"{event.get('Package') or ''}::{event['Test']}"
+        if name not in rows:
+            continue
+        action = event.get("Action")
+        if action in ("run", "fail"):
+            rows[name][action] += 1
+        elif action == "output" and isinstance(event.get("Output"), str):
+            rows[name]["output"].append(event["Output"])
+    seen = {}
+    for name, row in rows.items():
+        output = row["output"]
+        test = name.partition("::")[2]
+        if (
+            row["run"] != 1
+            or row["fail"] != 1
+            or len(output) < 3
+            or output[0] != f"=== RUN   {test}\n"
+            or not re.fullmatch(r"--- FAIL: " + re.escape(test) + r" \([0-9.]+s\)\n", output[-1])
+        ):
+            return None
+        detail = "".join(output[1:-1])
+        if not detail.strip():
+            return None
+        seen[name] = _digest("go-fail", "", detail, execution_root=receipt.get("execution_root"))
+    return seen
+
+
 def observations(receipt, *, root):
     """Return each named failure's exact detail fingerprint, or None when unproven."""
     try:
@@ -213,6 +258,8 @@ def observations(receipt, *, root):
             return None
         if "results_capture" in receipt:
             return _xml(receipt, failures)
+        if go_tests.parse(package_scope.within(receipt.get("command"))) is not None:
+            return _go(receipt, failures)
         return _unittest(receipt, failures)
     except (OSError, ValueError, TypeError, KeyError, AttributeError, ET.ParseError, RecursionError, OverflowError):
         return None

@@ -116,15 +116,63 @@ class FailureCaptureTests(unittest.TestCase):
     def test_project_scope_refuses_shell_programs_and_distinguishes_nested_runners(self):
         self.assertEqual("", evidence._project({"command": "python3 -B -m unittest discover -v"}))
         self.assertEqual("api", evidence._project({"command": "cd api && python3 -m pytest tests"}))
+        self.assertEqual("", evidence._project({"command": "go test -json ./..."}))
+        self.assertEqual("api", evidence._project({"command": "cd api && go test -json ./..."}))
         for command in (
             "python3 -m pytest tests; cd api",
             "python3 -m pytest tests && cd api",
             "python3 -m pytest $(other-command)",
             "cd api; python3 -m pytest tests",
             "npm test",
+            "go test -C api ./...",
+            "go test -exec custom ./...",
+            "env GOFLAGS=-race go test ./...",
         ):
             with self.subTest(command=command):
                 self.assertIsNone(evidence._project({"command": command}))
+
+    def test_go_events_compare_failure_details_not_elapsed_time(self):
+        import json
+
+        def observe(message, elapsed):
+            rows = [
+                {"Action": "run", "Package": "example.org/pkg", "Test": "TestA"},
+                {"Action": "output", "Package": "example.org/pkg", "Test": "TestA", "Output": "=== RUN   TestA\n"},
+                {
+                    "Action": "output",
+                    "Package": "example.org/pkg",
+                    "Test": "TestA",
+                    "Output": f"    x_test.go:3: {message}\n",
+                },
+                {
+                    "Action": "output",
+                    "Package": "example.org/pkg",
+                    "Test": "TestA",
+                    "Output": f"--- FAIL: TestA ({elapsed}s)\n",
+                },
+                {"Action": "fail", "Package": "example.org/pkg", "Test": "TestA"},
+            ]
+            self.output.write_text("\n".join(json.dumps(row) for row in rows))
+            receipt = {
+                "command": "go test -json ./...",
+                "exit_code": 1,
+                "timed_out": False,
+                "output": str(self.output),
+                "output_sha256": hashlib.sha256(self.output.read_bytes()).hexdigest(),
+                "results": {
+                    "passed": [],
+                    "failed": ["example.org/pkg::TestA"],
+                    "skipped": [],
+                    "complete": True,
+                    "total": 1,
+                },
+            }
+            return evidence.observations(receipt, root=self.root)
+
+        before, same, different = observe("missing", "0.01"), observe("missing", "1.23"), observe("other", "1.23")
+        self.assertIsNotNone(before)
+        self.assertEqual(before, same)
+        self.assertNotEqual(before, different)
 
     def test_over_nested_proof_is_refused_without_crashing(self):
         directory = self.root / "regression"
