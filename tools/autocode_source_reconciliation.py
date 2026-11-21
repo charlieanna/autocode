@@ -17,6 +17,7 @@ try:
     from . import autocode_liveness as liveness
     from . import autocode_repo_catalog as repo_catalog
     from . import autocode_source_scope as source_scope
+    from . import autocode_source_snapshot as source_snapshot
     from . import autocode_stop as stop
     from . import autocode_util as util
 except ImportError:
@@ -24,6 +25,7 @@ except ImportError:
     import autocode_liveness as liveness
     import autocode_repo_catalog as repo_catalog
     import autocode_source_scope as source_scope
+    import autocode_source_snapshot as source_snapshot
     import autocode_stop as stop
     import autocode_util as util
 
@@ -85,10 +87,18 @@ def readable(workspace, state: RunState) -> bool:
     stops at the same place again.
     """
     try:
-        source_scope.snapshot(workspace, state)
-        return catalog_problem(state) is None
+        current = source_scope.snapshot(workspace, state)
+        return not _unsafe_copy_source(workspace, state, current) and catalog_problem(state) is None
     except (util.Paused, OSError, ValueError, RuntimeError, TypeError):
         return False
+
+
+def _unsafe_copy_source(workspace, state, current):
+    """Recheck source names for parent links before offering any source recovery."""
+    paths = source_scope.paths(state)
+    files = source_snapshot.bound_inventory(workspace, current, paths=paths)
+    checked = set()
+    return any(source_snapshot.symlinked_parent(workspace, name, checked=checked) for name in files)
 
 
 def catalog_problem(state: RunState):
@@ -109,7 +119,13 @@ def prepare(runner, state: RunState, workspace):
     active = state.get("active_stage")
     if active:
         runner.assert_stage_stopped(active)
-    current = source_scope.snapshot(workspace, state, base_snapshot=runner.support.snapshot)
+    try:
+        current = source_scope.snapshot(workspace, state, base_snapshot=runner.support.snapshot)
+        unsafe = _unsafe_copy_source(workspace, state, current)
+    except source_snapshot.UnsafeSourcePath as error:
+        raise util.Paused(STATUS, str(error)) from error
+    if unsafe:
+        raise util.Paused(STATUS, str(state.get("stop_reason")))
     if problem := catalog_problem(state):
         raise problem
     note = {
