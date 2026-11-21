@@ -688,6 +688,14 @@ class DynamicDependenciesTests(unittest.TestCase):
         kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
         self.assertEqual([consumer], list(kept))
 
+    def test_semver_provider_keeps_its_refusal_controls_when_slow(self):
+        consumer = "tests.test_semver_reference_provider"
+        selected = run_suite.select_tests(
+            ["tests/semver_reference_provider.py"], {consumer: "", "tests.test_unrelated": ""}
+        )
+        kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+        self.assertEqual([consumer], list(kept))
+
     def test_scripted_repair_source_keeps_its_lifecycle_cli_consumer_when_slow(self):
         consumer = "tests.test_risk_cli"
         selected = run_suite.select_tests(

@@ -143,6 +143,7 @@ class ScopeTests(unittest.TestCase):
             "tests/fixtures/semver-reference-m1/control-missing-field.py",
             "tests/fixtures/semver-reference-m1/control-initial-field.py",
             "tests/fixtures/semver-reference-m1/control-grounded.py",
+            "tests/fixtures/semver-reference-m1/control-delimiters.py",
             "tests/fixtures/semver-reference-m1/control-api.py",
         )
         for resource in resources:

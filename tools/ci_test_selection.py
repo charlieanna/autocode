@@ -123,6 +123,7 @@ EXTENSION_HOST_RESOURCES = {
             "tests/fixtures/semver-reference-m1/control-missing-field.py",
             "tests/fixtures/semver-reference-m1/control-initial-field.py",
             "tests/fixtures/semver-reference-m1/control-grounded.py",
+            "tests/fixtures/semver-reference-m1/control-delimiters.py",
             "tests/fixtures/semver-reference-m1/control-api.py",
         ),
         ("vscode-extension/test/host/semver-reference-repair.test.cjs",),
@@ -261,6 +262,7 @@ SCENARIO_SELECTION_INPUTS = {
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tests/fixture_plan_review.py", ("tests.test_semver_reference_plan_review",)),
     ("tests/semver_reference_vscode_fixture.py", ("tests.test_semver_reference_plan_review",)),
+    ("tests/semver_reference_provider.py", ("tests.test_semver_reference_provider",)),
     *(
         (
             path,
