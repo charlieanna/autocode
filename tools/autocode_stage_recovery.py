@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_escalation as escalation
+    from . import autocode_failure_retry_admission as failure_retry_admission
     from . import autocode_failures as failures
     from . import autocode_first_reply_budget as first_reply_budget
     from . import autocode_interventions as interventions
@@ -54,6 +55,7 @@ try:
     from . import autocode_workflow as workflow
 except ImportError:
     import autocode_escalation as escalation
+    import autocode_failure_retry_admission as failure_retry_admission
     import autocode_failures as failures
     import autocode_first_reply_budget as first_reply_budget
     import autocode_interventions as interventions
@@ -2033,29 +2035,7 @@ def validate_timeout_completion_evidence(state: RunState, workspace, proof):
 
 
 def failure_retry_frontier(state: RunState, workspace):
-    """One exact source/stage/count answer shared by retry and revalidation."""
-    record = next((row for row in reversed(state.get("stages", [])) if row.get("failure_key")), None)
-    repeated = (failures.repeated(state, record) or stage_stalls.retry_entry(state, record)) if record else None
-    if not repeated:
-        raise ValueError("No unchanged repeated failure to authorize; fix the cause, then resume")
-    selected = cast(dict, record).get("failure_key")
-    revision = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)["revision"]
-    identity = repeated["identity"]
-    if (
-        (state.get("failure_history") or {}).get(selected) is not repeated
-        or failures.key(identity) != selected
-        or identity["artifact_hash"] != revision
-        or cast(dict, record).get("source_revision") != revision
-        or identity["stage"] != (cast(dict, record).get("original_stage") or cast(dict, record).get("stage"))
-        or identity["stage"] != state.get("next_stage")
-    ):
-        raise ValueError("Retry authorization requires the exact current source, stage and failure identity")
-    return {
-        "failure_key": selected,
-        "identity": copy.deepcopy(identity),
-        "count": cast(dict, repeated)["count"],
-        "source_revision": revision,
-    }
+    return failure_retry_admission.failure_retry_frontier(state, workspace, base_snapshot=support.snapshot)
 
 
 def validate_failure_retry_authorization(state: RunState, workspace, authorization):

@@ -478,7 +478,7 @@ class RecoveryViewTests(unittest.TestCase):
         self.assertEqual("Builder", result["failure_groups"][1]["role"])
         self.assertEqual(3, result["failure_groups"][1]["count"])
         self.assertIsNone(result["failure_groups"][0]["last_reason"])
-        self.assertIn("retry_failed_stage", [row["kind"] for row in result["actions"]])
+        self.assertNotIn("retry_failed_stage", [row["kind"] for row in result["actions"]])
 
     def test_parallel_retry_targets_only_failed_members_and_never_a_running_batch(self):
         state = self.state(
@@ -611,7 +611,7 @@ class RecoveryViewTests(unittest.TestCase):
                 ["--resume-paused", "--retry-report", "004/validator-01"],
             ),
             (
-                self.card(self.state("PAUSED_REPEATED_FAILURE")),
+                recovery.project(self.state("PAUSED_REPEATED_FAILURE"), {"kind": "resume"}),
                 "retry_failed_stage",
                 ["--resume-paused", "--retry-failed-stage"],
             ),

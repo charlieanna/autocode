@@ -1750,6 +1750,18 @@ def needs(state: RunState, *, stale_report_repair=False, human_projection=None) 
         elif blocked := recovery_limits.scoped_retry_unavailable(state):
             # The hold admits no retry yet; say what must happen first instead of implying a resume will do.
             need["retry_unavailable"] = blocked
+        if status == "PAUSED_REPEATED_FAILURE" and not recovery_limits.repeated_failure_retry_refusal(state):
+            try:
+                from . import autocode_failure_retry_admission as failure_retry_admission
+            except ImportError:
+                import autocode_failure_retry_admission as failure_retry_admission
+            try:
+                failure_retry_admission.failure_retry_frontier(state, state.get("workspace"))
+            except (ValueError, OSError, KeyError, TypeError) as error:
+                need["retry_unavailable"] = str(error)
+                need.pop("retry_action", None)
+                if need.get("action") == retry:
+                    need.pop("action", None)
         # A parallel member's model stop whose request a person answered continues only by its own
         # control (#541): --resume-paused --retry-builder M.
         member = member_stop.action(state) if "action" not in need else None

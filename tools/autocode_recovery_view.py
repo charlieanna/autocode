@@ -774,6 +774,7 @@ def project(state: RunState, need=None):
     elif (
         cause == "PAUSED_REPEATED_FAILURE"
         and not state.get("active_runner_check")
+        and not need.get("retry_unavailable")
         and not recovery_limits.repeated_failure_retry_refusal(state)
     ):
         actions.append(

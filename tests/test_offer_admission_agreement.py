@@ -271,6 +271,22 @@ class OfferAdmissionAgreementTests(SavedRunFixtures, unittest.TestCase):
                 self.assertNotEqual(0, code)
                 (self.root / "README.md").write_text(SOURCE)
 
+    def test_repeated_failure_retry_offer_requires_the_same_failure_frontier(self):
+        for change in ("source", "stage", "history"):
+            with self.subTest(change=change):
+                state = self.repeated()
+                if change == "source":
+                    (self.root / "README.md").write_text("changed source\n")
+                elif change == "stage":
+                    state["next_stage"] = "tester"
+                else:
+                    state["failure_history"] = {}
+                view = run_view.view(state)
+                self.assertFalse(self.offered(view["recovery"], "retry_failed_stage"))
+                code, _ = self.execute(state, ["--resume-paused", "--retry-failed-stage"])
+                self.assertNotEqual(0, code)
+                (self.root / "README.md").write_text(SOURCE)
+
     def test_ac22_surveyed_offers_agree_with_their_executor_admission(self):
         # (kind, status, args, admitted state, the one-field variant its executor refuses, refusal text)
         cases = (
