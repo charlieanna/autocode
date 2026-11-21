@@ -54,3 +54,8 @@ This branch is a snapshot of an AutoCode run. Claude usage ran out partway, so t
   ```
 
   Then run ruff, open the PR, and close the issues.
+
+## Merged-tree follow-up
+
+- PR #3972 merged as `4393e5ec98f9492e9b705fbc0a1ce94ddbb9e702`; its merged tree matched the independently integrated index. The ten-module focused suite passed 371 tests with one skipped in 326 seconds.
+- The historical #3972 lint job encountered a baseline mypy failure introduced by #3982. Current-master corrected CI is still required; do not close related issues solely on that historical run.

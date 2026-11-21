@@ -118,6 +118,72 @@ def report_repair(state: RunState, workspace, revision=None):
     return None
 
 
+def source_snapshot(state: RunState, workspace):
+    """Return a bounded snapshot or None when freshness is unknown."""
+    try:
+        value = _observe("source_snapshot", {"state": state, "workspace": str(workspace)})
+        if isinstance(value, dict) and isinstance(value.get("revision"), str):
+            return value
+    except (OSError, TypeError, ValueError, subprocess.SubprocessError, captured.ProcessError):
+        pass
+    return None
+
+
+def evidence_inspection(state: RunState, workspace, run_dir, *, accepted_human_ids=(), initial_snapshot=None):
+    """Bound source walks, evidence hashing and the checkpoint reread together."""
+    try:
+        value = _observe(
+            "evidence_inspection",
+            {
+                "state": state,
+                "workspace": str(workspace),
+                "run_dir": str(run_dir),
+                "accepted_human_ids": list(accepted_human_ids),
+                "initial_snapshot": initial_snapshot,
+            },
+        )
+        if isinstance(value, dict) and isinstance(value.get("freshness"), str):
+            return value
+    except (OSError, TypeError, ValueError, subprocess.SubprocessError, captured.ProcessError):
+        pass
+    return None
+
+
+def launch_guard(state: RunState, workspace, run_dir):
+    """Bound the launch-input file checks; None means the check was unavailable."""
+    try:
+        value = _observe("launch_guard", {"state": state, "workspace": str(workspace), "run_dir": str(run_dir)})
+        if isinstance(value, dict) and type(value.get("ok")) is bool:
+            return value
+    except (OSError, TypeError, ValueError, subprocess.SubprocessError, captured.ProcessError):
+        pass
+    return None
+
+
+def completion(state: RunState, current, workspace, run_dir):
+    """Bound current completion and visual evidence checks together."""
+    try:
+        value = _observe(
+            "completion", {"state": state, "current": current, "workspace": str(workspace), "run_dir": str(run_dir)}
+        )
+        if isinstance(value, dict) and (type(value.get("current")) is bool or value.get("current") is None):
+            return value
+    except (OSError, TypeError, ValueError, subprocess.SubprocessError, captured.ProcessError):
+        pass
+    return None
+
+
+def delivery(state: RunState, current, completion_current):
+    """Bound delivery proof file reads; unavailable cannot establish delivery."""
+    if completion_current is not True:
+        return None
+    try:
+        value = _observe("delivery", {"state": state, "current": current})
+        return value if isinstance(value, dict) else None
+    except (OSError, TypeError, ValueError, subprocess.SubprocessError, captured.ProcessError):
+        return None
+
+
 def catalog_offer(state: RunState, *, controller=None, stop_pending=False):
     """Only offer a catalog action after a bounded current observation."""
     try:

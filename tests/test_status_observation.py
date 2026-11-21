@@ -1,11 +1,15 @@
 """One bounded budget covers all nested, read-only status observations."""
 
 import subprocess
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import autocode_status_observation as observation
+import autocode_status_observation_worker as worker
+import autocode_verification_inspection as verification
 
 
 class StatusObservationTests(unittest.TestCase):
@@ -32,6 +36,24 @@ class StatusObservationTests(unittest.TestCase):
             self.assertIsNone(observation.report_repair({}, "/tmp/project"))
         with patch.object(observation, "_observe", return_value={"revision": "fresh", "stale": True}):
             self.assertEqual({"revision": "fresh", "stale": True}, observation.report_repair({}, "/tmp/project"))
+
+    def test_evidence_worker_rereads_old_checkpoint_with_saved_name_migration(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "state.json").write_text('{"next_stage": "terra", "settings": {"roles": {"terra": {}}}}')
+            request = {
+                "operation": "evidence_inspection",
+                "payload": {
+                    "state": {},
+                    "workspace": str(root),
+                    "run_dir": str(root),
+                    "accepted_human_ids": [],
+                    "initial_snapshot": None,
+                },
+            }
+            with patch.object(verification, "inspect", side_effect=lambda *args, **kwargs: kwargs["read_state"]()):
+                result = worker._worker(request)
+        self.assertEqual("builder", result["next_stage"])
 
 
 if __name__ == "__main__":
