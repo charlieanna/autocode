@@ -45,6 +45,27 @@ class ProbeEvidenceRequired(util.ExecutionEvidenceRequired):
     only a fresh Tester execution can run one."""
 
 
+def default_reason(value, schema):
+    """A Tester report whose schema offers ``probe_reason`` with each omitted one set to None.
+
+    Strict generation schemas require every property, so the field is nullable there; reports written
+    before it, and scripted Testers that leave it out, omit it. Supplied values are kept."""
+    rows = (
+        ((schema.get("properties") or {}).get("criterion_results") or {}).get("items", {}).get("properties", {})
+        if isinstance(schema, dict)
+        else {}
+    )
+    if "probe_reason" not in (rows or {}) or not isinstance(value, dict):
+        return value
+    if not isinstance(value.get("criterion_results"), list):
+        return value
+    result = dict(value)
+    result["criterion_results"] = [
+        {"probe_reason": None, **row} if isinstance(row, dict) else row for row in value["criterion_results"]
+    ]
+    return result
+
+
 def command_argv(text) -> list[str] | None:
     """The argument list a check's command runs, without the runner's ``cd <dir> && ... 2>&1``
     wrapper or a ``sh -c '<script>'`` wrapper; None when it cannot be split."""

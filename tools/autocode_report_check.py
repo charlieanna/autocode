@@ -419,6 +419,7 @@ def check_report(raw_text: str, *, spec: dict[str, Any]) -> list[str]:
     schema = spec.get("schema")
     if isinstance(schema, dict) and schema:
         data = acceptance_test_repair.normalize_absent(data, schema, {"stage": stage})
+        data = tester_probes.default_reason(data, schema)
         try:
             util.validate_schema(data, schema, where="$")
         except ValueError as exc:

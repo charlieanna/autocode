@@ -439,7 +439,7 @@ class TesterProbeTests(unittest.TestCase):
 
     def test_ac20_probe_reason_offered_only_in_tester_stage_schema(self):
         item = self.stage_schema()["properties"]["criterion_results"]["items"]
-        self.assertEqual({"type": "string"}, item["properties"]["probe_reason"])
+        self.assertEqual({"type": ["string", "null"]}, item["properties"]["probe_reason"])
         self.assertNotIn("probe_reason", item["required"])
         implementation = workflow.implementation_schema(SCHEMA_DIR)
         assessment = implementation["properties"]["continuation"]["properties"]["self_assessment"]
@@ -449,6 +449,29 @@ class TesterProbeTests(unittest.TestCase):
         )
         validation = checkpoint["properties"]["validation"]
         self.assertNotIn("probe_reason", validation["properties"]["criterion_results"]["items"]["properties"])
+
+    def test_an_omitted_probe_reason_is_null_under_the_strict_wire_schema(self):
+        # Strict generation requires every property, so a report written before probe_reason (or by a
+        # scripted Tester that leaves it out) must still validate: the omitted reason is null.
+        wire = util.model_output_schema(self.stage_schema())
+        self.assertIn("probe_reason", wire["properties"]["criterion_results"]["items"]["required"])
+        spec = report_check.build_spec(stage="tester", workspace=self.root, schema=wire, state=self.state)
+        path = self.run / "tester-wire-spec.json"
+        path.write_text(json.dumps(spec))
+        report = ac4_report()
+        report.setdefault("changed_code_exceptions", None)
+        report.setdefault("finding_dispositions", [])
+        report["end_to_end_result"].update(technical_result=None, pending_human_criteria=[])
+        self.assertNotIn("probe_reason", report["criterion_results"][0])
+        code, out, err = self.report_check(report, path)
+        self.assertEqual((0, ""), (code, err))
+        self.assertIn("OK (tester)", out)
+        loaded = report_schema.normalize_absent_authority(report, wire, {"stage": "tester"})
+        self.assertIsNone(loaded["criterion_results"][0]["probe_reason"])
+        util.validate_schema(loaded, wire, where="$")
+        supplied = make_tester_report([check(APPROVED, "event:item_1")], [row("C1", "check:1", probe_reason="Docs")])
+        kept = report_schema.normalize_absent_authority(supplied, wire, {"stage": "tester"})
+        self.assertEqual("Docs", kept["criterion_results"][0]["probe_reason"])
 
     def test_a_combined_review_checkpoint_validation_is_not_gated(self):
         # review_checkpoint applies its validation as "tester", but its schema offers no probe_reason.
