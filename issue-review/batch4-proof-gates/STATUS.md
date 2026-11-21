@@ -46,6 +46,17 @@ Ruff and formatting checks passed, and mypy passed on 993 source files. The
 new merged head still requires exact-head CI and actual editor verification;
 the earlier `8af27bb` extension pass does not establish either for this head.
 
+The actual Linux VS Code Extension Host on `65c5d38b4` then passed all nine
+tests, including the protected-link blocked and recovered chat
+(`/private/tmp/autocode-proof-65c5-editor-pass.log`). This is source-recovery
+editor evidence, not a completed #3926 or #3944 proof. Its suite and scenario
+jobs remain in progress. Master was subsequently integrated locally through
+`af28f4dff`, preserving #4041 host ownership and #4040 tool discovery; 188
+host-registry, CI-selection, fixture and discovery controls passed
+(`/private/tmp/autocode-proof-latest-integration-controls.log`). This later
+local integration and any M1 host fixture still require their own exact-head
+CI and editor result before readiness.
+
 **2026-11-20 source-boundary and failure-identity follow-up:** #3926 and
 #3944 remain incomplete and this PR must remain draft. The existing native
 readonly-check boundary cannot be substituted for the reported executions: it
