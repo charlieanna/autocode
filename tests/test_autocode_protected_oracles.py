@@ -729,8 +729,8 @@ class UndeterminedReplayTests(unittest.TestCase):
         self.assertEqual("PASS", saved["verdict"])
         self.assertIn(test_id, str(saved.get("preexisting_failures")))
 
-    def test_pytest_original_failure_recorded_on_base_does_not_block_replay(self):
-        """The reported #3944 case uses actual pytest JUnit output, not unittest text."""
+    def pytest_failure_receipts(self):
+        """Keep independently run, authenticated pytest results for the replay cases."""
         import autocode_verification_schedule as schedule
         import autocode_verify as verify
 
@@ -770,13 +770,22 @@ class UndeterminedReplayTests(unittest.TestCase):
             },
         }
         self.assertTrue(schedule.proof_intact(proof["checks"], root=proof_dir))
+        return proof_dir, candidate
+
+    def test_pytest_original_failure_recorded_on_base_does_not_block_replay(self):
+        """The reported #3944 case uses actual pytest JUnit output, not unittest text."""
+        import autocode_verification_schedule as schedule
+
+        _proof_dir, candidate = self.pytest_failure_receipts()
         error, receipt = self.replay({("candidate", 0): candidate, ("original", 0): candidate})
         saved = json.loads(receipt.read_text())
         self.assertTrue(schedule.intact(saved["candidate"], root=receipt.parent / "candidate"))
         self.assertTrue(schedule.intact(saved["original"], root=receipt.parent / "original"))
         self.assertIsNone(error)
         self.assertEqual("PASS", saved["verdict"])
-        receipt.unlink()
+
+    def test_pytest_different_failure_detail_in_either_half_is_not_excused(self):
+        proof_dir, candidate = self.pytest_failure_receipts()
         changed = copy.deepcopy(candidate)
         report = proof_dir / "different.xml"
         report.write_text(
