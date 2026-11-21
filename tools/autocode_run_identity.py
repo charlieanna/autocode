@@ -187,6 +187,13 @@ def output_refusal(output, roots, capture_context=None) -> str | None:
     )
 
 
+def follow_record(run_dir, workspace, state: object) -> tuple[Path, Path]:
+    """Follow a move using the checkpoint already observed by the caller."""
+    run_dir, workspace = Path(run_dir), Path(workspace)
+    found = build_worktree.resolve(workspace, run_dir, cast("RunState", state)) if isinstance(state, dict) else None
+    return (found[1], found[0]) if found else (run_dir, workspace)
+
+
 def follow(run_dir, workspace) -> tuple[Path, Path]:
     """(run directory, workspace) the saved record at ``run_dir`` addresses now.
 
@@ -199,5 +206,4 @@ def follow(run_dir, workspace) -> tuple[Path, Path]:
         state = json.loads((run_dir / "state.json").read_text())
     except (OSError, ValueError):
         return run_dir, workspace
-    found = build_worktree.resolve(workspace, run_dir, cast("RunState", state)) if isinstance(state, dict) else None
-    return (found[1], found[0]) if found else (run_dir, workspace)
+    return follow_record(run_dir, workspace, state)

@@ -124,6 +124,26 @@ class WaitCommandTests(unittest.TestCase):
         self.assertEqual(str(child), result["run_dir"])
         self.assertEqual(str(tree), result["workspace"])
 
+    def test_wait_tracks_a_move_between_resolution_and_checkpoint_read(self):
+        root, old, tree, child, move = moving_project(self)
+        original_load = wait_command._load
+        moved = False
+
+        def load(run_dir, workspace):
+            nonlocal moved
+            if run_dir == old and not moved:
+                moved = True
+                move(0)
+            return original_load(run_dir, workspace)
+
+        with mock.patch.object(wait_command, "_load", side_effect=load):
+            code, out, err = self.capture(["--workspace", str(root), "--run-dir", str(old), "--json"])
+        self.assertEqual(0, code, err)
+        result = json.loads(out)
+        self.assertEqual("complete", result["outcome"])
+        self.assertEqual(str(child), result["run_dir"])
+        self.assertEqual(str(tree), result["workspace"])
+
     def test_a_bounded_wait_reports_the_last_observed_state(self):
         root = project()
         clock = itertools.count(0, 2)
