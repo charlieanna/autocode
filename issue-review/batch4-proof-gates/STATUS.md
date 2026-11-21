@@ -147,6 +147,20 @@ pass while the strict-binding positive cases and final judgment remain open.
   files) passed. An initial sandboxed run failed four subprocess tests because
   the supervisor could not authenticate keeper cleanup; the successful run
   used the process-inspection access those tests require.
+- The archived real SemVer AC6 case was rerun in owned copies at original
+  `6adf876` and candidate `78c461a4`, with the same strengthened test and the
+  existing pytest interpreter. The original failed on the missing export and
+  the candidate passed. Its two tracked in-tree test symlinks initially made
+  runtime identity incomplete. The shared identity now binds a tracked
+  relative link only when its direct ordinary target is also tracked and its
+  link bytes and target content match the source snapshot. Escape, missing and
+  untracked targets, hardlinks, directory targets, symlink chains (including
+  `link/..`) and cycles remain unbound. Retarget and target edits change the
+  identity; changing the target during the observed run invalidates it.
+  The tracked-link positive fails on master and passes here. The real case now
+  records a complete runtime identity, but **still holds** because its import
+  origin is module-reported, not independently authenticated. Its receipts are
+  in `/private/tmp/autocode-proof-real-semver-ldl_8rer/evidence/observation/`.
 - Unit and end-to-end acceptance-reference regressions now capture in-test
   and module-level dependency cases. The candidate test passes, while the
   original run raises a missing unrelated dependency before its assertion.

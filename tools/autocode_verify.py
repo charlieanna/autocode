@@ -1179,11 +1179,9 @@ def execution_identity(
     """
     workspace = Path(workspace)
     source_snapshot_value = source_snapshot.snapshot(workspace, paths=source_paths)
-    source_symlinks = [
-        name
-        for name, value in source_snapshot_value.get("files", {}).items()
-        if value.startswith("symlink:") and name not in DEPENDENCY_DIRS
-    ]
+    source_symlinks = source_snapshot.unbound_symlinks(
+        workspace, source_snapshot_value["files"], lambda: _read_git(workspace, "ls-files", "-z").split("\0")
+    )
     source_metadata = source_snapshot.metadata(workspace, source_snapshot_value.get("files", {}))
     environment = test_environment(workspace)
     # The command executes in the workspace, or the package ``cd PACKAGE && RUNNER``

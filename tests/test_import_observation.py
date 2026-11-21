@@ -253,6 +253,48 @@ class ImportObservationTests(unittest.TestCase):
         self.assertNotEqual(0, placeholder["exit_code"])
         self.assertIn("placeholder sentinel", Path(placeholder["output"]).read_text())
 
+    def test_source_change_during_observation_cannot_supply_import_evidence(self):
+        base, candidate, output = (self.root / name for name in ("base", "candidate", "out"))
+        for tree, product in ((base, "old = 1\n"), (candidate, "new = 42\n")):
+            tree.mkdir()
+            (tree / "app.py").write_text(product)
+            (tree / "test_app.py").write_text(
+                "import unittest\nclass TestApp(unittest.TestCase):\n"
+                "    def test_export(self):\n        from app import new\n        self.assertEqual(new, 42)\n"
+            )
+        output.mkdir()
+        command = shlex.join([sys.executable, "-m", "unittest", "-v", "test_app"])
+        framework = verify.Framework("unittest", command, python=sys.executable)
+        original = verify.run_suite(framework, command, base, output, "original", timeout=30)
+
+        def snapshot(tree):
+            return hashlib.sha256((Path(tree) / "app.py").read_bytes()).hexdigest()
+
+        def change_after_run(*args, **kwargs):
+            receipt = verify.run_suite(*args, **kwargs)
+            (candidate / "app.py").write_text("new = 43\n")
+            return receipt
+
+        observed = observation.observe_candidate(
+            original,
+            base,
+            candidate,
+            framework,
+            original["results"]["failed"],
+            command,
+            output / "observation",
+            run_suite=change_after_run,
+            run_command=verify.run_command,
+            snapshot=snapshot,
+            identity=lambda tree: {"cache_binding_complete": True, "source": snapshot(tree)},
+            expected_source=snapshot(candidate),
+            is_product=lambda path: not path.startswith("test_"),
+            timeout=30,
+        )
+        self.assertEqual({}, observed["imports"])
+        self.assertEqual("Candidate execution identity changed after the selected tests", observed["reason"])
+        self.assertNotIn("probe", observed)
+
     def test_observe_candidate_reruns_the_same_tests_and_binds_source_and_environment(self):
         base, candidate, output = (self.root / name for name in ("base", "candidate", "evidence"))
         for tree, implementation in ((base, "def old(): return 1\n"), (candidate, "def new(): return 42\n")):
