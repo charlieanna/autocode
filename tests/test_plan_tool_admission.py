@@ -128,6 +128,13 @@ class CommandProgramTests(WorkspaceCase):
         found = admission.refusals(self.root, plan("python3 -m pytest -q", "PYTHONPATH=src pytest -q"), environment)
         self.assertEqual(["C2"], [ident for ident, _command, _error in found])
         self.assertIn("Cannot qualify the selected pytest console launcher", found[0][2])
+        # An approved plan that reaches the boundary with it pauses naming the plan's program, not Kilo.
+        with self.assertRaises(toolchain.Unadmitted) as raised:
+            toolchain.discover(self.root, ["PYTHONPATH=src pytest -q"], environment)
+        self.assertEqual("pytest", raised.exception.program)
+        paused = str(tool_admission.failure(raised.exception, kilo_readonly=True))
+        self.assertIn("The approved plan runs `pytest`", paused)
+        self.assertNotIn("Restore a qualified Kilo", paused)
 
 
 class InstallTests(WorkspaceCase):

@@ -173,115 +173,131 @@ def discover(workspace, commands, environment):
     for manifest, executable in (("package.json", "npm"), ("go.mod", "go"), ("Cargo.toml", "cargo")):
         if (root / manifest).is_file():
             pending.append(executable)
+    # Each name the plan's commands start, and each runtime it brings (pytest's interpreter, npm's node),
+    # belongs to that command's program: a refusal anywhere in the chain is the plan's (Unadmitted), never
+    # the boundary's own setup, so the plan check sends it to the Planner and the pause names it.
+    owners = {words[0]: words[0] for words in programs if words}
     while pending:
         name = pending.pop(0)
-        if name in selected:
-            continue
-        selected.add(name)
-        resolved = str(root / name) if "/" in name and not Path(name).is_absolute() else name
-        located = shutil.which(resolved, path=search_path)
-        if not located:
-            raise Unadmitted(f"Approved tool is unavailable before launch: {name}", name, missing=True)
-        original, tool = Path(located).absolute(), Path(located).resolve()
-        links.extend(hop for hop in _symlink_hops(original) if hop not in links)
-        family = original.name
-        if family == "pytest":
-            interpreter = python_entrypoints.pytest_interpreter(original)
-            paths.add(tool)
-            pending.append(str(interpreter))
-            probes.append(shlex.join([str(original), "--version"]))
-            continue
-        if family in ("npm", "npx"):
-            package = next((p for p in tool.parents if (p / "package.json").is_file()), None)
-            if package is None or json.loads((package / "package.json").read_text()).get("name") != "npm":
-                raise RuntimeError(f"Cannot identify the selected npm installation: {name}")
-            paths.add(package)
-            pending.append("node")
-            probes.append(shlex.join([str(original), "--version"]))
-            continue
-        if family == "cargo":
-            install = tool.parent.parent
-            if not (install / "lib/rustlib").is_dir() and _rustup_proxy(tool):
-                # rustup's proxy runs a toolchain under RUSTUP_HOME and writes there as it starts (its
-                # update-hashes), which a read-only boundary refuses. The proxy names the toolchain it would
-                # run for this project (its rust-toolchain file included), so that toolchain's own cargo is
-                # selected: its prefix is read-only and its bin directory leads the stage's PATH, so cargo and
-                # rustc resolve there and the proxy never runs. CARGO_HOME stays in the stage's scratch, so no
-                # registry credential of the person's ~/.cargo is readable (#4017).
-                original = _rustup_cargo(original, tool, root, environment)
-                tool, install = original.resolve(), original.parent.parent
-                path_prefix.append(str(original.parent))
-            if not (install / "lib/rustlib").is_dir():
-                raise RuntimeError(f"Cannot identify the selected Rust toolchain: {name}")
-            # The installed toolchain: the prefix holding bin/cargo, rustc and lib/rustlib.
-            paths.update(_binary_dependencies(tool))
-            paths.add(install)
-            probes.append(shlex.join([str(original), "--version"]))
-            continue
-        if family in ("sh", "bash"):
-            # Approvals may use the documented shell negative-control form.
-            # Only the fixed native shells qualify, never a PATH shim
-            # or project script with a shell's name. Probes run in containment.
-            # A merged-/usr Linux resolves /bin/<shell> into /usr/bin; the same file qualifies.
-            approved = {(Path("/bin") / family).resolve()}
-            if family == "bash":
-                approved.add(tool_shell.executable())
-            if tool not in approved:
-                raise RuntimeError(f"Contained toolchain discovery requires the native system shell: {name}")
-            paths.update(_binary_dependencies(tool))
-            probes.append(shlex.join([str(original), "-c", ":"]))
-            continue
-        if family not in ("git", "node", "go", "python", "python3") and not family.startswith("python3."):
-            raise Unadmitted(
-                f"Contained toolchain discovery does not support {name} (it admits "
-                + ", ".join(ADMITTED)
-                + "); no model launched",
-                name,
-            )
-        paths.update(_binary_dependencies(tool))
-        if family.startswith("python"):
-            tool = _python_executable(tool)
-            paths.update(_binary_dependencies(tool))
-        if family == "go":
-            install = tool.parent.parent
-            if not (install / "src/runtime").is_dir() or not (install / "pkg/tool").is_dir():
-                raise RuntimeError(f"Cannot identify the selected Go toolchain: {name}")
-            paths.add(install)
-            probes.append(shlex.join([str(original), "version"]))
-        elif family.startswith("python"):
-            # Preserve a virtualenv's lexical root rather than its interpreter
-            # symlink, so imports use the selected environment's site-packages.
-            install = original.parent.parent
-            if (install / "pyvenv.cfg").is_file():
+        before = len(pending)
+        try:
+            if name in selected:
+                continue
+            selected.add(name)
+            resolved = str(root / name) if "/" in name and not Path(name).is_absolute() else name
+            located = shutil.which(resolved, path=search_path)
+            if not located:
+                raise Unadmitted(f"Approved tool is unavailable before launch: {name}", name, missing=True)
+            original, tool = Path(located).absolute(), Path(located).resolve()
+            links.extend(hop for hop in _symlink_hops(original) if hop not in links)
+            family = original.name
+            if family == "pytest":
+                interpreter = python_entrypoints.pytest_interpreter(original)
+                paths.add(tool)
+                pending.append(str(interpreter))
+                probes.append(shlex.join([str(original), "--version"]))
+                continue
+            if family in ("npm", "npx"):
+                package = next((p for p in tool.parents if (p / "package.json").is_file()), None)
+                if package is None or json.loads((package / "package.json").read_text()).get("name") != "npm":
+                    raise RuntimeError(f"Cannot identify the selected npm installation: {name}")
+                paths.add(package)
+                pending.append("node")
+                probes.append(shlex.join([str(original), "--version"]))
+                continue
+            if family == "cargo":
+                install = tool.parent.parent
+                if not (install / "lib/rustlib").is_dir() and _rustup_proxy(tool):
+                    # rustup's proxy runs a toolchain under RUSTUP_HOME and writes there as it starts (its
+                    # update-hashes), which a read-only boundary refuses. The proxy names the toolchain it would
+                    # run for this project (its rust-toolchain file included), so that toolchain's own cargo is
+                    # selected: its prefix is read-only and its bin directory leads the stage's PATH, so cargo and
+                    # rustc resolve there and the proxy never runs. CARGO_HOME stays in the stage's scratch, so no
+                    # registry credential of the person's ~/.cargo is readable (#4017).
+                    original = _rustup_cargo(original, tool, root, environment)
+                    tool, install = original.resolve(), original.parent.parent
+                    path_prefix.append(str(original.parent))
+                if not (install / "lib/rustlib").is_dir():
+                    raise RuntimeError(f"Cannot identify the selected Rust toolchain: {name}")
+                # The installed toolchain: the prefix holding bin/cargo, rustc and lib/rustlib.
+                paths.update(_binary_dependencies(tool))
                 paths.add(install)
-            stdlibs = []
-            for ancestor in tool.parents:
-                candidates = list((ancestor / "lib").glob("python*/encodings/__init__.py"))
-                if candidates:
-                    stdlibs = [item.parent.parent.resolve() for item in candidates]
-                    break
-            if not stdlibs:
-                raise RuntimeError(f"Cannot identify the selected Python standard library: {name}")
-            paths.update(stdlibs)
-            for stdlib in stdlibs:
-                for extension in sorted((stdlib / "lib-dynload").glob("*.so")):
-                    paths.update(_binary_dependencies(extension))
-            probes.append(
-                shlex.join(
-                    [
-                        str(original),
-                        "-I",
-                        "-S",
-                        "-B",
-                        "-c",
-                        "import sys, json, ssl, sqlite3, ctypes, hashlib; print(sys.version)",
-                    ]
+                probes.append(shlex.join([str(original), "--version"]))
+                continue
+            if family in ("sh", "bash"):
+                # Approvals may use the documented shell negative-control form.
+                # Only the fixed native shells qualify, never a PATH shim
+                # or project script with a shell's name. Probes run in containment.
+                # A merged-/usr Linux resolves /bin/<shell> into /usr/bin; the same file qualifies.
+                approved = {(Path("/bin") / family).resolve()}
+                if family == "bash":
+                    approved.add(tool_shell.executable())
+                if tool not in approved:
+                    raise RuntimeError(f"Contained toolchain discovery requires the native system shell: {name}")
+                paths.update(_binary_dependencies(tool))
+                probes.append(shlex.join([str(original), "-c", ":"]))
+                continue
+            if family not in ("git", "node", "go", "python", "python3") and not family.startswith("python3."):
+                raise Unadmitted(
+                    f"Contained toolchain discovery does not support {name} (it admits "
+                    + ", ".join(ADMITTED)
+                    + "); no model launched",
+                    name,
                 )
-            )
-        elif family == "node":
-            probes.append(shlex.join([str(original), "-e", "console.log(process.version)"]))
-        else:
-            probes.append(shlex.join([str(original), "status", "--short"]))
+            paths.update(_binary_dependencies(tool))
+            if family.startswith("python"):
+                tool = _python_executable(tool)
+                paths.update(_binary_dependencies(tool))
+            if family == "go":
+                install = tool.parent.parent
+                if not (install / "src/runtime").is_dir() or not (install / "pkg/tool").is_dir():
+                    raise RuntimeError(f"Cannot identify the selected Go toolchain: {name}")
+                paths.add(install)
+                probes.append(shlex.join([str(original), "version"]))
+            elif family.startswith("python"):
+                # Preserve a virtualenv's lexical root rather than its interpreter
+                # symlink, so imports use the selected environment's site-packages.
+                install = original.parent.parent
+                if (install / "pyvenv.cfg").is_file():
+                    paths.add(install)
+                stdlibs = []
+                for ancestor in tool.parents:
+                    candidates = list((ancestor / "lib").glob("python*/encodings/__init__.py"))
+                    if candidates:
+                        stdlibs = [item.parent.parent.resolve() for item in candidates]
+                        break
+                if not stdlibs:
+                    raise RuntimeError(f"Cannot identify the selected Python standard library: {name}")
+                paths.update(stdlibs)
+                for stdlib in stdlibs:
+                    for extension in sorted((stdlib / "lib-dynload").glob("*.so")):
+                        paths.update(_binary_dependencies(extension))
+                probes.append(
+                    shlex.join(
+                        [
+                            str(original),
+                            "-I",
+                            "-S",
+                            "-B",
+                            "-c",
+                            "import sys, json, ssl, sqlite3, ctypes, hashlib; print(sys.version)",
+                        ]
+                    )
+                )
+            elif family == "node":
+                probes.append(shlex.join([str(original), "-e", "console.log(process.version)"]))
+            else:
+                probes.append(shlex.join([str(original), "status", "--short"]))
+        except Unadmitted:
+            raise
+        except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as error:
+            if name in owners:
+                raise Unadmitted(str(error), owners[name]) from error
+            raise
+        finally:
+            for added in pending[before:]:
+                if name in owners:
+                    owners.setdefault(added, owners[name])
     # The workspace already permits reads; adding it as an external runtime
     # would also protect it from Builder writes under the containment policy.
     return {
