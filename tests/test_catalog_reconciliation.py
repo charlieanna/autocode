@@ -227,6 +227,35 @@ class CatalogReconciliationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "identity"):
             context.saved_inventory(self.state)
 
+    def test_symlinked_inventory_directory_cannot_write_outside_the_run(self):
+        _, receipt, original = self.changed_state()
+        token = reconciliation.offer(self.state, controller={"kind": "ended"})["action"].split()[-1]
+        external = self.root / "outside"
+        external.mkdir()
+        (receipt.parent / "source-catalogs").symlink_to(external, target_is_directory=True)
+        before = copy.deepcopy(self.state)
+        with self.assertRaisesRegex(ValueError, "owned by this run"):
+            reconciliation.reconcile(
+                SimpleNamespace(goals=goals, write_json=Mock()), self.state, self.state["run_dir"], token
+            )
+        self.assertEqual([], list(external.iterdir()))
+        self.assertEqual(before, self.state)
+        self.assertEqual(original, receipt.read_bytes())
+
+    def test_symlinked_selected_receipt_cannot_be_read(self):
+        self.changed_state()
+        token = reconciliation.offer(self.state, controller={"kind": "ended"})["action"].split()[-1]
+        reconciliation.reconcile(
+            SimpleNamespace(goals=goals, write_json=util.atomic_json), self.state, self.state["run_dir"], token
+        )
+        selected = context.receipt_path(self.state)
+        external = self.root / "outside.json"
+        external.write_bytes(selected.read_bytes())
+        selected.unlink()
+        selected.symlink_to(external)
+        with self.assertRaisesRegex(ValueError, "owned by this run"):
+            context.saved_inventory(self.state)
+
     def test_removed_catalog_is_recorded_as_an_empty_inventory(self):
         _, receipt, original = self.changed_state()
         catalog.remove_root(self.repo.parent)

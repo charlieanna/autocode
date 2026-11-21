@@ -102,7 +102,10 @@ def reconcile(runner, state: RunState, run_dir, expected):
     """Write an immutable receipt, then atomically publish the invalidated planning state."""
     old, new, changes = require_binding(state, expected)
     selected = util.digest(new)
-    path = Path(run_dir) / "planning/source-catalogs" / (selected + ".json")
+    if str(Path(run_dir).resolve()) != str(Path(state["run_dir"]).resolve()):
+        raise ValueError("Source inventory receipt belongs to a different run")
+    path = context.receipt_path({**state, "source_catalog_receipt": selected})
+    assert path is not None  # require_binding admitted a saved run directory.
     if path.exists():
         if util.read_object(path) != new:
             raise ValueError("Source inventory receipt conflicts with its content identity")

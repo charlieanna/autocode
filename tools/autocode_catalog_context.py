@@ -18,9 +18,11 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_command_receipt as command_receipt
     from . import autocode_repo_catalog as catalog
     from . import autocode_util as util
 except ImportError:
+    import autocode_command_receipt as command_receipt
     import autocode_repo_catalog as catalog
     import autocode_util as util
 
@@ -177,10 +179,14 @@ def receipt_path(state: RunState):
         return None
     selected = state.get("source_catalog_receipt")
     if selected is None:
-        return Path(run) / "planning/source-catalog.json"
-    if not isinstance(selected, str) or not re.fullmatch(r"[0-9a-f]{64}", selected):
-        raise ValueError("The saved source inventory receipt identity is invalid")
-    return Path(run) / "planning/source-catalogs" / (selected + ".json")
+        path = Path(run) / "planning/source-catalog.json"
+    else:
+        if not isinstance(selected, str) or not re.fullmatch(r"[0-9a-f]{64}", selected):
+            raise ValueError("The saved source inventory receipt identity is invalid")
+        path = Path(run) / "planning/source-catalogs" / (selected + ".json")
+    if command_receipt.owned_relative(path, Path(run)) is None:
+        raise ValueError("The source inventory receipt is not an ordinary path owned by this run")
+    return path
 
 
 def saved_inventory(state: RunState):
