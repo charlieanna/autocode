@@ -35,6 +35,7 @@ try:
     from . import autocode_quota_route as quota_route
     from . import autocode_recovery_limits as recovery_limits
     from . import autocode_repair_provenance as repair_provenance
+    from . import autocode_report_correction as report_correction
     from . import autocode_report_repair_queue as report_repair_queue
     from . import autocode_report_retry as report_retry
     from . import autocode_report_source as report_source
@@ -65,6 +66,7 @@ except ImportError:
     import autocode_quota_route as quota_route
     import autocode_recovery_limits as recovery_limits
     import autocode_repair_provenance as repair_provenance
+    import autocode_report_correction as report_correction
     import autocode_report_repair_queue as report_repair_queue
     import autocode_report_retry as report_retry
     import autocode_report_source as report_source
@@ -1358,7 +1360,7 @@ def prepare_exhausted_execution_report_retry(state: RunState, run_dir, workspace
     reason = (
         "Explicit fresh execution retry: the report repair cannot launch from its saved inputs"
         if unlaunchable
-        else "Explicit fresh execution retry after bounded report failures"
+        else report_correction.SPENT
     )
     state.setdefault("report_repair_archive", []).append(
         {"at": records.now(), "reason": reason, "repair": state.pop("pending_report_repair")}
@@ -1414,7 +1416,7 @@ def restart_unlaunchable_repair(state: RunState, run_dir, workspace, error):
         state.setdefault("report_repair_archive", []).append(
             {
                 "at": records.now(),
-                "reason": f"Unchanged repeated failure hold: {CANNOT_LAUNCH}",
+                "reason": report_correction.UNLAUNCHABLE,
                 "repair": state.pop("pending_report_repair"),
             }
         )
@@ -1453,27 +1455,13 @@ class _LaunchableRepairProbePassed(Exception):
 
 def restore_launchable_unlaunchable_repair(runner, state: RunState, run_dir, workspace) -> bool:
     """Re-queue an attempts=0 repair archived solely as unlaunchable when it now fits within launch bounds."""
-    archive = state.get("report_repair_archive")
-    if (
-        state.get("status") != "RUNNING"
-        or state.get("pending_report_repair")
-        or state.get("active_stage")
-        or not isinstance(archive, list)
-        or not archive
-    ):
+    # Which archived repair may come back, and on which rule, is decided in one place (#3868).
+    entry = report_correction.archived(state, "unlaunchable") if state.get("status") == "RUNNING" else None
+    if entry is None:
         return False
-    entry = archive[-1]
-    repair = entry.get("repair") if isinstance(entry, dict) else None
-    original = repair.get("original") if isinstance(repair, dict) else None
-    if (
-        not isinstance(entry, dict)
-        or entry.get("reason") != f"Unchanged repeated failure hold: {CANNOT_LAUNCH}"
-        or not isinstance(repair, dict)
-        or repair.get("attempts") != 0
-        or not isinstance(original, dict)
-        or original.get("stage") != state.get("next_stage")
-    ):
-        return False
+    archive = state["report_repair_archive"]
+    repair = entry["repair"]
+    original = repair["original"]
     probe_state = copy.deepcopy(state)
     probe_state["pending_report_repair"] = copy.deepcopy(repair)
 
