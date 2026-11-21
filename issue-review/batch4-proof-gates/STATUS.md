@@ -22,7 +22,9 @@ what was independently observed during continuation.
   and module-level dependency cases. The candidate test passes, while the
   original run raises a missing unrelated dependency before its assertion.
   Both end-to-end regressions pass on master and fail on this branch. The
-  regressions remain red here until classification is corrected.
+  regressions remain red here until classification is corrected. The in-test
+  case mentions that dependency in an added source comment, guarding against
+  treating a matching diff word alone as proof that the project provides it.
 - Ruff check and format check passed locally. Mypy passed on 965 source files.
 - The three new `SharedSetupAnswerTests` pass on this branch and error on
   current master, which does not have the new shared setup-classification API.

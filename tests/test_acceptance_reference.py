@@ -183,6 +183,9 @@ class AcceptanceReferenceTests(unittest.TestCase):
         self.assert_refused(self.apply())
 
     def test_new_behavior_does_not_accept_a_missing_third_party_dependency_as_a_failure(self):
+        # A name mentioned in a source comment is not a newly provided project API.
+        app = self.workspace / "app.py"
+        app.write_text(app.read_text() + "# missing_autocode_audit_dependency\n")
         (self.workspace / "tests/test_feature.py").write_text(
             "import unittest\nfrom app import answer\n"
             "class Feature(unittest.TestCase):\n"
