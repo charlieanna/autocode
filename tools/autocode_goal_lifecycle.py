@@ -1216,6 +1216,13 @@ def _seal_and_assign_approved_goal(
 
 def _retain_equivalent_approval(state: RunState, origin, record) -> bool:
     """Carry an authenticated person approval forward when a runner-only re-review leaves every contract term and review judgment unchanged."""
+    for event in reversed(state.get("user_events") or []):
+        if not isinstance(event, dict):
+            continue
+        if event.get("kind") == "goal_approval" and event.get("actor") == "user_cli":
+            break
+        if event.get("kind") == "source_catalog_reconciled":
+            return False
     if origin not in workflows.FINAL_REVIEW_ORIGINS:
         return False
     settings = state.get("settings") or {}
@@ -1385,6 +1392,45 @@ def resolve_passing_checkpoint(state: RunState, question_id, text):
     state.update({"status": "RUNNING", "phase": "READY_TO_EXECUTE", "pending_questions": []})
     state.pop("user_request", None)
     state.pop("milestone_blocker", None)
+
+
+def ask_planning_question(state: RunState, question, why, *, origin, evidence=None) -> bool:
+    """The Investigator's question about a stuck planning stage, asked as planning asks its own (#3993).
+
+    It becomes an open blocking question of the current draft (the plan, or before one the Requirements
+    handoff), the only questions a clarification may ask, and is asked as one: the person answers it with
+    ``--answer`` (``needs.kind`` ``answer``), the answer is saved as their own (``goals.answer``), so a
+    revision may cite it as the basis for changing a protected item, and planning starts again with it.
+    Restoring the stage's pause instead offered only a resume, which reran the stage into the same
+    conflict with the question left in the pause reason. False, and nothing changed, without a draft."""
+    contract = state.get("goal_contract") or {}
+    body = contract.get("body") if isinstance(contract.get("body"), dict) else state.get("requirements_body")
+    if not isinstance(body, dict):
+        return False
+    evidence = copy.deepcopy(evidence or {})
+    output = origin.get("output")
+    if output and Path(output).is_file():
+        evidence.setdefault("hashes", {})[output] = s.file_hash(Path(output))
+    row = {
+        "id": "investigation-" + uuid.uuid4().hex[:12],
+        "question": question,
+        "why": why,
+        "options": [],
+        "proposed_default": "",
+    }
+    body["open_blocking_questions"] = [*(body.get("open_blocking_questions") or []), copy.deepcopy(row)]
+    if body is contract.get("body"):
+        contract["hash"] = s.digest({k: contract[k] for k in ("task_id", "revision", "body")})
+    human.queue(
+        state,
+        "clarification",
+        origin,
+        questions=[row],
+        evidence=evidence,
+        phase="DISCOVERING",
+        next_stage="requirements" if roles.planning_flow(state) == "v2" else "draft_plan",
+    )
+    return True
 
 
 def wait_for_user(state: RunState, request, *, origin=None, evidence=None, next_stage=None):

@@ -62,6 +62,16 @@ def _require(value, reason):
         raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Native check: " + reason)
 
 
+def validate_scratch_owner(execution, review_mutation, deadline, review_source, preparation_active):
+    """Refuse unsupported ownership before preparing a native verification tree."""
+    if review_mutation or deadline is not None or review_source is not None:
+        raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Native readonly checks cannot run review mutations")
+    if type(execution) is not NativeCheckExecution:
+        raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Original concrete native check owner required")
+    if preparation_active():
+        raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Native checks cannot share scheduled preparation ownership")
+
+
 class NativeCheckExecution:
     @protection._technical_hold
     def __init__(self, context, state: RunState, *, persist, review_record=None):
@@ -124,8 +134,13 @@ class NativeCheckExecution:
         generated_record=None,
         generated_unrecorded=False,
         ignored_inputs=None,
+        expected_source_revision=None,
     ):
         facts = self._fresh()
+        _require(
+            expected_source_revision is None or facts["binding"]["source"]["revision"] == expected_source_revision,
+            "native copy differs from the pinned source revision",
+        )
         _require(
             self.scope is None and Path(workspace).resolve() == self.workspace, "overlapping or foreign native copy"
         )

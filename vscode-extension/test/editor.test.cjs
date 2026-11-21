@@ -5472,7 +5472,7 @@ for (const outcome of ['success', 'failure']) {
     ui.document.querySelector('#take-action').click();
     await flush(); await flush();
     assert.equal(launch.mock.callCount(), 1, 'the existing command is still pending');
-    assert.equal(button().disabled, true, 'busy controls must not silently accept a click');
+    assert.equal(button().disabled, false, 'a display-only read stays available while the command is pending (#3871)');
     finish(); await flush(); await flush();
     assert.equal(button().disabled, false, 'the named action returns when the command settles');
     button().click();
@@ -5481,6 +5481,87 @@ for (const outcome of ['success', 'failure']) {
     assert.ok(ui.document.querySelector('#app').textContent.includes('This run has not changed any files.'));
   });
 }
+
+// #3871: the whole-run diff is a display-only read, served while the tab waits for another command.
+test('test_ac8_all_changes_served_while_tab_busy', async (t) => {
+  const ui = await openChat(t, checkpointView());
+  let finish;
+  const launch = t.mock.method(cli, 'stream', () => new Promise((resolve) => { finish = () => resolve(ok); }));
+  t.after(() => finish?.());
+  const calls = [];
+  t.mock.method(cli, 'invoke', async (_settings, argv) => {
+    calls.push(argv);
+    return { ...ok, stdout: JSON.stringify({ changed_files: ['app.txt'], patch: '+hello' }) };
+  });
+  ui.document.querySelector('#take-action').click();
+  await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 1, 'the chat command is still pending');
+  const button = ui.document.querySelector('#all-changes-show');
+  assert.equal(button.disabled, false, 'the named read is available while the tab is busy');
+  button.click();
+  await flush(); await flush();
+  assert.deepEqual(calls, [ALL_CHANGES], 'served while the chat command is still pending');
+  const text = ui.document.querySelector('#app').textContent;
+  assert.match(text, /1 file\(s\) changed in this run/);
+  assert.ok(text.includes('+hello'));
+});
+
+test('test_ac9_other_actions_stay_disabled_while_busy', async (t) => {
+  const ui = await openChat(t, checkpointView());
+  let finish;
+  const launch = t.mock.method(cli, 'stream', () => new Promise((resolve) => { finish = () => resolve(ok); }));
+  t.after(() => finish?.());
+  ui.document.querySelector('#take-action').click();
+  await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 1, 'the chat command is still pending');
+  assert.equal(ui.document.querySelector('#take-action').disabled, true, 'busy controls must not silently accept a click');
+});
+
+// #3945: a diff that ends before the run's current files says so, in the Changes section and on the card.
+const NOT_INCLUDED = 'Ends at saved code cp-1; changes made after it are not included.';
+
+test('test_ac10_all_changes_shows_its_not_included_note', async (t) => {
+  const reply = { changed_files: ['app.txt'], patch: '+hello', complete: false, note: NOT_INCLUDED };
+  const ui = await openChat(t, checkpointView());
+  t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify(reply) }));
+  ui.document.querySelector('#all-changes-show').click();
+  await flush(); await flush();
+  const section = ui.document.querySelector('#all-changes').nextElementSibling;
+  assert.ok(section.textContent.includes(NOT_INCLUDED), 'the Changes section names what it leaves out');
+  const done = meteredView({
+    status: 'TASK_COMPLETE', done: true, needs: { kind: 'done' }, liveness: null,
+    progress: { headline: 'Complete', requirements: { checked: 1, failed: 0, unchecked: 0, awaiting_review: 0 } },
+    code_checkpoints: { all_changes: { id: 'all_changes', label: 'Show all changes', next_command: ALL_CHANGES } },
+  });
+  done.usage.accounting.attempts = done.usage.accounting.attempts.map((row) => ({ ...row, active: false }));
+  await ui.poll(done); await flush(); await flush();
+  const card = ui.document.getElementById('finish-summary');
+  assert.ok(card, 'the closing card is drawn');
+  assert.ok(card.textContent.includes(NOT_INCLUDED), 'the result card names what the diff leaves out');
+});
+
+test('test_ac11_result_card_count_follows_kept_code', async (t) => {
+  const done = meteredView({
+    status: 'TASK_COMPLETE', done: true, needs: { kind: 'done' }, liveness: null,
+    progress: { headline: 'Complete', requirements: { checked: 1, failed: 0, unchecked: 0, awaiting_review: 0 } },
+    code_checkpoints: {
+      all_changes: { id: 'all_changes', label: 'Show all changes', next_command: ALL_CHANGES },
+      kept: { id: 'kept-1', source_revision: 'r1', commit: 'c1', available: true },
+    },
+  });
+  done.usage.accounting.attempts = done.usage.accounting.attempts.map((row) => ({ ...row, active: false }));
+  let files = ['app.txt', 'README.md'];
+  t.mock.method(controller, 'allChanges', async () => ({ since: 'start', changed_files: files, patch: '+kept', truncated: false }));
+  const ui = await openChat(t, done);
+  await flush(); await flush();
+  assert.equal(ui.document.querySelector('#finish-summary .files').textContent, '2 files: app.txt, README.md');
+  files = ['README.md', 'app.txt', 'docs/guide.md', 'link', 'new file.txt', 'run.sh'];
+  await ui.poll({ ...done, code_checkpoints: { ...done.code_checkpoints,
+    kept: { id: 'kept-2', source_revision: 'r2', commit: 'c2', available: true } } });
+  await flush(); await flush();
+  assert.equal(ui.document.querySelector('#finish-summary .files').textContent,
+    '6 files: README.md, app.txt, docs/guide.md, link, new file.txt, run.sh');
+});
 
 test('an all-changes action the view did not name exactly is refused without a CLI call', async (t) => {
   const view = checkpointView();
@@ -6872,6 +6953,42 @@ test('one hung status read does not freeze the other tabs (#1711)', async (t) =>
   await flush();
   releaseHung({ status: 'RUNNING', done: false, needs: { kind: 'continue' }, chat: { phase: null, context: 'c', input: null, messages: [] } });
   await flush();
+});
+
+test('a healthy chat keeps reading while a sibling chat read is still out (#3851)', async (t) => {
+  // refresh() used to hand every caller the one multi-chat cycle, so while one chat's read was
+  // pending no other chat was read again, and the chat's own poll timer waited on that cycle too.
+  const healthy = { workspace: '/ws', runDir: '/ws/.autocode/runs/healthy-run' };
+  const ui = await openChat(t, chatView());
+  ui.chat.show(healthy);
+  await flush(); await flush();
+  let revision = 1;
+  const reads = { slow: 0, healthy: 0 };
+  t.mock.method(controller, 'status', (target) => {
+    if (target.runDir === run.runDir) {
+      reads.slow += 1;
+      return new Promise(() => {});
+    }
+    reads.healthy += 1;
+    revision += 1;
+    return Promise.resolve({ status: 'RUNNING', done: false, needs: { kind: 'continue' },
+      chat: { phase: null, context: 'c', input: null,
+        messages: [{ id: 'answer', role: 'assistant', text: `revision ${revision}` }] } });
+  });
+  const text = () => ui.document.body.textContent;
+  void ui.chat.refresh();
+  await flush(); await flush();
+  assert.match(text(), /revision 2/);
+  void ui.chat.refresh();
+  await flush(); await flush();
+  assert.match(text(), /revision 3/, 'the healthy chat is read again while its sibling read is out');
+  assert.equal(reads.slow, 1, 'the sibling still has exactly one outstanding read');
+  // The chat's own poll timer keeps ticking and reading the healthy chat as well.
+  t.mock.timers.tick(5000); await flush(); await flush();
+  t.mock.timers.tick(5000); await flush(); await flush();
+  assert.match(text(), /revision 5/);
+  assert.equal(reads.healthy, 4);
+  assert.equal(reads.slow, 1, 'an outstanding read is never started again');
 });
 
 test('similar open chats have distinct tabs and full request tooltips', async (t) => {
@@ -9084,6 +9201,92 @@ test('structured Requirements & Assumptions card renders assumptions, rationale,
   assert.equal(launch.mock.callCount(), 1);
   const args = launch.mock.calls[0].arguments[1];
   assert.ok(args.includes('requirements-review-r1=Change A1: exit 1 on missing name to match legacy script'));
+});
+
+test('test_ac3_assumption_label_follows_standing', async (t) => {
+  host.config.set('confirmPersonOnly', false);
+  t.after(() => host.config.delete('confirmPersonOnly'));
+  const assumption = (id, confirmed, standing) => ({
+    id, text: `Assumption ${id}`, category: 'technical', convention_ref: '', rationale: '', confirmed,
+    ...(standing === undefined ? {} : { standing }),
+  });
+  const view = (assumptions) => ({
+    status: 'WAITING_FOR_USER',
+    done: false,
+    needs: {
+      kind: 'answer',
+      resolver_token: 'review:tok',
+      questions: [{ id: 'requirements-review-r1', question: understanding, options: [], proposed_default: 'plan', allow_custom: true }],
+    },
+    next_command: `autocode --answer requirements-review-r1=ANSWER --resolver-token - --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    requirements: {
+      handoff_ref: 'ref123456789',
+      intended_outcome: 'Greet by name',
+      requirements: [],
+      proposed_assumptions: assumptions,
+      acceptance_tests: [],
+      conflicts: [],
+    },
+    chat: {
+      phase: 'requirements',
+      context: 'review-ctx',
+      input: { kind: 'feedback', label: 'Send reply', next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --feedback MESSAGE` },
+      messages: [{ id: 'requirements-question-r1', role: 'assistant', text: understanding }],
+      review: { question_id: 'requirements-review-r1', answer: 'plan', label: 'Approve understanding and prepare plan', summary: understanding },
+    },
+  });
+  const labels = async (assumptions) => {
+    const ui = await openChat(t, view(assumptions), run, { controller: new RunController(host.log) });
+    const rows = [...ui.document.querySelectorAll('#app .requirements-card .assumption-row')];
+    return Object.fromEntries(rows.map((row) => {
+      const head = row.querySelector('.assumption-head');
+      const spans = [...head.querySelectorAll('span.state')];
+      return [spans[0].textContent, { label: spans[spans.length - 1].textContent, text: row.textContent }];
+    }));
+  };
+  const shown = await labels([
+    assumption('A1', true, 'confirmed_by_person'),
+    assumption('A2', true, 'convention_not_approved'),
+    assumption('A3', true, 'approved_with_understanding'),
+    assumption('A4', true, 'skipped_review'),
+    assumption('A5', false, 'needs_confirmation'),
+    // Rows from an older core carry no standing: the label of today stays.
+    assumption('A6', true),
+    assumption('A7', false),
+  ]);
+  assert.equal(shown.A2.label, 'reported convention, not independently verified or approved');
+  assert.equal(shown.A1.label, 'confirmed by you');
+  assert.equal(shown.A3.label, 'approved with your understanding');
+  assert.equal(shown.A4.label, 'review skipped');
+  assert.equal(shown.A5.label, 'needs confirmation');
+  assert.ok(!shown.A2.text.includes('confirmed'), 'an inferred convention never reads as confirmed');
+  assert.ok(!shown.A3.text.includes('confirmed by you'));
+  assert.ok(!shown.A4.text.includes('confirmed by you'));
+  assert.equal(shown.A6.label, 'confirmed');
+  assert.equal(shown.A7.label, 'needs confirmation');
+});
+
+test('complete Requirements details remain accessible without assumptions after a question', async (t) => {
+  const constraints = Array.from({length: 9}, (_, index) => `Constraint ${index + 1}`);
+  const examples = Array.from({length: 13}, (_, index) => `Example ${index + 1}`);
+  const view = {
+    status: 'WAITING_FOR_USER', done: false,
+    needs: {kind: 'answer', resolver_token: 'review:tok',
+      questions: [{id: 'requirements-review-r1', question: understanding, options: [], proposed_default: 'plan', allow_custom: true}]},
+    next_command: `autocode --answer requirements-review-r1=ANSWER --resolver-token - --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    requirements: {handoff_ref: 'ref', intended_outcome: 'Task', requirements: [],
+      proposed_assumptions: [], conflicts: [], acceptance_tests: examples, constraints},
+    chat: {phase: 'requirements', context: 'review',
+      input: {kind: 'feedback', label: 'Send reply', next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --feedback MESSAGE`},
+      messages: [{id: 'requirements-question-r1', role: 'assistant', text: understanding}],
+      review: {question_id: 'requirements-review-r1', answer: 'plan',
+        label: 'Approve understanding and prepare plan', summary: understanding}},
+  };
+  const ui = await openChat(t, view, run, {controller: new RunController(host.log)});
+  const details = ui.document.querySelector('#app .requirements-details');
+  assert.ok(details, 'complete details remain available after the question was shown');
+  assert.ok(details.textContent.includes('Constraint 9'));
+  assert.ok(details.textContent.includes('Example 13'));
 });
 
 function recordedStageEvidence(context, path) {

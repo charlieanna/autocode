@@ -2,6 +2,7 @@
 
 import copy
 import json
+import shlex
 import sys
 import tempfile
 import unittest
@@ -157,7 +158,17 @@ class RuntimeReportTests(unittest.TestCase):
             state={
                 "status": "completed",
                 "input": {
-                    "command": "autocode capture --output .autocode/evidence/cursor-check.json -- python -m unittest"
+                    "command": shlex.join(
+                        [
+                            sys.executable,
+                            str(Path(support.__file__).parent / "autocode.py"),
+                            "capture",
+                            "--output",
+                            ".autocode/evidence/cursor-check.json",
+                            "--",
+                            *receipt["command"],
+                        ]
+                    )
                 },
                 "metadata": {},
                 "output": json.dumps(receipt),
@@ -193,7 +204,17 @@ class RuntimeReportTests(unittest.TestCase):
             state={
                 "status": "completed",
                 "input": {
-                    "command": "autocode capture --output .autocode/evidence/bash-check.json -- python -m unittest"
+                    "command": shlex.join(
+                        [
+                            sys.executable,
+                            str(Path(support.__file__).parent / "autocode.py"),
+                            "capture",
+                            "--output",
+                            ".autocode/evidence/bash-check.json",
+                            "--",
+                            *receipt["command"],
+                        ]
+                    )
                 },
                 "metadata": {"truncated": False},
                 "output": json.dumps(receipt),

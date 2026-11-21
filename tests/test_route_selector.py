@@ -202,7 +202,7 @@ class SelectionTests(unittest.TestCase):
         self.assertIsNone(result["routes"])
         stop = result["stop"]
         self.assertIn("Plan Reviewer: no qualified model is available.", stop)
-        self.assertIn(f"{SOL} — connect the ChatGPT login", stop)
+        self.assertIn(f"{SOL} — connect the OpenAI login (ChatGPT or an API key)", stop)
         self.assertIn(f"{OPUS} — connect the Anthropic (Claude) login", stop)
         self.assertNotIn(MIMO + " —", stop)
 
@@ -236,7 +236,7 @@ class SelectionTests(unittest.TestCase):
         self.assertIsNone(result["routes"])
         stop = result["stop"]
         self.assertIn("Connect a second model family", stop)
-        self.assertIn("ChatGPT login", stop)
+        self.assertIn("OpenAI login (ChatGPT or an API key)", stop)
         self.assertIn("Anthropic (Claude) login", stop)  # plan review offers GPT-6 Sol or Claude, never MiMo
         self.assertNotIn("--single-model", stop)
 

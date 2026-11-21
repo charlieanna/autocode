@@ -10,13 +10,17 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import autocode as runner
+import autocode_command_supervision as command_supervision
 import autocode_completion as completion_gate
+import autocode_early_baseline as early_baseline
 import autocode_goal_lifecycle as lifecycle
 import autocode_goals as g
 import autocode_interventions as interventions
@@ -2151,6 +2155,43 @@ class GoalTests(unittest.TestCase):
         self.assertEqual("# retained partial work\n", (self.root / "partial.py").read_text())
         self.assertEqual(8, self.state["active_seconds"])
 
+    def test_every_exit_from_the_build_loop_ends_the_early_baseline(self):
+        # #3859: a pause left the background base suite running in this process, still writing
+        # under the run directory, and the fixture's temporary directory could not be removed.
+        self.approve()
+        head = subprocess.run(["git", "-C", str(self.root), "rev-parse", "HEAD"], capture_output=True, text=True)
+        self.state["base_commit"] = head.stdout.strip()
+        baseline = copy.deepcopy(self.state)
+        exits = {
+            "pause": lambda: s.Paused("PAUSED_TEST_LAUNCH", "Offline stage admission verified"),
+            "loop exit": lambda: runner.orchestrator.LoopExit(2),
+        }
+        for name, stop in exits.items():
+            with self.subTest(exit=name):
+                self.state = copy.deepcopy(baseline)
+                started = threading.Event()
+
+                def slow_baseline(workspace, base, run_dir, **kwargs):
+                    # Polls the cancellation the way a supervised command does.
+                    cancellation = command_supervision.CANCELLATION.get()
+                    started.set()
+                    deadline = time.monotonic() + 30
+                    while time.monotonic() < deadline:
+                        if cancellation is not None and (request := cancellation()):
+                            raise command_supervision.CheckCancelled(request)
+                        time.sleep(0.02)
+                    raise AssertionError("the early baseline was never stopped")
+
+                def stopped_while_it_runs(**kwargs):
+                    self.assertTrue(started.wait(30), "the early baseline did not start")
+                    raise stop()
+
+                with patch.object(early_baseline.verify, "baseline", side_effect=slow_baseline):
+                    self.assertEqual(2, self.invoke(role=stopped_while_it_runs))
+                running = [t for t in threading.enumerate() if t.name == "autocode-early-baseline" and t.is_alive()]
+                self.assertEqual([], running)
+                self.assertNotIn("active_runner_check", self.state)
+
     def test_saved_token_pause_can_resume_without_a_new_spending_allowance(self):
         self.approve()
         baseline = copy.deepcopy(self.state)
@@ -2525,6 +2566,26 @@ class GoalTests(unittest.TestCase):
         draft["acceptance_criteria"].append({**draft["acceptance_criteria"][0], "id": "C2"})
         with self.assertRaises(ValueError):
             lifecycle.install_draft(self.state, draft, origin="test")
+
+    def test_plan_review_labels_baseline_by_recorded_evidence(self):
+        import autocode_current_behavior as current_behavior
+        import autocode_run_view as run_view
+
+        self.draft()
+        contract = self.state["goal_contract"]
+        claim = "The full suite passes after collect-only."
+        contract["body"]["acceptance_criteria"][0]["current_behavior"] = claim
+        contract["hash"] = s.digest({k: contract[k] for k in ("task_id", "revision", "body")})
+        self.state.update(status="AWAITING_GOAL_APPROVAL", phase="AWAITING_GOAL_APPROVAL")
+        self.state["displayed_goal"] = g.token(contract)
+        with patch.object(current_behavior, "evidence", return_value={"text": "A different observation"}):
+            shown = run_view.view(self.state)["displayed_plan"]["review_markdown"]
+        self.assertIn("Reported current behavior (not independently verified):", shown)
+        with patch.object(current_behavior, "evidence", return_value={"text": claim}):
+            shown = run_view.view(self.state)["displayed_plan"]["review_markdown"]
+        self.assertIn(
+            "Investigator-reported current behavior (probe recorded, claim not independently verified):", shown
+        )
 
     def test_existing_v3_brief_can_be_approved_without_rewriting_its_contract(self):
         self.draft()
@@ -3334,6 +3395,24 @@ class GoalTests(unittest.TestCase):
         }
         reviewed = brief_obligations.reviewed_body(self.state, plan_body, proposals, record, trace=trace_payload)
         return reviewed, record
+
+    def test_catalog_rediscovery_requires_a_new_exact_plan_approval(self):
+        first_body, first_record = self._sealed_joint_plan(1)
+        lifecycle.install_draft(self.state, first_body, origin="finalize_plan", record=first_record)
+        self.state["planning"]["final_token"] = g.token(self.state["goal_contract"])
+        lifecycle.human.evaluate(self.state)
+        lifecycle.present(self.state, self.run)
+        first_token = g.token(self.state["goal_contract"])
+        lifecycle.approve(self.state, first_token)
+        self.state["user_events"].append({"kind": "source_catalog_reconciled", "actor": "runner"})
+        lifecycle.install_draft(self.state, copy.deepcopy(first_body), origin="revise_plan")
+        second_body, second_record = self._sealed_joint_plan(2)
+        lifecycle.install_draft(self.state, second_body, origin="finalize_plan", record=second_record)
+        self.state["planning"]["final_token"] = g.token(self.state["goal_contract"])
+        lifecycle.human.evaluate(self.state)
+        self.assertEqual("AWAITING_GOAL_APPROVAL", self.state["status"])
+        self.assertFalse(g.approved(self.state))
+        self.assertNotEqual(first_token, g.token(self.state["goal_contract"]))
 
     def test_reviewed_plan_matching_approved_revision_except_review_provenance_retains_approval(self):
         import autocode_approval_provenance as approval_provenance

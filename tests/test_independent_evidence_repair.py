@@ -264,10 +264,12 @@ class IndependentEvidenceRepairTests(unittest.TestCase):
                 ),
                 entries,
             )
-            # The shared rework policy still owns rounds, not the writer receipt.
+            # The shared rework policy still owns rounds, not the writer receipt. The Tester's missing-test
+            # rejection is what gives the Builder a test to write for a line with no mutation outcome.
+            rejected = state["validation"]["changed_code_decisions"]
             for number, action in ((2, "builder"), (3, "investigator")):
                 later = {**record, "output": f"review-{number}"}
-                rework.route(state, later, investigation_enabled=False)
+                rework.route(state, later, investigation_enabled=False, rejected=rejected)
                 self.assertEqual(action, state["regression_proofs"][-1]["action"])
             state["next_stage"] = "builder"
             state["regression_proofs"][0]["action"] = "investigator"

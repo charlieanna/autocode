@@ -95,6 +95,20 @@ SUITE_CONSUMERS = (
     *CORE_CONSUMERS,
 )
 
+# These callers enter scratch preparation through the verifier or an owned
+# worker, so their source does not directly import either shared copy module.
+SCRATCH_COPY_CONSUMERS = (
+    "tests.test_autocode_protected_oracles",
+    "tests.test_design_check_job",
+    "tests.test_protected_test_links",
+    "tests.test_review_mutation_runtime",
+    "tests.test_review_proof",
+    "tests.test_scratch_copy_identity",
+    "tests.test_scratch_link_binding",
+    "tests.test_source_reconciliation",
+    "tests.test_verification_preparation",
+)
+
 # Black-box consumers cannot import their runtime producers. Job scope and the scenario runner share this
 # map; its producer and top-level scenario files also select the map-discovery guard.
 SCENARIO_RUNTIME_CONSUMERS = {
@@ -274,6 +288,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "tools/prompts/fragments/goals/job-type-policy.md",
         ("tests.test_planning_scope_discipline",),
     ),
+    ("tools/autocode_acceptance_policy.py", ("tests.test_planning_scope_discipline",)),
     ("tools/autocode_legacy_process.py", ("tests.test_json_status_observer_cli",)),
     (
         "tools/autocode_saved_names.py",
@@ -415,6 +430,8 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     # own imports are invisible to the import selector (#2414).
     ("tools/autocode_component_tests.py", ("tests.test_verify", "tests.test_test_root")),
     ("tests/test_report_repair.py", ("tests.test_native_event_identity_cli",)),
+    # The mutation catalogue invokes this detector by module name in a disposable subprocess.
+    ("tests/test_catalogue_t06.py", ("tests.test_catalogue_t14",)),
     # The quota worker's generated bootstrap imports the offline fixture inside its
     # subprocess, invisible to the import selector (#2442).
     ("tests/opencode_fixture_cli.py", ("tests.test_quota_worker",)),
@@ -423,6 +440,16 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
         "tools/prompts/fragments/stage-context/implementation-discrepancy.md",
         ("tests.test_implementation_discrepancy",),
+    ),
+    ("tools/autocode_scratch_preparation.py", SCRATCH_COPY_CONSUMERS),
+    ("tools/autocode_source_snapshot.py", SCRATCH_COPY_CONSUMERS),
+    ("tools/autocode_named_collection.py", ("tests.test_requirements_observations",)),
+    ("tools/autocode_suite_claim_replay.py", ("tests.test_requirements_observations",)),
+    ("tools/autocode_diagnostics_comparison.py", ("tests.test_claim_evidence", "tests.test_metadata_custody")),
+    ("tools/autocode_capture_command.py", ("tests.test_claim_evidence",)),
+    (
+        "tools/autocode_captured_process.py",
+        ("tests.test_captured_process", "tests.test_claim_evidence", "tests.test_metadata_custody"),
     ),
     ("tools/autocode_test_examples.py", ("tests.test_builder_source_examples_cli",)),
     (
@@ -501,6 +528,9 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("tests.test_coordination_tui_e2e", "tests.test_planning_scope_cli", "tests.test_coordination_gate_cli"),
     ),
     ("docs/schemas/status-view.schema.json", ("tests.test_json_contract", "tests.test_plan_review_cli")),
+    ("docs/", ("tests.test_doc_examples",)),
+    ("examples/", ("tests.test_doc_examples",)),
+    ("README.md", ("tests.test_doc_examples",)),
     ("scenarios/catalog/greenfield-todo-cli/reference/", ("tests.test_brief_cli",)),
     ("scenarios/catalog/review-clean-pr/", ("tests.test_review_clean_fixture",)),
     ("scenarios/catalog/local-compose-two-services/", ("tests.test_local_compose_scenario",)),
@@ -1175,6 +1205,15 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tests.test_report_formatting_repair_cli",),
     ),
     (
+        (
+            "tools/autocode_report_correction.py",
+            "tools/autocode_report_revalidation.py",
+            "tools/autocode_action_recovery.py",
+            "tools/autocode_report_repair_queue.py",
+        ),
+        ("tests.test_report_correction_resume_cli",),
+    ),
+    (
         ("tools/autocode_report_source.py", "tools/autocode_report_syntax.py", "tools/providers/opencode.py"),
         ("tests.test_report_syntax_cli",),
     ),
@@ -1661,6 +1700,31 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
         ("tools/autocode_resolve_repair_job.py", "tools/autocode_stuck_job.py"),
         ("tests.test_failure_retry", "tests.test_milestone_checkpoints"),
+    ),
+    (
+        # The retained acceptance retry's one answer (#3927) and the surfaces that read it; the CLI test
+        # reaches the build loop and the status command's progress line through the in-process CLI.
+        (
+            "tools/autocode_acceptance_retry_admission.py",
+            "tools/autocode_acceptance_retry_next.py",
+            "tools/autocode_status_observation.py",
+            "tools/autocode_status_observation_worker.py",
+            "tools/autocode_build_loop.py",
+            "tools/autocode_status_command.py",
+            "tools/autocode_progress_view.py",
+        ),
+        (
+            "tests.test_acceptance_retry_resume_cli",
+            "tests.test_acceptance_verification_retry",
+            "tests.test_recovery_history",
+            "tests.test_status_observation",
+            "tests.test_status_updates",
+            "tests.test_status_command",
+            "tests.test_report_repair_view",
+            "tests.test_catalog_reconciliation",
+            "tests.test_source_reconciliation",
+            "tests.test_visual_runtime",
+        ),
     ),
 )
 

@@ -774,6 +774,7 @@ JOB_ROUTES = {
     "investigate_stuck": "stuck_investigator",
     "resolve_repair": "repair_resolver",
     "write_acceptance_tests": "acceptance_tester",
+    "write_wrong_implementations": "acceptance_tester",
 }
 
 
@@ -1539,9 +1540,8 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
         # #498: the Go tests the user named are declared under those names; the runner refuses a prose alias.
         native = native_test_names.requested(state)
         design_rule += native_test_names.rule(native) if native else ""
-        design_rule += (
-            EXAMPLE_CHECK_RULE if stage in ("review_plan", "finalize_plan", "plan_review", "plan_finalize") else ""
-        )
+        if stage in ("review_plan", "finalize_plan", "plan_review", "plan_finalize"):
+            design_rule += EXAMPLE_CHECK_RULE + acceptance_policy.DISCRIMINATING_REVIEW
         if packet.get("prior_review_examples"):
             design_rule += retention.REVIEWED_EXAMPLES_RULE
         design_rule += BRIEF_TRACE_RULE if stage in ("review_plan", "finalize_plan") else ""
@@ -1549,6 +1549,8 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
             design_rule += stage_context.coordination_context.proxy_rule(state, OUT_OF_CHECKOUT_PROXY_RULE)
         design_rule += NO_TIMING_RULE
     design_rule += acceptance_policy.COVERAGE
+    # One discriminating-criterion policy for every stage that writes or checks acceptance examples.
+    design_rule += acceptance_policy.DISCRIMINATING
     if stage != "requirements_gather" and not test_cases.design_only(state):
         design_rule += acceptance_policy.DOMAIN
     if rows and stage in TRACE_STAGES:

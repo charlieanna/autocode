@@ -166,6 +166,10 @@ def queue(state: RunState, record, error, *, completed: Callable[[], bool]) -> b
         if record.get(key) and Path(record[key]).is_file():
             pending["pins"].setdefault(record[key], util.file_hash(record[key]))
     pending["error"] = str(error)
+    # Each rejection in this repair, oldest first: the original report's, then each rejected repair's.
+    # The accepted repair keeps them in report_repair_history, and the status view's recoveries show
+    # why each report was rewritten (#3831); failure_history keeps only the latest reason per stage.
+    pending.setdefault("rejections", []).append(str(error))
     # A later runtime may validate the exact saved report differently. Bind this
     # rejection to the implementation that actually rejected it, not model text.
     pending["validation_runtime"] = util.runtime_source_digest()
@@ -173,13 +177,15 @@ def queue(state: RunState, record, error, *, completed: Callable[[], bool]) -> b
     return pending["attempts"] < effective_repair_limit(state, pending)
 
 
-def reset_for_resume(state: RunState, *, now):
+def reset_for_resume(state: RunState, *, now, actor="user_cli"):
     """Clear the bounded report-repair attempt count for an explicit resume.
 
     Mirrors resolver_runtime.reset_for_resume: the count is a current-cycle
     allowance an operator can renew after fixing the underlying cause, not a
     lifetime cap, but clearing it is recorded rather than silent, and the
     erased attempts fold into a lifetime total this function never resets.
+    ``actor`` records who renewed it: the person's resume, or the runner's own
+    report correction after a validator update (autocode_report_correction).
     """
     pending = state.get("pending_report_repair")
     if not isinstance(pending, dict):
@@ -192,7 +198,7 @@ def reset_for_resume(state: RunState, *, now):
     state.setdefault("user_events", []).append(
         {
             "kind": "report_repair_resume_epoch",
-            "actor": "user_cli",
+            "actor": actor,
             "at": now(),
             "cleared_attempts": prior,
             "lifetime_attempts": state["report_repair_lifetime_attempts"],

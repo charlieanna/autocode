@@ -150,7 +150,10 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   private readonly notices = new Map<string, { identity: string; id: string; close: () => void }>();
   private readonly openNotice: vscode.Disposable;
   private sequence = 0;
+  /** The poll cycle still out: settles when every chat read outstanding at the last refresh has landed. */
   private refreshing: Promise<void> | null = null;
+  /** Each chat's outstanding status read; a chat is read again only after its read lands (#3851). */
+  private readonly reading = new Map<ChatTab, Promise<void>>();
   private timer: NodeJS.Timeout | undefined;
   private disposed = false;
   /** Last streaming extract per tab and how many reads it stayed unchanged (the TUI's pace). */
@@ -290,7 +293,10 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     const seconds = Math.max(1, vscode.workspace.getConfiguration("autocode").get<number>("pollSeconds", 5));
     this.timer = setTimeout(() => {
       this.timer = undefined;
-      void this.refresh().finally(() => this.schedulePoll());
+      // Never wait on the reads: a slow chat's outstanding read must not stop the next tick from
+      // reading the others (#3851). A chat whose read is still out is skipped by refresh().
+      void this.refresh();
+      this.schedulePoll();
     }, this.pace(seconds) * 1000);
   }
 
@@ -661,48 +667,61 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     return totalText(sessionTotal(runs.map((tab) => (tab.status ? runTotal(tab.status) : null))), false);
   }
 
-  /** One poll cycle. A caller that awaits this joins the cycle already running, never a no-op. */
+  /**
+   * Read every chat that has no read outstanding. The promise settles when every read outstanding at
+   * this call has landed, so a caller that awaits it sees a fresh read of each chat, never a no-op.
+   *
+   * Each chat's read is its own (#3851): a chat whose read is still out is not read again, and a slow
+   * or hung read of one chat never holds back the next read of another. The controller still shares
+   * one in-flight read per run, and the CLI keeps its read leases.
+   */
   refresh(): Promise<void> {
-    if (this.refreshing) return this.refreshing;
-    const running = this.runRefresh();
-    this.refreshing = running;
-    return running;
+    for (const tab of [...this.tabs]) {
+      if (!tab.run || this.reading.has(tab)) continue;
+      const sequence = this.sequence;
+      const read = this.readTab(tab, sequence).finally(() => {
+        this.reading.delete(tab);
+        if (sequence === this.sequence) this.post();
+        // The person switched or changed chats while this read was out: read again for the new view.
+        else if (!this.disposed) void this.refresh();
+      });
+      this.reading.set(tab, read);
+    }
+    if (!this.reading.size) {
+      this.refreshing = null;
+      this.post();
+      return Promise.resolve();
+    }
+    const cycle: Promise<void> = Promise.all([...this.reading.values()]).then(() => {
+      if (this.refreshing === cycle) this.refreshing = null;
+    });
+    this.refreshing = cycle;
+    return cycle;
   }
 
-  private async runRefresh(): Promise<void> {
-    const sequence = this.sequence;
+  /** One chat's read, posted as it lands. */
+  private async readTab(tab: ChatTab, sequence: number): Promise<void> {
     try {
-      // Tabs read in parallel and posted as each lands: one slow or hung --status
-      // must not freeze the others' display until its timeout (#1711 timing gaps).
-      await Promise.all([...this.tabs].filter((tab) => tab.run).map(async (tab) => {
-        try {
-          const status = await this.controller.pollStatus(tab.run!);
-          tab.startingLabel = "";
-          const before = tab.status;
-          if (!this.disposed && this.tabs.includes(tab)) {
-            this.announce(tab, status);
-            void this.continueWhenReady(tab, before, status);
-          }
-        } catch (error) {
-          if (error instanceof RunStarting) {
-            // Still starting: say what it is doing, not that the status could not be read.
-            tab.startingLabel = error.label;
-            tab.readError = "";
-          } else if (tab.launching && !tab.status) {
-            // This window's own start command is still running and has not saved the run yet. A read
-            // before the core reserves the directory, or a core older than its launch note (#3079),
-            // answers "--run-dir ... has no state.json": the run is starting, not unreadable. A start
-            // that fails says so itself when its command returns (start()).
-            tab.startingLabel ||= "starting the run";
-            tab.readError = "";
-          } else if (sequence === this.sequence && !tab.starting) tab.readError = messageOf(error);
-        }
-        if (sequence === this.sequence) this.post();
-      }));
-    } finally {
-      this.refreshing = null;
-      if (sequence === this.sequence) this.post();
-      else void this.refresh();
+      const status = await this.controller.pollStatus(tab.run!);
+      tab.startingLabel = "";
+      const before = tab.status;
+      if (!this.disposed && this.tabs.includes(tab)) {
+        this.announce(tab, status);
+        void this.continueWhenReady(tab, before, status);
+      }
+    } catch (error) {
+      if (error instanceof RunStarting) {
+        // Still starting: say what it is doing, not that the status could not be read.
+        tab.startingLabel = error.label;
+        tab.readError = "";
+      } else if (tab.launching && !tab.status) {
+        // This window's own start command is still running and has not saved the run yet. A read
+        // before the core reserves the directory, or a core older than its launch note (#3079),
+        // answers "--run-dir ... has no state.json": the run is starting, not unreadable. A start
+        // that fails says so itself when its command returns (start()).
+        tab.startingLabel ||= "starting the run";
+        tab.readError = "";
+      } else if (sequence === this.sequence && !tab.starting) tab.readError = messageOf(error);
     }
   }
 
@@ -1077,11 +1096,12 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     }
   }
 
-  /** The run's whole change: a read of saved code, offered once the view names it. */
+  /** The run's whole change: a read of saved code, offered once the view names it. A display-only
+   * read, so it is served while the tab waits for another command too (#3871). */
   private async allChanges(message: ChatMessage): Promise<void> {
     const tab = this.active;
     const run = tab.run;
-    if (!run || message.runKey !== tab.key || this.busy.has(tab.key)) return;
+    if (!run || message.runKey !== tab.key) return;
     const key = tab.key;
     try {
       const comparison = await this.controller.allChanges(run);

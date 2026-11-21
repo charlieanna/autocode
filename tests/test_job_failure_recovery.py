@@ -277,12 +277,14 @@ class JobHarness(unittest.TestCase):
         self.assertEqual(calls, self.count())
         return outcome
 
-    def paused(self, run, stage="check_design"):
+    def paused(self, run, stage="check_design", *, blocked=False):
         view = run.status()
         self.assertEqual("PAUSED_JOB_FAILURE", view["status"], view)
         self.assertEqual(stage, view["next_stage"])
         self.assertFalse(view["done"])
-        self.assertEqual("retry_job", view["needs"]["kind"])
+        self.assertEqual("recover_source" if blocked else "retry_job", view["needs"]["kind"], view["needs"])
+        if blocked:
+            self.assertIsNone(view["next_command"])
         self.assertFalse(view["needs"].get("questions"))
         self.assertTrue(view["needs"]["job_retry_token"])
         self.assertEqual(1, self.count())
@@ -674,7 +676,7 @@ class JobFailureTaskRunTests(JobHarness):
 
     def test_ac22_later_user_edit_is_preserved_and_blocks_retry(self):
         run = self.start("later")
-        need = self.paused(run)
+        need = self.paused(run, blocked=True)
         self.assertEqual(LATER, (self.workspace / "calc.py").read_text())
         self.assertIn("calc.py", need["unrestored"])
         with self.assertRaisesRegex(TaskRunError, "Unrestored"):
@@ -692,7 +694,7 @@ class JobFailureTaskRunTests(JobHarness):
         for mode in ("missing", "corrupt"):
             with self.subTest(mode=mode):
                 run = self.start(mode)
-                need = self.paused(run)
+                need = self.paused(run, blocked=True)
                 self.assertEqual("changed\n", (self.workspace / "notes.txt").read_text())
                 self.assertIn("notes.txt", need["unrestored"])
                 with self.assertRaisesRegex(TaskRunError, "Unrestored"):
@@ -721,7 +723,7 @@ class JobFailureTaskRunTests(JobHarness):
 
     def test_exact_manual_restoration_unblocks_a_retained_failure(self):
         run = self.start("missing")
-        need = self.paused(run)
+        need = self.paused(run, blocked=True)
         self.assertEqual(["notes.txt"], need["unrestored"])
         self.assertEqual("changed\n", (self.workspace / "notes.txt").read_text())
         with self.assertRaisesRegex(TaskRunError, "Unrestored"):
@@ -774,7 +776,7 @@ class JobFailureTaskRunTests(JobHarness):
         for mode in ("staging_error", "replace_error"):
             with self.subTest(mode=mode):
                 run = self.start(mode)
-                need = self.paused(run)
+                need = self.paused(run, blocked=True)
                 self.assertEqual("changed\n", (self.workspace / "notes.txt").read_text())
                 self.assertIn("notes.txt", need["unrestored"])
                 self.assertFalse(list(self.workspace.glob(".autocode-restore-*")))

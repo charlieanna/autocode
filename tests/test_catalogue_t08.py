@@ -8,6 +8,7 @@ recovery regressions in test_autocode/test_report_repair are cited per case.
 import copy
 import errno
 import json
+import os
 import subprocess
 import sys
 import unittest
@@ -407,7 +408,7 @@ class CrashScenarios(CrashCase):
         """CRH-07. Existing: test_atomic_failure_keeps_old_checkpoint; success path added."""
         state_path = self.run / "state.json"
         support.atomic_json(state_path, {"old": True})
-        with patch.object(support.os, "replace", side_effect=OSError("interrupted before replace")):
+        with patch.object(os, "replace", side_effect=OSError("interrupted before replace")):
             self.expect_raises("pre_replace_failure_raises", OSError, support.atomic_json, state_path, {"new": True})
         self.check("old_checkpoint_intact", {"old": True}, support.read(state_path))
         self.check("no_temp_litter", [], list(self.run.glob(".checkpoint-*")))
@@ -421,7 +422,7 @@ class CrashScenarios(CrashCase):
         support.atomic_json(state_path, {"old": True})
         for name, code in (("disk full", errno.ENOSPC), ("permission denied", errno.EACCES)):
             with self.subTest(variant=name):
-                with patch.object(support.os, "replace", side_effect=OSError(code, name)):
+                with patch.object(os, "replace", side_effect=OSError(code, name)):
                     self.expect_raises(
                         f"[{name}] storage_error_raises", OSError, support.atomic_json, state_path, {"new": True}
                     )

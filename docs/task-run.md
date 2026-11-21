@@ -75,6 +75,15 @@ that machinery. A retired, mismatched or ordinary standalone build retains its
 normal Requirements flow. No Requirements confirmation is recorded on the
 person's behalf, and the consolidated plan still requires exact approval.
 
+At a safe planning boundary a changed catalog is reported with the changed
+bindings. Plain continuation does not adopt it or launch a model. A fresh status
+may name an automatic, token-bound `--reconcile-only -` metadata action: it
+rechecks discovery, retains the original receipt, records a content-addressed
+replacement and returns to Requirements. The old plan's approval cannot carry
+across that change. Routes, limits, usage and previous attempts stay recorded;
+the new plan requires its own exact approval. Uncertain work, pending decisions,
+stale tokens, unreadable sources and incomplete discovery stay held.
+
 `view.request_sources` carries the authenticated live human source texts as
 `{id, kind, text}` records, including Requirements clarifications. It excludes
 model prose and discarded answers. Coordination pins those exact records and
@@ -1511,7 +1520,7 @@ modulo formatting (#1013). On a strict choice question, any other text is reject
 current, and something the options do not cover goes in `--feedback` (`/feedback` in
 `--chat`, which asks again after a rejected answer). A question without options takes any
 nonempty text. When the current turn has an accepted Requirements handoff, `view.requirements`
-projects `{handoff_ref, intended_outcome, requirements, proposed_assumptions, acceptance_tests, conflicts, job, clarity}`
+projects `{handoff_ref, intended_outcome, requirements, proposed_assumptions, acceptance_tests, constraints, conflicts, job, clarity}`
 (`null` otherwise; `job` and `clarity` are what that report named, each `null` when it named none, #3630), and `--delegate-all` / `--reject-assumption` bind `--review-token` to
 `handoff_ref` before a goal contract exists (#3650). The terminal CLI also shows the remaining question IDs and
 the exact `--answer` command on stderr after each successful answer and on `--status`; that
@@ -1641,6 +1650,33 @@ never shows a person a command to type. A rejection the Investigator was called 
 as its `investigated` entry. The field is display only: it names no action and grants nothing.
 The terminal chat shows each new entry as a `Recovery ·` notice, the newest three in its side
 panel, and all of them under `/why`.
+
+An `investigated` entry whose Investigator advised a retry says what actually ran between that result
+and the next investigation of the same stage (#3927): a later or running attempt of the stage ("the
+Tester tried again with its advice"), a local re-check of a retained report without running the stage
+("AutoCode re-checked the saved tests without running the Tester again"), or nothing yet ("the Tester
+has not run again yet").
+
+### The Tester's retained report (`acceptance_verification_retry`)
+
+When the Tester's finished report is retained after its local verification failed, the next resume
+re-checks the saved tests without a model call. `view.acceptance_verification_retry` says what that
+resume does, from the one answer `autocode_acceptance_retry_next.decide` that dispatch, `needs`,
+`next_command`, the recovery card, the chat input and `progress` also read. It is null without a
+retained report, else `{next, rechecks, allowed}`:
+
+| `next` | The next resume |
+| --- | --- |
+| `recheck` | Runs the saved tests again without a new Tester attempt. The card's resume is labelled `Re-check the saved tests`; `progress.needs_you` is `resume to re-check the saved tests`. |
+| `tester` | In-force Investigator advice places the cause in the written tests or report (a recorded cause other than `environment`): the retained report is retired, its attempts and failures kept, and the ordinary Tester step runs with that guidance. One Investigator result retires at most one retained report. |
+| `exhausted` | Nothing is left to re-check. `needs` and `next_command` are null, and the recovery card is `blocked` (`No re-check of the saved tests is left`) and says how often the saved tests were re-checked of how many allowed times. It does not ask the person for machinery feedback. |
+| `blocked` | The retained report, source, approval, task or evidence cannot be verified, or work remains uncertain. No re-check is offered; the recovery card describes the hold and preserves the saved evidence. |
+
+`rechecks` counts the local re-checks spent and `allowed` the re-checks this report may spend (one, one
+more per bound Investigator result with an `environment` cause or none, and the one authenticated
+provenance re-check); `allowed` is null for a test runner that never started or a blocked report. A
+runner that never started is re-checked on each resume. The field is display only. A stale, changed or uncertain retained report never executes,
+is retired or grants acceptance, whatever this field says.
 
 ## Inspecting current verification
 
@@ -2266,7 +2302,10 @@ its wording may change, so programs read the fields beside it:
   grants no action; the current `needs` and `next_command` still decide that.
 - `headline`: `Complete`, `Waiting for you`, `Paused`, `Waiting for another run`,
   `<job> working` (`Tester writing tests first` while the Tester writes the approved
-  tests before the Builder starts), `<job> finished` (its report is saved but not applied yet),
+  tests before the Builder starts; the same stage reads `Tester strengthening tests (round 1 of 2)`
+  while it strengthens tests of code the Builder already wrote, and `Tester repairing tests (round 1 of 2)`
+  while it repairs a protected test a review sent back, repair first when both are pending, from the same
+  record and round the `recoveries` list shows, #3924), `<job> finished` (its report is saved but not applied yet),
   `<job> finished · Next: <job>` when the run already knows the job after that
   finished one (#1711), `<job> attempt ended` (an ended or accounted attempt
   still held for reconciliation, without asserting a successful report or confirmed cleanup),
@@ -2293,7 +2332,11 @@ its wording may change, so programs read the fields beside it:
   person has accepted yet); `reviewed` (a person's review receipt is valid for the
   current validation); `unchecked` otherwise, never `checked`. Each state has a
   count. Results under another contract, or with no contract hash under a contract,
-  do not count. The view does not read the workspace.
+  do not count. The view does not read the workspace. Before a plan has criteria,
+  `label` counts the requirements in the published Requirements record (the view's
+  `requirements`, #3864): `4 gathered requirements ready for review` while the
+  Requirements review question waits for the person, otherwise
+  `4 gathered requirements, no plan yet`; `total` still counts only the plan's criteria.
 - `problems`: `open` counts the open findings (`items`: `id`, `finding`, `source`,
   `severity`, `blocking`) plus, for a code or design review and a design-conflict
   stop, the findings that job saved instead (`reports`: `kind`, `blocking`,
@@ -2635,7 +2678,7 @@ run is waiting for:
 | `planning_budget` | more plan-review calls | `reason` | Plan feedback, or `--planning-review-call-limit N` |
 | `recover_source` | an investigation's own job without a saved original source identity, or a held native planning cleanup (every other job pause without one ends with a recorded outcome at its next resume, `autocode_job_end`) | retained retry metadata, `recovery_hint`; `action` is null | Inspect the archive and current changes before a new run |
 | `retry_job` | inspection of a stopped workflow job | `job_retry_token`, `archive`, `write_diagnosis`, `recovery_hint`; `route` after quota, a content-filter refusal, an authenticated output limit, authentication failure or a fully stopped exploration-budget timeout (a hard stage deadline is extended by AutoCode and then retried exactly, with no `route`, #2605) | Exact retry after restoring original source; with `route`, name another model first |
-| `resume` | a person to inspect a pause and resolve its cause | `reason`; `new_run_required` with `action=fresh_run` preserves an immutable caller-binding failure and requires a new run; `edit_required` at a repairable component-plan stop prescribes `action` (`--edit-goal FILE`) or `feedback_action` (`--feedback TEXT`), then fresh approval; at `PAUSED_ACCEPTANCE_TESTS` (the Tester's pause) `action` is `--resume-paused`, which reruns the Tester and a fresh proof on the same plan, `chat.input` offers the `feedback` message that revises the plan and returns the run to plan approval, and `guidance` names both (a yes takes the named command, so it never carries a placeholder for the person's words); otherwise `action` when one command continues, such as `--resume-paused --no-progress-limit N` at a `PAUSED_NO_PROGRESS` its unchanged-batch limit caused, with `no_progress_batches`, the retained count N must exceed (or N is `0`), or `--resume-paused --retry-builder M` at a parallel Builder member's quota, content-filter or output-limit stop whose request was answered without a model, or `--resume-paused --retry-failed-stage` (also as `retry_action`) at a recovery novelty hold whose request is not yet published, where a plain resume would hold again; when that hold cannot take the retry yet, `retry_unavailable` instead says why (an owned or uncertain attempt to reconcile, or a different pending decision), the same reason the CLI gives; an attempt that exited cleanly with a recorded finish (a verification hold or stale source check stands on its result) keeps `abandon_stage` and its `--abandon-stage ATTEMPT then --resume-paused` action as a `resume`, because archiving it would discard that result; at a `PAUSED_REPEATED_FAILURE` whose active attempt, uncertain artifacts or pending report repair its retry gate will not authorize over, `retry_unavailable` carries that CLI refusal verbatim and `action` is the plain `--resume-paused`, never the rejected `--retry-failed-stage` (#1897) | Start a fresh run when required; otherwise correct and freshly approve an edit-required plan, or resume once resolved |
+| `resume` | a person to inspect a pause and resolve its cause | `reason`; `resume_unavailable` explains a held frontier and the view names no next command; `stale_checks` names failed recovery-packet checks without bound values; `new_run_required` with `action=fresh_run` preserves an immutable caller-binding failure and requires a new run; `edit_required` at a repairable component-plan stop prescribes `action` (`--edit-goal FILE`) or `feedback_action` (`--feedback TEXT`), then fresh approval; at `PAUSED_ACCEPTANCE_TESTS` (the Tester's pause) `action` is `--resume-paused`, which reruns the Tester and a fresh proof on the same plan, `chat.input` offers the `feedback` message that revises the plan and returns the run to plan approval, and `guidance` names both (a yes takes the named command, so it never carries a placeholder for the person's words); otherwise `action` when one command continues, such as `--resume-paused --no-progress-limit N` at a `PAUSED_NO_PROGRESS` its unchanged-batch limit caused, with `no_progress_batches`, the retained count N must exceed (or N is `0`), or `--resume-paused --retry-builder M` at a parallel Builder member's quota, content-filter or output-limit stop whose request was answered without a model, or `--resume-paused --retry-failed-stage` (also as `retry_action`) at a recovery novelty hold whose request is not yet published, where a plain resume would hold again; when that hold cannot take the retry yet, `retry_unavailable` instead says why (an owned or uncertain attempt to reconcile, or a different pending decision), the same reason the CLI gives; an attempt that exited cleanly with a recorded finish (a verification hold or stale source check stands on its result) keeps `abandon_stage` and its `--abandon-stage ATTEMPT then --resume-paused` action as a `resume`, because archiving it would discard that result; at a `PAUSED_REPEATED_FAILURE` whose active attempt, uncertain artifacts or pending report repair its retry gate will not authorize over, `retry_unavailable` carries that CLI refusal verbatim and `action` is the plain `--resume-paused`, never the rejected `--retry-failed-stage` (#1897) | Start a fresh run when required; otherwise correct and freshly approve an edit-required plan, or resume once resolved |
 | `dependency` | a bound producer run's delivery (see [Dependencies between existing runs](#dependencies-between-existing-runs)) | `reason`, `producer_run`, `producer_workspace` | `autocode wait --run-dir <producer_run> --workspace <producer_workspace>`: returns when the producer needs a person or ends. Nothing to answer on this run: the dependency worker (`python tools/autocode_dependencies.py ... --watch`) calls `--receive-dependency MANIFEST` (`TaskRun.receive_dependency`) when the producer's verified delivery is ready |
 | `continue` | no person input; the core may name a deterministic recovery in `action` (for example, setting aside an uncertain attempt that did not finish cleanly, or resuming bounded recovery when the saved progress ledger proves another slot is unnecessary) | `action` when present | Run only the named `next_command`, then read status again |
 
@@ -3089,13 +3132,35 @@ that step's id) or, for the first step, the commit it was saved on (`since` is `
 run's own scope), and never the files on disk. It carries no token and restores nothing. A finished
 run's newest step still matches the files, so `compare` shows nothing there, but `step` shows its change.
 
-Once the run has an available step, `code_checkpoints.all_changes` (otherwise null) names the run's
-whole change in the same shape, `autocode checkpoint --all`. It is display only: it prints `{since,
-until, changed_files, patch, truncated}`, the newest saved step's code (`until` is its id) against the
-commit the first step was saved on (`since` is `"start"`), limited to the run's own scope, and never
-the files on disk. A file one step added and a later one removed is not listed. It carries no token
-and restores nothing. This is the diff the VS Code client shows a person; it does not offer the rows'
-`compare`, `step` or `restore` (owner decision 2026-11-13).
+Once the run has an available step or available kept code, `code_checkpoints.all_changes` (otherwise
+null) names the run's whole change in the same shape, `autocode checkpoint --all`. It is display only:
+it prints `{since, until, changed_files, patch, truncated, complete, note}`, the run's newest kept code
+(`until` is its id) against the commit the run started from (`since` is `"start"`), limited to the
+run's own scope, and never the files on disk. A file one step added and a later one removed is not
+listed; a file the run's kept work removed stays listed as removed. It carries no token and restores
+nothing. This is the diff the VS Code client shows a person; it does not offer the rows' `compare`,
+`step` or `restore` (owner decision 2026-11-13).
+
+The newest kept code is everything the run keeps, whichever stage kept it (#3945, #3933): a Builder
+retry after a timeout, tests the Tester retained, a combined review, the acceptance-test writer or an
+edit accepted at a pause. Such work saves no new step, so at each durable save with no stage, runner
+check or batch active and an approved plan, AutoCode compares the run's source with the end of its saved
+code and, when they differ, saves the source as kept code, like a step: a Git commit, a hash-pinned
+receipt in the run's `code-checkpoints` directory and a ref under `refs/autocode/code-checkpoints/`.
+`checkpoint --all` ends there, or at the newest saved step when that is newer. For a completed run
+(`TASK_COMPLETE` or `COMPLETE`) it ends at the run's delivery, the kept code when it completed; edits
+made after that are not part of it, and a follow-up records its own delivery when it completes.
+
+`complete` is true when the run's files now equal the saved code the diff ends at. When they do not
+(a stage is still writing, a person edited after the run completed, or kept code could not be saved),
+`note` says so: `"Ends at saved code UNTIL; changes made after it are not included."`, followed by
+`" The newest kept code could not be saved: REASON"` when the newest capture failed. `note` is null
+when `complete` is true.
+
+`code_checkpoints.kept` (null before any is recorded) names that kept code: `{id, source_revision,
+commit, at, available, reason}`. Its `id` is a kept capture's (`kept-…`) or, when the run's source is a
+saved step itself, that step's id. `available` false means the newest kept code could not be saved,
+and `reason` says why. A client reads the diff again when it changes.
 
 While a Builder step runs, `code_checkpoints.working` (otherwise null) names one more action in the
 same shape, `autocode checkpoint --working`. It is display only: it prints `{since, changed_files,

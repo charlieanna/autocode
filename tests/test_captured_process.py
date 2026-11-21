@@ -157,6 +157,34 @@ with captured._temporary('w+t') as output, captured._temporary('w+t') as errors:
                         )
                     self.assertEqual((7, "result\n", "diagnostic\n"), (result.returncode, result.stdout, result.stderr))
 
+    def test_caller_owned_merged_output_survives_success_and_timeout(self):
+        self.assertIn("output_stream", __import__("inspect").signature(captured.run).parameters)
+        for expired in (False, True):
+
+            def execute(_command, _timeout, _env, _cwd, output, errors, _stdin):
+                self.assertIs(output, errors)
+                os.write(output.fileno(), b"stdout\n")
+                os.write(errors.fileno(), b"stderr\n")
+                return (None, True) if expired else (7, False)
+
+            with (
+                self.subTest(expired=expired),
+                tempfile.TemporaryFile(mode="w+b") as retained,
+                patch.object(captured, "preflight"),
+                patch.object(captured, "_linux", execute),
+                patch.object(captured, "_sampled", execute),
+            ):
+                if expired:
+                    with self.assertRaises(subprocess.TimeoutExpired) as failure:
+                        captured.run(["owned"], timeout=12, text=False, output_stream=retained, merge_output=True)
+                    self.assertEqual(b"stdout\nstderr\n", failure.exception.output)
+                else:
+                    result = captured.run(["owned"], timeout=12, text=False, output_stream=retained, merge_output=True)
+                    self.assertEqual((7, b"stdout\nstderr\n", b""), (result.returncode, result.stdout, result.stderr))
+                self.assertFalse(retained.closed)
+                retained.seek(0)
+                self.assertEqual(b"stdout\nstderr\n", retained.read())
+
     def test_unsupported_capture_shape_never_launches(self):
         with patch.object(captured.subprocess, "Popen") as launch, self.assertRaises(ValueError):
             captured.run(["owned"], capture_output=False)

@@ -459,6 +459,19 @@ class NativeCheckFailureDiagnosticsTests(unittest.TestCase):
 
 
 class NativeCheckExecutionTests(_ControlledNativeCheckFixture, unittest.TestCase):
+    def test_native_copy_refuses_a_different_expected_source_before_copy(self):
+        command = "python3 -m unittest -v empty_tests"
+        self.declare([command])
+        self.approve()
+        execution = self.execution()
+        with patch.object(copies, "create") as create:
+            with self.assertRaisesRegex(util.Paused, "pinned source revision"):
+                with execution.copy(
+                    self.root, self.run / "checks" / "wrong-source", command=command, expected_source_revision="wrong"
+                ):
+                    self.fail("Foreign source must not create a native copy")
+            create.assert_not_called()
+
     def setUp(self):
         self.prepare()
 

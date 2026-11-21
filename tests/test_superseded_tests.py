@@ -65,6 +65,9 @@ class Matching(unittest.TestCase):
             "tests/test_shipping.py::Shipping::test_fifty_dollar_order_pays_standard_fee",
             "tests/test_shipping.py::test_fifty_dollar_order_pays_standard_fee[5000]",
             "test_shipping.py::test_fifty_dollar_order_pays_standard_fee",  # a package run's relative path
+            # pytest's JUnit report: the dotted classname, then the case (autocode_python_tests.pytest_case_names)
+            "tests.test_shipping.Shipping::test_fifty_dollar_order_pays_standard_fee",
+            "tests.test_shipping::test_fifty_dollar_order_pays_standard_fee",
         ):
             with self.subTest(test_id=test_id):
                 self.assertTrue(superseded.matches(ENTRY, test_id))
@@ -77,6 +80,8 @@ class Matching(unittest.TestCase):
             "tests/test_shipping.py::test_fifty_dollar_order_pays_standard_fee_twice",
             "tests.test_shipping.Shipping::setUpClass",
             "tests/test_shipping.py::[collection]",
+            "tests.test_other.Shipping::test_fifty_dollar_order_pays_standard_fee",
+            "tests.test_shipping.Shipping::test_fifty_dollar_order_pays_standard_fee_twice",
         ):
             with self.subTest(test_id=test_id):
                 self.assertFalse(superseded.matches(ENTRY, test_id))

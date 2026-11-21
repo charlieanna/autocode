@@ -5,9 +5,11 @@ import hashlib
 import json
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import autocode_report_repair_view as repair_view
 import autocode_run_view as run_view
+import autocode_source_scope as source_scope
 import autocode_util as util
 
 from . import test_json_output
@@ -49,7 +51,7 @@ class ReportRepairViewTests(unittest.TestCase):
     def test_running_repair_exposes_both_categories_without_authorizing_an_action(self):
         state = self.state()
         before = copy.deepcopy(state)
-        shown = run_view.view(state)
+        shown = run_view.view(state, report_repair_revision="a" * 64)
         diagnostic = shown["report_repair"]
         self.assertEqual("tester", diagnostic["stage"])
         self.assertTrue(diagnostic["active"])
@@ -92,7 +94,6 @@ class ReportRepairViewTests(unittest.TestCase):
             {"next_stage": "builder"},
             {"goal_contract": {"hash": "b" * 64}},
             {"current_task": {"id": "different"}},
-            {"current_task": {"source_revision": "b" * 64}},
         ):
             state = self.state()
             state.update(change)
@@ -111,8 +112,20 @@ class ReportRepairViewTests(unittest.TestCase):
         state["current_task"] = {"id": "M1", "source_revision": "a" * 64}
         state["pending_report_repair"].update(contract_hash="b" * 64, latest_rejected={"source_revision": "a" * 64})
         state["pending_report_repair"]["original"]["task_id"] = "M1"
-        self.assertEqual("recorded", repair_view.project(state)["freshness"])
-        self.assertTrue(repair_view.project(state)["active"])
+        self.assertEqual("recorded", repair_view.project(state, current_revision="a" * 64)["freshness"])
+        self.assertTrue(repair_view.project(state, current_revision="a" * 64)["active"])
+
+    def test_no_current_observation_does_not_claim_a_repair_is_active(self):
+        shown = run_view.view(self.state())["report_repair"]
+        self.assertEqual("unavailable", shown["freshness"])
+        self.assertFalse(shown["active"])
+
+    def test_assignment_source_is_not_the_report_candidate(self):
+        state = self.state()
+        state["current_task"] = {"source_revision": "b" * 64}
+        shown = repair_view.project(state, current_revision="a" * 64)
+        self.assertEqual("recorded", shown["freshness"])
+        self.assertTrue(shown["active"])
 
     def test_no_source_binding_exposes_no_reason_or_authority(self):
         for source in (None, {}, "short", "x" * 64):
@@ -192,6 +205,36 @@ class ReportRepairViewTests(unittest.TestCase):
         for key in ("reason", "original_reason", "attempts", "limit"):
             self.assertIsNone(shown[key])
 
+    def test_unavailable_repair_observation_holds_abandonment_and_resume(self):
+        state = self.state()
+        state.update(
+            status="PAUSED_INVALID_OUTPUT", workspace="/tmp/project", run_dir="/tmp/project/.autocode/runs/test"
+        )
+        state["active_stage"].update(iteration=1, output="/tmp/project/repair.json", exit_code=1)
+        shown = run_view.view(state, report_repair_source_unavailable=True)
+        self.assertEqual("unavailable", shown["report_repair"]["freshness"])
+        self.assertIsNone(shown["next_command"])
+        self.assertIsNone(shown["needs"])
+        self.assertEqual("blocked", shown["recovery"]["category"])
+        self.assertEqual(["inspect"], [row["kind"] for row in shown["recovery"]["actions"]])
+        observed = run_view.view(state, report_repair_revision="a" * 64)
+        self.assertIn("--abandon-stage", observed["next_command"])
+        self.assertIn("abandon", [row["kind"] for row in observed["recovery"]["actions"]])
+
+    def test_unavailable_repair_preserves_a_separate_person_question(self):
+        state = self.state()
+        state.update(
+            status="WAITING_FOR_USER",
+            workspace="/tmp/project",
+            run_dir="/tmp/project/.autocode/runs/test",
+            pending_questions=[{"id": "q1", "question": "Which format?"}],
+        )
+        shown = run_view.view(state, report_repair_source_unavailable=True)
+        self.assertEqual("answer", shown["needs"]["kind"])
+        baseline = run_view.view(state)
+        self.assertEqual(baseline["next_command"], shown["next_command"])
+        self.assertEqual(baseline["needs"], shown["needs"])
+
 
 class ReportRepairStatusCliTests(unittest.TestCase):
     setUp = test_json_output.JsonActionCliTests.setUp
@@ -213,6 +256,71 @@ class ReportRepairStatusCliTests(unittest.TestCase):
         self.assertEqual("evidence_binding", shown["report_repair"]["reason"]["category"])
         self.assertFalse(shown["done"])
         self.assertEqual(before, (self.run_dir / "state.json").read_bytes())
+
+    def test_status_compares_the_running_repair_to_the_observed_candidate(self):
+        assignment = source_scope.snapshot(self.root, self.state)["revision"]
+        (self.root / "greet.py").write_text("# Builder candidate B\n")
+        candidate = source_scope.snapshot(self.root, self.state)["revision"]
+        self.assertNotEqual(assignment, candidate)
+        fixture = ReportRepairViewTests().state()
+        self.state.update({key: value for key, value in fixture.items() if key != "settings"})
+        self.state["settings"]["report_repair"] = fixture["settings"]["report_repair"]
+        self.state["current_task"] = {"id": "task-1", "source_revision": assignment}
+        self.state["active_stage"].update(iteration=1, output=str(self.run_dir / "repair.json"))
+        pending = self.state["pending_report_repair"]
+        pending["original"].update(source_revision=candidate, task_id="task-1")
+        pending["latest_rejected"] = {"source_revision": candidate}
+        pending["contract_hash"] = self.state["goal_contract"]["hash"]
+        pending["pins"] = {}
+
+        def shown():
+            util.atomic_json(self.run_dir / "state.json", self.state)
+            before = (self.run_dir / "state.json").read_bytes()
+            code, stdout, stderr = self.invoke("--status")
+            self.assertEqual(0, code, stderr)
+            self.assertEqual(before, (self.run_dir / "state.json").read_bytes())
+            return json.loads(stdout)["view"]["report_repair"]
+
+        result = shown()
+        self.assertEqual("recorded", result["freshness"])
+        self.assertTrue(result["active"])
+        (self.root / "greet.py").write_text("# later workspace edit C\n")
+        result = shown()
+        self.assertEqual("stale", result["freshness"])
+        self.assertFalse(result["active"])
+        (self.root / "greet.py").write_text("# Builder candidate B\n")
+        current = copy.deepcopy(self.state)
+        for change in ("stage", "task", "contract"):
+            with self.subTest(change=change):
+                self.state = copy.deepcopy(current)
+                if change == "stage":
+                    self.state["next_stage"] = "builder"
+                elif change == "task":
+                    self.state["current_task"]["id"] = "other-task"
+                else:
+                    self.state["pending_report_repair"]["contract_hash"] = "other-contract"
+                result = shown()
+                self.assertEqual("stale", result["freshness"])
+                self.assertFalse(result["active"])
+
+    def test_status_keeps_the_run_readable_when_repair_source_cannot_be_observed(self):
+        fixture = ReportRepairViewTests().state()
+        self.state.update({key: value for key, value in fixture.items() if key != "settings"})
+        self.state["settings"]["report_repair"] = fixture["settings"]["report_repair"]
+        self.state["active_stage"].update(iteration=1, output=str(self.run_dir / "repair.json"))
+        self.state["status"] = "PAUSED_INVALID_OUTPUT"
+        self.state["active_stage"]["exit_code"] = 1
+        self.state["pending_report_repair"]["contract_hash"] = self.state["goal_contract"]["hash"]
+        util.atomic_json(self.run_dir / "state.json", self.state)
+        with patch("autocode_status_command.status_observation.report_repair", return_value=None):
+            code, stdout, stderr = self.invoke("--status")
+        self.assertEqual(0, code, stderr)
+        view = json.loads(stdout)["view"]
+        self.assertIsNone(view["next_command"])
+        self.assertEqual(["inspect"], [row["kind"] for row in view["recovery"]["actions"]])
+        shown = view["report_repair"]
+        self.assertEqual("unavailable", shown["freshness"])
+        self.assertFalse(shown["active"])
 
 
 if __name__ == "__main__":

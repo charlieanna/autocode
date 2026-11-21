@@ -35,6 +35,7 @@ try:
     from . import autocode_changeset_store as changeset_store
     from . import autocode_chat_view as chat_view
     from . import autocode_controller_owner as controller_owner
+    from . import autocode_launch_record as launch_record
     from . import autocode_registry as registry
     from . import autocode_replay_view as replay_view
     from . import autocode_resolver_human as resolver_human
@@ -47,6 +48,7 @@ except ImportError:
     import autocode_changeset_store as changeset_store
     import autocode_chat_view as chat_view
     import autocode_controller_owner as controller_owner
+    import autocode_launch_record as launch_record
     import autocode_registry as registry
     import autocode_replay_view as replay_view
     import autocode_resolver_human as resolver_human
@@ -128,6 +130,29 @@ def _row(workspace: Path, run_dir: Path, now: float, changesets, *, checkpoint) 
         updated_at = None
     availability, payload = checkpoint if checkpoint is not None else registry.read_checkpoint(state_path, workspace)
     if availability != "available":
+        starting = (
+            launch_record.read(run_dir)
+            if availability == "checkpoint_missing" and not os.path.lexists(state_path)
+            else None
+        )
+        if (
+            starting
+            and starting.get("owner_alive") is True
+            and starting.get("workspace") == str(workspace.resolve())
+            and starting.get("run_dir") == str(run_dir.resolve())
+        ):
+            return {
+                "run_dir": str(run_dir),
+                "name": run_dir.name,
+                "workspace": str(workspace),
+                "bucket": WORKING,
+                "availability": "starting",
+                "status": "STARTING",
+                "reason": starting["label"],
+                "updated_at": starting.get("at"),
+                "ready_to_continue": False,
+                "next_command": None,
+            }
         reason = payload.get("message") or availability
         if not os.path.lexists(run_dir):
             # A registered run whose directory is gone: only its pointer is left, and the registry

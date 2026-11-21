@@ -16,6 +16,8 @@ import autocode_resolver_human as human
 import autocode_util as util
 import goal_fixtures
 
+from tests.progressive_test_support import with_independent_probe
+
 
 class ProgressiveRuntimeTests(unittest.TestCase):
     def setUp(self):
@@ -117,6 +119,8 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         }
 
     def stage(self, stage, value, seconds=100):
+        if stage == "tester":
+            value = with_independent_probe(value)
         self.state["next_stage"] = stage
         output = self.run_dir / (stage + "-" + str(len(self.state.get("stages", []))) + ".json")
         output.write_text(json.dumps(value))

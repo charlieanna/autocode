@@ -29,6 +29,7 @@ try:
     from . import autocode_progressive_state as progressive_state
     from . import autocode_resolver_recovery as resolver_recovery
     from . import autocode_rework_policy as rework_policy
+    from . import autocode_roles as roles
     from . import autocode_run_status as run_status
     from . import autocode_source_scope as source_scope
     from . import autocode_util as util
@@ -44,6 +45,7 @@ except ImportError:
     import autocode_progressive_state as progressive_state
     import autocode_resolver_recovery as resolver_recovery
     import autocode_rework_policy as rework_policy
+    import autocode_roles as roles
     import autocode_run_status as run_status
     import autocode_source_scope as source_scope
     import autocode_util as util
@@ -75,7 +77,9 @@ def user_request(
         return True
     if names.task_planner_stage(stage):
         if value["status"] != "BLOCKED":
-            raise ValueError("The Plan Reviewer must choose BLOCKED when requesting a user decision")
+            raise ValueError(
+                f"The {roles.screen_name(stage, state)} must choose BLOCKED when requesting a user decision"
+            )
         # Record the defects already identified, then pause. The controller's early return
         # never reaches the normal review path.
         if stage != "resolve":
@@ -127,7 +131,12 @@ def user_request(
 def validate_decision(state: RunState, stage: str, value: dict) -> None:
     """Validate optional protected acceptance-test repairs on modern ``review_completion`` / ``resolve`` decisions."""
     if stage in acceptance_test_repair.DECISION_STAGES:
-        acceptance_test_repair.validate_report(value, stage=stage, covered_case_ids=acceptance_tests.covered(state))
+        acceptance_test_repair.validate_report(
+            value,
+            stage=stage,
+            covered_case_ids=acceptance_tests.covered(state),
+            survivor_case_ids=acceptance_test_repair.survivor_case_ids(state),
+        )
 
 
 def prepare_continuation(runtime, state: RunState, stage: str, value: dict, record: dict, workspace) -> None:

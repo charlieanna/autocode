@@ -139,6 +139,28 @@ test("a failed attempt is marked with its reason, and a nonzero exit counts as f
   assert.equal(struggling(shown, NOW), "Builder · attempt 2 · 35s · last one exit 1");
 });
 
+test("a stage's newest attempt is the newest in time, wherever the core lists it (#3853)", () => {
+  // Listed out of time order: the planner's failed draft at 01:04 is newer than its success at 01:02.
+  const shown = view([
+    attempt("draft_plan", "Planner", { exit_code: 1, started_at: "2026-11-02T01:04:00Z" }),
+    attempt("revise_plan", "Planner", { started_at: "2026-11-02T01:03:00Z" }),
+    attempt("draft_plan", "Planner", { started_at: "2026-11-02T01:02:00Z" }),
+  ]);
+  assert.deepEqual(stages(shown, NOW).map((row) => [row.stage, row.state, row.why, row.attempts, row.failedAttempts]), [
+    ["draft_plan", "failed", "exit 1", 2, 1],
+    ["revise_plan", "done", "", 1, 0],
+  ]);
+  // An attempt with no readable time keeps the time of the one listed before it, so it stays where it is listed.
+  const untimed = stages(view([
+    attempt("builder", "Builder", { exit_code: 1, started_at: "2026-11-02T01:00:00Z" }),
+    attempt("builder", "Builder", { started_at: "not a time" }),
+  ]), NOW);
+  assert.deepEqual(untimed.map((row) => [row.state, row.why]), [["done", ""]]);
+  // Equal or missing times keep the core's listed order.
+  const tied = stages(view([attempt("builder", "Builder"), attempt("builder", "Builder", { exit_code: 1 })]), NOW);
+  assert.deepEqual(tied.map((row) => [row.state, row.why]), [["failed", "exit 1"]]);
+});
+
 test("incomplete tokens are marked as a floor, and runner-owned attempts are not stages", () => {
   const partial = attempt("terra", "Builder", {
     attributed_tokens: { input_tokens: { value: 1000, complete: true }, output_tokens: { value: null, known: 50, complete: false } },

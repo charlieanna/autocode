@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_escalation as escalation
+    from . import autocode_failure_retry_admission as failure_retry_admission
     from . import autocode_failures as failures
     from . import autocode_first_reply_budget as first_reply_budget
     from . import autocode_interventions as interventions
@@ -35,8 +36,9 @@ try:
     from . import autocode_quota_route as quota_route
     from . import autocode_recovery_limits as recovery_limits
     from . import autocode_repair_provenance as repair_provenance
+    from . import autocode_report_correction as report_correction
     from . import autocode_report_repair_queue as report_repair_queue
-    from . import autocode_report_retry as report_retry
+    from . import autocode_report_retry_admission as report_retry_admission
     from . import autocode_report_source as report_source
     from . import autocode_resolver_human as resolver_human
     from . import autocode_resolver_runtime as resolver_runtime
@@ -53,6 +55,7 @@ try:
     from . import autocode_workflow as workflow
 except ImportError:
     import autocode_escalation as escalation
+    import autocode_failure_retry_admission as failure_retry_admission
     import autocode_failures as failures
     import autocode_first_reply_budget as first_reply_budget
     import autocode_interventions as interventions
@@ -65,8 +68,9 @@ except ImportError:
     import autocode_quota_route as quota_route
     import autocode_recovery_limits as recovery_limits
     import autocode_repair_provenance as repair_provenance
+    import autocode_report_correction as report_correction
     import autocode_report_repair_queue as report_repair_queue
-    import autocode_report_retry as report_retry
+    import autocode_report_retry_admission as report_retry_admission
     import autocode_report_source as report_source
     import autocode_resolver_human as resolver_human
     import autocode_resolver_runtime as resolver_runtime
@@ -248,17 +252,7 @@ def abandon_stage(state: RunState, run_dir, workspace, selected, *, launch=None,
         if record["role"] in ("builder", "tester")
         else "review_completion"
     )
-    recovery_role = (
-        roles.SCREEN["resolver"]
-        if planning_repair
-        else "Requirements"
-        if planning.is_planning(state, next_stage)
-        else "Tester"
-        if next_stage == "tester"
-        else "Builder"
-        if next_stage == "builder"
-        else "Plan Reviewer"
-    )
+    recovery_role = roles.screen_name(next_stage, state)
     run_status.pause(
         state,
         "PAUSED_STAGE_ABANDONED",
@@ -1278,52 +1272,12 @@ def prepare_planning_retry(state: RunState, run_dir):
 
 def prepare_exhausted_execution_report_retry(state: RunState, run_dir, workspace=None, *, allow_repeated=False):
     """Allow an explicit fresh execution report after bounded repairs fail or cannot launch."""
-    if state.get("status") not in (
-        "PAUSED_REPORT_REPAIR_LIMIT",
-        "PAUSED_REPORT_REPAIR_INPUT",
-        "PAUSED_INVALID_OUTPUT",
-        "PAUSED_REPEATED_FAILURE",
-    ) or state.get("active_stage"):
+    if not report_retry_admission.preparable(state, allow_repeated=allow_repeated):
         return False
-    # A repair whose saved inputs exceed the handoff limits can never launch: it is spent.
+    pending = state["pending_report_repair"]
+    original = pending["original"]
+    stage = original["stage"]
     unlaunchable = state["status"] == "PAUSED_REPORT_REPAIR_INPUT" or stage_stalls.exhausted_unlaunchable_pending(state)
-    pending = state.get("pending_report_repair")
-    original = pending.get("original") if isinstance(pending, dict) else None
-    if not isinstance(original, dict):
-        return False
-    stage = original.get("stage")
-    reroute_abandoned_tester = (
-        stage == "tester"
-        and state.get("next_stage") == "review_completion"
-        and not state.get("validation")
-        and (state.get("recovery_context") or {}).get("role") == "tester"
-        and any(
-            record.get("stage") == "tester_report_repair"
-            and record.get("abandoned")
-            and records.attempt_id(record) == cast(dict, state["recovery_context"]).get("attempt_id")
-            for record in state.get("stages", [])
-        )
-    )
-    if (
-        unlaunchable
-        and cast(dict, pending).get("attempts", 0) < records.repair_limit(state)
-        and report_source.has_repairable_empty_latest(pending)
-    ):
-        # A hold saved before #2426 covered execution: the remaining repair still has its
-        # original input, so keep it instead of discarding the stage's work.
-        return False
-    if (
-        (stage != state.get("next_stage") and not reroute_abandoned_tester)
-        or stage == "draft_plan"
-        or planning.is_planning(state, stage)
-        or not (
-            unlaunchable
-            or cast(dict, pending).get("attempts") == records.repair_limit(state)
-            or allow_repeated
-            and report_retry.bounded_failure(state, records.repair_limit(state))
-        )
-    ):
-        return False
     repeated = failures.repeated(state, original) or stage_stalls.retry_entry(state, original)
     if (
         repeated
@@ -1353,12 +1307,12 @@ def prepare_exhausted_execution_report_retry(state: RunState, run_dir, workspace
         run_status.pause(state, "PAUSED_REPEATED_FAILURE", message, paused_at=records.now())
         records.write_json(run_dir / "state.json", state)
         raise support.Paused("PAUSED_REPEATED_FAILURE", message)
-    if reroute_abandoned_tester:
+    if report_retry_admission.reroute_abandoned_tester(state, stage):
         state["next_stage"] = "tester"
     reason = (
         "Explicit fresh execution retry: the report repair cannot launch from its saved inputs"
         if unlaunchable
-        else "Explicit fresh execution retry after bounded report failures"
+        else report_correction.SPENT
     )
     state.setdefault("report_repair_archive", []).append(
         {"at": records.now(), "reason": reason, "repair": state.pop("pending_report_repair")}
@@ -1414,7 +1368,7 @@ def restart_unlaunchable_repair(state: RunState, run_dir, workspace, error):
         state.setdefault("report_repair_archive", []).append(
             {
                 "at": records.now(),
-                "reason": f"Unchanged repeated failure hold: {CANNOT_LAUNCH}",
+                "reason": report_correction.UNLAUNCHABLE,
                 "repair": state.pop("pending_report_repair"),
             }
         )
@@ -1453,27 +1407,13 @@ class _LaunchableRepairProbePassed(Exception):
 
 def restore_launchable_unlaunchable_repair(runner, state: RunState, run_dir, workspace) -> bool:
     """Re-queue an attempts=0 repair archived solely as unlaunchable when it now fits within launch bounds."""
-    archive = state.get("report_repair_archive")
-    if (
-        state.get("status") != "RUNNING"
-        or state.get("pending_report_repair")
-        or state.get("active_stage")
-        or not isinstance(archive, list)
-        or not archive
-    ):
+    # Which archived repair may come back, and on which rule, is decided in one place (#3868).
+    entry = report_correction.archived(state, "unlaunchable") if state.get("status") == "RUNNING" else None
+    if entry is None:
         return False
-    entry = archive[-1]
-    repair = entry.get("repair") if isinstance(entry, dict) else None
-    original = repair.get("original") if isinstance(repair, dict) else None
-    if (
-        not isinstance(entry, dict)
-        or entry.get("reason") != f"Unchanged repeated failure hold: {CANNOT_LAUNCH}"
-        or not isinstance(repair, dict)
-        or repair.get("attempts") != 0
-        or not isinstance(original, dict)
-        or original.get("stage") != state.get("next_stage")
-    ):
-        return False
+    archive = state["report_repair_archive"]
+    repair = entry["repair"]
+    original = repair["original"]
     probe_state = copy.deepcopy(state)
     probe_state["pending_report_repair"] = copy.deepcopy(repair)
 
@@ -1516,6 +1456,7 @@ def restore_launchable_unlaunchable_repair(runner, state: RunState, run_dir, wor
             provider=route.get("provider"),
             enforce_tool_boundary=False,
             source_paths=runner.source_scope.paths(state),
+            source_catalog_receipt=state.get("source_catalog_receipt"),
             settings=state["settings"],
             planning_report_recovery=True,
             report_only=True,
@@ -1551,39 +1492,7 @@ def restore_launchable_unlaunchable_repair(runner, state: RunState, run_dir, wor
     return False
 
 
-def stale_report_repair(state: RunState, workspace, *, revision=None):
-    """(repaired source, current source) when only the source moved under a queued report repair, else None.
-
-    A repair restates the original report for the source that attempt ran on, so after an operator
-    edit it can never run (issue #302). A changed goal or changed pinned evidence is not this case.
-    Neither is a run waiting on a person: an AutoResolver operational request, even one a source edit
-    made stale, is answered or withdrawn only through its own actions, never as a side effect of
-    resuming (archiving would also change the frontier the request is bound to)."""
-    pending = state.get("pending_report_repair")
-    status = str(state.get("status") or "")
-    if (
-        not isinstance(pending, dict)
-        or any(state.get(key) for key in ("active_stage", "active_runner_check", "uncertain_artifacts"))
-        or not (status == "RUNNING" or status.startswith("PAUSED_"))
-        or (state.get(resolver_human.PUBLIC) or {}).get("scope") in ("operational_exhaustion", "blocker")
-        or state.get(resolver_human.PRIVATE)
-    ):
-        return None
-    original = pending.get("original") or {}
-    checked = original.get("source_revision")
-    if (
-        not checked
-        or original.get("stage") != state.get("next_stage")
-        or (state.get("goal_contract") or {}).get("hash") != pending.get("contract_hash")
-    ):
-        return None
-    if revision is None:
-        revision = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)["revision"]
-    if checked == revision or any(
-        not Path(p).is_file() or support.file_hash(p) != h for p, h in pending.get("pins", {}).items()
-    ):
-        return None
-    return checked, revision
+stale_report_repair = report_retry_admission.stale_report_repair
 
 
 def archive_stale_report_repair(state: RunState, run_dir, workspace):
@@ -1642,68 +1551,7 @@ def archive_stale_report_repair(state: RunState, run_dir, workspace):
     return message
 
 
-def _rejected_repair_reports(state: RunState, original):
-    """The reports of ``original``'s earlier rejected repairs: a later repair may have edited one of them."""
-    return [
-        row.get("output")
-        for row in state.get("stages", [])
-        if row.get("report_only") and row.get("rejected") and row.get("original_stage") == original.get("stage")
-    ]
-
-
-def report_retry_frontier(state: RunState, workspace, selected, pending):
-    """The original source/schema/pin/bound checks over one retained repair input."""
-    original = pending.get("original") or {}
-    # A fresh attempt the failure bound stopped before any repair is retried itself, never an earlier repair.
-    repair = (
-        original
-        if not pending.get("latest_rejected") and report_retry.rejected_attempt(state, pending=pending)
-        else next(
-            (
-                row
-                for row in reversed(state.get("stages", []))
-                if row.get("report_only") and row.get("rejected") and row.get("original_stage") == original.get("stage")
-            ),
-            None,
-        )
-    )
-    if (
-        any(state.get(key) for key in ("active_stage", "active_runner_check", "uncertain_artifacts"))
-        or not report_retry.retryable(pending.get("error"))
-        or original.get("stage") != "tester"
-        or not repair
-        or selected != records.attempt_id(repair)
-        or (repair.get("original_stage") or repair.get("stage")) != original.get("stage")
-        or repair.get("source_revision") != original.get("source_revision")
-        or not repair.get("schema")
-        or not original.get("schema")
-        or not Path(repair["schema"]).is_file()
-        or not Path(original["schema"]).is_file()
-        or not repair_provenance.same_schema(original, repair, reports=_rejected_repair_reports(state, original))
-        or not report_retry.bounded_failure_evidence(state, pending, records.repair_limit(state))
-    ):
-        raise ValueError("--retry-report must match the bounded rejected report-only attempt")
-    revision = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)["revision"]
-    if pending is state.get("pending_report_repair") and stale_report_repair(state, workspace, revision=revision):
-        raise ValueError(
-            "The source changed after this report was rejected, so it cannot be retried; "
-            "use --resume-paused to archive the stale repair and validate the current source afresh"
-        )
-    if (
-        revision != original["source_revision"]
-        or (state.get("goal_contract") or {}).get("hash") != pending.get("contract_hash")
-        or any(not Path(p).is_file() or support.file_hash(p) != h for p, h in pending.get("pins", {}).items())
-    ):
-        raise ValueError("Saved report inputs changed; reconcile them before retrying")
-    return {
-        "attempt": selected,
-        "pending": support.digest(pending),
-        "repair": support.digest(repair),
-        "source_revision": revision,
-        "contract_hash": (state.get("goal_contract") or {}).get("hash"),
-        "schemas": {path: support.file_hash(path) for path in {repair["schema"], original["schema"]}},
-        "pins": copy.deepcopy(pending.get("pins") or {}),
-    }
+report_retry_frontier = report_retry_admission.report_retry_frontier
 
 
 def retry_format_failed_report(state: RunState, run_dir, workspace, selected):
@@ -1712,7 +1560,7 @@ def retry_format_failed_report(state: RunState, run_dir, workspace, selected):
         raise ValueError("--retry-report must match the bounded rejected report-only attempt")
     pending = state.get("pending_report_repair") or {}
     original = pending.get("original") or {}
-    frontier = report_retry_frontier(state, workspace, selected, pending)
+    frontier = report_retry_admission.validate(state, workspace, selected)
     if not prepare_exhausted_execution_report_retry(state, run_dir, workspace, allow_repeated=True):
         raise ValueError("Saved stage cannot be retried as a fresh execution report")
     event = {
@@ -2045,29 +1893,7 @@ def validate_timeout_completion_evidence(state: RunState, workspace, proof):
 
 
 def failure_retry_frontier(state: RunState, workspace):
-    """One exact source/stage/count answer shared by retry and revalidation."""
-    record = next((row for row in reversed(state.get("stages", [])) if row.get("failure_key")), None)
-    repeated = (failures.repeated(state, record) or stage_stalls.retry_entry(state, record)) if record else None
-    if not repeated:
-        raise ValueError("No unchanged repeated failure to authorize; fix the cause, then resume")
-    selected = cast(dict, record).get("failure_key")
-    revision = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)["revision"]
-    identity = repeated["identity"]
-    if (
-        (state.get("failure_history") or {}).get(selected) is not repeated
-        or failures.key(identity) != selected
-        or identity["artifact_hash"] != revision
-        or cast(dict, record).get("source_revision") != revision
-        or identity["stage"] != (cast(dict, record).get("original_stage") or cast(dict, record).get("stage"))
-        or identity["stage"] != state.get("next_stage")
-    ):
-        raise ValueError("Retry authorization requires the exact current source, stage and failure identity")
-    return {
-        "failure_key": selected,
-        "identity": copy.deepcopy(identity),
-        "count": cast(dict, repeated)["count"],
-        "source_revision": revision,
-    }
+    return failure_retry_admission.failure_retry_frontier(state, workspace, base_snapshot=support.snapshot)
 
 
 def validate_failure_retry_authorization(state: RunState, workspace, authorization):

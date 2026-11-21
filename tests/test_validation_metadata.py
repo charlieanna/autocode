@@ -549,6 +549,7 @@ class ValidationMetadataTests(unittest.TestCase):
 
     def test_capture_exposes_canonical_command_without_relaxing_verification(self):
         path = self.run / "quoted.json"
+        support.atomic_json(self.run / "state.json", {"workspace": str(self.workspace), "run_dir": str(self.run)})
         command = [sys.executable, "-c", "import sys; print(sys.argv[1])", "spaces; \"quotes\" and 'apostrophes'"]
         output = io.StringIO()
         with (
@@ -597,9 +598,20 @@ class ValidationMetadataTests(unittest.TestCase):
         path, receipt = self.receipt()
         checks = [{"command": "python test.py", "evidence_ref": str(path)}]
         with self.assertRaises(ValueError):
-            support.verify_checks(checks, self.workspace, self.log)
-        self.events(self.event(aggregated_output=json.dumps(receipt)))
-        support.verify_checks(checks, self.workspace, self.log)
+            support.verify_checks(checks, self.workspace, self.log, capture_context=self.context)
+        invocation = shlex.join(
+            [
+                sys.executable,
+                str(Path(support.__file__).resolve().with_name("autocode.py")),
+                "capture",
+                "--output",
+                str(path),
+                "--",
+                *receipt["command"],
+            ]
+        )
+        self.events(self.event(command=invocation, aggregated_output=json.dumps(receipt)))
+        support.verify_checks(checks, self.workspace, self.log, capture_context=self.context)
         self.assertEqual(0, checks[0]["exit_code"])
 
     def test_report_file_cannot_derive_from_event_even_when_present(self):

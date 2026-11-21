@@ -20,6 +20,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import autocode_agent_background as background
 import autocode_agent_step as agent_step
 import autocode_taskrun as taskrun
 import autocode_workflows as workflows
@@ -30,7 +31,9 @@ from tests.test_taskrun import BRIEF, FIXTURE_OPTIONS
 ROOT = Path(__file__).resolve().parents[1]
 STEP = ROOT / "tools" / "autocode_agent_step.py"
 SKILL = ROOT / "examples" / "agent-step" / "skills" / "autocode" / "SKILL.md"
-INTEGRATIONS = ("autocode_agent_step", "autocode_mcp")
+INTEGRATIONS = ("autocode_agent_step", "autocode_mcp", "autocode_agent_background")
+# Long enough for a fixture run's work to its next stop; the call itself returns at that stop.
+WAIT = "250"
 
 
 def fixture_workspace(test: unittest.TestCase) -> tuple[Path, dict[str, str]]:
@@ -103,6 +106,25 @@ def ask_one_question_once(test: unittest.TestCase, env: dict[str, str]) -> None:
     env["FIXTURE_QUESTION_ASKED"] = str(provider.parent / "question-asked")
 
 
+def hold_the_provider(test: unittest.TestCase, env: dict[str, str]) -> Path:
+    """Make every fixture provider call wait while the returned file exists: the run stays working until it is gone."""
+    provider = Path(env["PATH"].split(os.pathsep)[0]) / "codex"
+    hold = provider.parent / "hold"
+    hold.write_text("hold", encoding="utf-8")
+    amendment = textwrap.dedent("""
+        import time as _hold_time
+        while Path(os.environ["FIXTURE_HOLD"]).exists():
+            _hold_time.sleep(0.1)
+    """)
+    marker = '    output = Path(sys.argv[sys.argv.index("-o") + 1])'
+    source = provider.read_text(encoding="utf-8")
+    test.assertIn(marker, source)
+    provider.write_text(source.replace(marker, textwrap.indent(amendment, "    ") + "\n" + marker), encoding="utf-8")
+    env["FIXTURE_HOLD"] = str(hold)
+    test.addCleanup(hold.unlink, missing_ok=True)
+    return hold
+
+
 def callers(run_dir: str) -> set[str]:
     """Who made each call that changed the run, from its activity log."""
     lines = (Path(run_dir) / "activity.jsonl").read_text(encoding="utf-8").splitlines()
@@ -122,13 +144,13 @@ class StepCommandLine(unittest.TestCase):
     workspace: Path
     env: dict[str, str]
 
-    def step(self, *args, env=None, code=0):
+    def step(self, *args, env=None, code=0, timeout=300):
         process = subprocess.run(
             [sys.executable, str(STEP), "--workspace", str(self.workspace), *args],
             capture_output=True,
             text=True,
             env={**os.environ, **self.env, **(env or {})},
-            timeout=300,
+            timeout=timeout,
         )
         self.assertEqual(code, process.returncode, process.stderr)
         return process
@@ -145,7 +167,8 @@ class SkillCommandLineTests(StepCommandLine):
 
     def test_the_skill_drives_a_run_through_a_question_and_plan_approval_to_its_evidence(self):
         ask_one_question_once(self, self.env)
-        asked = self.summary("start", BRIEF, "--", *FIXTURE_OPTIONS)
+        asked = self.summary("start", BRIEF, "--wait", WAIT, "--", *FIXTURE_OPTIONS)
+        self.assertFalse(asked["working"], asked)
         self.assertEqual("answer", asked["needs"]["kind"], asked)
         self.assertEqual("your_decision", asked["pause_category"])
         self.assertEqual("Your decision", asked["pause_category_label"])
@@ -165,7 +188,9 @@ class SkillCommandLineTests(StepCommandLine):
         self.assertEqual(asked["needs"], self.summary("status")["needs"])
 
         token = {"AUTOCODE_RESOLVER_TOKEN": asked["needs"]["resolver_token"]}
-        planned = self.summary("answer", question["id"], question["options"][0], "--token", "-", env=token)
+        planned = self.summary(
+            "answer", question["id"], question["options"][0], "--token", "-", "--wait", WAIT, env=token
+        )
         self.assertEqual("approve_plan", planned["needs"]["kind"], planned)
         self.assertEqual("your_decision", planned["pause_category"])
         self.assertIn("Approval token: " + planned["needs"]["token"], planned["plan"])
@@ -176,13 +201,51 @@ class SkillCommandLineTests(StepCommandLine):
         self.assertIn("needs approve_plan", waiting)
         self.assertFalse((self.workspace / "greet.py").exists(), "nothing is built before the person approves")
 
-        done = self.summary("approve", "-", env={"AUTOCODE_APPROVE_GOAL_TOKEN": planned["needs"]["token"]})
-        self.assertEqual(("TASK_COMPLETE", True), (done["status"], done["done"]), done)
+        done = self.summary(
+            "approve", "-", "--wait", WAIT, env={"AUTOCODE_APPROVE_GOAL_TOKEN": planned["needs"]["token"]}
+        )
+        self.assertEqual(("TASK_COMPLETE", True, False), (done["status"], done["done"], done["working"]), done)
         self.assertIsNone(done["next_command"])
         self.assertNotIn("plan", done)
         self.assertTrue((self.workspace / "greet.py").is_file())
         self.assertTrue(self.step("evidence", "--markdown").stdout.startswith("## AutoCode evidence"))
         self.assertEqual({"agent-step"}, callers(done["run_dir"]))
+
+    def test_no_step_waits_for_the_runs_work_unless_it_asks_to(self):
+        # #3984: an agent's tool call has a time limit and a run's work does not. Before, start held the call
+        # until the run's first stop, which here never comes while the provider is held.
+        hold = self.hold_provider()
+        started = self.summary_within(30, "start", BRIEF, "--", *FIXTURE_OPTIONS)
+        self.assertTrue(started["working"], started)
+        self.assertIn(f"{os.sep}.autocode{os.sep}runs{os.sep}", started["run_dir"])
+        self.assertNotIn("plan", started)
+        waited = self.summary_within(30, "status", "--wait", "1")
+        self.assertEqual((started["run_dir"], True), (waited["run_dir"], waited["working"]), waited)
+
+        # While it works, nothing advances it again or starts another run in the workspace.
+        for args in (("continue",), ("approve", "a-token"), ("evidence",), ("start", "Another request")):
+            with self.subTest(step=args[0]):
+                self.assertIn("still working", self.step(*args, code=1, timeout=30).stderr)
+
+        hold.unlink()
+        planned = self.summary("status", "--wait", WAIT)
+        self.assertEqual((False, "approve_plan"), (planned["working"], planned["needs"]["kind"]), planned)
+        self.assertEqual("stopped", planned["background"]["state"])
+        self.assertIn("Approval token: " + planned["needs"]["token"], planned["plan"])
+        approved = self.summary_within(
+            30, "approve", "-", env={"AUTOCODE_APPROVE_GOAL_TOKEN": planned["needs"]["token"]}
+        )
+        self.assertEqual(planned["run_dir"], approved["run_dir"])
+        self.assertTrue(approved["working"], approved)  # the approval is saved; the build works in the background
+        done = self.summary("status", "--wait", WAIT)
+        self.assertEqual(("TASK_COMPLETE", True, False), (done["status"], done["done"], done["working"]), done)
+        self.assertEqual({"agent-step"}, callers(done["run_dir"]))
+
+    def hold_provider(self) -> Path:
+        return hold_the_provider(self, self.env)
+
+    def summary_within(self, seconds, *args, env=None):
+        return json.loads(self.step(*args, env=env, timeout=seconds).stdout)
 
     def test_engine_options_are_taken_only_when_a_run_starts(self):
         refused = self.step("status", "--", "--engine", "codex", code=2)
@@ -213,10 +276,12 @@ class VerifyChangeCommandLineTests(StepCommandLine):
         config = json.loads(config_path.read_text())
         config["brief"] = brief
         config_path.write_text(json.dumps(config))
-        planned = self.summary("start", brief, "--workflow", "review", "--", *self.flags)
+        planned = self.summary("start", brief, "--workflow", "review", "--wait", WAIT, "--", *self.flags)
         self.assertEqual("approve_plan", planned["needs"]["kind"], planned)
         self.assertIn("Approval token: " + planned["needs"]["token"], planned["plan"])
-        reviewed = self.summary("approve", "-", env={"AUTOCODE_APPROVE_GOAL_TOKEN": planned["needs"]["token"]})
+        reviewed = self.summary(
+            "approve", "-", "--wait", WAIT, env={"AUTOCODE_APPROVE_GOAL_TOKEN": planned["needs"]["token"]}
+        )
         self.assertEqual(
             ("TASK_COMPLETE", True, "review"), (reviewed["status"], reviewed["done"], reviewed["workflow"]), reviewed
         )
@@ -242,22 +307,29 @@ class AgentStepTests(unittest.TestCase):
         self.run_dir = self.workspace / ".autocode" / "runs" / "one"
         self.run_dir.mkdir(parents=True)
         (self.run_dir / "state.json").write_text("{}", encoding="utf-8")
-        self.step = agent_step.AgentStep(self.workspace)
+        self.step = agent_step.AgentStep(self.workspace, spawn=agent_step.in_process)
 
     def test_the_job_kinds_are_the_runners(self):
         self.assertEqual(workflows.WORKFLOWS, agent_step.WORKFLOWS)
 
     def test_verifying_a_change_starts_a_review_run(self):
         # docs/agent-step.md: "verify my change" names the review workflow at start; later calls do not repeat it.
-        started = taskrun.TaskRun(self.workspace, self.run_dir)
+        def started(workspace, brief, *, run_dir, **_):
+            (run_dir / "state.json").parent.mkdir(parents=True)
+            (run_dir / "state.json").write_text("{}", encoding="utf-8")
+            return taskrun.TaskRun(workspace, run_dir)
+
         with (
-            mock.patch.object(taskrun.TaskRun, "start", return_value=started) as start,
+            mock.patch.object(taskrun.TaskRun, "start", side_effect=started) as start,
             mock.patch.object(taskrun.TaskRun, "advance_until_input", return_value={"status": "TASK_COMPLETE"}),
+            mock.patch.object(taskrun.TaskRun, "status", return_value={"status": "TASK_COMPLETE", "done": True}),
         ):
             summary = self.step.start("Review the uncommitted change (git diff HEAD)", workflow="review")
         self.assertEqual(("--workflow", "review"), start.call_args.kwargs["start_options"])
         self.assertEqual("agent-step", start.call_args.kwargs["env"]["AUTOCODE_CALLER"])
-        self.assertEqual(str(self.run_dir), summary["run_dir"])
+        self.assertEqual(str(start.call_args.kwargs["run_dir"]), summary["run_dir"])
+        self.assertEqual(self.workspace / ".autocode" / "runs", start.call_args.kwargs["run_dir"].parent)
+        self.assertEqual((False, "stopped"), (summary["working"], summary["background"]["state"]))
         with self.assertRaisesRegex(agent_step.StepError, "workflow must be one of"):
             self.step.start("Review it", workflow="audit")
 
@@ -316,6 +388,54 @@ class AgentStepTests(unittest.TestCase):
                     with self.assertRaisesRegex(agent_step.StepError, "not current: why"):
                         self.step.evidence()
                 read.assert_called_once_with(require_current=False)
+
+    def test_a_failed_start_is_reported_with_its_reason(self):
+        with mock.patch.object(taskrun.TaskRun, "start", side_effect=taskrun.TaskRunError("no engine")):
+            with self.assertRaisesRegex(agent_step.StepError, "did not start: no engine"):
+                self.step.start("Build it")
+
+    def test_a_wait_is_a_bounded_number_of_seconds(self):
+        for wait in (-1, agent_step.MAX_WAIT_SECONDS + 1, "5", True):
+            with self.subTest(wait=wait), self.assertRaisesRegex(agent_step.StepError, "wait must be"):
+                self.step.status(wait=wait)
+
+    def test_a_launch_works_while_its_process_lives_and_is_lost_when_it_ends_without_a_result(self):
+        run_dir = self.workspace / ".autocode" / "runs" / "held"
+        alive = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+        self.addCleanup(alive.wait)
+        self.addCleanup(alive.kill)
+        background.launch(self.workspace, run_dir, {"operation": "advance"}, ["drive"], {}, lambda *_: alive.pid)
+        self.assertEqual("working", background.state(self.workspace, run_dir)["state"])
+        self.assertEqual([run_dir], background.working(self.workspace))
+        ticks = iter(range(100))
+        waited = background.wait(self.workspace, run_dir, 3, sleep=lambda _: None, clock=lambda: next(ticks))
+        self.assertEqual("working", waited["state"])  # the wait ended at its deadline, not at a stop
+        alive.kill()
+        alive.wait()
+        lost = background.state(self.workspace, run_dir)
+        self.assertEqual("lost", lost["state"])
+        self.assertIn("ended without recording", lost["error"])
+        self.assertEqual([], background.working(self.workspace))
+
+        ticks, now, told = iter(range(100)), [0.0], []
+        alive_again = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+        self.addCleanup(alive_again.wait)
+        self.addCleanup(alive_again.kill)
+        background.launch(self.workspace, run_dir, {"operation": "advance"}, ["drive"], {}, lambda *_: alive_again.pid)
+
+        def advance(seconds):
+            now[0] += 1.0  # each look costs a second of the fake clock
+
+        background.wait(
+            self.workspace, run_dir, 12, tick=lambda: told.append(now[0]), every=5, sleep=advance, clock=lambda: now[0]
+        )
+        self.assertEqual([5.0, 10.0], told)  # every five seconds while it works, none after the deadline
+        alive_again.kill()
+        alive_again.wait()
+
+        request = background.read_request(self.workspace / background.RECORDS / "held.request.json")
+        background.finish(request, {"state": "stopped"})
+        self.assertEqual("stopped", background.state(self.workspace, run_dir)["state"])
 
     def test_a_run_is_named_when_the_workspace_has_several_or_is_not_one_of_them(self):
         second = self.workspace / ".autocode" / "runs" / "two"

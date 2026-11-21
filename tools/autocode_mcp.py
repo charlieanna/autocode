@@ -5,7 +5,7 @@ It speaks the Model Context Protocol over standard input and output
 dependency. Its four tools are autocode_agent_step's operations on one workspace,
 fixed when the server starts:
 
-    autocode_start     start a run and work until it needs a person or completes
+    autocode_start     start a run; it works until it needs a person or completes
     autocode_status    where a run stands: the status view's next-step fields
     autocode_respond   pass on the person's plan approval or answer, or continue
     autocode_evidence  the completed run's canonical evidence report
@@ -15,14 +15,19 @@ the person configures, never from the agent's tool arguments:
 
     python -m autocode_cli.autocode_mcp --workspace /path/to/project -- --engine claude
 
-A tool call returns when the run stops or completes, which can take as long as the
-work does. A refusal, AutoCode's or the step's, is a tool result with ``isError``
-so the agent can read it; only a malformed request is a JSON-RPC error.
+No tool call waits for the work, which can take as long as the work does (#3984): the
+run works in a background process and a call returns at once, or after the
+``wait_seconds`` it asks for, with ``working`` true until the run stops. While a call
+waits and its request carries ``_meta.progressToken``, the server sends
+``notifications/progress`` every few seconds with the run's progress line as the
+message. A refusal, AutoCode's or the step's, is a tool result with ``isError`` so
+the agent can read it; only a malformed request is a JSON-RPC error.
 """
 
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import sys
 from collections.abc import Callable, Iterable
@@ -43,9 +48,17 @@ INSTRUCTIONS = (
     "Every tool returns the run's status. At each stop, tell the person pause_category_label, progress, "
     "explanation and next_command. While needs.kind is approve_plan, show the person the plan. Approve a plan "
     "or answer a question only with the person's own decision, passing the token from the view they saw. Any "
-    "other stop is the person's: give them next_command. A call returns when the run next needs a person or "
-    "completes."
+    "other stop is the person's: give them next_command. The run works in the background: while working is "
+    "true, nothing is needed yet; call autocode_status with wait_seconds below your tool time limit (for example "
+    "50) until working is false, then act on that stop."
 )
+_WAIT = {
+    "type": "number",
+    "minimum": 0,
+    "maximum": agent_step.MAX_WAIT_SECONDS,
+    "description": "Wait up to this many seconds for the run's next stop before returning (default 0: return at "
+    "once). Keep it below your tool time limit; while working is true, call autocode_status again.",
+}
 _RUN_DIR = {
     "type": "string",
     "description": "The run to act on. Default: the run this server started, or the workspace's only run.",
@@ -53,9 +66,9 @@ _RUN_DIR = {
 TOOLS: tuple[dict[str, Any], ...] = (
     {
         "name": "autocode_start",
-        "description": "Start an AutoCode run in the workspace on the person's request and work until it needs "
-        "the person (a question, plan approval) or completes. Start only when the person asked for AutoCode: "
-        "a live provider spends money.",
+        "description": "Start an AutoCode run in the workspace on the person's request. It works in the "
+        "background until it needs the person (a question, plan approval) or completes; working says it still "
+        "works. Start only when the person asked for AutoCode: a live provider spends money.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -66,6 +79,7 @@ TOOLS: tuple[dict[str, Any], ...] = (
                     "description": "Name the kind of job instead of having Requirements name it. "
                     "review: judge an existing change, changing nothing.",
                 },
+                "wait_seconds": _WAIT,
             },
             "required": ["brief"],
             "additionalProperties": False,
@@ -73,20 +87,22 @@ TOOLS: tuple[dict[str, Any], ...] = (
     },
     {
         "name": "autocode_status",
-        "description": "Where a run stands: status, done, pause_category_label, needs, next_command, progress, "
-        "and the plan while it waits for approval. Reads only.",
+        "description": "Where a run stands: working, status, done, pause_category_label, needs, next_command, "
+        "progress, and the plan while it waits for approval. Reads only; wait_seconds waits for the next stop.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "run_dir": _RUN_DIR,
                 "full": {"type": "boolean", "description": "Add the whole status view (large)."},
+                "wait_seconds": _WAIT,
             },
             "additionalProperties": False,
         },
     },
     {
         "name": "autocode_respond",
-        "description": "Pass on the person's decision, then work until the next stop. approve_plan: only after "
+        "description": "Pass on the person's decision; the run then works in the background to its next stop. "
+        "approve_plan: only after "
         "the person approved the plan they were shown; token is needs.token. answer: the person's answer to "
         "one question; token is needs.resolver_token. continue: only when needs.kind is continue. Every other "
         "stop is refused with the command the person runs.",
@@ -98,6 +114,7 @@ TOOLS: tuple[dict[str, Any], ...] = (
                 "question_id": {"type": "string", "description": "answer: the question's id."},
                 "text": {"type": "string", "description": "answer: the person's answer."},
                 "run_dir": _RUN_DIR,
+                "wait_seconds": _WAIT,
             },
             "required": ["action"],
             "additionalProperties": False,
@@ -114,14 +131,14 @@ TOOLS: tuple[dict[str, Any], ...] = (
 
 
 def _start(step: agent_step.AgentStep, arguments: dict) -> dict:
-    return step.start(_required(arguments, "brief"), workflow=_text(arguments, "workflow"))
+    return step.start(_required(arguments, "brief"), workflow=_text(arguments, "workflow"), wait=_seconds(arguments))
 
 
 def _status(step: agent_step.AgentStep, arguments: dict) -> dict:
     full = arguments.get("full", False)
     if not isinstance(full, bool):
         raise agent_step.StepError("full must be true or false")
-    return step.status(_text(arguments, "run_dir"), full=full)
+    return step.status(_text(arguments, "run_dir"), full=full, wait=_seconds(arguments))
 
 
 def _respond(step: agent_step.AgentStep, arguments: dict) -> dict:
@@ -131,6 +148,7 @@ def _respond(step: agent_step.AgentStep, arguments: dict) -> dict:
         question_id=_text(arguments, "question_id"),
         text=_text(arguments, "text"),
         run_dir=_text(arguments, "run_dir"),
+        wait=_seconds(arguments),
     )
 
 
@@ -153,6 +171,13 @@ def _required(arguments: dict, name: str) -> str:
     return value
 
 
+def _seconds(arguments: dict) -> float:
+    try:
+        return agent_step._wait(arguments.get("wait_seconds", 0))
+    except agent_step.StepError:
+        raise agent_step.StepError(f"wait_seconds must be a number from 0 to {agent_step.MAX_WAIT_SECONDS}") from None
+
+
 def _text(arguments: dict, name: str) -> str | None:
     value = arguments.get(name)
     if value is not None and not isinstance(value, str):
@@ -166,6 +191,8 @@ class Server:
     def __init__(self, step: agent_step.AgentStep, version: str):
         self.step = step
         self.version = version
+        # Writes one message to the client between a request and its response; serve() sets it.
+        self.send: Callable[[dict], None] | None = None
 
     def handle(self, message: Any) -> dict | None:
         if not isinstance(message, dict) or message.get("jsonrpc") != "2.0":
@@ -190,7 +217,7 @@ class Server:
                 return _error(ident, INVALID_PARAMS, f"Unknown tool: {name}")
             if not isinstance(arguments, dict):
                 return _error(ident, INVALID_PARAMS, "arguments must be an object")
-            result = self.call(name, arguments)
+            result = self.call(name, arguments, progress=self._progress(params))
         else:
             return _error(ident, METHOD_NOT_FOUND, f"Method not found: {method}")
         return {"jsonrpc": "2.0", "id": ident, "result": result}
@@ -204,8 +231,27 @@ class Server:
             "instructions": INSTRUCTIONS,
         }
 
-    def call(self, name: str, arguments: dict) -> dict:
+    def _progress(self, params: dict) -> Callable[[str], None] | None:
+        """The notifications/progress sender for a call whose client asked for progress, or None.
+
+        While a call waits for the run (``wait_seconds``), the client is told the run's progress line every
+        few seconds, which also tells a client that resets its tool timeout on progress that the call lives.
+        """
+        token = (params.get("_meta") or {}).get("progressToken") if isinstance(params.get("_meta"), dict) else None
+        send = self.send
+        if send is None or isinstance(token, bool) or not isinstance(token, (str, int)):
+            return None
+        count = itertools.count(1)
+
+        def report(line: str) -> None:
+            notice = {"progressToken": token, "progress": next(count), "message": line}
+            send({"jsonrpc": "2.0", "method": "notifications/progress", "params": notice})
+
+        return report
+
+    def call(self, name: str, arguments: dict, *, progress: Callable[[str], None] | None = None) -> dict:
         known = next(tool["inputSchema"]["properties"] for tool in TOOLS if tool["name"] == name)
+        self.step.progress = progress
         try:
             unknown = sorted(set(arguments) - set(known))
             if unknown:  # engine and budget flags in particular: they are the server's, set by the person
@@ -213,6 +259,8 @@ class Server:
             value = HANDLERS[name](self.step, arguments)
         except agent_step.StepError as error:
             return {"content": [{"type": "text", "text": str(error)}], "isError": True}
+        finally:
+            self.step.progress = None
         return {
             "content": [{"type": "text", "text": json.dumps(value, indent=2)}],
             "structuredContent": value,
@@ -221,7 +269,13 @@ class Server:
 
 
 def serve(server: Server, lines: Iterable[str], out: IO[str]) -> None:
-    """Answer each request line on ``out`` until the input ends."""
+    """Answer each request line on ``out`` until the input ends; progress notifications go there too."""
+
+    def send(message: dict) -> None:
+        out.write(json.dumps(message) + "\n")
+        out.flush()
+
+    server.send = send
     for line in lines:
         if not line.strip():
             continue
@@ -236,8 +290,7 @@ def serve(server: Server, lines: Iterable[str], out: IO[str]) -> None:
                 ident = message.get("id") if isinstance(message, dict) else None
                 response = _error(ident, INTERNAL_ERROR, f"{type(error).__name__}: {error}")
         if response is not None:
-            out.write(json.dumps(response) + "\n")
-            out.flush()
+            send(response)
 
 
 def _error(ident: Any, code: int, message: str) -> dict:

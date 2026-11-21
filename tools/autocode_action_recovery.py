@@ -41,6 +41,7 @@ try:
     from . import autocode_recovery_accounting as recovery_accounting
     from . import autocode_recovery_dispatch as recovery_dispatch
     from . import autocode_recovery_grants as recovery_grants
+    from . import autocode_report_correction as report_correction
     from . import autocode_resolver_human as resolver_human
     from . import autocode_resolver_recovery as resolver_recovery
     from . import autocode_resolver_runtime as resolver_runtime
@@ -69,6 +70,7 @@ except ImportError:
     import autocode_recovery_accounting as recovery_accounting
     import autocode_recovery_dispatch as recovery_dispatch
     import autocode_recovery_grants as recovery_grants
+    import autocode_report_correction as report_correction
     import autocode_resolver_human as resolver_human
     import autocode_resolver_recovery as resolver_recovery
     import autocode_resolver_runtime as resolver_runtime
@@ -93,6 +95,19 @@ def reconcile_checkpoint(runner, args, parser, state: RunState, state_path, run_
         import autocode_checkpoint_reconciliation as reconciliation
     if stop.applied_stop(state) is not None or stop.pending_stop(run_dir) is not None:
         parser.error("A stop is pending or already applied; inspect that stop before reconciling the checkpoint")
+    try:
+        from . import autocode_catalog_reconciliation as catalog_reconciliation
+    except ImportError:
+        import autocode_catalog_reconciliation as catalog_reconciliation
+    if args.reconcile_only.startswith(catalog_reconciliation.PREFIX):
+        try:
+            # This action already owns the run lock and controller receipt; inspecting
+            # controller liveness here would observe this action's own process.
+            changes = catalog_reconciliation.reconcile(runner, state, run_dir, args.reconcile_only)
+        except (OSError, ValueError, TypeError, support.Paused) as error:
+            parser.error(str(error))
+        print("Source inventory reconciled; Requirements will revisit: " + "; ".join(changes))
+        return 0
     active = state.get("active_stage") or {}
     fresh = runner.supervision.observe(active.get("supervision"))
     try:
@@ -418,17 +433,20 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
                 and (code := grant(runner, args, parser, state, state_path, run_dir, workspace, decided)) is not None
             ):
                 return code
-            revalidated_report = False
             paused_before = state.get("status")
-            if (
-                not args.retry_report
-                and getattr(decided, "operational_incident", None) is None
-                and state.get("pending_report_repair")
-                and (revalidator := getattr(runner, "report_revalidation", None)) is not None
-                and revalidator.revalidate(runner, state, run_dir, workspace)
-            ):
-                revalidated_report = True
-                decided.evidence_reconciled = True
+            # One decision (autocode_report_correction): a saved report the current validator accepts is
+            # applied; one it authenticates but now rejects only for its contents gets a report-only
+            # correction. Either way no baseline, proof or fresh attempt; otherwise today's path below.
+            correction = (
+                report_correction.resume(runner, state, run_dir, workspace)
+                if not args.retry_report and getattr(decided, "operational_incident", None) is None
+                else None
+            )
+            revalidated_report = correction is not None
+            if revalidated_report:
+                # A correction is still the person's ordinary resume: it renews the Resolver's evaluation
+                # epoch as today's retry would; its report-repair allowance was already renewed by the runner.
+                decided.evidence_reconciled = decided.evidence_reconciled or correction == "accepted"
                 if state.get("status") == paused_before and paused_before in (
                     "PAUSED_REPEATED_FAILURE",
                     "PAUSED_INVALID_OUTPUT",
@@ -447,7 +465,10 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
                     )
                     runner.write_json(state_path, state)
                 print(
-                    "Pinned report revalidated under current checks; saved stage output accepted without launching a retry.",
+                    "Pinned report revalidated under current checks; saved stage output accepted without launching a retry."
+                    if correction == "accepted"
+                    else "Saved report authenticated but rejected by the current checks; a report-only correction "
+                    "runs with the original execution evidence, without a new baseline, proof or attempt.",
                     flush=True,
                 )
             # Renew the resolver evaluation epoch without resetting the

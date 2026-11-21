@@ -80,6 +80,7 @@ STAGE_JOB = {
     "builder": "builder",
     "tester": "tester",
     "write_acceptance_tests": "tester",
+    "write_wrong_implementations": "tester",
     "validator": "tester",
     "review_completion": "completion",
     "decision_owner": "completion",

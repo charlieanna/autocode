@@ -161,10 +161,73 @@ def confirm_assumptions(state: RunState, *, source: str, question_id: str | None
     ]
     if not rows:
         return
+    # The ids that needed the person when this record was written: the standing reads them later and
+    # never re-derives them through the ledger, whose answer changes with the files a stage read.
+    asked = [row.get("id") for row in unconfirmed_assumptions(state) if isinstance(row, dict) and row.get("id")]
     handoff["confirmed_assumptions"] = {
         "source": source,
         **({"question_id": question_id} if question_id else {}),
         "assumptions": rows,
+        "asked": asked,
+    }
+
+
+# Where an assumption's standing comes from (#3898), shown beside ``confirmed`` in the status view.
+NEEDS_CONFIRMATION = "needs_confirmation"
+CONVENTION_NOT_APPROVED = "convention_not_approved"
+CONFIRMED_BY_PERSON = "confirmed_by_person"
+APPROVED_WITH_UNDERSTANDING = "approved_with_understanding"
+SKIPPED_REVIEW = "skipped_review"
+STANDINGS = (
+    NEEDS_CONFIRMATION,
+    CONVENTION_NOT_APPROVED,
+    CONFIRMED_BY_PERSON,
+    APPROVED_WITH_UNDERSTANDING,
+    SKIPPED_REVIEW,
+)
+
+
+def _record_standing(record: dict, assumption_id) -> str:
+    """The standing one saved confirmation gives an assumption it holds."""
+    if record.get("source") == CONFIRMED_BY_SKIP:
+        return SKIPPED_REVIEW
+    # A record saved before ``asked`` existed never shows a row as the person's own confirmation.
+    if record.get("source") == CONFIRMED_BY_REVIEW and assumption_id in (record.get("asked") or []):
+        return CONFIRMED_BY_PERSON
+    return APPROVED_WITH_UNDERSTANDING
+
+
+def assumption_standing(state: RunState) -> dict[str, str]:
+    """Each current assumption id's standing, read from the saved confirmations (#3898).
+
+    The latest saved record holding the row's exact id and text decides, from its source and the ids
+    it recorded as needing the person (``asked``). A later approval that did not ask about a row the
+    person had already confirmed word for word keeps that confirmation. A row in no record needs the
+    person, or is a project convention nobody has approved yet."""
+    standing: dict[tuple, str] = {}
+    for handoff in [*(state.get("requirements_history") or []), current_turn_handoff(state)]:
+        record = handoff.get("confirmed_assumptions") if isinstance(handoff, dict) else None
+        if not isinstance(record, dict):
+            continue
+        for row in record.get("assumptions") or []:
+            if not isinstance(row, dict):
+                continue
+            key = (row.get("id"), row.get("text"))
+            value = _record_standing(record, row.get("id"))
+            if value == APPROVED_WITH_UNDERSTANDING and standing.get(key) == CONFIRMED_BY_PERSON:
+                continue
+            standing[key] = value
+    rows = _structured_assumptions(_report(state))
+    if any((row["id"], row.get("text")) not in standing for row in rows):
+        pending = {row.get("id") for row in unconfirmed_assumptions(state) if isinstance(row, dict)}
+    else:
+        pending = set()
+    return {
+        row["id"]: standing.get(
+            (row["id"], row.get("text")),
+            NEEDS_CONFIRMATION if row["id"] in pending else CONVENTION_NOT_APPROVED,
+        )
+        for row in rows
     }
 
 

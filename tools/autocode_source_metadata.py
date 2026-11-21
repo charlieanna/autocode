@@ -90,6 +90,7 @@ ARTIFACT_SLUGS: frozenset[str] = frozenset(
         "tester",
         "validator",
         "write-acceptance-tests",
+        "wrong-implementations",
     }
 )
 _SLUG_ALT = "|".join(re.escape(slug) for slug in sorted(ARTIFACT_SLUGS, key=len, reverse=True))

@@ -208,7 +208,7 @@ def seccomp_filter(path, *, network="none", inherited_listener=None, deny_fork=F
     return path
 
 
-def arguments(*, read_paths=(), write_paths=(), hidden_paths=(), cwd, seccomp_fd, inherited_fds=()):
+def arguments(*, read_paths=(), write_paths=(), hidden_paths=(), cwd, seccomp_fd, inherited_fds=(), links=()):
     """Exact mount plan; no shell parsing, process launch or task acceptance.
 
     Hidden directories cover earlier read mounts and can then expose exact
@@ -269,6 +269,20 @@ def arguments(*, read_paths=(), write_paths=(), hidden_paths=(), cwd, seccomp_fd
             argv.extend(("--tmpfs", str(path)))
         else:
             argv.extend(("--bind" if kind == "write" else "--ro-bind", str(path), str(path)))
+    visible = [*shown, *(Path(name) for name in (*SYSTEM_ALIASES, *SYSTEM_FILES)), *reads, *writes, *hidden]
+    for item in links:
+        _require(isinstance(item, (list, tuple)) and len(item) == 2, "invalid runtime symlink")
+        name, target = item
+        _require(
+            isinstance(name, str) and isinstance(target, str) and target and "\0" not in target,
+            "invalid runtime symlink",
+        )
+        link = Path(name)
+        _require(link.is_absolute() and ".." not in link.parts and "\0" not in name, "invalid runtime symlink")
+        _require(link.is_symlink() and os.readlink(link) == target, "runtime symlink changed")
+        _require(not any(link.is_relative_to(path) for path in hidden), "runtime symlink enters hidden authority")
+        if not any(link.is_relative_to(path) for path in visible):
+            argv.extend(("--symlink", target, str(link)))
     # Mount child exceptions before making the temporary masks read-only.
     # The original launcher closes every descriptor except its pass_fds;
     # bwrap consumes its seccomp descriptor and retains the inherited channels.

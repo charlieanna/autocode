@@ -1,4 +1,4 @@
-"""Mutation evidence for Go, node:test and JavaScript runners (#3817).
+"""Mutation evidence for Go, node:test, JavaScript, Cargo and RSpec runners (#3817).
 
 A Go or JavaScript change had no mutation source, so every changed line needed its own Tester reason
 and the Builder was sent back twice for a gap no Builder change could close.
@@ -14,6 +14,7 @@ import autocode_changed_code_rework as rework
 import autocode_mutants as mutants
 import autocode_mutation_check as mutation_check
 import autocode_mutation_results as mutation_results
+import autocode_proof_stability as proof_stability
 import autocode_recovery_history as history
 import autocode_text_mutants as text_mutants
 import autocode_verify as verify
@@ -50,6 +51,44 @@ JS = b"""export function f(a, b) {
   const list = new Map<string, number>();
   return total / 2 < 3;
 }
+"""
+
+
+RUST = b"""use std::fmt;
+
+pub fn pages(total: usize, size: usize) -> usize {
+    let s = "a < b // c"; // x < y
+    let c = '<'; let l: &'static str = "q";
+    if total == 0 {
+        return 0;
+    }
+    if let Some(x) = opt {
+        log(x);
+    }
+    let raw = r#"a + b "quoted" true"#;
+    let f = move || total + 1;
+    /* outer /* nested < */ still > comment */
+    counter.bump();
+    total / size
+}
+fn helper<'a, 'b>(x: &'a str, y: &'b str) -> bool where T: A + B { x < y }
+"""
+
+RUBY = b"""class Pager
+  def count(total, size)
+    return 0 if size == 0
+    s = "a < #{"b" + c} > d" # x < y
+    q = %w[a + b]
+    sql = <<~SQL
+      SELECT a < b
+    SQL
+    if total > 0 && size != 1
+      return total / size + 1
+    end
+    record.save!(x)
+    Integer === total
+  end
+end
 """
 
 
@@ -98,6 +137,61 @@ class TextMutantTests(unittest.TestCase):
             found,
         )
 
+    def test_rust_sites_skip_raw_strings_chars_lifetimes_closures_and_declarations(self):
+        found, notes = sites("src/lib.rs", RUST)
+        self.assertEqual([], notes)
+        self.assertEqual(
+            [
+                (6, "negate_condition", "total == 0", "!(total == 0)"),
+                (6, "negate_equality", "==", "!="),
+                (7, "constant_return", "0", "Default::default()"),
+                (10, "drop_call", "log(x);", "(removed)"),
+                (13, "swap_arithmetic", "+", "-"),
+                (15, "drop_call", "counter.bump();", "(removed)"),
+            ],
+            found,
+        )
+
+    def test_ruby_sites_skip_interpolation_heredocs_percent_literals_and_case_equality(self):
+        found, notes = sites("lib/pager.rb", RUBY)
+        self.assertEqual([], notes)
+        self.assertEqual(
+            [
+                (3, "negate_equality", "==", "!="),
+                (9, "negate_condition", "total > 0 && size != 1", "!(total > 0 && size != 1)"),
+                (9, "swap_bound", ">", ">="),
+                (9, "negate_equality", "!=", "=="),
+                (9, "swap_logic", "&&", "||"),
+                (10, "swap_arithmetic", "+", "-"),
+                (10, "constant_return", "total / size + 1", "nil"),
+                (12, "drop_call", "record.save!(x)", "(removed)"),
+            ],
+            found,
+        )
+
+    def test_cargo_and_rspec_commands_are_narrowed_to_the_proving_tests(self):
+        self.assertEqual(
+            "cargo test -p core -- --test-threads 1 --exact exact_multiple tests::adds",
+            proof_stability.narrow(
+                "cargo",
+                "cargo test -p core -- --test-threads 1",
+                ["tests/pages.rs::exact_multiple", "src/lib.rs::tests::adds"],
+            ),
+        )
+        self.assertEqual(
+            "bundle exec rspec --example 'Pager counts a partial page'",
+            proof_stability.narrow("rspec", "bundle exec rspec", ["spec/pager_spec.rb::Pager counts a partial page"]),
+        )
+        for name, command in (
+            ("cargo", "cargo test adds"),
+            ("cargo", "cargo test -- --exact adds"),
+            ("cargo", "cargo test -q"),
+            ("rspec", "rspec -e partial"),
+            ("rspec", "rspec && echo"),
+        ):
+            with self.subTest(command=command):
+                self.assertIsNone(proof_stability.narrow(name, command, ["src/lib.rs::adds"]))
+
     def test_only_changed_lines_are_mutated_and_every_mutant_keeps_the_line_count(self):
         made, _ = text_mutants.text_mutants("x.go", GO, [6, 12], limit=100)
         self.assertEqual({6, 12}, {m.line for m in made})
@@ -121,7 +215,7 @@ class TextMutantTests(unittest.TestCase):
 
     def test_files_it_cannot_read_safely_get_a_note_and_no_mutant(self):
         for path, source, note in (
-            ("x.py", b"x = 1\n", "not a Go, JavaScript or TypeScript source file"),
+            ("x.py", b"x = 1\n", "not a Go, JavaScript, TypeScript, Rust or Ruby source file"),
             ("types.d.ts", b"export type A = 1 | 2;\n", "type declaration"),
             ("x.go", b"\xff\xfe\n", "not valid UTF-8"),
             ("x.js", b"a = 1 < 2;\rb = 3;\n", "carriage return"),
@@ -209,6 +303,61 @@ class UnclosableGapRouteTests(unittest.TestCase):
         self.assertNotIn("builder_skipped", event)
         self.assertEqual(5, state["iteration"])
 
+    def gap(self, line, outcomes=(), executed=True):
+        return {
+            "gap_id": f"changed-code:http2/transport.go:{line}",
+            "handle": f"L{line}",
+            "path": "http2/transport.go",
+            "line": line,
+            "status": "reason_required",
+            "executed": executed,
+            "mutation_outcomes": list(outcomes),
+        }
+
+    def collected(self, *gaps):
+        # A Go proof whose mutation check ran: the issue's 155 executed lines had no mutant at all.
+        state = self.state(mutation_check.record(None, collected=True))
+        state["regression_proof"]["changed_code_evidence"]["obligations"] = [
+            {**self.gap(1, ["killed"]), "status": "tested"},
+            *gaps,
+        ]
+        return state
+
+    def test_lines_with_no_mutation_site_go_to_the_investigator_in_the_first_round(self):
+        # Executed or not, no test can give a line with no mutant behavioral evidence (#3817).
+        state = self.collected(self.gap(3), self.gap(4), self.gap(9, executed=False))
+        record = {"stage": "tester", "role": "tester", "source_revision": "source", "output": "/run/t.json"}
+        self.assertTrue(rework.route(state, record, investigation_enabled=False))
+        event = state["regression_proofs"][-1]
+        self.assertEqual("investigator", event["action"])
+        self.assertNotIn("round", event)
+        self.assertIn("no mutation site", event["builder_skipped"])
+        self.assertIn("http2/transport.go:3, http2/transport.go:4, http2/transport.go:9", event["builder_skipped"])
+        self.assertEqual(4, state["iteration"])
+        self.assertIn("no mutation site", str(history.project(state)))
+
+    def test_a_line_a_test_can_settle_keeps_the_builder_round_and_names_the_others(self):
+        state = self.collected(self.gap(3), self.gap(5, ["survived"]))
+        record = {"stage": "tester", "role": "tester", "source_revision": "source", "output": "/run/t.json"}
+        rework.route(state, record, investigation_enabled=False)
+        event = state["regression_proofs"][-1]
+        self.assertEqual(("builder", 1), (event["action"], event["round"]))
+        self.assertNotIn("builder_skipped", event)
+        self.assertIn("1 of the 2 open lines have no mutation outcome", state["next_action"])
+        self.assertIn("Tester's reasons: http2/transport.go:3", state["next_action"])
+        self.assertNotIn("transport.go:5", state["next_action"].split("Tester's reasons:")[1])
+
+    def test_a_test_the_tester_asks_for_keeps_the_builder_round(self):
+        rejected = [{"path": "http2/transport.go", "line": 3, "reason": "Add a test that resets the stream."}]
+        for mutation in (mutation_check.record(None, collected=True), mutation_check.unsupported("cargo")):
+            with self.subTest(unavailable=mutation.get("unavailable")):
+                state = self.collected(self.gap(3))
+                state["regression_proof"]["mutation_check"] = mutation
+                record = {"stage": "tester", "role": "tester", "source_revision": "source", "output": "/run/t.json"}
+                rework.route(state, record, investigation_enabled=False, rejected=rejected)
+                self.assertEqual("builder", state["regression_proofs"][-1]["action"])
+                self.assertIn("Add a test that resets the stream.", state["next_action"])
+
 
 def _git(root, *args):
     subprocess.run(
@@ -227,6 +376,7 @@ class RealRunnerMutationTests(unittest.TestCase):
             root = Path(directory) / "tree"
             root.mkdir()
             for name, text in {**files, **base}.items():
+                (root / name).parent.mkdir(parents=True, exist_ok=True)
                 (root / name).write_text(text)
             _git(root, "init", "-q")
             _git(root, "add", "-A")
@@ -353,6 +503,38 @@ class RealRunnerMutationTests(unittest.TestCase):
             [(2, "negate_condition", "killed"), (2, "negate_equality", "killed"), (3, "constant_return", "survived")],
             self.outcomes(result),
         )
+
+    @unittest.skipUnless(shutil.which("cargo"), "cargo is not installed")
+    def test_cargo_rebuilds_each_mutant_and_its_selected_test_kills_it(self):
+        # Cargo rebuilds a crate only when a source is newer than its last build, so a mutant given an older
+        # time than that build ran the unmutated binary and survived whatever the test asserted.
+        base = {"src/lib.rs": "pub fn clamp(v: i32, hi: i32) -> i32 {\n    v\n}\n"}
+        change = {
+            "src/lib.rs": "pub fn clamp(v: i32, hi: i32) -> i32 {\n    if v > hi {\n        return hi;\n    }\n"
+            "    v\n}\n\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[test]\n    fn clamps_high() {\n"
+            "        assert_eq!(clamp(9, 5), 5);\n    }\n\n    #[test]\n    fn keeps_inside() {}\n}\n"
+        }
+        files = {"Cargo.toml": '[package]\nname = "calc"\nversion = "0.1.0"\nedition = "2021"\n'}
+        result = self.check(files, base, change, "cargo", "cargo test", ["src/lib.rs::tests::clamps_high"])
+        self.assertTrue(result["collected"], result["note"])
+        self.assertEqual(
+            [(2, "negate_condition", "killed"), (2, "swap_bound", "survived"), (3, "constant_return", "killed")],
+            self.outcomes(result),
+        )
+
+    @unittest.skipUnless(shutil.which("rspec"), "rspec is not installed")
+    def test_rspec_kills_a_mutant_its_selected_example_observes(self):
+        base = {"lib/label.rb": "def label(n)\n  n.to_s\nend\n"}
+        change = {"lib/label.rb": 'def label(n)\n  return "one" if n == 1\n  "#{n} items"\nend\n'}
+        files = {
+            "Gemfile": 'source "https://rubygems.org"\ngem "rspec"\n',
+            "spec/label_spec.rb": 'require_relative "../lib/label"\n\nRSpec.describe "label" do\n'
+            '  it "names one" do\n    expect(label(1)).to eq("one")\n  end\n\n'
+            '  it "names many" do\n    expect(label(2)).to be_a(String)\n  end\nend\n',
+        }
+        result = self.check(files, base, change, "rspec", "rspec", ["spec/label_spec.rb::label names one"])
+        self.assertTrue(result["collected"], result["note"])
+        self.assertEqual([(2, "negate_equality", "killed")], self.outcomes(result))
 
 
 if __name__ == "__main__":

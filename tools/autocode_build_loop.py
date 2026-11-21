@@ -379,7 +379,7 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
             if interventions.pending_admission_pause(error.status, str(error)) and not current.get("active_stage"):
                 consume_boundary(current)
             raise
-        if replanned is True:  # the plan went back to plan review: launch nothing, restart from the saved state
+        if replanned is True:  # back to plan review, or first to the study: launch nothing, restart from saved state
             runner.write_json(state_path, current)
             return runner.orchestrator.SKIP
         try:
@@ -393,11 +393,18 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
             return recovery_dispatch.dispatch_orchestrator(
                 runner, autopilot.unit_module(stage), current, workspace, run_dir, runner.orchestrator.SKIP
             )
-        if stage == acceptance_tests.STAGE and (current.get(acceptance_tests.KEY) or {}).get(acceptance_retry.KEY):
+        if (
+            stage == acceptance_tests.STAGE
+            and (current.get(acceptance_tests.KEY) or {}).get(acceptance_retry.KEY) is not None
+        ):
             record_resume(runner, args, current, state_path)
-            return acceptance_retry.dispatch(
+            result = acceptance_retry.dispatch(
                 runner, current, stage, workspace, run_dir, apply=autopilot.unit_module(stage).apply_job
             )
+            # Superseding an old report changes no completed stage. Restart at
+            # the saved state so the replacement writer runs before boundary
+            # callbacks or a pause-after-stage can claim work was completed.
+            return runner.orchestrator.SKIP if result is None else result
         request = autopilot.prepare_request(
             current,
             stage,
@@ -563,6 +570,8 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
                 queue=getattr(runner, "native_calls", None) is None,
             )
     except runner.orchestrator.LoopExit as stopped:
+        # The early baseline lives only in this process: stop it at every exit from the loop (#3859).
+        early_baseline.reconcile_at_boundary(state, run_dir, persist=lambda *saved: runner.write_json(*saved))
         return stopped.code
     except support.Paused as error:
         early_baseline.reconcile_at_boundary(state, run_dir, persist=runner.write_json)

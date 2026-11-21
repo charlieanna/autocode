@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_context as handoff_context
     from . import autocode_kilo_linux_boundary as linux_boundary
     from . import autocode_kilo_native as rules
     from . import autocode_kilo_source_relay as relay
@@ -35,9 +36,11 @@ try:
     from . import autocode_publish_guard as publish_guard
     from . import autocode_supervision as supervision
     from . import autocode_tool_containment as containment
+    from . import autocode_toolchain as toolchain
     from . import autocode_util as util
     from . import autocode_visual_profile as files
 except ImportError:
+    import autocode_context as handoff_context
     import autocode_kilo_linux_boundary as linux_boundary
     import autocode_kilo_native as rules
     import autocode_kilo_source_relay as relay
@@ -49,6 +52,7 @@ except ImportError:
     import autocode_publish_guard as publish_guard
     import autocode_supervision as supervision
     import autocode_tool_containment as containment
+    import autocode_toolchain as toolchain
     import autocode_util as util
     import autocode_visual_profile as files
 
@@ -401,6 +405,17 @@ def _verification_inputs_denied(policy, boundary):
     return all(line in effective for line in _verification_denials(boundary))
 
 
+def runtime_request(workspace, request, environment):
+    """Bind the same discovered readonly tools to both native client and shell."""
+    selected = toolchain.discover(workspace, request.get("tool_commands", ()), environment)
+    return {
+        **request,
+        "read_roots": list(dict.fromkeys([*request["read_roots"], *selected["read_roots"]])),
+        "runtime_links": selected["links"],
+        "runtime_probes": selected["probes"],
+    }
+
+
 def whole_client_policy(
     workspace, target, boundary, request, environment, socket_path, prompt_file=None, *, os_readonly_inputs=()
 ):
@@ -423,7 +438,12 @@ def whole_client_policy(
     )
     # The shell control and native client are siblings. Their exact read
     # exceptions belong to this whole-client policy, not the shell renderer.
-    exceptions = ["(require-not (subpath " + json.dumps(str(path)) + "))" for path in (target, control)]
+    # The run's context artifacts are part of the handoff: it names them by path and tells the stage
+    # to read them (#3907), so the denial of the rest of the run leaves them readable.
+    exceptions = [
+        "(require-not (subpath " + json.dumps(str(path)) + "))"
+        for path in (target, control, handoff_context.archive_directory(target.parent))
+    ]
     if prompt_file is not None:
         prompt = Path(prompt_file).resolve()
         _require(prompt.is_relative_to(root / ".autocode/runs"), "original prompt is outside its owned run")
@@ -1110,11 +1130,13 @@ class KiloRoleIsolation:
 
     def _configure(self, command, child, request):
         target = self._prepared["target"]
+        request = runtime_request(self._root, request, child)
         boundary = containment.prepare(
             self._root,
             allow_write=False,
             environment=child,
             read_roots=request["read_roots"],
+            links=request["runtime_links"],
             protected_paths=request["protected_paths"],
             verification_copy=True,
             source_paths=request.get("source_paths", ()),
@@ -1171,6 +1193,10 @@ class KiloRoleIsolation:
             ]
             if prompt is not None:
                 reads.append(Path(prompt))
+            # The handoff's context artifacts (#3907); a bind needs an existing path, and a run that
+            # moved nothing into one has nothing there to read.
+            if (archive := handoff_context.archive_directory(target.parent)).is_dir():
+                reads.append(archive)
             value = linux_boundary.policy(
                 policy_path,
                 kind="client",
@@ -1178,6 +1204,7 @@ class KiloRoleIsolation:
                 write_paths=[runtime.parent],
                 hidden_paths=[self._root / ".autocode"],
                 cwd=self._root,
+                links=request["runtime_links"],
             )
             program = linux_boundary.write(policy_path, value)
             self._prepared["files"].update({str(path): util.file_hash(path) for path in (policy_path, program)})
@@ -1243,6 +1270,7 @@ class KiloRoleIsolation:
             ]
         )
         native = containment._check_kernel_receipt(response, probe, control, scratch, sentinel)
+        tool_receipts = containment._toolchain_checks(debug, self._root, request["runtime_probes"])
         self._prepared.update(command=final_command, environment=deepcopy(child), config=config)
         client = self._client_probe(final_command, child)
         proof = {
@@ -1250,6 +1278,7 @@ class KiloRoleIsolation:
             "native_version": rules.VERSION,
             "launch_identity": observed,
             "native_receipt": native,
+            "toolchain_checks": tool_receipts,
             "client_profile": str(policy_path),
             "client_profile_sha256": util.file_hash(policy_path),
             "client_command": final_command,

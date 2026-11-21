@@ -15,7 +15,7 @@ from unittest import mock
 import autocode_agent_step as agent_step
 import autocode_mcp as mcp
 
-from tests.test_agent_step import callers, fixture_workspace
+from tests.test_agent_step import callers, fixture_workspace, hold_the_provider
 from tests.test_taskrun import BRIEF, FIXTURE_OPTIONS
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -108,6 +108,39 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(["-m", "autocode_cli.autocode_mcp", "--workspace", ".", "--"], args[:5])
         self.assertIn(json.dumps(args), (ROOT / "docs" / "agent-step.md").read_text(encoding="utf-8"))
 
+    def test_a_waiting_call_sends_progress_only_to_a_client_that_asked_for_it(self):
+        def waits(step, *_, **__):
+            step.progress("Planner working")
+            step.progress("Plan Reviewer working")
+            return {"run_dir": "r", "working": False}
+
+        call = {"name": "autocode_status", "arguments": {"wait_seconds": 30}}
+        asked = {**call, "_meta": {"progressToken": "p-1"}}
+        with mock.patch.object(agent_step.AgentStep, "status", autospec=True, side_effect=waits):
+            *notices, answered = self.exchange(self.request("tools/call", asked))
+            self.assertEqual(
+                [
+                    {"progressToken": "p-1", "progress": 1, "message": "Planner working"},
+                    {"progressToken": "p-1", "progress": 2, "message": "Plan Reviewer working"},
+                ],
+                [notice["params"] for notice in notices],
+            )
+            self.assertEqual({"notifications/progress"}, {notice["method"] for notice in notices})
+            self.assertFalse({"id"} & {key for notice in notices for key in notice})
+            self.assertEqual(1, answered["id"])
+            self.assertIsNone(self.server.step.progress, "progress belongs to the one call that asked")
+        for unasked in (call, {**call, "_meta": {"progressToken": True}}):
+            with self.subTest(meta=unasked.get("_meta")):
+
+                def unreported(step, *_, **__):
+                    self.assertIsNone(step.progress, "no progress for a client that did not ask")
+                    return {"working": False}
+
+                with mock.patch.object(agent_step.AgentStep, "status", autospec=True, side_effect=unreported) as status:
+                    (only,) = self.exchange(self.request("tools/call", unasked))
+                self.assertIn("result", only)
+                status.assert_called_once()
+
     def test_a_refusal_is_a_tool_result_the_agent_reads(self):
         refusals = {
             "no AutoCode run yet": self.call("autocode_status"),
@@ -115,6 +148,7 @@ class ProtocolTests(unittest.TestCase):
             "takes no options": self.call("autocode_start", brief="Build it", options=["--engine", "opencode"]),
             "action must be one of": self.call("autocode_respond", action="approve_everything"),
             "full must be true or false": self.call("autocode_status", full="yes"),
+            "wait_seconds must be a number": self.call("autocode_status", wait_seconds=-1),
         }
         for reason, result in refusals.items():
             with self.subTest(reason=reason):
@@ -128,6 +162,7 @@ class StdioServerTests(unittest.TestCase):
 
     def setUp(self):
         self.workspace, env = fixture_workspace(self)
+        self.hold = hold_the_provider(self, env)
         self.server = subprocess.Popen(
             [sys.executable, str(SERVER), "--workspace", str(self.workspace), "--", *FIXTURE_OPTIONS],
             stdin=subprocess.PIPE,
@@ -170,6 +205,21 @@ class StdioServerTests(unittest.TestCase):
     def call(self, name, **arguments):
         return self.request("tools/call", {"name": name, "arguments": arguments})
 
+    def notified_call(self, name, token, **arguments):
+        """A call that asked for progress: the notifications sent before its response, and the response."""
+        ident = next(self.ids)
+        params = {"name": name, "arguments": arguments, "_meta": {"progressToken": token}}
+        self.send({"jsonrpc": "2.0", "id": ident, "method": "tools/call", "params": params})
+        notices = []
+        while True:
+            line = self.server.stdout.readline()
+            if not line:
+                self.fail(f"the server stopped: {self.server.wait()} {self.server.stderr.read()}")
+            message = json.loads(line)
+            if message.get("id") == ident:
+                return notices, message["result"]
+            notices.append(message)
+
     def view(self, name, **arguments):
         result = self.call(name, **arguments)
         self.assertFalse(result["isError"], result["content"][0]["text"])
@@ -187,8 +237,22 @@ class StdioServerTests(unittest.TestCase):
         self.send({"jsonrpc": "2.0", "method": "notifications/initialized"})
         self.assertEqual(TOOL_NAMES, [tool["name"] for tool in self.request("tools/list", {})["tools"]])
 
-        planned = self.view("autocode_start", brief=BRIEF)
-        self.assertEqual("approve_plan", planned["needs"]["kind"], planned)
+        # The start returns while the run works (#3984): the held provider keeps it working.
+        started = self.view("autocode_start", brief=BRIEF)
+        self.assertTrue(started["working"], started)
+        self.assertTrue(self.view("autocode_status", wait_seconds=1)["working"])
+        # A waiting call tells a client that asked where the run stands while it waits.
+        notices, waited = self.notified_call("autocode_status", 7, wait_seconds=7)
+        self.assertTrue(waited["structuredContent"]["working"])
+        self.assertGreaterEqual(len(notices), 1, notices)
+        self.assertEqual({"notifications/progress"}, {notice["method"] for notice in notices})
+        self.assertEqual(7, notices[0]["params"]["progressToken"])
+        self.assertTrue(all(notice["params"]["message"] for notice in notices), notices)
+        self.assertIn("still working", self.refusal("autocode_respond", action="continue"))
+        self.hold.unlink()
+        planned = self.view("autocode_status", wait_seconds=250)
+        self.assertEqual(started["run_dir"], planned["run_dir"])
+        self.assertEqual((False, "approve_plan"), (planned["working"], planned["needs"]["kind"]), planned)
         self.assertEqual(
             ("your_decision", "Your decision"), (planned["pause_category"], planned["pause_category_label"])
         )
@@ -201,7 +265,7 @@ class StdioServerTests(unittest.TestCase):
         self.assertIn("not current", self.refusal("autocode_evidence"))
         self.assertFalse((self.workspace / "greet.py").exists(), "nothing is built before the person approves")
 
-        done = self.view("autocode_respond", action="approve_plan", token=planned["needs"]["token"])
+        done = self.view("autocode_respond", action="approve_plan", token=planned["needs"]["token"], wait_seconds=250)
         self.assertEqual(("TASK_COMPLETE", True, None), (done["status"], done["done"], done["next_command"]), done)
         self.assertEqual(planned["run_dir"], done["run_dir"])
         self.assertTrue((self.workspace / "greet.py").is_file())

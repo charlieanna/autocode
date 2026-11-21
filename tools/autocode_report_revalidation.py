@@ -13,17 +13,15 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_repaired_result as repaired_result
+    from . import autocode_report_correction as report_correction
     from . import autocode_report_repair_queue as report_repair_queue
-    from . import autocode_report_revalidation_binding as revalidation_binding
     from . import autocode_resolve_repair_job as resolve_repair_job
-    from . import autocode_source_scope as source_scope
     from . import autocode_util as util
 except ImportError:
     import autocode_repaired_result as repaired_result
+    import autocode_report_correction as report_correction
     import autocode_report_repair_queue as report_repair_queue
-    import autocode_report_revalidation_binding as revalidation_binding
     import autocode_resolve_repair_job as resolve_repair_job
-    import autocode_source_scope as source_scope
     import autocode_util as util
 
 
@@ -45,53 +43,23 @@ def prepare_repair(runtime, state: RunState, run_dir, workspace):
 def revalidate(runtime, state: RunState, run_dir, workspace, *, resolver_request=None):
     """Apply only the same completed attempt under its pinned evidence and normal gates.
 
-    Old pending repairs without a recorded handoff binding cannot be authenticated
-    retrospectively and stay on the ordinary recovery path.
+    Whether the saved report is still that evidence is decided once, by
+    ``autocode_report_correction.authenticate``. Old pending repairs without a recorded
+    handoff binding cannot be authenticated retrospectively and stay on the ordinary
+    recovery path.
     """
     pending = resolver_request.get("pending_report_repair") if resolver_request else state.get("pending_report_repair")
-    if not isinstance(pending, dict) or any(
-        state.get(key) for key in ("active_stage", "active_runner_check", "uncertain_artifacts")
-    ):
-        return False
-    original = pending.get("original") or {}
-    if not isinstance(original, dict):
-        return False
-    expected_stage = resolve_repair_job.STAGE if resolver_request else original.get("stage")
-    if not original.get("stage") or state.get("next_stage") != expected_stage or not original.get("source_revision"):
-        return False
-    if not revalidation_binding.matches(state, original["stage"], pending.get("revalidation_context"), original):
+    if not isinstance(pending, dict):
         return False
     fingerprint = util.runtime_source_digest()
     if pending.get("validation_runtime") == fingerprint:
         return False
-    record = pending.get("latest_rejected") or original
-    pins = pending.get("pins") or {}
-    if not isinstance(pins, dict):
+    record = report_correction.authenticate(
+        runtime, state, workspace, pending, stage=resolve_repair_job.STAGE if resolver_request else None
+    )
+    if record is None:
         return False
-    if not isinstance(record, dict) or not record.get("rejected") or record.get("exit_code") != 0:
-        return False
-    if record is not original and (
-        not record.get("report_only")
-        or record.get("original_stage", str(record.get("stage", "")).removesuffix("_report_repair"))
-        != original["stage"]
-        or record.get("iteration") != original.get("iteration")
-        or record.get("source_revision") != original.get("source_revision")
-        or record.get("contract_hash") != original.get("contract_hash")
-    ):
-        return False
-    if any(record.get(key) for key in ("timed_out", "interrupted", "truncated_output", "first_reply_budget")):
-        return False
-    required = [(original, key) for key in ("output", "events", "schema", "before_ref", "after_ref")]
-    required.extend((record, key) for key in ("output", "events", "schema"))
-    if (
-        any(not isinstance(row.get(key), str) or not row[key] or row[key] not in pins for row, key in required)
-        or (state.get("goal_contract") or {}).get("hash") != pending.get("contract_hash")
-        or source_scope.snapshot(workspace, state, base_snapshot=runtime.support.snapshot)["revision"]
-        != original["source_revision"]
-        or any(not Path(path).is_file() or runtime.support.file_hash(path) != digest for path, digest in pins.items())
-        or not runtime.stage_completed(state, record)
-    ):
-        return False
+    pins = pending["pins"]
 
     # Report loading can normalize its output. Work on a private copy so a
     # failed validation never changes the archived bytes or their pin.
@@ -103,6 +71,11 @@ def revalidate(runtime, state: RunState, run_dir, workspace, *, resolver_request
         shutil.rmtree(scratch)
         raise runtime.support.Paused("PAUSED_STALE_VALIDATION", "The saved report changed while copying it")
     candidate.pop("reported_output", None)
+    # The seal binds the attempt's sealed paths (autocode_rework_policy.capture); this candidate is a
+    # private copy, just checked byte for byte against its pin. Carried over, the seal named files the
+    # candidate does not read, so every revalidation of a sealed Tester report paused PAUSED_STALE_HANDOFF.
+    # The loader seals the copy afresh at its own path.
+    candidate.pop("rework_evidence", None)
     try:
         repaired_result.accept(
             runtime, state, run_dir, workspace, None, candidate, revalidate=True, resolver_request=resolver_request

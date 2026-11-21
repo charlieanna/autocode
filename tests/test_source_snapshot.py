@@ -266,6 +266,18 @@ class SelectedSourceSnapshotTests(unittest.TestCase):
         self.assertNotEqual(exact["revision"], source.snapshot(self.root, paths=exact["source_paths"])["revision"])
         self.assertEqual(util.snapshot(self.root)["revision"], before["revision"])
 
+    def test_flattening_requires_the_nested_inventory_to_match_the_pinned_snapshot(self):
+        self.nested_repository()
+        document = self.write("module/docs/result.md", "Nested deliverable\n")
+        paths = ["module/docs/result.md"]
+        pinned = source.snapshot(self.root, paths=paths)
+        self.assertEqual(
+            source.inventory(self.root, paths=paths), source.bound_inventory(self.root, pinned, paths=paths)
+        )
+        document.write_text("Changed after the root was pinned\n")
+        with self.assertRaisesRegex(util.Paused, "Nested source changed"):
+            source.bound_inventory(self.root, pinned, paths=paths)
+
     def test_copied_input_identity_uses_nested_bytes_and_refuses_a_changed_input_or_parent_link(self):
         nested = self.nested_repository()
         expected = source.inventory(self.root)

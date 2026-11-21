@@ -126,7 +126,18 @@ def report_for(stage, data, common, config, run_check, requirements):
             "finding_dispositions": dispositions if code == 0 else [],
             "unverified_criteria": [],
             "criterion_results": [
-                {"id": row["id"], "status": status, "evidence_refs": ["check:1"]} for row in body["acceptance_criteria"]
+                {
+                    "id": row["id"],
+                    "status": status,
+                    "evidence_refs": ["check:1"],
+                    # The scripted Tester runs only the project's tests (autocode_tester_probes).
+                    **(
+                        {"probe_reason": f"Scripted Tester: {row['id']} is its fixed refund test only"}
+                        if code == 0
+                        else {}
+                    ),
+                }
+                for row in body["acceptance_criteria"]
             ],
             "end_to_end_result": {
                 "status": status,

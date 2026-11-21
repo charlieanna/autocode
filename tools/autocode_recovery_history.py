@@ -17,17 +17,20 @@ from __future__ import annotations
 
 import hashlib
 import re
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_acceptance_retry_next as retry_next
     from . import autocode_python_test_roles as test_roles
     from . import autocode_rejection_classes as rejection_classes
     from . import autocode_roles as roles
     from . import autocode_util as util
 except ImportError:
+    import autocode_acceptance_retry_next as retry_next
     import autocode_python_test_roles as test_roles
     import autocode_rejection_classes as rejection_classes
     import autocode_roles as roles
@@ -84,6 +87,60 @@ _RESOLVER_ACTIONS = {
 
 
 _RETRIED = "again itself"  # autocode_rejection_retry: AutoCode ran the stage again itself
+# The stage the independent Tester writes, strengthens and repairs acceptance tests in
+# (autocode_acceptance_tests_job.STAGE; kept literal to avoid importing a workflow job).
+TEST_WRITER_STAGE = "write_acceptance_tests"
+
+
+def _round(row: dict, action: str) -> tuple[int | None, int | None]:
+    """The round a recovery record names, out of the rounds its gate allows, when it sent ``action`` work;
+    (None, None) for a record of another action or one saved before rounds were recorded."""
+    number, limit = row.get("round"), row.get("round_limit")
+    if row.get("action") == action and type(number) is int and type(limit) is int and 0 < number <= limit:
+        return number, limit
+    return None, None
+
+
+def rounds(number: int | None, limit: int | None) -> str:
+    """`` (round 1 of 2)``, or nothing when the record names no round."""
+    return f" (round {number} of {limit})" if number is not None and limit is not None else ""
+
+
+def test_writer_purpose(state: RunState) -> dict[str, Any] | None:
+    """Why the independent Tester is (or will next be) dispatched to ``write_acceptance_tests``.
+
+    The same stage writes the approved tests before the Builder starts, strengthens tests of code the
+    Builder already wrote (the changed-code gate's ``changed_code_rework`` record, #3924), and repairs a
+    protected test a review found wrong (``acceptance_tests.test_repairs``, #3350). The pending pins the
+    runner sets when it routes the stage (autocode_acceptance_tests.route) tell them apart; the round
+    comes from the same record the recoveries list shows. A repair takes precedence over strengthening
+    when both are pending: the runner writes its next action last. None for a tests-first dispatch.
+    """
+    record = state.get("acceptance_tests")
+    record = record if isinstance(record, dict) else {}
+    if record.get("pending_test_repair"):
+        rows = [row for row in record.get("test_repairs") or [] if isinstance(row, dict)]
+        number, limit = next(
+            (_round(row, "writer") for row in reversed(rows) if row.get("action") == "writer"), (None, None)
+        )
+        return {"kind": "repair", "round": number, "round_limit": limit}
+    if record.get("pending_evidence_repair"):
+        rows = [
+            row
+            for row in state.get("regression_proofs") or []
+            if isinstance(row, dict) and row.get("kind") == "changed_code_rework"
+        ]
+        number, limit = next(
+            (_round(row, "builder") for row in reversed(rows) if _strengthening(row)),
+            (None, None),
+        )
+        return {"kind": "strengthening", "round": number, "round_limit": limit}
+    return None
+
+
+def _strengthening(row: dict) -> bool:
+    """A changed-code gate record that sent the selected tests to the independent Tester, not the Builder."""
+    return row.get("test_owner") == TEST_WRITER_STAGE and row.get("action") == "builder"
 
 
 def project(state: RunState) -> list[dict[str, Any]]:
@@ -252,6 +309,23 @@ def _rejections(state: RunState):
         )
 
 
+def _repair_reasons(rejections) -> str | None:
+    """Why each report was rejected, oldest first (#3831); a run saved before they were kept has none.
+
+    The first is the stage's own report; each later one is a rewrite that was rejected again.
+    """
+    if not isinstance(rejections, list):
+        return None
+    texts = [text for text in rejections if isinstance(text, str) and text.strip()]
+    if len(texts) <= 1:
+        return _plain(texts[0]) if texts else None
+    labels = ["Its report:", *(f"Rewrite {number}:" for number in range(1, len(texts)))]
+    # Each rejection gets its share of the field, so a later one is not cut off by the first.
+    share = TEXT // len(texts) - max(len(label) for label in labels) - 1
+    parts = [f"{label} {reason}" for label, text in zip(labels, texts, strict=True) if (reason := _plain(text, share))]
+    return " ".join(parts) or None
+
+
 def _report_repairs(state: RunState):
     """A stage that finished its work but whose report failed its checks, and rewrote it."""
     for row in state.get("report_repair_history") or []:
@@ -275,7 +349,7 @@ def _report_repairs(state: RunState):
             stage,
             state,
             headline=f"{job} rewrote its report",
-            problem=None,
+            problem=_repair_reasons(row.get("rejections")),
             action=f"Its work stood; only the report was rewritten.{took} {done}",
             handled=row.get("result") == "accepted",
         )
@@ -338,13 +412,13 @@ def _sent_back(state: RunState):
                 action="AutoCode requested review and reassignment within the approved plan before another Builder attempt.",
             )
             continue
-        writer = row.get("test_owner") == "write_acceptance_tests" and row.get("action") == "builder"
+        writer = _strengthening(row)
         if writer:
             action, by = "AutoCode sent the selected tests to the independent Tester for stronger assertions.", "Tester"
         elif row.get("action") == "investigator" and row.get("builder_skipped"):
             action, by = (
-                "No Builder change can give these lines mutation evidence for this test runner, "
-                "so AutoCode called the Investigator.",
+                "No Builder change can give these lines mutation evidence (their test runner has no "
+                "mutation source, or they have no mutation site), so AutoCode called the Investigator.",
                 "Investigator",
             )
         elif row.get("action") == "investigator":
@@ -356,18 +430,13 @@ def _sent_back(state: RunState):
             action, by = "AutoCode sent the Builder back to test these lines or give a reason.", "Builder"
         # The round the record names, out of the rounds the gate allows (autocode_changed_code_rework);
         # a record saved before rounds were recorded has none.
-        number, limit = row.get("round"), row.get("round_limit")
-        rounds = (
-            f" (round {number} of {limit})"
-            if row.get("action") == "builder" and type(number) is int and type(limit) is int and 0 < number <= limit
-            else ""
-        )
+        suffix = rounds(*_round(row, "builder"))
         yield _entry(
             "sent_back",
             row.get("at"),
-            "write_acceptance_tests" if writer else "builder",
+            TEST_WRITER_STAGE if writer else "builder",
             state,
-            headline=("Independent test strengthening" if writer else "Builder sent back for untested lines") + rounds,
+            headline=("Independent test strengthening" if writer else "Builder sent back for untested lines") + suffix,
             problem=problem,
             action=action,
             by=by,
@@ -391,12 +460,7 @@ def _acceptance_test_repairs(state: RunState):
             if parts
             else "A protected acceptance test contradicted its approved case or failed on a test fixture bug."
         )
-        number, limit = row.get("round"), row.get("round_limit")
-        rounds = (
-            f" (round {number} of {limit})"
-            if row.get("action") == "writer" and type(number) is int and type(limit) is int and 0 < number <= limit
-            else ""
-        )
+        suffix = rounds(*_round(row, "writer"))
         exhausted = row.get("action") == "exhausted"
         action = (
             "Protected acceptance-test repairs reached their limit, so AutoCode paused for investigation."
@@ -406,12 +470,12 @@ def _acceptance_test_repairs(state: RunState):
         yield _entry(
             "acceptance_test_repair",
             row.get("at"),
-            "write_acceptance_tests",
+            TEST_WRITER_STAGE,
             state,
             headline=(
                 "Protected acceptance-test repair limit reached" if exhausted else "Independent acceptance-test repair"
             )
-            + rounds,
+            + suffix,
             problem=problem,
             action=action,
             by="AutoCode" if exhausted else "Tester",
@@ -436,11 +500,56 @@ def _retained_candidates(state: RunState):
         )
 
 
+def _time(value) -> datetime | None:
+    """A recorded ISO timestamp as a time, or None when it is missing or unreadable."""
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return moment if moment.tzinfo is not None else None
+
+
+def _stage_of(record: dict) -> str:
+    return str(record.get("original_stage") or record.get("stage") or "").removesuffix("_report_repair")
+
+
+def _ran_after(state: RunState, row: dict, until) -> str:
+    """What ran for the investigated stage between this Investigator result and ``until`` (the next
+    investigation of that stage): "stage" for a later or running attempt of it, "recheck" for a local
+    re-check of a retained report without running it (autocode_acceptance_retry_next), else ""."""
+    stage, start, end = row["stage"], _time(row.get("finished_at")), _time(until)
+    if start is None:
+        return ""
+
+    def within(value) -> bool:
+        moment = _time(value)
+        return moment is not None and moment >= start and (end is None or moment < end)
+
+    active = state.get("active_stage")
+    attempts = [*(state.get("stages") or []), *([active] if isinstance(active, dict) else [])]
+    if any(
+        isinstance(record, dict) and _stage_of(record) == stage and within(record.get("started_at"))
+        for record in attempts
+    ):
+        return "stage"
+    notes = state.get("reconciliation_notes")
+    if any(
+        isinstance(note, dict)
+        and note.get("stage") == stage
+        and note.get("reason") == retry_next.RECHECK_REASON
+        and within(note.get("at"))
+        for note in (notes if isinstance(notes, list) else [])
+    ):
+        return "recheck"
+    return ""
+
+
 def _investigations(state: RunState):
     """A stage that stopped converging, handed to the Investigator, and what it found."""
-    for row in state.get("stuck_investigations") or []:
-        if not isinstance(row, dict) or not row.get("stage"):
-            continue
+    rows = [row for row in state.get("stuck_investigations") or [] if isinstance(row, dict) and row.get("stage")]
+    for index, row in enumerate(rows):
         if row.get("outcome") == "candidate_retained":
             continue  # The handoff above explains why no Investigator was launched.
         job = roles.screen_name(row["stage"], state)
@@ -448,8 +557,18 @@ def _investigations(state: RunState):
         if not finished:
             action = "AutoCode called the Investigator to find out why."
         elif row.get("outcome") == "retried":
+            # Say what actually ran after the Investigator, up to the next investigation of the same stage (#3927).
+            until = next(
+                (later.get("requested_at") for later in rows[index + 1 :] if later["stage"] == row["stage"]), None
+            )
+            ran = _ran_after(state, row, until)
             action = (
                 f"AutoCode called the Investigator, which found the cause, and the {job} tried again with its advice."
+                if ran == "stage"
+                else "AutoCode called the Investigator, which found the cause, and AutoCode re-checked the saved tests "
+                f"without running the {job} again."
+                if ran == "recheck"
+                else f"AutoCode called the Investigator, which found the cause; the {job} has not run again yet."
             )
         else:
             action = "AutoCode called the Investigator to find out why."

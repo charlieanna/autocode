@@ -83,6 +83,7 @@ def prepare(
     replay_context=None,
     planning_report_recovery=False,
     report_only=False,
+    source_catalog_receipt=None,
 ):
     """Return (command, environment, overrides, worker) for one stage launch.
 
@@ -216,7 +217,12 @@ def prepare(
                     from . import autocode_catalog_context as source_catalog
                 except ImportError:
                     import autocode_catalog_context as source_catalog
-                roots.update(Path(path) for path in source_catalog.read_roots({"run_dir": str(run_dir)}))
+                roots.update(
+                    Path(path)
+                    for path in source_catalog.read_roots(
+                        {"run_dir": str(run_dir), "source_catalog_receipt": source_catalog_receipt}
+                    )
+                )
             containment = {
                 "source_paths": list(source_paths),
                 "tool_commands": list(tool_commands),
@@ -226,7 +232,8 @@ def prepare(
             if planning and not kilo_owner:
                 # A readonly planning shell coordinates through the handoff, not private run
                 # state: no run's state, events or receipts are readable, only this run's
-                # planning/ artifacts (#1250). Native Kilo isolation keeps its own profile.
+                # planning/ artifacts and the context artifacts its handoff names (#1250, #3907).
+                # Native Kilo isolation keeps its own profile.
                 containment["private_run"] = str(Path(run_dir).resolve())
         launch_kwargs = {"containment": containment} if containment else {}
         launch_kwargs["env"] = environment

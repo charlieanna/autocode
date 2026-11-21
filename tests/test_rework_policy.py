@@ -270,6 +270,7 @@ class ReworkPolicyTests(unittest.TestCase):
 
     def capture_case(self, *, shared, directory=None):
         case = self.case(seal=False)
+        (case.run / "state.json").write_text(json.dumps(case.state))
         directory = directory or (self.workspace / ".autocode" / "evidence" if shared else case.run / "evidence")
         path = directory / (str(self.count) + ".json")
         command = [
@@ -725,6 +726,19 @@ class ReworkPolicyTests(unittest.TestCase):
         policy.require_owned(
             case.state["validation"]["evidence_hashes"], case.state, case.accepted, self.workspace, case.run
         )
+
+    def test_ac4_ownership_rejection_names_the_expected_run(self):
+        # #3892: a receipt a mistyped run id left under .autocode/runs/ is refused when the
+        # validation is accepted, and the rejection names the run it was expected to belong to.
+        real = self.workspace / ".autocode" / "runs" / "20261120-1200-fix-chat-7f31f2cdb7c939"
+        foreign = self.workspace / ".autocode" / "runs" / "20261120-1200-fix-chat-7f31f2ddb7c939" / "receipt.json"
+        foreign.parent.mkdir(parents=True)
+        foreign.write_text("{}")
+        with self.assertRaises(ValueError) as caught:
+            policy.require_owned([str(foreign)], {"settings": {}}, {}, self.workspace, real)
+        message = str(caught.exception)
+        self.assertIn("does not belong to this run: " + str(foreign), message)
+        self.assertIn("20261120-1200-fix-chat-7f31f2cdb7c939", message)
 
     def test_acceptance_refuses_the_contained_pins_rework_routing_would_refuse(self):
         # Live self-build 2026-10-06: route() refused accepted Validator pins only at REWORK, where the

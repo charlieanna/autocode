@@ -151,6 +151,15 @@ try:
 except ImportError:
     from .providers import env_prep
 
+# What this controller consumes from the intervention inbox, recorded at setup. It equals what the
+# controller's state writer (autocode_stop.state_writer) stamps on every write, so the view reads the same
+# capability from the first saved state of a resumed run as after its first ordinary write (#3869).
+CONTROLLER_CAPABILITY = {
+    "supported": True,
+    "version": interventions.INBOX_VERSION,
+    **stop.CONTROLLER_FEATURES,
+}
+
 # Recovery actions that answer or act on the published operational request themselves; a settings change
 # that comes with one leaves that request for the action to check.
 OTHER_RECOVERY = (
@@ -598,10 +607,15 @@ def load_locked(runner, args, parser, state: RunState, state_path, run_dir, work
             parser.error(str(error))
         if getattr(args, "reconcile_only", None) is not None:
             try:
+                from . import autocode_catalog_reconciliation as catalog_reconciliation
                 from . import autocode_checkpoint_reconciliation as reconciliation
             except ImportError:
+                import autocode_catalog_reconciliation as catalog_reconciliation
                 import autocode_checkpoint_reconciliation as reconciliation
-            reconciliation.require_binding(state, args.reconcile_only)
+            if args.reconcile_only.startswith(catalog_reconciliation.PREFIX):
+                catalog_reconciliation.require_binding(state, args.reconcile_only)
+            else:
+                reconciliation.require_binding(state, args.reconcile_only)
             return state  # Metadata-only control keeps configuration, migrations and allowances untouched.
         recovery = state.get("recovery_context") or {}
         archived = (state.get("stages") or [{}])[-1]
@@ -944,7 +958,9 @@ def load_locked(runner, args, parser, state: RunState, state_path, run_dir, work
     state["settings"] = settings
     if args.run_dir and roles.planning_flow(settings) == "v2" and planning_artifacts.reconcile_orphans(state, run_dir):
         runner.write_json(state_path, state)
-    state["intervention_capability"] = {"supported": True, "version": interventions.INBOX_VERSION}
+    # The whole capability this controller consumes, so a resumed run's view offers Stop now before the
+    # controller's first state write through its own writer (#3869).
+    state["intervention_capability"] = dict(CONTROLLER_CAPABILITY)
     if state.get("version", 1) == 1:
         backup = run_dir / "state.pre-v2.json"
         if not backup.exists():
@@ -972,8 +988,10 @@ def run_locked(
     """Run under existing ownership; failure_routing is a legacy caller argument, never a guard bypass."""
     owner = None
 
-    def owned_result(code, *, ready=False):
-        return owner.result(code, ready=ready) if owner is not None else code
+    def owned_result(code, *, ready=False, reason=None):
+        # ``reason`` is only for an exit whose message is not already its saved stop_reason (#3883);
+        # the Owner applies one rule to every exit's receipt and controller_exit reason.
+        return owner.result(code, ready=ready, reason=reason) if owner is not None else code
 
     def load():
         nonlocal state
@@ -1050,7 +1068,7 @@ def run_locked(
             return owned_result(2)
         except checkout_lock.CheckoutBusy as error:
             print(str(error), file=sys.stderr)
-            return owned_result(2, ready=state.get("status") == "RUNNING")
+            return owned_result(2, ready=state.get("status") == "RUNNING", reason=str(error))
         except (runner.support.Paused, ValueError, RuntimeError, OSError) as error:
             # The Investigator has already taken or declined a spent recovery allowance (autocode_stuck_job):
             # nothing automatic remains, so the run ends with that as its recorded outcome, not a grant.

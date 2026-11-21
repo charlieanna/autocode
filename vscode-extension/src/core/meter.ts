@@ -35,6 +35,12 @@ export interface StageRow {
   costComplete: boolean;
   /** Why the newest attempt (or, while one runs, the one before it) did not succeed. */
   why: string;
+  /**
+   * Where the stage's newest attempt falls among all of the run's attempts in time order (0 is the
+   * oldest). A job that returns to an earlier stage (a draft after a revision) is decided by the stage
+   * whose newest attempt is the newest, never by the order the stages first ran (#3853).
+   */
+  newest: number;
 }
 
 export interface RunTotal {
@@ -139,11 +145,29 @@ function routeOf(row: Row): string {
   return modelOf(row).filter(Boolean).join(" ");
 }
 
+/**
+ * Each attempt's place in time order: by its `started_at`, and by its place in the core's list where
+ * the times are equal. An attempt without a readable time keeps the time of the attempt listed before
+ * it, so it stays where the core listed it.
+ */
+function timeOrder(attempts: Row[]): Map<Row, number> {
+  let previous = -Infinity;
+  const keyed = attempts.map((row, index) => {
+    const started = typeof row.started_at === "string" ? Date.parse(row.started_at) : NaN;
+    if (Number.isFinite(started)) previous = started;
+    return { row, time: previous, index };
+  });
+  keyed.sort((a, b) => (a.time === b.time ? a.index - b.index : a.time < b.time ? -1 : 1));
+  return new Map(keyed.map((entry, rank) => [entry.row, rank]));
+}
+
 /** One row per stage the run has launched, in the order it first ran. */
 export function stages(view: unknown, now = Date.now()): StageRow[] {
   const root = mapping(view);
   const attempts = rows(mapping(mapping(root.usage).accounting).attempts)
     .filter((row) => !row.runner_owned && row.usage_basis !== "runner");
+  const order = timeOrder(attempts);
+  const rank = (row: Row): number => order.get(row) ?? 0;
   const cost = mapping(root.cost);
   const spend = new Map(rows(mapping(cost.breakdown).by_stage).map((row) => [row.stage, row]));
   // The running stage is in no finished-stage row yet; its spend so far is the core's `running_usd`.
@@ -155,7 +179,9 @@ export function stages(view: unknown, now = Date.now()): StageRow[] {
     if (!stage) continue;
     grouped.set(stage, [...(grouped.get(stage) ?? []), row]);
   }
-  return [...grouped].map(([stage, group]) => {
+  return [...grouped].map(([stage, listed]) => {
+    // The stage's own attempts oldest first, so its newest attempt is the newest in time.
+    const group = [...listed].sort((a, b) => rank(a) - rank(b));
     const newest = group[group.length - 1]!;
     const state: StageState = newest.active
       ? (group.slice(0, -1).some(failed) ? "retrying" : "working")
@@ -194,6 +220,7 @@ export function stages(view: unknown, now = Date.now()): StageRow[] {
       spentUsd: costs.length ? costs.reduce((a, b) => a + b, 0) : null,
       costComplete: !working && costRows.every((row) => isNumber(row.spent_usd) && row.complete === true),
       why: failed(newest) ? why(newest) : working && group.length > 1 ? why(group[group.length - 2]!) : "",
+      newest: rank(newest),
     };
   });
 }

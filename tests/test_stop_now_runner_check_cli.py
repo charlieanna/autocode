@@ -170,3 +170,137 @@ class StopNowRunnerCheckCliTests(unittest.TestCase):
                     except subprocess.TimeoutExpired:
                         worker.send_signal(signal.SIGINT)
                         worker.wait(timeout=30)
+
+    def submit(self, view_command, request_id):
+        argv = [word.replace("REQUEST_ID", request_id) for word in view_command]
+        submitted = subprocess.run(
+            [*self.entry, *argv], cwd=self.root, env=self.env, capture_output=True, text=True, timeout=30
+        )
+        self.assertEqual(0, submitted.returncode, submitted.stdout + submitted.stderr)
+        return json.loads(submitted.stdout)
+
+    def worker(self, run, argv, name, env=None):
+        stdout = (self.root / f"{name}.stdout").open("w")
+        stderr = (self.root / f"{name}.stderr").open("w")
+        self.addCleanup(stdout.close)
+        self.addCleanup(stderr.close)
+        process = subprocess.Popen(
+            [*self.entry, "--workspace", str(run.workspace), "--run-dir", str(run.run_dir), *argv],
+            cwd=self.root,
+            env=env or self.env,
+            stdout=stdout,
+            stderr=stderr,
+        )
+
+        def end():
+            if process.poll() is None:
+                process.send_signal(signal.SIGINT)
+                try:
+                    process.wait(timeout=30)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=30)
+
+        self.addCleanup(end)
+        return process
+
+    def test_ac4_resumed_local_check_offers_and_consumes_stop_now(self):
+        # #3869: a resumed run's view offered no Stop now during its held local regression check,
+        # although its worker consumed an immediate pause.
+        ready, gate = self.root / "baseline-ready", self.root / "baseline-gate"
+        completed, entries = self.root / "baseline-completed", self.root / "baseline-entries"
+        for path in (ready, gate):
+            os.mkfifo(path)
+        ready_fd = os.open(ready, os.O_RDWR | os.O_NONBLOCK)
+        gate_fd = os.open(gate, os.O_RDWR | os.O_NONBLOCK)
+        self.addCleanup(os.close, ready_fd)
+        self.addCleanup(os.close, gate_fd)
+        # Cleanup releases only this test's held commands; the gate is never released while asserting.
+        self.addCleanup(os.write, gate_fd, b"release-release")
+        child = "from pathlib import Path; Path(" + repr(str(gate)) + ").open('rb').read(1)"
+        barrier = textwrap.indent(
+            textwrap.dedent(f"""
+                # Only the real original-code copy lacks the Builder's greet.py; every baseline is held.
+                if not Path(__file__).with_name("greet.py").exists():
+                    import json
+                    import os
+                    with Path({str(entries)!r}).open("a") as stream:
+                        stream.write("entered\\n")
+                    held = subprocess.Popen([sys.executable, "-c", {child!r}])
+                    with Path({str(ready)!r}).open("w") as stream:
+                        stream.write(json.dumps({{"command_pid": os.getpid(), "descendant_pid": held.pid}}) + "\\n")
+                    held.wait()
+                    Path({str(completed)!r}).write_text("baseline completed normally")
+            """),
+            "        ",
+        )
+        tests = GREETING_TESTS.replace("        return subprocess.run(", barrier + "        return subprocess.run(", 1)
+        reviewer = self.root / "fixture-bin/goal_fixtures.py"
+        source = reviewer.read_text()
+        marker = "\n\nGOODBYE_SOURCE ="
+        self.assertEqual(1, source.count(marker))
+        reviewer.write_text(source.replace(marker, "\nGREETING_TESTS = " + repr(tests) + marker, 1))
+        self.env["AUTOCODE_FIXTURE_MODE"] = "no-human"
+        run = TaskRun.start(
+            self.project,
+            "Build greeting",
+            command=self.entry,
+            options=("--engine", "codex", "--max-cost-usd", "0", "--max-seconds", "300"),
+            env=self.env,
+            cwd=self.root,
+            timeout=180,
+        )
+        run.answer("Q1", "CLI")
+        view = run.advance_until_input()
+        self.assertEqual("approve_plan", view["needs"]["kind"], view)
+        run.approve_plan(view["needs"]["token"])
+
+        # The first worker is paused at its held baseline, so the run is paused and then resumed.
+        first = self.worker(run, ["--no-chat"], "first")
+        readable, _, _ = select.select([ready_fd], [], [], 120)
+        self.assertTrue(readable, "the first original-code command never entered its FIFO handshake")
+        os.read(ready_fd, 4096)
+        self.submit(self.status(run)["view"]["pause"]["stop_now"]["next_command"], "pause-first")
+        self.assertEqual(2, first.wait(timeout=60), (self.root / "first.stdout").read_text())
+        paused = self.status(run)["view"]
+        self.assertEqual("PAUSED_INTERVENTION", paused["status"])
+        named = actions.named(paused, run.workspace, run.run_dir)
+        self.assertIn("--resume-paused", named.argv)
+
+        worker = self.worker(run, named.argv, "resumed", env={**self.env, **named.env})
+        readable, _, _ = select.select([ready_fd], [], [], 120)
+        self.assertTrue(readable, "the resumed original-code command never entered its FIFO handshake")
+        entered = json.loads(os.read(ready_fd, 4096))
+        self.assertEqual(2, len(entries.read_text().splitlines()), "the resumed run runs a fresh baseline")
+        owned = [psutil.Process(entered[key]) for key in ("command_pid", "descendant_pid")]
+        before = self.status(run)
+        (self.root / "resumed-before-stop.json").write_text(json.dumps(before, indent=2))
+        view = before["view"]
+        self.assertEqual("regression_proof", view["runner_check"]["stage"])
+        self.assertTrue(before["runner_check_workers"]["alive"])
+        self.assertIsNotNone(view["pause"]["stop_now"]["next_command"], "the resumed worker consumes Stop now")
+
+        self.assertTrue(self.submit(view["pause"]["next_command"], "boundary-1")["accepted"])
+        queued = self.status(run)["view"]["pause"]
+        self.assertTrue(queued["requested"])
+        self.assertIsNotNone(queued["stop_now"]["next_command"], "a boundary pause lets the step run on")
+
+        receipt = self.submit(queued["stop_now"]["next_command"], "stop-now-1")
+        self.assertTrue(receipt["accepted"])
+        self.assertTrue(receipt["receipt"]["now"])
+        try:
+            code = worker.wait(timeout=60)
+        except subprocess.TimeoutExpired:
+            self.fail("Accepted Stop now did not end the resumed run's held baseline")
+        self.assertEqual(2, code, (self.root / "resumed.stdout").read_text())
+        after = self.status(run)
+        (self.root / "resumed-after-stop.json").write_text(json.dumps(after, indent=2))
+        stopped = after["view"]
+        self.assertEqual("PAUSED_INTERVENTION", stopped["status"])
+        self.assertFalse(completed.exists(), "the held command must not finish on its own")
+        self.assertTrue(all(not process.is_running() or process.status() == psutil.STATUS_ZOMBIE for process in owned))
+        self.assertIsNone(stopped["evidence"].get("regression_proof"))
+        self.assertEqual(view["usage"]["accounting"]["attempts"], stopped["usage"]["accounting"]["attempts"])
+        self.assertIsNone(stopped["runner_check"])
+        self.assertFalse(after["runner_check_workers"])
+        self.assertEqual(2, len(entries.read_text().splitlines()), "no further check runs after Stop now")

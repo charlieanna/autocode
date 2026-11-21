@@ -6,23 +6,28 @@ import os
 import shlex
 import subprocess
 import sys
+import tarfile
 import time
 from pathlib import Path
 
 try:
     from . import autocode_capped_output as capped
+    from . import autocode_diagnostics_comparison as comparison
     from . import autocode_investigation_workspace as investigation_workspace
     from . import autocode_output_filter as filters
     from . import autocode_output_store as store
     from . import autocode_receipts as receipts
+    from . import autocode_run_identity as run_identity
     from .autocode_output import representation
     from .autocode_util import atomic_json
 except ImportError:
     import autocode_capped_output as capped
+    import autocode_diagnostics_comparison as comparison
     import autocode_investigation_workspace as investigation_workspace
     import autocode_output_filter as filters
     import autocode_output_store as store
     import autocode_receipts as receipts
+    import autocode_run_identity as run_identity
     from autocode_output import representation
     from autocode_util import atomic_json
 
@@ -67,6 +72,11 @@ def cli(argv=None, *, formatter=filters.compact_output):
         "--known-output-sha256",
         help="Omit an identical display only after verifying exact retrieval; still execute fresh proof",
     )
+    parser.add_argument(
+        "--compare-base",
+        metavar="REV",
+        help="Run the command on REV (extracted under .autocode/scratch) and here; record the new diagnostic lines",
+    )
     parser.add_argument("command", nargs=argparse.REMAINDER, help="The command to run, after --")
     args = parser.parse_args(argv)
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
@@ -85,16 +95,29 @@ def cli(argv=None, *, formatter=filters.compact_output):
             parser.error("invalid runner capture context")
     cwd = Path.cwd().resolve()
     project = project_evidence_root(args.output, cwd)
-    path = (project.parent / args.output).resolve() if project else args.output.resolve()
+    addressed = (project.parent / args.output) if project else Path(os.path.abspath(args.output))
+    path = addressed.resolve()
     roots = [*evidence_roots(cwd), *([project] if project else [])]
     if not any(path.is_relative_to(root) for root in roots):
         parser.error("evidence output must be under this project's .autocode directory")
+    # #3892: an output aimed inside .autocode/runs/<id>/ where <id> is not an existing run would
+    # create a run-shaped directory no run owns and run the command before anything notices. The
+    # addressed id is read from the path before symlink resolution, so a runs/<alias> symlink to a
+    # real run is refused too; the resolved path is checked as well, so an alias reached the other
+    # way around cannot smuggle an output into a run-shaped directory either.
+    refusal = run_identity.output_refusal(addressed, roots, capture_context) or run_identity.output_refusal(
+        path, roots, capture_context
+    )
+    if refusal:
+        parser.error(refusal)
     path.parent.mkdir(parents=True, exist_ok=True)
     raw = path.with_suffix(".log")
     if raw == path:
         parser.error("receipt filename must differ from the retained .log filename")
     if path.exists() or raw.exists():
         parser.error("use a unique evidence filename; existing evidence is immutable")
+    if args.compare_base:
+        return _compare(parser, args.compare_base, command, path, capture_context)
     execution_cwd, verification_context = None, None
     if os.environ.get("AUTOCODE_VERIFICATION_COPY"):
         try:
@@ -163,6 +186,10 @@ def cli(argv=None, *, formatter=filters.compact_output):
         receipt["exact_output"] = retained
     if capture_context:
         receipt["capture_context"] = capture_context
+    return _publish(path, receipt, root, data, mode, compact, returncode)
+
+
+def _publish(path, receipt, root, data, mode, compact, returncode):
     atomic_json(path, receipt)
     # Native tools may retain only the beginning of a large combined response. Keep the same
     # exact-byte attestation at both boundaries; stdout remains the complete receipt object.
@@ -185,3 +212,22 @@ def cli(argv=None, *, formatter=filters.compact_output):
             omitted=len(compact.get("omitted_sections", [])),
         )
     return returncode
+
+
+def _compare(parser, revision, command, path, capture_context):
+    """``--compare-base``: a base-versus-candidate comparison of the command's diagnostics (#3947).
+
+    Exits 0 when the comparison completes; the two exit codes and the new lines are in the receipt.
+    """
+    try:
+        receipt = comparison.compare(command, revision, Path.cwd(), path)
+    except comparison.captured_process.ProcessError as error:
+        parser.error(
+            f"--compare-base {revision}: command cleanup could not be verified; no comparison was published: {error}"
+        )
+    except (OSError, ValueError, subprocess.SubprocessError, tarfile.TarError) as error:
+        parser.error(f"--compare-base {revision}: {error}")
+    if capture_context:
+        receipt["capture_context"] = capture_context
+    data = Path(receipt["full_output"]).read_bytes()
+    return _publish(path, receipt, None, data, "raw", {}, 0)

@@ -109,6 +109,11 @@ def _cases(state: RunState, *, all_due: bool = False) -> list[dict]:
     return found + [case for case in planned if case["id"] not in known]
 
 
+def all_cases(state: RunState) -> list[dict]:
+    """Every approved ``test:`` / ``guard:`` case of the plan, due now or not (read by autocode_wrong_implementations)."""
+    return _cases(state, all_due=True)
+
+
 def _semantic(row: dict) -> dict:
     """A criterion as the Tester tested it: without citations, which a revision may add."""
     return {key: value for key, value in row.items() if key != "sources"}
@@ -616,6 +621,18 @@ def view(state: RunState) -> dict | None:
         payload["cannot_write"] = active_cw
     if is_blind(state):
         payload["blind"] = True
+    study = (state.get(KEY) or {}).get("wrong_implementations")
+    if isinstance(study, dict) and study.get("contract_hash") == current_hash:
+        # The report-only study of wrong implementations (autocode_wrong_implementations, #3977): its counts and
+        # the variants the acceptance tests still accept, without their patches.
+        payload["wrong_implementations"] = {
+            "counts": dict(study.get("counts") or {}),
+            "survivors": [
+                {key: row.get(key) for key in ("case_id", "mistake", "category")}
+                for row in study.get("survivors") or []
+            ],
+            **({"skipped_reason": study["skipped_reason"]} if study.get("skipped_reason") else {}),
+        }
     return payload
 
 

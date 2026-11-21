@@ -160,10 +160,15 @@ class RepairTests(unittest.TestCase):
         pending["validation_runtime"] = "earlier runtime"
         original = pending["original"]
         repair = pending["latest_rejected"]
+        original_context = {"attempt": original["output"], "nonce": "original-nonce", "source_revision": "original"}
+        original.update(output_mode="report_file", capture_context=original_context)
+        repair.update(output_mode="report_file", capture_context={**original_context, "nonce": "repair-nonce"})
         original_events = original["events"]
 
         def apply(state, stage, value, record, workspace, run):
             self.assertEqual(original_events, record["events"])
+            self.assertEqual("report_file", record["output_mode"])
+            self.assertEqual(original_context, record["capture_context"])
             state["stages"].append(record)
             state["history"].append(record)
             state["next_stage"] = "tester"
@@ -176,6 +181,37 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(original_events, load.call_args.args[2]["events"])
         self.assertEqual(repair["events"], self.state["stages"][-1]["events"])
         self.assertEqual(2, len(self.state["stages"]), "a rejected repair is not counted as another paid call")
+
+    def test_revalidation_of_a_sealed_tester_report_reads_the_copy_it_checked(self):
+        # A Tester report with runner provenance is sealed when it loads (autocode_rework_policy.capture). Its
+        # revalidation works on a private copy, which still carried the seal of the original paths, so every
+        # resume after a validator update paused PAUSED_STALE_HANDOFF "Saved repair seal or evidence changed".
+        provenance = {"task_id": "task-1", "contract_hash": "approved", "contract_revision": 3}
+        report = json.dumps({"summary": "saved", **provenance})
+        record = RepairTests.stage_record(self, report=report, stage="tester", **provenance)
+        record["role"] = "tester"
+        runner.rework_policy.capture(record, json.loads(report))
+        self.assertIn("rework_evidence", record)
+        self.state["settings"]["report_repair"] = {"max_attempts": 2}
+        with self.assertRaises(runner.ReportRepairQueued):
+            runner.reject_completed_stage(self.state, self.run, record, ValueError("Missing summary"))
+        pending = self.state["pending_report_repair"]
+        pending["validation_runtime"] = "earlier runtime"
+        self.state["next_stage"] = "tester"
+        seen = []
+
+        def apply(state, stage, value, record, workspace, run):
+            seen.append(record)
+            state["stages"].append(record)
+            state["history"].append(record)
+            state["next_stage"] = "tester"
+
+        with patch.object(runner, "apply_result", side_effect=apply):
+            accepted = runner.report_revalidation.revalidate(runner, self.state, self.run, self.root)
+        self.assertTrue(accepted, pending.get("revalidations"))
+        self.assertEqual(json.loads(report), json.loads(Path(seen[0]["output"]).read_text()))
+        self.assertTrue(self.state["stages"][-1]["report_revalidated"])
+        self.assertIsNone(runner.rework_policy.verify_existing(self.state["stages"][-1]))
 
     def test_revalidation_runs_the_real_schema_loader_and_rejects_failed_application(self):
         pending = self.queue(report='{"summary":"saved"}')

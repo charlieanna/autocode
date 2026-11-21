@@ -23,6 +23,7 @@ from pathlib import Path
 try:
     from . import autocode_acceptance_recovery as acceptance_recovery
     from . import autocode_brief_obligations as brief_obligations
+    from . import autocode_current_behavior as current_behavior
     from . import autocode_interaction_timing as interaction_timing
     from . import autocode_internal_failure_view as operational_block
     from . import autocode_plan_only as plan_only
@@ -31,6 +32,7 @@ try:
 except ImportError:
     import autocode_acceptance_recovery as acceptance_recovery
     import autocode_brief_obligations as brief_obligations
+    import autocode_current_behavior as current_behavior
     import autocode_interaction_timing as interaction_timing
     import autocode_internal_failure_view as operational_block
     import autocode_plan_only as plan_only
@@ -38,6 +40,7 @@ except ImportError:
     import autocode_stop as stop
 
 try:
+    from . import autocode_acceptance_retry_next as retry_next
     from . import autocode_acceptance_tests as acceptance_tests
     from . import autocode_accepted_source as accepted_source
     from . import autocode_adaptive_planning as adaptive_planning
@@ -90,6 +93,7 @@ try:
     from . import autocode_recovery_view as recovery_view
     from . import autocode_report_repair_view as report_repair_view
     from . import autocode_report_retry as report_retry
+    from . import autocode_report_retry_admission as report_retry_admission
     from . import autocode_request_usage as request_usage
     from . import autocode_requirements_review as requirements_review
     from . import autocode_resolver_human as resolver_human
@@ -103,6 +107,7 @@ try:
     from . import autocode_stage_pipeline as stage_pipeline
     from . import autocode_stage_policy as stage_policy
     from . import autocode_status_label as status_label
+    from . import autocode_status_observation as status_observation
     from . import autocode_stop_explanations as stop_explanations
     from . import autocode_task_input as task_input
     from . import autocode_tool_containment as tool_containment
@@ -114,6 +119,7 @@ try:
     from . import autocode_workflows as workflows
     from . import autocode_worktree_choice as worktree_choice
 except ImportError:
+    import autocode_acceptance_retry_next as retry_next
     import autocode_acceptance_tests as acceptance_tests
     import autocode_accepted_source as accepted_source
     import autocode_adaptive_planning as adaptive_planning
@@ -166,6 +172,7 @@ except ImportError:
     import autocode_recovery_view as recovery_view
     import autocode_report_repair_view as report_repair_view
     import autocode_report_retry as report_retry
+    import autocode_report_retry_admission as report_retry_admission
     import autocode_request_usage as request_usage
     import autocode_requirements_review as requirements_review
     import autocode_resolver_human as resolver_human
@@ -180,6 +187,7 @@ except ImportError:
     import autocode_stage_pipeline as stage_pipeline
     import autocode_stage_policy as stage_policy
     import autocode_status_label as status_label
+    import autocode_status_observation as status_observation
     import autocode_stop_explanations as stop_explanations
     import autocode_task_input as task_input
     import autocode_tool_containment as tool_containment
@@ -197,6 +205,7 @@ COMPLETE = ("TASK_COMPLETE", "COMPLETE")
 # Statuses where relaunching the run, with no user input, continues the work.
 CONTINUE = ("RUNNING", "DISCOVERING", "WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL")
 QUESTION_FIELDS = answer_options.QUESTION_FIELDS
+_UNSET = object()  # a caller that computed no retained-retry answer: compute it from the run's workspace
 _question_view = answer_options.question_view
 
 
@@ -216,6 +225,7 @@ def requirements_view(state: RunState) -> dict | None:
         row.get("id") for row in requirements_review.unconfirmed_assumptions(state) if isinstance(row, dict)
     }
     skip_confirmed = (handoff.get("confirmed_assumptions") or {}).get("source") == requirements_review.CONFIRMED_BY_SKIP
+    standing = requirements_review.assumption_standing(state)
     proposed_assumptions = []
     for raw in report.get("proposed_assumptions") or []:
         try:
@@ -232,6 +242,8 @@ def requirements_view(state: RunState) -> dict | None:
                 "convention_ref": row["convention_ref"],
                 "rationale": row["rationale"],
                 "confirmed": bool(skip_confirmed or row["id"] in confirmed_ids or row["id"] not in unconfirmed_ids),
+                # Where `confirmed` comes from (#3898): the person, an inferred convention, a whole approval or a skip.
+                "standing": standing.get(row["id"], requirements_review.NEEDS_CONFIRMATION),
             }
         )
     requirements = [
@@ -261,6 +273,7 @@ def requirements_view(state: RunState) -> dict | None:
         "requirements": requirements,
         "proposed_assumptions": proposed_assumptions,
         "acceptance_tests": tests,
+        "constraints": [item for item in report.get("constraints") or [] if isinstance(item, str)],
         "conflicts": conflicts,
         # What Requirements named in this report, before the person confirms it (#3630): the
         # workflow field reports the job only once it starts, and the model probe grades both.
@@ -282,12 +295,15 @@ def accepted_reviews(state: RunState) -> list:
         return []
 
 
+@status_observation.budgeted
 def view(
     state: RunState,
     *,
     completion_current=None,
     visual_acceptance=None,
     stale_report_repair=False,
+    report_repair_revision=None,
+    report_repair_source_unavailable=False,
     liveness=None,
     runner_check_liveness=None,
     verification_obligation=None,
@@ -331,12 +347,16 @@ def view(
     if simulated or invalid_replay:
         completion_current = False
     status = state.get("status", "")
+    # What the next resume of a retained acceptance verification retry does (#3927): one answer, computed
+    # once with the view's workspace, read by needs, next_command, the recovery card, chat and progress.
+    retained = status_observation.retained_retry(saved_state, workspace or state.get("workspace"))
     next_action = action(
         saved_state,
         run_dir=run_dir,
         workspace=workspace,
         stale_report_repair=stale_report_repair,
         human_projection=human_projection,
+        retained=retained,
     )
     stop_reason = (
         recovery_exhaustion.NOTICE
@@ -377,11 +397,7 @@ def view(
             ),
         }
     elif not operational_block.presentation(saved_state, include_hold=True):
-        try:
-            from . import autocode_source_reconciliation as source_reconciliation
-        except ImportError:
-            import autocode_source_reconciliation as source_reconciliation
-        source_resume = source_reconciliation.offer(
+        source_resume = status_observation.source_offer(
             saved_state,
             workspace or state.get("workspace"),
             liveness,
@@ -401,10 +417,36 @@ def view(
                     recovery_token=recovery_view.token(saved_state),
                 ),
             }
+        else:
+            catalog_resume = status_observation.catalog_offer(
+                saved_state, controller=controller, stop_pending=stop_pending
+            )
+            if catalog_resume is not None:
+                next_action = {
+                    "needs": catalog_resume,
+                    "pause_category": None,
+                    "pause_category_label": None,
+                    "next_command": pause_command.command(
+                        catalog_resume,
+                        for_client=True,
+                        run_dir=run_dir or state.get("run_dir"),
+                        workspace=workspace or state.get("workspace"),
+                    ),
+                }
     continuing = controller_owner.continuing(saved_state, controller)
     if continuing:
         # The live controller will save its own next state; an action taken now is refused by the run lock.
         next_action = {"needs": None, "pause_category": None, "pause_category_label": None, "next_command": None}
+    report_hold = bool(report_repair_source_unavailable and saved_state.get("pending_report_repair"))
+    if report_hold and (next_action.get("needs") or {}).get("kind") in ("resume", "continue"):
+        # Unknown source or pins cannot justify discarding the retained attempt
+        # or a resume that relies on knowing whether the repair is stale.
+        next_action = {
+            "needs": None,
+            "pause_category": "autocode",
+            "pause_category_label": "AutoCode",
+            "next_command": None,
+        }
     need = next_action["needs"]
     task = state.get("current_task") or {}
     active = state.get("active_stage")
@@ -418,7 +460,11 @@ def view(
     plan = approved_contract(state)
     # Tokens and cost so far, by role (autocode_usage.summary), with the live accounting the cost reads.
     usage_summary = autocode_usage.summary(state)
-    recovery = None if continuing else recovery_view.project(saved_state, need)
+    recovery = (
+        None
+        if continuing
+        else recovery_view.project(saved_state, need, retained=retained, report_repair_unavailable=report_hold)
+    )
     result = {
         "replay_source": None if invalid_replay else replay_view.project(state, run_dir=run_dir),
         "replay_progress": replay_progress,
@@ -525,6 +571,10 @@ def view(
         # authenticates its files and current completion; no state mutation here.
         "evidence_report": evidence_report(state),
         "acceptance_tests": acceptance_tests.view(state),  # spec-first Tester files and results (#1200)
+        # What the next resume of a retained acceptance verification retry does (autocode_acceptance_retry_next):
+        # {next: recheck|tester|exhausted|blocked, rechecks, allowed}; allowed is null for an unbounded
+        # runner-not-started retry or a blocked report, and the field is null without a retained retry.
+        "acceptance_verification_retry": retry_next.public(retained),
         # Tokens and cost so far, by role (autocode_usage.summary): reported, estimated and unknown kept apart.
         "usage": usage_summary,
         # Spend against the person's money cap at the dated price table (autocode_cost, #721), and what
@@ -554,6 +604,10 @@ def view(
         # The provider those OpenCode-engine routes launch through ("opencode", "claude", a configured
         # tool's name); None when every role runs on Codex (#717).
         "provider": quota_route.provider(state),
+        # The selected source receipt is a read-only binding for cross-run citation checks.
+        "source_catalog_receipt": state.get("source_catalog_receipt")
+        if state.get("source_catalog_receipt") is None or isinstance(state.get("source_catalog_receipt"), str)
+        else "invalid",
         "route_assignments": quota_route.assignments(state),
         # Whether a person may change this started run's stage models now, why not, and the read-only
         # list whose `set` arrays change one between stages (autocode_run_stage_models); None before routes.
@@ -583,7 +637,12 @@ def view(
         # Retired with the bug-fix Investigator, the only stage that offered report recovery (2026-11-10);
         # always null, kept because the status view never drops a field.
         "job_report_recovery": None,
-        "report_repair": report_repair_view.project(state, stale=stale_report_repair),
+        "report_repair": report_repair_view.project(
+            state,
+            stale=stale_report_repair,
+            current_revision=report_repair_revision,
+            source_unavailable=report_repair_source_unavailable,
+        ),
         # The pause a client may request while the run works (autocode_pause_offer, #1598); status supplies it.
         "pause": None,
         # Another run holds the folder this ready run's next step needs (autocode_checkout_wait); status supplies it.
@@ -657,7 +716,9 @@ def view(
                         revision=contract["revision"],
                         status="approved" if contract_identity.approved(state) else "not approved",
                     ),
-                    "review_markdown": plan_file.review_markdown(contract["body"]),
+                    "review_markdown": plan_file.review_markdown(
+                        contract["body"], observed_behavior=(current_behavior.evidence(state) or {}).get("text", "")
+                    ),
                     **{
                         key: deepcopy(contract["body"].get(key))
                         for key in (
@@ -1147,15 +1208,27 @@ def _route(question: dict) -> dict:
     return route
 
 
-def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair=False, human_projection=None) -> dict:
+@status_observation.budgeted
+def action(
+    state: RunState,
+    *,
+    run_dir=None,
+    workspace=None,
+    stale_report_repair=False,
+    human_projection=None,
+    retained=_UNSET,
+) -> dict:
     """What this run asks of a person: the need, its category, and the command that answers it.
 
     ``view`` composes those three from here, so a caller that only needs the next
     action never re-derives it; ``autocode runs`` pays for this, not for the view's
     evidence and usage accounting. Leaving ``stale_report_repair`` false keeps an
     uncertain attempt's abandon step in the need instead of promising a resume that
-    would discard it.
+    would discard it. ``retained`` is the retained acceptance retry's answer
+    (autocode_acceptance_retry_next.decide), computed here when the caller has none.
     """
+    if retained is _UNSET:
+        retained = status_observation.retained_retry(state, workspace or state.get("workspace"))
     try:
         from . import autocode_changeset_barrier as changeset_barrier
     except ImportError:
@@ -1192,7 +1265,7 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
             ),
         }
     status = display_state.get("status", "")
-    need = needs(state, stale_report_repair=stale_report_repair, human_projection=human_projection)
+    need = needs(state, stale_report_repair=stale_report_repair, human_projection=human_projection, retained=retained)
     category = pause_category.category(status, need)
     # This status also names novelty/source holds; only its bound hold needs a larger limit.
     resume_flags = (
@@ -1296,8 +1369,10 @@ def _person_facing(need: dict) -> dict:
     return need
 
 
-def needs(state: RunState, *, stale_report_repair=False, human_projection=None) -> dict | None:
-    """What must happen next, or None when complete or an internal failure offers no person action.
+@status_observation.budgeted
+def needs(state: RunState, *, stale_report_repair=False, human_projection=None, retained=_UNSET) -> dict | None:
+    """What must happen next, or None when complete, an internal failure offers no person action, or the
+    Tester's retained report has no re-check left (autocode_acceptance_retry_next; ``retained`` is its answer).
 
     kind          what it asks for                  answered with
     review        human acceptance of criteria      --approve-review CRITERION --review-token - (reads AUTOCODE_REVIEW_TOKEN)
@@ -1447,6 +1522,15 @@ def needs(state: RunState, *, stale_report_repair=False, human_projection=None) 
                 "The current checkout cannot establish the missing original identity."
             ),
         }
+        if known_source:
+            try:
+                from . import autocode_job_retry_admission as retry_admission
+            except ImportError:
+                import autocode_job_retry_admission as retry_admission
+            try:
+                retry_admission.validate_retry(state, state.get("workspace"), failure.get("job_retry_token"))
+            except (ValueError, OSError, KeyError, TypeError) as error:
+                need.update(kind="recover_source", action=None, resume_unavailable=str(error))
         # A job stopped on quota or by its provider's content filter (#463) keeps its model question on
         # the failure: --answer route-ROLE=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN) names another model and issues a
         # new token for the exact retry. Same shape as the answer need's ``route``.
@@ -1651,7 +1735,17 @@ def needs(state: RunState, *, stale_report_repair=False, human_projection=None) 
             import autocode_protected_commands as protected_commands
         if protected_offer := protected_commands.offer(state):
             return protected_offer
+        if retained is _UNSET:
+            retained = status_observation.retained_retry(state, state.get("workspace"))
+        if retry_next.exhausted_pause(state, retained):
+            # The retained report is spent or cannot be authenticated: plain resume would only re-pause.
+            # The recovery card preserves the evidence and explains the hold.
+            return None
         need = {"kind": "resume", "reason": state.get("stop_reason") or status}
+        if status == "PAUSED_STALE_HANDOFF":
+            stale_checks = (state.get("resolution_request") or {}).get("stale_checks")
+            if isinstance(stale_checks, list) and all(isinstance(name, str) for name in stale_checks):
+                need["stale_checks"] = list(stale_checks)
         # An uncertain attempt must be set aside before a resume can continue (#340).
         active = state.get("active_stage") or {}
         if (
@@ -1668,6 +1762,13 @@ def needs(state: RunState, *, stale_report_repair=False, human_projection=None) 
         # An inventory refusal leaves a retained result available for the usual
         # reconciliation checks. It is not authority to discard or replay it.
         if status != "PAUSED_SOURCE_UNAVAILABLE" and active.get("output") and isinstance(active.get("iteration"), int):
+            try:
+                from . import autocode_process as processes
+            except ImportError:
+                import autocode_process as processes
+            if refusal := processes.stage_stop_refusal(active):
+                need["resume_unavailable"] = refusal
+                return need
             attempt = f"{active['iteration']:03d}/{Path(active['output']).stem}"
             need["abandon_stage"] = attempt
             need["action"] = f"--abandon-stage {attempt} then --resume-paused"
@@ -1730,6 +1831,18 @@ def needs(state: RunState, *, stale_report_repair=False, human_projection=None) 
         elif blocked := recovery_limits.scoped_retry_unavailable(state):
             # The hold admits no retry yet; say what must happen first instead of implying a resume will do.
             need["retry_unavailable"] = blocked
+        if status == "PAUSED_REPEATED_FAILURE" and not recovery_limits.repeated_failure_retry_refusal(state):
+            try:
+                from . import autocode_failure_retry_admission as failure_retry_admission
+            except ImportError:
+                import autocode_failure_retry_admission as failure_retry_admission
+            try:
+                failure_retry_admission.failure_retry_frontier(state, state.get("workspace"))
+            except (ValueError, OSError, KeyError, TypeError) as error:
+                need["retry_unavailable"] = str(error)
+                need.pop("retry_action", None)
+                if need.get("action") == retry:
+                    need.pop("action", None)
         # A parallel member's model stop whose request a person answered continues only by its own
         # control (#541): --resume-paused --retry-builder M.
         member = member_stop.action(state) if "action" not in need else None
@@ -1761,8 +1874,14 @@ def needs(state: RunState, *, stale_report_repair=False, human_projection=None) 
             and isinstance(rejected.get("iteration"), int)
             and rejected.get("output")
         ):
-            need["retry_report_attempt"] = f"{rejected['iteration']:03d}/{Path(rejected['output']).stem}"
-            need["action"] = f"--resume-paused --retry-report {need['retry_report_attempt']}"
+            selected = f"{rejected['iteration']:03d}/{Path(rejected['output']).stem}"
+            try:
+                report_retry_admission.validate(state, state.get("workspace"), selected)
+            except (OSError, RuntimeError, ValueError, TypeError, KeyError):
+                pass
+            else:
+                need["retry_report_attempt"] = selected
+                need["action"] = f"--resume-paused --retry-report {selected}"
         # The CLI refuses --retry-failed-stage while the attempt or report repair behind this pause is
         # unreconciled, so naming it here would be a command the person is then rejected for (#1897).
         # Say why the retry waits, as a novelty hold does, and name the resume the CLI does take.
@@ -1773,7 +1892,56 @@ def needs(state: RunState, *, stale_report_repair=False, human_projection=None) 
         ):
             need["retry_unavailable"] = blocked
             need["action"] = "--resume-paused"
+        if status == "PAUSED_BUILDER_RETRY_LIMIT" and "action" not in need:
+            # The same stopped lane and approval checks that guard the executor also
+            # decide whether the view may name its retry. A later launch rechecks them.
+            import shlex
+
+            try:
+                from . import autocode_builder_recovery as builder_recovery
+                from . import autocode_legacy_process as legacy_process
+                from . import autocode_util as util
+            except ImportError:
+                import autocode_builder_recovery as builder_recovery
+                import autocode_legacy_process as legacy_process
+                import autocode_util as util
+
+            task = state.get("current_task") or {}
+            members = task.get("milestone_ids") or [task.get("milestone_id") or task.get("id")]
+            try:
+                goals.execution_guard(state)
+                builder_recovery.serial_retry_frontier(state, members)
+                if any(not isinstance(mid, str) or not mid for mid in members):
+                    raise ValueError("The saved milestone identities are unavailable")
+                if not state.get("run_dir") or not state.get("workspace"):
+                    raise ValueError("The saved run or workspace location is unavailable")
+                legacy_process.assert_no_legacy_process(Path(state["run_dir"]), Path(state["workspace"]))
+            except (util.Paused, ValueError, KeyError, TypeError, OSError) as error:
+                need["resume_unavailable"] = str(error)
+            else:
+                need["action"] = shlex.join(
+                    ["--resume-paused", *(part for mid in members for part in ("--retry-builder", mid))]
+                )
+        if (
+            status == "PAUSED_RESOLVER"
+            and "action" not in need
+            and resolver_human.held_response_scope(state) == "blocker"
+            and resolver_human.response_holds_current_frontier(state)
+            and not operational_information.retired(state)
+        ):
+            need["resume_unavailable"] = (
+                "The saved blocker remains unresolved. A plain resume cannot continue at this same frontier."
+            )
         if "action" not in need and pause_authority.requested_only(state):
             need["confirmation_required"] = False
+        action = need.get("action")
+        if state.get("next_stage") == "orchestrator" and isinstance(action, str):
+            words = action.split()
+            selected_members = [words[i + 1] for i, word in enumerate(words[:-1]) if word == "--retry-builder"]
+            if selected_members and not set(selected_members) <= set(recovery_view._parallel_members(state)):
+                need.pop("action", None)
+                need["parallel_retry_unavailable"] = (
+                    "The selected Builder retry is no longer admissible. Review the available member actions."
+                )
         return need
     return {"kind": "continue"}

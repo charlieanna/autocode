@@ -203,18 +203,58 @@ def since_start(state: RunState, commit, after, rows):
     return before, sorted({*(name for name in after if before.get(name) != after.get(name)), *removed})
 
 
+def kept_receipt(state: RunState, run_dir, kept):
+    """The verified receipt of the run's newest kept code capture (``kept_code``), like ``receipt``."""
+    path = regular(kept["receipt"], run_dir)
+    if util.file_hash(path) != kept["receipt_sha256"]:
+        raise ValueError("The saved kept code receipt changed")
+    saved = util.read(path)
+    if saved["id"] != kept["id"] or saved["commit"] != kept["commit"] or saved["run_dir"] != str(run_dir):
+        raise ValueError("Kept code identity changed")
+    if checkpoints.tree_files(state["workspace"], saved["commit"]) != checkpoints.content_files(saved["source"]):
+        raise ValueError("Saved kept code contents cannot be verified")
+    return saved
+
+
 def all_changes(state: RunState, run_dir):
-    """Everything the run changed: the newest saved step's code against the commit the first was saved on.
+    """Everything the run kept: its newest kept code (or, for a completed run, its delivery), or the newest
+    saved step when that is newer, against the commit the run started from (#3945, #3933).
+
     Display only, like ``step``: both sides are saved code, never the files on disk; no token, nothing
-    restored. This is the run's result, which a person reads instead of stepping through each step."""
+    restored. This is the run's result, which a person reads instead of stepping through each step.
+    ``complete`` says whether the files now equal the saved code it ends at; when they do not, ``note``
+    says where it ends and that later changes are not included, rather than presenting an older cutoff
+    as the whole change."""
     rows = [row for row in state.get("code_checkpoints") or [] if row.get("available")]
-    if not rows:
+    kept = state.get("kept_code") or {}
+    unread = ""
+    last = None
+    if checkpoints.kept_end(state)[0] == "kept":
+        try:
+            last = kept_receipt(state, run_dir, kept)
+        except (ValueError, OSError, KeyError) as error:
+            if not rows:
+                raise
+            unread = " The newest kept code could not be read: " + str(error)
+    if last is None and not rows:
         raise ValueError("No code change has been saved yet")
-    first = receipt(state, run_dir, rows[0]["id"], current_plan=False)
-    last = first if len(rows) == 1 else receipt(state, run_dir, rows[-1]["id"], current_plan=False)
-    commit, after = first["source"]["head"], checkpoints.content_files(last["source"])
-    before, changed = since_start(state, commit, after, rows)
+    first = receipt(state, run_dir, rows[0]["id"], current_plan=False) if rows else None
+    if last is None:
+        last = first if len(rows) == 1 else receipt(state, run_dir, rows[-1]["id"], current_plan=False)
+    if last is None:
+        raise ValueError("No code change has been saved yet")
+    commit = first["source"]["head"] if first else last["start"]
+    after = checkpoints.content_files(last["source"])
+    # A file kept work removed is named by no saved step; its carried name lists it as removed.
+    before, changed = since_start(state, commit, after, [*rows, {"changed_files": kept.get("removed") or []}])
     patch = patch_text(state, commit, changed, before, after, new_commit=last["commit"])
+    complete = checkpoints.content_files(source_scope.snapshot(state["workspace"], state)) == after
+    note = None
+    if not complete:
+        note = "Ends at saved code " + last["id"] + "; changes made after it are not included."
+        if kept and kept.get("available") is False:
+            note += " The newest kept code could not be saved: " + str(kept.get("reason"))
+        note += unread
     return {
         "version": 1,
         "since": "start",
@@ -222,6 +262,8 @@ def all_changes(state: RunState, run_dir):
         "changed_files": changed,
         "patch": patch[:200000],
         "truncated": len(patch) > 200000,
+        "complete": complete,
+        "note": note,
     }
 
 
@@ -449,7 +491,7 @@ def parser() -> argparse.ArgumentParser:
     action.add_argument("--restore", metavar="CHECKPOINT", help="Restore the code of a saved step; needs its token")
     action.add_argument("--working", action="store_true", help="Show what changed since the newest saved step")
     action.add_argument("--step", metavar="CHECKPOINT", help="Show what a saved step itself changed (display only)")
-    action.add_argument("--all", action="store_true", help="Show everything the run changed (display only)")
+    action.add_argument("--all", action="store_true", help="Show everything the run kept (display only)")
     result.add_argument("--expected-token", help="The exact token the comparison showed, for --restore")
     result.add_argument("--request-id", help="Stable ID of this action, so a repeat is recognized")
     result.add_argument("--json", action="store_true", help="Format output as JSON (default)")
