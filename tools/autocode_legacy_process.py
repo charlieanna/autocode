@@ -36,46 +36,47 @@ def references_run(command, absolute, relative):
     )
 
 
-def _readonly_runner_command(command):
-    """Recognize only unambiguous TaskRun and dashboard observer argv.
+def _python_interpreter(path):
+    return os.path.basename(path).lower().startswith("python")
 
-    ps command text does not preserve argument boundaries for quoted paths or
-    task/prompt text. Keep those cases blocking, along with every option outside
-    this small reader grammar. In particular, --request-milestone-checkpoints
-    mutates the run even when combined with --status, and --show-goal saves it.
-    """
-    if any(character in command for character in "'\"\\\n\r"):
+
+def _readonly_runner_argv(argv):
+    """Accept only a complete, non-mutating public observer argument vector."""
+    if not argv:
         return False
-    argv = command.split()
-    if not argv or not os.path.basename(argv[0]).startswith("python"):
-        return False
-    script = 1
-    while script < len(argv) and argv[script] in ("-B", "-u"):
-        script += 1
-    if script >= len(argv) or os.path.basename(argv[script]) != "autocode.py":
+    script = 0
+    if _python_interpreter(argv[0]):
+        script = 1
+        while script < len(argv) and argv[script] in ("-B", "-u"):
+            script += 1
+    if script >= len(argv) or os.path.basename(argv[script]) not in ("autocode.py", "autocode"):
         return False
     args = argv[script + 1 :]
     if args[:2] == ["coordinate", "status"]:
         reader, index = "coordinate-status", 2
     elif args[:2] == ["intervention", "inspect"]:
         reader, index = "inspect", 2
-    elif args and args[0] in ("--status", "--dry-run"):
-        reader, index = args[0], 1
     else:
-        return False
+        reader, index = None, 0
     paths = {}
     inspected = False
     as_json = False
     while index < len(args):
         option, separator, value = args[index].partition("=")
+        if option in ("--status", "--dry-run") and not separator:
+            if reader is not None:
+                return False
+            reader = option
+            index += 1
+            continue
         if option == "--json" and not separator:
-            if reader not in ("--status", "inspect", "coordinate-status") or as_json:
+            if as_json:
                 return False
             as_json = True
             index += 1
             continue
         if option == "--inspect-evidence" and not separator:
-            if reader != "--status" or inspected:
+            if inspected:
                 return False
             inspected = True
             index += 1
@@ -87,13 +88,44 @@ def _readonly_runner_command(command):
             if index >= len(args):
                 return False
             value = args[index]
-        if not value or not Path(value).is_absolute():
+        if not value or "\n" in value or "\r" in value or not Path(value).is_absolute():
             return False
         paths[option] = value
         index += 1
     if reader == "coordinate-status":
-        return set(paths) == {"--run-dir"} and as_json
-    return set(paths) == {"--workspace", "--run-dir"} and (reader != "inspect" or as_json)
+        return set(paths) == {"--run-dir"} and as_json and not inspected
+    if reader not in ("--status", "--dry-run", "inspect"):
+        return False
+    return (
+        set(paths) == {"--workspace", "--run-dir"}
+        and (reader != "inspect" or as_json)
+        and (reader == "--status" or not inspected)
+        and (reader != "--dry-run" or not as_json)
+    )
+
+
+def _readonly_runner_command(command):
+    """Use the reader grammar only for the existing leading-reader ps forms.
+
+    Split process text cannot prove where a path containing spaces ends, so a
+    later apparent --status must be authenticated using the actual argv instead.
+    """
+    if any(character in command for character in "'\"\\\n\r"):
+        return False
+    argv = command.split()
+    if not argv:
+        return False
+    script = 0
+    if _python_interpreter(argv[0]):
+        script = 1
+        while script < len(argv) and argv[script] in ("-B", "-u"):
+            script += 1
+    args = argv[script + 1 :]
+    if not (
+        args[:1] in (["--status"], ["--dry-run"]) or args[:2] in (["coordinate", "status"], ["intervention", "inspect"])
+    ):
+        return False
+    return _readonly_runner_argv(argv)
 
 
 def duplicate_runner_command(command):
@@ -109,8 +141,12 @@ def duplicate_runner_command(command):
     if name in ("opencode", "opencode.exe"):
         return parts[1] == "run"
     return (
-        (name.startswith("python") or name == "autocode")
-        and any(script in command for script in ("autocode.py", "autocode_builder_worker.py"))
+        (_python_interpreter(name) or name == "autocode")
+        and (
+            name == "autocode"
+            or any(script in command for script in ("autocode.py", "autocode_builder_worker.py"))
+            or re.search(r"(?:^|\s)(?:\S*/)?autocode(?:\s|$)", command) is not None
+        )
         and not _readonly_runner_command(command)
     )
 
@@ -129,7 +165,7 @@ def not_a_runner(argv):
         return False
     name = os.path.basename(argv[0])
     index = 1
-    if name.startswith("python"):
+    if _python_interpreter(name):
         while index < len(argv) and PYTHON_FLAGS.fullmatch(argv[index]):
             index += 1
         if index >= len(argv) or argv[index].startswith("-"):
@@ -142,7 +178,9 @@ def not_a_runner(argv):
         script = name
     else:
         return False
-    return script in ("autocode.py", "autocode") and argv[index : index + 1] == ["chat"]
+    return script in ("autocode.py", "autocode") and (
+        argv[index : index + 1] == ["chat"] or _readonly_runner_argv(argv)
+    )
 
 
 def _exact_argv(pid, command):
