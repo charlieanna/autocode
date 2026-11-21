@@ -84,6 +84,12 @@ class UserRequestTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "must choose BLOCKED"):
             self.route("review_completion", value)
 
+    def test_rejected_decision_identifies_the_reporting_stage(self):
+        value = {"status": "CONTINUE", "user_request": {"kind": "decision"}}
+        for stage, expected in (("review_completion", "Completion Reviewer"), ("resolve", "Resolver")):
+            with self.subTest(stage=stage), self.assertRaisesRegex(ValueError, expected + " must choose BLOCKED"):
+                self.route(stage, value)
+
     def test_a_final_only_builder_question_goes_to_the_resolver(self):
         value = {"status": "DONE", "user_request": {"kind": "blocker"}}
         handled, _ = self.route("builder", value, final_only=True)

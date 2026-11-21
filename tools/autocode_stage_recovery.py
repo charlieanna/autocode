@@ -250,17 +250,7 @@ def abandon_stage(state: RunState, run_dir, workspace, selected, *, launch=None,
         if record["role"] in ("builder", "tester")
         else "review_completion"
     )
-    recovery_role = (
-        roles.SCREEN["resolver"]
-        if planning_repair
-        else "Requirements"
-        if planning.is_planning(state, next_stage)
-        else "Tester"
-        if next_stage == "tester"
-        else "Builder"
-        if next_stage == "builder"
-        else "Plan Reviewer"
-    )
+    recovery_role = roles.screen_name(next_stage, state)
     run_status.pause(
         state,
         "PAUSED_STAGE_ABANDONED",

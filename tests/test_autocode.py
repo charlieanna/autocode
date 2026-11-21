@@ -930,6 +930,45 @@ class RetrofitTest(unittest.TestCase):
         self.assertNotIn("pending_report_repair", self.state)
         self.assertTrue(self.state["stages"][-1]["abandoned"])
 
+    def test_abandoned_planning_work_names_the_actual_next_stage(self):
+        before = self.valid_completion()
+        self.state["settings"]["joint_planning"] = True
+        original = copy.deepcopy(self.state)
+        cases = (
+            ("requirements_gather", "requirements", False, "Requirements"),
+            ("revise_plan", "planner", False, "Planner"),
+            ("review_plan", "plan_reviewer", False, "Plan Reviewer"),
+            ("revise_plan", "planner", True, "Planner"),
+        )
+        for index, (stage, role, repair, label) in enumerate(cases):
+            with self.subTest(stage=stage, report_repair=repair):
+                self.state = copy.deepcopy(original)
+                base = self.run / f"iterations/005/planning-{index:02d}"
+                base.parent.mkdir(parents=True, exist_ok=True)
+                s.atomic_json(base.with_suffix(".before.json"), before)
+                base.with_suffix(".jsonl").write_text('{"type":"turn.completed"}\n')
+                self.state["active_stage"] = {
+                    "role": role,
+                    "stage": stage + "_report_repair" if repair else stage,
+                    "original_stage": stage,
+                    "planning": True,
+                    "report_only": repair,
+                    "iteration": 5,
+                    "duration_seconds": 1,
+                    "exit_code": -15,
+                    "processes": [],
+                    "output": str(base.with_suffix(".json")),
+                    "events": str(base.with_suffix(".jsonl")),
+                    "before_ref": str(base.with_suffix(".before.json")),
+                }
+                if repair:
+                    self.state["pending_report_repair"] = {"original": {"stage": stage}}
+                runner.abandon_stage(self.state, self.run, self.root, f"005/{base.name}")
+                view = run_view.view(self.state, workspace=self.root, run_dir=self.run)
+                self.assertEqual(stage, self.state["next_stage"])
+                self.assertIn(label, view["needs"]["reason"])
+                self.assertTrue(self.state["stages"][-1]["abandoned"])
+
     def test_abandon_resolver_report_repair_preserves_planning_route(self):
         before = self.valid_completion()
         self.state["settings"]["joint_planning"] = True

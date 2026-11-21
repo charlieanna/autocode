@@ -29,6 +29,7 @@ try:
     from . import autocode_progressive_state as progressive_state
     from . import autocode_resolver_recovery as resolver_recovery
     from . import autocode_rework_policy as rework_policy
+    from . import autocode_roles as roles
     from . import autocode_run_status as run_status
     from . import autocode_source_scope as source_scope
     from . import autocode_util as util
@@ -44,6 +45,7 @@ except ImportError:
     import autocode_progressive_state as progressive_state
     import autocode_resolver_recovery as resolver_recovery
     import autocode_rework_policy as rework_policy
+    import autocode_roles as roles
     import autocode_run_status as run_status
     import autocode_source_scope as source_scope
     import autocode_util as util
@@ -75,7 +77,9 @@ def user_request(
         return True
     if names.task_planner_stage(stage):
         if value["status"] != "BLOCKED":
-            raise ValueError("The Plan Reviewer must choose BLOCKED when requesting a user decision")
+            raise ValueError(
+                f"The {roles.screen_name(stage, state)} must choose BLOCKED when requesting a user decision"
+            )
         # Record the defects already identified, then pause. The controller's early return
         # never reaches the normal review path.
         if stage != "resolve":
