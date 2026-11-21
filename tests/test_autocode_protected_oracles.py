@@ -437,6 +437,11 @@ class UndeterminedReplayTests(unittest.TestCase):
                 log = folder / "output.log"
                 log.write_bytes(Path(result["output"]).read_bytes())
                 result.update(output=str(log), output_sha256=guard.util.file_hash(log))
+            if result.get("results_capture"):
+                capture = result["results_capture"]
+                report = folder / "results.xml"
+                report.write_bytes(Path(capture["path"]).read_bytes())
+                result["results_capture"] = {"path": str(report), "sha256": guard.util.file_hash(report)}
             return result
 
         return run
@@ -714,6 +719,45 @@ class UndeterminedReplayTests(unittest.TestCase):
         saved = json.loads(receipt.read_text())
         self.assertEqual("PASS", saved["verdict"])
         self.assertIn(test_id, str(saved.get("preexisting_failures")))
+
+    def test_pytest_original_failure_recorded_on_base_does_not_block_replay(self):
+        """The reported #3944 case uses actual pytest JUnit output, not unittest text."""
+        import autocode_verify as verify
+
+        try:
+            import pytest  # noqa: F401
+        except ImportError:
+            self.skipTest("pytest is not installed")
+        proof_dir = self.run_dir / "regression" / "pytest-proof"
+        proof_dir.mkdir(parents=True)
+        project = self.run_dir / "pytest-failure"
+        project.mkdir()
+        (project / "test_layout.py").write_text(
+            "class TestLayout:\n    def test_height(self):\n        import missing_autocode_dependency\n"
+        )
+        command = shlex.join([sys.executable, "-m", "pytest", "-q", "test_layout.py"])
+        framework = verify.Framework("pytest", command)
+        base = verify.run_suite(framework, command, project, proof_dir, "base", timeout=30)
+        candidate = verify.run_suite(framework, command, project, proof_dir, "candidate", timeout=30)
+        self.assertEqual(1, len(base["results"]["failed"]))
+        self.assertIn("results_capture", base)
+        revision = guard.source_scope.snapshot(self.project, self.state)["revision"]
+        proof = {
+            "verdict": "PASS",
+            "source_revision": revision,
+            "checks": {"suite_on_base": base, "suite_on_candidate": candidate},
+        }
+        path = proof_dir / "verification.json"
+        path.write_text(json.dumps(proof))
+        self.state["regression_proof"] = {
+            "verdict": "PASS",
+            "source_revision": revision,
+            "path": str(path),
+            "receipt_sha256": guard.util.file_hash(path),
+        }
+        error, receipt = self.replay({("candidate", 0): candidate, ("original", 0): candidate})
+        self.assertIsNone(error)
+        self.assertEqual("PASS", json.loads(receipt.read_text())["verdict"])
 
     def test_same_test_with_a_different_failure_is_not_excused(self):
         _test_id, replay = self.record_base_failure()

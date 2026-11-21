@@ -6,6 +6,11 @@ what was independently observed during continuation.
 
 - #3944 remains unimplemented. Protected-test replay still treats failures
   already present in the base suite as candidate failures.
+- A second #3944 regression now runs real pytest and retains separately pinned
+  base and candidate JUnit captures for an original test failing on a missing
+  dependency. It too fails at protected replay on this branch. Pytest's failure
+  text includes volatile object addresses, so a sound comparison must remove
+  those display-only details without dropping the exception or assertion.
 - A protected-replay regression now captures identical baseline failures
   with source-bound, hashed baseline evidence. It fails on master and this
   branch. Companion checks require same-test different failures, tampered
