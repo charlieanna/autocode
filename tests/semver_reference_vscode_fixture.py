@@ -31,8 +31,8 @@ SOURCE_HASHES = {
 FIXTURE_HASHES = {
     "criteria.json": "89320411c00b6b3ce3fcb85e1179f73569e48fb3a8026e74e92bdd6310261c85",
     "jsonio-source.py.txt": "7f680a59850141ee59262c3eb11a4b5c5aa738fee115212d1fb9110f5197c537",
-    "version-to-json.txt": "062aadb70bcd662846ba778ff9c1124a9a36f8bfd40a2c1789b2c38661ef9a0d",
-    "version-from-json.txt": "4bfac77ff15e745b6d5779e09154fc9c3cab9f50c568cfad88c63c14e81966b8",
+    "version-to-json.txt": "0bdba4cf9260cfbaa962b96344b9e9ca284d85463831eec0e492dc14a1207716",
+    "version-from-json.txt": "0ee217a626112536716a1749b8a0a2e4a5399790f07f6ad6056c969459a50d8a",
     "initial-test.py.txt": "b4d75c5331b1ee453c2937d9fe67c12fb3d3597843455260712480895096a541",
     "strengthened-test.py.txt": "92b67bbe4670bddeb74e1309c2f49fc915774352aa5ea616ef8e42a6e30cc3f9",
     "repaired-test.py.txt": "15dceec0f8ef80555f805cd555312b650cdb11e1a520155abecc61a2b8d2170f",
@@ -207,9 +207,9 @@ def main(argv: list[str]) -> int:
     replace_once(init, anchor, anchor + '    "dumps_version",\n    "loads_version",\n')
     version = reference / "src/semver/version.py"
     anchor = "    def __iter__(self) -> VersionIterator:\n"
-    replace_once(version, anchor, (FIXTURES / "version-to-json.txt").read_text() + anchor)
+    replace_once(version, anchor, (FIXTURES / "version-to-json.txt").read_text() + "\n" + anchor)
     anchor = '    def replace(self, **parts: Union[int, Optional[str]]) -> "Version":\n'
-    replace_once(version, anchor, (FIXTURES / "version-from-json.txt").read_text() + anchor)
+    replace_once(version, anchor, (FIXTURES / "version-from-json.txt").read_text() + "\n" + anchor)
     source = reference / "src/semver/jsonio.py"
     if source.exists():
         raise AssertionError("Pinned base unexpectedly contains jsonio.py")

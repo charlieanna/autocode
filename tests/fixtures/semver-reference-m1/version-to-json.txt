@@ -15,4 +15,3 @@
         from .jsonio import dumps_version
 
         return dumps_version(self)
-
