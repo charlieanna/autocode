@@ -226,6 +226,33 @@ class ImportObservationTests(unittest.TestCase):
         self.assertEqual(0, changed["exit_code"])
         self.assertEqual(candidate / "release_api.py", Path(Path(resolved["output"]).read_text().strip()))
 
+    def test_adding_a_placeholder_can_shadow_the_external_import_in_the_actual_test(self):
+        base, candidate, output, external = (self.root / name for name in ("base", "candidate", "out", "external"))
+        for tree in (base, candidate, output, external):
+            tree.mkdir()
+        (base / "app.py").write_text("new = False\n")
+        (candidate / "app.py").write_text("new = True\n")
+        (external / "release_api.py").write_text("value = 42\n")
+        source = (
+            "import sys, unittest\nclass TestApp(unittest.TestCase):\n"
+            "    def test_release(self):\n        import app\n"
+            f"        if app.new:\n            sys.path.insert(1, {str(external)!r})\n"
+            "        from release_api import value\n        self.assertEqual(value, 42)\n"
+        )
+        for tree in (base, candidate):
+            (tree / "test_app.py").write_text(source)
+        command = shlex.join([sys.executable, "-m", "unittest", "-v", "test_app"])
+        framework = verify.Framework("unittest", command, python=sys.executable)
+        original = verify.run_suite(framework, command, base, output, "original", timeout=30)
+        changed = verify.run_suite(framework, command, candidate, output, "changed", timeout=30)
+        (candidate / "release_api.py").write_text("raise RuntimeError('placeholder sentinel')\n")
+        placeholder = verify.run_suite(framework, command, candidate, output, "placeholder", timeout=30)
+        self.assertNotEqual(0, original["exit_code"])
+        self.assertIn("No module named 'release_api'", Path(original["output"]).read_text())
+        self.assertEqual(0, changed["exit_code"])
+        self.assertNotEqual(0, placeholder["exit_code"])
+        self.assertIn("placeholder sentinel", Path(placeholder["output"]).read_text())
+
     def test_observe_candidate_reruns_the_same_tests_and_binds_source_and_environment(self):
         base, candidate, output = (self.root / name for name in ("base", "candidate", "evidence"))
         for tree, implementation in ((base, "def old(): return 1\n"), (candidate, "def new(): return 42\n")):

@@ -30,6 +30,12 @@ module. The project file returns 0 and the external one returns 42, so the
 test passes only with the external import. Authenticating the resolver and
 module state at the exact import in the actual test process is still needed;
 the existing runner records no such events.
+An owned-runner placeholder control further shows that creating the missing
+project module can shadow an external import: the unmodified candidate passes
+using an external `release_api`, then an added project sentinel is imported
+and fails. The sentinel proves only the modified run's resolution. Existing
+mutation checks select from already judged tests and also cannot establish the
+unmodified import's source; they cannot break this circular dependency.
 
 The branch was rebased onto master `6ae029754` and additionally incorporates
 the capture ownership fixture correction from `251841736` (cherry-picked as
