@@ -1678,7 +1678,7 @@ def needs(state: RunState, *, stale_report_repair=False, human_projection=None, 
             retained = retry_next.decide(state, state.get("workspace"))
         if retry_next.exhausted_pause(state, retained):
             # The retained re-check of the saved tests is spent (#3927): a resume would only re-raise this
-            # pause, so none is offered. The recovery card says what ran; the chat keeps its feedback box.
+            # pause, so none is offered. The recovery card reports what ran and preserves its evidence.
             return None
         need = {"kind": "resume", "reason": state.get("stop_reason") or status}
         # An uncertain attempt must be set aside before a resume can continue (#340).

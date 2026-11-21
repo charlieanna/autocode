@@ -856,7 +856,7 @@ def project(state: RunState, need=None, *, retained=_UNSET):
             )
         )
     if spent:
-        # An accurate blocked outcome, not a missing action: what ran, its bound, and the feedback that remains.
+        # The bounded recovery could not settle this internal failure. Preserve its evidence for inspection.
         result.update(category="blocked", title="No re-check of the saved tests is left")
     for member in _parallel_members(state):
         label, effect = member_stop.card(state, member) or (
@@ -864,7 +864,7 @@ def project(state: RunState, need=None, *, retained=_UNSET):
             "Retry only this stopped batch member. Completed members and their work are kept. The runner rechecks worker liveness and the approved batch.",
         )
         actions.append(_action("retry_builder", label, effect, milestone_ids=[member]))
-    if not pause_authority.feedback_refusal(state):
+    if not spent and not pause_authority.feedback_refusal(state):
         actions.append(
             _action(
                 "feedback",

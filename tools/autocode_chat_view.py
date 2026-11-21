@@ -17,7 +17,6 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
-    from . import autocode_acceptance_retry_next as retry_next
     from . import autocode_acceptance_tests_job as acceptance_tests_job
     from . import autocode_chat_history as history
     from . import autocode_gate_chat as gate_chat
@@ -29,7 +28,6 @@ try:
     from . import autocode_scope_question as scope_question
     from . import autocode_stage_activity as stage_activity
 except ImportError:
-    import autocode_acceptance_retry_next as retry_next
     import autocode_acceptance_tests_job as acceptance_tests_job
     import autocode_chat_history as history
     import autocode_gate_chat as gate_chat
@@ -399,10 +397,7 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
             "Send plan feedback" if blocker_hold else "Explain what should change",
             "--feedback",
         )
-    # A spent re-check of the Tester's retained report is a blocked outcome that still takes what should change
-    # (#3927): every other blocked card drops the chat input.
-    spent_recheck = (public.get("acceptance_verification_retry") or {}).get("next") == retry_next.EXHAUSTED and not need
-    if blocked and not spent_recheck:
+    if blocked:
         action = None
     context_token = context(state, public)
     message_input = None

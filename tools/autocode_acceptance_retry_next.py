@@ -15,7 +15,7 @@ saved tests, or a resume that an exhausted bound would refuse.
   tests or report (a recorded cause other than ``environment``). Re-reading the pinned report cannot edit
   it, so the retained retry is retired and the ordinary test-writing step runs with that guidance. One
   Investigator result, its (identity, requested_at), retires at most one retained retry.
-- ``exhausted``: nothing is left to re-check; the person explains what should change.
+- ``exhausted``: the bounded recovery has no re-check left and reports the unresolved failure.
 
 ``rechecks`` is the local re-checks spent and ``allowed`` how many this retry may spend. Staleness (a
 changed report, source, plan or task) is not part of the answer: dispatch refuses a stale report before

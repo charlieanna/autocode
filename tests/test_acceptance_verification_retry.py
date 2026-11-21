@@ -747,14 +747,13 @@ class AcceptanceVerificationRetryTests(unittest.TestCase):
         self.assertEqual({"next": "exhausted", "rechecks": 1, "allowed": 1}, shown.get("acceptance_verification_retry"))
         self.assertNotIn("Try the Tester step again", json.dumps(shown))
 
-    def test_ac6_exhausted_recheck_keeps_feedback_box(self):
+    def test_ac6_exhausted_recheck_reports_failure_without_requesting_machinery_feedback(self):
         shown = self.exhausted()
-        self.assertEqual("feedback", shown["chat"]["input"]["kind"])
-        self.assertEqual("Explain what should change", shown["chat"]["input"]["label"])
+        self.assertIsNone(shown["chat"]["input"])
         feedback = [row for row in shown["recovery"]["actions"] if row["kind"] == "feedback"]
-        self.assertEqual(["Explain what should change"], [row["label"] for row in feedback])
+        self.assertEqual([], feedback)
 
-    def test_ac21_exhausted_recheck_is_a_blocked_outcome_with_feedback(self):
+    def test_ac21_exhausted_recheck_reports_a_blocked_outcome(self):
         shown = self.exhausted()
         self.assertIsNone(shown["needs"])
         self.assertIsNone(shown["next_command"])
@@ -763,9 +762,7 @@ class AcceptanceVerificationRetryTests(unittest.TestCase):
         self.assertEqual("No re-check of the saved tests is left", card["title"])
         self.assertIn("1 of 1 allowed times", card["what_happened"])
         self.assertEqual(card["what_happened"], shown["chat"]["notice"])
-        offer = shown["chat"]["input"]
-        self.assertEqual(("feedback", "Explain what should change"), (offer["kind"], offer["label"]))
-        self.assertIn("--feedback", offer["next_command"])
+        self.assertIsNone(shown["chat"]["input"])
 
     def test_ac7_pending_recheck_is_labelled_as_recheck(self):
         self.reference.side_effect = None
