@@ -251,6 +251,11 @@ def _rows(raw):
         state = part.get("state") or {}
         metadata = state.get("metadata") or {}
         ident = part.get("id", item.get("id"))
+        if not (
+            row.get("type") == "item.completed"
+            or (row.get("type") == "tool_use" and state.get("status") == "completed")
+        ):
+            continue
         if metadata.get("truncated") or metadata.get("output_truncated") or item.get("output_truncated"):
             blocked.add(ident)
         elif (

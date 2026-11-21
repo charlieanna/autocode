@@ -478,6 +478,47 @@ class RequirementsObservationsTests(unittest.TestCase):
         )
         self.assertEqual("2025\n", found["output"])
 
+    def test_running_native_event_cannot_attest_a_later_completed_output(self):
+        command = "python3 -m pytest --collect-only -q"
+        part = {
+            "id": "probe",
+            "tool": "bash",
+            "state": {
+                "status": "running",
+                "input": {"command": command},
+                "metadata": {"truncated": False},
+            },
+        }
+        completed = copy.deepcopy(part)
+        completed["state"] = {
+            "status": "completed",
+            "input": {"command": command},
+            "output": "partial\n",
+            "metadata": {"exit": 0},
+        }
+        self.events = [
+            {"type": "step_start", "sessionID": "session", "part": {"id": "start", "type": "step-start"}},
+            {"type": "tool_use", "sessionID": "session", "part": part},
+            {"type": "tool_use", "sessionID": "session", "part": completed},
+            {
+                "type": "step_finish",
+                "sessionID": "session",
+                "part": {
+                    "id": "finish",
+                    "type": "step-finish",
+                    "reason": "stop",
+                    "tokens": {"input": 1, "output": 1, "reasoning": 0, "cache": {"read": 0, "write": 0}},
+                },
+            },
+        ]
+        self.write_events(terminal=False)
+        self.seal()
+        self.assertIsNone(
+            observations.retained_command_output(
+                self.state, "draft_plan", self.run, lambda: source.snapshot(self.workspace), command
+            )
+        )
+
     def test_legacy_replay_recovered_and_unsuccessful_records_never_get_retroactive_seals(self):
         observations.seal(self.state, self.record, self.report)
         self.assertNotIn(observations.FIELD, self.record)
