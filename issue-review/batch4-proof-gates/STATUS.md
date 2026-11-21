@@ -23,6 +23,9 @@ what was independently observed during continuation.
   written. The runner now pins ordinary per-test result files in the receipt
   and the shared integrity check rejects tampering, removal or symlinks. A
   new real-pytest regression fails on master `f1b67a7b0` and passes here.
+  An unreadable capture also fails closed; its regression fails on the first
+  capture revision and passes with the follow-up. The receipt and scheduling
+  suites passed 72 tests, and ruff and mypy passed for the capture revision.
   This is a prerequisite only: replay still needs a shared per-test provenance
   comparison, and old receipts without a trusted capture must not be accepted
   as identical-failure evidence. Explicit JUnit mode has separate capture.
