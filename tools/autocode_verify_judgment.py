@@ -220,6 +220,13 @@ def judge_regression(
                 "No new or changed test passes with the change and did not pass without it, "
                 "so the tests do not show the new behavior"
             )
+            if base["collection_errors"]:
+                fail.append(
+                    "The base test run could not collect " + ", ".join(base["collection_errors"][:5]) + ". "
+                    "Make the affected tests load on the base so their named assertions can run there. "
+                    "For example, move test-only imports out of module setup when appropriate, or test the "
+                    "public command through its output. Keep the behavior assertions and run the proof again."
+                )
         elif not flipped and not preserve_only:
             if setup_errors:
                 fail.append(test_setup.proof_note(setup_errors))
