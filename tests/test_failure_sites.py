@@ -104,6 +104,15 @@ class PinnedFailureSourceTests(unittest.TestCase):
         (self.root / ".pytest_cache").mkdir()
         self.assertIsNone(sites.pinned_identity(self.root, "pkg/module.py", 2, self.expected, before))
 
+    def test_recreated_coverage_output_in_the_root_remains_a_conservative_hold(self):
+        coverage = self.root / ".coverage"
+        coverage.write_text("earlier output")
+        before = self.capture()
+        replacement = self.root / ".coverage.tmp"
+        replacement.write_text("new output")
+        replacement.replace(coverage)
+        self.assertIsNone(sites.pinned_identity(self.root, "pkg/module.py", 2, self.expected, before))
+
     def test_links_hardlinks_and_noncanonical_paths_are_refused(self):
         self.assertIsNone(sites.source_stamp(self.root, "../pkg/module.py", self.expected))
         self.assertIsNone(sites.source_stamp(self.root, ".GIT/config.py", self.expected))

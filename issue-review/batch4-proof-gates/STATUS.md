@@ -212,6 +212,13 @@ pass while the strict-binding positive cases and final judgment remain open.
   records a complete runtime identity, but **still holds** because its import
   origin is module-reported, not independently authenticated. Its receipts are
   in `/private/tmp/autocode-proof-real-semver-ldl_8rer/evidence/observation/`.
+  A fresh AC6 rerun with before/after Python source stamps also held: its real
+  pytest configuration enables coverage and recreates `.coverage` in the
+  scratch root, changing the watched root directory timestamp even though the
+  file contents and full runtime identity stayed the same. Ignoring that root
+  change would also permit a source-root swap. The observed base failure and
+  candidate pass are retained in
+  `/private/tmp/autocode-proof-real-semver-ldl_8rer/evidence-stamped/`.
 - Shared scratch preparation now compares the actual copied source against the
   inventoried source before applying a deliberate patch or retained overlay,
   checks its Git HEAD, rejects unpinned source paths, and rechecks the live
