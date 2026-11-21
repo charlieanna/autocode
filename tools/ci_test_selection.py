@@ -416,6 +416,8 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     # own imports are invisible to the import selector (#2414).
     ("tools/autocode_component_tests.py", ("tests.test_verify", "tests.test_test_root")),
     ("tests/test_report_repair.py", ("tests.test_native_event_identity_cli",)),
+    # The mutation catalogue invokes this detector by module name in a disposable subprocess.
+    ("tests/test_catalogue_t06.py", ("tests.test_catalogue_t14",)),
     # The quota worker's generated bootstrap imports the offline fixture inside its
     # subprocess, invisible to the import selector (#2442).
     ("tests/opencode_fixture_cli.py", ("tests.test_quota_worker",)),
