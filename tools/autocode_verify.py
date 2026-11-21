@@ -1975,12 +1975,8 @@ def _preserve_suite(run: _Run, trees, *, no_go_project, no_junit_project) -> lis
             ignored_inputs=ignored_inputs,
         )
     )
-    # A first Go project on a base that has code in another language (a C#
-    # port, for example) has no Go suite to preserve. `go test` then reports
-    # no packages — inside a parent module that the candidate just added,
-    # "matched no packages" — and that is not a broken base suite. A base
-    # that already has a Go module or Go source keeps the ordinary rule. A package's
-    # suite command is read inside its `cd PKG && `, as per_test_results reads it.
+    # The pristine receipt can establish absence of a Go suite only when
+    # the pinned base has no Go project. Inspect the command inside package scope.
     suite_go = _go_test(package_scope.split(framework, commands["suite"] or "")[1])
     allow_absent_go = bool(no_go_project and comparable and comparable.get("base") == base and suite_go)
     # The base's own suite definition, executed over the candidate's product code, decides
