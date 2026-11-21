@@ -113,6 +113,17 @@ class ScopeTests(unittest.TestCase):
                 )
                 self.assertIn("extension", self.enabled(resource))
         self.assertNotIn("extension", self.enabled("tests/unrelated/semver_reference_vscode_fixture.py"))
+        for shared in (
+            "tests/host_reader_cleanup.py",
+            "tests/status_retry_host_cleanup.py",
+            "vscode-extension/test/owned-fixture-cleanup.cjs",
+        ):
+            with self.subTest(shared=shared):
+                self.assertIn(
+                    "vscode-extension/test/host/semver-reference-repair.test.cjs",
+                    ci_test_selection.EXTENSION_HOST_RESOURCES[shared],
+                )
+                self.assertIn("extension", self.enabled(shared))
 
     def test_visual_changes_keep_their_real_browser_job(self):
         self.assertTrue({"suite", "visual", "wheel"} <= self.enabled("tools/autocode_visual_browser.cjs"))

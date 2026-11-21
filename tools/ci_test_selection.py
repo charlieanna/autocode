@@ -39,7 +39,10 @@ PUBLIC_FLOW_CONSUMERS = ("tests.test_launch_state_cli", "tests.test_completion_s
 # Python import. Keep the consuming test named so fixture-only edits run it.
 EXTENSION_HOST_RESOURCES = {
     "tests/guard_host_hook/sitecustomize.py": ("vscode-extension/test/host/job-route-effort.test.cjs",),
-    "tests/host_reader_cleanup.py": ("vscode-extension/test/host/editor-host.test.cjs",),
+    "tests/host_reader_cleanup.py": (
+        "vscode-extension/test/host/editor-host.test.cjs",
+        "vscode-extension/test/host/semver-reference-repair.test.cjs",
+    ),
     "tests/host_status_site/sitecustomize.py": ("vscode-extension/test/host/status-retry.test.cjs",),
     "tests/job_route_vscode_cli.py": (
         "vscode-extension/test/host/job-route-effort.test.cjs",
@@ -53,6 +56,12 @@ EXTENSION_HOST_RESOURCES = {
     "tests/semver_reference_vscode_fixture.py": ("vscode-extension/test/host/semver-reference-repair.test.cjs",),
     "tests/semver_reference_provider.py": ("vscode-extension/test/host/semver-reference-repair.test.cjs",),
     "vscode-extension/test/host/semver-reference-cli.py": (
+        "vscode-extension/test/host/semver-reference-repair.test.cjs",
+    ),
+    "vscode-extension/test/owned-fixture-cleanup.cjs": (
+        "vscode-extension/test/host/editor-host.test.cjs",
+        "vscode-extension/test/host/job-route-effort.test.cjs",
+        "vscode-extension/test/host/kilo-route-effort.test.cjs",
         "vscode-extension/test/host/semver-reference-repair.test.cjs",
     ),
     **dict.fromkeys(
@@ -80,6 +89,7 @@ EXTENSION_HOST_RESOURCES = {
         "vscode-extension/test/host/job-route-effort.test.cjs",
         "vscode-extension/test/host/kilo-route-effort.test.cjs",
         "vscode-extension/test/host/status-retry.test.cjs",
+        "vscode-extension/test/host/semver-reference-repair.test.cjs",
     ),
     "tests/status_retry_host_cli.py": ("vscode-extension/test/host/status-retry.test.cjs",),
     "tests/status_retry_host_fixture.py": ("vscode-extension/test/host/status-retry.test.cjs",),
@@ -202,6 +212,7 @@ SCENARIO_SELECTION_INPUTS = {
 # Prefixes deliberately include resource fragments, whose callers generally do
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("tests/semver_reference_vscode_fixture.py", ("tests.test_semver_reference_plan_review",)),
     *(
         (
             path,

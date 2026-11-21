@@ -1,5 +1,52 @@
 # Proof gates status
 
+### Integrated qualification candidate
+
+Master `2eb8e7813` is integrated, including the independently qualified #4052
+Investigator source-drift fixture correction. The final proof-consumer fixture
+revision passed all 150 affected tests (`/private/tmp/autocode-3981-final-proof-consumers.log`).
+The two explicit collection-error rejection controls fail master by assertion
+and pass this branch. An independent agent verified that positive numerical
+and health assertions are retained and `OLD_TEST`/`SMOKE_TEST` remain byte-identical
+to master. Under delegated owner review, the obsolete
+`test_a_new_test_that_cannot_import_on_base_proves_a_feature` and
+`test_a_guard_that_could_not_run_before_counts_with_a_note` are replaced with
+explicit refusal controls: uncollected tests cannot prove a feature. The first
+fixture draft accidentally changed the original hidden-test setup; its failed
+attempt is retained, the original fixture bytes were restored, and all three
+preservation/runner-policy controls passed before the final full selection.
+
+The committed actual-extension fixture reconstructs the six-criterion SemVer
+M1 from pinned public base `6adf8765f6e21910f1f0c13151ce84f32f8d431d` and reviewed
+source snippets; it is not the original twelve-criterion live run. With the
+separately reviewed #4050 scripted-provider event-identity fix, CLI rehearsal
+#9 on runtime `65c5d38b4` reached `TASK_COMPLETE`, verified delivery, and six
+named candidate-pass/base-fail results after the real AC6 reference rejection
+and bounded rewrite. The same fixture on master `c35de087`, with only that
+scripted-provider correction overlaid, stopped `PAUSED_INVALID_OUTPUT` at the
+real AC6 setup failure and never reached its reference-repair handoff. The
+frozen logs are `/private/tmp/autocode-semver-reference-cli-rehearsal-9.log` and
+`/private/tmp/autocode-semver-reference-master-rehearsal-1.log`; both attempts'
+recorded owned process identities were confirmed exited. Earlier #8 ambiguous
+fake event IDs remain preserved and are tracked separately as #4049/#4050.
+
+The host fixture requires the real editor approval action, the actual pinned
+rejection receipt, all six named results, verified completion and matching
+editor state. It binds the whole displayed plan to the independently reviewed
+canonical digest, preserving the exact current approval token. Its private
+profile and registry retain inherited HOME/CODEX_HOME, strip credentials, and
+use the scripted provider. `--max-cost-usd 0` means uncapped; no live provider
+is invoked. Shared cleanup records PID/birth identities, checks them in a
+batch, and independently checks for unrecorded readers. All exact resources
+and the full-plan review unit test have CI mappings. The integrated 185
+fixture/selection checks and full Ruff/format/mypy passed; the final actual
+editor and `ci-required` results for this integrated head are still pending.
+
+#4047's separately investigated semantic Python line-inventory defect is not
+included here; old CLI completion is not evidence that this new defect is fixed.
+#3944 and the original full-task qualification remain open. No green CI or
+current-head editor outcome is implied by these earlier CLI diagnostics.
+
 ### Current CI consumer investigation
 
 On the locally integrated `0db19fe345` runtime, the real public TaskRun greeting
