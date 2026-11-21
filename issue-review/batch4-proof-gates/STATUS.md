@@ -84,7 +84,7 @@ pass while the strict-binding positive cases and final judgment remain open.
   An offline prototype maps traceback lines to Python AST statement identities
   and aligns the eight reconstructed failures while retaining full exception
   text. A new pure site helper now rejects changed statements, ambiguous
-  scopes and changed repeated-site contexts. It grants no gate authority:
+  scopes, distinct source paths and changed repeated-site contexts. It grants no gate authority:
   the runner must still authenticate the exact executing source and every
   normalized runner-owned value, preserve chains and parameters, and capture
   fresh base evidence. Old unpinned JUnit must not be upgraded.

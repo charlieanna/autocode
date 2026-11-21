@@ -82,10 +82,10 @@ def pinned_identity(root, name, line, expected, before):
     observed = _read_captured(root, name, expected)
     if not observed or before is None or observed["stamp"] != before:
         return None
-    return identity(observed["text"], line)
+    return identity(observed["text"], line, path=name)
 
 
-def identity(source, line):
+def identity(source, line, *, path):
     """Identify one unique statement within an unambiguous lexical scope, or hold.
 
     Repeated identical statements can be distinguished only while the entire
@@ -93,13 +93,22 @@ def identity(source, line):
     equated with another failure site. The caller retains all exception text.
     """
     if (
-        not isinstance(source, str)
-        or len(source.encode("utf-8")) > MAX_SOURCE_BYTES
+        not isinstance(path, str)
+        or not path
+        or "\\" in path
+        or "\x00" in path
+        or not Path(path).parts
+        or Path(path).is_absolute()
+        or Path(path).as_posix() != path
+        or any(part in ("", ".", "..", ".git", ".autocode", ".autocode-ui") for part in Path(path).parts)
+        or not isinstance(source, str)
         or type(line) is not int
         or line < 1
     ):
         return None
     try:
+        if len(source.encode("utf-8")) > MAX_SOURCE_BYTES:
+            return None
         root = ast.parse(source)
         scopes = {(): root}
         repeated_scopes = set()
@@ -139,7 +148,7 @@ def identity(source, line):
         ]
         if not peers:
             return None
-        value = {"scope": scope, "statement": shape}
+        value = {"path": path, "scope": scope, "statement": shape}
         if len(peers) > 1:
             ordered = sorted(peers, key=lambda node: (node.lineno, node.col_offset))
             value.update(
