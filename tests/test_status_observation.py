@@ -17,6 +17,194 @@ import autocode_verification_inspection as verification
 
 
 class StatusObservationTests(unittest.TestCase):
+    def test_effort_offer_uses_saved_kilo_provider_without_listing_models(self):
+        import autocode_interventions as interventions
+        import autocode_job_retry_admission as admission
+        import autocode_providers as providers
+        import autocode_role_transport as role_transport
+
+        state = {
+            "settings": {
+                "engine": "opencode",
+                "provider": "kilocode",
+                "roles": {"architect": {"reasoning_effort": "high"}},
+            },
+            "job_failure": {"configuration": {"roles": {"architect": {"reasoning_effort": "medium"}}}},
+        }
+        facade = Mock(CONFIGURED=True)
+        with (
+            patch.object(admission, "validate_retry", side_effect=admission.RetryConfigurationChanged("drift")),
+            patch.object(admission, "route_is_repairable", return_value=True) as repairable,
+            patch.object(admission.quota_route, "job_question", return_value={"route_role": "architect"}),
+            patch.object(interventions, "pending", return_value=[]),
+            patch.object(providers, "resolve", return_value=facade) as resolve,
+            patch.object(role_transport, "adapter", return_value=facade) as adapter,
+        ):
+            result = worker._worker(
+                {
+                    "operation": "job_retry",
+                    "payload": {"state": state, "workspace": "/tmp", "run_dir": "/tmp/run", "token": "jr:test"},
+                }
+            )
+        resolve.assert_called_once_with("kilocode")
+        adapter.assert_called_once_with(state["settings"], "architect", facade, "/tmp")
+        self.assertTrue(repairable.call_args.kwargs["configured_tool"])
+        self.assertEqual({"allowed": False, "route_allowed": True, "effort_drift": True, "reason": "drift"}, result)
+        facade.check_models.assert_not_called()
+        facade.available_models.assert_not_called()
+
+    def test_effort_offer_holds_when_role_transport_has_changed(self):
+        import autocode_providers as providers
+        import autocode_role_transport as role_transport
+
+        state = {"settings": {"engine": "opencode", "provider": "kilocode"}}
+        request = {
+            "operation": "job_retry",
+            "payload": {"state": state, "workspace": "/tmp", "run_dir": "/tmp/run", "token": "jr:test"},
+        }
+        for error in (ValueError("missing saved transport"), util.Paused("PAUSED_TRANSPORT_CHANGED", "drift")):
+            with (
+                self.subTest(error=error),
+                patch.object(
+                    job_retry_admission,
+                    "validate_retry",
+                    side_effect=job_retry_admission.RetryConfigurationChanged("drift"),
+                ),
+                patch.object(job_retry_admission.quota_route, "job_question", return_value={"route_role": "architect"}),
+                patch.object(interventions, "pending", return_value=[]),
+                patch.object(providers, "resolve", return_value=Mock(CONFIGURED=True)),
+                patch.object(role_transport, "adapter", side_effect=error),
+                patch.object(job_retry_admission, "route_is_repairable") as repairable,
+            ):
+                self.assertEqual(
+                    {"allowed": False, "reason": "The saved provider could not be inspected"}, worker._worker(request)
+                )
+            repairable.assert_not_called()
+
+    def test_effort_offer_holds_when_saved_provider_cannot_be_inspected(self):
+        import autocode_providers as providers
+
+        state = {"settings": {"engine": "opencode", "provider": "kilocode"}}
+        request = {
+            "operation": "job_retry",
+            "payload": {"state": state, "workspace": "/tmp", "run_dir": "/tmp/run", "token": "jr:test"},
+        }
+        with (
+            patch.object(
+                job_retry_admission,
+                "validate_retry",
+                side_effect=job_retry_admission.RetryConfigurationChanged("drift"),
+            ),
+            patch.object(job_retry_admission.quota_route, "job_question", return_value={"route_role": "architect"}),
+            patch.object(interventions, "pending", return_value=[]),
+            patch.object(providers, "resolve", side_effect=ValueError("unavailable")),
+            patch.object(job_retry_admission, "route_is_repairable") as repairable,
+        ):
+            self.assertEqual(
+                {"allowed": False, "reason": "The saved provider could not be inspected"}, worker._worker(request)
+            )
+        repairable.assert_not_called()
+
+    def test_effort_offer_checks_real_missing_role_transport_identity(self):
+        import autocode_providers as providers
+
+        settings = {
+            "engine": "opencode",
+            "provider": "kilocode",
+            "roles": {"architect": {"engine": "opencode", "provider": "other"}},
+        }
+        request = {
+            "operation": "job_retry",
+            "payload": {"state": {"settings": settings}, "workspace": "/tmp", "run_dir": "/tmp/run", "token": "t"},
+        }
+        with (
+            patch.object(
+                job_retry_admission,
+                "validate_retry",
+                side_effect=job_retry_admission.RetryConfigurationChanged("drift"),
+            ),
+            patch.object(job_retry_admission.quota_route, "job_question", return_value={"route_role": "architect"}),
+            patch.object(interventions, "pending", return_value=[]),
+            patch.object(providers, "resolve", return_value=Mock(CONFIGURED=True)),
+            patch.object(job_retry_admission, "route_is_repairable") as repairable,
+        ):
+            self.assertEqual(
+                {"allowed": False, "reason": "The saved provider could not be inspected"}, worker._worker(request)
+            )
+        repairable.assert_not_called()
+
+    def test_effort_offer_does_not_load_provider_for_invalid_role(self):
+        import autocode_providers as providers
+
+        request = {
+            "operation": "job_retry",
+            "payload": {"state": {}, "workspace": "/tmp", "run_dir": "/tmp/run", "token": "t"},
+        }
+        with (
+            patch.object(
+                job_retry_admission,
+                "validate_retry",
+                side_effect=job_retry_admission.RetryConfigurationChanged("drift"),
+            ),
+            patch.object(job_retry_admission.quota_route, "job_question", return_value={"route_role": "unknown"}),
+            patch.object(interventions, "pending", return_value=[]),
+            patch.object(providers, "resolve") as resolve,
+        ):
+            self.assertEqual({"allowed": False, "reason": "drift"}, worker._worker(request))
+        resolve.assert_not_called()
+
+    def test_codex_role_holds_when_the_saved_run_provider_is_missing(self):
+        import autocode_providers as providers
+
+        settings = {"engine": "codex", "provider": "kilocode", "roles": {"architect": {"engine": "codex"}}}
+        request = {
+            "operation": "job_retry",
+            "payload": {"state": {"settings": settings}, "workspace": "/tmp", "run_dir": "/tmp/run", "token": "t"},
+        }
+        with (
+            patch.object(
+                job_retry_admission,
+                "validate_retry",
+                side_effect=job_retry_admission.RetryConfigurationChanged("drift"),
+            ),
+            patch.object(job_retry_admission.quota_route, "job_question", return_value={"route_role": "architect"}),
+            patch.object(interventions, "pending", return_value=[]),
+            patch.object(providers, "resolve", side_effect=ValueError("missing")),
+            patch.object(job_retry_admission, "route_is_repairable") as repairable,
+        ):
+            self.assertEqual(
+                {"allowed": False, "reason": "The saved provider could not be inspected"}, worker._worker(request)
+            )
+        repairable.assert_not_called()
+
+    def test_replay_route_is_held_without_reconstructing_its_facade(self):
+        import autocode_providers as providers
+
+        request = {
+            "operation": "job_retry",
+            "payload": {
+                "state": {"settings": {"replay_recording": {"path": "saved"}}},
+                "workspace": "/tmp",
+                "run_dir": "/tmp/run",
+                "token": "t",
+            },
+        }
+        with (
+            patch.object(
+                job_retry_admission,
+                "validate_retry",
+                side_effect=job_retry_admission.RetryConfigurationChanged("drift"),
+            ),
+            patch.object(job_retry_admission.quota_route, "job_question", return_value={"route_role": "architect"}),
+            patch.object(interventions, "pending", return_value=[]),
+            patch.object(providers, "resolve") as resolve,
+        ):
+            self.assertEqual(
+                {"allowed": False, "reason": "The saved replay provider could not be inspected"},
+                worker._worker(request),
+            )
+        resolve.assert_not_called()
+
     def test_suite_reports_fail_closed_on_timeout_or_malformed_worker_output(self):
         with patch.object(observation, "_observe", side_effect=subprocess.TimeoutExpired("worker", 1)):
             self.assertEqual([], observation.suite_reports({}, "/tmp/project", "/tmp/run"))
@@ -92,6 +280,7 @@ class StatusObservationTests(unittest.TestCase):
         with (
             patch.object(job_retry_admission, "validate_retry", side_effect=error),
             patch.object(interventions, "pending", return_value=[]) as pending,
+            patch.object(job_retry_admission.quota_route, "job_question", return_value={"route_role": "architect"}),
             patch.object(job_retry_admission, "route_is_repairable", return_value=True),
         ):
             result = worker._worker(request)

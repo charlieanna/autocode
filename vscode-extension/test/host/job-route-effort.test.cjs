@@ -30,7 +30,7 @@ async function executable() {
   return downloadAndUnzipVSCode({ version: '1.147.0', cachePath: path.join(EXTENSION, '.vscode-test') });
 }
 
-test('real editor shows the active-writer refusal', { timeout: 300_000 }, async () => {
+test('real editor protects an active writer and permits a concurrent status observer', { timeout: 300_000 }, async () => {
   assert.equal(require('../../package.json').contributes.configuration.properties['autocode.confirmPersonOnly'].default, true,
     'the default person-only confirmation policy remains enabled');
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'autocode-quota-route-'));
@@ -168,9 +168,10 @@ test('real editor shows the active-writer refusal', { timeout: 300_000 }, async 
       return (await active.locator('#chat-error').textContent())?.includes(`Existing run process ${writer.child.pid} is active`);
     });
     assert.equal((await release(writer)).code, 0);
-    const after = publicStatus();
-    assert.equal(after.needs.job_retry_token, before.needs.job_retry_token, 'refused action does not rotate the token');
+    const refused = publicStatus();
+    assert.equal(refused.needs.job_retry_token, before.needs.job_retry_token, 'refused action does not rotate the token');
     assert.equal(fs.readFileSync(fixture.calls, 'utf8'), originalCalls, 'refusal launches no model');
+    const observer = await hold('status');
     const retryFrame = await chat();
     await retryFrame.locator('[data-question="route-architect"]').fill('gpt-6-sol@medium');
     await retryFrame.locator('#take-action').click();
@@ -179,13 +180,16 @@ test('real editor shows the active-writer refusal', { timeout: 300_000 }, async 
         .filter((entry) => entry.event === 'finished');
       return finished.length >= 2 && finished[1].exit_code === 0;
     });
-    const accepted = await until('the answer to be accepted after the writer exits', () => {
+    const after = await until('the concrete bound answer to be accepted', () => {
       const view = publicStatus();
       return view.needs?.job_retry_token && view.needs.job_retry_token !== before.needs.job_retry_token ? view : null;
     });
-    assert.equal(accepted.routes.architect.model, 'gpt-6-sol');
-    assert.equal(accepted.routes.architect.reasoning_effort, 'medium');
-    assert.equal(fs.readFileSync(fixture.calls, 'utf8'), originalCalls, 'answering launches no model');
+    assert.equal(after.routes.architect.model, 'gpt-6-sol');
+    assert.equal(after.routes.architect.reasoning_effort, 'medium');
+    assert.equal(fs.readFileSync(fixture.calls, 'utf8'), originalCalls, 'answering the question launches no model');
+    const observed = await release(observer);
+    assert.equal(observed.code, 0, observed.err);
+    assert.ok(JSON.parse(observed.out).view, 'the held real status command completed');
     passed = true;
   } catch (error) {
     testError = error;

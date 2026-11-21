@@ -65,8 +65,8 @@ SYSTEM_READ_ROOTS = (
     "/usr/share",
     "/System/Library",
     "/Library/Apple/System/Library",
-    # macOS's own LibreSSL reads its nonsecret configuration when a system library loads it (cargo's libcurl
-    # does), and fails "Auto configuration failed" when the read is denied (#4017).
+    # macOS's own LibreSSL reads its nonsecret configuration when a system library loads it (libcurl does, in
+    # rustup's cargo proxy), and fails "Auto configuration failed" when the read is denied (#4017).
     "/private/etc/ssl/openssl.cnf",
     "/private/etc/ssl/x509v3.cnf",
 )
@@ -1093,7 +1093,7 @@ def prepare(
     write_paths=None,
     links=(),
     private_run=None,
-    path_prefix=(),
+    tool_setup=None,
 ):
     """Create a fresh runner-owned policy and shell; return only nonsecret metadata.
 
@@ -1110,6 +1110,28 @@ def prepare(
             "Strict native tool containment requires macOS sandbox-exec or Linux bubblewrap; no provider launched"
         )
     root = _path(workspace)
+    if tool_setup is not None:
+        if not isinstance(tool_setup, dict):
+            raise ValueError("Invalid selected tool setup")
+        setup_roots, setup_links = tool_setup.get("read_roots", ()), tool_setup.get("links", ())
+        tool_environment, tool_aliases = tool_setup.get("environment"), tool_setup.get("tool_aliases")
+        if (
+            not isinstance(setup_roots, (list, tuple))
+            or not isinstance(setup_links, (list, tuple))
+            or tool_environment is not None
+            and not isinstance(tool_environment, dict)
+            or tool_aliases
+            and not (isinstance(tool_environment, dict) and "RUSTUP_HOME" in tool_environment)
+        ):
+            raise ValueError("Invalid selected tool setup")
+        read_roots = list(dict.fromkeys([*read_roots, *setup_roots]))
+        unique_links = []
+        for link in [*links, *setup_links]:
+            if link not in unique_links:
+                unique_links.append(link)
+        links = unique_links
+    else:
+        tool_environment, tool_aliases = None, None
     shell_runtime = tool_shell.runtime()
     read_roots = [*read_roots, *shell_runtime["read_roots"]]
     footprint = writer_footprint(root, write_paths) if write_paths is not None else None
@@ -1191,7 +1213,9 @@ def prepare(
     npm_user, npm_global = scratch / "npm-user.conf", scratch / "npm-global.conf"
     npm_user.write_text("")
     npm_global.write_text("")
-    safe = tool_shell.environment(shell_runtime, scratch, control.name, env, verification, path_prefix)
+    safe = tool_shell.environment(
+        shell_runtime, scratch, control.name, env, verification, tool_environment, aliases=tool_aliases
+    )
     sandbox = [SANDBOX_EXEC, "-f", str(profile)] if host == SEATBELT else [BWRAP, "--args", "3"]
     argv = [
         "/usr/bin/env",
@@ -1754,16 +1778,15 @@ def configure(
         workspace,
         allow_write=False if opt_in_writer else allow_write,
         environment=child,
-        read_roots=[*request.get("read_roots", ()), *tools_ready["read_roots"]],
+        read_roots=request.get("read_roots", ()),
         protected_paths=request.get("protected_paths", ()),
         loopback_checks=request.get("loopback_checks", ()),
         loopback_authority=request.get("loopback_authority"),
         verification_copy=not allow_write,
         source_paths=request.get("source_paths", ()),
         write_paths=None if opt_in_writer else footprint,
-        links=tools_ready.get("links", ()),
         private_run=request.get("private_run"),
-        path_prefix=tools_ready.get("path_prefix", ()),
+        tool_setup=tools_ready,
     )
     config["shell"] = boundary["shell"]
     definition["permission"] = permissions
@@ -1808,13 +1831,13 @@ def configure(
             workspace,
             allow_write=True,
             environment=child,
-            read_roots=[*request.get("read_roots", ()), *tools_ready["read_roots"]],
+            read_roots=request.get("read_roots", ()),
             protected_paths=request.get("protected_paths", ()),
             loopback_checks=request.get("loopback_checks", ()),
             loopback_authority=request.get("loopback_authority"),
             verification_copy=False,
             write_paths=footprint,
-            links=tools_ready.get("links", ()),
+            tool_setup=tools_ready,
         )
         if boundary["writer_path_kinds"] != initial_kinds:
             raise RuntimeError("Native writer target differs from the initial exact kind map")

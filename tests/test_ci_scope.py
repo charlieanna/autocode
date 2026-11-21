@@ -60,6 +60,7 @@ class ScopeTests(unittest.TestCase):
             "tests/host_status_site/sitecustomize.py",
             "tests/job_route_vscode_cli.py",
             "tests/job_route_vscode_fixture.py",
+            "tests/kilo_route_vscode_fixture.py",
             "tests/provider_auth_fixture.py",
             "tests/protected_link_vscode_fixture.py",
             "tests/rustup_vscode_fixture.py",

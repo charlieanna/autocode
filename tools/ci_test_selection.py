@@ -40,14 +40,19 @@ PUBLIC_FLOW_CONSUMERS = ("tests.test_launch_state_cli", "tests.test_completion_s
 EXTENSION_HOST_RESOURCES = {
     "tests/guard_host_hook/sitecustomize.py": ("vscode-extension/test/host/job-route-effort.test.cjs",),
     "tests/host_status_site/sitecustomize.py": ("vscode-extension/test/host/status-retry.test.cjs",),
-    "tests/job_route_vscode_cli.py": ("vscode-extension/test/host/job-route-effort.test.cjs",),
+    "tests/job_route_vscode_cli.py": (
+        "vscode-extension/test/host/job-route-effort.test.cjs",
+        "vscode-extension/test/host/kilo-route-effort.test.cjs",
+    ),
     "tests/job_route_vscode_fixture.py": ("vscode-extension/test/host/job-route-effort.test.cjs",),
+    "tests/kilo_route_vscode_fixture.py": ("vscode-extension/test/host/kilo-route-effort.test.cjs",),
     "tests/provider_auth_fixture.py": ("vscode-extension/test/host/editor-host.test.cjs",),
     "tests/protected_link_vscode_fixture.py": ("vscode-extension/test/host/protected-link-recovery.test.cjs",),
     "tests/rustup_vscode_fixture.py": ("vscode-extension/test/host/rustup-containment.test.cjs",),
     "tests/source_recovery_vscode_fixture.py": ("vscode-extension/test/host/source-recovery.test.cjs",),
     "tests/status_retry_host_cleanup.py": (
         "vscode-extension/test/host/job-route-effort.test.cjs",
+        "vscode-extension/test/host/kilo-route-effort.test.cjs",
         "vscode-extension/test/host/status-retry.test.cjs",
     ),
     "tests/status_retry_host_cli.py": ("vscode-extension/test/host/status-retry.test.cjs",),
@@ -1247,6 +1252,10 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tests.test_requirements_triage",),
     ),
     (("tools/autocode_requirements_triage.py",), ("tests.test_component_design",)),
+    (
+        ("tools/autocode_job_retry_admission.py",),
+        ("tests.test_job_route", "tests.test_needs_execution_matrix", "tests.test_status_observation"),
+    ),
     (
         (
             "tools/autocode_job_failure.py",
