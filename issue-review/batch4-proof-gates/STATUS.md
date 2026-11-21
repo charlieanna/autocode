@@ -2,6 +2,13 @@
 
 The branch contains the work recorded in commit `458b1ae4a` for #3814 and #3926.
 
+The #3814 signature comparison is limited to informational attribution after
+an already failing CI suite. The suite exit and `ci-required` remain governed
+by the actual test results; signature text grants no runtime or verification
+authority and does not authenticate an unchanged hidden cause. The separate
+attribution, tested-source and signature controls passed 45 tests
+(`/private/tmp/autocode-proof-ci-attribution-review.log`).
+
 **Current protected-failure authority:** #3944 remains open and this PR remains
 draft. Identical named failure text, even a complete traceback from pinned
 receipts, is diagnostic and cannot establish that the underlying cause stayed
