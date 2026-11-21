@@ -23,6 +23,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **A slow suite's mutation check no longer stops short in every continuation window**: each continuation window runs the unmutated tests again, and that run's time was taken from the window's mutant budget. With a reference over half the window, no mutant that runs every selected test had enough time, in that window or any later one. The window now gets the reference's time back, still within the run's total allowance.
+
 - **A Node project's tests replayed as a command run its build first**: the original-test check replays changed tests as a command such as `cd vscode-extension && node --test test/editor.test.cjs`, but the project's own test script builds first (`tsc -p tsconfig.test.json && node --test ...`). The replay skipped that build, so the test file failed to load on both the original code and the change. A `node --test` command now takes the build steps from the test script of the project it runs in.
 
 - **Python test suites no longer recompile every module in each child process during checks**: AutoCode's check commands disabled Python's bytecode cache, so a suite whose tests start the project's CLI again recompiled everything each time (940 s instead of 354 s for two test modules), hitting the original-test check's 900-second limit. Each command now keeps its own cache in a temporary directory outside the project, removed when the command ends.
