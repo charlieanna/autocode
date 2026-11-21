@@ -267,6 +267,35 @@ class NestedProjectOriginalGateTests(unittest.TestCase):
         self.assertEqual(self.TARGETED, result["replayed_command"])
         self.assertNotIn("plan_command", result)
 
+    ROOT_TEST = (
+        "import unittest\n\n\nclass ShopTests(unittest.TestCase):\n"
+        "    def test_name(self):\n        self.assertEqual('shop', 'shop')\n"
+    )
+
+    def test_changed_tests_of_two_runners_each_run_with_their_own(self):
+        # A change that edits a root Python test and web/'s Node test ran the whole bound Python suite, which
+        # runs no test of web/ and cannot finish twice on a large repository (both halves timed out, 2026-11-21).
+        seed = {**self.WEB, "tests/test_shop.py": self.ROOT_TEST, "web/test/pager.js": self.ORIGINAL}
+        added = "\n    def test_upper(self):\n        self.assertEqual('SHOP', 'shop'.upper())\n"
+        change = {
+            "web/index.js": INDEX_FIXED,
+            "web/test/pager.js": self.ORIGINAL + NEW,
+            "tests/test_shop.py": self.ROOT_TEST + added,
+        }
+        result = self.gate(seed, change, self.python_suite())
+        self.assertEqual("PASS", result["verdict"], result)
+        python = shlex.join([sys.executable, "-m", "unittest", "-v", "tests/test_shop.py"])
+        self.assertEqual(f"{python} ; {self.TARGETED}", result["replayed_command"])
+        weakened = {**change, "web/test/pager.js": self.ORIGINAL.replace("pageCount(10, 5), 2", "pageCount(10, 5), 3")}
+        weakened["web/index.js"] = INDEX.replace("Math.floor(total / size)", "Math.floor(total / size) + 1")
+        with self.assertRaisesRegex(ValueError, "original gate did not pass"):
+            self.gate(seed, weakened, self.python_suite())
+        project = Project({**seed, "tests/helpers.py": "VALUE = 1\n"})
+        self.addCleanup(project.close)
+        project.write({"tests/helpers.py": "VALUE = 2\n", "web/test/pager.js": self.ORIGINAL + NEW})
+        whole = self.python_suite()
+        self.assertEqual([whole], guard.replay_parts(whole, ["tests/helpers.py", "web/test/pager.js"], project.root))
+
     def test_the_bound_suite_still_runs_what_it_can_run(self):
         project = Project(
             {

@@ -251,12 +251,36 @@ class InvestigatorRouteCLI(unittest.TestCase):
         run, held = self.stopped()
         calls = self.call_order()
         (self.project / "foreign.txt").write_text("new source after the stop\n")
+        changed = run.status()
+        self.assertEqual("recover_source", changed["needs"]["kind"])
+        self.assertIsNone(changed["next_command"])
+        self.assertIn("Restore that exact source", changed["needs"]["recovery_hint"])
         with self.assertRaises(TaskRunError) as rejected:
             run.assign_model("stuck_investigator", "gpt-6-luna")
-        self.assertIn("Source changed since the failed attempt", str(rejected.exception))
-        self.unchanged(held, run.status())
+        self.assertIn("needs recover_source", str(rejected.exception))
+        # A direct stale answer still reaches the locked source check, even though
+        # the public TaskRun correctly refuses to offer it while source differs.
+        answer = self.call(
+            "autocode",
+            [
+                "--run-dir",
+                str(self.run),
+                "--answer",
+                "route-stuck_investigator=gpt-6-luna",
+                "--job-retry-token",
+                held["needs"]["job_retry_token"],
+            ],
+            codes=(2,),
+        )
+        self.assertIn("Source changed since the failed attempt", answer.stderr)
+        for field in ("current_task", "usage", "routes"):
+            self.assertEqual(held[field], run.status()[field], field)
+        self.assertEqual(self.approved_token, self.status()["contract_token"])
         self.assertEqual(calls, self.call_order())
         self.assertEqual("new source after the stop\n", (self.project / "foreign.txt").read_text())
+        (self.project / "foreign.txt").unlink()
+        self.unchanged(held, run.status())  # Restoring source restores the exact original need and token.
+        self.assertEqual(calls, self.call_order())
 
 
 class InvestigatorRoutePolicyTests(unittest.TestCase):
