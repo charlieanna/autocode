@@ -168,6 +168,11 @@ test('real editor shows the active-writer refusal', { timeout: 300_000 }, async 
     const retryFrame = await chat();
     await retryFrame.locator('[data-question="route-architect"]').fill('gpt-6-sol@medium');
     await retryFrame.locator('#take-action').click();
+    await until('the second saved answer to finish', () => {
+      const finished = fs.readFileSync(actions, 'utf8').split('\n').filter(Boolean).map(JSON.parse)
+        .filter((entry) => entry.event === 'finished');
+      return finished.length >= 2 && finished[1].exit_code === 0;
+    });
     const accepted = await until('the answer to be accepted after the writer exits', () => {
       const view = publicStatus();
       return view.needs?.job_retry_token && view.needs.job_retry_token !== before.needs.job_retry_token ? view : null;
