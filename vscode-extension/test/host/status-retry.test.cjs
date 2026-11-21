@@ -37,6 +37,8 @@ for (const kind of ['job', 'repeat']) {
     let app;
     let win;
     let env;
+    let editorPid;
+    let editorStarted;
     let lastState;
     try {
       const temp = path.join(root, 'tmp');
@@ -74,6 +76,12 @@ for (const kind of ['job', 'repeat']) {
           '--disable-workspace-trust', `--user-data-dir=${userData}`, `--extensions-dir=${path.join(root, 'extensions')}`,
           `--extensionDevelopmentPath=${EXTENSION}`, fixture.workspace],
       });
+      editorPid = app.process().pid;
+      const identified = spawnSync(python, [path.join(REPO, 'tests/status_retry_host_cleanup.py'), 'identity', String(editorPid)],
+        { cwd: REPO, env, encoding: 'utf8', timeout: 15_000 });
+      assert.equal(identified.status, 0, `identify owned editor: ${identified.stderr}`);
+      editorStarted = JSON.parse(identified.stdout).started;
+      assert.equal(typeof editorStarted, 'number', 'owned editor identity is available');
       win = await app.firstWindow();
       await win.locator('.monaco-workbench').waitFor({ timeout: 120_000 });
       const chat = () => until('chat', async () => {
@@ -90,11 +98,28 @@ for (const kind of ['job', 'repeat']) {
       await win.locator('.activitybar [aria-label^="AutoCode"]').first().click();
       const title = `Offline ${kind} status deadline verification`;
       await openHistoryRow(win.locator('.monaco-list-row', { hasText: title }).first(), chat, title);
+      const publicStatus = () => {
+        const result = spawnSync(python, [path.join(REPO, 'tests/status_retry_host_cli.py'), '--run-dir', fixture.run_dir,
+          '--workspace', fixture.workspace, '--status', '--json'], { cwd: fixture.workspace, env, encoding: 'utf8', timeout: 30_000 });
+        assert.equal(result.status, 0, `read public fixture status: ${result.stderr}`);
+        const payload = JSON.parse(result.stdout);
+        return payload.view ?? payload;
+      };
+      const assertNamedRetry = () => {
+        const view = publicStatus();
+        assert.match(view.next_command ?? '', /--retry-failed-stage/);
+        if (kind === 'job') {
+          assert.equal(view.needs.kind, 'retry_job');
+          assert.ok(view.needs.job_retry_token);
+          assert.match(view.next_command, /--job-retry-token -/);
+        }
+      };
       const retryLabel = kind === 'job' ? 'Retry the inspected step' : 'Retry the failed step once';
       const retryVisible = (shown) => kind === 'job'
         ? ['Continue', retryLabel].includes(shown.action) && shown.text.includes('The step failed.')
         : shown.action === retryLabel;
       await until('healthy retry action', async () => retryVisible(await state()));
+      assertNamedRetry();
       fs.writeFileSync(marker, '');
       const operation = kind === 'job' ? 'job_retry' : 'failure_retry';
       await until('injected timeout', () => fs.existsSync(log) && fs.readFileSync(log, 'utf8').includes(`timeout ${operation}`));
@@ -113,8 +138,11 @@ for (const kind of ['job', 'repeat']) {
         });
         console.log('Repeated failure timeout action:', blocked.action ?? '(none)');
       }
+      const unavailable = publicStatus();
+      assert.doesNotMatch(unavailable.next_command ?? '', /--retry-failed-stage/, 'timeout does not name a stale retry');
       fs.rmSync(marker);
       await until('recovered retry action', async () => retryVisible(await state()));
+      assertNamedRetry();
     } catch (error) {
       console.log(`Host diagnostics for ${kind}:`, JSON.stringify({
         lastState, observations: fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '(no wrapper log)',
@@ -123,7 +151,19 @@ for (const kind of ['job', 'repeat']) {
       throw error;
     } finally {
       fs.rmSync(marker, { force: true });
-      await app?.close().catch(() => {});
+      if (app) {
+        let timer;
+        const timedOut = await Promise.race([
+          app.close().then(() => false, () => true),
+          new Promise((resolve) => { timer = setTimeout(() => resolve(true), 5_000); }),
+        ]);
+        clearTimeout(timer);
+        if (timedOut) {
+          const stoppedEditor = spawnSync(python, [path.join(REPO, 'tests/status_retry_host_cleanup.py'),
+            'stop', String(editorPid), String(editorStarted)], { cwd: REPO, env, encoding: 'utf8', timeout: 15_000 });
+          assert.equal(stoppedEditor.status, 0, `stop owned editor: ${stoppedEditor.stderr}`);
+        }
+      }
       if (env) {
         // The default warm host has a unique TMPDIR/socket owned by this fixture.
         const stopped = spawnSync(python, [path.join(REPO, 'tests/status_retry_host_cli.py'), 'serve', '--stop', '--json'],
