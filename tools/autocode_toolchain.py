@@ -172,8 +172,9 @@ def discover(workspace, commands, environment):
     # Validators use Python for JSON and CLI assertions even in non-Python
     # projects. Qualify the actual PATH interpreters, not a substituted runtime.
     pending.extend(name for name in ("python", "python3") if shutil.which(name, path=search_path))
+    named_families = {Path(words[0]).name for words in programs if words}
     for manifest, executable in (("package.json", "npm"), ("go.mod", "go"), ("Cargo.toml", "cargo")):
-        if (root / manifest).is_file():
+        if (root / manifest).is_file() and executable not in named_families:
             pending.append(executable)
     # Each name the plan's commands start, and each runtime it brings (pytest's interpreter, npm's node),
     # belongs to that command's program: a refusal anywhere in the chain is the plan's (Unadmitted), never

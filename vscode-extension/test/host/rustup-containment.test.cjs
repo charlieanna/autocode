@@ -32,7 +32,7 @@ async function executable() {
   return downloadAndUnzipVSCode({version: '1.147.0', cachePath: path.join(EXTENSION, '.vscode-test')});
 }
 
-test('real editor runs offline Cargo through the contained Rustup toolchain', {timeout: 600_000, skip: process.platform !== 'linux'}, async () => {
+for (const absoluteCargo of [false, true]) test(`real editor runs ${absoluteCargo ? 'explicit off-PATH' : 'named'} offline Cargo through the contained Rustup toolchain`, {timeout: 600_000, skip: process.platform !== 'linux'}, async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'autocode-rustup-host-'));
   const release = path.join(root, 'release');
   const record = path.join(root, 'cargo-result.json');
@@ -44,6 +44,8 @@ test('real editor runs offline Cargo through the contained Rustup toolchain', {t
     RUSTUP_HOME: process.env.RUSTUP_HOME || path.join(os.homedir(), '.rustup'),
     AUTOCODE_FIXTURE_RUSTUP_RECORD: record, AUTOCODE_FIXTURE_RUSTUP_RELEASE: release, AUTOCODE_FIXTURE_RUSTUP_OWNERS: owners,
     AUTOCODE_FIXTURE_RUSTUP_DIAGNOSTIC: providerDiagnostic};
+  if (absoluteCargo) env.AUTOCODE_FIXTURE_ABSOLUTE_CARGO = '1';
+  else delete env.AUTOCODE_FIXTURE_ABSOLUTE_CARGO;
   for (const key of ['OPENAI_API_KEY', 'CODEX_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'KILO_API_KEY', 'ZAI_API_KEY']) delete env[key];
   let fixture, app, win, editorPid, editorStarted, passed = false, testError, phase = "preparing fixture";
   const cleanupErrors = [];
@@ -96,7 +98,7 @@ test('real editor runs offline Cargo through the contained Rustup toolchain', {t
     let frame = await chat();
     await until('the Rust plan and its approval action', async () => {
       frame = await chat(); const text = await frame.evaluate(() => document.body.innerText);
-      return text.includes('cargo test') && await frame.$('#take-action') ? true : null;
+      return text.includes(absoluteCargo ? 'cargo --version' : 'cargo test') && await frame.$('#take-action') ? true : null;
     });
     const before = status();
     assert.equal(before.needs.kind, 'approve_plan');
@@ -111,10 +113,10 @@ test('real editor runs offline Cargo through the contained Rustup toolchain', {t
     const observed = await until('real Cargo execution through the selected shell', () =>
       fs.existsSync(record) ? JSON.parse(fs.readFileSync(record, 'utf8')) : null, 240_000);
     assert.equal(observed.exit, 0, observed.stderr);
-    assert.equal(observed.explicit_command, `cargo +${env.AUTOCODE_FIXTURE_RUSTUP_EXPLICIT} --version`);
+    assert.equal(observed.explicit_command, env.AUTOCODE_FIXTURE_RUSTUP_COMMAND);
     assert.equal(observed.explicit_exit, 0, observed.explicit_stderr);
     assert.match(observed.explicit_stdout, /cargo \d/);
-    assert.match(observed.stdout + observed.stderr, /test result: ok/);
+    assert.match(observed.stdout + observed.stderr, absoluteCargo ? /cargo \d/ : /test result: ok/);
     assert.ok(path.resolve(observed.shell).startsWith(path.join(fixture.workspace, '.autocode/tool-containment-')));
     const during = status();
     assert.equal(during.tool_containment, 'contained');
