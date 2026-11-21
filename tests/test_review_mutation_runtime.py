@@ -480,18 +480,27 @@ class ReviewMutationRuntimeTests(unittest.TestCase):
         fixture.tree.mkdir()
         supply = object()
         before = Mock(side_effect=ValueError("copied preimage drift"))
+        source = verify.scratch_preparation.source_snapshot
+        files = {"app.py": "synthetic-source-digest"}
+        snapshot = {"head": "base-pinned", "files": files, "revision": "synthetic-revision"}
         with (
             patch.object(verify, "_git", return_value="base-pinned\n") as git,
             patch.object(verify, "changed_files", return_value={"app.py": "modified"}) as changes,
             patch.object(verify, "make_tree", return_value=fixture.tree) as make,
             patch.object(verify, "remove_tree") as remove,
             patch.object(verify.subprocess, "run") as apply,
+            patch.object(source, "snapshot", return_value=snapshot),
+            patch.object(source, "bound_inventory", return_value=files),
+            patch.object(source, "copied_files", return_value=files),
+            patch.object(source, "inventory", return_value=files),
         ):
             with self.assertRaisesRegex(ValueError, "copied preimage drift"):
                 verify.prepare_scratch_tree(
                     fixture.workspace, fixture.out, patch=fixture.patch, ignored_inputs=supply, _before_patch=before
                 )
-        git.assert_called_once_with(fixture.workspace, "rev-parse", "HEAD")
+        self.assertEqual(2, git.call_count)
+        git.assert_any_call(fixture.workspace, "rev-parse", "HEAD")
+        git.assert_any_call(fixture.tree, "rev-parse", "HEAD")
         changes.assert_called_once_with(fixture.workspace, "base-pinned", source_paths=())
         self.assertEqual("base-pinned", make.call_args.args[1])
         self.assertIs(supply, make.call_args.kwargs["ignored_inputs"])

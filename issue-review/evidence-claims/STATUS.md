@@ -1,5 +1,13 @@
 # Evidence claims batch
 
+## Follow-up: native ownership preflight and review fixture
+
+The post-merge #3992 Linux suite exposed two additional failures on current master `5de8cacfae`. The scratch caller evaluated the admitted-worker state before checking that a supplied native owner was the required concrete owner, violating the refusal-before-observation boundary. The native preflight now receives the state reader and invokes it only after validating the owner and unsupported review inputs. The existing native boundary regression fails on master and passes with this change.
+
+The review-mutation fixture mocked the shared `subprocess.run` module while source snapshotting now performs Git reads, accidentally returning a `MagicMock` as a source revision. Its controlled source inventories and preimage checks now supply consistent synthetic snapshot data, assert both workspace and copied-tree Git identities, and still refuse before applying a patch. The existing regression errors on master and passes here. Other #3992 scratch-copy, symlink and evidence gaps remain separate work; no issue is closed by this correction.
+
+The native preparation, review-mutation and architecture suites pass 41 tests; full Ruff, format and Mypy pass. Both targeted regressions fail on master `5de8cacfae` and pass on this branch. Linux required CI and any editor impact have not yet been verified.
+
 ## Follow-up: historical #3971 CI fixture alignment
 
 The historical #3971 Linux suite and `ci-required` failed after its early merge. Its CI base was `e8a6b8251e`; the same receipt, capture and checkpoint-fault tests also failed on current master `9e67329a28`. The three capture tests aimed at a run-shaped directory without its own checkpoint already failed on that CI base because #3980 required an owned run. Three event tests passed on that base but failed after #3971 required the actual qualified capture launcher and exact attempt context; three checkpoint-fault test variants also failed after the compatibility facade stopped re-exporting `os`.
