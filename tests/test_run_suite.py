@@ -389,6 +389,21 @@ class ScenarioModulesTests(unittest.TestCase):
                 ),
             )
 
+    def test_evidence_attack_fixture_and_scenario_file_keep_both_boundary_cases(self):
+        module = "scenarios.test_adversarial_evidence"
+        modules = [module, "scenarios.test_unrelated"]
+        with mock.patch.object(run_suite, "scenario_modules", return_value=modules):
+            for path in ("scenarios/harness/attack_evidence.py", "scenarios/test_adversarial_evidence.py"):
+                with self.subTest(path=path):
+                    selected, _ = run_suite.scenario_selection([path], {})
+                    self.assertIn(module, selected)
+        cases = run_suite.split_module(module)
+        for name in (
+            "test_self_authored_receipt_cannot_attest_to_an_unexecuted_test",
+            "test_authenticated_workspace_check_is_replayed_in_clean_copy",
+        ):
+            self.assertTrue(any(case.endswith("." + name) for case in cases), name)
+
     def test_process_changes_select_lifecycle_without_other_adversarial_modules(self):
         modules = [
             "scenarios.test_adversarial_lifecycle",
