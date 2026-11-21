@@ -41,6 +41,7 @@ EXTENSION_HOST_RESOURCES = {
     "vscode-extension/test/python-semantic-transition.cjs": (
         "vscode-extension/test/host/named-proof-refusal.test.cjs",
         "vscode-extension/test/host/python-semantic.test.cjs",
+        "vscode-extension/test/host/semver-reference-repair.test.cjs",
     ),
     "vscode-extension/test/host/held_cli.py": (
         "vscode-extension/test/host/editor-host.test.cjs",

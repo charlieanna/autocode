@@ -154,6 +154,18 @@ class ScopeTests(unittest.TestCase):
                 )
                 self.assertIn("extension", self.enabled(resource))
         self.assertNotIn("extension", self.enabled("tests/unrelated/semver_reference_vscode_fixture.py"))
+
+    def test_shared_post_approval_observer_selects_all_its_hosts(self):
+        from tools import ci_test_selection
+
+        self.assertEqual(
+            (
+                "vscode-extension/test/host/named-proof-refusal.test.cjs",
+                "vscode-extension/test/host/python-semantic.test.cjs",
+                "vscode-extension/test/host/semver-reference-repair.test.cjs",
+            ),
+            ci_test_selection.EXTENSION_HOST_RESOURCES["vscode-extension/test/python-semantic-transition.cjs"],
+        )
         for shared in (
             "tests/host_reader_cleanup.py",
             "tests/status_retry_host_cleanup.py",

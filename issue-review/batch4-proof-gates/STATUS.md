@@ -19,6 +19,53 @@ pass; the negative named-proof host also expands and checks its full criterion
 before taking the exact bound approval. No proof gate or product state handling
 was relaxed. Actual editor qualification of the corrected candidate is pending.
 
+The SemVer scripted Tester now supplies exact source-bound reasons for those
+five delimiter lines, with a separately pinned control observing that removing
+or replacing each token makes the original parsed source invalid. The actual
+handoff preflight executed four real controls, produced 19 exact gap decisions,
+and passed report validation. Export lines 66/67 retain their own killed
+`none_element` mutations; parent-span mutations do not grant them credit.
+Persistent controls reject changed bytes, unknown gaps, surviving/unrun/overlap
+mutations and incomplete inventories before executing a control. They fail the
+pre-correction combined candidate `283a1fc09` by assertion, not import failure;
+this fixture baseline is distinct from the recorded product regressions on master.
+The new control script and refusal tests are registered with their CI consumers.
+
+On runtime `105a23187`, 208 focused controls passed; the installed-package
+compatibility check initially failed because the chosen SemVer QA environment
+had no `autocode_cli` package. It then passed in a fresh isolated environment
+installed from this candidate, after checking that `autocode_cli.__file__`
+resolved to this candidate's `tools/__init__.py`. This replaces reliance on
+earlier architecture runs whose packaged imports resolved to the primary
+checkout. Ruff, all 3,765 formatted files, mypy's 994 files and both shared
+post-approval sequence controls pass. A new SemVer setup initially failed its
+pinned Git fetch with `Could not resolve host: github.com` under the sandbox,
+before any task started; that failure and zero-error cleanup are retained. The
+fresh network-enabled setup uses the same frozen runtime and offline provider.
+
+That fresh `105a23187a46ad8d693de77b9abe1846c806adf3` rehearsal completed:
+`TASK_COMPLETE`, verified delivery, all six named base-fail/candidate-pass
+results, both required reference-repair handoffs and the authenticated rejection
+receipt `70cff2c3ddacb35299de04f04dce6424a1c5d3108f454ddd24fef1a7a39c19f0`.
+All 753 runtime imports came from the detached frozen checkout, its source
+manifest remained unchanged and cleanup reported zero errors. Evidence is
+`/private/tmp/autocode-semver-combined-105a-network.log` and the preserved
+`autocode-semver-combined-d82lrwst` artifact directory. This is the six-criterion
+offline CLI rehearsal, not a new live or editor result.
+
+The older combined editor job `136873674966` on `283a1fc09` failed four cases:
+the semantic fixture stopped at the documented in-flight approval transition;
+the two named-proof failures omitted their nested assertion (their screenshots
+show approval still being sent); and SemVer waited until timeout while already
+paused with no person action. Its exact provider failure is not established by
+that CI log alone. The SemVer host now uses the same public post-approval
+observer before and after the handoff, ending observation promptly on an
+unexpected settled pause. All three hosts retain bounded nested diagnostics.
+The updated observer's three controls and 185 CI-selection tests pass. The
+SemVer provider and product source remain as rehearsed; these final changes
+affect host observation, CI registration and this record. Final combined
+actual-editor and required CI results remain pending.
+
 ### Combined semantic-evidence candidate
 
 The reviewed #4053 candidate `eff10dfa4` is integrated with its ancestry so this

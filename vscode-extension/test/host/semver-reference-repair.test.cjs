@@ -11,6 +11,7 @@ const path = require('node:path');
 const {test} = require('node:test');
 const {openHistoryRow} = require('./open-history.cjs');
 const {privateHostEnvironment, ownedWarmHostSteps, settleFixture} = require('../owned-fixture-cleanup.cjs');
+const {afterApproval} = require('../python-semantic-transition.cjs');
 
 const EXTENSION = path.resolve(__dirname, '../..');
 const REPO = path.resolve(EXTENSION, '..');
@@ -108,17 +109,19 @@ test('real editor drives the scoped SemVer reference repair', {timeout: 1_200_00
     assert.match(review.delegation, /not personal owner approval/);
     phase = 'approving exact reviewed plan';
     await frame.locator('#take-action').click();
+    const isSettled = afterApproval(before);
     phase = 'observing genuine reference rejection and test repair';
     const transitionsPath = path.join(root, 'run/writer-transitions.jsonl');
     const handoff = await until('the reference-repair handoff', () => {
+      const view = status();
+      const settled = isSettled(view);
       if (fs.existsSync(transitionsPath)) {
         const transition = fs.readFileSync(transitionsPath, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse)
           .find((row) => row.file === 'broad-diagnostics-compatible.py' && row.feedback_seen);
         if (transition) return {transition};
       }
-      const view = status();
       const kind = view.needs?.kind;
-      if (view.done || view.status?.startsWith('PAUSED_') || (kind && !['continue', 'approve_plan'].includes(kind))) {
+      if (settled) {
         return {unexpected: {status: view.status, needs: kind, reason: view.stop_reason}};
       }
       return null;
@@ -137,7 +140,7 @@ test('real editor drives the scoped SemVer reference repair', {timeout: 1_200_00
     phase = 'observing resulting public and editor state';
     const after = await until('the repaired run to stop', () => {
       const view = status();
-      return view.done || (view.needs && view.needs.kind !== 'continue') ? view : null;
+      return isSettled(view) ? view : null;
     }, 720_000);
     fs.writeFileSync(path.join(root, 'final-public-view.json'), JSON.stringify(after, null, 2));
     assert.equal(after.status, 'TASK_COMPLETE', JSON.stringify({status: after.status, reason: after.stop_reason, needs: after.needs}));
@@ -160,7 +163,13 @@ test('real editor drives the scoped SemVer reference repair', {timeout: 1_200_00
   } catch (error) {
     failure = error;
     console.error(`SemVer reference editor failure during ${phase}: ${error.stack || error.message}`);
-    if (fixture) try { const view = status(); console.error(`Final public state: ${JSON.stringify({status: view.status, needs: view.needs?.kind, reason: view.stop_reason})}`); } catch (statusError) { console.error(statusError.message); }
+    if (fixture) try {
+      const view = status();
+      fs.writeFileSync(path.join(root, 'final-public-view.json'), JSON.stringify(view, null, 2));
+      console.error(`Final public state: ${JSON.stringify({status: view.status, needs: view.needs?.kind, reason: view.stop_reason,
+        continuing: view.progress?.continuing, controller: {kind: view.controller?.kind, checked: view.controller?.checked,
+          alive: view.controller?.alive}})}`);
+    } catch (statusError) { console.error(statusError.message); }
   } finally {
     if (!passed && fixture) try {
       const stop = status().pause?.stop_now?.next_command;
@@ -229,6 +238,9 @@ test('real editor drives the scoped SemVer reference repair', {timeout: 1_200_00
       ], () => fs.rmSync(root, {recursive: true, force: true, maxRetries: 3}), failure || (!passed ? new Error('editor test did not complete') : undefined));
     } catch (error) {
       console.error(`Preserved SemVer editor fixture at ${root}`);
+      for (const problem of (error instanceof AggregateError ? error.errors : [error]).slice(0, 8)) {
+        console.error(`Editor or cleanup failure: ${String(problem?.stack || problem).slice(0, 4000)}`);
+      }
       throw error;
     }
   }
