@@ -13,6 +13,7 @@ including the variants where the card and the executor disagree on the unchanged
 import contextlib
 import copy
 import io
+import os
 import subprocess
 import tempfile
 import unittest
@@ -232,6 +233,17 @@ class OfferAdmissionAgreementTests(SavedRunFixtures, unittest.TestCase):
 
     def offered(self, card, kind):
         return [row for row in card["actions"] if row["kind"] == kind]
+
+    def test_a_live_provider_is_not_offered_for_abandonment(self):
+        state = self.interrupted()
+        state["active_stage"].update(pid=os.getpid(), exit_code=None)
+        view = run_view.view(state)
+        self.assertFalse(self.offered(view["recovery"], "abandon"))
+        self.assertIsNone(view["next_command"])
+        self.assertTrue(view["needs"]["resume_unavailable"])
+        code, _ = self.execute(state, ["--abandon-stage", "004/builder-02"])
+        self.assertEqual("PAUSED_WORKSPACE_BUSY", code)
+        self.assertIn("still exists", view["needs"]["resume_unavailable"])
 
     def test_ac22_surveyed_offers_agree_with_their_executor_admission(self):
         # (kind, status, args, admitted state, the one-field variant its executor refuses, refusal text)

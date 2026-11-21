@@ -18,6 +18,7 @@ This branch is a snapshot of an AutoCode run. Claude usage ran out partway, so t
 - **M3 source-edit offer (#3880):** the public offer now reads the same admission checks as the action. Added controls for source, settings, task, contract, scope, evidence and an existing diagnosis. The focused `tests.test_accepted_source.AcceptReviewedSourceTests` passes locally, and the new offer regression fails on master.
 - **M3 stale check names (#3880):** failed dispatch bindings now record the named checks on the pending request and expose those names in the status view without bound values. Packet guard tests pass and fail on master. The compatibility path for saved settings bindings remains the same.
 - **M3 answered blocker (#3954 view):** the view now omits a plain resume at the same answered blocker frontier, explains the hold, and preserves feedback for an actual contract decision. The new regression fails on master and passes on the branch. The terminal chat also handles that existing feedback offer without requiring an unavailable resume command; 44 focused view and terminal tests pass.
+- **M4 abandonment:** the status view now asks the executor's existing live-process gate before offering abandonment. A real-live-process regression fails on master and passes on the branch. The other M4 offers remain.
 - The eight-module suite named below passed 284 tests with one skipped before the stale-check change. The focused packet and source-offer tests passed after it. Ruff check and format and mypy for the two changed recovery modules passed.
 
 ## Left

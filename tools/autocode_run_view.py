@@ -1672,6 +1672,13 @@ def needs(state: RunState, *, stale_report_repair=False, human_projection=None) 
         # An inventory refusal leaves a retained result available for the usual
         # reconciliation checks. It is not authority to discard or replay it.
         if status != "PAUSED_SOURCE_UNAVAILABLE" and active.get("output") and isinstance(active.get("iteration"), int):
+            try:
+                from . import autocode_run_records as run_records
+            except ImportError:
+                import autocode_run_records as run_records
+            if refusal := run_records.stage_stop_refusal(active):
+                need["resume_unavailable"] = refusal
+                return need
             attempt = f"{active['iteration']:03d}/{Path(active['output']).stem}"
             need["abandon_stage"] = attempt
             need["action"] = f"--abandon-stage {attempt} then --resume-paused"

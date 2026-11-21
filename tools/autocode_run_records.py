@@ -707,6 +707,15 @@ def attempt_id(record):
     return f"{record['iteration']:03d}/{Path(record['output']).stem}"
 
 
+def stage_stop_refusal(record):
+    """Return the abandonment gate's live-process refusal without changing the attempt."""
+    try:
+        assert_stage_stopped(record)
+    except support.Paused as error:
+        return str(error)
+    return None
+
+
 # The automatic-recovery budget lives in autocode_recovery_accounting; these names are kept for callers.
 recovery_count = accounting.spent
 count_automatic_recovery = accounting.count
