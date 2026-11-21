@@ -14,6 +14,7 @@ import io
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -102,13 +103,15 @@ def attest_capture(path):
         )
 
 
-def write_comparison(workspace, name, *, base, new_diagnostics, command=COMPARED_BUILD):
+def write_comparison(
+    workspace, name, *, base, new_diagnostics, command=COMPARED_BUILD, base_log="", candidate_log=None
+):
     """A receipt shaped as `autocode capture --compare-base` writes one."""
     path = Path(workspace) / ".autocode/evidence" / name
     path.parent.mkdir(parents=True, exist_ok=True)
     output, base_output = path.with_suffix(".log"), path.with_suffix(".base.log")
-    output.write_text("\n".join(new_diagnostics))
-    base_output.write_text("")
+    output.write_text("\n".join(new_diagnostics) if candidate_log is None else candidate_log)
+    base_output.write_text(base_log)
     path.write_text(
         json.dumps(
             {
@@ -379,6 +382,72 @@ class ReportCheckClaimTests(unittest.TestCase):
         self.assertIn(OTHER_BASE, errors[0])
         self.assertIn("not made against the run's base", errors[0])
 
+    def test_cached_sphinx_environment_cannot_support_a_reference_claim(self):
+        fresh = "Running Sphinx v7.0.1\nupdating environment: 1 added, 0 changed, 0 removed\n"
+        cached = (
+            "\x1b[01mRunning Sphinx v7.0.1\x1b[39;49;00m\n"
+            "loading pickled environment... done\n"
+            "building [html]: targets for 0 source files that are out of date\n"
+            "no targets are out of date.\nbuild succeeded.\n"
+        )
+        for label, command, base_log, candidate_log in (
+            ("candidate", COMPARED_BUILD, fresh, cached),
+            ("base", "python3.11 -m sphinx -n docs docs/_build", cached, fresh),
+        ):
+            with self.subTest(label=label):
+                name = f"docs-reused-{label}.json"
+                write_comparison(
+                    self.root,
+                    name,
+                    base=BASE,
+                    new_diagnostics=[],
+                    command=command,
+                    base_log=base_log,
+                    candidate_log=candidate_log,
+                )
+                report = tester_report("C3", command, refs=[f".autocode/evidence/{name}"])
+                errors = self.check("tester", report, self.state([("C3", C3)]))
+                self.assertEqual(1, len(errors), errors)
+                self.assertIn("Sphinx reused a cached reference environment", errors[0])
+                self.assertIn("-E -a -n", errors[0])
+        for label, command, candidate_log in (
+            ("fresh", COMPARED_BUILD, fresh),
+            ("other-tool", "python3 docs/check.py", cached),
+        ):
+            with self.subTest(label=label):
+                name = f"docs-{label}.json"
+                write_comparison(
+                    self.root, name, base=BASE, new_diagnostics=[], command=command, candidate_log=candidate_log
+                )
+                report = tester_report("C3", command, refs=[f".autocode/evidence/{name}"])
+                self.assertEqual([], self.check("tester", report, self.state([("C3", C3)])))
+
+    def test_delivered_sphinx_page_linked_from_toctree_needs_reference_check(self):
+        page = "docs/usage/json.rst"
+        source = self.root / page
+        source.parent.mkdir(parents=True)
+        source.write_text("JSON usage\n==========\n\nSee :func:`semver.dumps_version`.\n")
+        config = self.root / "docs/conf.py"
+        config.write_text("project = 'Example'\n")
+        text = f"The toctree in docs/usage/index.rst lists json and the page {page} contains the examples."
+        state = self.state([("C7", text)], changed_files=[page])
+        errors = self.check("tester", tester_report("C7", "python -m pytest -q"), state)
+        self.assertEqual(1, len(errors), errors)
+        self.assertIn(f"Criterion C7 delivers linked Sphinx documentation ({page})", errors[0])
+
+        receipt = ".autocode/evidence/json-links.json"
+        write_comparison(self.root, "json-links.json", base=BASE, new_diagnostics=NEW_WARNINGS)
+        errors = self.check("tester", tester_report("C7", COMPARED_BUILD, refs=[receipt]), state)
+        self.assertEqual(1, len(errors), errors)
+        self.assertIn(NEW_WARNINGS[0], errors[0])
+
+        # Unchanged documentation and projects without a Sphinx config do not
+        # acquire this inferred obligation.
+        unlinked = tester_report("C7", "python -m pytest -q")
+        self.assertEqual([], self.check("tester", unlinked, self.state([("C7", text)], changed_files=[])))
+        config.unlink()
+        self.assertEqual([], self.check("tester", unlinked, state))
+
 
 class CompareBaseCaptureTests(unittest.TestCase):
     """`autocode capture --compare-base` records the diagnostics a change added."""
@@ -394,6 +463,152 @@ class CompareBaseCaptureTests(unittest.TestCase):
         git(root, "commit", "-qm", "fixture")
         (root / "doc.txt").write_text(working)
         return root
+
+    def test_scoped_sphinx_check_uses_three_fresh_copies_and_binds_the_control(self):
+        self.checker = ""
+        root = self.repository("base\n", "base\n")
+        (root / "docs").mkdir()
+        (root / "docs/conf.py").write_text("project = 'Fixture'\n")
+        doc = "docs/usage.rst"
+        (root / doc).write_text("Title\n=====\n\n:py:func:`pkg.current`\n")
+        git(root, "add", "docs")
+        git(root, "commit", "-qm", "documentation")
+        cache = root / ".autocode/scratch/fixture-html"
+        cache.mkdir(parents=True)
+        (cache / "cached").write_text("do not reuse or remove this output")
+        evidence = root / ".autocode/evidence"
+        evidence.mkdir()
+        executable_dir = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, executable_dir)
+        executable = executable_dir / "sphinx-build"
+        executable.write_text(
+            f"#!{sys.executable}\n"
+            "import pathlib, re, sys\n"
+            "path = pathlib.Path('docs/usage.rst').resolve()\n"
+            "out = pathlib.Path(sys.argv[-1])\n"
+            "assert not out.exists()\n"
+            "out.mkdir(parents=True)\n"
+            "targets = re.findall(r':py:func:`([^`]+)`', path.read_text())\n"
+            'html = \'<a href="api.html"><code class="xref py py-func">pkg.current</code></a>\'\n'
+            "if 'pkg.suppressed' in targets:\n"
+            "    html += '<code class=\"xref py py-func\"><span>pkg.suppressed</span></code>'\n"
+            "(out / 'usage.html').write_text(html)\n"
+            "print('Running Sphinx v7.0.1')\n"
+            "bad = [item for item in targets if item not in ('pkg.current', 'pkg.suppressed')]\n"
+            "for item in bad:\n"
+            "    print(f'{path}:5: WARNING: py:func reference target not found: {item}')\n"
+            "print(f'build finished with problems, {len(bad)} warnings.' if bad else 'build succeeded.')\n"
+            "raise SystemExit(bool(bad))\n"
+        )
+        executable.chmod(0o755)
+        command = [
+            str(executable),
+            "-E",
+            "-a",
+            "-n",
+            "-W",
+            "--keep-going",
+            "-b",
+            "html",
+            "docs",
+            str(cache.relative_to(root)),
+        ]
+        revision = util.snapshot(root)["revision"]
+        context = {"attempt": "test-attempt", "nonce": "test-nonce", "source_revision": revision}
+        path = evidence / "scoped.json"
+        argv = [
+            sys.executable,
+            str(ROOT / "tools/autocode.py"),
+            "capture",
+            "--compare-base",
+            "HEAD",
+            "--reference-doc",
+            doc,
+            "--output",
+            str(path),
+            "--",
+            *command,
+        ]
+        result = subprocess.run(
+            argv,
+            cwd=root,
+            env={**os.environ, "AUTOCODE_CAPTURE_CONTEXT": json.dumps(context)},
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        import autocode_reference_diagnostics as reference_diagnostics
+
+        receipt = json.loads(path.read_text())
+        self.assertTrue(reference_diagnostics.sensitivity_passed(receipt, root))
+        self.assertEqual([], receipt["new_diagnostics"])
+        self.assertEqual(revision, receipt["sphinx_reference_control"]["source_revision"])
+        self.assertEqual("do not reuse or remove this output", (cache / "cached").read_text())
+        self.assertEqual([cache], list((root / ".autocode/scratch").iterdir()))
+
+        event = root / ".autocode/evidence-events.jsonl"
+        invocation = {
+            "type": "item.completed",
+            "item": {"type": "command_execution", "command": shlex.join(argv), "aggregated_output": result.stdout},
+        }
+        event.write_text(json.dumps(invocation) + "\n")
+        report = tester_report("C7", shlex.join(command), refs=[".autocode/evidence/scoped.json"])
+        claim_context = {
+            "workspace": str(root),
+            "criteria": {"C7": f"The toctree links {doc}."},
+            "linked_sphinx_documents": {"C7": [doc]},
+            "base_commit": git(root, "rev-parse", "HEAD"),
+            "attempt": {"events": str(event), "capture_context": context},
+        }
+        errors, observations = claim_evidence.judge("tester", report, claim_context)
+        self.assertEqual([], errors)
+        self.assertEqual(["unverified"], [row["status"] for row in observations])
+        self.assertIn(
+            "original base revision could not be verified",
+            claim_evidence.judge("tester", report, {**claim_context, "base_commit": ""})[0][0],
+        )
+        claim_context["attempt"]["output_mode"] = "report_file"
+        event.write_text("")
+        self.assertTrue(claim_evidence.judge("tester", report, claim_context)[0])
+        event.write_text(json.dumps(invocation) + "\n")
+        self.assertEqual((errors, observations), claim_evidence.judge("tester", report, claim_context))
+        invocation["item"]["command"] = shlex.join(["docs/other.rst" if word == doc else word for word in argv])
+        event.write_text(json.dumps(invocation) + "\n")
+        self.assertTrue(claim_evidence.judge("tester", report, claim_context)[0])
+        invocation["item"]["command"] = shlex.join(argv)
+        event.write_text(json.dumps(invocation) + "\n")
+
+        log = Path(receipt["sphinx_reference_control"]["output"])
+        log.write_text(log.read_text().replace(":5: WARNING:", ".other:5: WARNING:"))
+        self.assertFalse(reference_diagnostics.sensitivity_passed(receipt, root))
+        self.assertIn(
+            "did not demonstrate a fresh checker", claim_evidence.judge("tester", report, claim_context)[0][0]
+        )
+        receipt["sphinx_reference_control"]["sha256"] = util.file_hash(log)
+        self.assertFalse(reference_diagnostics.sensitivity_passed(receipt, root))
+
+        (root / doc).write_text("Title\n=====\n\n:py:func:`pkg.suppressed`\n")
+        context["source_revision"] = util.snapshot(root)["revision"]
+        suppressed = evidence / "suppressed.json"
+        argv[argv.index(str(path))] = str(suppressed)
+        result = subprocess.run(
+            argv,
+            cwd=root,
+            env={**os.environ, "AUTOCODE_CAPTURE_CONTEXT": json.dumps(context)},
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        receipt = json.loads(suppressed.read_text())
+        self.assertEqual(0, receipt["candidate_exit_code"])
+        self.assertTrue(reference_diagnostics.sensitivity_passed(receipt, root))
+        self.assertEqual(
+            [f"{doc}: WARNING: rendered Python reference has no link: pkg.suppressed"], receipt["new_diagnostics"]
+        )
+        invocation["item"].update(command=shlex.join(argv), aggregated_output=result.stdout)
+        event.write_text(json.dumps(invocation) + "\n")
+        report["criterion_results"][0]["evidence_refs"] = [".autocode/evidence/suppressed.json"]
+        self.assertIn("pkg.suppressed", claim_evidence.judge("tester", report, claim_context)[0][0])
 
     def capture(self, root, output):
         environment = {

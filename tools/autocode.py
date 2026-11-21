@@ -654,7 +654,9 @@ def run_role(
             job_source.prepare_capture_context(
                 record, before, output, child_options, native_context=native_capture, protected=native is not None
             )
-            role_launch.bind_report_check_attempt(run_dir, base, original_stage, record, save)
+            role_launch.bind_report_check_attempt(
+                run_dir, base, original_stage, record, save, source_revision=before["revision"]
+            )
             save(base.with_suffix(".before.json"), before)
             record["before_ref"] = str(base.with_suffix(".before.json"))
             network_retry.bind_attempt(state, record, before, workspace)

@@ -77,11 +77,20 @@ def cli(argv=None, *, formatter=filters.compact_output):
         metavar="REV",
         help="Run the command on REV (extracted under .autocode/scratch) and here; record the new diagnostic lines",
     )
+    parser.add_argument(
+        "--reference-doc",
+        action="append",
+        default=[],
+        metavar="DOC",
+        help="With --compare-base, check a Sphinx source document using a fresh broken-reference control",
+    )
     parser.add_argument("command", nargs=argparse.REMAINDER, help="The command to run, after --")
     args = parser.parse_args(argv)
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
     if not command:
         parser.error("command required")
+    if args.reference_doc and not args.compare_base:
+        parser.error("--reference-doc requires --compare-base")
     capture_context = None
     if os.environ.get("AUTOCODE_CAPTURE_CONTEXT"):
         try:
@@ -117,7 +126,7 @@ def cli(argv=None, *, formatter=filters.compact_output):
     if path.exists() or raw.exists():
         parser.error("use a unique evidence filename; existing evidence is immutable")
     if args.compare_base:
-        return _compare(parser, args.compare_base, command, path, capture_context)
+        return _compare(parser, args.compare_base, command, path, capture_context, args.reference_doc)
     execution_cwd, verification_context = None, None
     if os.environ.get("AUTOCODE_VERIFICATION_COPY"):
         try:
@@ -214,13 +223,23 @@ def _publish(path, receipt, root, data, mode, compact, returncode):
     return returncode
 
 
-def _compare(parser, revision, command, path, capture_context):
+def _compare(parser, revision, command, path, capture_context, reference_docs=()):
     """``--compare-base``: a base-versus-candidate comparison of the command's diagnostics (#3947).
 
     Exits 0 when the comparison completes; the two exit codes and the new lines are in the receipt.
     """
     try:
-        receipt = comparison.compare(command, revision, Path.cwd(), path)
+        if reference_docs:
+            receipt = comparison.compare(
+                command,
+                revision,
+                Path.cwd(),
+                path,
+                reference_docs=reference_docs,
+                expected_source=(capture_context or {}).get("source_revision"),
+            )
+        else:
+            receipt = comparison.compare(command, revision, Path.cwd(), path)
     except comparison.captured_process.ProcessError as error:
         parser.error(
             f"--compare-base {revision}: command cleanup could not be verified; no comparison was published: {error}"

@@ -1,0 +1,13 @@
+# Linked documentation checks for #3947
+
+The saved SemVer run `20261119-205622-vscode-a23b94` reached Task Complete. Its approved AC7 names `docs/usage/index.rst` and the delivered JSON usage page. The second Validator marked AC7 PASS after reading the toctree and checking the examples. Fresh Sphinx 7.0.1 builds of archived revisions `dfee3874` and `e4460515` showed that only the candidate's new page had unresolved links to `semver.dumps_version` and `semver.loads_version`. The project ran an ordinary Sphinx build without nitpicky checking. In a separate reproduction, a comparison with `-n` reused the pickled candidate environment and reported zero new diagnostics.
+
+The comparison now detects affirmative Sphinx cache reuse from the retained logs. For an approved linked-page criterion naming a changed Sphinx document, the same claim judge serves report check and Tester admission. It requires fresh base and candidate builds, a broken-reference control in each scoped document, the original base revision, and an observed capture event bound to the same command, output and document scope. Rendered Python references add evidence when Sphinx suppresses a warning. Clean controlled output is recorded as unverified because the executable's implementation and all link destinations are not independently bound.
+
+The change would refuse one of two saved Validator responses from the reported incident. The first was already NOT_VERIFIED and the second claimed PASS on AC7 without a qualifying comparison. This small sample measures the reported case. The local `report-check` command surfaces the judgment before submission and the error supplies the exact capture option and checker flags.
+
+## Verification
+
+- The archived broken candidate and a disposable candidate suppressing both targeted warnings were refused for AC7. The repaired copy published API anchors for both functions and explicitly ignored one unrelated Sphinx diagnostic about `typing.Union`. That copy passed the scoped check, with an unverified observation retained. The test used the real Sphinx process and archived SemVer source.
+- Three regression tests fail on master `189738f4e`. Cache reuse and the original linked criterion fail by assertion. The scoped capture fails when the command is parsed. The test also covers a matching report-file nonce without an observed event, changed scope or log bytes and suppressed warnings.
+- Actual VS Code report admission and the required checks on the integrated PR head are pending. The reproduced checkout uses a supported Sphinx command and two explicitly named source documents. Other checker formats and implicit link scopes are still open. Leave #3947 open until the affected editor run has been observed.

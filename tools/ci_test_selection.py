@@ -446,6 +446,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tools/autocode_named_collection.py", ("tests.test_requirements_observations",)),
     ("tools/autocode_suite_claim_replay.py", ("tests.test_requirements_observations",)),
     ("tools/autocode_diagnostics_comparison.py", ("tests.test_claim_evidence", "tests.test_metadata_custody")),
+    ("tools/autocode_reference_diagnostics.py", ("tests.test_claim_evidence",)),
     ("tools/autocode_capture_command.py", ("tests.test_claim_evidence",)),
     (
         "tools/autocode_captured_process.py",
