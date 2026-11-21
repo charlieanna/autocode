@@ -18,3 +18,14 @@ host job is not known; this observation does not establish that it was a reader.
 The focused guard suite (57 tests), Ruff and mypy passed. A deliberate concurrent
 status-observer check in the actual VS Code Extension Host and current-head CI
 remain to be completed before merge.
+
+The owned host fixture now holds a genuine source status command at its render
+boundary while the real editor submits the named answer; it first holds a
+separate synthetic writer and requires refusal. A local offline smoke confirmed
+the status process reaches that boundary and returns public JSON after release.
+The Linux editor-host run and its result are still pending.
+
+The expanded guard, job-route, architecture and run-state selection passed 120
+tests; the extension unit suite passed 784 tests with 22 skipped. The isolated
+worktree's first extension unit attempt lacked node_modules and failed during
+TypeScript loading; using the existing local dependencies corrected setup.
