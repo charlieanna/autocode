@@ -444,7 +444,10 @@ class RecoveryViewTests(unittest.TestCase):
         self.assertEqual(["inspect", "abandon"], [row["kind"] for row in view["recovery"]["actions"]])
         report.pop("active_stage")
         report["settings"]["report_repair"] = {"max_attempts": 2}
-        view = run_view.view(report)
+        # This synthetic card fixture has no report files; the admission behavior
+        # itself is exercised with real files in the offer-agreement suite.
+        with patch("autocode_report_retry_admission.validate"):
+            view = run_view.view(report)
         self.assertEqual("004/validator-01", view["needs"]["retry_report_attempt"])
         self.assertEqual(["inspect", "retry_report"], [row["kind"] for row in view["recovery"]["actions"]])
 
