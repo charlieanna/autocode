@@ -480,18 +480,27 @@ class ReviewMutationRuntimeTests(unittest.TestCase):
         fixture.tree.mkdir()
         supply = object()
         before = Mock(side_effect=ValueError("copied preimage drift"))
+        snapshot = {"head": "base-pinned", "files": {"app.py": "pinned-content"}, "revision": "pinned-revision"}
         with (
             patch.object(verify, "_git", return_value="base-pinned\n") as git,
             patch.object(verify, "changed_files", return_value={"app.py": "modified"}) as changes,
             patch.object(verify, "make_tree", return_value=fixture.tree) as make,
             patch.object(verify, "remove_tree") as remove,
             patch.object(verify.subprocess, "run") as apply,
+            patch.object(verify.scratch_preparation.source_snapshot, "snapshot", return_value=snapshot) as snapshots,
+            patch.object(verify.scratch_preparation.source_snapshot, "bound_inventory", return_value=snapshot["files"]),
+            patch.object(verify.scratch_preparation.source_snapshot, "copied_files", return_value=snapshot["files"]),
+            patch.object(verify.scratch_preparation.source_snapshot, "inventory", return_value=snapshot["files"]),
         ):
             with self.assertRaisesRegex(ValueError, "copied preimage drift"):
                 verify.prepare_scratch_tree(
                     fixture.workspace, fixture.out, patch=fixture.patch, ignored_inputs=supply, _before_patch=before
                 )
-        git.assert_called_once_with(fixture.workspace, "rev-parse", "HEAD")
+        self.assertEqual(
+            [((fixture.workspace, "rev-parse", "HEAD"), {}), ((fixture.tree, "rev-parse", "HEAD"), {})],
+            [(call.args, call.kwargs) for call in git.call_args_list],
+        )
+        self.assertEqual(2, snapshots.call_count)
         changes.assert_called_once_with(fixture.workspace, "base-pinned", source_paths=())
         self.assertEqual("base-pinned", make.call_args.args[1])
         self.assertIs(supply, make.call_args.kwargs["ignored_inputs"])
