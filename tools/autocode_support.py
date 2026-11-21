@@ -321,7 +321,8 @@ def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_
                     if missing_command:
                         check["command"] = executed
                     check["exit_code"] = matches[0]["exit_code"]
-                    continue
+                    if not _bind_capture_receipt(check, workspace):
+                        continue
             # A model sees no event IDs or exit codes, so a check may cite a bare "event:": it binds to the LATEST
             # run of its exact command, exit-less runs included, whose exit must be known and match (EVD-06).
             if not matches and not missing_command:
@@ -346,11 +347,13 @@ def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_
                     check["evidence_ref"] = "event:" + latest["id"]
                     check["exit_code"] = latest["exit_code"]
                     check["command"] = latest["command"]
-                    continue
-            raise ValueError(
-                "Check is not supported by an exact executed Validator event"
-                + receipts.compound_hint(check.get("command"), [item.get("command") for item in tool_outputs])
-            )
+                    if not _bind_capture_receipt(check, workspace):
+                        continue
+            if check["evidence_ref"].startswith("event:"):
+                raise ValueError(
+                    "Check is not supported by an exact executed Validator event"
+                    + receipts.compound_hint(check.get("command"), [item.get("command") for item in tool_outputs])
+                )
         path = Path(check["evidence_ref"])
         path = path if path.is_absolute() else Path(workspace) / path
         if not path.resolve().is_relative_to(Path(workspace).resolve() / ".autocode"):
@@ -363,6 +366,10 @@ def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_
             ) from error
         if check["command"] is None and isinstance(receipt.get("command"), list):
             check["command"] = shlex.join(str(part) for part in receipt["command"])
+        captured = event_matching.capture_invocation(check["command"])
+        if captured and _same_file(captured[0], path, workspace):
+            # The check quotes the capture that wrote this receipt; the check is the command it captured.
+            check["command"] = shlex.join(captured[1])
         if (
             not isinstance(receipt.get("command"), list)
             or not all(isinstance(part, str) for part in receipt["command"])
@@ -386,6 +393,43 @@ def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_
     # Failed or ambiguous normalization must not partly repair the caller's report.
     for original, derived in zip(checks, normalized, strict=False):
         original.update(derived)
+
+
+def _same_file(cited, path, workspace):
+    cited = Path(cited)
+    cited = cited if cited.is_absolute() else Path(workspace) / cited
+    return cited.resolve() == Path(path).resolve()
+
+
+def _bind_capture_receipt(check, workspace):
+    """Cite the receipt a check's event wrote, when that event was one run of the capture CLI.
+
+    A Tester that captured a noisy check and cited its event (or left the command for the runner
+    to fill from it) used to keep the capture invocation as the check's command. The clean-copy
+    replay then ran the invocation again, which refuses an existing receipt ("existing evidence is
+    immutable") and rejected a passing report. The check is the captured command, proved by the
+    receipt the event wrote; the receipt is then authenticated exactly as a cited one. An event
+    whose receipt is missing, or names another command or exit code, keeps its event citation.
+    """
+    captured = event_matching.capture_invocation(check["command"])
+    if not captured:
+        return False
+    output, argv = captured
+    path = Path(output)
+    path = path if path.is_absolute() else Path(workspace) / path
+    try:
+        receipt = read(path)
+    except (OSError, ValueError):
+        return False
+    if (
+        not isinstance(receipt, dict)
+        or receipt.get("command") != argv
+        or receipt.get("exit_code") != check["exit_code"]
+    ):
+        return False
+    check["command"] = shlex.join(argv)
+    check["evidence_ref"] = output
+    return True
 
 
 def derived_check_fields(checks, reported_checks, events_path):
