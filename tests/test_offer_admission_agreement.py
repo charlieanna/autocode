@@ -177,6 +177,24 @@ class SavedRunFixtures:
         }
         return state
 
+    def test_serial_builder_offer_uses_executor_admission(self):
+        for variant in ("draft", "validation", "other_contract", "already_retrying"):
+            with self.subTest(variant=variant):
+                state = self.builder()
+                if variant == "draft":
+                    state["goal_contract"]["approval_status"] = "draft"
+                elif variant == "validation":
+                    state["current_task"]["kind"] = "validate"
+                elif variant == "other_contract":
+                    state["resolution_request"] = {"contract_hash": "other"}
+                else:
+                    state["builder_retries"][builder_policy.key(state)]["action"] = "retry"
+                view = run_view.view(state, workspace=self.root, run_dir=self.run)
+                self.assertFalse(self.offered(view["recovery"], "retry_builder"))
+                self.assertFalse(view["next_command"] and "--retry-builder" in view["next_command"])
+                code, _ = self.execute(state, ["--resume-paused", "--retry-builder", "M1"])
+                self.assertIsNotNone(code)
+
     def repeated(self, **fields):
         """PAUSED_REPEATED_FAILURE of the Builder, three identical failures recorded at this source."""
         state = self.state("PAUSED_REPEATED_FAILURE", failure_history={}, **fields)

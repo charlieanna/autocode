@@ -265,8 +265,10 @@ class RecoveryViewTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "pause changed"):
             recovery.require_token(state, "")
 
-    def test_exact_serial_builder_action_preserves_pins_history_and_scope(self):
-        state = self.state("PAUSED_BUILDER_RETRY_LIMIT")
+    @patch("autocode_legacy_process.assert_no_legacy_process")
+    @patch("autocode_goals.execution_guard")
+    def test_exact_serial_builder_action_preserves_pins_history_and_scope(self, _guard, _process):
+        state = self.state("PAUSED_BUILDER_RETRY_LIMIT", workspace="/project", run_dir="/project/.autocode/run")
         key = recovery.builder_policy.key(state)
         state["builder_retries"] = {key: {"action": "pause", "failures": ["failure-a", "failure-b"]}}
         before = copy.deepcopy(state)
@@ -565,9 +567,11 @@ class RecoveryViewTests(unittest.TestCase):
         actions = self.card(self.state("WAITING_FOR_DEPENDENCY"))["actions"]
         self.assertEqual(["inspect", "feedback"], [row["kind"] for row in actions])
 
-    def test_each_execution_action_names_the_exact_cli_flags_it_runs(self):
+    @patch("autocode_legacy_process.assert_no_legacy_process")
+    @patch("autocode_goals.execution_guard")
+    def test_each_execution_action_names_the_exact_cli_flags_it_runs(self, _guard, _process):
         # A client runs these after the inspected token instead of mapping an action's kind to flags (#730).
-        builder = self.state("PAUSED_BUILDER_RETRY_LIMIT")
+        builder = self.state("PAUSED_BUILDER_RETRY_LIMIT", workspace="/project", run_dir="/project/.autocode/run")
         builder["builder_retries"] = {recovery.builder_policy.key(builder): {"action": "pause", "failures": ["a"]}}
         parallel = self.state(
             "PAUSED_ORCHESTRATOR_WORKER",

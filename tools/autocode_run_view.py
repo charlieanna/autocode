@@ -1805,6 +1805,36 @@ def needs(state: RunState, *, stale_report_repair=False, human_projection=None) 
         ):
             need["retry_unavailable"] = blocked
             need["action"] = "--resume-paused"
+        if status == "PAUSED_BUILDER_RETRY_LIMIT" and "action" not in need:
+            # The same stopped lane and approval checks that guard the executor also
+            # decide whether the view may name its retry. A later launch rechecks them.
+            import shlex
+
+            try:
+                from . import autocode_builder_recovery as builder_recovery
+                from . import autocode_legacy_process as legacy_process
+                from . import autocode_util as util
+            except ImportError:
+                import autocode_builder_recovery as builder_recovery
+                import autocode_legacy_process as legacy_process
+                import autocode_util as util
+
+            task = state.get("current_task") or {}
+            members = task.get("milestone_ids") or [task.get("milestone_id") or task.get("id")]
+            try:
+                goals.execution_guard(state)
+                builder_recovery.serial_retry_frontier(state, members)
+                if any(not isinstance(mid, str) or not mid for mid in members):
+                    raise ValueError("The saved milestone identities are unavailable")
+                if not state.get("run_dir") or not state.get("workspace"):
+                    raise ValueError("The saved run or workspace location is unavailable")
+                legacy_process.assert_no_legacy_process(Path(state["run_dir"]), Path(state["workspace"]))
+            except (util.Paused, ValueError, KeyError, TypeError, OSError) as error:
+                need["resume_unavailable"] = str(error)
+            else:
+                need["action"] = shlex.join(
+                    ["--resume-paused", *(part for mid in members for part in ("--retry-builder", mid))]
+                )
         if (
             status == "PAUSED_RESOLVER"
             and "action" not in need

@@ -719,7 +719,7 @@ def project(state: RunState, need=None):
                     job_retry_token=need["job_retry_token"],
                 )
             )
-    elif members := _builder_members(state, cause):
+    elif not need.get("resume_unavailable") and (members := _builder_members(state, cause)):
         actions.append(
             _action(
                 "retry_builder",
