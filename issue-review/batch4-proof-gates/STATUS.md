@@ -1,5 +1,37 @@
 # Proof gates status
 
+### Current CI consumer investigation
+
+On the locally integrated `0db19fe345` runtime, the real public TaskRun greeting
+start/approve/complete control passed in 28 seconds
+(`/private/tmp/autocode-3981-first-project-current-cli.log`). The comparable
+150-test `test_test_cases`/`test_test_root` selection passed on master `af28f4d`
+and failed 18 subcases on this branch: ten still relied on an uncollectable
+feature-test import, and eight component-policy cases reached the same missing
+named-failure path. Both process-visible attempts are preserved in
+`/private/tmp/autocode-3981-{master,current}-proof-consumers-supervised.log`.
+The earlier sandboxed attempt had 95 process-ownership errors and is not a
+behavior result. The fixture corrections are being checked in a separate
+worktree; no passing result is claimed for those 18 cases yet.
+
+Under the owner's delegated review, the positive arithmetic fixtures will
+import the existing module and call its new API inside the named test, keeping
+the numerical assertions. The explicit collection-error examples will remain
+negative controls and must not establish fail-to-pass proof. Component fixtures
+will assert that their new public module exists before importing it, retaining
+the original health and policy checks. This changes the test setup, never the
+production admission gate, and preserves both failed original attempts.
+
+### Named proof: skipped and missing tests (#4044)
+
+The shared judgment now counts an ordinary named result only when the same test ran and failed on the base and passes on the candidate; skipped, missing, uncollected, and setup-error rows do not become failures. Explicit first-suite, reloadable-code, and compiled-feature policies retain their separate evidence and record tests that did not run. Go build failures are matched to the same package. Cargo's existing changed-test build exception is retained but cannot associate an individual passing test with the failed target; that pre-existing limitation is tracked as #4046 and is not claimed fixed here.
+
+Actual pytest skipped/missing controls and an actual Go mixed-package skipped control fail by assertion on master af28f4d and pass the candidate. The final supervised focused run passed 56 tests; 76 Cargo/Go/architecture/run-state tests passed with six Cargo tests skipped locally because Cargo is unavailable. Exact-head Linux CI must execute the real Cargo controls. The 144 CI-selection tests, repository-specified Ruff check and format, and tools mypy passed. The earlier sandboxed supervised attempt failed with process-enumeration `OwnershipUncertain`; the process-visible rerun produced the results above. Clean #3981 before this fix also failed the Python first-project control which master passed; the explicit matched first-suite path restores that policy.
+
+For the #3346 saved-evidence rate, the three saved real proof attempts from two original Kilo SemVer runs were evaluated read-only by the candidate's pure regression judgment: 0/3 (0%) were newly rejected in this small, nonrepresentative sample. Two retained the same fail-to-pass names; the third remained admitted with 5 instead of 6 because existing #3981 setup-error recognition excluded the import failure of `test_ac6_package_exports`. This is not a fresh proof replay or a population estimate. Reproduction: `/private/tmp/autocode-4044-saved-sample.py` and `.jsonl`; master-red synthetic controls are separate from that rate.
+
+`autocode report-check` validates report/schema and evidence references before submission; it does not execute base/candidate tests or independently supply fail-to-pass proof. The owned regression runner records the executable receipts and judgment, the completion gate reports the proof's actual failures, and the existing stage handoff exposes that runner result to the Tester/reviewer. The corrective path is to repair the tests or source and rerun the named proof under the existing bounded stage workflow; do not claim a pure report or automatic prose correction can establish execution.
+
 The branch contains the work recorded in commit `458b1ae4a` for #3814 and #3926.
 
 The #3814 signature comparison is limited to informational attribution after
@@ -73,7 +105,9 @@ The actual Linux VS Code Extension Host on `65c5d38b4` then passed all nine
 tests, including the protected-link blocked and recovered chat
 (`/private/tmp/autocode-proof-65c5-editor-pass.log`). This is source-recovery
 editor evidence, not a completed #3926 or #3944 proof. Its suite and scenario
-jobs remain in progress. Master was subsequently integrated locally through
+jobs are still in progress but have already reported failures, including first-project
+collection failures. The live logs were inspected; the explicit first-suite repair
+above and affected consumers are being checked locally. These jobs are not green. Master was subsequently integrated locally through
 `af28f4dff`, preserving #4041 host ownership and #4040 tool discovery; 188
 host-registry, CI-selection, fixture and discovery controls passed
 (`/private/tmp/autocode-proof-latest-integration-controls.log`). This later
