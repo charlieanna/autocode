@@ -6,7 +6,9 @@ and failed on master, including the resume behavior assertion. Seven CLI
 scenarios require Linux and remain for CI. Ruff and mypy passed before merging
 current master into this branch.
 
-PR #3967 is open. The Linux suite failed because the pin-tampering test wrote a
-read-only archived file. The test now temporarily grants owner write permission
-to simulate that tampering and restores the original mode. Obtain green required
-CI on the corrected head, merge, and close the issue.
+PR #3967 merged as `330def8fb30c241538d554574f8f8b08a5c29f4d`, and #3868
+closed. The corrected head `e53e15644ebd18e9f48cba315529bfbfad667b9e`
+passed `ci-required`, including the Linux suite. Its advisory diff coverage
+also passed. The earlier Linux failure was a fixture write to read-only archived
+evidence; the test temporarily grants owner write permission and restores its
+original mode.
