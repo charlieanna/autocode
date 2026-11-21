@@ -1,6 +1,6 @@
 // Exercise an offline quota route decision through the actual extension and core.
 const assert = require('node:assert/strict');
-const { spawnSync } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -29,7 +29,7 @@ async function executable() {
   return downloadAndUnzipVSCode({ version: '1.147.0', cachePath: path.join(EXTENSION, '.vscode-test') });
 }
 
-test('real editor offers the bound quota model and effort decision', { timeout: 180_000 }, async () => {
+test('real editor shows the active-writer refusal', { timeout: 300_000 }, async () => {
   assert.equal(require('../../package.json').contributes.configuration.properties['autocode.confirmPersonOnly'].default, true,
     'the default person-only confirmation policy remains enabled');
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'autocode-quota-route-'));
@@ -42,6 +42,7 @@ test('real editor offers the bound quota model and effort decision', { timeout: 
   let openedFrame;
   let lastStatus;
   let expectedToken;
+  const held = [];
   let passed = false;
   try {
     const temp = path.join(root, 'tmp');
@@ -117,17 +118,53 @@ test('real editor offers the bound quota model and effort decision', { timeout: 
     const originalCalls = fs.readFileSync(fixture.calls, 'utf8');
     assert.match(lastState.text, /Review the model and reasoning level for the Design Reviewer, then retry it/i);
     assert.match(lastState.text, /The Design Reviewer's saved model settings changed\. Review the model and reasoning level before retrying\./i);
+    const hold = async (kind) => {
+      const marker = path.join(root, `held-${kind}`);
+      const childEnv = { ...env, AUTOCODE_GUARD_HOST_HOLD: kind, AUTOCODE_GUARD_HOST_MARKER: marker,
+        PYTHONPATH: [path.join(REPO, 'tests/guard_host_hook'), path.join(REPO, 'tools'), env.PYTHONPATH].filter(Boolean).join(path.delimiter) };
+      const args = ['--run-dir', fixture.run_dir, '--workspace', fixture.workspace,
+        ...(kind === 'status' ? ['--status', '--json'] : ['--approve-goal', 'unused'])];
+      const child = spawn(python, [path.join(REPO, 'tools/autocode.py'), ...args],
+        { cwd: fixture.workspace, env: childEnv, stdio: ['pipe', 'pipe', 'pipe'] });
+      let out = '', err = '';
+      child.stdout.on('data', (chunk) => { out += chunk; });
+      child.stderr.on('data', (chunk) => { err += chunk; });
+      const done = new Promise((resolve) => child.once('close', (code, signal) => resolve({ code, signal, out, err })));
+      held.push({ child, done });
+      await until(`${kind} process reaches the barrier`, () => {
+        if (child.exitCode !== null) throw new Error(`${kind} exited: ${err}`);
+        return fs.existsSync(marker);
+      });
+      return { child, done };
+    };
+    const release = async (item) => {
+      item.child.stdin.end('\n');
+      let timer;
+      try {
+        return await Promise.race([item.done, new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error('Owned CLI did not exit after release')), 15_000);
+        })]);
+      } finally { clearTimeout(timer); }
+    };
+    const writer = await hold('writer');
     await field.fill('gpt-6-sol@medium');
     const frame = await chat();
     openedFrame = frame;
     await frame.locator('#take-action').click();
-    const after = await until('the concrete bound answer to be accepted', () => {
-      const view = publicStatus();
-      return view.needs?.job_retry_token && view.needs.job_retry_token !== before.needs.job_retry_token ? view : null;
+    await until('the competing writer to be refused in the editor action', () => {
+      if (!fs.existsSync(actions)) return false;
+      return fs.readFileSync(actions, 'utf8').split('\n').filter(Boolean).map(JSON.parse)
+        .some((entry) => entry.event === 'finished' && entry.exit_code !== 0 &&
+          entry.stderr?.includes(`Existing run process ${writer.child.pid} is active`));
     });
-    assert.equal(after.routes.architect.model, 'gpt-6-sol');
-    assert.equal(after.routes.architect.reasoning_effort, 'medium');
-    assert.equal(fs.readFileSync(fixture.calls, 'utf8'), originalCalls, 'answering the question launches no model');
+    await until('the editor to show the competing writer refusal', async () => {
+      const active = await chat();
+      return (await active.locator('#chat-error').textContent())?.includes(`Existing run process ${writer.child.pid} is active`);
+    });
+    assert.equal((await release(writer)).code, 0);
+    const after = publicStatus();
+    assert.equal(after.needs.job_retry_token, before.needs.job_retry_token, 'refused action does not rotate the token');
+    assert.equal(fs.readFileSync(fixture.calls, 'utf8'), originalCalls, 'refusal launches no model');
     passed = true;
   } catch (error) {
     const actions = path.join(root, 'actions.jsonl');
@@ -145,6 +182,13 @@ test('real editor offers the bound quota model and effort decision', { timeout: 
       .catch((screenshotError) => console.error('Quota route screenshot failed:', screenshotError.message));
     throw error;
   } finally {
+    for (const item of held) {
+      if (item.child.exitCode === null) item.child.stdin.end('\n');
+      let timer;
+      const stopped = await Promise.race([item.done.then(() => true), new Promise((resolve) => { timer = setTimeout(() => resolve(false), 5_000); })]);
+      clearTimeout(timer);
+      if (!stopped) { item.child.kill('SIGKILL'); await item.done; }
+    }
     if (app) {
       let timer;
       const timedOut = await Promise.race([app.close().then(() => false, () => true),
