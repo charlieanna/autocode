@@ -34,6 +34,18 @@ restoration the protected module passed 47 tests. Architecture and CI-selection
 checks passed 195 tests; the explicit link, collision and owned-copy controls,
 Ruff/format and mypy also passed.
 
+The correction was integrated and master `73400c323` merged without conflicts.
+On the merged candidate the protected, acceptance and setup controls passed
+95 tests; the same command also named a nonexistent `tests.test_check_outcome`
+module and therefore exited with an import error, retained in
+`/private/tmp/autocode-proof-safe-merged-focused.log`. The intended
+`tests.test_incomplete_check_outcomes` module was subsequently run with the
+architecture, run-state and CI-selection controls: 233 passed in
+`/private/tmp/autocode-proof-safe-merged-architecture.log`. Full repository
+Ruff and formatting checks passed, and mypy passed on 993 source files. The
+new merged head still requires exact-head CI and actual editor verification;
+the earlier `8af27bb` extension pass does not establish either for this head.
+
 **2026-11-20 source-boundary and failure-identity follow-up:** #3926 and
 #3944 remain incomplete and this PR must remain draft. The existing native
 readonly-check boundary cannot be substituted for the reported executions: it
