@@ -421,6 +421,7 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=N
                     timeout=timeout,
                     source_paths=source_scope.paths(state),
                     expected_source_revision=revision,
+                    protected_test_snapshot_links=True,
                     **overlays,
                 )
 

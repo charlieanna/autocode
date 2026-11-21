@@ -1,5 +1,6 @@
 """A scratch execution must copy the pinned source before intentional overlays."""
 
+import json
 import os
 import shlex
 import sys
@@ -113,6 +114,150 @@ class ScratchCopyIdentityTests(unittest.TestCase):
                 self.run_copy()
         self.assertEqual("PAUSED_SOURCE_UNAVAILABLE", held.exception.status)
         self.assertFalse(self.marker.exists(), "The check must not launch against a stale source revision")
+
+    def test_protected_copy_policy_binds_inventoried_untracked_terminal_direct_and_owned(self):
+        (self.workspace / "new.py").write_text("value = 42\n")
+        (self.workspace / "alias.py").symlink_to("new.py")
+        git(self.workspace, "add", "alias.py")
+        revision = source_snapshot.snapshot(self.workspace)["revision"]
+        with self.assertRaises(util.Paused):
+            self.run_copy(expected_source_revision=revision)
+        self.assertFalse(self.marker.exists())
+        receipt = self.run_copy(expected_source_revision=revision, protected_test_snapshot_links=True)
+        self.assertEqual(0, receipt["exit_code"], receipt)
+        self.assertTrue(self.marker.exists())
+        self.marker.unlink()
+        identity = {"fixture": "protected link source"}
+        receipt = schedule.run(
+            self.project.evidence / "obligations",
+            identity,
+            lambda out: verify.scratch_run(
+                self.workspace,
+                out,
+                command=self.command,
+                timeout=30,
+                expected_source_revision=revision,
+                protected_test_snapshot_links=True,
+            ),
+            reuse_allowed=False,
+            reason="fresh",
+            current_identity=lambda: identity,
+            owned_preparation=True,
+        )
+        self.assertEqual(0, receipt["exit_code"], receipt)
+        self.assertTrue(self.marker.exists())
+        observed = verify.execution_identity(self.workspace, command=self.command)
+        self.assertIn("alias.py", observed["unbound_source_symlinks"])
+        self.assertFalse(observed["cache_binding_complete"])
+
+    def test_protected_copy_policy_refuses_tampered_or_uninventoried_terminal(self):
+        target = self.workspace / "new.py"
+        target.write_text("value = 42\n")
+        (self.workspace / "alias.py").symlink_to("new.py")
+        git(self.workspace, "add", "alias.py")
+        revision = source_snapshot.snapshot(self.workspace)["revision"]
+        make_tree = verify.make_tree
+
+        def tamper(*args, **kwargs):
+            tree = make_tree(*args, **kwargs)
+            (tree / "new.py").write_text("value = 99\n")
+            return tree
+
+        with patch.object(verify, "make_tree", side_effect=tamper), self.assertRaises(util.Paused):
+            self.run_copy(expected_source_revision=revision, protected_test_snapshot_links=True)
+        self.assertFalse(self.marker.exists())
+        with (self.workspace / ".gitignore").open("a") as stream:
+            stream.write("new.py\n")
+        revision = source_snapshot.snapshot(self.workspace)["revision"]
+        with self.assertRaises(util.Paused):
+            self.run_copy(expected_source_revision=revision, protected_test_snapshot_links=True)
+        self.assertFalse(self.marker.exists())
+
+    def test_protected_copy_policy_rejects_transient_terminal_substitution(self):
+        target = self.workspace / "new.py"
+        target.write_text("value = 42\n")
+        (self.workspace / "alias.py").symlink_to("new.py")
+        git(self.workspace, "add", "alias.py")
+        revision = source_snapshot.snapshot(self.workspace)["revision"]
+        make_tree = verify.make_tree
+
+        def transient(*args, **kwargs):
+            target.write_text("value = 99\n")
+            try:
+                return make_tree(*args, **kwargs)
+            finally:
+                target.write_text("value = 42\n")
+
+        with patch.object(verify, "make_tree", side_effect=transient), self.assertRaises(util.Paused):
+            self.run_copy(expected_source_revision=revision, protected_test_snapshot_links=True)
+        self.assertEqual("value = 42\n", target.read_text())
+        self.assertFalse(self.marker.exists())
+
+    def test_protected_copy_policy_requires_a_pinned_ordinary_replay(self):
+        with self.assertRaisesRegex(ValueError, "pinned ordinary replay"):
+            self.run_copy(protected_test_snapshot_links=True)
+        with self.assertRaisesRegex(ValueError, "pinned ordinary replay"):
+            self.run_copy(expected_source_revision="pinned", protected_test_snapshot_links=True, review_mutation=True)
+        self.assertFalse(self.marker.exists())
+
+    def test_native_owner_never_ignores_protected_snapshot_link_policy(self):
+        from unittest.mock import Mock
+
+        native = Mock()
+        with patch.object(verify.native_checks, "validate_scratch_owner") as admission:
+            with self.assertRaises(util.Paused) as held:
+                verify.scratch_run(
+                    self.workspace,
+                    self.project.evidence,
+                    command=self.command,
+                    timeout=30,
+                    expected_source_revision="pinned",
+                    protected_test_snapshot_links=True,
+                    native_execution=native,
+                )
+        admission.assert_called_once()
+        self.assertEqual("PAUSED_VISUAL_EVIDENCE", held.exception.status)
+        native.copy.assert_not_called()
+        self.assertFalse(self.marker.exists())
+
+    def test_owned_worker_cannot_widen_sealed_source_link_policy(self):
+        (self.workspace / "new.py").write_text("value = 42\n")
+        (self.workspace / "alias.py").symlink_to("new.py")
+        git(self.workspace, "add", "alias.py")
+        revision = source_snapshot.snapshot(self.workspace)["revision"]
+        original = verify.preparation.commands.run
+        changed = []
+
+        def tamper(command, *args, **kwargs):
+            argv = shlex.split(command)
+            if "--request-sha256" in argv:
+                request = Path(argv[argv.index("--request") + 1])
+                payload = json.loads(request.read_text())
+                payload["parameters"]["protected_test_snapshot_links"] = True
+                request.write_text(json.dumps(payload))
+                changed.append(request)
+            return original(command, *args, **kwargs)
+
+        identity = {"fixture": "untrusted worker policy change"}
+        with patch.object(verify.preparation.commands, "run", side_effect=tamper):
+            with self.assertRaises((ValueError, util.Paused)):
+                schedule.run(
+                    self.project.evidence / "obligations",
+                    identity,
+                    lambda out: verify.scratch_run(
+                        self.workspace,
+                        out,
+                        command=self.command,
+                        timeout=30,
+                        expected_source_revision=revision,
+                    ),
+                    reuse_allowed=False,
+                    reason="fresh",
+                    current_identity=lambda: identity,
+                    owned_preparation=True,
+                )
+        self.assertEqual(1, len(changed))
+        self.assertFalse(self.marker.exists(), "A modified worker request must not launch the project check")
 
     def test_owned_worker_preserves_unsafe_copy_path_as_source_refusal(self):
         shared = self.workspace / "shared"

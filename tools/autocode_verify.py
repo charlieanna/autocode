@@ -1472,6 +1472,7 @@ def scratch_run(
     acceptance_preflight=False,
     python=None,
     expected_source_revision=None,
+    protected_test_snapshot_links=False,
 ) -> dict:
     """Execute in a copy of HEAD plus current changes and an optional reviewed patch.
     File/link overlays preserve cited inputs. Review mutation returns a typed
@@ -1481,6 +1482,10 @@ def scratch_run(
     """
     if type(acceptance_preflight) is not bool:
         raise ValueError("Acceptance preflight must be a boolean")
+    if type(protected_test_snapshot_links) is not bool or (
+        protected_test_snapshot_links and (expected_source_revision is None or review_mutation)
+    ):
+        raise ValueError("Protected test link policy requires a pinned ordinary replay")
     workspace, run_dir = Path(workspace), Path(run_dir)
     link_guard = scratch_preparation.DependencyGuard()
     native_scope = None
@@ -1489,6 +1494,10 @@ def scratch_run(
         native_checks.validate_scratch_owner(
             native_execution, review_mutation, review_mutation_deadline, review_source, preparation.active
         )
+        if protected_test_snapshot_links:
+            raise util.Paused(
+                "PAUSED_VISUAL_EVIDENCE", "Native protected replay cannot use the snapshot-only link policy"
+            )
         native_scope = native_execution.copy(
             workspace,
             run_dir,
@@ -1511,7 +1520,9 @@ def scratch_run(
         parameters = preparation.scratch_parameters(
             patch, files, links, source_paths, dependencies_from, generated_record, generated_unrecorded, ignored_inputs
         )
-        scratch_preparation.source_parameters(parameters, expected_source_revision, review_source)
+        scratch_preparation.source_parameters(
+            parameters, expected_source_revision, review_source, protected_test_snapshot_links
+        )
         if preparation.active():
             answer = preparation.execute(
                 workspace,

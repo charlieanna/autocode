@@ -224,13 +224,15 @@ def metadata(workspace, files):
 _MAX_FILE_LINK_CHAIN = 8
 
 
-def unbound_symlinks(workspace, files, tracked_paths):
+def unbound_symlinks(workspace, files, tracked_paths, *, allow_untracked_terminal=False):
     """Links not bound by this inventory and tracked, ordinary in-tree targets.
 
-    A file-link chain is bound only when every link and its terminal regular
-    file are tracked and match this snapshot. No link may traverse a symlinked
-    directory, escape the root, or lead through a cycle or missing target.
+    Every link is tracked; its terminal regular file must be tracked unless
+    an explicitly scoped copy permits an inventoried untracked terminal. All
+    bytes still match this snapshot; escapes and unsafe parent links are held.
     """
+    if type(allow_untracked_terminal) is not bool:
+        raise ValueError("Untracked terminal policy must be a boolean")
     links = [name for name, value in files.items() if value.startswith("symlink:")]
     if not links:
         return []
@@ -275,12 +277,18 @@ def unbound_symlinks(workspace, files, tracked_paths):
                         raise ValueError("symlinked or invalid parent")
                 relative = target.relative_to(root).as_posix()
                 info = target.lstat()
-                if relative not in tracked or files.get(relative) != _identity(target, info):
+                if files.get(relative) != _identity(target, info):
                     raise ValueError("unbound target")
                 if stat.S_ISLNK(info.st_mode):
+                    if relative not in tracked:
+                        raise ValueError("untracked link")
                     current = relative
                     continue
-                if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                if (
+                    not stat.S_ISREG(info.st_mode)
+                    or info.st_nlink != 1
+                    or (relative not in tracked and not allow_untracked_terminal)
+                ):
                     raise ValueError("unbound target")
                 break
         except (OSError, ValueError, RuntimeError):

@@ -93,6 +93,42 @@ class SourceLinkIdentityTests(unittest.TestCase):
                 middle.symlink_to(target)
                 self.assertIn("alias.py", self.unbound())
 
+    def test_copy_policy_accepts_only_inventoried_untracked_terminal_files(self):
+        target = self.root / "new_product.py"
+        target.write_text("value = 9\n")
+        self.retarget("new_product.py")
+        files = source_snapshot.snapshot(self.root)["files"]
+        tracked = lambda: git(self.root, "ls-files", "-z").split("\0")
+        self.assertIn("alias.py", source_snapshot.unbound_symlinks(self.root, files, tracked))
+        self.assertEqual([], source_snapshot.unbound_symlinks(self.root, files, tracked, allow_untracked_terminal=True))
+        target.write_text("value = 10\n")
+        self.assertIn(
+            "alias.py", source_snapshot.unbound_symlinks(self.root, files, tracked, allow_untracked_terminal=True)
+        )
+
+    def test_copy_policy_still_refuses_untracked_hops_and_uninventoried_targets(self):
+        middle = self.root / "untracked_middle.py"
+        middle.symlink_to("src/product.py")
+        self.retarget("untracked_middle.py")
+        tracked = lambda: git(self.root, "ls-files", "-z").split("\0")
+        files = source_snapshot.snapshot(self.root)["files"]
+        self.assertIn(
+            "alias.py", source_snapshot.unbound_symlinks(self.root, files, tracked, allow_untracked_terminal=True)
+        )
+        target = self.root / "untracked_target.py"
+        target.write_text("value = 9\n")
+        self.retarget("untracked_target.py")
+        files = source_snapshot.snapshot(self.root)["files"]
+        del files["untracked_target.py"]
+        self.assertIn(
+            "alias.py", source_snapshot.unbound_symlinks(self.root, files, tracked, allow_untracked_terminal=True)
+        )
+        os.link(target, self.root.parent / "external-hardlink.py")
+        files = source_snapshot.snapshot(self.root)["files"]
+        self.assertIn(
+            "alias.py", source_snapshot.unbound_symlinks(self.root, files, tracked, allow_untracked_terminal=True)
+        )
+
     def test_escape_missing_untracked_and_link_chains_remain_unbound(self):
         (self.root / "untracked.py").write_text("value = 9\n")
         (self.root / "chain.py").symlink_to("alias.py")
