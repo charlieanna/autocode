@@ -252,6 +252,9 @@ class AcceptanceVerificationRetryTests(unittest.TestCase):
         self.state["next_stage"] = "builder"
         shown = run_view.view(self.state, workspace=self.workspace, run_dir=self.run)
         self.assertEqual("blocked", shown["acceptance_verification_retry"]["next"])
+        self.assertEqual("builder", shown["next_stage"])
+        self.assertEqual("continue", shown["needs"]["kind"])
+        self.assertIn("--no-chat", shown["next_command"])
         with self.assertRaises(util.Paused):
             self.dispatch()
         self.runtime.run_role.assert_not_called()
