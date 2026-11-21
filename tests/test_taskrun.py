@@ -204,6 +204,7 @@ class RunViewTests(unittest.TestCase):
                 "code_checkpoints",
                 "routes",
                 "provider",
+                "source_catalog_receipt",
                 "route_assignments",
                 "stage_models",
                 "implementation_discrepancy",

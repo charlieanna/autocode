@@ -46,11 +46,19 @@ class AccessTransportConsumerTests(unittest.TestCase):
             "tests.test_acceptance_verification_retry",
             "tests.test_recovery_history",
             "tests.test_status_observation",
+            "tests.test_status_updates",
+            "tests.test_status_command",
+            "tests.test_report_repair_view",
+            "tests.test_catalog_reconciliation",
+            "tests.test_source_reconciliation",
+            "tests.test_visual_runtime",
         }
-        selected = run_suite.select_tests(
-            ["tools/autocode_status_observation.py"], {**dict.fromkeys(consumers, ""), "tests.test_unrelated": ""}
-        )
-        self.assertTrue(consumers <= set(selected))
+        for source in ("tools/autocode_status_observation.py", "tools/autocode_status_observation_worker.py"):
+            with self.subTest(source=source):
+                selected = run_suite.select_tests(
+                    [source], {**dict.fromkeys(consumers, ""), "tests.test_unrelated": ""}
+                )
+                self.assertTrue(consumers <= set(selected))
 
     def test_answer_ingresses_keep_the_requirements_lifecycle_consumers_when_slow(self):
         consumers = {

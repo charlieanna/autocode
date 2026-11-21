@@ -10,6 +10,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import autocode_acceptance_retry_next as retry_next
 import autocode_acceptance_tests as acceptance
 import autocode_acceptance_tests_job as job
 import autocode_acceptance_verification_retry as retry
@@ -182,7 +183,7 @@ class AcceptanceVerificationRetryTests(unittest.TestCase):
 
         def observe(operation, payload):
             self.assertEqual("retained_retry", operation)
-            return status_observation._worker({"operation": operation, "payload": payload})
+            return retry_next.decide(payload["state"], payload["workspace"])
 
         with (
             patch.object(status_observation, "_observe", side_effect=observe),
@@ -211,7 +212,7 @@ class AcceptanceVerificationRetryTests(unittest.TestCase):
         with patch.object(
             status_observation,
             "_observe",
-            side_effect=lambda op, payload: status_observation._worker({"operation": op, "payload": payload}),
+            side_effect=lambda op, payload: retry_next.decide(payload["state"], payload["workspace"]),
         ):
             view = run_view.view(self.state, workspace=self.workspace, run_dir=self.run)
         self.assertEqual("recheck", view["acceptance_verification_retry"]["next"])

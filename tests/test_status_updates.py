@@ -243,13 +243,14 @@ class StatusTests(unittest.TestCase):
     def test_evidence_inspection_invalidates_completion_before_efficiency_projection(self):
         import autocode as runner
         import autocode_status_command as command
+        import autocode_status_observation_worker as status_worker
 
         state = {"status": "TASK_COMPLETE", "iteration": 1, "sessions": {}, "stages": []}
         before = copy.deepcopy(state)
         args = SimpleNamespace(inspect_evidence=True, run_dir="fixture", engine=None)
         for freshness, revision, expected in (
             ("current", "now", True),
-            ("unavailable", "now", False),
+            ("unavailable", "now", None),
             ("current", "old", False),
         ):
             inspected = {"freshness": freshness, "inspected_source_revision": revision}
@@ -257,6 +258,11 @@ class StatusTests(unittest.TestCase):
             with (
                 self.subTest(freshness=freshness, revision=revision),
                 patch.object(runner.support, "snapshot", return_value={"revision": "now"}),
+                patch.object(
+                    command.status_observation,
+                    "_observe",
+                    side_effect=lambda op, payload: status_worker._worker({"operation": op, "payload": payload}),
+                ),
                 patch.object(runner.completion_gate, "completion_ready", return_value=True),
                 patch.object(command.verification, "inspect", return_value=inspected),
                 patch.object(runner.milestones, "summary", return_value={"accepted_milestones": []}),
@@ -269,9 +275,84 @@ class StatusTests(unittest.TestCase):
             payload = json.loads(output.getvalue())
             self.assertIs(expected, payload["completion_current"])
             self.assertIs(expected, payload["view"]["efficiency"]["delivery"]["current_completion"])
-            self.assertEqual(int(expected), payload["view"]["efficiency"]["delivery"]["verified_deliveries"])
+            self.assertEqual(
+                None if expected is None else int(expected),
+                payload["view"]["efficiency"]["delivery"]["verified_deliveries"],
+            )
             self.assertEqual(inspected, payload["view"]["verification"])
         self.assertEqual(before, state)
+
+    def test_unavailable_completed_source_and_inspection_remain_unknown(self):
+        import autocode as runner
+        import autocode_captured_process as captured
+        import autocode_source_scope as source_scope
+        import autocode_status_command as command
+
+        state = {
+            "status": "TASK_COMPLETE",
+            "iteration": 1,
+            "sessions": {},
+            "stages": [],
+            "validation": {"source_revision": "saved"},
+        }
+        args = SimpleNamespace(inspect_evidence=True, run_dir="fixture", engine=None)
+        output = io.StringIO()
+        with (
+            patch.object(captured, "run", side_effect=subprocess.TimeoutExpired("worker", 15)),
+            patch.object(source_scope, "snapshot", side_effect=subprocess.TimeoutExpired("source", 15)),
+            patch.object(runner.completion_gate, "completion_ready") as ready,
+            patch.object(runner.milestones, "summary", return_value={"accepted_milestones": []}),
+            patch.object(runner, "intervention_metadata", return_value={}),
+            patch.object(runner.resolver_human, "projection", return_value={}),
+            redirect_stdout(output),
+        ):
+            command.render(runner, state, args, Path("."), Path("fixture"))
+        payload = json.loads(output.getvalue())
+        self.assertIsNone(payload["completion_current"])
+        self.assertEqual("unavailable", payload["view"]["verification"]["freshness"])
+        self.assertIsNone(payload["view"]["efficiency"]["delivery"]["current_completion"])
+        self.assertIsNone(payload["view"]["delivery"])
+        ready.assert_not_called()
+
+    def test_completion_inspection_and_launch_guard_timeouts_do_not_claim_delivery(self):
+        import autocode as runner
+        import autocode_status_command as command
+
+        state = {
+            "status": "TASK_COMPLETE",
+            "iteration": 1,
+            "sessions": {},
+            "stages": [],
+            "validation": {"source_revision": "now"},
+        }
+        args = SimpleNamespace(inspect_evidence=True, run_dir="fixture", engine=None)
+        observations = {
+            "source_snapshot": {"revision": "now"},
+            "completion": {"current": True, "visual_acceptance": None},
+            "evidence_inspection": {"freshness": "current", "inspected_source_revision": "now"},
+            "launch_guard": {"ok": True},
+            "delivery": None,
+        }
+        for failure in ("completion", "evidence_inspection", "launch_guard"):
+
+            def observe(operation, payload):
+                if operation == failure:
+                    raise subprocess.TimeoutExpired("worker", 15)
+                return observations[operation]
+
+            output = io.StringIO()
+            with (
+                self.subTest(failure=failure),
+                patch.object(command.status_observation, "_observe", side_effect=observe),
+                patch.object(runner.milestones, "summary", return_value={"accepted_milestones": []}),
+                patch.object(runner, "intervention_metadata", return_value={}),
+                patch.object(runner.resolver_human, "projection", return_value={}),
+                redirect_stdout(output),
+            ):
+                command.render(runner, state, args, Path("."), Path("fixture"))
+                payload = json.loads(output.getvalue())
+                self.assertIsNone(payload["completion_current"])
+                self.assertIsNone(payload["view"]["delivery"])
 
     def test_runner_command_supervision_is_fresh_read_only_and_denied_access_stays_unknown(self):
         import autocode as runner

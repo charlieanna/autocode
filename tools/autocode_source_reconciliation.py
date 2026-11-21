@@ -34,8 +34,8 @@ NOTICE = (
 )
 
 
-def offer(state: RunState, workspace, inspection, *, controller=None, stop_pending=False):
-    """One current, read-only source observation; no retry or result is authorized here."""
+def eligible(state: RunState, inspection, *, controller=None, stop_pending=False):
+    """Check the in-memory stopped boundary before attempting any source read."""
     if (
         state.get("status") != STATUS
         or state.get("ui_run")
@@ -60,6 +60,13 @@ def offer(state: RunState, workspace, inspection, *, controller=None, stop_pendi
             or not all(fresh[role]["checked"] and fresh[role]["alive"] is False for role in liveness.ROLES)
         ):
             return None
+    return True
+
+
+def offer(state: RunState, workspace, inspection, *, controller=None, stop_pending=False):
+    """One current, read-only source observation; no retry or result is authorized here."""
+    if not eligible(state, inspection, controller=controller, stop_pending=stop_pending):
+        return None
     if not readable(workspace, state):
         return None
     return {

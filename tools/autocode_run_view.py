@@ -397,11 +397,7 @@ def view(
             ),
         }
     elif not operational_block.presentation(saved_state, include_hold=True):
-        try:
-            from . import autocode_source_reconciliation as source_reconciliation
-        except ImportError:
-            import autocode_source_reconciliation as source_reconciliation
-        source_resume = source_reconciliation.offer(
+        source_resume = status_observation.source_offer(
             saved_state,
             workspace or state.get("workspace"),
             liveness,
@@ -422,11 +418,9 @@ def view(
                 ),
             }
         else:
-            try:
-                from . import autocode_catalog_reconciliation as catalog_reconciliation
-            except ImportError:
-                import autocode_catalog_reconciliation as catalog_reconciliation
-            catalog_resume = catalog_reconciliation.offer(saved_state, controller=controller, stop_pending=stop_pending)
+            catalog_resume = status_observation.catalog_offer(
+                saved_state, controller=controller, stop_pending=stop_pending
+            )
             if catalog_resume is not None:
                 next_action = {
                     "needs": catalog_resume,
@@ -443,6 +437,16 @@ def view(
     if continuing:
         # The live controller will save its own next state; an action taken now is refused by the run lock.
         next_action = {"needs": None, "pause_category": None, "pause_category_label": None, "next_command": None}
+    report_hold = bool(report_repair_source_unavailable and saved_state.get("pending_report_repair"))
+    if report_hold and (next_action.get("needs") or {}).get("kind") in ("resume", "continue"):
+        # Unknown source or pins cannot justify discarding the retained attempt
+        # or a resume that relies on knowing whether the repair is stale.
+        next_action = {
+            "needs": None,
+            "pause_category": "autocode",
+            "pause_category_label": "AutoCode",
+            "next_command": None,
+        }
     need = next_action["needs"]
     task = state.get("current_task") or {}
     active = state.get("active_stage")
@@ -456,7 +460,11 @@ def view(
     plan = approved_contract(state)
     # Tokens and cost so far, by role (autocode_usage.summary), with the live accounting the cost reads.
     usage_summary = autocode_usage.summary(state)
-    recovery = None if continuing else recovery_view.project(saved_state, need, retained=retained)
+    recovery = (
+        None
+        if continuing
+        else recovery_view.project(saved_state, need, retained=retained, report_repair_unavailable=report_hold)
+    )
     result = {
         "replay_source": None if invalid_replay else replay_view.project(state, run_dir=run_dir),
         "replay_progress": replay_progress,
