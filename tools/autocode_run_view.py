@@ -104,6 +104,7 @@ try:
     from . import autocode_stage_pipeline as stage_pipeline
     from . import autocode_stage_policy as stage_policy
     from . import autocode_status_label as status_label
+    from . import autocode_status_observation as status_observation
     from . import autocode_stop_explanations as stop_explanations
     from . import autocode_task_input as task_input
     from . import autocode_tool_containment as tool_containment
@@ -182,6 +183,7 @@ except ImportError:
     import autocode_stage_pipeline as stage_pipeline
     import autocode_stage_policy as stage_policy
     import autocode_status_label as status_label
+    import autocode_status_observation as status_observation
     import autocode_stop_explanations as stop_explanations
     import autocode_task_input as task_input
     import autocode_tool_containment as tool_containment
@@ -336,7 +338,7 @@ def view(
     status = state.get("status", "")
     # What the next resume of a retained acceptance verification retry does (#3927): one answer, computed
     # once with the view's workspace, read by needs, next_command, the recovery card, chat and progress.
-    retained = retry_next.decide(saved_state, workspace or state.get("workspace"))
+    retained = status_observation.retained_retry(saved_state, workspace or state.get("workspace"))
     next_action = action(
         saved_state,
         run_dir=run_dir,
@@ -1177,7 +1179,7 @@ def action(
     (autocode_acceptance_retry_next.decide), computed here when the caller has none.
     """
     if retained is _UNSET:
-        retained = retry_next.decide(state, workspace or state.get("workspace"))
+        retained = status_observation.retained_retry(state, workspace or state.get("workspace"))
     try:
         from . import autocode_changeset_barrier as changeset_barrier
     except ImportError:
@@ -1675,7 +1677,7 @@ def needs(state: RunState, *, stale_report_repair=False, human_projection=None, 
         if protected_offer := protected_commands.offer(state):
             return protected_offer
         if retained is _UNSET:
-            retained = retry_next.decide(state, state.get("workspace"))
+            retained = status_observation.retained_retry(state, state.get("workspace"))
         if retry_next.exhausted_pause(state, retained):
             # The retained report is spent or cannot be authenticated: plain resume would only re-pause.
             # The recovery card preserves the evidence and explains the hold.

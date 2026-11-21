@@ -36,8 +36,8 @@ def record_current(state: RunState, record, workspace):
     )
 
 
-def problem(state: RunState, pending, workspace):
-    """Why this exact retained report cannot be rechecked; never mutate or execute it."""
+def preflight(state: RunState, pending):
+    """Refuse cheap state-only cases before inspecting any filesystem."""
     if not isinstance(pending, dict):
         return "The saved acceptance verification retry is malformed"
     if state.get("next_stage") != acceptance.STAGE:
@@ -49,6 +49,13 @@ def problem(state: RunState, pending, workspace):
         return "Acceptance verification still has active or uncertain work"
     if type(pending.get("attempts")) is not int or pending["attempts"] < 0:
         return "The saved acceptance verification retry count is invalid"
+    return None
+
+
+def problem(state: RunState, pending, workspace):
+    """Why this exact retained report cannot be rechecked; never mutate or execute it."""
+    if refusal := preflight(state, pending):
+        return refusal
     try:
         record, pins = pending["record"], pending["pins"]
         if (

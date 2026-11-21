@@ -17,6 +17,7 @@ import autocode_contract_identity as identity
 import autocode_progress_view as progress_view
 import autocode_run_view as run_view
 import autocode_source_scope as source_scope
+import autocode_status_observation as status_observation
 import autocode_stuck_job as stuck
 import autocode_util as util
 
@@ -177,7 +178,15 @@ class AcceptanceVerificationRetryTests(unittest.TestCase):
     def test_retry_status_rechecks_source_once_only_at_an_idle_boundary(self):
         self.start_retry()
         self.state["status"] = "PAUSED_INVALID_OUTPUT"
-        with patch.object(source_scope, "snapshot", wraps=source_scope.snapshot) as snapshots:
+
+        def observe(operation, payload):
+            self.assertEqual("retained_retry", operation)
+            return status_observation._worker({"operation": operation, "payload": payload})
+
+        with (
+            patch.object(status_observation, "_observe", side_effect=observe),
+            patch.object(source_scope, "snapshot", wraps=source_scope.snapshot) as snapshots,
+        ):
             view = run_view.view(self.state, workspace=self.workspace, run_dir=self.run)
             self.assertEqual("recheck", view["acceptance_verification_retry"]["next"])
             self.assertEqual(1, snapshots.call_count)
@@ -185,6 +194,33 @@ class AcceptanceVerificationRetryTests(unittest.TestCase):
         with patch.object(source_scope, "snapshot", side_effect=AssertionError("active check must not scan source")):
             view = run_view.view(self.state, workspace=self.workspace, run_dir=self.run)
         self.assertEqual("blocked", view["acceptance_verification_retry"]["next"])
+
+    def test_timed_out_status_read_holds_then_recovers(self):
+        self.start_retry()
+        self.state["status"] = "PAUSED_INVALID_OUTPUT"
+        with patch.object(
+            status_observation.captured, "run", side_effect=subprocess.TimeoutExpired("status-worker", 3)
+        ) as run:
+            view = run_view.view(self.state, workspace=self.workspace, run_dir=self.run)
+        self.assertEqual(status_observation.TIMEOUT, run.call_args.kwargs["timeout"])
+        self.assertEqual("blocked", view["acceptance_verification_retry"]["next"])
+        self.assertIsNone(view["next_command"])
+        # The original observation seam supplies a successful result without waiting.
+        with patch.object(
+            status_observation,
+            "_observe",
+            side_effect=lambda op, payload: status_observation._worker({"operation": op, "payload": payload}),
+        ):
+            view = run_view.view(self.state, workspace=self.workspace, run_dir=self.run)
+        self.assertEqual("recheck", view["acceptance_verification_retry"]["next"])
+
+    def test_malformed_container_holds_without_observing(self):
+        self.start_retry()
+        self.state["status"] = "PAUSED_INVALID_OUTPUT"
+        self.state[acceptance.KEY] = ["malformed"]
+        with patch.object(status_observation, "_observe", side_effect=AssertionError("must not inspect")):
+            answer = status_observation.retained_retry(self.state, self.workspace)
+        self.assertEqual("blocked", answer["next"])
 
     def test_changed_retry_inputs_withhold_the_resume_that_dispatch_refuses(self):
         self.start_retry()

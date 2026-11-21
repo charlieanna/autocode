@@ -31,6 +31,7 @@ try:
     from . import autocode_recovery_limits as recovery_limits
     from . import autocode_rejection_summary as rejection_summary
     from . import autocode_run_messages as run_messages
+    from . import autocode_status_observation as status_observation
     from . import autocode_stop as stop
     from .autocode_role_names import role_name
 except ImportError:
@@ -47,6 +48,7 @@ except ImportError:
     import autocode_recovery_limits as recovery_limits
     import autocode_rejection_summary as rejection_summary
     import autocode_run_messages as run_messages
+    import autocode_status_observation as status_observation
     import autocode_stop as stop
     from autocode_role_names import role_name
 
@@ -539,7 +541,7 @@ def project(state: RunState, need=None, *, retained=_UNSET):
     cause = _cause(state) or status
     # A stage answer AutoCode refused: which stage, why, what it tried and what resuming does.
     if retained is _UNSET:
-        retained = retry_next.decide(state, state.get("workspace"))
+        retained = status_observation.retained_retry(state, state.get("workspace"))
     retained = retained if isinstance(retained, dict) else None
     # The Tester's retained report has no re-check left: no resume can do anything but pause again (#3927).
     spent = retry_next.exhausted_pause(state, retained)
