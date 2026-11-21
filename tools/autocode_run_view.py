@@ -1447,6 +1447,15 @@ def needs(state: RunState, *, stale_report_repair=False, human_projection=None) 
                 "The current checkout cannot establish the missing original identity."
             ),
         }
+        if known_source:
+            try:
+                from . import autocode_job_retry_admission as retry_admission
+            except ImportError:
+                import autocode_job_retry_admission as retry_admission
+            try:
+                retry_admission.validate_retry(state, state.get("workspace"), failure.get("job_retry_token"))
+            except (ValueError, OSError, KeyError, TypeError) as error:
+                need.update(kind="recover_source", action=None, resume_unavailable=str(error))
         # A job stopped on quota or by its provider's content filter (#463) keeps its model question on
         # the failure: --answer route-ROLE=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN) names another model and issues a
         # new token for the exact retry. Same shape as the answer need's ``route``.

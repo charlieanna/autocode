@@ -256,6 +256,21 @@ class OfferAdmissionAgreementTests(SavedRunFixtures, unittest.TestCase):
         self.assertIn("Cannot verify", view["needs"]["resume_unavailable"])
         self.assertEqual("PAUSED_WORKSPACE_BUSY", code)
 
+    def test_job_retry_offer_rechecks_the_executor_source_and_settings(self):
+        for change in ("source", "settings"):
+            with self.subTest(change=change):
+                state = self.job()
+                if change == "source":
+                    (self.root / "README.md").write_text("changed source\n")
+                else:
+                    state["settings"]["roles"]["builder"]["model"] = "another-model"
+                view = run_view.view(state)
+                self.assertFalse(self.offered(view["recovery"], "retry_job"))
+                self.assertNotIn("--retry-failed-stage", view["next_command"] or "")
+                code, _ = self.execute(state, ["--resume-paused", "--retry-failed-stage", "--job-retry-token", "job-1"])
+                self.assertNotEqual(0, code)
+                (self.root / "README.md").write_text(SOURCE)
+
     def test_ac22_surveyed_offers_agree_with_their_executor_admission(self):
         # (kind, status, args, admitted state, the one-field variant its executor refuses, refusal text)
         cases = (
