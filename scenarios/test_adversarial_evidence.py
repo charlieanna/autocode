@@ -7,10 +7,14 @@ expected failures. Every attack must reach its target stage before it is judged.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
+import shlex
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 from .harness.adversarial import AdversarialCase
 
@@ -218,15 +222,63 @@ class EvidenceBoundaryTests(AdversarialCase):
         self.assert_broken_greeting()
         self.assert_not_complete(view)
         rejections = self.trace("evidence_rejection_observed", stage="tester")
-        self.assertTrue(
-            any("runner re-ran" in row["error"] for row in rejections),
-            "The independent replay must expose the forged result",
-        )
-        self.assertIn(
-            "runner re-ran",
+        self.assertTrue(rejections, "The forged receipt must receive an actual refusal")
+        # #3425 required this attack to reach replay before unrelated report
+        # failures. The newer capture-event binding refuses the forged printer
+        # itself before replay; the separate authenticated-capture test below
+        # still proves that an eligible check actually reaches clean replay.
+        self.assertEqual(
+            "No independently executed Validator tool event matches receipt; use this stage's exact capture_command",
             rejections[0]["error"],
-            "The first refusal must reach replay, not an unrelated fixture rejection",
+            "The first refusal must reject the forged event, not an unrelated fixture defect",
         )
+        self.assertFalse(self.trace("stage_error", stage="tester"), "The adversarial provider must not crash")
+
+    def test_authenticated_workspace_check_is_replayed_in_clean_copy(self):
+        self.set_fault("evidence", "evidence_authenticated_replay")
+        self.assertNotIn("AUTOCODE_REPLAY_STUDY", self.driver.env)
+        self.start_to_approval()
+        self.approve()
+        view = self.finish()
+        rows = self.require_injection("tester")
+        self.assertTrue(all(row["actual_exit"] == 0 for row in rows))
+        self.assert_not_complete(view)
+        greeting = self.greeting()
+        self.assertEqual((0, "Hello, Ada\n"), (greeting.returncode, greeting.stdout))
+        planned = self.trace("evidence_planned_check_executed", stage="tester")
+        self.assertTrue(planned)
+        self.assertEqual(0, planned[0]["actual_exit"])
+        self.assertIn("test_greet.py", planned[0]["command"])
+        rejections = self.trace("evidence_rejection_observed", stage="tester")
+        self.assertTrue(rejections, "The authenticated report must reach an independent replay")
+        self.assertIn("runner re-ran", rejections[0]["error"])
+        self.assertIn("AUTOCODE_REPLAY_STUDY", rejections[0]["error"])
+        match = re.search(r"Receipt: ([^\n]+?/replay\.json)", rejections[0]["error"])
+        self.assertIsNotNone(match)
+        replay_path = Path(match.group(1)).resolve()
+        self.assertTrue(replay_path.is_relative_to(self.driver.run_dir.resolve()))
+        replay = json.loads(replay_path.read_text())
+        self.assertEqual("FAIL", replay["verdict"])
+        self.assertEqual(1, len(replay["checks"]))
+        check = replay["checks"][0]
+        self.assertEqual(rows[0]["checked_command"], check["command"])
+        self.assertEqual((0, 1), (check["reported_exit_code"], check["exit_code"]))
+        self.assertEqual("independent_clean_replay", check["purpose"])
+        self.assertEqual("execute", check["scheduling"]["action"])
+        self.assertIn("AssertionError", check["tail"])
+        self.assertIn("AUTOCODE_REPLAY_STUDY", check["tail"])
+        output = Path(check["output"]).resolve()
+        self.assertTrue(output.is_relative_to(self.driver.run_dir.resolve()))
+        self.assertEqual(check["output_sha256"], hashlib.sha256(output.read_bytes()).hexdigest())
+        self.assertIn("AssertionError", output.read_text())
+        self.assertIn("AUTOCODE_REPLAY_STUDY", output.read_text())
+        capture_path = Path(rows[0]["receipt_path"]).resolve()
+        self.assertTrue(capture_path.is_relative_to(self.project.resolve()))
+        self.assertEqual(str(capture_path), check["evidence_ref"])
+        capture = json.loads(capture_path.read_text())
+        self.assertEqual(shlex.split(check["command"]), capture["command"])
+        self.assertEqual(0, capture["exit_code"])
+        self.assertEqual(replay["source_revision"], capture["verification_copy"]["source_revision"])
 
 
 if __name__ == "__main__":

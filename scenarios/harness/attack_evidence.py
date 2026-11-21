@@ -10,9 +10,11 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 import shlex
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 
 from .fake_changed_code import _review_data, quote_changed_lines
@@ -30,6 +32,7 @@ ATTACKS = frozenset(
         "evidence_weak_command",
         "evidence_out_of_scope",
         "evidence_forged_receipt",
+        "evidence_authenticated_replay",
         "review_id_only",
         "review_wrong_literal_once",
         "review_deferred_blocker",
@@ -225,6 +228,8 @@ def install(fake, config: dict, trace) -> None:
             if attack == "evidence_forged_receipt":
                 return forge_receipt()
         code = original_check()
+        if attack == "evidence_authenticated_replay" and current_stage == "tester":
+            receipt("planned_check_executed", command=fake.CHECK, actual_exit=code)
         if attack == "evidence_failing_exit" and current_stage in ("tester", "review_checkpoint"):
             receipt("injected", command=fake.CHECK, actual_exit=code, claimed_exit=0)
         if attack == "evidence_vacuous_tests" and current_stage in ("builder", "tester", "review_checkpoint"):
@@ -242,6 +247,60 @@ def install(fake, config: dict, trace) -> None:
                 report = json.loads(report)
         else:
             report = original_report(stage, data)
+        if (
+            attack == "evidence_authenticated_replay"
+            and stage == "tester"
+            and "runner re-ran" in str(data.get("next_action") or "")
+        ):
+            receipt("rejection_observed", error=data["next_action"])
+            report["verdict"] = "FAIL"
+            report["unverified_criteria"] = [row["id"] for row in report.get("criterion_results", [])]
+            for row in report.get("criterion_results", []):
+                row["status"] = "NOT_VERIFIED"
+            report["end_to_end_result"]["status"] = "NOT_VERIFIED"
+        elif attack == "evidence_authenticated_replay" and stage == "tester" and not data.get("report_repair"):
+            environment_command = [
+                sys.executable,
+                "-c",
+                "import os; assert os.environ.get('AUTOCODE_REPLAY_STUDY') == 'fixture'",
+            ]
+            destination = (Path.cwd() / ".autocode/evidence" / f"replay-observation-{uuid.uuid4().hex}.json").resolve()
+            argv = [*shlex.split(data["capture_command"]), "--output", str(destination), "--", *environment_command]
+            proc = subprocess.run(
+                argv, capture_output=True, text=True, timeout=60, env={**os.environ, "AUTOCODE_REPLAY_STUDY": "fixture"}
+            )
+            command = shlex.join(argv)
+            receipt(
+                "capture_attempt",
+                cwd=str(Path.cwd()),
+                actual_exit=proc.returncode,
+                stderr=proc.stderr[-2000:],
+                stdout=proc.stdout[-2000:],
+            )
+            fake.emit(
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "id": "actual-environment-capture",
+                        "type": "command_execution",
+                        "command": command,
+                        "exit_code": proc.returncode,
+                        "aggregated_output": proc.stdout + proc.stderr,
+                    },
+                }
+            )
+            if proc.returncode:
+                raise SystemExit("The genuine environment capture did not succeed")
+            check = shlex.join(environment_command)
+            report["checks_run"].insert(0, check)
+            report["checks"].insert(0, {"command": check, "exit_code": 0, "evidence_ref": str(destination)})
+            receipt(
+                "injected",
+                command=command,
+                checked_command=check,
+                actual_exit=proc.returncode,
+                receipt_path=str(destination),
+            )
         if stage == "review_completion" and attack in (
             "review_id_only",
             "review_wrong_literal_once",
@@ -316,7 +375,8 @@ def install(fake, config: dict, trace) -> None:
                     check["evidence_ref"] = reference
                 for result in report.get("criterion_results", []):
                     result["evidence_refs"] = [reference]
-                report["end_to_end_result"]["evidence_refs"] = [reference]
+                if isinstance(report.get("end_to_end_result"), dict):
+                    report["end_to_end_result"]["evidence_refs"] = [reference]
         if stage in ("review_completion", "review_checkpoint") and attack == "evidence_late_source_mutation":
             receipt("injected", **break_greeting())
         if stage == "builder" and attack == "evidence_out_of_scope":
