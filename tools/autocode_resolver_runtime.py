@@ -38,6 +38,7 @@ try:
     from . import autocode_operational_disposition as disposition
     from . import autocode_pause_authority as pause_authority
     from . import autocode_planning_advice as recovery_binding
+    from . import autocode_preflight_stop as preflight_stop
     from . import autocode_progressive_state as progressive
     from . import autocode_quota_route as quota_route
     from . import autocode_recovery_grants as recovery_grants
@@ -57,6 +58,7 @@ except ImportError:
     import autocode_operational_disposition as disposition
     import autocode_pause_authority as pause_authority
     import autocode_planning_advice as recovery_binding
+    import autocode_preflight_stop as preflight_stop
     import autocode_progressive_state as progressive
     import autocode_quota_route as quota_route
     import autocode_recovery_grants as recovery_grants
@@ -579,6 +581,12 @@ def record_operational_exhaustion(runner, state: RunState, run_dir, error, *, re
     held = recovery.held_reason(state, error) if error.status == "PAUSED_NO_PROGRESS" else None
     if held and str(error) != held:
         error = support.Paused(error.status, held)
+    # A stop the model access probe found is said from its saved record (autocode_preflight_stop), so the
+    # receipt, the request and the stop reason name the probe, its model and cause, never the provider's
+    # words, including for a run saved with the earlier raw probe message (#3888).
+    probe = preflight_stop.sentence(state, error.status)
+    if probe and str(error) != probe:
+        error = support.Paused(error.status, probe)
     if request is None:
         error = _asked_again(state, error)
     budget = disposition.budget(state, error.status)

@@ -55,6 +55,7 @@ try:
     from . import autocode_route_discovery as route_discovery
     from . import autocode_route_fit as route_fit
     from . import autocode_stage_probe as stage_probe
+    from . import autocode_util as util
     from . import autocode_verifier_independence as independence
 except ImportError:
     import autocode_allowed_models as allowed_models
@@ -68,6 +69,7 @@ except ImportError:
     import autocode_route_discovery as route_discovery
     import autocode_route_fit as route_fit
     import autocode_stage_probe as stage_probe
+    import autocode_util as util
     import autocode_verifier_independence as independence
 
 # Non-Codex engines apply --reasoning-effort to the execution roles that copy task_planner's defaults.
@@ -620,13 +622,21 @@ def choose(backend, picks, workspace=None, *, file=None, resolve=None, discover=
     for role in picks:
         if role not in ORDER:
             raise ValueError(f"{role} is not a stage; the stages are {', '.join(ORDER)}")
-    file, saved, fallback, options, stop, models = _read(backend, workspace, file, resolve, discover)
+    file, saved, fallback, options, stop, (offered, _chosen) = _read(backend, workspace, file, resolve, discover)
     _check(backend, picks, saved, fallback, options, stop)
-    every = load(file)
-    for role, (model, effort) in picks.items():
-        every.setdefault(backend, {})[role] = {"model": model, "effort": None if effort == OWN_DEFAULT else effort}
-    save(every, file)
+    # Discovery stays outside the lock, so a slow listing never holds up another save. Under it the
+    # file is read again and the picks checked against what is saved now, so an update another window
+    # saved meanwhile is kept and still constrains these picks (#3858).
+    with util.store_lock(file):
+        every = load(file)
+        chosen = allowed(backend, file)
+        options = allowed_models.keep(offered, chosen)
+        _check(backend, picks, every.get(backend, {}), fallback, options, stop)
+        for role, (model, effort) in picks.items():
+            every.setdefault(backend, {})[role] = {"model": model, "effort": None if effort == OWN_DEFAULT else effort}
+        save(every, file)
     # Returning a successful save must not depend on a second backend discovery.
+    models = (offered, chosen)
     return _build(backend, file, every.get(backend, {}), fallback, options, stop, probe=True, models=models)
 
 
@@ -796,18 +806,20 @@ def reset(backend, role=None, workspace=None, *, file=None, resolve=None, discov
     """Forget ``role``'s choice on ``backend`` (every stage's when ``role`` is None); return the view."""
     if role is not None and role not in ORDER:
         raise ValueError(f"{role} is not a stage; the stages are {', '.join(ORDER)}")
-    try:
-        every = load(file)
-    except ValueError:
-        if role is not None:
-            raise
-        every = {}  # resetting a backend repairs an unreadable file rather than refusing to touch it
-    stages = every.get(backend, {})
-    for name in ORDER if role is None else (role,):
-        stages.pop(name, None)
-    if not stages:
-        every.pop(backend, None)
-    save(every, file)
+    file = Path(file) if file is not None else path()
+    with util.store_lock(file):  # read and write together, so a save from another window is kept (#3858)
+        try:
+            every = load(file)
+        except ValueError:
+            if role is not None:
+                raise
+            every = {}  # resetting a backend repairs an unreadable file rather than refusing to touch it
+        stages = every.get(backend, {})
+        for name in ORDER if role is None else (role,):
+            stages.pop(name, None)
+        if not stages:
+            every.pop(backend, None)
+        save(every, file)
     try:
         chosen = allowed(backend, file)
     except ValueError:
@@ -827,23 +839,25 @@ def allow(backend, models, workspace=None, *, file=None, resolve=None, discover=
     runs a model the person left out. Refuses (ValueError), saving nothing, a model the backend does
     not offer, or a list that leaves a stage no model it may run.
     """
-    file, saved, fallback, _options, stop, (every, _old) = _read(backend, workspace, file, resolve, discover)
+    file, _saved, fallback, _options, stop, (every, _old) = _read(backend, workspace, file, resolve, discover)
     label = BACKEND_LABELS.get(backend, backend)
     if stop:
         raise ValueError(f"cannot list {label}'s models: {stop}")
     by_model = {option["model"]: option for option in every}
     chosen = None if models is None else allowed_models.checked(list(models), by_model, label=label)
     options = every if chosen is None else [by_model[model] for model in chosen]
-    picks = _moved(backend, saved, fallback, options)
-    choices = load(file)
-    for role, route in picks.items():
-        choices.setdefault(backend, {})[role] = route
-    table = allowed_models.read(_table(file).get(allowed_models.TABLE), file)
-    if chosen is None:
-        table.pop(backend, None)
-    else:
-        table[backend] = chosen
-    save(choices, file, allowed=table)
+    # Discovery stays outside the lock; the choices are moved from what is saved under it (#3858).
+    with util.store_lock(file):
+        choices = load(file)
+        picks = _moved(backend, choices.get(backend, {}), fallback, options)
+        for role, route in picks.items():
+            choices.setdefault(backend, {})[role] = route
+        table = allowed_models.read(_table(file).get(allowed_models.TABLE), file)
+        if chosen is None:
+            table.pop(backend, None)
+        else:
+            table[backend] = chosen
+        save(choices, file, allowed=table)
     return _build(
         backend,
         file,

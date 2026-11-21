@@ -37,6 +37,7 @@ try:
     from . import autocode_context_window as context_window
     from . import autocode_escalation as escalation
     from . import autocode_output_cap as output_cap
+    from . import autocode_preflight_stop as preflight_stop
     from . import autocode_provider_refusal as provider_refusal
     from . import autocode_role_route as role_route
     from . import autocode_role_transport as role_transport
@@ -47,6 +48,7 @@ except ImportError:
     import autocode_context_window as context_window
     import autocode_escalation as escalation
     import autocode_output_cap as output_cap
+    import autocode_preflight_stop as preflight_stop
     import autocode_provider_refusal as provider_refusal
     import autocode_role_route as role_route
     import autocode_role_transport as role_transport
@@ -55,7 +57,6 @@ except ImportError:
     import autocode_verifier_independence as verifier_independence
 
 PREFIX = "route-"
-INVESTIGATOR = "investigate_stuck"  # autocode_stuck_job.STAGE; that module imports more than this one may
 CATEGORY = "quota"  # a non-inferable question category (autocode_goals); all model stops use it
 QUOTA_STATUS = "PAUSED_BUDGET"
 REFUSAL_STATUS = provider_refusal.STATUS
@@ -92,7 +93,6 @@ ROLES = ("task_planner", "builder", "tester", "completion", "planner", "requirem
 # resume flag. The stuck-stage Investigator answer also saves its preparation pin.
 JOB_ROLES = ("architect", "stuck_investigator", "acceptance_tester")
 ROUTABLE = ROLES + JOB_ROLES
-PREFLIGHT_STAGE = "model_preflight"  # autocode_preflight_attempts.STAGE
 _JOB_PAUSES = ("PAUSED_JOB_FAILURE", "PAUSED_STAGE_ABANDONED")  # autocode_job_failure.PAUSES
 _OPENCODE_MODEL = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9._-]*/[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,120}")
 
@@ -165,26 +165,6 @@ def _routable(state: RunState, record: dict) -> str | None:
     if role in ROUTABLE and isinstance(configured.get(role), dict) and not state.get("parent_run"):
         return role
     return None
-
-
-def _preflight_stop(state: RunState, latest: dict | None) -> dict | None:
-    """The blocking access probe the run stopped at, when no stage attempt has run since it.
-
-    The probe is runner-owned, so ``latest`` (the newest role attempt) is never it; the probe must
-    come after that attempt, and the run must still be paused with the probe's own status or waiting
-    on the request that stop published.
-    """
-    rows = [row for row in state.get("stages") or [] if isinstance(row, dict)]
-    after = rows[rows.index(latest) + 1 :] if latest in rows else rows
-    probe = next((row for row in reversed(after) if row.get("stage") == PREFLIGHT_STAGE), None)
-    outcome = (probe or {}).get("preflight_outcome") or {}
-    if (
-        not probe
-        or not outcome.get("blocking")
-        or state.get("status") not in (outcome.get("status"), "WAITING_FOR_USER", "RESOLVER_PENDING")
-    ):
-        return None
-    return probe
 
 
 def _preflight_role(state: RunState, probe: dict) -> str | None:
@@ -361,19 +341,10 @@ def stopped_attempt(state: RunState, *, failure_status) -> dict | None:
     elif job is not None:
         record, kind = job, "job"
     else:
-        latest = next(
-            (
-                row
-                for row in reversed(state.get("stages") or [])
-                if isinstance(row, dict)
-                and not row.get("runner_owned")
-                and not row.get("worker_attempt")
-                # The Investigator that looked at this stop (#3349) is not a later attempt of the role.
-                and (row.get("original_stage") or row.get("stage")) != INVESTIGATOR
-            ),
-            None,
-        )
-        probe = _preflight_stop(state, latest)
+        # The probe lookup is shared with the stop sentence (autocode_preflight_stop), so the route
+        # question and the stop reason read one answer.
+        latest = preflight_stop.latest_attempt(state)
+        probe = preflight_stop.blocking_probe(state, latest)
         if probe is not None:
             record, kind = probe, "preflight"
         elif not latest or not latest.get("abandoned"):

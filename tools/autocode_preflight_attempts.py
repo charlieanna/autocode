@@ -26,16 +26,20 @@ try:
     from . import autocode_budget_state as budget_state
     from . import autocode_command_receipt as receipts
     from . import autocode_process as processes
+    from . import autocode_route_evidence as route_evidence
     from . import autocode_support as support
     from . import autocode_util as util
 except ImportError:
     import autocode_budget_state as budget_state
     import autocode_command_receipt as receipts
     import autocode_process as processes
+    import autocode_route_evidence as route_evidence
     import autocode_support as support
     import autocode_util as util
 
 STAGE = "model_preflight"
+# An Attempt built without its probed level keeps the level its receipt identity names.
+_IDENTITY_EFFORT = object()
 
 
 def records(state: RunState, run_dir, earlier_dirs=()):
@@ -275,14 +279,21 @@ class Attempt:
         *,
         preflight_identity=None,
         roles=None,
+        effort=_IDENTITY_EFFORT,
+        engine="opencode",
     ):
         self.runner, self.state, self.checkpoint, self.clock = runner, state, checkpoint, clock
         identity = uuid.uuid4().hex
         self.directory = Path(run_dir) / "model-preflight" / model.replace("/", "__") / f"attempt-{identity}"
+        if effort is _IDENTITY_EFFORT:
+            effort = (preflight_identity or {}).get("reasoning_effort", "low")
+        # The tool the probe runs on, as its receipt identity names it (#3867): a Kilo adapter is
+        # provider kilocode on the OpenCode engine, never "opencode".
+        provider = getattr(adapter, "NAME", None) or (preflight_identity or {}).get("provider") or "opencode"
         self.record = {
             "stage": STAGE,
             "role": STAGE,
-            "engine": "opencode",
+            "engine": engine,
             "runner_owned": True,
             "model": model,
             "preflight_identity": preflight_identity,
@@ -294,11 +305,23 @@ class Attempt:
             "events": str(self.directory / "events.jsonl"),
             "output": str(self.directory / "report.json"),
             "launch_route": {
-                "engine": "opencode",
-                "provider": getattr(adapter, "NAME", "opencode"),
+                "engine": engine,
+                "provider": provider,
                 "model": model,
-                "effort": (preflight_identity or {}).get("reasoning_effort", "low"),
+                "effort": effort,
             },
+            # The same launch facts an ordinary stage records (autocode_provider_launch), frozen
+            # when the attempt is made so interruption and reconciliation never rebuild them from
+            # later settings. Nothing records a probe's billing or endpoint, so they stay unknown.
+            "execution_identity": route_evidence.launch_identity(
+                role=STAGE,
+                engine=engine,
+                provider=provider,
+                model=model,
+                effort=effort,
+                runtime_commit=util.runner_identity().get("commit"),
+                settings=state.get("settings"),
+            ),
             "started_at": util.now(),
             "preflight_complete": False,
         }
@@ -339,8 +362,10 @@ class Attempt:
             self.record.update(metrics=_metrics(self.record), interrupted=True)
             metadata = self.record.get("supervision")
             if metadata is None:
-                # Owned transport cannot exec before its admission callback.
+                # Owned transport cannot exec before its admission callback: nothing launched, so
+                # the runner-owned row names no model launch.
                 self.record.update(engine="runner", metrics={"provider_cost_usd": 0}, preflight_complete=True)
+                self.record.pop("execution_identity", None)
             else:
                 try:
                     self.record["preflight_complete"] = _clean(metadata) is not None

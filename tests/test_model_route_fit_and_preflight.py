@@ -246,7 +246,11 @@ class SharedCauseMModelPreflightDeterministicUnavailableTests(unittest.TestCase)
             self.assertEqual("PAUSED_BILLING_ROUTE", caught.exception.status)
             self.assertIn("openai/gpt-5.3-codex-spark", str(caught.exception))
             self.assertIn("role: builder", str(caught.exception))
-            self.assertIn("not supported when using Codex with a ChatGPT account", str(caught.exception))
+            # The stop names the access check and its fixed cause; the provider's words stay in the probe's
+            # saved record and evidence (#3888).
+            self.assertIn("model access check", str(caught.exception))
+            self.assertIn("billing route", str(caught.exception))
+            self.assertNotIn("not supported when using Codex with a ChatGPT account", str(caught.exception))
             # Stopped immediately on the rejected Builder probe before spending on GLM probes or planning!
             self.assertEqual(["openai/gpt-5.3-codex-spark"], probed_models)
             # Refused 0-token probe bills $0.00 (never PAUSED_USAGE_UNKNOWN):
