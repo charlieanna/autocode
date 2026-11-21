@@ -249,6 +249,33 @@ class IncompleteCheckOutcomeTests(unittest.TestCase):
         result_file.symlink_to(Path(receipt["output"]))
         self.assertFalse(schedule.intact(receipt, root=evidence))
 
+    def test_unreadable_result_capture_does_not_crash_or_authorize_proof(self):
+        import subprocess
+        import sys
+        from unittest.mock import patch
+
+        import autocode_verification_schedule as schedule
+        import autocode_verify as verify
+
+        if subprocess.run([sys.executable, "-c", "import pytest"], capture_output=True).returncode:
+            self.skipTest("pytest is not installed")
+        (self.root / "test_a.py").write_text("def test_one():\n    assert True\n")
+        evidence = self.root / "evidence"
+        evidence.mkdir()
+        command = f"{sys.executable} -m pytest -q test_a.py"
+        file_hash = verify.util.file_hash
+
+        def hash_or_fail(path):
+            if str(path).endswith(".junit.xml"):
+                raise OSError("result file became unreadable")
+            return file_hash(path)
+
+        with patch.object(verify.util, "file_hash", side_effect=hash_or_fail):
+            receipt = verify.run_suite(
+                verify.Framework("pytest", command), command, self.root, evidence, "suite", timeout=120
+            )
+        self.assertFalse(schedule.intact(receipt, root=evidence))
+
     def test_ac9_aborted_base_reports_incomplete_preservation_evidence(self):
         aborted = {"exit_code": 3, "timed_out": False, "tail": "INTERNALERROR> RuntimeError: plugin crashed"}
         base_suite = {

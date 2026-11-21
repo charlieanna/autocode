@@ -1155,10 +1155,13 @@ def run_suite(framework, command, tree, evidence_dir, label, *, timeout, native_
         if native_execution is None and receipt["results_file_written"]:
             # Keep the runner's own per-test details available for later authenticated comparisons.
             # A report that is not an ordinary sibling file cannot authorize such a comparison.
-            receipt["results_capture"] = {
-                "path": str(xml),
-                "sha256": util.file_hash(xml) if not xml.is_symlink() and xml.stat().st_nlink == 1 else None,
-            }
+            capture = {"path": str(xml), "sha256": None}
+            try:
+                if not xml.is_symlink() and xml.stat().st_nlink == 1:
+                    capture["sha256"] = util.file_hash(xml)
+            except OSError:
+                pass  # The integrity check refuses an unavailable result file.
+            receipt["results_capture"] = capture
     if native_execution is not None:
         native_execution.retain_results(receipt)
     return receipt
