@@ -64,6 +64,24 @@ class CaptureOutputLocationTests(unittest.TestCase):
         self.assertEqual(str(module), Path(saved["full_output"]).read_text().strip())
         self.assertFalse((module / ".autocode").exists())
 
+    def test_nested_verification_checkout_does_not_reuse_its_parent_receipt(self):
+        relative = Path(".autocode/evidence/check.json")
+        original = self.project / relative
+        original.parent.mkdir()
+        original.write_text("original receipt")
+        for subfolder in ("", "client"):
+            with self.subTest(subfolder=subfolder):
+                checkout = self.project / ".autocode/check-replay" / f"copy-{subfolder or 'root'}"
+                checkout.mkdir(parents=True)
+                subprocess.run(["git", "init", "-q", str(checkout)], check=True)
+                cwd = checkout / subfolder
+                cwd.mkdir(exist_ok=True)
+                code, errors = self.run_capture(cwd, relative)
+                self.assertEqual(0, code, errors)
+                saved = json.loads((checkout / relative).read_text())
+                self.assertEqual(str(cwd), Path(saved["full_output"]).read_text().strip())
+                self.assertEqual("original receipt", original.read_text())
+
     def test_outside_the_nearest_project_autocode_is_refused(self):
         for cwd, output in (
             (self.scratch, self.project / "repro.json"),

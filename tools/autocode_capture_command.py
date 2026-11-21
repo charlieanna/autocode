@@ -17,6 +17,7 @@ try:
     from . import autocode_output_filter as filters
     from . import autocode_output_store as store
     from . import autocode_receipts as receipts
+    from . import autocode_reference_diagnostics as reference_diagnostics
     from . import autocode_run_identity as run_identity
     from .autocode_output import representation
     from .autocode_util import atomic_json
@@ -27,6 +28,7 @@ except ImportError:
     import autocode_output_filter as filters
     import autocode_output_store as store
     import autocode_receipts as receipts
+    import autocode_reference_diagnostics as reference_diagnostics
     import autocode_run_identity as run_identity
     from autocode_output import representation
     from autocode_util import atomic_json
@@ -48,14 +50,19 @@ def project_evidence_root(output: Path, cwd: Path) -> Path | None:
 
     A Go module, a monorepo package or a nested project makes a stage run its tests from a
     subfolder; resolving ``.autocode/evidence/x.json`` there wrote a stray file outside the
-    assigned paths and cost a rejected Builder attempt. Absolute paths, paths given from the
-    project root and investigation scratch copies keep their meaning (None).
+    assigned paths and cost a rejected Builder attempt. A nested Git checkout, including a
+    clean verification copy inside a run directory, owns its own relative receipt paths.
+    Absolute paths and investigation scratch copies keep their existing meaning.
     """
     if output.is_absolute() or output.parts[:1] != (".autocode",) or (cwd / ".autocode").is_dir():
         return None
     if investigation_workspace.owning_runner_dir(cwd):
         return None
-    return next((folder / ".autocode" for folder in cwd.parents if (folder / ".autocode").is_dir()), None)
+    for folder in (cwd, *cwd.parents):
+        runner_dir = folder / ".autocode"
+        if runner_dir.is_dir() or os.path.lexists(folder / ".git"):
+            return runner_dir if folder != cwd else None
+    return None
 
 
 def cli(argv=None, *, formatter=filters.compact_output):
@@ -226,7 +233,7 @@ def _publish(path, receipt, root, data, mode, compact, returncode):
 def _compare(parser, revision, command, path, capture_context, reference_docs=()):
     """``--compare-base``: a base-versus-candidate comparison of the command's diagnostics (#3947).
 
-    Exits 0 when the comparison completes; the two exit codes and the new lines are in the receipt.
+    An ordinary comparison exits 0 when observed. A scoped reference check also has to pass on replay.
     """
     try:
         if reference_docs:
@@ -249,4 +256,10 @@ def _compare(parser, revision, command, path, capture_context, reference_docs=()
     if capture_context:
         receipt["capture_context"] = capture_context
     data = Path(receipt["full_output"]).read_bytes()
-    return _publish(path, receipt, None, data, "raw", {}, 0)
+    exit_code = 0
+    if reference_docs:
+        exit_code = int(
+            bool(receipt["new_diagnostics"]) or not reference_diagnostics.sensitivity_passed(receipt, Path.cwd())
+        )
+        receipt["exit_code"] = exit_code
+    return _publish(path, receipt, None, data, "raw", {}, exit_code)

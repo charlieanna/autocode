@@ -336,8 +336,8 @@ def reference_claims(report: dict, claim_context: dict) -> tuple[list[str], list
         if not comparisons:
             cited = ", ".join(f"`{item}`" for item in dict.fromkeys(single)) or "no observation"
             problems.append(
-                f"{subject}, but its PASS cites only a single run of {cited}: a "
-                "single run cannot show what the change added. Run the base-versus-candidate comparison instead, "
+                f"{subject}, but a single run cannot show what the change added. Its PASS cites {cited}. "
+                "Run the base-versus-candidate comparison instead, "
                 f"adding `--compare-base {base or 'BASE'} {control_options}--output .autocode/evidence/<name>.json "
                 f"-- {check}` to the exact capture_command your handoff names, where COMMAND must be a build that "
                 f"reports unresolved references, and cite that receipt for {cid}."
@@ -346,23 +346,22 @@ def reference_claims(report: dict, claim_context: dict) -> tuple[list[str], list
         found = []
         checked_documents = set()
         for path, receipt in comparisons:
-            command = _command_text(receipt)
             recorded = str(receipt.get("base_revision") or "")
             new = [str(line) for line in receipt.get("new_diagnostics") or []]
             if base and recorded != base:
                 found.append(
-                    f"Criterion {cid} cites the diagnostics comparison {path} of `{command}` made against base "
+                    f"Criterion {cid} cites the diagnostics comparison {path} made against base "
                     f"{recorded or 'unknown'}, not the run's base {base}: the comparison was not made against the "
                     "run's base, so it cannot see the defect the change may have added."
                 )
             elif new:
                 found.append(
-                    f"{subject}, but the diagnostics comparison {path} of "
-                    f"`{command}` recorded new diagnostics the change added: " + "; ".join(new)
+                    f"{subject}, but the diagnostics comparison {path} recorded new diagnostics the change added: "
+                    + "; ".join(new)
                 )
             elif reference_diagnostics.sphinx_cache_reused(receipt):
                 found.append(
-                    f"Criterion {cid} cites the diagnostics comparison {path} of `{command}`, but Sphinx reused "
+                    f"Criterion {cid} cites the diagnostics comparison {path}, but Sphinx reused "
                     "a cached reference environment. Repeat the comparison with fresh output directories and "
                     "Sphinx's `-E -a -n` flags so both builds check the current references."
                 )

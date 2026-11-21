@@ -28,6 +28,7 @@ import autocode_claim_evidence as claim_evidence
 import autocode_diagnostics_comparison as comparison
 import autocode_goal_lifecycle as lifecycle
 import autocode_job_source as job_source
+import autocode_person_text as person_text
 import autocode_report_check as report_check
 import autocode_role_launch as role_launch
 import autocode_support as s
@@ -382,6 +383,19 @@ class ReportCheckClaimTests(unittest.TestCase):
         self.assertIn(OTHER_BASE, errors[0])
         self.assertIn("not made against the run's base", errors[0])
 
+    def test_reference_refusal_keeps_diagnostics_in_person_text(self):
+        command = "sphinx-build -E -a -n -W --keep-going -b html docs docs/_build"
+        name = "docs-diagnostics.json"
+        write_comparison(self.root, name, base=BASE, command=command, new_diagnostics=NEW_WARNINGS)
+        report = tester_report("C3", command, refs=[f".autocode/evidence/{name}"])
+        errors = self.check("tester", report, self.state([("C3", C3)]))
+        self.assertEqual(1, len(errors), errors)
+        saved = f"Completed tester output was rejected ({errors[0]}); attempt archived."
+        shown = person_text.for_person(saved)
+        self.assertNotIn("--keep-going", shown)
+        for warning in NEW_WARNINGS:
+            self.assertIn(warning, shown)
+
     def test_cached_sphinx_environment_cannot_support_a_reference_claim(self):
         fresh = "Running Sphinx v7.0.1\nupdating environment: 1 added, 0 changed, 0 removed\n"
         cached = (
@@ -608,8 +622,9 @@ class CompareBaseCaptureTests(unittest.TestCase):
             capture_output=True,
             text=True,
         )
-        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(1, result.returncode, result.stderr)
         receipt = json.loads(suppressed.read_text())
+        self.assertEqual(1, receipt["exit_code"])
         self.assertEqual(0, receipt["candidate_exit_code"])
         self.assertTrue(reference_diagnostics.sensitivity_passed(receipt, root))
         self.assertEqual(
