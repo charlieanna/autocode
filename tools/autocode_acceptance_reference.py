@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -56,6 +57,15 @@ NOT_LOADED = (
 )
 
 
+class SetupEvidenceRequired(ValueError):
+    """A named reference test ran but its setup failure cannot prove behavior."""
+
+    def __init__(self, errors, receipt):
+        super().__init__("selected original-reference tests failed during test setup")
+        self.errors = errors
+        self.receipt = receipt
+
+
 def passing(cases, rows, run, inherited):
     """Only wholly passing restore cases need classification, using observed IDs."""
     reported = {row["case_id"]: row for row in rows}
@@ -85,12 +95,13 @@ def collect(state: RunState, workspace, run_dir, out, selected, files, command=N
     ``new_behavior`` is whether the approved task adds behavior rather than fixing a bug. Which original-code
     failures are setup errors that cannot count as evidence is autocode_test_setup's one answer for it
     (``not_evidence``, ``unloaded_failures``); without it the strict bug-fix rule applies."""
-    workspace, out = Path(workspace), Path(out)
+    workspace, out = Path(workspace), Path(out) / f"attempt-{uuid4().hex}"
     tree = out / "tree"
     candidate_tree = None
     observation = {}
     uncertain = False
     try:
+        out.mkdir(parents=True, exist_ok=False)
         base = run_base.base_commit(state, workspace)
         if not base:
             raise ValueError("no recorded original reference")
@@ -208,9 +219,11 @@ def collect(state: RunState, workspace, run_dir, out, selected, files, command=N
         passed, failed = set(results["passed"]), set(results["failed"]) | set(unloaded or ())
         if set(results["skipped"]) & set(selected_ids) or not set(selected_ids) <= passed | failed:
             raise ValueError("original-reference cases were skipped or not executed")
-        if set(test_setup.not_evidence(results, new_behavior=new_behavior, project_imports=project_imports)) & set(
-            selected_ids
-        ):
+        setup_errors = test_setup.not_evidence(results, new_behavior=new_behavior, project_imports=project_imports)
+        selected_setup = {name: setup_errors[name] for name in selected_ids if name in setup_errors}
+        if selected_setup:
+            if new_behavior:
+                raise SetupEvidenceRequired(selected_setup, receipt)
             raise ValueError("selected original-reference tests failed during test setup")
         verdicts = {}
         for cid, names in selected.items():
@@ -232,6 +245,20 @@ def collect(state: RunState, workspace, run_dir, out, selected, files, command=N
             # The decision and its reason stay in the evidence beside the run that showed it.
             **({"not_loaded_on_original": {"tests": unloaded, "reason": NOT_LOADED}} if unloaded else {}),
         }
+    except SetupEvidenceRequired as error:
+        rejected = {
+            "error": f"Cannot classify passing tests against the original reference: {error}",
+            "setup_errors": error.errors,
+            "receipt": error.receipt,
+            "base": base,
+            "source_revision": before["revision"],
+            "selected": selected,
+            "test_files": {path: util.file_hash(workspace / path) for path in files},
+            **({"candidate_import_observation": observation} if observation else {}),
+        }
+        path = out / f"original-reference-rejection-{uuid4().hex}.json"
+        util.atomic_json(path, rejected)
+        return {**rejected, "evidence": {"path": str(path), "sha256": util.file_hash(path)}}
     except command_receipt.OwnershipUncertain:
         uncertain = True
         raise

@@ -2,6 +2,7 @@
 
 import dataclasses
 import difflib
+import hashlib
 import os
 import shlex
 import subprocess
@@ -13,6 +14,7 @@ from unittest.mock import patch
 
 import autocode_acceptance_reference as reference
 import autocode_acceptance_tests as acceptance
+import autocode_acceptance_tests_job as job
 from units import autoreview
 
 from tests.test_acceptance_tests import approved, catalog, fake_setup, materialize, taskrun, without_maintenance
@@ -178,6 +180,56 @@ class AcceptanceReferenceTests(unittest.TestCase):
         reference = self.assert_reaches_builder(self.apply())
         self.assertEqual(["tests.test_feature.Feature.test_ac1_answer"], reference["receipt"]["results"]["failed"])
 
+    def test_unbound_import_setup_requests_bounded_test_repair_then_fresh_reference(self):
+        self.in_body_new_export()
+        with patch.object(reference.verify, "execution_identity", return_value={"cache_binding_complete": False}):
+            self.apply().assert_not_called()
+        self.assertEqual("RUNNING", self.state["status"])
+        self.assertEqual(acceptance.STAGE, self.state["next_stage"])
+        self.assertFalse(acceptance.receipts(self.state), "a setup error is not proof")
+        rewrites = self.state[acceptance.KEY]["rewrites"]
+        self.assertEqual(1, len(rewrites))
+        self.assertIn("tests.test_feature.Feature.test_ac1_answer", rewrites[0]["feedback"])
+        retained = rewrites[0]["original_reference"]
+        self.assertTrue(Path(retained["receipt"]["output"]).is_file())
+        self.assertIn("tests.test_feature.Feature.test_ac1_answer", retained["setup_errors"])
+        self.assertEqual(self.state["base_commit"], retained["base"])
+        self.assertTrue(retained["source_revision"])
+        self.assertTrue(retained["test_files"]["tests/test_feature.py"])
+        self.assertEqual({"AC1": ["tests.test_feature.Feature.test_ac1_answer"]}, retained["selected"])
+        pin = retained["evidence"]
+        self.assertEqual(pin["sha256"], hashlib.sha256(Path(pin["path"]).read_bytes()).hexdigest())
+
+        # The Tester responds to the evidence by asserting the same public API
+        # in a child: the named assertion itself now fails on base and passes
+        # on the candidate, instead of treating the import error as proof.
+        (self.workspace / "tests/test_feature.py").write_text(
+            "import subprocess, sys, unittest\n"
+            "class Feature(unittest.TestCase):\n"
+            "    def test_ac1_answer(self):\n"
+            "        child = subprocess.run([sys.executable, '-c', \"from semver import dumps_version; "
+            'print(dumps_version((1, 2, 3)))"], capture_output=True, text=True)\n'
+            "        self.assertEqual(child.returncode, 0, child.stderr)\n"
+            "        self.assertEqual(child.stdout.strip(), '1.2.3')\n"
+        )
+        result = self.assert_reaches_builder(self.apply())
+        self.assertEqual(["tests.test_feature.Feature.test_ac1_answer"], result["receipt"]["results"]["failed"])
+        self.assertFalse(result["receipt"]["results"].get("setup_errors"))
+        self.assertEqual(1, len(self.state[acceptance.KEY]["rewrites"]))
+
+    def test_rejected_pytest_reference_captures_survive_a_later_rewrite_attempt(self):
+        self.in_body_new_export()
+        self.state["settings"]["regression"] = {"test_command": f"{sys.executable} -m pytest tests/test_feature.py"}
+        with patch.object(reference.verify, "execution_identity", return_value={"cache_binding_complete": False}):
+            self.apply().assert_not_called()
+            first = self.state[acceptance.KEY]["rewrites"][0]["original_reference"]["receipt"]["results_capture"]
+            self.apply().assert_not_called()
+        second = self.state[acceptance.KEY]["rewrites"][1]["original_reference"]["receipt"]["results_capture"]
+        self.assertNotEqual(first["path"], second["path"])
+        for pin in (first, second):
+            self.assertEqual(pin["sha256"], hashlib.sha256(Path(pin["path"]).read_bytes()).hexdigest())
+        self.assertFalse(acceptance.receipts(self.state))
+
     def test_project_import_observation_succeeds_with_a_fully_bound_isolated_interpreter(self):
         self.in_body_new_export()
         environment = self.root / "isolated-python"
@@ -246,7 +298,23 @@ class AcceptanceReferenceTests(unittest.TestCase):
             "            import missing_autocode_audit_dependency\n"
             "        self.assertEqual(answer(), 42)\n"
         )
-        self.assert_refused(self.apply())
+        for _ in range(job.MAX_REWRITES):
+            self.apply().assert_not_called()
+            self.assertEqual(acceptance.STAGE, self.state["next_stage"])
+            self.assertFalse(acceptance.receipts(self.state))
+        with self.assertRaises(job.TestsNeedRewriting) as refused:
+            self.apply()
+        self.assertEqual(job.MAX_REWRITES, len(self.state[acceptance.KEY]["rewrites"]))
+        self.assertFalse(acceptance.receipts(self.state))
+        final = refused.exception.original_reference
+        self.assertIn("missing_autocode_audit_dependency", str(final["setup_errors"]))
+        self.assertTrue(Path(final["receipt"]["output"]).is_file())
+        pin = final["evidence"]
+        self.assertEqual(pin["sha256"], hashlib.sha256(Path(pin["path"]).read_bytes()).hexdigest())
+        self.assertIn(pin["path"], str(refused.exception))
+        earlier = [row["original_reference"]["evidence"]["path"] for row in self.state[acceptance.KEY]["rewrites"]]
+        self.assertEqual(3, len(set([*earlier, pin["path"]])))
+        self.assertTrue(all(Path(path).is_file() for path in earlier))
 
     def test_new_behavior_does_not_count_a_module_level_missing_dependency(self):
         (self.workspace / "tests/test_feature.py").write_text(

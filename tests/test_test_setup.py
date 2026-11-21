@@ -373,5 +373,39 @@ class RegressionImportJudgmentTests(unittest.TestCase):
         self.assertFalse(failed or unverified)
 
 
+class PytestOuterFailureTests(unittest.TestCase):
+    def test_nested_import_stderr_is_not_the_outer_assertion_exception(self):
+        with tempfile.TemporaryDirectory(prefix="pytest-outer-failure-") as directory:
+            root = Path(directory).resolve()
+            test = root / "test_outer.py"
+            test.write_text(
+                "import subprocess, sys\n"
+                "def test_assertion_with_nested_import():\n"
+                "    child = subprocess.run([sys.executable, '-c', 'import missing_child_3926'], "
+                "capture_output=True, text=True)\n"
+                "    assert child.returncode == 0, child.stderr\n"
+                "def test_outer_import_with_assertion_in_message():\n"
+                "    raise ImportError('AssertionError: a message, not the outer exception')\n"
+                "def test_missing_external_dependency():\n"
+                "    import missing_external_3926\n"
+            )
+            result = root / "results.xml"
+            log = root / "pytest.log"
+            command = [sys.executable, "-m", "pytest", "-v", str(test), f"--junitxml={result}"]
+            with log.open("w") as output:
+                subprocess.run(command, cwd=root, stdout=output, stderr=subprocess.STDOUT, check=False, timeout=30)
+            parsed = verify.per_test_results(
+                verify.Framework("pytest", "python -m pytest -v test_outer.py"),
+                {"output": str(log)},
+                result,
+                tree=root,
+            )
+            setup = parsed.get("setup_errors", {})
+            self.assertNotIn("test_outer::test_assertion_with_nested_import", setup)
+            self.assertIn("test_outer::test_outer_import_with_assertion_in_message", setup)
+            self.assertIn("test_outer::test_missing_external_dependency", setup)
+            self.assertEqual(3, len(parsed["failed"]))
+
+
 if __name__ == "__main__":
     unittest.main()

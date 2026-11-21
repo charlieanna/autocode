@@ -41,7 +41,7 @@ def failure_details(output):
         yield (*header.groups(), output[header.end() : footer.start() if footer else end])
 
 
-def setup_error(traceback, tree, is_test_path):
+def setup_error(traceback, tree, is_test_path, *, outer_message=None):
     """Explain a recognized setup-only failure; return None for anything ambiguous.
 
     ``tree`` is the scratch root and ``is_test_path`` is the caller's existing
@@ -69,10 +69,18 @@ def setup_error(traceback, tree, is_test_path):
     if "test" not in kinds:
         return None
     missing = MISSING_MOCK.findall(traceback)
-    if kinds[-1] == "mock" and len(missing) == 1:
+    if (
+        kinds[-1] == "mock"
+        and len(missing) == 1
+        and (outer_message is None or re.match(r"^AttributeError(?:\s*:|\s*$)", outer_message))
+    ):
         return f"The test could not prepare its mock: target {missing[0]} is absent on base"
     imports = IMPORT_ERROR.findall(traceback)
-    if kinds[-1] == "test" and len(imports) == 1:
+    if (
+        kinds[-1] == "test"
+        and len(imports) == 1
+        and (outer_message is None or re.match(r"^(?:ImportError|ModuleNotFoundError)(?:\s*:|\s*$)", outer_message))
+    ):
         return "The test could not import its dependency on base: " + imports[0]
     return None
 
