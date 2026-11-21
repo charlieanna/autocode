@@ -1858,8 +1858,8 @@ def needs(state: RunState, *, stale_report_repair=False, human_projection=None) 
         action = need.get("action")
         if state.get("next_stage") == "orchestrator" and isinstance(action, str):
             words = action.split()
-            selected = [words[i + 1] for i, word in enumerate(words[:-1]) if word == "--retry-builder"]
-            if selected and not set(selected) <= set(recovery_view._parallel_members(state)):
+            selected_members = [words[i + 1] for i, word in enumerate(words[:-1]) if word == "--retry-builder"]
+            if selected_members and not set(selected_members) <= set(recovery_view._parallel_members(state)):
                 need.pop("action", None)
         return need
     return {"kind": "continue"}

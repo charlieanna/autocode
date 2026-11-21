@@ -338,6 +338,7 @@ class OfferAdmissionAgreementTests(SavedRunFixtures, unittest.TestCase):
                 code, _ = self.execute(state, flags)
                 self.assertNotEqual(0, code)
                 (self.root / "README.md").write_text(SOURCE)
+
     def test_parallel_builder_retry_offer_matches_admission(self):
         state = self.state("PAUSED_ORCHESTRATOR_WORKER", next_stage="orchestrator")
         workers = []
