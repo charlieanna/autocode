@@ -6,6 +6,7 @@ import dataclasses
 import hashlib
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -44,6 +45,12 @@ def main(argv: list[str]) -> int:
         raise SystemExit("usage: rustup_vscode_fixture.py ROOT")
     root = Path(argv[0]).resolve()
     root.mkdir(parents=True)
+    cargo_path = shutil.which("cargo")
+    if cargo_path is None:
+        raise RuntimeError("The Extension Host fixture requires the installed rustup Cargo proxy")
+    cargo_bin = Path(cargo_path).absolute().parent
+    absolute_cargo = os.environ.get("AUTOCODE_FIXTURE_ABSOLUTE_CARGO") == "1"
+    check = shlex.join([cargo_path, "--version"]) if absolute_cargo else "cargo test --offline"
     project = root / "project"
     (project / "src").mkdir(parents=True)
     (project / "Cargo.toml").write_text('[package]\nname = "fixture"\nversion = "0.1.0"\nedition = "2021"\n')
@@ -80,8 +87,8 @@ def main(argv: list[str]) -> int:
     scenario = dataclasses.replace(
         catalog.load("greenfield-greeting-cli"),
         title="Rustup offline containment",
-        brief="Document this existing Rust crate and run cargo test --offline.",
-        fake_check="cargo test --offline",
+        brief=f"Document this existing Rust crate and run {check}.",
+        fake_check=check,
     )
     flags, env = driver.fake_setup(scenario, root, reference)
     # The fixture owns its provider and app profiles; it does not replace the
@@ -113,9 +120,9 @@ if agent == "autocode_builder" and os.environ.get("AUTOCODE_FIXTURE_RUSTUP_RECOR
         try:
             details["phase"] = "executing contained Cargo"; note()
             shell = config.get("shell") or os.environ["SHELL"]
-            explicit = subprocess.run([shell, "-c", "cargo " + shlex.quote("+" + os.environ["AUTOCODE_FIXTURE_RUSTUP_EXPLICIT"]) + " --version"], capture_output=True, text=True, timeout=120)
-            result = subprocess.run([shell, "-c", "cargo test --offline"], capture_output=True, text=True, timeout=120)
-            Path(os.environ["AUTOCODE_FIXTURE_RUSTUP_RECORD"]).write_text(json.dumps({"exit":result.returncode,"stdout":result.stdout,"stderr":result.stderr,"shell":shell,"explicit_command":"cargo +" + os.environ["AUTOCODE_FIXTURE_RUSTUP_EXPLICIT"] + " --version","explicit_exit":explicit.returncode,"explicit_stdout":explicit.stdout,"explicit_stderr":explicit.stderr}))
+            explicit = subprocess.run([shell, "-c", shlex.quote(os.environ["AUTOCODE_FIXTURE_CARGO_PROGRAM"]) + " " + shlex.quote("+" + os.environ["AUTOCODE_FIXTURE_RUSTUP_EXPLICIT"]) + " --version"], capture_output=True, text=True, timeout=120)
+            result = subprocess.run([shell, "-c", os.environ["AUTOCODE_FIXTURE_CARGO_CHECK"]], capture_output=True, text=True, timeout=120)
+            Path(os.environ["AUTOCODE_FIXTURE_RUSTUP_RECORD"]).write_text(json.dumps({"exit":result.returncode,"stdout":result.stdout,"stderr":result.stderr,"shell":shell,"explicit_command":shlex.quote(os.environ["AUTOCODE_FIXTURE_CARGO_PROGRAM"]) + " +" + os.environ["AUTOCODE_FIXTURE_RUSTUP_EXPLICIT"] + " --version","explicit_exit":explicit.returncode,"explicit_stdout":explicit.stdout,"explicit_stderr":explicit.stderr}))
             details["phase"] = "waiting for fixture release"; note()
             if not select.select([fd], [], [], 120)[0]: raise SystemExit(124)
             os.read(fd, 1)
@@ -133,15 +140,12 @@ if agent == "autocode_builder" and os.environ.get("AUTOCODE_FIXTURE_RUSTUP_RECOR
     if not installed:
         raise RuntimeError("The Extension Host fixture requires an already installed Rust toolchain")
     explicit = next((name for name in installed if name.startswith("stable-")), installed[0])
-    cargo_path = shutil.which("cargo")
-    if cargo_path is None:
-        raise RuntimeError("The Extension Host fixture requires the installed rustup Cargo proxy")
-    cargo_bin = Path(cargo_path).absolute().parent
     rustup_proxy = cargo_bin / "rustup"
     if not rustup_proxy.is_file() or not os.path.samefile(cargo_path, rustup_proxy):
         raise RuntimeError("The Extension Host fixture requires Cargo to be the actual rustup proxy")
+    search_path = provider_path(root, cargo_bin, os.environ.get("PATH", ""))
     env.update(
-        PATH=provider_path(root, cargo_bin, os.environ.get("PATH", "")),
+        PATH=search_path,
         RUSTUP_HOME=rustup,
         AUTOCODE_FIXTURE_QUALIFIED_OPENCODE="1",
         AUTOCODE_FIXTURE_RUSTUP_RECORD=os.environ["AUTOCODE_FIXTURE_RUSTUP_RECORD"],
@@ -149,6 +153,8 @@ if agent == "autocode_builder" and os.environ.get("AUTOCODE_FIXTURE_RUSTUP_RECOR
         AUTOCODE_FIXTURE_RUSTUP_OWNERS=os.environ["AUTOCODE_FIXTURE_RUSTUP_OWNERS"],
         AUTOCODE_FIXTURE_RUSTUP_DIAGNOSTIC=os.environ["AUTOCODE_FIXTURE_RUSTUP_DIAGNOSTIC"],
         AUTOCODE_FIXTURE_RUSTUP_EXPLICIT=explicit,
+        AUTOCODE_FIXTURE_CARGO_CHECK=check,
+        AUTOCODE_FIXTURE_CARGO_PROGRAM=cargo_path if absolute_cargo else "cargo",
     )
     run_driver = driver.Driver(
         project,
@@ -167,6 +173,14 @@ if agent == "autocode_builder" and os.environ.get("AUTOCODE_FIXTURE_RUSTUP_RECOR
     view = run_driver.until_stopped(say_at="needs:approve_plan")
     if (view.get("needs") or {}).get("kind") != "approve_plan":
         raise AssertionError(f"Offline Rust task did not reach its plan gate: {view.get('status')}")
+    if absolute_cargo:
+        # Pre-plan roles have no selected command and use manifest discovery.
+        # The approved action and all later stages receive the off-PATH setup.
+        run_driver.env["PATH"] = os.pathsep.join(
+            entry for entry in search_path.split(os.pathsep) if entry and Path(entry).resolve() != cargo_bin.resolve()
+        )
+        if shutil.which("cargo", path=run_driver.env["PATH"]):
+            raise RuntimeError("The absolute-Cargo fixture requires Cargo to be absent from PATH")
     if any(run_driver.env.get(name) != os.environ.get(name) for name in ("HOME", "CODEX_HOME")):
         raise AssertionError("The offline fixture changed the operator's HOME or CODEX_HOME")
     plan = view["displayed_plan"]
@@ -175,11 +189,15 @@ if agent == "autocode_builder" and os.environ.get("AUTOCODE_FIXTURE_RUSTUP_RECOR
     paths = {path for milestone in plan["milestones"] for path in milestone.get("affected_paths", [])}
     if (
         len(criteria) != 1
-        or criteria[0].get("verification_method") != "cargo test --offline"
+        or criteria[0].get("verification_method") != check
         or not paths <= allowed
         or plan.get("permission_boundaries") != ["Read and edit only this scenario workspace"]
-        or hashlib.sha256(plan["review_markdown"].encode()).hexdigest()
-        != "77170cecfe2dc70dd77771f010bab94aec2087c359f2c2cc4dd5f328f3a464ab"
+        or hashlib.sha256(plan["review_markdown"].replace(shlex.quote(cargo_path), "cargo").encode()).hexdigest()
+        != (
+            "7f2deddb564dc2e39e23bf380636808c7cb1081c18477f1d0455d1957c21829a"
+            if absolute_cargo
+            else "77170cecfe2dc70dd77771f010bab94aec2087c359f2c2cc4dd5f328f3a464ab"
+        )
     ):
         raise AssertionError("The exact generated plan exceeds the reviewed offline Rust task")
     review = root / "agent-plan-review.json"
@@ -205,6 +223,8 @@ if agent == "autocode_builder" and os.environ.get("AUTOCODE_FIXTURE_RUSTUP_RECOR
         "AUTOCODE_FIXTURE_RUSTUP_OWNERS",
         "AUTOCODE_FIXTURE_RUSTUP_DIAGNOSTIC",
         "AUTOCODE_FIXTURE_RUSTUP_EXPLICIT",
+        "AUTOCODE_FIXTURE_CARGO_CHECK",
+        "AUTOCODE_FIXTURE_CARGO_PROGRAM",
         "AUTOCODE_REPLAY_EMITTER_COMMAND",
         "AUTOCODE_REPLAY_FIXTURE_ROOT",
     )
