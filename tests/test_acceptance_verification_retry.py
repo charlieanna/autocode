@@ -14,6 +14,7 @@ import autocode_acceptance_tests_job as job
 import autocode_acceptance_verification_retry as retry
 import autocode_command_receipt as receipts
 import autocode_contract_identity as identity
+import autocode_progress_view as progress_view
 import autocode_run_view as run_view
 import autocode_source_scope as source_scope
 import autocode_stuck_job as stuck
@@ -172,6 +173,71 @@ class AcceptanceVerificationRetryTests(unittest.TestCase):
 
     def dispatch(self):
         return retry.dispatch(self.runtime, self.state, acceptance.STAGE, self.workspace, self.run, apply=self.apply)
+
+    def test_changed_retry_inputs_withhold_the_resume_that_dispatch_refuses(self):
+        self.start_retry()
+        self.state["status"] = "PAUSED_INVALID_OUTPUT"
+        before = copy.deepcopy(self.state)
+        paths = {key: Path(self.record[key]).read_bytes() for key in retry.ARTIFACTS}
+        for change in ("source", "task", "contract", "pin", "uncertain", "malformed", "active_check", "active_stage"):
+            with self.subTest(change=change):
+                self.state = copy.deepcopy(before)
+                (self.workspace / "tests/test_feature.py").write_text("# independently written test\n")
+                for key, data in paths.items():
+                    Path(self.record[key]).write_bytes(data)
+                if change == "source":
+                    (self.workspace / "tests/test_feature.py").write_text("# changed source\n")
+                elif change == "task":
+                    self.state["current_task"]["id"] = "other"
+                elif change == "contract":
+                    self.state["goal_contract"]["hash"] = "different"
+                elif change == "pin":
+                    Path(self.record["events"]).write_text("changed evidence\n")
+                elif change == "uncertain":
+                    self.state["uncertain_artifacts"] = [{"reason": "unknown outcome"}]
+                elif change == "malformed":
+                    self.state[acceptance.KEY][retry.KEY] = ["invalid"]
+                elif change == "active_check":
+                    self.state["active_runner_check"] = {"stage": "verification", "summary": "still running"}
+                else:
+                    self.state["active_stage"] = {"stage": "write_acceptance_tests"}
+                saved = copy.deepcopy(self.state)
+                view = run_view.view(self.state, workspace=self.workspace, run_dir=self.run)
+                self.assertIsNone(view["next_command"])
+                self.assertEqual("blocked", view["recovery"]["category"])
+                progress = progress_view.progress(
+                    self.state,
+                    accepted=(),
+                    stage="Tester",
+                    needs=view["needs"],
+                    retained=view["acceptance_verification_retry"],
+                )
+                self.assertEqual("Task blocked", progress["headline"])
+                self.assertEqual("nothing needed from you", progress["needs_you"])
+                self.assertEqual(saved, self.state, "Status must not change retained evidence")
+                with self.assertRaises(util.Paused):
+                    self.dispatch()
+                self.assertEqual(0, self.runtime.run_role.call_count)
+
+    def test_blocked_retry_does_not_hide_a_real_requirements_question(self):
+        self.start_retry()
+        self.state.update(
+            status="PAUSED_INVALID_OUTPUT",
+            pending_questions=[{"id": "q1", "question": "Which output format do you need?"}],
+        )
+        view = run_view.view(self.state, workspace=self.workspace, run_dir=self.run)
+        self.assertEqual("answer", view["needs"]["kind"])
+        self.assertIsNotNone(view["next_command"])
+        self.assertNotEqual("blocked", view["recovery"]["category"])
+
+    def test_blocked_retry_does_not_hide_a_retained_attempt_action(self):
+        self.start_retry()
+        self.state.update(
+            status="PAUSED_INVALID_OUTPUT",
+            active_stage={"stage": acceptance.STAGE, "iteration": 2, "output": str(self.run / "unfinished.json")},
+        )
+        view = run_view.view(self.state, workspace=self.workspace, run_dir=self.run)
+        self.assertIn("--abandon-stage", view["next_command"])
 
     def test_local_retry_reaches_builder_without_second_writer_or_accounting(self):
         self.start_retry()

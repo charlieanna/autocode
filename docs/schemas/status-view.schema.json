@@ -165,13 +165,13 @@
         "acceptance_tests": {"type": ["object", "null"]},
         "acceptance_verification_retry": {
           "type": ["object", "null"],
-          "description": "What the next resume of the Tester's retained acceptance report does (tools/autocode_acceptance_retry_next.py, #3927): re-check the saved tests without a new Tester attempt, run a fresh Tester attempt under test-cause Investigator advice, or nothing because the bounded re-check is spent. Null without a retained report. Display only: needs and next_command name the action.",
+          "description": "What the next resume of the Tester's retained acceptance report does (tools/autocode_acceptance_retry_next.py, #3927): re-check the saved tests without a new Tester attempt, run a fresh Tester attempt under test-cause Investigator advice, or nothing because the bounded re-check is spent or its saved inputs cannot be verified. Null without a retained report. Display only: needs and next_command name the action.",
           "required": ["next", "rechecks", "allowed"],
           "additionalProperties": false,
           "properties": {
-            "next": {"enum": ["recheck", "tester", "exhausted"]},
+            "next": {"enum": ["recheck", "tester", "exhausted", "blocked"]},
             "rechecks": {"type": "integer", "minimum": 0, "description": "Local re-checks of the saved tests spent."},
-            "allowed": {"type": ["integer", "null"], "minimum": 1, "description": "Re-checks this retained report may spend; null for a test runner that never started, re-checked on each resume."}
+            "allowed": {"type": ["integer", "null"], "minimum": 1, "description": "Re-checks this retained report may spend; null when blocked or for a test runner that never started, re-checked on each resume."}
           }
         },
         "usage": {

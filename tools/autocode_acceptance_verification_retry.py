@@ -24,47 +24,33 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_acceptance_provenance as provenance  # noqa: F401 - tests patch it here
+    from . import autocode_acceptance_retry_admission as admission
     from . import autocode_acceptance_retry_next as retry_next
     from . import autocode_acceptance_tests as acceptance
-    from . import autocode_contract_identity as identity
     from . import autocode_planning_advice as recovery_binding  # noqa: F401 - tests bind advice here
     from . import autocode_report_source as report_source
     from . import autocode_result_application as application
     from . import autocode_run_status as run_status
-    from . import autocode_source_scope as source_scope
     from . import autocode_util as util
 except ImportError:
     import autocode_acceptance_provenance as provenance  # noqa: F401 - tests patch it here
+    import autocode_acceptance_retry_admission as admission
     import autocode_acceptance_retry_next as retry_next
     import autocode_acceptance_tests as acceptance
-    import autocode_contract_identity as identity
     import autocode_planning_advice as recovery_binding  # noqa: F401 - tests bind advice here
     import autocode_report_source as report_source
     import autocode_result_application as application
     import autocode_run_status as run_status
-    import autocode_source_scope as source_scope
     import autocode_util as util
 
 # The bound itself is the one answer's (autocode_acceptance_retry_next.LIMIT, unchanged at 1).
 KEY = retry_next.KEY
 LIMIT = retry_next.LIMIT
 RUNNER_NOT_STARTED = retry_next.RUNNER_NOT_STARTED
-ARTIFACTS = ("output", "events", "schema", "before_ref", "after_ref")
+ARTIFACTS = admission.ARTIFACTS
 
 
-def _record_current(state: RunState, record, workspace):
-    return bool(
-        identity.approved(state)
-        and record.get("stage") == acceptance.STAGE
-        and record.get("contract_hash") == (state.get("goal_contract") or {}).get("hash")
-        and record.get("task_id") == (state.get("current_task") or {}).get("id")
-        and record.get("accounted") is True
-        and type(record.get("exit_code")) is int
-        and record["exit_code"] == 0
-        and not any(state.get(key) for key in ("pending_questions", "user_request"))
-        and not any(record.get(key) for key in ("timed_out", "interrupted", "rejected", "abandoned", "report_only"))
-        and record.get("source_revision") == source_scope.snapshot(workspace, state)["revision"]
-    )
+_record_current = admission.record_current
 
 
 def retain(state: RunState, value, record, workspace, reason, *, kind=None, receipt=None):
@@ -155,26 +141,13 @@ def dispatch(runtime, state: RunState, stage, workspace, run_dir, *, apply):
     None: no retained retry to apply, or test-cause Investigator advice retired it; the caller then
     dispatches the ordinary test-writing step."""
     pending = (state.get(acceptance.KEY) or {}).get(KEY)
-    if stage != acceptance.STAGE or not pending:
+    if stage != acceptance.STAGE or pending is None:
         return None
-    record = copy.deepcopy(pending["record"])
     checking = False
     try:
-        if any(
-            state.get(key)
-            for key in ("active_stage", "active_runner_check", "uncertain_artifacts", "pending_report_repair")
-        ):
-            raise ValueError("Acceptance verification still has active or uncertain work")
-        attempts = pending.get("attempts")
-        if type(attempts) is not int or attempts < 0:
-            raise ValueError("The saved acceptance verification retry count is invalid")
-        # A stale, changed or uncertain retained report never executes, retires or grants acceptance.
-        if (
-            set(pending["pins"]) != {record[key] for key in ARTIFACTS}
-            or not _record_current(state, record, workspace)
-            or any(util.file_hash(path) != pin for path, pin in pending["pins"].items())
-        ):
-            raise ValueError("Retained acceptance report, approved task or source changed")
+        if refusal := admission.problem(state, pending, workspace):
+            raise ValueError(refusal)
+        record = copy.deepcopy(pending["record"])
         value = runtime.load_stage_report(record, workspace, state=state)
         if value != pending["value"]:
             raise ValueError("Retained acceptance report no longer matches its validated value")

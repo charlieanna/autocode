@@ -17,9 +17,8 @@ saved tests, or a resume that an exhausted bound would refuse.
   Investigator result, its (identity, requested_at), retires at most one retained retry.
 - ``exhausted``: the bounded recovery has no re-check left and reports the unresolved failure.
 
-``rechecks`` is the local re-checks spent and ``allowed`` how many this retry may spend. Staleness (a
-changed report, source, plan or task) is not part of the answer: dispatch refuses a stale report before
-reading it, and never executes, retires or accepts it.
+``rechecks`` is the local re-checks spent and ``allowed`` how many this retry may spend. A changed
+report, source, plan or task is blocked by the same admission the dispatcher uses.
 
 Pure over the run state; imports only lower-level modules. The record is the acceptance_tests record's
 ``verification_retry`` (written by autocode_acceptance_verification_retry) and the Investigator records
@@ -35,10 +34,12 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_acceptance_provenance as provenance
+    from . import autocode_acceptance_retry_admission as admission
     from . import autocode_acceptance_tests as acceptance
     from . import autocode_planning_advice as recovery_binding
 except ImportError:
     import autocode_acceptance_provenance as provenance
+    import autocode_acceptance_retry_admission as admission
     import autocode_acceptance_tests as acceptance
     import autocode_planning_advice as recovery_binding
 
@@ -49,6 +50,7 @@ RUNNER_NOT_STARTED: Final = "runner_not_started"
 RECHECK: Final = "recheck"
 TESTER: Final = "tester"
 EXHAUSTED: Final = "exhausted"
+BLOCKED: Final = "blocked"
 PAUSE: Final = "PAUSED_INVALID_OUTPUT"
 PUBLIC: Final = ("next", "rechecks", "allowed")
 # The reconciliation note each local re-check records, which the recovery history reads to say what ran.
@@ -104,10 +106,16 @@ def decide(state: RunState, workspace) -> dict | None:
     Besides the public ``next``, ``rechecks`` and ``allowed``, a ``recheck`` names the advice identity it
     spends (``grant``) and whether it is the provenance re-check (``provenance``); a ``tester`` names the
     Investigator result that retires the retry (``retired_by``)."""
-    retry = pending(state)
-    if retry is None:
+    saved = state.get(acceptance.KEY) or {}
+    raw = saved.get(KEY) if isinstance(saved, dict) else None
+    if raw is None:
         return None
+    if not isinstance(raw, dict):
+        return _answer(BLOCKED, 0, None, reason="The saved acceptance verification retry is malformed")
+    retry = raw
     attempts = retry.get("attempts")
+    if refusal := admission.problem(state, retry, workspace):
+        return _answer(BLOCKED, attempts if type(attempts) is int and attempts >= 0 else 0, None, reason=refusal)
     if type(attempts) is not int or attempts < 0:
         return None
     if retry.get("kind") == RUNNER_NOT_STARTED:
@@ -147,14 +155,18 @@ def public(answer: dict | None) -> dict | None:
 
 
 def exhausted_pause(state: RunState, answer: dict | None) -> bool:
-    """The run paused on the Tester's rejected answer with nothing left to re-check: no resume to offer."""
+    """A paused retained retry cannot recheck; preserve separate questions or attempt actions."""
+    active = state.get("active_stage") or {}
+    abandonable = isinstance(active, dict) and active.get("output") and isinstance(active.get("iteration"), int)
     return bool(
         answer
-        and answer.get("next") == EXHAUSTED
+        and answer.get("next") in (EXHAUSTED, BLOCKED)
         and state.get("status") == PAUSE
         and state.get("next_stage") == STAGE
-        and not state.get("active_stage")
-        and not state.get("active_runner_check")
+        and (not active or (answer.get("next") == BLOCKED and not abandonable))
+        and (answer.get("next") == BLOCKED or not state.get("active_runner_check"))
+        and not state.get("pending_questions")
+        and not state.get("user_request")
     )
 
 

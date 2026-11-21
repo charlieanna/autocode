@@ -173,6 +173,8 @@ def progress(
         headline = f"{stage or 'The stage'} {STOP_CLAIM}"
         # A stale run's next action can be the command itself; the person reads only its words.
         asked = person_text.for_person(stopped) or "inspect the stopped stage, then resume"
+    elif retained_next == retry_next.BLOCKED and not needs and status == retry_next.PAUSE:
+        headline, asked = "Task blocked", "nothing needed from you"
     elif retained_next == retry_next.EXHAUSTED and not needs and status == retry_next.PAUSE:
         # No re-check of the saved tests is left and no resume is offered: never a misleading "Next: Tester".
         headline, asked = "Paused", "explain what should change"

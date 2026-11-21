@@ -1661,11 +1661,12 @@ retained report, else `{next, rechecks, allowed}`:
 | `recheck` | Runs the saved tests again without a new Tester attempt. The card's resume is labelled `Re-check the saved tests`; `progress.needs_you` is `resume to re-check the saved tests`. |
 | `tester` | In-force Investigator advice places the cause in the written tests or report (a recorded cause other than `environment`): the retained report is retired, its attempts and failures kept, and the ordinary Tester step runs with that guidance. One Investigator result retires at most one retained report. |
 | `exhausted` | Nothing is left to re-check. `needs` and `next_command` are null, the recovery card is `blocked` (`No re-check of the saved tests is left`) and says how often the saved tests were re-checked of how many allowed times, and `chat.input` keeps `Explain what should change`. |
+| `blocked` | The retained report, source, approval, task or evidence cannot be verified, or work remains uncertain. No re-check is offered; the recovery card describes the hold and preserves the saved evidence. |
 
 `rechecks` counts the local re-checks spent and `allowed` the re-checks this report may spend (one, one
 more per bound Investigator result with an `environment` cause or none, and the one authenticated
-provenance re-check); `allowed` is null for a test runner that never started, which is re-checked on
-each resume. The field is display only. A stale, changed or uncertain retained report never executes,
+provenance re-check); `allowed` is null for a test runner that never started or a blocked report. A
+runner that never started is re-checked on each resume. The field is display only. A stale, changed or uncertain retained report never executes,
 is retired or grants acceptance, whatever this field says.
 
 ## Inspecting current verification

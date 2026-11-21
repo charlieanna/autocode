@@ -533,8 +533,8 @@ def view(
         "evidence_report": evidence_report(state),
         "acceptance_tests": acceptance_tests.view(state),  # spec-first Tester files and results (#1200)
         # What the next resume of a retained acceptance verification retry does (autocode_acceptance_retry_next):
-        # {next: recheck|tester|exhausted, rechecks, allowed}; allowed is null for an unbounded runner-not-started
-        # retry, and the field is null without a retained retry.
+        # {next: recheck|tester|exhausted|blocked, rechecks, allowed}; allowed is null for an unbounded
+        # runner-not-started retry or a blocked report, and the field is null without a retained retry.
         "acceptance_verification_retry": retry_next.public(retained),
         # Tokens and cost so far, by role (autocode_usage.summary): reported, estimated and unknown kept apart.
         "usage": usage_summary,
@@ -1677,8 +1677,8 @@ def needs(state: RunState, *, stale_report_repair=False, human_projection=None, 
         if retained is _UNSET:
             retained = retry_next.decide(state, state.get("workspace"))
         if retry_next.exhausted_pause(state, retained):
-            # The retained re-check of the saved tests is spent (#3927): a resume would only re-raise this
-            # pause, so none is offered. The recovery card reports what ran and preserves its evidence.
+            # The retained report is spent or cannot be authenticated: plain resume would only re-pause.
+            # The recovery card preserves the evidence and explains the hold.
             return None
         need = {"kind": "resume", "reason": state.get("stop_reason") or status}
         # An uncertain attempt must be set aside before a resume can continue (#340).

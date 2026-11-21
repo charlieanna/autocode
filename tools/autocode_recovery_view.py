@@ -857,7 +857,12 @@ def project(state: RunState, need=None, *, retained=_UNSET):
         )
     if spent:
         # The bounded recovery could not settle this internal failure. Preserve its evidence for inspection.
-        result.update(category="blocked", title="No re-check of the saved tests is left")
+        if retained and retained.get("next") == retry_next.BLOCKED:
+            result.update(
+                category="blocked", title="Saved verification cannot be rechecked", what_happened=retained["reason"]
+            )
+        else:
+            result.update(category="blocked", title="No re-check of the saved tests is left")
     for member in _parallel_members(state):
         label, effect = member_stop.card(state, member) or (
             "Retry Builder task " + member,
