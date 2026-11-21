@@ -5,9 +5,10 @@ from __future__ import annotations
 import hashlib
 import re
 import secrets
-from collections import Counter
+from collections import Counter, deque
 from html.parser import HTMLParser
 from pathlib import Path, PurePosixPath
+from urllib.parse import unquote, urlsplit
 
 _PYTHON = re.compile(r"python(?:[23](?:\.\d+)?)?(?:\.exe)?", re.IGNORECASE)
 _ANSI = re.compile(rb"\x1b\[[0-?]*[ -/]*[@-~]")
@@ -20,6 +21,7 @@ _SECTION_ROLE = re.compile(r"(?<![\\\w:]):(?:std:)?ref:`[^`\n]+`")
 _MAX_LOG = 4 * 1024 * 1024
 _MAX_DOC = 1024 * 1024
 _MAX_DOCS = 8
+_MAX_RENDERED_BYTES = 32 * 1024 * 1024
 SPHINX_OPTIONS = ["-E", "-a", "-n", "-W", "--keep-going", "-b", "html"]
 
 
@@ -129,20 +131,28 @@ class _UnlinkedReferences(HTMLParser):
         self.anchor_depth = 0
         self.current: list[str] | None = None
         self.unlinked: list[str] = []
+        self.toctree_depth = 0
+        self.linked_pages: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag == "a" and dict(attrs).get("href"):
+        attributes = dict(attrs)
+        classes = set((attributes.get("class") or "").split())
+        if tag == "div" and (self.toctree_depth or "toctree-wrapper" in classes):
+            self.toctree_depth += 1
+        if tag == "a" and (href := attributes.get("href")):
             self.anchor_depth += 1
-        if tag == "code" and not self.anchor_depth:
-            classes = set((dict(attrs).get("class") or "").split())
-            if {"xref", "py"} <= classes:
-                self.current = []
+            if self.toctree_depth and {"reference", "internal"} <= classes:
+                self.linked_pages.append(href)
+        if tag == "code" and not self.anchor_depth and {"xref", "py"} <= classes:
+            self.current = []
 
     def handle_data(self, data: str) -> None:
         if self.current is not None:
             self.current.append(data)
 
     def handle_endtag(self, tag: str) -> None:
+        if tag == "div" and self.toctree_depth:
+            self.toctree_depth -= 1
         if tag == "a" and self.anchor_depth:
             self.anchor_depth -= 1
         if tag == "code" and self.current is not None:
@@ -150,22 +160,50 @@ class _UnlinkedReferences(HTMLParser):
             self.current = None
 
 
+def _sphinx_page_source(source: Path, output: Path, page: Path, href: str) -> Path | None:
+    """Follow local rendered toctree links to ordinary source pages in this build."""
+    link = urlsplit(href)
+    if link.scheme or link.netloc or link.query or not link.path.endswith(".html"):
+        return None
+    relative = Path(unquote(link.path))
+    if relative.is_absolute():
+        return None
+    target = (page.parent / relative).resolve()
+    if not target.is_relative_to(output):
+        return None
+    document = source / target.relative_to(output).with_suffix(".rst")
+    if document.resolve() != document or not document.is_file():
+        return None
+    return document
+
+
 def unlinked_output(root: Path, command: list[str], documents: list[str], *, base: bool = False) -> list[str]:
-    """Read the fresh HTML for scoped Python references, even if warnings were suppressed."""
+    """Read references on scoped pages and the pages their rendered toctrees actually link."""
     source, output = map(PurePosixPath, command[-2:])
+    pending = deque(root / document for document in documents if not base or (root / document).is_file())
+    seen: set[Path] = set()
+    total_size = 0
     diagnostics: list[str] = []
-    for document in documents:
-        if base and not (root / document).is_file():
-            continue  # A new document has no baseline page.
-        page = root / output / PurePosixPath(document).relative_to(source).with_suffix(".html")
-        if page.resolve(strict=True) != page or not page.is_file() or page.stat().st_size > _MAX_LOG:
-            raise ValueError(f"Reference comparison has no complete rendered page for {document}")
+    while pending:
+        document = pending.popleft()
+        if document in seen:
+            continue
+        seen.add(document)
+        page = root / output / document.relative_to(root / source).with_suffix(".html")
+        name = document.relative_to(root).as_posix()
+        if page.resolve(strict=True) != page or not page.is_file():
+            raise ValueError(f"Reference comparison has no complete rendered page for {name}")
+        size = page.stat().st_size
+        total_size += size
+        if size > _MAX_LOG or total_size > _MAX_RENDERED_BYTES:
+            raise ValueError(f"Reference comparison has no complete rendered page for {name}")
         parser = _UnlinkedReferences()
         parser.feed(page.read_text(encoding="utf-8"))
         parser.close()
-        diagnostics.extend(
-            f"{document}: WARNING: rendered Python reference has no link: {ref}" for ref in parser.unlinked
-        )
+        diagnostics.extend(f"{name}: WARNING: rendered Python reference has no link: {ref}" for ref in parser.unlinked)
+        for href in parser.linked_pages:
+            if linked := _sphinx_page_source(root / source, root / output, page, href):
+                pending.append(linked)
     return diagnostics
 
 

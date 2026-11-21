@@ -470,7 +470,9 @@ class CompareBaseCaptureTests(unittest.TestCase):
         (root / "docs").mkdir()
         (root / "docs/conf.py").write_text("project = 'Fixture'\n")
         doc = "docs/usage.rst"
+        index = "docs/index.rst"
         (root / doc).write_text("Title\n=====\n\n:py:func:`pkg.current`\n")
+        (root / index).write_text("Overview\n========\n\n.. toctree::\n\n   usage\n")
         git(root, "add", "docs")
         git(root, "commit", "-qm", "documentation")
         cache = root / ".autocode/scratch/fixture-html"
@@ -485,6 +487,7 @@ class CompareBaseCaptureTests(unittest.TestCase):
             f"#!{sys.executable}\n"
             "import pathlib, re, sys\n"
             "path = pathlib.Path('docs/usage.rst').resolve()\n"
+            "index = pathlib.Path('docs/index.rst').resolve()\n"
             "out = pathlib.Path(sys.argv[-1])\n"
             "assert not out.exists()\n"
             "out.mkdir(parents=True)\n"
@@ -493,12 +496,18 @@ class CompareBaseCaptureTests(unittest.TestCase):
             "if 'pkg.suppressed' in targets:\n"
             "    html += '<code class=\"xref py py-func\"><span>pkg.suppressed</span></code>'\n"
             "(out / 'usage.html').write_text(html)\n"
+            "(out / 'index.html').write_text('<div class=\"toctree-wrapper compound\">'\n"
+            '    \'<a class="reference internal" href="usage.html">Usage</a></div>\')\n'
             "print('Running Sphinx v7.0.1')\n"
             "bad = [item for item in targets if item not in ('pkg.current', 'pkg.suppressed')]\n"
             "for item in bad:\n"
             "    print(f'{path}:5: WARNING: py:func reference target not found: {item}')\n"
-            "print(f'build finished with problems, {len(bad)} warnings.' if bad else 'build succeeded.')\n"
-            "raise SystemExit(bool(bad))\n"
+            "labels = re.findall(r':ref:`([^`]+)`', index.read_text())\n"
+            "for item in labels:\n"
+            "    print(f'{index}:5: WARNING: undefined label: {item}')\n"
+            "count = len(bad) + len(labels)\n"
+            "print(f'build finished with problems, {count} warnings.' if count else 'build succeeded.')\n"
+            "raise SystemExit(bool(count))\n"
         )
         executable.chmod(0o755)
         command = [
@@ -591,6 +600,7 @@ class CompareBaseCaptureTests(unittest.TestCase):
         context["source_revision"] = util.snapshot(root)["revision"]
         suppressed = evidence / "suppressed.json"
         argv[argv.index(str(path))] = str(suppressed)
+        argv[argv.index(doc)] = index
         result = subprocess.run(
             argv,
             cwd=root,
@@ -607,6 +617,8 @@ class CompareBaseCaptureTests(unittest.TestCase):
         )
         invocation["item"].update(command=shlex.join(argv), aggregated_output=result.stdout)
         event.write_text(json.dumps(invocation) + "\n")
+        claim_context["criteria"]["C7"] = f"The toctree links the desired topic from {index}."
+        claim_context["linked_sphinx_documents"]["C7"] = [index]
         report["criterion_results"][0]["evidence_refs"] = [".autocode/evidence/suppressed.json"]
         self.assertIn("pkg.suppressed", claim_evidence.judge("tester", report, claim_context)[0][0])
 
