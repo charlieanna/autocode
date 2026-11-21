@@ -63,6 +63,7 @@ class ScopeTests(unittest.TestCase):
             "tests/provider_auth_fixture.py",
             "tests/rustup_vscode_fixture.py",
             "tests/source_recovery_vscode_fixture.py",
+            "tests/host_reader_cleanup.py",
             "tests/status_retry_host_cleanup.py",
             "tests/status_retry_host_cli.py",
             "tests/status_retry_host_fixture.py",
