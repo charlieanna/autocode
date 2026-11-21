@@ -21,7 +21,7 @@
         "schema", "status", "done", "needs", "pause_category", "pause_category_label", "next_command",
         "phase", "next_stage", "next_stage_label", "status_label", "iteration", "stop_reason", "explanation", "current_task", "task", "task_sha256",
         "workflow", "workflow_source", "workflow_reason", "turn", "evidence", "approvals", "evidence_report",
-        "acceptance_tests", "usage", "cost", "planning_calls", "progress", "summary", "delivery", "liveness", "controller", "recovery", "recoveries",
+        "acceptance_tests", "acceptance_verification_retry", "usage", "cost", "planning_calls", "progress", "summary", "delivery", "liveness", "controller", "recovery", "recoveries",
         "verification", "review_result", "verification_obligation", "code_checkpoints", "runner", "runner_check", "dependency",
         "prompts_hash", "interaction_timing", "replay_source", "replay_progress", "replay_result",
         "escalation_outcomes", "escalations", "request_context", "output_transport", "direct_rework_assignments", "routes",
@@ -99,6 +99,9 @@
           "required": ["kind"],
           "properties": {
             "kind": {"type": "string"},
+            "resume_unavailable": {"type": "string", "description": "Why the saved frontier cannot take its named resume or retry yet; the view offers no next command for it."},
+            "parallel_retry_unavailable": {"type": "string", "description": "Why the previously selected parallel Builder retry cannot be named as the next command. Individual admissible member actions remain available."},
+            "stale_checks": {"type": "array", "items": {"type": "string"}, "description": "Names of the recovery packet checks that failed admission, with no bound values."},
             "confirmation_required": {"type": "boolean", "description": "False only for a plain resume of a clean requested pause: the Resume click needs no duplicate dialog. It remains person-only and never authorizes automatic continuation. Missing retains the client's confirmation policy."},
             "plan_only": {"type": "boolean", "description": "True on a plan-only run's `approve_plan` (`--plan-only`): the same displayed-token approval accepts the reviewed plan and ends the run, and nothing is built."},
             "label": {"type": "string", "description": "The core's words for the named action, when it names them: \"Accept plan\" on a plan-only approval. A client shows it in place of its own wording; it never changes the action."},
@@ -163,6 +166,17 @@
         "approvals": {"type": "array", "description": "Who approved each plan and review, edited the plan, resumed the run from a pause or accepted its completion, oldest first (#722). Recorded as given and never verified."},
         "evidence_report": {"type": ["object", "null"]},
         "acceptance_tests": {"type": ["object", "null"]},
+        "acceptance_verification_retry": {
+          "type": ["object", "null"],
+          "description": "What the next resume of the Tester's retained acceptance report does (tools/autocode_acceptance_retry_next.py, #3927): re-check the saved tests without a new Tester attempt, run a fresh Tester attempt under test-cause Investigator advice, or nothing because the bounded re-check is spent or its saved inputs cannot be verified. Null without a retained report. Display only: needs and next_command name the action.",
+          "required": ["next", "rechecks", "allowed"],
+          "additionalProperties": false,
+          "properties": {
+            "next": {"enum": ["recheck", "tester", "exhausted", "blocked"]},
+            "rechecks": {"type": "integer", "minimum": 0, "description": "Local re-checks of the saved tests spent."},
+            "allowed": {"type": ["integer", "null"], "minimum": 1, "description": "Re-checks this retained report may spend; null when blocked or for a test runner that never started, re-checked on each resume."}
+          }
+        },
         "usage": {
           "type": "object",
           "description": "Tokens and cost so far; unknown cost is not zero. cost_usd.estimated is a comparison figure at frozen rates that price every input token, cached or not, at the input rate; the run's cost is cost.spent_usd.",
@@ -488,7 +502,25 @@
                 }
             }
         },
-        "code_checkpoints": {"type": ["object", "null"]},
+        "code_checkpoints": {
+          "type": ["object", "null"],
+          "required": ["kept"],
+          "properties": {
+            "kept": {
+              "type": ["object", "null"],
+              "description": "The run's newest kept code beyond its saved steps, where all_changes ends (#3945): a capture any stage's retained work made, or the saved step the source equals; for a completed run, its delivery. available false names why the newest kept code could not be saved (reason). Null before any is recorded. Older clients ignore this additive field.",
+              "required": ["id", "source_revision", "commit", "at", "available", "reason"],
+              "properties": {
+                "id": {"type": "string"},
+                "source_revision": {"type": ["string", "null"]},
+                "commit": {"type": ["string", "null"]},
+                "at": {"type": ["string", "null"]},
+                "available": {"type": "boolean"},
+                "reason": {"type": ["string", "null"]}
+              }
+            }
+          }
+        },
         "runner": {"type": ["object", "null"]},
         "runner_check": {"type": ["object", "null"]},
         "dependency": {"type": ["object", "null"]},
@@ -1141,14 +1173,19 @@
               "type": "array",
               "items": {
                 "type": "object",
-                "required": ["id", "text", "category", "convention_ref", "rationale", "confirmed"],
+                "required": ["id", "text", "category", "convention_ref", "rationale", "confirmed", "standing"],
                 "properties": {
                   "id": {"type": "string"},
                   "text": {"type": "string"},
                   "category": {"type": "string"},
                   "convention_ref": {"type": "string"},
                   "rationale": {"type": "string"},
-                  "confirmed": {"type": "boolean"}
+                  "confirmed": {"type": "boolean"},
+                  "standing": {
+                    "type": "string",
+                    "enum": ["needs_confirmation", "convention_not_approved", "confirmed_by_person", "approved_with_understanding", "skipped_review"],
+                    "description": "Where `confirmed` comes from (#3898): needs_confirmation (the person must still confirm it), convention_not_approved (a project convention AutoCode inferred, not yet approved), confirmed_by_person (the person was asked about it and approved), approved_with_understanding (approved with the whole understanding without being asked about individually, or confirmed before this field was recorded) or skipped_review (an unattended run took every default). Read from the saved confirmation, never re-derived after approval."
+                  }
                 }
               }
             },

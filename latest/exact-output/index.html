@@ -1917,6 +1917,15 @@ retrievable, even after the file is deleted or a process restarts.</p>
 retrieval is verified. It <strong>still executes the command</strong>, returns its fresh exit
 status and creates a fresh receipt. References, shortened displays and earlier
 PASS results never substitute for current verification or independent acceptance.</p>
+<p>Within an AutoCode stage, use the exact <code>capture_command</code> in its handoff when
+the stage cites a receipt as a check. The runner binds the executed event to
+its own qualified launcher and to the specific output path and command; a
+bare <code>autocode</code> or <code>python</code> name does not establish which executable ran.
+For a filtered display, use a qualified system filter or run the named capture
+without a filter; an unqualified filter does not establish its executable either.
+An older receipt without a matching qualified event is not proof: capture the
+check again with the stage's named command and a fresh receipt. Standalone
+interactive use of the commands above is unchanged.</p>
 <h2 id="recovery-and-retained-data">Recovery and retained data<a class="headerlink" href="#recovery-and-retained-data" title="Permanent link">&para;</a></h2>
 <p>The full command log remains beside its receipt. Exact copies live in
 <code>.autocode/output/blobs</code>, named by their full SHA-256. Existing artifacts are

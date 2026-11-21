@@ -2354,7 +2354,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/e8a6b8251e87bcf2d49872e540fcbdc8a942d234/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/4393e5ec98f9492e9b705fbc0a1ce94ddbb9e702/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2449,7 +2449,7 @@ See <a href="../task-run/#worktrees-for-clients">Worktrees for clients</a>.</p>
 </tr>
 <tr>
 <td><code>autocode checkpoint --workspace PATH --run-dir RUN --compare CHECKPOINT</code></td>
-<td>Compare retained code or restore it by the exact inspected token (<code>--working</code> shows what the Builder has changed so far, <code>--all</code> everything the run changed, both display only); accepts <code>--json</code> (see <a href="../task-run/#saved-code-checkpoints">Saved code checkpoints</a>).</td>
+<td>Compare retained code or restore it by the exact inspected token (<code>--working</code> shows what the Builder has changed so far, <code>--all</code> everything the run kept, whichever stage kept it, both display only); accepts <code>--json</code> (see <a href="../task-run/#saved-code-checkpoints">Saved code checkpoints</a>).</td>
 </tr>
 <tr>
 <td><code>autocode merge [WORKTREE] [--workspace PATH] [--into BRANCH] [--json]</code></td>
@@ -2606,7 +2606,7 @@ they do not represent charges.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/e8a6b8251e87bcf2d49872e540fcbdc8a942d234/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/4393e5ec98f9492e9b705fbc0a1ce94ddbb9e702/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -3246,7 +3246,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/e8a6b8251e87bcf2d49872e540fcbdc8a942d234/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/4393e5ec98f9492e9b705fbc0a1ce94ddbb9e702/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -3769,7 +3769,7 @@ also accepts <code>-h</code> / <code>--help</code>.</p>
 <tr>
 <td><code>autocode checkpoint</code></td>
 <td><code>--workspace</code>, <code>--run-dir</code>, <code>--compare</code>, <code>--restore</code>, <code>--working</code>, <code>--step</code>, <code>--all</code>, <code>--expected-token</code>, <code>--request-id</code>, <code>--json</code></td>
-<td>Compare or restore retained code; <code>--working</code> shows what the running Builder has changed so far, <code>--step CHECKPOINT</code> what one saved step itself changed and <code>--all</code> everything the run changed (all display only). Restore requires its exact inspected token; the request ID identifies the action.</td>
+<td>Compare or restore retained code; <code>--working</code> shows what the running Builder has changed so far, <code>--step CHECKPOINT</code> what one saved step itself changed and <code>--all</code> everything the run kept, ending at its newest kept code or a completed run's delivery and saying in <code>note</code> what it leaves out (all display only). Restore requires its exact inspected token; the request ID identifies the action.</td>
 </tr>
 <tr>
 <td><code>autocode replay</code></td>
@@ -3863,8 +3863,8 @@ also accepts <code>-h</code> / <code>--help</code>.</p>
 </tr>
 <tr>
 <td><code>autocode capture</code></td>
-<td><code>--output</code>, <code>--no-compress</code>, <code>--mode</code>, <code>--known-output-sha256</code></td>
-<td>Retained output, full display, <code>raw</code>/<code>conservative</code> display and verified unchanged-output reference; a command follows <code>--</code>.</td>
+<td><code>--output</code>, <code>--no-compress</code>, <code>--mode</code>, <code>--known-output-sha256</code>, <code>--compare-base</code></td>
+<td>Retained output, full display, <code>raw</code>/<code>conservative</code> display and verified unchanged-output reference; a command follows <code>--</code>. <code>--compare-base REV</code> runs the command on REV (extracted with <code>git archive</code> under <code>.autocode/scratch</code>, then removed) and in the workspace, and writes a <code>diagnostics_comparison</code> receipt with both exit codes and <code>new_diagnostics</code>: the candidate's output lines naming a whole-word warning, error or fatal that the base did not print, compared with digit runs ignored so a moved line number is not new. It exits 0 when the comparison completes. A Tester cites such a receipt for a criterion that claims references resolve (#3947).</td>
 </tr>
 <tr>
 <td><code>autocode output</code></td>
@@ -4232,7 +4232,9 @@ other chats; the question on screen is not counted again.</p>
 <p>A run recovers from most failures on its own, and the chat says so as it happens, once each:
 a <code>Recovery ·</code> notice names the stage, what went wrong and what AutoCode did about it, such as
 "Builder stuck", the rejection that caused it, and "AutoCode called the Investigator, which found
-the cause, and the Builder tried again with its advice." A chat opened on a run that already
+the cause, and the Builder tried again with its advice." That last sentence names what actually ran
+after the Investigator: when the stage has not run again it says so ("the Builder has not run again
+yet"), and when AutoCode only re-checked the Tester's saved tests it says that instead. A chat opened on a run that already
 recovered says how many times in one line instead of replaying them. <code>/why</code> lists the complete recovery history with times. These come
 from the view's <code>recoveries</code> (<a href="../task-run/#what-went-wrong-recoveries">task-run interface</a>).</p>
 <p>What the chat put to you is said once: a question or the understanding you
@@ -4344,7 +4346,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/e8a6b8251e87bcf2d49872e540fcbdc8a942d234/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/4393e5ec98f9492e9b705fbc0a1ce94ddbb9e702/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,
