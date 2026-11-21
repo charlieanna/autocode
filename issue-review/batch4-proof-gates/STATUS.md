@@ -4,6 +4,14 @@ The branch contains the work recorded in commit `458b1ae4a` for #3814 and #3926.
 The original handoff file was absent from this checkout, so this status records
 what was independently observed during continuation.
 
+The draft was later rebased onto master `91a220379` after the independent
+follow-ups merged. The previously cherry-picked capture fixture correction
+was skipped as already present on master; all proof-specific files were
+unchanged by the rebase. The recorded outstanding proof and claim-evidence
+limitations still apply.
+After the rebase, 49 focused copy, link, import-safety, nested-source, native
+and architecture tests passed; full ruff and mypy passed (989 source files).
+
 **Current blocker:** the separate import probe's `__spec__.origin` comes from
 the imported module or its finder, so it can be forged. A real external module
 pointed its claimed origin at an existing project file and the prior revision
