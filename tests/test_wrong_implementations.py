@@ -184,12 +184,19 @@ class RunTests(unittest.TestCase):
 
     def test_a_passing_proof_before_the_tester_routes_to_the_study_once(self):
         state = run_state()
-        wrong.route(state)
+        wrong.route(state, "rev1")
         self.assertEqual(state["next_stage"], wrong.STAGE)
         wrong.apply(state, {"variants": []}, {"changed_files": []}, "/nowhere")
         self.assertEqual(state["next_stage"], "tester")
-        wrong.route(state)
+        wrong.route(state, "rev1")
         self.assertEqual(state["next_stage"], "tester")
+
+    def test_a_proof_of_an_earlier_source_does_not_route(self):
+        # The previous round's proof is still saved when the Tester of a new source is about to launch (#3977).
+        state = run_state()
+        self.assertFalse(wrong.route(state, "rev2"))
+        self.assertEqual(state["next_stage"], "tester")
+        self.assertNotIn("wrong_implementations", state["acceptance_tests"])
 
     def test_nothing_routes_when_off_not_spec_first_or_the_proof_did_not_pass(self):
         for state in (
@@ -198,18 +205,18 @@ class RunTests(unittest.TestCase):
             run_state(regression_proof={"verdict": "FAIL", "source_revision": "rev1"}),
             run_state(next_stage="builder"),
         ):
-            wrong.route(state)
+            wrong.route(state, "rev1")
             self.assertNotEqual(state["next_stage"], wrong.STAGE)
 
     def test_a_batch_with_no_test_case_is_recorded_as_skipped_without_a_model_call(self):
         state = run_state(acceptance_tests={"receipts": {}})
-        wrong.route(state)
+        wrong.route(state, "rev1")
         self.assertEqual(state["next_stage"], "tester")
         self.assertTrue(state["acceptance_tests"]["wrong_implementations"]["skipped_reason"])
 
     def test_apply_records_survivors_from_the_runners_own_runs(self):
         state = run_state()
-        wrong.route(state)
+        wrong.route(state, "rev1")
         script = runners()
         wrong.apply(
             state,
@@ -225,13 +232,13 @@ class RunTests(unittest.TestCase):
 
     def test_without_runners_nothing_is_claimed(self):
         state = run_state()
-        wrong.route(state)
+        wrong.route(state, "rev1")
         wrong.apply(state, {"variants": [variant()]}, {"changed_files": []}, "/nowhere")
         self.assertEqual(state["acceptance_tests"]["wrong_implementations"]["survivors"], [])
 
     def test_a_study_that_changed_the_workspace_is_rejected(self):
         state = run_state()
-        wrong.route(state)
+        wrong.route(state, "rev1")
         with self.assertRaises(wrong.stray_writes.StrayWrites):
             wrong.apply(state, {"variants": []}, {"changed_files": ["src/x.py"]}, "/nowhere")
 
@@ -239,7 +246,7 @@ class RunTests(unittest.TestCase):
         import autocode_acceptance_tests as acceptance
 
         state = run_state()
-        wrong.route(state)
+        wrong.route(state, "rev1")
         script = runners()
         wrong.apply(
             state,
@@ -253,6 +260,58 @@ class RunTests(unittest.TestCase):
         self.assertEqual(shown["counts"]["survived"], 1)
         self.assertEqual(shown["survivors"][0]["case_id"], "C1")
         self.assertNotIn("patch_sha256", shown["survivors"][0])
+
+
+class TesterLaunchTests(unittest.TestCase):
+    """The step before every Tester launch, in both dispatch paths (#3977).
+
+    The runner proves the current source for the Tester in this same step, so on a run whose first build
+    passes no proof exists earlier. The study was routed from the build loop before it, and was skipped on
+    such a run without a record; the second live run on #3977 went from the Builder straight to the Tester."""
+
+    def setUp(self):
+        import subprocess
+        import tempfile
+        from pathlib import Path
+
+        self.workspace = Path(self.enterContext(tempfile.TemporaryDirectory())).resolve()
+        git = ["git", "-C", str(self.workspace), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.test"]
+        subprocess.run(["git", "init", "-q", str(self.workspace)], check=True)
+        (self.workspace / "m.py").write_text("def f(x):\n    return x + 1\n")
+        subprocess.run([*git, "add", "."], check=True)
+        subprocess.run([*git, "commit", "-qm", "base"], check=True)
+
+    def before_tester(self, state, proof_revision=None):
+        """completion_result.before_review for the Tester, the runner's proof replaced by a recorded PASS."""
+        from unittest.mock import patch
+
+        import autocode_completion_result as completion_result
+        import autocode_regression as regression
+        import autocode_source_scope as source_scope
+
+        def prove(state, stage, workspace, run_dir):
+            revision = proof_revision or source_scope.snapshot(workspace, state)["revision"]
+            state["regression_proof"] = {"verdict": "PASS", "source_revision": revision}
+
+        with patch.object(regression, "before_review", side_effect=prove):
+            return completion_result.before_review(state, "tester", self.workspace, self.workspace / "run")
+
+    def test_the_first_build_s_proof_sends_the_run_to_the_study_before_the_tester(self):
+        state = run_state(workspace=str(self.workspace))
+        del state["regression_proof"]  # nothing proved before this step: the run's first build
+        self.assertIs(self.before_tester(state), True)  # launch nothing; the loop restarts at the study
+        self.assertEqual(state["next_stage"], wrong.STAGE)
+        state["acceptance_tests"]["wrong_implementations"] = {
+            "source_revision": state["regression_proof"]["source_revision"],
+            "batch": wrong._batch(state),
+        }
+        state["next_stage"] = "tester"
+        self.assertIs(self.before_tester(state), False)  # studied once: the Tester launches
+
+    def test_a_proof_of_another_source_launches_the_tester(self):
+        state = run_state(workspace=str(self.workspace))
+        self.assertIs(self.before_tester(state, proof_revision="earlier"), False)
+        self.assertEqual(state["next_stage"], "tester")
 
 
 class RealRunnerTests(unittest.TestCase):
