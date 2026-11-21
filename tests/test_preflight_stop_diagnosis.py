@@ -110,6 +110,31 @@ class BlockedMessageTests(unittest.TestCase):
         text = disposition.blocked_message("requirements_gather", "PAUSED_AUTH", CREDIT_ERROR, state)
         self.assertNotIn("model access check", text)
 
+    def test_probe_stays_the_stop_past_the_investigator_but_not_past_a_later_stage(self):
+        # The Investigator that looked at this stop (#3349) is not a later attempt of the role.
+        state = stopped_state()
+        state["stages"].append({"stage": "investigate_stuck", "role": "stuck_investigator", "iteration": 1})
+        text = disposition.blocked_message("requirements_gather", "PAUSED_BUDGET", CREDIT_ERROR, state)
+        self.assertIn(f"model access check for {MODEL}", text)
+
+        # A stage attempt that ran after the probe makes the probe an old stop: a later budget stop is
+        # the stage's own spending limit, never the model access check.
+        state = stopped_state()
+        state["stages"].append(
+            {
+                "stage": "requirements_gather",
+                "role": "requirements",
+                "iteration": 1,
+                "started_at": "2026-11-20T10:00:00+00:00",
+                "finished_at": "2026-11-20T10:01:00+00:00",
+                "exit_code": 1,
+            }
+        )
+        text = disposition.blocked_message("requirements_gather", "PAUSED_BUDGET", CREDIT_ERROR, state)
+        self.assertNotIn("model access check", text)
+        self.assertTrue(text.startswith("The Requirements step stopped: "), text)
+        self.assertIn(FUNDS, text)
+
     def test_ac10_budget_stop_without_probe_reads_as_spending_limit(self):
         state = {
             "status": "PAUSED_BUDGET",
@@ -142,6 +167,18 @@ class BlockedMessageTests(unittest.TestCase):
             self.assertIn(words, text)
         self.assertNotIn(CANARY, text)
         self.assertNotIn("could not finish", text)
+        # The saved hint ends in a period, which closes the sentence: it is not given a second one.
+        sentence = disposition.cause("requirements_gather", "PAUSED_AUTH", rationale, state)
+        self.assertTrue(sentence.endswith("agents-see."), sentence)
+        self.assertFalse(sentence.endswith(".."), sentence)
+        denied = provider_auth.AUTH_ACCESS_DENIED + "."
+        sentence = disposition.cause(
+            "requirements_gather", "PAUSED_AUTH", rationale, stopped_state("PAUSED_AUTH", detail=denied)
+        )
+        self.assertTrue(sentence.endswith(f"login: {denied}"), sentence)
+        # A cause without a closing period gets one.
+        sentence = disposition.cause("requirements_gather", "PAUSED_BUDGET", CREDIT_ERROR, stopped_state())
+        self.assertTrue(sentence.endswith(f"started: the provider reported the account {FUNDS}."), sentence)
 
         # A saved detail AutoCode did not write itself is never copied.
         state = stopped_state("PAUSED_AUTH", detail=CANARY)
