@@ -108,7 +108,7 @@ for (const kind of ['job', 'repeat']) {
       console.log(`Host diagnostics for ${kind}:`, JSON.stringify({
         lastState, observations: fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '(no wrapper log)',
       }));
-      await win?.screenshot({ path: path.join(EXTENSION, '.vscode-test', `status-retry-${kind}.png`) }).catch(() => {});
+      await win?.screenshot({ path: path.join(EXTENSION, '.vscode-test', 'host-last.png') }).catch(() => {});
       throw error;
     } finally {
       fs.rmSync(marker, { force: true });
