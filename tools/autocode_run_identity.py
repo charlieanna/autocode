@@ -187,7 +187,7 @@ def output_refusal(output, roots, capture_context=None) -> str | None:
     )
 
 
-def follow_record(run_dir, workspace, state) -> tuple[Path, Path]:
+def follow_record(run_dir, workspace, state: object) -> tuple[Path, Path]:
     """Follow a move using the checkpoint already observed by the caller."""
     run_dir, workspace = Path(run_dir), Path(workspace)
     found = build_worktree.resolve(workspace, run_dir, cast("RunState", state)) if isinstance(state, dict) else None

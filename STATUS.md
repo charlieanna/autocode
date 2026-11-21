@@ -21,6 +21,7 @@ A, B, C wait until #3868 (group 3b) and group 4a (#3852/#3880/#3869 + view half 
 - Ruff and mypy for the changed runtime modules now pass; the missing type annotations in the inherited WIP were corrected.
 - Events and wait now resolve the run through the same authenticated identity helper at each poll. Two public CLI-entry regressions using a real Git worktree fail on master and pass on the branch, including the copied event history and the actual destination in the wait result. The six-module focused suite passed 135 tests.
 - A move published between resolving the path and reading its checkpoint previously still stopped both followers at the old pause. They now follow the authenticated move in the actual checkpoint they read; two new regressions fail on master and pass on the branch. The six-module focused suite passed 138 tests; Ruff and mypy passed for the affected modules.
+- Follow-up PR #3976 initially failed Linux CI because the new read helper's `state` parameter lacked an annotation required by the repository's run-state ratchet. The helper now declares the parsed input as `object` before validating it. The behavioral race tests had passed in that same CI run.
 - Capture also rejects malformed checkpoint files. Its new CLI regression fails on master and the 27 targeted capture and identity tests pass on the branch.
 
 ## Resume / continue
