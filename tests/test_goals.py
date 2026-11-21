@@ -2542,7 +2542,9 @@ class GoalTests(unittest.TestCase):
         self.assertIn("Reported current behavior (not independently verified):", shown)
         with patch.object(current_behavior, "evidence", return_value={"text": claim}):
             shown = run_view.view(self.state)["displayed_plan"]["review_markdown"]
-        self.assertIn("Recorded observation:", shown)
+        self.assertIn(
+            "Investigator-reported current behavior (probe recorded, claim not independently verified):", shown
+        )
 
     def test_existing_v3_brief_can_be_approved_without_rewriting_its_contract(self):
         self.draft()

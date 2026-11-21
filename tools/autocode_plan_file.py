@@ -494,7 +494,7 @@ def _criteria(rows, *, review=False, observed_behavior="") -> list[str]:
             reported = " ".join(str(row["current_behavior"]).split())
             observed = " ".join(observed_behavior.split())
             label = (
-                "Recorded observation:"
+                "Investigator-reported current behavior (probe recorded, claim not independently verified):"
                 if observed and reported == observed
                 else "Reported current behavior (not independently verified):"
             )
