@@ -17,6 +17,7 @@ import unittest
 from pathlib import Path
 
 import autocode as runner
+import autocode_diagnostics_comparison as comparison
 import autocode_goal_lifecycle as lifecycle
 import autocode_report_check as report_check
 import autocode_support as s
@@ -314,6 +315,9 @@ class CompareBaseCaptureTests(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stderr)
         receipt = json.loads((root / ".autocode/evidence/numbered.json").read_text())
         self.assertEqual(["doc.txt:2: WARNING: BROKEN ref2"], receipt["new_diagnostics"])
+        self.assertEqual(
+            ["WARNING:13: failure"], comparison.new_lines(["WARNING:12: failure"], ["WARNING:13: failure"])
+        )
 
 
 class RunnerAdmissionClaimTests(unittest.TestCase):

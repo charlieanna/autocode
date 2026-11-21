@@ -38,7 +38,10 @@ _LOCATION = re.compile(r"^(.+?):\d+(?::\d+)?:")
 
 def _diagnostic_key(line: str) -> str:
     """Ignore a conventional file location, never digits in the diagnostic itself."""
-    return _LOCATION.sub(r"\1:#:", line, count=1)
+    match = _LOCATION.match(line)
+    if match and not _DIAGNOSTIC.search(match.group(1)):
+        return f"{match.group(1)}:#{line[match.end() - 1 :]}"
+    return line
 
 
 def diagnostics(text: str) -> list[str]:
