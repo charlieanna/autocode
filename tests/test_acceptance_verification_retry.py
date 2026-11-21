@@ -413,7 +413,17 @@ class AcceptanceVerificationRetryTests(unittest.TestCase):
         self.state["goal_contract"] = revised
         self.state["user_events"].append(approval)
         original = copy.deepcopy(self.state)
-        for fault in ("draft", "old_approval_missing", "new_approval_missing", "unchanged", "uncertain"):
+        for fault in (
+            "draft",
+            "old_approval_missing",
+            "new_approval_missing",
+            "unchanged",
+            "uncertain",
+            "duplicate_history",
+            "approval_order",
+            "different_task",
+            "active_stage",
+        ):
             with self.subTest(fault=fault):
                 self.state = copy.deepcopy(original)
                 if fault == "draft":
@@ -433,8 +443,26 @@ class AcceptanceVerificationRetryTests(unittest.TestCase):
                     same.update(approval_status="approved", approval_event=same_approval)
                     self.state["goal_contract"] = same
                     self.state["user_events"][-1] = same_approval
-                else:
+                elif fault == "uncertain":
                     self.state["uncertain_artifacts"] = ["pending"]
+                elif fault == "duplicate_history":
+                    self.state["contract_history"].append(copy.deepcopy(old))
+                elif fault == "approval_order":
+                    self.state["user_events"].reverse()
+                elif fault == "different_task":
+                    different = copy.deepcopy(revised)
+                    different["task_id"] = "unrelated"
+                    different["hash"] = util.digest({key: different[key] for key in ("task_id", "revision", "body")})
+                    different_approval = {
+                        "kind": "goal_approval",
+                        "actor": "user_cli",
+                        "token": identity.token(different),
+                    }
+                    different["approval_event"] = different_approval
+                    self.state["goal_contract"] = different
+                    self.state["user_events"][-1] = different_approval
+                else:
+                    self.state["active_stage"] = {"stage": acceptance.STAGE}
                 pending = copy.deepcopy(self.state[acceptance.KEY][retry.KEY])
                 with self.assertRaises(util.Paused):
                     self.dispatch()
