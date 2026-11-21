@@ -26,6 +26,10 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_build_worktree as build_worktree
@@ -71,7 +75,7 @@ def checkpoint(run_dir) -> Path | None:
     return state
 
 
-def _record(run_dir) -> dict | None:
+def _record(run_dir) -> RunState | None:
     state = checkpoint(run_dir)
     if state is None:
         return None
@@ -79,7 +83,7 @@ def _record(run_dir) -> dict | None:
         record = json.loads(state.read_text())
     except (OSError, ValueError):
         return None
-    return record if isinstance(record, dict) else None
+    return cast("RunState", record) if isinstance(record, dict) else None
 
 
 def _authenticated_worktree(tree: Path) -> bool:
@@ -195,5 +199,5 @@ def follow(run_dir, workspace) -> tuple[Path, Path]:
         state = json.loads((run_dir / "state.json").read_text())
     except (OSError, ValueError):
         return run_dir, workspace
-    found = build_worktree.resolve(workspace, run_dir, state) if isinstance(state, dict) else None
+    found = build_worktree.resolve(workspace, run_dir, cast("RunState", state)) if isinstance(state, dict) else None
     return (found[1], found[0]) if found else (run_dir, workspace)

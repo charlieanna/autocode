@@ -18,6 +18,7 @@ A, B, C wait until #3868 (group 3b) and group 4a (#3852/#3880/#3869 + view half 
 - At 23:20 UTC: M1 built, regression checks running locally (no model active).
 - The Completion Reviewer later found that an existing run-shaped directory without a checkpoint was still accepted and that the new identity unit module could not collect on the original source. After reviewing the fixture request, the operating agent authorized writing the canonical fixture checkpoint while keeping every assertion. The correction refuses checkpointless output directories before execution, lets candidate-only unit coverage skip cleanly on master, and adds a public CLI regression. The three-module focused suite passed 88 tests; three public CLI regressions fail on master.
 - The paused run could not resume after those reviewed source edits: the public resume returned "AutoResolver diagnosis requires a current approved task, source and saved source report" and the run stayed at `RESOLVER_PENDING`. The source change invalidated the diagnosis. Do not blindly retry or alter its evidence. The original worktree and attempt remain preserved.
+- Ruff and mypy for the changed runtime modules now pass; the missing type annotations in the inherited WIP were corrected.
 
 ## Resume / continue
 Status: `autocode-recov-controller/.venv/bin/autocode --run-dir <RUN> --status`
