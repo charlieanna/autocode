@@ -40,6 +40,7 @@ FIXTURE_HASHES = {
     "strengthened-diagnostic-test.py.txt": "13c8525decfb2ed34b8e2fced484eef41ce4e5ec99030f3579fab1128fb2240b",
     "diagnostic-test.py.txt": "9e46de969c4882d90dd2fa521bf76e76996cc6ced088db71a5c0fb8200aee699",
     "control-initial-field.py": "57e8ceee92b9076bdb6c704b548354dc0b690ca22259e2efc042e76f82ecd772",
+    "control-delimiters.py": "5d0f7351ac2fc30de9af558e00f830fd879d10ed2088f328c884328f88084c14",
     "control-api.py": "9e5f403965c7ee3700d89ed6d63948332628622832953cf247d2477b6ad7327e",
     "control-grounded.py": "8ec5c053373f8959d3840eda56ba0787e0f3c32997123fb28a2aeb86bc1cfdf9",
     "control-missing-export.py": "c2b1bf2c4944faf18fb8a35182cd130fced54a34a1ec0a0364716c6b47459e9b",
@@ -201,6 +202,7 @@ def main(argv: list[str]) -> int:
         "control-missing-field.py",
         "control-initial-field.py",
         "control-grounded.py",
+        "control-delimiters.py",
         "control-api.py",
     ):
         shutil.copyfile(FIXTURES / name, root / name)
@@ -222,6 +224,7 @@ def main(argv: list[str]) -> int:
                 "control-missing-field.py",
                 "control-initial-field.py",
                 "control-grounded.py",
+                "control-delimiters.py",
                 "control-api.py",
             )
         },

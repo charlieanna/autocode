@@ -32,3 +32,10 @@ verified delivery; a pause remains a test failure with preserved diagnostics.
 This fixture does not replay the full original task, evaluate GLM or MiMo, or
 establish the security of another coverage collector. The retained checkpoint
 revision is local audit source, not a public SemVer ref.
+
+The scripted Tester also gives exact source-bound reasons for five closing
+delimiters it wrote when the current proof offers them as no-site obligations.
+A separate control checks the pinned original parses and that removing or
+replacing each exact delimiter makes it invalid. Surviving, unrun, unknown
+overlapping mutations or unreviewed source/line identities are refused. These
+syntax observations are not treated as named behavioral mutation kills.

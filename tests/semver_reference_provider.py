@@ -257,6 +257,29 @@ def semantic_review(stage, data):
     for path, digest in digests.items():
         if hashlib.sha256((Path.cwd() / path).read_bytes()).hexdigest() != digest:
             raise SystemExit("The scripted Builder source does not match the reviewed fixture")
+    mutation = proof.get("mutation_check") or {}
+    files = mutation.get("files")
+    selection = mutation.get("test_selection") or {}
+    if (
+        mutation.get("collected") is not True
+        or mutation.get("selection") != "all_eligible_changed_sites"
+        or selection.get("unobserved_mutants") != 0
+        or not isinstance(files, list)
+        or {row.get("path") for row in files if isinstance(row, dict)} != set(digests)
+    ):
+        raise SystemExit("The current mutation inventory is incomplete; do not waive it")
+    for file in files:
+        mutants = file.get("mutants")
+        if file.get("sha256") != digests[file["path"]] or not isinstance(mutants, list):
+            raise SystemExit("The mutation inventory does not bind the scripted source")
+        if any(
+            row.get("outcome") != "killed"
+            or row.get("source_sha256") != file["sha256"]
+            or not row.get("failed_tests")
+            or not row.get("evidence")
+            for row in mutants
+        ):
+            raise SystemExit("A surviving, unrun or unproven mutation remains; do not waive it")
     reasons = {
         (
             "src/semver/__init__.py",
@@ -317,9 +340,26 @@ def semantic_review(stage, data):
         ): "AC5 calls Version.from_json as a class method; removing the decorator fails the named test.",
         ("src/semver/version.py", 673): "AC5 calls Version.from_json; renaming it fails the named test.",
     }
+    delimiters = {
+        ("src/semver/jsonio.py", 89),
+        ("src/semver/jsonio.py", 90),
+        ("src/semver/jsonio.py", 98),
+        ("src/semver/jsonio.py", 105),
+        ("src/semver/jsonio.py", 112),
+    }
+    for key in delimiters:
+        reasons[key] = (
+            "This exact closing delimiter was written by the scripted Builder and has no standalone mutation site. "
+            "The source-bound control shows the original file parses and removing or replacing this token breaks syntax."
+        )
     required = [row for row in rows if row.get("status") == "reason_required"]
-    if any(row.get("mutation_outcomes") for row in required):
-        raise SystemExit("A surviving or unrun mutation remains; do not waive it")
+    if any(
+        row.get("mutation_outcomes") or row.get("overlapping_mutations") or row.get("overlapping_mutations_omitted")
+        for row in required
+    ):
+        raise SystemExit("A surviving, unrun or unknown overlapping mutation remains; do not waive it")
+    if any((row.get("path"), row.get("line")) in delimiters and row.get("source_line") != ")" for row in required):
+        raise SystemExit("An offered delimiter does not match the exact reviewed source line")
     if any(
         (row.get("path"), row.get("line")) not in reasons or row.get("sha256") != digests.get(row.get("path"))
         for row in required
@@ -336,6 +376,17 @@ def semantic_review(stage, data):
     result["checks_run"].append(command)
     result["checks"].append({"command": command, "exit_code": None, "evidence_ref": "event:"})
     mutation_ref = f"check:{len(result['checks_run'])}"
+    delimiter_probe = root / "control-delimiters.py"
+    delimiter_digest = "5d0f7351ac2fc30de9af558e00f830fd879d10ed2088f328c884328f88084c14"
+    if hashlib.sha256(delimiter_probe.read_bytes()).hexdigest() != delimiter_digest:
+        raise SystemExit("The delimiter control script changed")
+    delimiter_command = shlex.join([sys.executable, str(delimiter_probe)])
+    delimiter_code, _ = fake.run_verify(delimiter_command)
+    if delimiter_code:
+        raise SystemExit("The exact source-bound delimiter control did not pass")
+    result["checks_run"].append(delimiter_command)
+    result["checks"].append({"command": delimiter_command, "exit_code": None, "evidence_ref": "event:"})
+    delimiter_ref = f"check:{len(result['checks_run'])}"
     api_probe = root / "control-api.py"
     api_digest = "9e5f403965c7ee3700d89ed6d63948332628622832953cf247d2477b6ad7327e"
     if hashlib.sha256(api_probe.read_bytes()).hexdigest() != api_digest:
@@ -362,7 +413,10 @@ def semantic_review(stage, data):
                 "decision": "accept",
                 "reason_kind": "instrumentation_unavailable",
                 "reason": reasons[(row["path"], row["line"])],
-                "evidence_refs": [mutation_ref, "tests/test_json.py"],
+                "evidence_refs": [
+                    delimiter_ref if (row["path"], row["line"]) in delimiters else mutation_ref,
+                    "tests/test_json.py",
+                ],
             }
         )
     result["changed_code_exceptions"] = decisions
