@@ -68,3 +68,9 @@ executable paths contain spaces. The gone-reader, unknown spaced-console and
 spaced-provider behavioral controls fail on 815ddfe20 and pass on the candidate.
 Final checks for these product bytes: 70 guard tests, 133 focused tests, full
 Ruff/format, and mypy over 993 tools files passed.
+
+Integrated #4035's qualified editor refusal fix from master f5c47648: the
+combined editor case preserves the visible refusal and unchanged token, then
+holds a real status render during the accepted answer and checks its result.
+The merged CI-selection consumers pass 240 focused tests. The integrated host
+has not yet run; #4024's Rustup editor fix and the final required CI remain open.

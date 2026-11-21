@@ -162,10 +162,18 @@ test('real editor protects an active writer and permits a concurrent status obse
       return (await active.locator('#chat-error').textContent())?.includes(`Existing run process ${writer.child.pid} is active`);
     });
     assert.equal((await release(writer)).code, 0);
+    const refused = publicStatus();
+    assert.equal(refused.needs.job_retry_token, before.needs.job_retry_token, 'refused action does not rotate the token');
+    assert.equal(fs.readFileSync(fixture.calls, 'utf8'), originalCalls, 'refusal launches no model');
     const observer = await hold('status');
     const retryFrame = await chat();
     await retryFrame.locator('[data-question="route-architect"]').fill('gpt-6-sol@medium');
     await retryFrame.locator('#take-action').click();
+    await until('the second saved answer to finish', () => {
+      const finished = fs.readFileSync(actions, 'utf8').split('\n').filter(Boolean).map(JSON.parse)
+        .filter((entry) => entry.event === 'finished');
+      return finished.length >= 2 && finished[1].exit_code === 0;
+    });
     const after = await until('the concrete bound answer to be accepted', () => {
       const view = publicStatus();
       return view.needs?.job_retry_token && view.needs.job_retry_token !== before.needs.job_retry_token ? view : null;
