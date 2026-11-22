@@ -57,6 +57,7 @@ try:
     from . import autocode_command_supervision as command_supervision
     from . import autocode_dependency_dirs as dependency_dirs
     from . import autocode_diff_coverage as diff_coverage
+    from . import autocode_first_go_proof as first_go_proof
     from . import autocode_first_suite as first_suite
     from . import autocode_go_test_prerequisites as go_prerequisites
     from . import autocode_go_tests as go_tests
@@ -109,6 +110,7 @@ except ImportError:
     import autocode_command_supervision as command_supervision
     import autocode_dependency_dirs as dependency_dirs
     import autocode_diff_coverage as diff_coverage
+    import autocode_first_go_proof as first_go_proof
     import autocode_first_suite as first_suite
     import autocode_go_test_prerequisites as go_prerequisites
     import autocode_go_tests as go_tests
@@ -1145,11 +1147,11 @@ def run_suite(framework, command, tree, evidence_dir, label, *, timeout, native_
     receipt = run_command(
         actual, tree, Path(evidence_dir) / f"{label}.log", timeout=timeout, native_execution=native_execution
     )
+    receipt["execution_root"] = str(Path(tree).resolve())
     receipt["results"] = per_test_results(framework, receipt, xml, tree=root)
     receipt["results_expected"] = expects_results(framework, command, root, scripts=scripts)
     if str(xml) in actual:
-        # The command was told to write its per-test results here; a runner that never started writes none
-        # (autocode_check_outcome RUNNER_NOT_STARTED). A runner that parses its own output names no file.
+        # A runner that never started wrote no report (RUNNER_NOT_STARTED).
         receipt["results_file_written"] = xml.is_file()
     if native_execution is not None:
         native_execution.retain_results(receipt)
@@ -1820,7 +1822,7 @@ class _Run:
     progress: Any = None
 
 
-def _prove_regression(run: _Run, trees, *, no_go_project, no_junit_project):
+def _prove_regression(run: _Run, trees, test_changes, *, no_go_project, no_junit_project):
     """Regression proof with a targeted command: identical tests, base source versus candidate source.
 
     The proving tests run on the candidate and, where a base tree with the tests exists, on the base; they
@@ -1840,7 +1842,8 @@ def _prove_regression(run: _Run, trees, *, no_go_project, no_junit_project):
     )
     checks["regression_on_candidate"] = on_candidate
     on_base = None
-    if "base_with_tests" in trees:
+    first_go, first_go_proved = first_go_proof.qualify(run, trees, on_candidate, no_go_project, test_changes)
+    if "base_with_tests" in trees and not first_go:
         if run.progress:
             run.progress(
                 "Comparing regression tests against the original code",
@@ -1904,7 +1907,7 @@ def _prove_regression(run: _Run, trees, *, no_go_project, no_junit_project):
         review_reasons,
         new_behavior=new_behavior,
         preserve_only=preserve,
-        absent_go_base=no_go_project and _go_test(package_scope.split(framework, commands["regression"])[1]),
+        absent_first_go=first_go_proved,
         absent_junit_base=no_junit_project
         and junit_first.reported_absence(on_base or {}, junit_first.family(commands["suite"])),
         known_failures=lambda: _pre_existing(
@@ -1924,7 +1927,9 @@ def _prove_regression(run: _Run, trees, *, no_go_project, no_junit_project):
             ignored_inputs=ignored_inputs,
         ),
         seam_names=lambda receipt: _seam_names(workspace, base, changes, receipt, roles=run.roles),
-        changed_tests=changed_tests.changed_filter(run, _git) if new_behavior else None,
+        changed_tests=changed_tests.changed_filter(run, _git, first_go=first_go_proved and on_candidate)
+        if new_behavior
+        else None,
         base_suite_passed=lambda: first_suite.passed_on(base_suite, base),
         reloaded=lambda: first_suite.reloads(run, trees, run_suite),
     )
@@ -1963,6 +1968,7 @@ def _preserve_suite(run: _Run, trees, *, no_go_project, no_junit_project) -> lis
         and not base_patch
         and comparable
         and comparable.get("base") == base
+        and (framework is None or framework.name != "go" or no_go_project)
         and _document_only_base(
             workspace,
             base,
@@ -1971,12 +1977,8 @@ def _preserve_suite(run: _Run, trees, *, no_go_project, no_junit_project) -> lis
             ignored_inputs=ignored_inputs,
         )
     )
-    # A first Go project on a base that has code in another language (a C#
-    # port, for example) has no Go suite to preserve. `go test` then reports
-    # no packages — inside a parent module that the candidate just added,
-    # "matched no packages" — and that is not a broken base suite. A base
-    # that already has a Go module or Go source keeps the ordinary rule. A package's
-    # suite command is read inside its `cd PKG && `, as per_test_results reads it.
+    # The pristine receipt can establish absence of a Go suite only when
+    # the pinned base has no Go project. Inspect the command inside package scope.
     suite_go = _go_test(package_scope.split(framework, commands["suite"] or "")[1])
     allow_absent_go = bool(no_go_project and comparable and comparable.get("base") == base and suite_go)
     # The base's own suite definition, executed over the candidate's product code, decides
@@ -2128,7 +2130,7 @@ def _preserve_suite(run: _Run, trees, *, no_go_project, no_junit_project) -> lis
             "be shown to rest on tests the base revision holds: " + ", ".join(hidden[:5])
         )
     with_tests = None
-    if guards and "base_with_tests" in trees and not hidden:
+    if guards and "base_with_tests" in trees and not hidden and not no_go_project:
         # Without a targeted command the whole suite already ran there; tests that timed out there are in it too.
         with_tests = base_bound.ran_with_tests(checks, commands["regression"])
         if with_tests is None:
@@ -2418,9 +2420,7 @@ def verify(
                 generated_unrecorded=generated_unrecorded,
                 ignored_inputs=ignored_inputs,
             )
-        # A base with no Go project cannot run `go test` (no module, or no packages).
-        # The same fact lets the suite comparison and, when the base run reports nothing,
-        # the regression comparison treat that as absence rather than a broken suite (#685).
+        # Use the pinned inventory to establish eligibility for the first-Go rule (#685).
         no_go_project = bool(
             test_root is None
             and new_behavior
@@ -2447,8 +2447,8 @@ def verify(
         )
         # Regression proof: identical tests, base source versus candidate source.
         if trees and runnable_tests and commands["regression"]:
-            _prove_regression(run, trees, no_go_project=no_go_project, no_junit_project=no_junit_project)
-        elif "base_with_tests" in trees and commands["suite"]:
+            _prove_regression(run, trees, test_changes, no_go_project=no_go_project, no_junit_project=no_junit_project)
+        elif "base_with_tests" in trees and commands["suite"] and not no_go_project:
             # No targeted command: the whole suite proves the flip when base was green, if it holds the tests.
             if reason := unheld(framework, commands["suite"], runnable_tests):
                 unverified.append(reason)

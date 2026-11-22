@@ -22,7 +22,8 @@ def before_review(state: RunState, stage, workspace, run_dir):
     True when the stage must wait for another progressing local verification step,
     its proof sent changed guards back to plan review, or, before the Tester, the
     proof of this source sent the run to the wrong-implementations study first; or, before any launch, the
-    approved plan runs a program the tool boundary refuses and went back to the Planner (#4015).
+    approved plan runs a program the tool boundary refuses and went back to the Planner (#4015), or an approved
+    bug-fix plan with a milestone the proof can never accept went back to planning (#3962).
     """
     try:
         from . import autocode_plan_tool_admission as plan_tool_admission
@@ -58,6 +59,8 @@ def _before_review(state: RunState, stage, workspace, run_dir):
         import autocode_source_scope as source_scope
         import autocode_superseded_correction as replanned
         from autocode_util import Paused
+    if _send_back_unprovable(state, stage):
+        return True
     if regression.before_review(state, stage, workspace, run_dir) is True:
         return True
     if stage not in ("tester", "review_checkpoint", "review_completion"):
@@ -80,6 +83,23 @@ def _before_review(state: RunState, stage, workspace, run_dir):
     except (OSError, ValueError) as error:
         raise Paused("PAUSED_COMPLETION_GATE", "Git delivery required: " + str(error)) from error
     return False
+
+
+def _send_back_unprovable(state: RunState, stage) -> bool:
+    """Before a stage that is not Requirements, the Planner or the Plan Reviewer launches: an approved bug-fix
+    plan whose milestone checkpoint the regression proof can never accept goes back to planning, corrected or
+    with the correction for the Planner, and never to the person (autocode_fail_first.send_back)."""
+    try:
+        from . import autocode_fail_first as fail_first
+        from . import autocode_goal_lifecycle as lifecycle
+        from . import autocode_roles as roles
+    except ImportError:
+        import autocode_fail_first as fail_first
+        import autocode_goal_lifecycle as lifecycle
+        import autocode_roles as roles
+    if roles.base_stage(stage) in roles.ALL_PLANNING_STAGES:
+        return False
+    return fail_first.send_back(state, lifecycle.install_draft)
 
 
 def _reconcile_preservation_review(state: RunState, workspace, run_dir):

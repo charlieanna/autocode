@@ -84,6 +84,8 @@ class ScopeTests(unittest.TestCase):
             "tools/autocode_assumption_ledger.py",
             "tools/autocode_code_citations.py",
             "tools/autocode_requirements_review.py",
+            "tests/first_go_vscode_fixture.py",
+            "tools/autocode_first_go_proof.py",
             "tests/fixtures/python-semantic-host/displayed-plan.json",
             "tests/rustup_vscode_fixture.py",
             "tests/source_recovery_vscode_fixture.py",

@@ -267,10 +267,11 @@ def _module_of(root, directory):
     return None
 
 
-def changed_filter(root, changes, base_text):
+def changed_filter(root, changes, base_text, *, execution_root=None):
     """Whether a named test is one the change in ``root`` adds or edits, or None to keep every test (#2505).
 
     ``changes`` maps changed paths to their status; ``base_text(path)`` reads a file on base.
+    ``execution_root`` binds a module-less package to its native absolute runner identity.
     """
     files = []
     for path, status in changes.items():
@@ -278,5 +279,6 @@ def changed_filter(root, changes, base_text):
             candidate = Path(root, path)
             after = candidate.read_text(errors="replace") if candidate.is_file() else ""
             files.append((path, base_text(path) if status != "added" else None, after))
-    names = changed_names(files, lambda directory: _module_of(root, directory)) if files else None
+    local_package = (f"_{Path(execution_root).as_posix()}", "") if execution_root else None
+    names = changed_names(files, lambda directory: _module_of(root, directory) or local_package) if files else None
     return None if names is None else lambda test: defined_in(names, test)
