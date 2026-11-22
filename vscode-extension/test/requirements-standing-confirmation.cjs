@@ -11,4 +11,17 @@ function reviewedChoice(options, expected) {
   return matches[0];
 }
 
-module.exports = {reviewedChoice};
+// This function and reviewedChoice are passed to Playwright's Electron
+// evaluator as trusted source; neither depends on a CommonJS global there.
+function installReviewedDialog(dialog, input, state) {
+  const choice = Function(`return (${input.choiceSource})`)();
+  state.__standingConfirmationCount = 0;
+  dialog.showMessageBox = async (...args) => {
+    const options = args.length === 1 ? args[0] : args[1];
+    const response = choice(options, input.expected);
+    state.__standingConfirmationCount++;
+    return {response, checkboxChecked: false};
+  };
+}
+
+module.exports = {reviewedChoice, installReviewedDialog};

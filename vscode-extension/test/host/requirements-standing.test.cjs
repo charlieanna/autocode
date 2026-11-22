@@ -9,6 +9,7 @@ const {test} = require('node:test');
 const {openHistoryRow} = require('./open-history.cjs');
 const {privateHostEnvironment, settleFixture} = require('../owned-fixture-cleanup.cjs');
 const {conventionsVisible} = require('../requirements-standing-readiness.cjs');
+const {reviewedChoice, installReviewedDialog} = require('../requirements-standing-confirmation.cjs');
 
 const EXTENSION = path.resolve(__dirname, '../..');
 const REPO = path.resolve(EXTENSION, '..');
@@ -119,15 +120,11 @@ test('editor distinguishes a reported convention from approval of the understand
     // Electron's native modal is outside Playwright's webview. Simulate only
     // the exact reviewed confirmation, and fail closed for any other dialog.
     await app.evaluate(({dialog}, input) => {
-      const {reviewedChoice} = require(input.helper);
-      globalThis.__standingConfirmationCount = 0;
-      dialog.showMessageBox = async (...args) => {
-        const options = args.length === 1 ? args[0] : args[1];
-        const response = reviewedChoice(options, input.expected);
-        globalThis.__standingConfirmationCount++;
-        return {response, checkboxChecked: false};
-      };
-    }, {helper: path.join(EXTENSION, 'test/requirements-standing-confirmation.cjs'), expected: reviewedConfirmation});
+      // Playwright's Electron evaluator has no CommonJS `require`; transmit
+      // the same pure helper that the Node control exercised.
+      const install = Function(`return (${input.installSource})`)();
+      install(dialog, input, globalThis);
+    }, {installSource: installReviewedDialog.toString(), choiceSource: reviewedChoice.toString(), expected: reviewedConfirmation});
     await frame.locator('#take-action').click();
     const after = await until('the saved approval in public status', () => {
       const current = status();
