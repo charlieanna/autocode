@@ -48,8 +48,8 @@ class SourceHostTests(unittest.TestCase):
         self.addCleanup(host._state.update, {"failed": False, "started": False})
         self.addCleanup(util.use_snapshot_service, None)
 
-    def serve(self):
-        threading.Thread(target=host.serve, args=(self.socket,), daemon=True).start()
+    def serve(self, cli_runner=None):
+        threading.Thread(target=host.serve, args=(self.socket,), kwargs={"cli_runner": cli_runner}, daemon=True).start()
         self.addCleanup(host.stop_host, self.socket, timeout=2.0)
         deadline = time.monotonic() + 10
         while not self.socket.exists():
@@ -89,6 +89,29 @@ class SourceHostTests(unittest.TestCase):
             util.use_snapshot_service(host.snapshot)
             served = util.snapshot(self.root)
         self.assertEqual(self.local(), served)
+
+    def test_first_read_uses_the_starting_host_without_importing_a_second_controller(self):
+        # An initial read and a subsequent read both get the host's distinctive exit code.
+        runner = mock.Mock(return_value=37)
+        with (
+            mock.patch.dict(os.environ, {host.SETTING: "1"}),
+            mock.patch.object(host, "_needs_capability_reexec", return_value=False),
+            mock.patch.object(host, "_start", side_effect=lambda path: self.serve(cli_runner=runner)) as launch,
+        ):
+            self.assertEqual(37, host.cli_fast_path(["modes", "list", "--json"]))
+            self.assertEqual(37, host.cli_fast_path(["--status"]))
+        launch.assert_called_once_with(self.socket)
+        self.assertEqual(runner.call_count, 2)
+
+    def test_unavailable_starting_host_falls_back_without_sending_a_read(self):
+        with (
+            mock.patch.dict(os.environ, {host.SETTING: "1"}),
+            mock.patch.object(host, "_needs_capability_reexec", return_value=False),
+            mock.patch.object(host, "_start") as launch,
+            mock.patch.object(host, "STARTUP_SECONDS", 0.001),
+        ):
+            self.assertIsNone(host.cli_fast_path(["--status"]))
+        launch.assert_called_once_with(self.socket)
 
     def test_only_the_setting_routes_snapshots_through_the_host(self):
         with mock.patch.dict(os.environ, {host.SETTING: ""}):
