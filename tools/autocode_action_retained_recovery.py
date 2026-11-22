@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_acceptance_retry_exhaustion as acceptance_exhaustion
     from . import autocode_classification_recovery as classification
     from . import autocode_contract_identity as contracts
     from . import autocode_no_progress_recovery as no_progress
@@ -28,6 +29,7 @@ try:
     from . import autocode_validation_exhaustion_recovery as validation
     from . import autocode_verification_config as verification_config
 except ImportError:
+    import autocode_acceptance_retry_exhaustion as acceptance_exhaustion
     import autocode_classification_recovery as classification
     import autocode_contract_identity as contracts
     import autocode_no_progress_recovery as no_progress
@@ -59,6 +61,11 @@ def settle(runner, args, parser, state: RunState, state_path, run_dir, workspace
         runner.write_json(state_path, state)
         print(state.get("stop_reason") or state.get("next_action"))
         return True, 2  # A recorded outcome launches nothing; the recovery history stays.
+    if acceptance_exhaustion.settle(state, workspace, at=runner.now()):
+        # No re-check of the Tester's saved tests is left: the run ends with a report (#4037).
+        runner.write_json(state_path, state)
+        print(state.get("stop_reason") or state.get("next_action"))
+        return True, 2
     if verification_config.settle(state, at=runner.now()):
         # Corrected, the run stops before its Tester with the dropped commands recorded; ended, it records
         # the outcome. Either way nothing is left for a person to type.

@@ -191,6 +191,10 @@ def progress(
     elif retained_next == retry_next.EXHAUSTED and not needs and status == retry_next.PAUSE:
         # No re-check of the saved tests is left and no resume is offered: never a misleading "Next: Tester".
         headline, asked = "Paused", "explain what should change"
+    elif retained_next == retry_next.EXHAUSTED and kind == "continue" and status == retry_next.PAUSE:
+        # No re-check of the saved tests is left: the next resume ends the run with a report (#4037).
+        headline, stage = "Ending with a report", None
+        asked = "nothing needed from you"
     elif kind in WAITING:
         headline = WAITING[kind]
     elif status == "AWAITING_GOAL_APPROVAL":
