@@ -464,6 +464,63 @@ class ReportCheckClaimTests(unittest.TestCase):
         config.unlink()
         self.assertEqual([], self.check("tester", unlinked, state))
 
+    def test_generic_documentation_criterion_with_cross_references_needs_reference_check(self):
+        # #3947: a generic "new linked usage page" criterion that neither says references
+        # resolve nor names the .rst path must still acquire the reference comparison when
+        # the changed Sphinx page carries cross-references. On the original code this PASS
+        # slips through unchecked.
+        page = "docs/usage/json.rst"
+        source = self.root / page
+        source.parent.mkdir(parents=True)
+        source.write_text(
+            "JSON usage\n==========\n\nSee :func:`semver.dumps_version` and :func:`semver.loads_version`.\n"
+        )
+        (self.root / "docs/conf.py").write_text("project = 'Example'\n")
+        generic = "Add a new linked usage page showing how to convert a version to and from JSON."
+        state = self.state([("C7", generic)], changed_files=[page])
+        errors = self.check("tester", tester_report("C7", "python -m pytest -q"), state)
+        self.assertEqual(1, len(errors), errors)
+        self.assertIn(f"Criterion C7 delivers linked Sphinx documentation ({page})", errors[0])
+        self.assertIn(f"--reference-doc {page}", errors[0])
+
+        # A comparison that recorded the two new missing-reference warnings is refused.
+        write_comparison(self.root, "json-links.json", base=BASE, new_diagnostics=NEW_WARNINGS)
+        errors = self.check(
+            "tester", tester_report("C7", COMPARED_BUILD, refs=[".autocode/evidence/json-links.json"]), state
+        )
+        self.assertEqual(1, len(errors), errors)
+        self.assertIn(NEW_WARNINGS[0], errors[0])
+
+        # The inferred obligation is the same strict one: a clean comparison without the
+        # broken-reference sensitivity proof is still refused, never admitted as advisory.
+        write_comparison(self.root, "json-clean.json", base=BASE, new_diagnostics=[])
+        errors = self.check(
+            "tester", tester_report("C7", COMPARED_BUILD, refs=[".autocode/evidence/json-clean.json"]), state
+        )
+        self.assertEqual(1, len(errors), errors)
+        self.assertIn("did not demonstrate a fresh checker", errors[0])
+
+        # The shared cause is not the word "linked": a documentation criterion phrased
+        # without link/toctree wording acquires the same obligation from the changed page,
+        # whether it names the path or relies on the cross-references the change added.
+        for wording in (
+            "Document the JSON interchange in the usage guide.",
+            "Update docs/usage/json.rst with the new examples.",
+        ):
+            with self.subTest(wording=wording):
+                wording_state = self.state([("C7", wording)], changed_files=[page])
+                errors = self.check("tester", tester_report("C7", "python -m pytest -q"), wording_state)
+                self.assertEqual(1, len(errors), errors)
+                self.assertIn(f"--reference-doc {page}", errors[0])
+
+        # False-positive guard: a changed page without cross-references is not inferred.
+        source.write_text("JSON usage\n==========\n\nPlain prose with no roles at all.\n")
+        self.assertEqual([], self.check("tester", tester_report("C7", "python -m pytest -q"), state))
+        # A non-documentation criterion does not acquire the obligation from a changed doc.
+        source.write_text("JSON usage\n==========\n\nSee :func:`semver.dumps_version`.\n")
+        code_state = self.state([("C1", "The CLI prints the version as JSON.")], changed_files=[page])
+        self.assertEqual([], self.check("tester", tester_report("C1", "python -m pytest -q"), code_state))
+
     def proof_state(self, criterion, suite_exit):
         """A run whose current PASS proof recorded the suite command and its exit code on the candidate."""
         path = self.run / "regression" / "proof-1.json"
