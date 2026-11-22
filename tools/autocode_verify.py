@@ -1147,6 +1147,7 @@ def run_suite(framework, command, tree, evidence_dir, label, *, timeout, native_
     receipt = run_command(
         actual, tree, Path(evidence_dir) / f"{label}.log", timeout=timeout, native_execution=native_execution
     )
+    receipt["execution_root"] = str(Path(tree).resolve())
     receipt["results"] = per_test_results(framework, receipt, xml, tree=root)
     receipt["results_expected"] = expects_results(framework, command, root, scripts=scripts)
     if str(xml) in actual:

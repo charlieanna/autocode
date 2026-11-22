@@ -73,6 +73,8 @@ class ScopeTests(unittest.TestCase):
             "tests/kilo_route_vscode_fixture.py",
             "tests/provider_auth_fixture.py",
             "tests/python_semantic_vscode_fixture.py",
+            "tests/first_go_vscode_fixture.py",
+            "tools/autocode_first_go_proof.py",
             "tests/fixtures/python-semantic-host/displayed-plan.json",
             "tests/rustup_vscode_fixture.py",
             "tests/source_recovery_vscode_fixture.py",
