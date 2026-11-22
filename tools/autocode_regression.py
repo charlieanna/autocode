@@ -77,6 +77,7 @@ try:
     from . import autocode_component_plan as component_plan
     from . import autocode_diff_coverage as diff_coverage
     from . import autocode_early_baseline as early_baseline
+    from . import autocode_fail_first as fail_first
     from . import autocode_first_suite as first_suite
     from . import autocode_focused_suite as focused_suite
     from . import autocode_follow_up as follow_up
@@ -126,6 +127,7 @@ except ImportError:
     import autocode_component_plan as component_plan
     import autocode_diff_coverage as diff_coverage
     import autocode_early_baseline as early_baseline
+    import autocode_fail_first as fail_first
     import autocode_first_suite as first_suite
     import autocode_focused_suite as focused_suite
     import autocode_follow_up as follow_up
@@ -269,17 +271,12 @@ def preserve_only(state: RunState, *, all_due=False):
     if not due:
         return False
     if goals.task_kind(state) == "bugfix":
-        if (state.get("goal_contract") or {}).get("approval_status") != "approved" or not all(
-            case.get("kind") == "preserve" for case in due
-        ):
+        if (state.get("goal_contract") or {}).get("approval_status") != "approved":
             return False
-        try:
-            from . import autocode_coordination_context as coordination
-        except ImportError:
-            import autocode_coordination_context as coordination
         # A preservation-only member does not itself claim to repair the bug.
         # The separate joint gate still requires real fail-before/pass-after.
-        return bool(coordination.context(state))
+        # The plan check reads the same answer (autocode_fail_first.unprovable, #3962).
+        return fail_first.coverage_allowed("bugfix", lambda: fail_first.coordinated(state), due)
     return all(case.get("kind") == "preserve" for case in due) or _test_only_exception(state)
 
 

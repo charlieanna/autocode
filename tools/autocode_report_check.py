@@ -33,6 +33,7 @@ try:
     from . import (
         autocode_code_citations as code_citations,
     )
+    from . import autocode_fail_first as fail_first
     from . import autocode_plan_retention as retention
     from . import autocode_plan_revision_reference as revision_reference
     from . import (
@@ -69,6 +70,7 @@ except ImportError:
     import autocode_check_refs as check_refs
     import autocode_claim_evidence as claim_evidence
     import autocode_code_citations as code_citations
+    import autocode_fail_first as fail_first
     import autocode_plan_retention as retention
     import autocode_plan_revision_reference as revision_reference
     import autocode_planning_graph as planning_graph
@@ -150,6 +152,8 @@ def build_spec(
         spec[requirements_faults.SPEC_KEY] = requirements_faults.context(state)
     elif stage in _PLANNING_STAGES:
         spec["sources"] = brief_obligations.sources(state)
+        # The run's coordination, which decides whether a bug fix's guard-only checkpoint is coverage (#3962).
+        spec[fail_first.SPEC_KEY] = {"coordinated": fail_first.coordinated(state)}
         spec["active_source_ids"] = [row["id"] for row in source_trace._turn_scoped(state, spec["sources"])]
         contract = state.get("goal_contract")
         if isinstance(contract, dict):
@@ -304,6 +308,12 @@ def _check_planning(stage: str, data: dict[str, Any], spec: dict[str, Any], erro
                 planning_graph.derive(contract)
             except ValueError as exc:
                 errors.append(str(exc))
+        # install_draft's refusal of a bug-fix milestone the regression proof can never accept (#3962).
+        fail_first_context = spec.get(fail_first.SPEC_KEY)
+        if isinstance(fail_first_context, dict) and (
+            refused := fail_first.report_refusal(contract, coordinated_run=bool(fail_first_context.get("coordinated")))
+        ):
+            errors.append(refused)
     if stage == "revise_plan":
         concern_ids = [str(cid) for cid in (spec.get("concern_ids") or []) if str(cid).strip()]
         _check_revise_responses(data, concern_ids, errors)
