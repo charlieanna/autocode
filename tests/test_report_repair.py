@@ -806,6 +806,32 @@ class RepairTests(unittest.TestCase):
         # The correction borrows no repair budget: the full repair remains available.
         self.assertEqual(0, self.state["pending_report_repair"]["attempts"])
 
+    def test_format_correction_skips_a_session_that_reached_the_rotation_threshold(self):
+        """#4094: the tiny reminder resumes the same thread, so it reads the same reported-input bound."""
+        import autocode_format_correction as fc
+
+        self.state["next_stage"] = "builder"
+        self.state["settings"]["rotation_after_input_tokens"] = 4000
+        pending = self.queue(error=self.FORMAT_ERROR, engine="opencode")
+        # The original attempt's own receipt: its session already carries more than the threshold.
+        self.state["stages"][-1]["metrics"] = {
+            "provider_tokens": {"input_tokens": 5000},
+            "provider_sessions": ["t-session"],
+        }
+        self.assertEqual((None, "session_rotation_threshold"), fc.repair_session(self.state, pending, "builder"))
+        with (
+            patch.object(runner, "account_stage"),
+            patch.object(runner, "accept_repaired_report"),
+            patch.object(runner, "run_role", return_value=({}, {"stage": "builder_report_repair"})) as launch,
+        ):
+            runner.execute_report_repair(self.state, self.run, self.root)
+        kwargs = launch.call_args.kwargs
+        # No same-session reminder: the full bounded repair starts fresh, and spends no correction.
+        self.assertIsNone(kwargs["resume_session"])
+        self.assertIn("CURRENT HANDOFF DATA", kwargs["prompt"])
+        self.assertEqual(1, pending["attempts"])
+        self.assertNotIn("correction_attempted", pending)
+
     def test_fresh_kilo_repair_receives_report_and_schema_on_its_first_call(self):
         # The actual restricted Kilo launch discards resume_session. A reminder
         # alone therefore has neither the previous answer nor its schema.
@@ -1025,6 +1051,104 @@ class RepairTests(unittest.TestCase):
         cmd = repair_record["command"]
         self.assertEqual("shell_tool", cmd[cmd.index("--disable") + 1])
         self.assertEqual("t-session", cmd[cmd.index("resume") + 1])
+
+    # A resumed request carries the whole conversation, so its reported input grows with every repair
+    # that resumes one thread (#4094). The stock fakes report constant usage; this one keeps per-thread
+    # state and reports the accumulated input a real provider reports on resume, and answers with an
+    # empty report so the real acceptance path rejects it and queues the next round.
+    GROWING_SESSION_PROVIDER = """\
+#!{python}
+import json, os, sys, uuid
+from pathlib import Path
+args = sys.argv[1:]
+prompt = sys.stdin.read()
+out = Path(args[args.index('-o') + 1])
+session = args[args.index('resume') + 1] if 'resume' in args else str(uuid.uuid4())
+home = Path(os.environ['AUTOCODE_FIXTURE_SESSION_HOME'])
+home.mkdir(parents=True, exist_ok=True)
+path = home / (session + '.json')
+saved = json.loads(path.read_text()) if path.is_file() else {{"calls": 0, "input": 0}}
+saved["input"] += len(prompt) // 4 + 200
+saved["calls"] += 1
+path.write_text(json.dumps(saved))
+print(json.dumps({{"type": "thread.started", "thread_id": session}}))
+out.write_text(json.dumps({{}}))
+print(json.dumps({{"type": "turn.completed", "usage": {{"input_tokens": saved["input"], "output_tokens": 50}}}}))
+"""
+
+    def test_repeated_repairs_start_fresh_once_the_resumed_session_reaches_the_rotation_threshold(self):
+        """#4094: the bounded repair prompt must not hide an unbounded resumed conversation."""
+        import os
+
+        threshold = 4000
+        self.state["next_stage"] = "builder"
+        self.state["settings"]["roles"]["builder"]["engine"] = "codex"
+        self.state["settings"]["rotation_after_input_tokens"] = threshold
+        pending = self.queue(
+            error=ValueError("Missing summary"),
+            engine="codex",
+            report=json.dumps({"summary": "the original report"}),
+        )
+        pending["original"]["launch_route"] = dict(self.state["settings"]["roles"]["builder"])
+        bin_dir = self.run / "fake-bin"
+        bin_dir.mkdir(exist_ok=True)
+        provider = bin_dir / "codex"
+        provider.write_text(self.GROWING_SESSION_PROVIDER.format(python=sys.executable))
+        provider.chmod(0o755)
+        sessions = self.run / "fake-sessions"
+        repairs = []
+        with patch.dict(
+            os.environ,
+            {
+                "PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}",
+                "AUTOCODE_FIXTURE_SESSION_HOME": str(sessions),
+            },
+        ):
+            for _ in range(4):
+                try:
+                    runner.execute_report_repair(self.state, self.run, self.root)
+                except runner.ReportRepairQueued:
+                    pass
+                except support.Paused as error:
+                    # The bounded allowance is spent; an explicit resume renewss it, as --resume-paused does.
+                    self.assertIn(
+                        error.status,
+                        ("PAUSED_INVALID_OUTPUT", "PAUSED_REPEATED_FAILURE", "PAUSED_REPORT_REPAIR_LIMIT"),
+                    )
+                    runner.report_repair_queue.reset_for_resume(self.state, now=runner.now)
+                launched = [row for row in self.state["stages"] if row.get("report_only")]
+                self.assertEqual(len(repairs) + 1, len(launched), "each round launches exactly one repair")
+                repairs.append(launched[-1])
+
+        self.assertEqual(["resumed", "resumed", "fresh", "fresh"], [row["repair_session_mode"] for row in repairs])
+        self.assertEqual(["t-session", "t-session", None, None], [row["expected_session"] for row in repairs])
+        self.assertEqual(
+            [None, None, "session_rotation_threshold", "session_rotation_threshold"],
+            [row.get("repair_fresh_reason") for row in repairs],
+        )
+        reported = [row["metrics"]["provider_tokens"]["input_tokens"] for row in repairs]
+        # Below the threshold the repair still resumes, and the resumed conversation grows.
+        self.assertLess(reported[0], threshold)
+        self.assertGreater(reported[1], reported[0])
+        self.assertGreaterEqual(reported[1], threshold)
+        # Once it is reached every later repair starts fresh with a bounded request, and the original
+        # thread is never resumed again, so its conversation stops growing instead of overflowing.
+        for size in reported[2:]:
+            self.assertLess(size, threshold)
+        self.assertEqual(reported[2], reported[3])
+        resumed_session = json.loads((sessions / "t-session.json").read_text())
+        self.assertEqual(2, resumed_session["calls"])
+        self.assertEqual(reported[1], resumed_session["input"])
+        # The fresh handoff is the same bounded one: the rejected report and the exact refusal travel in it.
+        for row in repairs:
+            prompt = Path(row["prompt"]).read_text()
+            self.assertLessEqual(len(prompt.encode("utf-8")), runner.REPAIR_HANDOFF_BYTES)
+            data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+            self.assertTrue(data["error"])
+            self.assertIn("content", data["rejected_report"])
+        first = json.loads(Path(repairs[0]["prompt"]).read_text().split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertEqual("Missing summary", first["error"])
+        self.assertIn("the original report", json.dumps(first["rejected_report"]))
 
     def test_requirements_repair_receives_authoritative_user_sources(self):
         self.state["task"] = "Build a planner."
