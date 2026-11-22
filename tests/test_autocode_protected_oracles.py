@@ -558,6 +558,17 @@ class UndeterminedReplayTests(unittest.TestCase):
                 self.assert_undetermined(error, written, f"the original half's {detail}")
                 self.assertEqual({"original": {"reason": "incomplete_receipt", "detail": detail}}, error.outcome)
 
+    def test_zero_exit_cannot_replace_the_missing_named_report(self):
+        empty = {**self.passing(), "results": None, "results_file_written": False}
+        error, receipt = self.replay({("original", 0): empty})
+        self.assert_undetermined(error, receipt, "the original half could not start its test runner (exit 0)")
+
+        # A previously saved PASS still has to prove that both halves ran.
+        result = json.loads(receipt.read_text())
+        result.update(verdict="PASS")
+        self.state["validation"]["check_replay"]["protected_tests"] = result
+        self.assertFalse(guard.ready(self.state, result["source_revision"]))
+
     def test_replay_records_why_each_half_could_not_establish_a_result(self):
         aborted = {
             "exit_code": 3,

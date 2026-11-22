@@ -37,6 +37,7 @@ try:
     from . import autocode_package_scope as package_scope
     from . import autocode_plan_command_roles as plan_roles
     from . import autocode_plan_proof_command as plan_command
+    from . import autocode_protected_collateral as collateral
     from . import autocode_protected_commands as commands
     from . import autocode_protected_paths as paths
     from . import autocode_protected_project_suite as project_suite
@@ -57,6 +58,7 @@ except ImportError:
     import autocode_package_scope as package_scope
     import autocode_plan_command_roles as plan_roles
     import autocode_plan_proof_command as plan_command
+    import autocode_protected_collateral as collateral
     import autocode_protected_commands as commands
     import autocode_protected_paths as paths
     import autocode_protected_project_suite as project_suite
@@ -359,6 +361,9 @@ def replay_parts(command, changed, workspace, *, detected=True, homes=None) -> l
     return [*([single] if single else []), *sorted(set(placed.values()))]
 
 
+ATTEMPTS = ("candidate", "original", "original_recheck")
+
+
 def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=None):
     """Run the changed original tests on the candidate and with the original tests overlaid.
 
@@ -418,13 +423,13 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=N
             **({"test_support": support} if support else {}),
         }
 
-        def run_part(part, folder, label, overlays):
+        def run_part(part, folder, label, overlays, timeout_seconds=timeout):
             def execute(folder):
                 return scratch_run(
                     workspace,
                     folder,
                     command=part,
-                    timeout=timeout,
+                    timeout=timeout_seconds,
                     source_paths=source_scope.paths(state),
                     expected_source_revision=revision,
                     protected_test_snapshot_links=True,
@@ -436,7 +441,11 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=N
             return run_check(
                 label,
                 execute,
-                policy={**policy, "command": part},
+                policy={
+                    **policy,
+                    "command": part,
+                    **({"timeout_seconds": timeout_seconds} if label == "original-recheck" else {}),
+                },
                 accepted_failure=lambda row: superseded_tests.excused(row, replaced, changed) is not None,
             )
 
@@ -465,9 +474,29 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=N
             if links:
                 overlays["links"] = links
             result["original"] = run("original", **overlays)
+            if (
+                len(parts) == 1
+                and replaced
+                and check_outcome.classify(result["candidate"])["outcome"] == check_outcome.PASSED
+            ):
+                duration = result["original"].get("duration_seconds")
+                remaining = timeout - duration if isinstance(duration, (int, float)) else 0
+                if remaining >= 1 and (
+                    retry_command := collateral.offer(
+                        command, result["original"], replaced, changed, directory, workspace
+                    )
+                ):
+                    result["original_recheck"] = run_part(
+                        retry_command, directory / "original-recheck", "original-recheck", overlays, remaining
+                    )
         # One reading of each half (autocode_check_outcome): a genuine failure of either half wins; a half
         # that could not establish a result keeps completion blocked without directing a product edit.
         outcomes = {half: check_outcome.classify(result[half]) for half in ("candidate", "original")}
+        retry = result.get("original_recheck")
+        if retry:
+            outcome = check_outcome.classify(retry)
+            if outcome["outcome"] != check_outcome.PASSED:
+                outcomes["original"] = outcome
         if any(outcome["outcome"] == check_outcome.FAILED for outcome in outcomes.values()):
             result["verdict"] = "FAIL"
         elif undetermined := {
@@ -486,6 +515,10 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=N
         ):
             # The approved plan replaces these original tests (#2748): only their failures are accepted.
             excused = superseded_tests.excused(result["original"], replaced, changed)
+            if not excused and (retry := result.get("original_recheck")):
+                excused = collateral.recovered(
+                    command, result["original"], retry, replaced, changed, directory, workspace
+                )
             if excused:
                 result["verdict"] = "PASS"
                 result["superseded"] = {"tests": _listed(replaced, changed), "excused_failures": excused}
@@ -509,8 +542,9 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=N
             receipt=result,
         )
     if result["verdict"] != "PASS":
-        tail = (result.get("original") or {}).get("tail", "")[-500:]
-        failing = ((result.get("original") or {}).get("results") or {}).get("failed") or []
+        seen = result.get("original_recheck") or result.get("original") or {}
+        tail = seen.get("tail", "")[-500:]
+        failing = (seen.get("results") or {}).get("failed") or []
         raise commands.OriginalGateFailure(
             commands.ORIGINAL_GATE_FAILED + " on this implementation. "
             "Repair the implementation; a modified assertion is not proof. "
@@ -568,10 +602,7 @@ def ready(state: RunState, current_revision):
                 if (
                     not isinstance(row, dict)
                     or type(row.get("exit_code")) is not int
-                    or row["exit_code"] != 0
-                    or row.get("timed_out")
-                    or row.get("error")
-                    or not command_receipt.completed(row)
+                    or check_outcome.classify(row)["outcome"] != check_outcome.PASSED
                 ) and not (name == "original" and _superseded_ready(state, result)):
                     return False
         elif result.get("superseded"):
@@ -593,4 +624,10 @@ def _superseded_ready(state: RunState, result):
     replaced = superseded_tests.approved(state)
     changed = result.get("changed_tests") or []
     excused = superseded_tests.excused(row, replaced, changed)
+    if not excused and (retry := result.get("original_recheck")) and result.get("receipt"):
+        record = (state.get("settings") or {}).get("protected_tests") or {}
+        command = result.get("replayed_command") or result.get("plan_command") or record.get("command")
+        excused = collateral.recovered(
+            command, row, retry, replaced, changed, Path(result["receipt"]).parent, state.get("workspace")
+        )
     return bool(excused) and accepted == {"tests": _listed(replaced, changed), "excused_failures": excused}

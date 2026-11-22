@@ -117,7 +117,7 @@ def classify(receipt) -> dict:
         results is None
         and receipt.get("results_expected")
         and receipt.get("results_file_written") is False
-        and exit_code not in (0, None)
+        and type(exit_code) is int
     ):
         # Only a runner told to write a results file, that wrote none, did not start. A runner that started and
         # could not load a test module (unittest exits 1 on an import-time error) failed: its test is defective.

@@ -163,10 +163,31 @@ def guard(runner, args, parser, state: RunState, state_path, run_dir, workspace,
         operation.name == "observe" for operation in decided.owned_operations
     )
     if continuation and same_context and (observed := disposition.checked_recovery(state, row)):
+        checked_resume = bool(decided.owned_operations) and all(
+            operation.name == "observe" for operation in decided.owned_operations
+        )
         decided.operational_selection = observed["selection"]
         decided.operational_recovery_checked = {"incident": decided.operational_incident, **observed}
         decided.owned_operations = ()  # A saved owner commit is revalidated, never replayed.
         decided.owner_lane = True
+        if (
+            observed.get("selection") == "retained_report"
+            and checked_resume
+            and getattr(args, "resume_paused", False)
+            and getattr(args, "expected_recovery_token", None)
+        ):
+            try:
+                from . import autocode_recovery_view as recovery_view
+            except ImportError:
+                import autocode_recovery_view as recovery_view
+            try:
+                recovery_view.require_token(state, args.expected_recovery_token)
+            except ValueError:
+                return refuse()
+            # A crash after the atomic report/check commit resumes its final
+            # guards without repeating validation or generic retry resets.
+            decided.evidence_reconciled = True
+            decided.dispatch = True
         return None
     planning_input = (
         disposition.planning_input(state, row)
@@ -231,8 +252,8 @@ def refuse():
     return 2
 
 
-def checked(runner, state: RunState, run_dir, decided, selection, proof):
-    """Called only after the named existing handler validated this invocation."""
+def prepare_checked(runner, state: RunState, run_dir, decided, selection, proof):
+    """Prepare checked evidence without committing the caller's candidate state."""
     row = next(
         (
             row
@@ -283,15 +304,25 @@ def checked(runner, state: RunState, run_dir, decided, selection, proof):
                 "facts": facts,
             },
         )
-        runner.write_json(run_dir / "state.json", candidate)
-        cast(dict, state).clear()
-        state.update(candidate)
-        decided.operational_recovery_checked = {
+        return candidate, {
             "incident": decided.operational_incident,
             "selection": selection,
             "receipt_id": identity,
             "facts": facts,
         }
+    return None
+
+
+def checked(runner, state: RunState, run_dir, decided, selection, proof):
+    """Called only after the named existing handler validated this invocation."""
+    prepared = prepare_checked(runner, state, run_dir, decided, selection, proof)
+    if prepared is None:
+        return
+    candidate, observed = prepared
+    runner.write_json(run_dir / "state.json", candidate)
+    cast(dict, state).clear()
+    state.update(candidate)
+    decided.operational_recovery_checked = observed
 
 
 def _validate_abandoned_archive(proof):

@@ -241,6 +241,10 @@ export class RunController {
     return (argv.length === 2 && argv[0] === "--reconcile-only")
       || (view.status === "RESOLVER_PENDING" && view.needs?.kind === "continue"
         && argv.length === 1 && argv[0] === "--no-chat")
+      || (view.needs?.kind === "continue" && view.needs.automatic_reconciliation === true
+        && Boolean(view.recovery?.token) && env.AUTOCODE_EXPECTED_RECOVERY_TOKEN === view.recovery?.token
+        && Object.keys(env).length === 1
+        && JSON.stringify(argv) === JSON.stringify(["--resume-paused", "--expected-recovery-token", "-"]))
       || (view.status === "PAUSED_SOURCE_UNAVAILABLE" && view.needs?.kind === "continue"
         && Boolean(env.AUTOCODE_EXPECTED_RECOVERY_TOKEN)
         && JSON.stringify(argv) === JSON.stringify(["--resume-paused", "--expected-recovery-token", "-"]));

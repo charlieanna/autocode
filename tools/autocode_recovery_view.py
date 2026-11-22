@@ -104,8 +104,20 @@ BOUND_FIELDS = (
 
 
 def token(state: RunState):
-    if state.get("status") in ACTIVE or not state.get("status"):
+    if not state.get("status"):
         return None
+    if state.get("status") in ACTIVE:
+        if state.get("status") != "RUNNING":
+            return None
+        # A checked report may have committed just before its controller died.
+        # This token binds that saved frontier; it does not replace its owner or
+        # the final admission that rechecks the report and its incident.
+        try:
+            from . import autocode_operational_disposition as disposition
+        except ImportError:
+            import autocode_operational_disposition as disposition
+        if disposition.single_checked(state, "retained_report") is None:
+            return None
     value = {key: state.get(key) for key in BOUND_FIELDS}
     if "source_link_recovery" in state:
         value["source_link_recovery"] = state["source_link_recovery"]
@@ -546,7 +558,9 @@ _UNSET = object()  # no retained-retry answer supplied: compute it from the run'
 
 
 @status_observation.budgeted
-def project(state: RunState, need=None, *, retained=_UNSET, report_repair_unavailable=False):
+def project(
+    state: RunState, need=None, *, retained=_UNSET, report_repair_unavailable=False, retained_report_revalidation=None
+):
     """The recovery card. ``retained`` is the retained acceptance retry's answer
     (autocode_acceptance_retry_next.decide), which the status view computes once with its workspace."""
     status = state.get("status") or ""
@@ -559,7 +573,12 @@ def project(state: RunState, need=None, *, retained=_UNSET, report_repair_unavai
     fresh_run = bool(
         need.get("new_run_required") and need.get("action") == "fresh_run" and status != "PAUSED_COMPONENT_PLAN"
     )
-    if not terminal and ((status in ACTIVE and not fresh_run) or not status) and not (operational_block.receipt(state)):
+    if (
+        not terminal
+        and ((status in ACTIVE and not fresh_run) or not status)
+        and not operational_block.receipt(state)
+        and retained_report_revalidation != "accepted"
+    ):
         return None
     native_need = native_cleanup_need(state)
     if native_need is not None and need.get("kind") not in ("answer", "review", "approve_plan"):
@@ -653,6 +672,17 @@ def project(state: RunState, need=None, *, retained=_UNSET, report_repair_unavai
         return result
     if need.get("resume_unavailable"):
         result.update(category="blocked", title="Task blocked", what_happened=need["resume_unavailable"])
+        return result
+    if retained_report_revalidation in ("pending", "accepted"):
+        result.update(
+            category="recovery",
+            title="Recheck saved work" if retained_report_revalidation == "pending" else "Saved report checked",
+            what_happened=(
+                "AutoCode can recheck the saved report with its updated checks. This check launches no provider."
+                if retained_report_revalidation == "pending"
+                else "AutoCode accepted the saved report under its updated checks; it can continue from there."
+            ),
+        )
         return result
     if (failure := operational_block.presentation(state, include_hold=True)) and failure["category"] == "blocked":
         result.update(failure)

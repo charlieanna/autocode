@@ -15,6 +15,7 @@ try:
     from . import autocode_dependency_dirs as dependency_dirs
     from . import autocode_go_tests as go_tests
     from . import autocode_named_reporters as reporters
+    from . import autocode_node_tests as node_tests
     from . import autocode_package_scope as package_scope
     from . import autocode_project_kinds as project_kinds
     from . import autocode_python_tests as python_tests
@@ -26,6 +27,7 @@ except ImportError:
     import autocode_dependency_dirs as dependency_dirs
     import autocode_go_tests as go_tests
     import autocode_named_reporters as reporters
+    import autocode_node_tests as node_tests
     import autocode_package_scope as package_scope
     import autocode_project_kinds as project_kinds
     import autocode_python_tests as python_tests
@@ -118,6 +120,15 @@ def expects_results(framework, command, tree=None, *, scripts=True):
         if framework.name == "pytest"
         else ((" -m unittest" in command or "autocode_component_tests.py" in command) and " -v" in command)
     )
+
+
+def retain_report(receipt, report, extension, *, command, retain_node):
+    """Record the report the runner was actually asked to write."""
+    if str(report) not in command:
+        return
+    receipt["results_file_written"] = report.is_file()
+    if retain_node and extension == reporters.NODE:
+        node_tests.result_capture(receipt, report)
 
 
 def per_test_results(
