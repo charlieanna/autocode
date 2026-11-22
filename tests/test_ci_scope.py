@@ -77,6 +77,8 @@ class ScopeTests(unittest.TestCase):
             "tests/provider_auth_fixture.py",
             "tests/protected_link_vscode_fixture.py",
             "tests/python_semantic_vscode_fixture.py",
+            "tests/first_go_vscode_fixture.py",
+            "tools/autocode_first_go_proof.py",
             "tests/fixtures/python-semantic-host/displayed-plan.json",
             "tests/rustup_vscode_fixture.py",
             "tests/semver_reference_vscode_fixture.py",

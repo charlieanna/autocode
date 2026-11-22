@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 import autocode_first_suite as first_suite
+import autocode_launch_inputs as launch_inputs
 import autocode_verify as verify
 
 from tests.test_verify import Project
@@ -77,13 +78,24 @@ class FirstGoSuiteTests(unittest.TestCase):
             # The proof trees sit under the run directory. A go.mod above them is how a
             # candidate's new module makes `go test` on the base say "matched no packages".
             (Path(project.temp.name) / "go.mod").write_text("module parent\n\ngo 1.21\n")
+        project.evidence = project.evidence.resolve()
+        project.evidence.mkdir()
+        state = {"base_commit": project.base}
+        launch_inputs.record(state, project.root, project.evidence)
         project.write(files)
+        inputs = launch_inputs.supply(state, project.root, project.evidence)
         framework = verify.detect_framework(project.root, package=package)
         self.assertIsNotNone(framework)
         self.assertEqual("go", framework.name)
         command = framework.suite
         base = verify.baseline(
-            project.root, project.base, project.evidence, framework=framework, suite_command=command, timeout=60
+            project.root,
+            project.base,
+            project.evidence,
+            framework=framework,
+            suite_command=command,
+            timeout=60,
+            ignored_inputs=inputs,
         )
         result = verify.verify(
             project.root,
@@ -95,6 +107,7 @@ class FirstGoSuiteTests(unittest.TestCase):
             new_behavior=new_behavior,
             timeout=60,
             package=package,
+            ignored_inputs=inputs,
         )
         return base, result
 
@@ -109,6 +122,50 @@ class FirstGoSuiteTests(unittest.TestCase):
         self.assertEqual(verify.PASS, result["verdict"], result)
         self.assertIn("policy::TestDays", result["fail_to_pass"] + result["not_run_on_base"])
         self.assertTrue(any(NOTE in note for note in result["notes"]), result["notes"])
+
+    def test_first_go_proof_does_not_execute_the_nested_base_tests(self):
+        # In a real run the proof directory is inside the candidate checkout.
+        # An external test importing the new module otherwise reaches the live
+        # candidate through its ancestor go.mod, as reproduced in #4057.
+        project = Project({"reference/Policy.cs": CS})
+        self.addCleanup(project.close)
+        test = (
+            'package policy_test\nimport ("testing"; "policy/policy")\n'
+            'func TestDays(t *testing.T) { if policy.Days() != 30 { t.Fatal("wrong") } }\n'
+        )
+        launch = Path(project.temp.name) / "launch"
+        launch.mkdir()
+        state = {"base_commit": project.base}
+        launch_inputs.record(state, project.root, launch)
+        project.write({"go.mod": GO_MOD, "policy/policy.go": POLICY, "policy/policy_test.go": test})
+        inputs = launch_inputs.supply(state, project.root, launch)
+        framework = verify.detect_framework(project.root)
+        regression = project.root / ".autocode/runs/first-go/regression"
+        base = verify.baseline(
+            project.root,
+            project.base,
+            regression / "baseline-1",
+            framework=framework,
+            suite_command=framework.suite,
+            timeout=60,
+            ignored_inputs=inputs,
+        )
+        result = verify.verify(
+            project.root,
+            project.base,
+            regression / "proof-1",
+            framework=framework,
+            suite_command=framework.suite,
+            base_suite=base,
+            new_behavior=True,
+            timeout=60,
+            ignored_inputs=inputs,
+        )
+        self.assertEqual(verify.PASS, result["verdict"], result)
+        self.assertEqual(["policy/policy::TestDays"], result["fail_to_pass"])
+        self.assertEqual(result["fail_to_pass"], result["not_run_on_base"])
+        self.assertNotIn("regression_on_base", result["checks"], "a contaminated base run grants no authority")
+        self.assertTrue(any("did not run on base" in note for note in result["notes"]), result["notes"])
 
     def test_a_code_only_base_outside_a_module_is_not_a_broken_suite(self):
         base, result = self.prove(
