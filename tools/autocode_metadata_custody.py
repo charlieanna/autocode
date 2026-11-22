@@ -62,7 +62,16 @@ class MetadataAdmissionBusy(ProcessError):
 def _root(env):
     # Command environments can contain an isolated HOME for tool containment.
     # Only Core's ambient user configuration owns this cross-invocation store.
-    environment = os.environ
+    return store_root(os.environ)
+
+
+def store_root(environment):
+    """The store a process whose own environment is ``environment`` holds custody in.
+
+    Core passes the exact environment it handed a provider (#4028): a command that
+    provider's tools start, such as ``autocode capture --compare-base``, reads its
+    store from its own ambient environment, which a role's isolation may redirect.
+    """
     state = environment.get("XDG_STATE_HOME")
     if state and Path(state).is_absolute():
         base = Path(state)
@@ -693,3 +702,33 @@ def status(env=None):
     finally:
         if handle is not None:
             handle.close()
+
+
+def unsettled(environment):
+    """The validated journal the store for ``environment`` still holds, or None (#4028).
+
+    Read-only and lock-free: nothing is created, archived or repaired, and a held
+    admission lock is no evidence either way. A journal whose every member has a
+    clean primary or kernel family receipt is settled; an archived one is gone.
+    ``CustodyUncertain`` (unbound) when the store or its journal cannot be read
+    or validated, so a tampered record never reads as no hold.
+    """
+    if sys.platform != "linux":
+        return None
+    try:
+        root = store_root(environment)
+        if not _private_root(root, create=False):
+            return None
+        pending = _pending(root)
+        if pending is None:
+            return None
+        if all(_settled(root, member, pending["boot_id"]) for member in pending["attempts"]):
+            return None
+        return root, pending
+    except (OSError, ValueError, TypeError, KeyError, ProcessError, family.FamilyError):
+        raise CustodyUncertain() from None
+
+
+def bound(root, pending):
+    """A typed hold bound to the exact journal Core itself read (see ``recover``)."""
+    return _uncertain(root, pending)

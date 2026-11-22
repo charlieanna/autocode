@@ -326,6 +326,26 @@ if data.get("report_repair"):
     print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 20, "output_tokens": 10}}))
     raise SystemExit(0)
 stage = data["stage"]
+if os.environ.get("AUTOCODE_FIXTURE_CAPTURE_HOLD") == stage:
+    # #4028: what an `autocode capture --compare-base` this stage's tools ran leaves when it cannot
+    # confirm its command stopped: its private custody journal, with no result, in the store this
+    # process's own environment names. The scripted stage then finishes normally.
+    _state = os.environ.get("XDG_STATE_HOME")
+    _store = Path(_state) if _state and Path(_state).is_absolute() else Path(os.environ["HOME"]) / ".local/state"
+    _store = _store / "autocode/metadata"
+    _store.mkdir(mode=0o700, parents=True, exist_ok=True)
+    _member = uuid.uuid4().hex
+    _journal = {
+        "schema": 2,
+        "group_nonce": uuid.uuid4().hex,
+        "boot_id": Path("/proc/sys/kernel/random/boot_id").read_text(encoding="ascii").strip(),
+        "uid": os.geteuid(),
+        "attempts": [{"nonce": _member, "result_file": f"result-{_member}.json"}],
+    }
+    for _name, _body in (("admission.lock", b""), ("pending.json", json.dumps(_journal).encode())):
+        _descriptor = os.open(_store / _name, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+        os.write(_descriptor, _body)
+        os.close(_descriptor)
 if stage == "builder" and os.environ.get("AUTOCODE_CONSUMER_BARRIER"):
     import time
 
