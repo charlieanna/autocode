@@ -72,6 +72,7 @@ class ScopeTests(unittest.TestCase):
             "tests/job_route_vscode_cli.py",
             "tests/job_route_vscode_fixture.py",
             "tests/kilo_route_vscode_fixture.py",
+            "tools/autocode_job_retry_admission.py",
             "tests/provider_auth_fixture.py",
             "tests/python_semantic_vscode_fixture.py",
             "tests/fixtures/python-semantic-host/displayed-plan.json",

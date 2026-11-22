@@ -21,7 +21,7 @@ from tests.status_retry_host_fixture import relocate  # noqa: E402
 from tests.test_job_route import JobModelRouteTests  # noqa: E402
 
 
-def prepare(root: Path) -> dict:
+def prepare(root: Path, *, unset_effort: bool = False) -> dict:
     root.mkdir(parents=True, exist_ok=True)
     JobModelRouteTests.setUpClass()
     case = JobModelRouteTests("runTest")
@@ -62,7 +62,10 @@ def prepare(root: Path) -> dict:
         state["job_failure"]["configuration"] = job_failure.configuration(state)
         state["job_failure"]["route"].update(stopped_model=model, current_model=model, engine="opencode")
         state["job_failure"]["route"].pop("candidates", None)
-        route["reasoning_effort"] = "high"
+        if unset_effort:
+            route.pop("reasoning_effort")
+        else:
+            route["reasoning_effort"] = "high"
         state["job_failure"]["source_identity"] = support.digest(job_source.identity(project))
         (copied_run / "state.json").write_text(json.dumps(state))
         workspace_id = registry._identity("workspace", project)
@@ -104,4 +107,4 @@ if __name__ == "__main__":
             ("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_", "OPENAI_", "ANTHROPIC_", "KILO_API_", "CODEX_API_", "ZAI_API_")
         ):
             os.environ.pop(key, None)
-    print(json.dumps(prepare(Path(sys.argv[1]).resolve())))
+    print(json.dumps(prepare(Path(sys.argv[1]).resolve(), unset_effort=sys.argv[2:] == ["unset-effort"])))

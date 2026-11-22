@@ -82,6 +82,7 @@ EXTENSION_HOST_RESOURCES = {
     ),
     "tests/job_route_vscode_fixture.py": ("vscode-extension/test/host/job-route-effort.test.cjs",),
     "tests/kilo_route_vscode_fixture.py": ("vscode-extension/test/host/kilo-route-effort.test.cjs",),
+    "tools/autocode_job_retry_admission.py": ("vscode-extension/test/host/kilo-route-effort.test.cjs",),
     "tests/provider_auth_fixture.py": ("vscode-extension/test/host/editor-host.test.cjs",),
     "tests/python_semantic_vscode_fixture.py": ("vscode-extension/test/host/python-semantic.test.cjs",),
     "tests/fixtures/python-semantic-host/displayed-plan.json": ("vscode-extension/test/host/python-semantic.test.cjs",),

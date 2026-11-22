@@ -297,6 +297,43 @@ class JobModelRouteTests(JobHarness):
         after = json.loads(checkpoint.read_text())
         self.assertEqual("medium", after["settings"]["roles"]["architect"]["reasoning_effort"])
 
+    def test_missing_current_effort_keeps_bound_answer_reachable(self):
+        for missing in (True, False):
+            with self.subTest(missing=missing):
+                run = self.refused("quota")
+                need = self.stopped(run)
+                checkpoint = run.run_dir / "state.json"
+                saved = json.loads(checkpoint.read_text())
+                route = saved["settings"]["roles"]["architect"]
+                if missing:
+                    route.pop("reasoning_effort")
+                else:
+                    route["reasoning_effort"] = None
+                saved["job_failure"]["route"].pop("candidates", None)
+                checkpoint.write_text(json.dumps(saved))
+                before, calls = checkpoint.read_bytes(), self.calls.read_text()
+                view = run.status()
+                self.assertEqual(before, checkpoint.read_bytes())
+                self.rejected(
+                    run,
+                    "--answer",
+                    "route-architect=gpt-6-sol@medium",
+                    "--job-retry-token",
+                    "jr:wrong",
+                    message="token",
+                )
+                proc = self.cli(
+                    run, "--answer", "route-architect=gpt-6-sol@medium", "--job-retry-token", need["job_retry_token"]
+                )
+                self.assertEqual(0, proc.returncode, proc.stderr)
+                after = json.loads(checkpoint.read_text())
+                self.assertEqual("medium", after["settings"]["roles"]["architect"]["reasoning_effort"])
+                self.assertNotEqual(need["job_retry_token"], after["job_failure"]["job_retry_token"])
+                self.assertEqual(calls, self.calls.read_text())
+                self.assertEqual("retry_job", view["needs"]["kind"], view["needs"])
+                self.assertTrue(view["needs"]["effort_drift"])
+                self.assertIn("--answer route-architect=MODEL", view["next_command"])
+
     def test_effort_drift_keeps_the_bound_model_and_effort_answer_reachable(self):
         run = self.refused("quota")
         original_need = self.stopped(run)
@@ -857,6 +894,21 @@ def bound_state(settings_model="gpt-6-sol"):
             "route": route,
         },
     }
+
+
+class EffortDriftTests(unittest.TestCase):
+    def test_only_unset_or_supported_current_levels_are_repairable(self):
+        state = {"settings": {"roles": {"architect": {}}}}
+        failure = {"configuration": {"roles": {"architect": {"reasoning_effort": "medium"}}}}
+        route = state["settings"]["roles"]["architect"]
+        for value in (None, "high"):
+            with self.subTest(value=value):
+                route["reasoning_effort"] = value
+                self.assertTrue(job_failure.retry_admission.effort_drift(state, failure, "architect"))
+        for value in ("medium", "foreign", 7, [], {}):
+            with self.subTest(value=value):
+                route["reasoning_effort"] = value
+                self.assertFalse(job_failure.retry_admission.effort_drift(state, failure, "architect"))
 
 
 class RerouteTests(unittest.TestCase):
