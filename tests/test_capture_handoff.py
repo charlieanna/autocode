@@ -12,10 +12,11 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 import uuid
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import autocode_capture_handoff as handoff
 import autocode_metadata_custody as custody
@@ -126,6 +127,219 @@ class HandoffTests(unittest.TestCase):
             raise operational_block.util.Paused("PAUSED_PROCESS_CLEANUP", str(hold)) from hold
         except operational_block.util.Paused as wrapped:
             self.assertIs(hold, operational_block.error(wrapped))
+
+
+class CheckA(threading.Thread):
+    """A metadata check of another invocation on the same store: it holds admission with one armed member.
+
+    Its group and admission wait for nothing (timeout=None), so no patched clock can expire it; it publishes
+    its clean result only when released, then reconciles at its group's exit.
+    """
+
+    def __init__(self):
+        super().__init__(daemon=True)
+        self.armed, self.release, self.exited = threading.Event(), threading.Event(), threading.Event()
+        self.errors, self.group = [], None
+
+    def run(self):
+        try:
+            with custody.group(timeout=None) as owner:
+                self.group = owner.nonce
+                with custody.admission(timeout=None) as scope:
+                    scope.arm()
+                    self.armed.set()
+                    if not self.release.wait(30):
+                        raise AssertionError("check A was never released")
+                    scope.result.seek(0)
+                    scope.result.truncate()
+                    clean = {"schema": 1, "nonce": scope.nonce, "clean": True, "started": True, "returncode": 0}
+                    scope.result.write(json.dumps({**clean, "expired": False}).encode())
+                    scope.result.flush()
+                    os.fsync(scope.result.fileno())
+        except BaseException as error:
+            self.errors.append(error)
+        finally:
+            self.exited.set()
+
+
+def observing(thread, original, act):
+    """A patch for custody.util.sleep/monotonic that acts only on the observing ``thread``."""
+
+    def patched(*arguments):
+        return act(*arguments) if threading.current_thread() is thread else original(*arguments)
+
+    return patched
+
+
+@unittest.skipUnless(os.name == "posix", "private custody store permissions")
+class ConcurrentObservationTests(unittest.TestCase):
+    """#4099: the observation never reads a live invocation's in-progress journal as a hold."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="capture-handoff-race-")
+        self.addCleanup(temporary.cleanup)
+        self.home = Path(temporary.name).resolve()
+        for target, attribute, value in ((custody.sys, "platform", "linux"), (custody, "_boot_id", lambda: BOOT)):
+            context = patch.object(target, attribute, value)
+            context.start()
+            self.addCleanup(context.stop)
+        state = str(self.home / "role-state")
+        # Core's own checks (custody.group) read its ambient environment; the provider's names the same store.
+        environment = patch.dict(os.environ, {"XDG_STATE_HOME": state})
+        environment.start()
+        self.addCleanup(environment.stop)
+        self.environment = {"HOME": "/nonexistent", "XDG_STATE_HOME": state}
+        self.store = self.home / "role-state/autocode/metadata"
+        self.observer = threading.current_thread()
+
+    def check_a(self):
+        check = CheckA()
+        check.start()
+
+        def stop():
+            check.release.set()
+            check.join(30)
+
+        self.addCleanup(stop)
+        self.assertTrue(check.armed.wait(30), "check A never armed its member")
+        return check
+
+    def assert_a_settled(self, check):
+        check.release.set()
+        check.join(30)
+        self.assertFalse(check.is_alive())
+        self.assertEqual([], check.errors)
+        self.assertFalse((self.store / "pending.json").exists())
+        self.assertTrue((self.store / f"collected-{check.group}.json").exists())
+
+    def test_c1_concurrent_checks_never_pause_on_a_live_reconciling_record(self):
+        start = handoff.before(self.environment)
+        self.assertEqual({"readable": True, "group": None}, start)
+        check = self.check_a()
+        reached = []
+
+        def first_sleep(seconds):
+            reached.append(check.release.is_set())
+            if len(reached) == 1:
+                check.release.set()
+                self.assertTrue(check.exited.wait(30), "check A group never exited")
+
+        record, persist = {}, Mock()
+        with patch.object(custody.util, "sleep", observing(self.observer, custody.util.sleep, first_sleep)):
+            handoff.require_settled(start, self.environment, record, persist)
+        self.assertTrue(reached, "B never waited for A's admission lock")
+        self.assertFalse(reached[0], "the wait was reached before A was released")
+        self.assertNotIn("capture_custody", record)
+        persist.assert_not_called()
+        self.assert_a_settled(check)
+
+    def test_c3_live_owner_beyond_allowance_reports_busy_not_uncertain(self):
+        check = self.check_a()
+        before = (self.store / "pending.json").read_bytes()
+        clock = [0.0]
+
+        def advance(seconds):
+            clock[0] += seconds
+
+        with (
+            patch.object(custody.util, "monotonic", observing(self.observer, custody.util.monotonic, lambda: clock[0])),
+            patch.object(custody.util, "sleep", observing(self.observer, custody.util.sleep, advance)),
+        ):
+            with self.assertRaises(custody.MetadataAdmissionBusy) as caught:
+                custody.unsettled(self.environment, timeout=0)
+            self.assertNotIsInstance(caught.exception, custody.CustodyUncertain)
+            self.assertEqual(0, clock[0], "timeout=0 gives up on its first lock try")
+            self.assertEqual({"readable": True, "group": None}, handoff.before(self.environment))
+            self.assertAlmostEqual(handoff.ALLOWANCE_SECONDS, clock[0])
+            self.assertIsNone(handoff.after({"readable": True, "group": None}, self.environment))
+            self.assertAlmostEqual(2 * handoff.ALLOWANCE_SECONDS, clock[0])
+        self.assertEqual(before, (self.store / "pending.json").read_bytes())
+        self.assert_a_settled(check)
+
+    def test_unsettled_by_default_tries_a_live_owner_s_lock_once_and_reports_busy(self):
+        check = self.check_a()
+        before = (self.store / "pending.json").read_bytes()
+        clock, slept = [0.0], []
+
+        def advance(seconds):
+            slept.append(seconds)
+            clock[0] += seconds
+
+        with (
+            patch.object(custody.util, "monotonic", observing(self.observer, custody.util.monotonic, lambda: clock[0])),
+            patch.object(custody.util, "sleep", observing(self.observer, custody.util.sleep, advance)),
+        ):
+            with self.assertRaises(custody.MetadataAdmissionBusy) as caught:
+                custody.unsettled(self.environment)
+        self.assertNotIsInstance(caught.exception, custody.CustodyUncertain)
+        self.assertEqual(0, clock[0], "with no timeout given the observation waits for nothing")
+        self.assertEqual([], slept)
+        self.assertEqual(before, (self.store / "pending.json").read_bytes())
+        self.assert_a_settled(check)
+
+    def test_c4_unsettled_member_hold_still_raises(self):
+        with self.assertRaises(custody.ProcessError):
+            with custody.admission(timeout=1) as scope:
+                scope.arm()
+        row = json.loads((self.store / "pending.json").read_text())
+        self.assertEqual(scope.nonce, row["attempts"][0]["nonce"])
+        later = custody.util.monotonic() + 86400
+        with patch.object(custody.util, "monotonic", return_value=later):
+            hold = handoff.after({"readable": True, "group": None}, self.environment)
+            self.assertIsInstance(hold, custody.CustodyUncertain)
+            self.assertEqual(row, hold.binding["pending"])
+            self.assertEqual((self.store, row), custody.unsettled(self.environment))
+            with self.assertRaises(custody.CustodyUncertain):
+                with custody.group(timeout=1):
+                    self.fail("a fresh group was admitted past an unsettled member")
+            self.assertFalse(custody.recover(hold.binding))
+
+    def test_c10_leftover_hold_seen_after_brief_lock_holder_releases(self):
+        start = handoff.before(self.environment)
+        row = journal()
+        leave(self.store, row)
+        holder = open(self.store / "admission.lock", "r+b")  # noqa: SIM115 - held across the observation
+        self.addCleanup(holder.close)
+        custody.util.lock_file(holder)  # a group that refuses the leftover at entry, for a moment
+        calls = []
+
+        def release(seconds):
+            calls.append(seconds)
+            if len(calls) == 1:
+                custody.util.unlock_file(holder)
+
+        with patch.object(custody.util, "sleep", observing(self.observer, custody.util.sleep, release)):
+            hold = handoff.after(start, self.environment)
+        self.assertIsInstance(hold, custody.CustodyUncertain)
+        self.assertEqual(row, hold.binding["pending"])
+
+    def test_c11_missing_admission_lock_still_judges_journal_without_creating_lock(self):
+        row = journal()
+        self.store.mkdir(mode=0o700, parents=True)
+        descriptor = os.open(self.store / "pending.json", os.O_CREAT | os.O_WRONLY, 0o600)
+        os.write(descriptor, json.dumps(row).encode())
+        os.close(descriptor)
+        hold = handoff.after({"readable": True, "group": None}, self.environment)
+        self.assertIsInstance(hold, custody.CustodyUncertain)
+        self.assertEqual(row, hold.binding["pending"])
+        self.assertFalse((self.store / "admission.lock").exists())
+
+    def test_tampered_journal_hold_releases_the_admission_lock_it_was_judged_under(self):
+        start = handoff.before(self.environment)
+        self.assertEqual({"readable": True, "group": None}, start)
+        self.store.mkdir(mode=0o700, parents=True)
+        for name, body in (("admission.lock", b""), ("pending.json", b"{tampered")):
+            descriptor = os.open(self.store / name, os.O_CREAT | os.O_WRONLY, 0o600)
+            os.write(descriptor, body)
+            os.close(descriptor)
+        # The kept hold's traceback keeps unsettled()'s frame alive; its lock handle must still be closed.
+        hold = handoff.after(start, self.environment)
+        self.assertIsInstance(hold, custody.CustodyUncertain)
+        self.assertIsNone(hold.binding)
+        self.assertIsNotNone(hold.__traceback__)
+        with open(self.store / "admission.lock", "r+b") as other:
+            custody.util.lock_file(other)  # raises BlockingIOError if the observation still holds the lock
+            custody.util.unlock_file(other)
 
 
 @unittest.skipUnless(sys.platform == "linux", "metadata custody is held only on Linux")
