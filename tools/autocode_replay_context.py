@@ -1,7 +1,14 @@
 """The stable runner context compared with a recorded provider dispatch."""
 
+from __future__ import annotations
 
-def launch(state, *, stage, iteration, report_only, original_stage, changed_code_proof):
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
+
+def launch(state: RunState, *, stage, iteration, report_only, original_stage, changed_code_proof):
     return {
         "stage": stage,
         "iteration": iteration,

@@ -1,6 +1,12 @@
 """Admit a stopped job's next recorded action against its replay authority."""
 
+from __future__ import annotations
+
 import copy
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_quota_route as quota_route
@@ -20,7 +26,7 @@ except ImportError:
     import autocode_route_fit as route_fit
 
 
-def next_action(state, workspace):
+def next_action(state: RunState, workspace):
     """Return only the next action explicitly recorded for this stopped attempt."""
     failure = state.get("job_failure") or {}
     question = quota_route.job_question(state)
@@ -95,7 +101,7 @@ def next_action(state, workspace):
     return tape, row, action
 
 
-def check_dispatch(state, candidate, workspace, tape, row):
+def check_dispatch(state: RunState, candidate, workspace, tape, row):
     """Preflight the same recorded stage/route/source identity the emitter checks."""
     failure = state["job_failure"]
     role = row["route_role"]
@@ -135,7 +141,7 @@ def check_dispatch(state, candidate, workspace, tape, row):
     )
 
 
-def answer(state, candidate, workspace, role, model, requested_effort):
+def answer(state: RunState, candidate, workspace, role, model, requested_effort):
     tape, row, action = next_action(state, workspace)
     payload = action["payload"]
     if (
@@ -154,7 +160,7 @@ def answer(state, candidate, workspace, role, model, requested_effort):
     check_dispatch(state, candidate, workspace, tape, row)
 
 
-def retry(state, workspace):
+def retry(state: RunState, workspace):
     tape, row, action = next_action(state, workspace)
     if action["kind"] != "retry_job":
         raise recording.RecordingError("The recording requires a different job action before retry")
