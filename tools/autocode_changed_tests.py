@@ -62,7 +62,7 @@ def seam_words(path: str, before: str, after: str, proof_seam) -> tuple[set[str]
     return proof_seam.added_names(path, before, after), set()
 
 
-def changed_filter(run, git):
+def changed_filter(run, git, *, first_go=None):
     """Whether a test id names a test the proof run's change adds or edits, or None to keep every test.
 
     ``run`` gives the proof's ``framework``, ``workspace``, ``base``, ``changes`` (path -> status) and
@@ -74,7 +74,9 @@ def changed_filter(run, git):
         return git(run.workspace, "show", f"{run.base}:{path}", check=False)
 
     if name == "go":
-        return go_tests.changed_filter(run.workspace, run.changes, base_text)
+        return go_tests.changed_filter(
+            run.workspace, run.changes, base_text, execution_root=(first_go or {}).get("execution_root")
+        )
     if name == "cargo":
         tests = {path: run.changes[path] for path in run.runnable_tests}
         return cargo_tests.changed_filter(run.workspace, tests, base_text)
