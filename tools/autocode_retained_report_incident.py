@@ -259,6 +259,7 @@ def validate(runner, args, state: RunState, run_dir, workspace, decided, row, ob
             "failure_history",
             "active_stage",
             "uncertain_artifacts",
+            *sorted(ACCOUNTING),
         ),
         members=(("report_repair_history", saved), ("stages", repair)),
     )

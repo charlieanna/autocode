@@ -137,6 +137,8 @@ class RetainedReportIncidentTests(unittest.TestCase):
             lambda state: state["user_events"].append({"actor": "user_cli", "kind": "feedback"}),
             lambda state: state.update(pending_questions=[{"id": "new-question"}]),
             lambda state: state.update(active_stage={"stage": "tester"}),
+            lambda state: state.update(active_seconds=999),
+            lambda state: state.update(automatic_permission_recoveries=1),
         ):
             changed = copy.deepcopy(self.state)
             change(changed)
