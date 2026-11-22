@@ -38,6 +38,8 @@ PUBLIC_FLOW_CONSUMERS = ("tests.test_launch_state_cli", "tests.test_completion_s
 # These helpers are loaded dynamically by the extension-host tests, not by a
 # Python import. Keep the consuming test named so fixture-only edits run it.
 EXTENSION_HOST_RESOURCES = {
+    "tests/first_go_vscode_fixture.py": ("vscode-extension/test/host/python-semantic.test.cjs",),
+    "tools/autocode_first_go_proof.py": ("vscode-extension/test/host/python-semantic.test.cjs",),
     "scenarios/harness/fake_codex.py": (
         "vscode-extension/test/host/editor-host.test.cjs",
         "vscode-extension/test/host/python-semantic.test.cjs",
@@ -53,6 +55,7 @@ EXTENSION_HOST_RESOURCES = {
         "vscode-extension/test/host/job-route-effort.test.cjs",
         "vscode-extension/test/host/kilo-route-effort.test.cjs",
         "vscode-extension/test/host/python-semantic.test.cjs",
+        "vscode-extension/test/host/status-retry.test.cjs",
     ),
     "tools/autocode_changed_code_evidence.py": ("vscode-extension/test/host/python-semantic.test.cjs",),
     "tools/autocode_changed_code_measurement.py": ("vscode-extension/test/host/python-semantic.test.cjs",),
@@ -67,6 +70,7 @@ EXTENSION_HOST_RESOURCES = {
         "vscode-extension/test/host/editor-host.test.cjs",
         "vscode-extension/test/host/classification-outcome.test.cjs",
         "vscode-extension/test/host/python-semantic.test.cjs",
+        "vscode-extension/test/host/status-retry.test.cjs",
     ),
     "tests/classification_vscode_fixture.py": ("vscode-extension/test/host/classification-outcome.test.cjs",),
     "tests/test_failure_routing_cli.py": ("vscode-extension/test/host/classification-outcome.test.cjs",),
@@ -82,6 +86,7 @@ EXTENSION_HOST_RESOURCES = {
     ),
     "tests/job_route_vscode_fixture.py": ("vscode-extension/test/host/job-route-effort.test.cjs",),
     "tests/kilo_route_vscode_fixture.py": ("vscode-extension/test/host/kilo-route-effort.test.cjs",),
+    "tools/autocode_job_retry_admission.py": ("vscode-extension/test/host/kilo-route-effort.test.cjs",),
     "tests/provider_auth_fixture.py": ("vscode-extension/test/host/editor-host.test.cjs",),
     "tests/python_semantic_vscode_fixture.py": ("vscode-extension/test/host/python-semantic.test.cjs",),
     "tests/fixtures/python-semantic-host/displayed-plan.json": ("vscode-extension/test/host/python-semantic.test.cjs",),

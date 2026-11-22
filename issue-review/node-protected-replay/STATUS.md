@@ -52,3 +52,9 @@ editor retry inherited Node 25 and was stopped through the named action
 after its subprocess stayed in the pending-promise original test. That
 attempt is not Node 25 qualification. The candidate still needs its
 exact-head required CI.
+
+`01934fe48` passed its required gate. Integrating master `2f1b57932`
+joined the first-Go reporter presence check and the Node report capture at
+the shared report reader. It now checks the actual instrumented command once
+and retains the Node event report where the replay requires it. The integrated
+head receives its own editor and required CI verification.

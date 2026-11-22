@@ -122,9 +122,9 @@ def expects_results(framework, command, tree=None, *, scripts=True):
     )
 
 
-def retain_report(receipt, report, extension, *, retain_node):
+def retain_report(receipt, report, extension, *, command, retain_node):
     """Record the report the runner was actually asked to write."""
-    if str(report) not in receipt["command"]:
+    if str(report) not in command:
         return
     receipt["results_file_written"] = report.is_file()
     if retain_node and extension == reporters.NODE:

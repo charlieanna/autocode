@@ -72,8 +72,11 @@ class ScopeTests(unittest.TestCase):
             "tests/job_route_vscode_cli.py",
             "tests/job_route_vscode_fixture.py",
             "tests/kilo_route_vscode_fixture.py",
+            "tools/autocode_job_retry_admission.py",
             "tests/provider_auth_fixture.py",
             "tests/python_semantic_vscode_fixture.py",
+            "tests/first_go_vscode_fixture.py",
+            "tools/autocode_first_go_proof.py",
             "tests/fixtures/python-semantic-host/displayed-plan.json",
             "tests/rustup_vscode_fixture.py",
             "tests/source_recovery_vscode_fixture.py",
@@ -85,6 +88,16 @@ class ScopeTests(unittest.TestCase):
         ):
             with self.subTest(fixture=fixture):
                 self.assertIn("extension", self.enabled(fixture))
+
+    def test_status_retry_host_depends_on_its_cleanup_helpers(self):
+        from tools import ci_test_selection
+
+        for fixture in ("tests/host_reader_cleanup.py", "vscode-extension/test/owned-fixture-cleanup.cjs"):
+            with self.subTest(fixture=fixture):
+                self.assertIn(
+                    "vscode-extension/test/host/status-retry.test.cjs",
+                    ci_test_selection.EXTENSION_HOST_RESOURCES[fixture],
+                )
 
     def test_classification_host_resources_are_exact_and_select_the_host(self):
         from tools import ci_test_selection
