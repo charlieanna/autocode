@@ -42,6 +42,7 @@ except ImportError:
     import autocode_roles as roles
 
 try:
+    from . import autocode_acceptance_retry_exhaustion as acceptance_exhaustion
     from . import autocode_build_worktree as build_worktree
     from . import autocode_checkout_lock as checkout_lock
     from . import autocode_containment_policy as containment_policy
@@ -94,6 +95,7 @@ try:
     from . import autocode_workspaces as task_workspaces
     from . import model_catalogue
 except ImportError:
+    import autocode_acceptance_retry_exhaustion as acceptance_exhaustion
     import autocode_build_worktree as build_worktree
     import autocode_checkout_lock as checkout_lock
     import autocode_containment_policy as containment_policy
@@ -1072,7 +1074,9 @@ def run_locked(
         except (runner.support.Paused, ValueError, RuntimeError, OSError) as error:
             # The Investigator has already taken or declined a spent recovery allowance (autocode_stuck_job):
             # nothing automatic remains, so the run ends with that as its recorded outcome, not a grant.
-            if recovery_exhaustion.conclude_pause(state, error, at=runner.now()):
+            if recovery_exhaustion.conclude_pause(
+                state, error, at=runner.now()
+            ) or acceptance_exhaustion.conclude_pause(state, error, workspace, at=runner.now()):
                 runner.write_json(state_path, state)
                 print(f"{state['status']}: {state.get('stop_reason')}", file=sys.stderr)
                 return owned_result(2)

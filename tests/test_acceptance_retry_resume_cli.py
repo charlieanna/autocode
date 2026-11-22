@@ -216,11 +216,30 @@ class RetainedRetryResumeCliTests(unittest.TestCase):
         self.assertEqual({"identity": IDENTITY, "requested_at": "2026-11-20T02:26:26+00:00"}, archived["retired_by"])
         self.assertFalse(acceptance.receipts(saved))
 
+    def test_resume_after_exhausted_recheck_ends_the_run_with_a_report(self):
+        # #4037: no re-check is left and the Investigator has looked; the run used to sit at a pause that
+        # named no command, took no chat message and offered only inspection.
+        before = self.run.status()
+        self.assertEqual({"next": "exhausted", "rechecks": 1, "allowed": 1}, before["acceptance_verification_retry"])
+        self.assertIn("--resume-paused", before["next_command"])
+        self.run.resume_paused()
+        self.assertEqual([], self.launches, "ending the run launches no model")
+        saved = util.read(self.run_dir / "state.json")
+        self.assertEqual("PAUSED_INTERVENTION", saved["status"])
+        after = self.run.status()
+        self.assertIsNone(after["next_command"])
+        outcome = after["recovery"]["outcome"]
+        self.assertEqual("could_not_finish", outcome["result"])
+        self.assertIn("1 of 1 allowed times", outcome["reason"])
+        self.assertIn("original-reference execution missing", outcome["reason"])
+        self.assertEqual(2, len(outcome["evidence"]["failures"]))
+
     def test_ac9_status_progress_reads_retained_check(self):
         shown = self.run.status()
         self.assertEqual("PAUSED_INVALID_OUTPUT", shown["status"])
-        self.assertEqual("Paused", shown["progress"]["headline"])
-        self.assertEqual("explain what should change", shown["progress"]["needs_you"])
+        # No re-check is left: the next resume ends the run with a report (#4037), never "Next: Tester".
+        self.assertEqual("Ending with a report", shown["progress"]["headline"])
+        self.assertEqual("nothing needed from you", shown["progress"]["needs_you"])
         # A retained report whose one re-check is still pending: the resume re-checks the saved tests.
         self.state[acceptance.KEY]["verification_retry"]["attempts"] = 0
         util.atomic_json(self.run_dir / "state.json", self.state)
