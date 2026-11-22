@@ -17,6 +17,7 @@ import autocode_mutation_results as mutation_results
 import autocode_proof_stability as proof_stability
 import autocode_recovery_history as history
 import autocode_text_mutants as text_mutants
+import autocode_toolchain_suite as toolchain_suite
 import autocode_verify as verify
 
 GO = b"""package x
@@ -191,6 +192,80 @@ class TextMutantTests(unittest.TestCase):
         ):
             with self.subTest(command=command):
                 self.assertIsNone(proof_stability.narrow(name, command, ["src/lib.rs::adds"]))
+
+    def test_ac11_minitest_commands_are_narrowed_with_one_anchored_name_filter(self):
+        one = ["test/label_test.rb::LabelTest::test_one"]
+        for command, tests, expected in (
+            (
+                "ruby -Ilib -Itest test/label_test.rb",
+                one,
+                "ruby -Ilib -Itest test/label_test.rb -n '/^(LabelTest#test_one)$/'",
+            ),
+            (toolchain_suite.RUBY_SUITE, one, toolchain_suite.RUBY_SUITE + " -- -n '/^(LabelTest#test_one)$/'"),
+            ("rake test", one, "rake test 'TESTOPTS=-n '\"'\"'/^(LabelTest#test_one)$/'\"'\"''"),
+            (
+                "ruby test/label_test.rb",
+                [*one, "test/label_test.rb::LabelTest::test_many"],
+                "ruby test/label_test.rb -n '/^(LabelTest#test_many|LabelTest#test_one)$/'",
+            ),
+            (
+                "ruby test/q_test.rb",
+                ["test/q_test.rb::QTest::test_ok?"],
+                "ruby test/q_test.rb -n '/^(QTest#test_ok\\?)$/'",
+            ),
+        ):
+            with self.subTest(command=command, tests=tests):
+                self.assertEqual(expected, proof_stability.narrow("minitest", command, tests))
+        for command in (
+            "ruby -Ilib -Itest test/label_test.rb --name test_one",
+            "ruby -Ilib -Itest test/label_test.rb -e test_many",
+            "ruby -Ilib -Itest test/label_test.rb --exclude test_many",
+            "ruby test/label_test.rb; ls",
+            "bundle exec rspec",
+        ):
+            with self.subTest(command=command):
+                self.assertIsNone(proof_stability.narrow("minitest", command, one))
+
+    def test_minitest_narrowing_keeps_existing_options_and_refuses_competing_filters(self):
+        one = ["test/label_test.rb::LabelTest::test_one"]
+        self.assertEqual(
+            "rake test 'TESTOPTS=--seed 1 -n '\"'\"'/^(LabelTest#test_one)$/'\"'\"''",
+            proof_stability.narrow("minitest", "rake test 'TESTOPTS=--seed 1'", one),
+        )
+        self.assertEqual(
+            "ruby -Ilib -e 'require \"./test/label_test\"' -- --seed 1 -n '/^(LabelTest#test_one)$/'",
+            proof_stability.narrow("minitest", "ruby -Ilib -e 'require \"./test/label_test\"' -- --seed 1", one),
+        )
+        self.assertEqual(
+            "ruby test/a_test.rb -n '/^(Pager::Query#test_ok)$/'",
+            proof_stability.narrow("minitest", "ruby test/a_test.rb", ["Pager::Query::test_ok"]),
+        )
+        for command, tests in (
+            ("rake test 'TESTOPTS=-n test_one'", one),
+            ("rake test TESTOPT=-v", one),
+            ("ruby -Ilib -e 'require \"./test/label_test\"' -- --name=test_one", one),
+            ("ruby test/label_test.rb", ["test/label_test.rb::LabelTest::[collection]"]),
+            ("ruby test/label_test.rb", ["test/label_test.rb::LabelTest"]),
+            ("ruby test/label_test.rb", []),
+        ):
+            with self.subTest(command=command, tests=tests):
+                self.assertIsNone(proof_stability.narrow("minitest", command, tests))
+
+    def test_a_ruby_parse_check_runs_through_bundler_only_when_the_proof_does(self):
+        self.assertEqual("ruby -c lib/a.rb", mutation_check._parse_command(toolchain_suite.RUBY_SUITE, "lib/a.rb"))
+        self.assertEqual("bundle exec ruby -c lib/a.rb", mutation_check._parse_command("bundle exec rspec", "lib/a.rb"))
+        self.assertEqual("ruby -c lib/a.rb", mutation_check._parse_command("rspec '", "lib/a.rb"))
+        self.assertTrue(mutation_check._did_not_parse({"exit_code": 1, "timed_out": False}))
+        for receipt in (
+            {"exit_code": 0},
+            {"exit_code": None, "timed_out": True},
+            {"exit_code": 1, "timed_out": True},
+            {"exit_code": 1, "error": "could not start"},
+            {"exit_code": 1, "interrupted": True},
+            None,
+        ):
+            with self.subTest(receipt=receipt):
+                self.assertFalse(mutation_check._did_not_parse(receipt))
 
     def test_only_changed_lines_are_mutated_and_every_mutant_keeps_the_line_count(self):
         made, _ = text_mutants.text_mutants("x.go", GO, [6, 12], limit=100)
@@ -371,7 +446,8 @@ def _git(root, *args):
 class RealRunnerMutationTests(unittest.TestCase):
     """The proof's own runner judges each mutant: a selected test that fails kills it."""
 
-    def check(self, files, base, change, framework, command, tests):
+    def check(self, files, base, change, framework, command, tests, *, wrap=None):
+        """``wrap(run)``, when given, returns the run callback the collector uses in place of ``run``."""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "tree"
             root.mkdir()
@@ -404,7 +480,7 @@ class RealRunnerMutationTests(unittest.TestCase):
                 evidence,
                 [(name, "modified") for name in change],
                 diff,
-                run,
+                wrap(run) if wrap else run,
                 enforcement=True,
             )
             for name, text in change.items():
@@ -535,6 +611,79 @@ class RealRunnerMutationTests(unittest.TestCase):
         result = self.check(files, base, change, "rspec", "rspec", ["spec/label_spec.rb::label names one"])
         self.assertTrue(result["collected"], result["note"])
         self.assertEqual([(2, "negate_equality", "killed")], self.outcomes(result))
+
+    MINITEST_BASE = {"lib/label.rb": "def label(n)\n  n.to_s\nend\n"}
+    MINITEST_PARSE_CHANGE = {"lib/label.rb": 'def label(n)\n  if n > 1; return "many"; end\n  "one"\nend\n'}
+
+    def minitest_files(self, many):
+        return {
+            "test/label_test.rb": 'require "minitest/autorun"\nrequire_relative "../lib/label"\n\n'
+            "class LabelTest < Minitest::Test\n"
+            '  def test_one\n    assert_equal "one", label(1)\n  end\n\n'
+            f'  def test_many\n    assert_equal "{many}", label(2)\n  end\nend\n'
+        }
+
+    @unittest.skipUnless(shutil.which("ruby"), "ruby is not installed")
+    def test_ac2_minitest_proof_is_narrowed_and_its_mutant_killed(self):
+        # test_many fails on the change (label(2) is "2 items"), so only a reference run of test_one alone passes.
+        change = {"lib/label.rb": 'def label(n)\n  return "one" if n == 1\n  "#{n} items"\nend\n'}
+        result = self.check(
+            self.minitest_files("two"),
+            self.MINITEST_BASE,
+            change,
+            "minitest",
+            toolchain_suite.RUBY_SUITE,
+            ["test/label_test.rb::LabelTest::test_one"],
+        )
+        self.assertTrue(result["collected"], result["note"])
+        self.assertEqual([(2, "negate_equality", "killed")], self.outcomes(result))
+        self.assertIsNone(
+            proof_stability.narrow(
+                "minitest",
+                "ruby -Ilib -Itest test/label_test.rb -n test_one",
+                ["test/label_test.rb::LabelTest::test_one"],
+            )
+        )
+
+    @unittest.skipUnless(shutil.which("ruby"), "ruby is not installed")
+    def test_ac3_ruby_mutant_that_does_not_parse_is_not_a_site(self):
+        result = self.check(
+            self.minitest_files("many"),
+            self.MINITEST_BASE,
+            self.MINITEST_PARSE_CHANGE,
+            "minitest",
+            toolchain_suite.RUBY_SUITE,
+            ["test/label_test.rb::LabelTest::test_many", "test/label_test.rb::LabelTest::test_one"],
+        )
+        self.assertTrue(result["collected"], result["note"])
+        self.assertEqual(
+            ["lib/label.rb:2: the negate_condition mutant did not parse; not a site"], result["files"][0]["notes"]
+        )
+        self.assertEqual([(2, "swap_bound", "killed")], self.outcomes(result))
+
+    @unittest.skipUnless(shutil.which("ruby"), "ruby is not installed")
+    def test_ac13_a_ruby_parse_check_that_times_out_leaves_the_mutant_a_site(self):
+        def wrap(run):
+            def timed_out_parse(command, label, limit):
+                if command.startswith("ruby -c"):
+                    return {"command": command, "exit_code": None, "timed_out": True, "output": None}
+                return run(command, label, limit)
+
+            return timed_out_parse
+
+        result = self.check(
+            self.minitest_files("many"),
+            self.MINITEST_BASE,
+            self.MINITEST_PARSE_CHANGE,
+            "minitest",
+            toolchain_suite.RUBY_SUITE,
+            ["test/label_test.rb::LabelTest::test_many", "test/label_test.rb::LabelTest::test_one"],
+            wrap=wrap,
+        )
+        self.assertTrue(result["collected"], result["note"])
+        self.assertFalse([note for note in result["files"][0]["notes"] if "did not parse" in note])
+        # The mutant that cannot load still runs, and its collection error leaves it not_run beside the kill.
+        self.assertEqual([(2, "negate_condition", "not_run"), (2, "swap_bound", "killed")], self.outcomes(result))
 
 
 if __name__ == "__main__":

@@ -697,7 +697,7 @@ from `tools/autocode_mutants.py`).
   but with slow ones it can use the rest of it. No mutant starts with less than
   60 seconds left; those, and a mutant the budget cut short, are `not_run`.
 - **Which proofs.** Python `unittest` and `pytest` proofs, as above. Go,
-  `node:test`, Vitest, Jest, Mocha, Cargo and RSpec proofs are mutated too (#3817,
+  `node:test`, Vitest, Jest, Mocha, Cargo, RSpec and Minitest proofs are mutated too (#3817,
   `tools/autocode_text_mutants.py`): with no parser for those languages, a
   scanner marks which bytes are code, not a string, comment, template literal or
   regular expression, and eight operators match only code on a changed `.go`,
@@ -710,8 +710,13 @@ from `tools/autocode_mutants.py`).
   arrows and Go's `<-` out. Nothing compiles a mutant beforehand: a Go mutant whose
   package does not build (`return nil` for an `int`, a blanked call that was a
   name's only use) is no mutant at all, so it is left out with a file note and its
-  line needs a reason like any line without a site; one that does not load reports
-  no complete result for its selected tests and ends `not_run`, never `killed`.
+  line needs a reason like any line without a site. A Ruby mutant is checked with
+  `ruby -c` (through `bundle exec` when the proof runs through it) before its tests
+  run: one Ruby refuses does not parse, so it is left out the same way, with the
+  note `PATH:LINE: the OPERATOR mutant did not parse; not a site`; a parse check
+  that times out or cannot start decides nothing, and the mutant runs. Any other
+  mutant that does not load reports no complete result for its selected tests and
+  ends `not_run`, never `killed`.
   Changed `.rs` and `.rb` lines get the same operators. Rust's scanner also skips
   raw strings (`r#"…"#`), character literals and nested block comments, keeps a
   lifetime as code, leaves an empty closure's `||` and a declaring line (`fn`,
@@ -721,7 +726,13 @@ from `tools/autocode_mutants.py`).
   (`%w[…]`), returns `nil`, negates `if`, `elsif` and `unless`, and never swaps
   `===`, Ruby's case equality. A Cargo proof is narrowed with `-- --exact` and
   each test's harness path, an RSpec proof with one `--example` per full
-  description. Cargo rebuilds a crate only when a source is newer than its last
+  description, and a Minitest proof with Minitest's `-n` and one anchored regular
+  expression over the proving tests' `Class#method` names (`-n
+  '/^(LabelTest#test_one)$/'`): after the test file of `ruby FILE`, after `--` for
+  `ruby -e` (the detected suite) and in `TESTOPTS` for `rake test`. A Minitest
+  command that already filters by name (`-n`, `--name`, `-e`, `--exclude`) or that
+  AutoCode does not read is not narrowed, and its record says
+  `runner_cannot_select`. Cargo rebuilds a crate only when a source is newer than its last
   build, so each Cargo mutant and each restored source is given a modification
   time later than the one before, never an older one: a backdated mutant ran the
   unmutated build and survived whatever its tests asserted.

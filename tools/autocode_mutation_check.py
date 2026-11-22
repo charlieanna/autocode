@@ -11,9 +11,10 @@ Report only: nothing here changes the verdict, the failures, the unverified reas
 receipts, and no mutant run is one of the proof's ``checks``. One deadline, ``BUDGET_SECONDS``,
 covers the unmutated run and every mutant: the same limit as one check replay. Python unittest and
 pytest proofs are mutated through the AST (autocode_mutants); Go, node:test, Vitest, Jest, Mocha,
-Cargo and RSpec proofs through tokens (autocode_text_mutants, #3817). Any other runner's record says so in
-``unavailable``. Imports nothing from the runner; the caller owns the scratch tree and runs the
-commands.
+Cargo, RSpec and Minitest proofs through tokens (autocode_text_mutants, #3817). A text mutant that is not a
+program is not a site: a Go or Cargo mutant whose package does not build, and a Ruby mutant ``ruby -c``
+refuses, are left out with a file note. Any other runner's record says so in ``unavailable``. Imports nothing
+from the runner; the caller owns the scratch tree and runs the commands.
 """
 
 from __future__ import annotations
@@ -58,9 +59,19 @@ MUTANT_FACTOR = 10
 MUTANT_FLOOR_SECONDS = 60
 PYTHON_FRAMEWORKS = ("unittest", "pytest")
 # Runners whose proving tests autocode_proof_stability.narrow can select by name, and the language of the
-# sources their mutants are made from (#3817). Their selection is a name pattern, so a reference or mutant
-# run may report tests beside the selected ones (autocode_mutation_results.selected).
-TEXT_FRAMEWORKS = {"go": "go", "node": "js", "vitest": "js", "jest": "js", "mocha": "js", "cargo": "rs", "rspec": "rb"}
+# sources their mutants are made from (#3817): one table, read for the sources, the narrowing and the parse
+# check. Their selection is a name pattern, so a reference or mutant run may report tests beside the selected
+# ones (autocode_mutation_results.selected).
+TEXT_FRAMEWORKS = {
+    "go": "go",
+    "node": "js",
+    "vitest": "js",
+    "jest": "js",
+    "mocha": "js",
+    "cargo": "rs",
+    "rspec": "rb",
+    "minitest": "rb",
+}
 # Runners whose build decides a source is unchanged by its modification time alone: Cargo rebuilds a crate
 # only when a source is newer than its last build. A mutant given an older time than that build (as each
 # Python mutant is, for its bytecode cache) would run the binary built before it, unmutated, and survive
@@ -91,8 +102,8 @@ def record(note=None, files=(), *, collected=False, unavailable=None) -> dict:
 def unsupported(framework_name) -> dict:
     """The record of a proof whose runner has no mutation source, saying which runner it was."""
     return record(
-        "the mutation check runs Python unittest and pytest, Go, node:test, Vitest, Jest, Mocha, Cargo and "
-        "RSpec proofs; "
+        "the mutation check runs Python unittest and pytest, Go, node:test, Vitest, Jest, Mocha, Cargo, "
+        "RSpec and Minitest proofs; "
         "this proof ran " + (framework_name or "no named-test runner"),
         unavailable=NO_SOURCE,
     )
@@ -151,6 +162,28 @@ def _did_not_build(receipt) -> bool:
         isinstance(broken, list)
         and bool(broken)
         and all(isinstance(name, str) and name.endswith("::[build failed]") for name in broken)
+    )
+
+
+def _parse_command(command, path) -> str:
+    """``ruby -c PATH``, through the proof command's ``bundle exec`` when it has one."""
+    try:
+        bundled = shlex.split(command or "")[:2] == ["bundle", "exec"]
+    except ValueError:
+        bundled = False
+    return shlex.join([*(("bundle", "exec") if bundled else ()), "ruby", "-c", path])
+
+
+def _did_not_parse(receipt) -> bool:
+    """True only when the parse check finished and refused the source. One that timed out, could not start
+    or was interrupted says nothing about the mutant, which then runs as any other does."""
+    return (
+        isinstance(receipt, dict)
+        and not receipt.get("error")
+        and not receipt.get("timed_out")
+        and not receipt.get("interrupted")
+        and isinstance(receipt.get("exit_code"), int)
+        and receipt["exit_code"] != 0
     )
 
 
@@ -322,6 +355,7 @@ def _collect(
         else tuple(suffix for suffix, kind in text_mutants.LANGUAGES.items() if kind == TEXT_FRAMEWORKS[framework_name])
     )
     forward = framework_name in FORWARD_TIME
+    parse_check = TEXT_FRAMEWORKS.get(framework_name) == "rb"
     root = Path(tree).resolve()
     rows, planned = [], []
     for path, status in files:
@@ -492,6 +526,7 @@ def _collect(
                 elapsed_seconds=elapsed,
             )
         ownership_uncertain = False
+        unparsed = False
         try:
             target.write_bytes(mutants.apply(source, mutant))
             # Each version its own whole second, so a cached compile keyed by modification time and size
@@ -500,7 +535,10 @@ def _collect(
                 target,
                 ns=(times.st_atime_ns, _later(target) if forward else times.st_mtime_ns - number * 1_000_000_000),
             )
-            receipt = run(prepare(active_command), label, limit)
+            if parse_check:
+                unparsed = _did_not_parse(run(_parse_command(command, row["path"]), f"parse-{number:02d}", limit))
+            if not unparsed:
+                receipt = run(prepare(active_command), label, limit)
         except command_receipt.OwnershipUncertain:
             ownership_uncertain = strict
             raise
@@ -509,6 +547,11 @@ def _collect(
                 target.write_bytes(source)
                 # A forward-time runner's next build must see the restored source as newer than the mutant's.
                 os.utime(target, ns=(times.st_atime_ns, _later(target) if forward else times.st_mtime_ns))
+        if unparsed:
+            # Ruby refused the mutant's syntax, so no test could load it: not a mutation of the product, as a Go
+            # mutant that does not build is not (#3817).
+            row["notes"].append(f"{row['path']}:{mutant.line}: the {mutant.operator} mutant did not parse; not a site")
+            continue
         if not python and _did_not_build(receipt):
             # The text mutator's edit was not a program (Go's "declared and not used" when a dropped call
             # was a name's only use): no test ran, so the site is not a mutation of the product (#3817).

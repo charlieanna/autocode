@@ -6,8 +6,8 @@ counts whenever that single run passes. This module decides which tests to repea
 to run only them, and which disagreed with themselves. A test that does not agree with
 itself is ``unstable`` and does not count. The rest of the suite still runs once.
 
-Imports the test-name matcher, the Python, Cargo and RSpec command parsers and the package command form only. The
-caller owns the scratch trees and the suite runner.
+Imports the test-name matcher, the Python, Cargo, RSpec and Minitest command parsers and the package command form
+only. The caller owns the scratch trees and the suite runner.
 """
 
 from __future__ import annotations
@@ -18,12 +18,14 @@ import shlex
 
 try:
     from . import autocode_cargo_tests as cargo_tests
+    from . import autocode_minitest_tests as minitest_tests
     from . import autocode_package_scope as package_scope
     from . import autocode_python_tests as python_tests
     from . import autocode_rspec_tests as rspec_tests
     from . import autocode_test_cases as test_cases
 except ImportError:
     import autocode_cargo_tests as cargo_tests
+    import autocode_minitest_tests as minitest_tests
     import autocode_package_scope as package_scope
     import autocode_python_tests as python_tests
     import autocode_rspec_tests as rspec_tests
@@ -189,6 +191,10 @@ def narrow(framework_name, command, test_ids, *, directory=None) -> str | None:
     if inner is not None:
         narrowed = narrow(framework_name, inner, test_ids)
         return package_scope.command(directory, narrowed) if narrowed else None
+    if framework_name == "minitest":
+        # Read by Minitest's own command parser, which refuses unquoted shell syntax: the detected suite
+        # (autocode_toolchain_suite.RUBY_SUITE) holds `|f|` inside quotes, which SHELL below would refuse.
+        return minitest_tests.narrow(command, test_ids) if command and test_ids else None
     if not command or not test_ids or SHELL.search(command):
         return None
     invocation = python_tests.parse(command, include_owned=True)

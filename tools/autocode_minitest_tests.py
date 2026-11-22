@@ -12,6 +12,9 @@ Each test id is formatted as ``FILE::ClassName::test_method`` when the defining 
 ``root`` is uniquely known (matching ``_RUBY_ID`` in ``autocode_test_cases`` and enabling named
 ``test:``, ``guard:``, and ``supersedes``), or ``ClassName::test_method`` otherwise.
 
+``narrow`` runs only named tests with Minitest's ``-n`` filter: one anchored regular expression over the
+``Class#method`` names, so a mutation check or a stability repeat runs the proving tests alone (#3817).
+
 Lower layer: imports only ``autocode_project_kinds``.
 """
 
@@ -187,6 +190,78 @@ def instrument(command, _result_path=None) -> str:
     # so appending `-- -v` would pass `--` into Minitest's OptionParser; `-v` goes directly after it.
     tail = words[words.index(next(w for w in words if w.endswith(".rb") and project_kinds.is_test_file(w))) + 1 :]
     return command if _has_verbose(tail) else shlex.join([*words, "-v"])
+
+
+_NAME_FLAGS = ("-n", "--name", "-e", "--exclude")
+# Rake::TestTask reads the first of these it finds; another one set beside an added TESTOPTS would be ignored.
+_OTHER_TESTOPTS = ("TESTOPT=", "TEST_OPTS=", "TEST_OPT=")
+
+
+def _filters_names(words: list[str]) -> bool:
+    """Whether Minitest arguments already choose tests by name (``-n``, ``--name``, ``-e``, ``--exclude``)."""
+    return any(
+        word in _NAME_FLAGS
+        or word.startswith(("--name=", "--exclude="))
+        or (not word.startswith("--") and word.startswith(("-n", "-e")))
+        for word in words
+    )
+
+
+def _name_pattern(test_ids) -> str | None:
+    """One anchored Minitest ``-n`` regex over the ``Class#method`` names of ``FILE::Class::method`` ids."""
+    names = set()
+    for test in test_ids:
+        if not isinstance(test, str):
+            return None
+        parts = test.split("::")
+        if parts and parts[0].endswith(".rb"):
+            parts = parts[1:]
+        if len(parts) < 2 or not parts[-1].startswith("test_") or not all(parts[:-1]):
+            return None
+        names.add(re.escape("::".join(parts[:-1])) + "#" + re.escape(parts[-1]))
+    return "/^(" + "|".join(sorted(names)) + ")$/" if names else None
+
+
+def narrow(command, test_ids) -> str | None:
+    """``command`` running only ``test_ids``, with Minitest's ``-n`` filter, or None when it cannot.
+
+    The ``-n`` goes after the test file of ``ruby FILE`` (Ruby passes what follows the script to it), after
+    ``--`` for ``ruby -e`` and into ``TESTOPTS`` for ``rake test``. A command ``command_words`` does not read,
+    or whose Minitest arguments already filter by name, is not narrowed: the caller records that the runner
+    cannot select the proving tests.
+    """
+    words = command_words(command)
+    pattern = _name_pattern(test_ids or [])
+    if not words or not pattern:
+        return None
+    parsed = _strip_prefix(words)
+    assert parsed is not None
+    _, rest, start = parsed
+    kind = _ruby_test_command(rest, start)
+    if kind == "rake":
+        if any(word.startswith(_OTHER_TESTOPTS) for word in words):
+            return None
+        out = list(words)
+        for index, word in enumerate(out):
+            if word.startswith("TESTOPTS="):
+                options = shlex.split(word.partition("=")[2])
+                if _filters_names(options):
+                    return None
+                out[index] = "TESTOPTS=" + shlex.join([*options, "-n", pattern])
+                return shlex.join(out)
+        return shlex.join([*out, "TESTOPTS=" + shlex.join(["-n", pattern])])
+    if kind == "ruby-e":
+        if "--" not in words:
+            return shlex.join([*words, "--", "-n", pattern])
+        if _filters_names(words[words.index("--") + 1 :]):
+            return None
+        return shlex.join([*words, "-n", pattern])
+    script = next(
+        index for index, word in enumerate(words) if word.endswith(".rb") and project_kinds.is_test_file(word)
+    )
+    if _filters_names(words[script + 1 :]):
+        return None
+    return shlex.join([*words, "-n", pattern])
 
 
 def _index_test_files(root) -> tuple[list[str], dict[str, set[str]]]:
