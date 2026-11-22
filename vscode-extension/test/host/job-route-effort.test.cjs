@@ -2,12 +2,11 @@
 const assert = require('node:assert/strict');
 const { spawn, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { test } = require('node:test');
 const { openHistoryRow } = require('./open-history.cjs');
 const { routeDecisionReady } = require('../job-route-readiness.cjs');
-const { privateHostEnvironment, ownedWarmHostSteps, settleFixture } = require('../owned-fixture-cleanup.cjs');
+const { privateHostRoot, privateHostEnvironment, ownedWarmHostSteps, settleFixture } = require('../owned-fixture-cleanup.cjs');
 
 const EXTENSION = path.resolve(__dirname, '../..');
 const REPO = path.resolve(EXTENSION, '..');
@@ -33,7 +32,7 @@ async function executable() {
 test('real editor protects an active writer and permits a concurrent status observer', { timeout: 300_000 }, async () => {
   assert.equal(require('../../package.json').contributes.configuration.properties['autocode.confirmPersonOnly'].default, true,
     'the default person-only confirmation policy remains enabled');
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'autocode-quota-route-'));
+  const root = privateHostRoot('autocode-quota-route-');
   let app;
   let win;
   let env;

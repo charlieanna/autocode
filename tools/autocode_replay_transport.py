@@ -243,6 +243,49 @@ def gate_symbols(schema_file):
     return symbols
 
 
+def match_dispatch(
+    tape,
+    context,
+    *,
+    role,
+    route_role,
+    engine,
+    model,
+    effort,
+    provider,
+    workspace,
+    session,
+    allow_write,
+):
+    """Match the next recorded dispatch before an emitter is prepared."""
+    index = context.get("consumed")
+    if type(index) is not int or not 0 <= index < len(tape.document["dispatches"]):
+        raise recording.RecordingError("Replay diverged: a new stage has no recorded dispatch")
+    row = tape.document["dispatches"][index]
+    for key in CONTEXT_KEYS:
+        if row[key] != context.get(key):
+            raise recording.RecordingError("Replay diverged at dispatch " + row["id"] + ": " + key + " differs")
+    for key, actual in (
+        ("role", role),
+        ("route_role", route_role),
+        ("engine", engine),
+        ("model", model),
+        ("reasoning_effort", effort),
+        ("provider", provider),
+    ):
+        if row[key] != actual:
+            raise recording.RecordingError("Replay diverged at dispatch " + row["id"] + ": " + key + " differs")
+    lineage = row["session"]
+    if not isinstance(lineage, dict) or set(lineage) != {"kind", "id"} or lineage["kind"] not in ("fresh", "resume"):
+        raise recording.RecordingError("Recording session lineage is malformed")
+    if (lineage["kind"] == "resume") != (session is not None):
+        raise recording.RecordingError("Replay diverged: session continuation differs")
+    current = recording.verify_source(tape, row["before"], workspace)
+    if tape.document["snapshots"][row["before"]] != tape.document["snapshots"][row["after"]] and not allow_write:
+        raise recording.RecordingError("Recording has source writes in a read-only dispatch")
+    return row, current
+
+
 def prepare(
     *,
     settings,
@@ -264,30 +307,19 @@ def prepare(
 ):
     tape = selected(settings)
     index = context.get("consumed")
-    if type(index) is not int or not 0 <= index < len(tape.document["dispatches"]):
-        raise recording.RecordingError("Replay diverged: a new stage has no recorded dispatch")
-    row = tape.document["dispatches"][index]
-    for key in CONTEXT_KEYS:
-        if row[key] != context.get(key):
-            raise recording.RecordingError("Replay diverged at dispatch " + row["id"] + ": " + key + " differs")
-    for key, actual in (
-        ("role", role),
-        ("route_role", route_role),
-        ("engine", engine),
-        ("model", model),
-        ("reasoning_effort", effort),
-        ("provider", unused.get("provider")),
-    ):
-        if row[key] != actual:
-            raise recording.RecordingError("Replay diverged at dispatch " + row["id"] + ": " + key + " differs")
-    lineage = row["session"]
-    if not isinstance(lineage, dict) or set(lineage) != {"kind", "id"} or lineage["kind"] not in ("fresh", "resume"):
-        raise recording.RecordingError("Recording session lineage is malformed")
-    if (lineage["kind"] == "resume") != (session is not None):
-        raise recording.RecordingError("Replay diverged: session continuation differs")
-    current = recording.verify_source(tape, row["before"], workspace)
-    if tape.document["snapshots"][row["before"]] != tape.document["snapshots"][row["after"]] and not allow_write:
-        raise recording.RecordingError("Recording has source writes in a read-only dispatch")
+    row, current = match_dispatch(
+        tape,
+        context,
+        role=role,
+        route_role=route_role,
+        engine=engine,
+        model=model,
+        effort=effort,
+        provider=unused.get("provider"),
+        workspace=workspace,
+        session=session,
+        allow_write=allow_write,
+    )
     changed_code = context.get("changed_code_proof") or {}
     symbols = {
         "workspace": str(Path(workspace)),

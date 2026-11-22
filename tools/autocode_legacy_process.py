@@ -10,6 +10,7 @@ import contextlib
 import os
 import re
 import subprocess
+import time
 from pathlib import Path
 
 try:
@@ -234,19 +235,26 @@ def _exact_argv(pid, command):
     """The argument vector of ``pid``, only while it is still the process ps listed as ``command``.
 
     PROCESS_GONE only when the listed process has already exited; None when it
-    cannot be read or matched, so the conservative ps verdict stands.
+    cannot be read or matched, so the conservative ps verdict stands. A zombie has
+    exited too: it runs nothing and holds no lock, only an exit status its parent
+    has not collected yet, so it is gone, as ``autocode_process.live_processes``
+    counts it (#4083). A client that polls ``--status`` while it launches its next
+    action left such a reader behind for an instant, and ps still listed its old
+    command line, which refused the launch as a duplicate runner.
     """
     if psutil is None:
         return None
     try:
-        argv = psutil.Process(pid).cmdline()
-    except psutil.ZombieProcess:
-        return None
-    except psutil.NoSuchProcess:
+        process = psutil.Process(pid)
+        argv = process.cmdline()
+        if argv and " ".join(argv) == command:
+            return argv
+        # Linux reads a zombie's arguments as empty rather than refusing them.
+        return PROCESS_GONE if process.status() == psutil.STATUS_ZOMBIE else None
+    except psutil.NoSuchProcess:  # ZombieProcess included
         return PROCESS_GONE
     except (psutil.Error, OSError):
         return None
-    return argv if argv and " ".join(argv) == command else None
 
 
 def own_lineage():
@@ -286,6 +294,33 @@ def _process_commands(output):
 
 
 INSPECTION_SECONDS = 30
+# How long a listed process whose arguments could not confirm it is watched for its exit before it is refused.
+EXIT_OBSERVATION_SECONDS = 2.0
+
+
+def _exits_now(pid):
+    """True when ``pid`` finishes exiting within EXIT_OBSERVATION_SECONDS: gone, or a zombie.
+
+    A process ps listed can be part way through exiting when its arguments are read: macOS
+    then refuses them (EINVAL, which psutil reports as AccessDenied) and Linux reads them
+    empty, a moment before it is a zombie (#4083). A client polling ``--status`` while it
+    launches its next action left exactly such a reader, and its stale listing refused the
+    launch. This is observed, not assumed: a process still alive at the end is refused.
+    """
+    if psutil is None:
+        return False
+    deadline = time.monotonic() + EXIT_OBSERVATION_SECONDS
+    try:
+        process = psutil.Process(pid)
+        while process.status() != psutil.STATUS_ZOMBIE:
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.02)
+    except psutil.NoSuchProcess:
+        return True
+    except (psutil.Error, OSError):
+        return False
+    return True
 
 
 def _cannot_inspect(cause):
@@ -351,5 +386,7 @@ def assert_no_legacy_process(run_dir, workspace):
         else:
             # Text can identify a possible runner, but cannot exempt an observer.
             possible = duplicate_runner_command(command) or _runner_marker(command) or _provider_marker(command)
+        if possible and argv is None and _exits_now(pid):
+            continue
         if possible:
             raise LegacyProcessBusy(pid, argv)

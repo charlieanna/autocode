@@ -3,11 +3,10 @@ const assert = require('node:assert/strict');
 const {randomUUID} = require('node:crypto');
 const {spawnSync} = require('node:child_process');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const {test} = require('node:test');
 const {openHistoryRow} = require('./open-history.cjs');
-const {privateHostEnvironment, settleFixture} = require('../owned-fixture-cleanup.cjs');
+const { privateHostRoot, privateHostEnvironment, settleFixture } = require('../owned-fixture-cleanup.cjs');
 const {conventionsVisible} = require('../requirements-standing-readiness.cjs');
 const {reviewedChoice, installReviewedDialog} = require('../requirements-standing-confirmation.cjs');
 
@@ -30,7 +29,7 @@ async function executable() {
 }
 
 test('editor distinguishes a reported convention from approval of the understanding', {timeout: 600_000}, async () => {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'autocode-standing-host-')));
+  const root = privateHostRoot('autocode-standing-host-');
   const tmp = path.join(root, 'tmp'); fs.mkdirSync(tmp);
   const reads = path.join(root, 'reads'); fs.writeFileSync(reads, '');
   const env = {...privateHostEnvironment(process.env, root), TMPDIR: tmp, AUTOCODE_SOURCE_HOST: '0',

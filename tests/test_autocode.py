@@ -558,6 +558,7 @@ class RetrofitTest(unittest.TestCase):
         with (
             patch.object(s.subprocess, "run", return_value=result),
             patch.object(legacy_process, "_exact_argv", return_value=None),
+            patch.object(legacy_process, "_exits_now", return_value=False),
         ):
             with self.assertRaisesRegex(s.Paused, str(pid)):
                 s.assert_no_legacy_process(self.run, self.root)
@@ -595,6 +596,7 @@ class RetrofitTest(unittest.TestCase):
                     s.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout=f"{pid} {command}\n")
                 ),
                 patch.object(legacy_process, "_exact_argv", return_value=None),
+                patch.object(legacy_process, "_exits_now", return_value=False),
             ):
                 with self.assertRaisesRegex(s.Paused, f"Existing run process {pid}"):
                     s.assert_no_legacy_process(self.run, self.root)

@@ -143,6 +143,7 @@ def _read(run_dir):
         or identity["birth_identity"] <= 0
         or not math.isfinite(identity["birth_identity"])
         or value.get("disposition") not in ("running", "ready", "boundary", "unexpected")
+        or ("can_interrupt" in value and type(value["can_interrupt"]) is not bool)
         or not _hex(value.get("id"), 32)
         or not _hex(value.get("checkpoint"), 64)
         or not _timestamp(value.get("started_at"))
@@ -432,8 +433,21 @@ def checkpoint(path, state: RunState):
         owner.checkpoint(state)
 
 
+def interruptible(inspection):
+    """Only the inspected live invocation can attest that it consumes an immediate request."""
+    if (
+        not isinstance(inspection, dict)
+        or inspection.get("kind") != "running"
+        or inspection.get("checked") is not True
+        or inspection.get("alive") is not True
+    ):
+        return False
+    receipt = inspection.get("receipt")
+    return isinstance(receipt, dict) and receipt.get("can_interrupt") is True
+
+
 class Owner:
-    def __init__(self, state: RunState, run_dir, persist):
+    def __init__(self, state: RunState, run_dir, persist, *, can_interrupt: bool = False):
         self.state, self.run_dir, self.persist = state, Path(run_dir), persist
         pid = os.getpid()
         row = processes.process_table({pid}).get(pid)
@@ -452,6 +466,8 @@ class Owner:
             "exited_at": None,
             "reason": None,
         }
+        if can_interrupt:
+            self.receipt["can_interrupt"] = True
         self.code, self.ready, self.exit_reason = None, False, None
         self._persistence_held = False
 

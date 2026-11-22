@@ -1030,7 +1030,9 @@ nothing is working, when the recorded runner cannot consume interventions, and
 for a stopped run. It never interrupts a step in progress or stops the run.
 
 The nested `pause.stop_now` offer ends the running step instead. Clients take only
-its named `next_command`, with their request ID. The request is observed during
+its named `next_command`, with their request ID. That offer comes from the live
+controller's birth-bound capability, independently of saved checkpoint flags.
+The request is observed during
 both model execution and runner-owned local verification, including regression
 baselines and mutation checks. The current owner cleans up the command and its
 descendants before the request is applied. Partial output is retained as

@@ -6,6 +6,7 @@ const {spawnSync} = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { privateHostRoot } = require('../owned-fixture-cleanup.cjs');
 const {test} = require('node:test');
 const {openHistoryRow} = require('./open-history.cjs');
 
@@ -33,7 +34,7 @@ async function executable() {
 }
 
 for (const absoluteCargo of [false, true]) test(`real editor runs ${absoluteCargo ? 'explicit off-PATH' : 'named'} offline Cargo through the contained Rustup toolchain`, {timeout: 600_000, skip: process.platform !== 'linux'}, async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'autocode-rustup-host-'));
+  const root = privateHostRoot('autocode-rustup-host-');
   const release = path.join(root, 'release');
   const record = path.join(root, 'cargo-result.json');
   const providerDiagnostic = path.join(root, 'provider-interpreter.json');
