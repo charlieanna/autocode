@@ -251,6 +251,13 @@ def stage_rows(state: RunState, estimator=None):
         writes = [_count(_dict(_dict(item).get("tokens")).get("cache_write_tokens")) for item in requests]
         if requests and _count(tokens.get("cache_write_tokens")) is None and None not in writes:
             tokens["cache_write_tokens"] = sum(writes)
+        # One coverage answer bounds every total priced from the recorded usage: when the
+        # request ledger says requests may be unobserved, neither the reported-request sum
+        # (#3000) nor the price-table estimate (#3911) prices the missing ones, so both are
+        # floors. Only a ledger that observed native requests carries this flag; a stage
+        # priced from a translator's session total, or saved without a request ledger, has
+        # no such flag, and an authoritative whole-attempt amount supersedes it.
+        unobserved_requests = bool(requests) and native.get("complete") is not True
         request_cost_partial = False
         if record.get("runner_owned") is True and record.get("engine") == "runner":
             cost, basis = 0.0, "runner"
@@ -267,11 +274,14 @@ def stage_rows(state: RunState, estimator=None):
             cost, basis = request_sum, "reported"
             # Complete aggregate tokens do not price missing requests or missing
             # request amounts. Keep the known spend, but expose it as a floor.
-            request_cost_partial = native.get("complete") is not True or any(
+            request_cost_partial = unobserved_requests or any(
                 _money(_dict(item).get("reported_cost_usd")) is None for item in requests
             )
         elif (guess := estimator(model, tokens, record.get("finished_at"))) is not None:
             cost, basis = guess, "estimated"
+            # The estimate prices only the tokens the ledger observed; unobserved
+            # requests are not in them, so the known estimate is a lower bound (#3911).
+            request_cost_partial = unobserved_requests
         else:
             cost, basis = None, "unknown"
         row_tokens = {key: _count(tokens.get(key)) for key in TOKEN_KEYS}
