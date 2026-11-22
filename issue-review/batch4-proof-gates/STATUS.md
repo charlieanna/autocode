@@ -727,3 +727,22 @@ Integrated First-Go master `21366d4714` while retaining both the Linux Go toolch
 Integrated current master `2f1b5793215a4ca2368368bb8c757cbf7236fb87` cleanly. The original data-link tests mixed two different concerns: replacing a legitimate directory or retargeting it, and retaining unrelated links without repository-local targets. Independently executing each ordinary edit with only in-tree inputs now proves the candidate half passes and the restored original half still fails the changed assertion. The live checkout retains the candidate edit.
 
 A live source repair could also incorrectly advertise Resume when a saved protected archive still contained a link that could not resolve relative to its disposable copy. The replay now checks the exact retained link text before launching either half. The source-recovery offer and locked action use the same decision and retain the archive. Both focused regressions failed on the prior candidate `d1bcefabf` (dispatch offered or Resume advertised) and pass with the guard; no legacy command was launched by those controls. The 99 focused source, replay, architecture, and run-state checks and mypy passed. The combined actual macOS editor run also passed both First-Go and successful protected-directory replay on the new integration. Logs `/private/tmp/autocode-3981-retained-link-preflight-red.log`, `/private/tmp/autocode-3981-retained-link-focused.log`, and `/private/tmp/autocode-3981-master-integration-actual-editor.log`. The original mixed-link scope still needs a trustworthy execution boundary before those archived links can participate in proof.
+
+### Current exact-head editor and protected-copy checkpoint
+
+Published PR head `97952cbb5604181bd40ff6e577839d4d9cb9a999` passed all 18 actual
+Linux VS Code host cases, including first-Go and supported source recovery.
+The Ubuntu suite did not reach the tests because Maven Central returned
+HTTP 429 while resolving the pinned resources plugin. The exact workflow is
+https://github.com/charlieanna/autocode/actions/runs/44982724333.
+
+The independent integrated checkpoint `a38c1720c6b8cb108c4a8da19fb9140c8c27f1c0`
+passed both first-Go and original/candidate protected-directory replay in the
+actual macOS extension with Node 22. Both halves read the pinned fixture,
+exited 0 and led to a verified delivery. Log
+`/private/tmp/autocode-3981-a38c-editor-mac-short-root.log`. Before that pass,
+macOS reports showed the fixture profile socket exceeded Darwin's limit under
+the inherited temporary directory. A short test root confirmed the cause
+and #4088/#4089 track the shared fixture fix. This checkpoint covers finite
+in-tree links with pinned targets. The three mixed tests with unbound paths
+remain open, and the canonical PR still requires green CI.
