@@ -13,6 +13,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -21,6 +22,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest import mock
 
+import autocode_bundle as bundle
 import autocode_plan_file as plan_file
 import autocode_subcommands as subcommands
 import autocode_util as util
@@ -34,6 +36,26 @@ from harness.driver import Driver, default_autocode, fake_setup
 from harness.project import materialize
 
 DEFAULT_SCENARIOS = ("greenfield-todo-cli", "feature-refund-window")
+
+
+def plan_stop(view: dict) -> str:
+    """Keep a failed catalog run's public stop bounded and safe for CI output."""
+    need = view.get("needs") if isinstance(view.get("needs"), dict) else {}
+
+    def label(value):
+        return value if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,80}", value) else "unknown"
+
+    reason = view.get("stop_reason") or need.get("reason") or "unavailable"
+    reason = util.redact(reason if isinstance(reason, str) else "unavailable", bundle.secret_values())
+    reason = re.sub(r"\b[a-z][a-z0-9_-]{0,15}:[0-9a-f]{16,}\b", "[REDACTED]", reason, flags=re.I)
+    reason = re.sub(r"[\x00-\x1f\x7f]", " ", reason)
+    reason = " ".join(reason.split())[:300]
+    return (
+        f"no plan approval: status={label(view.get('status'))}; need={label(need.get('kind'))}; "
+        f"stage={label(view.get('next_stage'))}; reason={reason}"
+    )
+
+
 BODY = {
     "intended_outcome": "Greet a user by name",
     "intended_user": "A terminal user",
@@ -210,6 +232,25 @@ class PlanCommandTests(unittest.TestCase):
         self.assertTrue(err.startswith("autocode plan: A plan file starts with a readable overview"), err)
 
 
+class CatalogPlanDiagnosticTests(unittest.TestCase):
+    def test_stop_reports_bounded_public_state_without_secrets(self):
+        secret = "fixture-secret-value-123"
+        view = {
+            "status": "PAUSED_JOB_FAILURE",
+            "needs": {"kind": "retry_job"},
+            "next_stage": "check_design",
+            "stop_reason": f"Stopped {secret}\njr:{'a' * 64} " + "x" * 500,
+        }
+        with mock.patch.dict(os.environ, {"FIXTURE_API_KEY": secret}):
+            message = plan_stop(view)
+        self.assertIn("status=PAUSED_JOB_FAILURE; need=retry_job; stage=check_design", message)
+        self.assertIn("[REDACTED]", message)
+        self.assertNotIn(secret, message)
+        self.assertNotIn("jr:", message)
+        self.assertNotIn("\n", message)
+        self.assertLess(len(message), 420)
+
+
 class CatalogPlanExportTests(unittest.TestCase):
     """A real run's plan survives export and check before and after approval, through the CLI."""
 
@@ -228,7 +269,7 @@ class CatalogPlanExportTests(unittest.TestCase):
                 )
         for name, result in results.items():
             with self.subTest(scenario=name):
-                if result == "no plan approval" and chosen == "all":
+                if result.partition(":")[0] == "no plan approval" and chosen == "all":
                     continue
                 self.assertEqual("round trip", result)
         reached = sorted(name for name, result in results.items() if result == "round trip")
@@ -268,9 +309,10 @@ class CatalogPlanExportTests(unittest.TestCase):
         )
         driver.call("start", task=scenario.brief)
         driver.run_dir = next((project / ".autocode" / "runs").glob("*/state.json")).parent
-        need = driver.until_stopped(say_at="needs:approve_plan").get("needs") or {}
+        view = driver.until_stopped(say_at="needs:approve_plan")
+        need = view.get("needs") or {}
         if need.get("kind") != "approve_plan":
-            return "no plan approval"
+            return plan_stop(view)
         problems = self.exported(driver, root / "shown.md", approved=False)
         driver.serve(need)
         problems += self.exported(driver, root / "approved.md", approved=True)
