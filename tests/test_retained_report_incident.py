@@ -190,6 +190,37 @@ class RetainedReportIncidentTests(unittest.TestCase):
             disposition.held(self.state), "final admission retires the incident before normal continuation"
         )
 
+    def test_a_new_decision_boundary_is_not_silently_advanced(self):
+        pending, incident = self.held_report()
+        decided = actions.Decided(operational_incident=incident, operational_selection="retained_report")
+
+        def apply(state, stage, value, record, workspace, run):
+            state["stages"].append(record)
+            state["history"].append(record)
+            state["status"] = "WAITING_FOR_USER"
+            state["pending_questions"] = [{"id": "new-decision"}]
+
+        with (
+            patch.object(runner, "load_stage_report", wraps=runner.load_stage_report),
+            patch.object(runner, "apply_result", side_effect=apply),
+            patch.object(runner, "run_role") as launch,
+            self.assertRaisesRegex(runner.support.Paused, "separate decision boundary"),
+        ):
+            recovery.retained_report_check(
+                runner,
+                SimpleNamespace(resume_paused=True),
+                None,
+                self.state,
+                self.run / "state.json",
+                self.run,
+                self.root,
+                decided,
+            )
+        launch.assert_not_called()
+        self.assertEqual(pending, self.state["pending_report_repair"])
+        self.assertIsNone(disposition.checked_recovery(self.state, disposition.held(self.state)))
+        self.assertEqual("PAUSED_REPEATED_FAILURE", json.loads((self.run / "state.json").read_text())["status"])
+
     def test_failed_candidate_commit_never_grants_a_checked_incident(self):
         pending, incident = self.held_report()
         decided = actions.Decided(operational_incident=incident, operational_selection="retained_report")
