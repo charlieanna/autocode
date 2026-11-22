@@ -1,10 +1,16 @@
 """Allowlisted read-only status observations; owns no run actions."""
 
+from __future__ import annotations
+
 import json
 import sys
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 
-def _replay_job(state, payload, configuration_error):
+def _replay_job(state: RunState, payload, configuration_error):
     from pathlib import Path
 
     import autocode_dispatch as dispatch
