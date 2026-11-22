@@ -964,6 +964,25 @@
                 }
               }
             },
+            "suite_claims": {
+              "type": "array",
+              "maxItems": 8,
+              "description": "Current-turn suite-coverage claims bound to the recorded collection (#3939), display only. A claim names the examples it says the project command exercises; bound says whether those examples are actually collected. A runner flag alone never establishes coverage, and collection alone never proves execution, so every row stays unverified and grants no approval authority.",
+              "items": {
+                "type": "object",
+                "required": ["assumption_id", "status", "bound", "kind", "claimed_node_ids", "omitted_claimed", "collected_count", "reason"],
+                "properties": {
+                  "assumption_id": {"type": "string"},
+                  "status": {"const": "unverified"},
+                  "bound": {"type": "boolean"},
+                  "kind": {"type": ["string", "null"], "enum": ["all_suite_pass", "named_tests_pass", null]},
+                  "claimed_node_ids": {"type": "array", "maxItems": 40, "items": {"type": "string", "maxLength": 256}},
+                  "omitted_claimed": {"type": "integer", "minimum": 0},
+                  "collected_count": {"type": "integer", "minimum": 0},
+                  "reason": {"type": "string"}
+                }
+              }
+            },
             "milestones": {
               "type": "array",
               "items": {
@@ -1220,6 +1239,25 @@
                 "properties": {
                   "requirement_ids": {"type": "array", "items": {"type": "string"}},
                   "description": {"type": "string"}
+                }
+              }
+            },
+            "suite_claims": {
+              "type": "array",
+              "maxItems": 8,
+              "description": "Optional current-turn suite-coverage claims bound to the recorded collection (#3939), display only; present when a proposed assumption names a suite_claim and sealed Requirements observations exist. bound says whether the claim's named examples are actually collected by the stated command; a runner flag alone never establishes coverage. Every row stays unverified (collection alone is not execution) and grants no approval authority.",
+              "items": {
+                "type": "object",
+                "required": ["assumption_id", "status", "bound", "kind", "claimed_node_ids", "omitted_claimed", "collected_count", "reason"],
+                "properties": {
+                  "assumption_id": {"type": "string"},
+                  "status": {"const": "unverified"},
+                  "bound": {"type": "boolean"},
+                  "kind": {"type": ["string", "null"], "enum": ["all_suite_pass", "named_tests_pass", null]},
+                  "claimed_node_ids": {"type": "array", "maxItems": 40, "items": {"type": "string", "maxLength": 256}},
+                  "omitted_claimed": {"type": "integer", "minimum": 0},
+                  "collected_count": {"type": "integer", "minimum": 0},
+                  "reason": {"type": "string"}
                 }
               }
             }
