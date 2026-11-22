@@ -17,14 +17,12 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_plan_command_roles as plan_roles
-    from . import autocode_python_test_roles as role_policy
     from . import autocode_run_base as run_base
     from . import autocode_source_scope as source_scope
     from . import autocode_test_role_inventory as role_inventory
     from . import autocode_verify as verify
 except ImportError:
     import autocode_plan_command_roles as plan_roles
-    import autocode_python_test_roles as role_policy
     import autocode_run_base as run_base
     import autocode_source_scope as source_scope
     import autocode_test_role_inventory as role_inventory
@@ -76,7 +74,7 @@ def owes(state: RunState) -> bool:
         # An unreadable role inventory cannot erase a visible changed-code obligation.
         known = known or any(verify.is_code_path(path) for path in changes)
         roles = role_inventory.from_git(root, base, verify.is_test_path, changes=changes)
-        return any(verify.is_code_path(path) and roles.role(path) != role_policy.TEST for path in changes)
+        return any(verify.is_code_path(path) and roles.is_product(path) for path in changes)
     except (OSError, ValueError, RuntimeError, TypeError, KeyError, subprocess.SubprocessError):
         return known
 

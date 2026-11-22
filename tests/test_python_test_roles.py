@@ -75,13 +75,18 @@ class PythonPathRoleTests(unittest.TestCase):
         before = roles.partition(changes)
         stats = verify.diff_stats(self.root, self.base, changes, roles=roles, allow_ambiguous=True)
         self.assertEqual(2, stats["files"])
-        self.assertEqual(1, stats["source_files"])
-        self.assertEqual(0, stats["test_files"])
+        # #4095: the changed ambiguous mystery_tests.py is settled as both test and product (recorded), so it
+        # counts as a source file and a test file; the non-code directory unowned/ grants no Python authority.
+        self.assertEqual(2, stats["source_files"])
+        self.assertEqual(1, stats["test_files"])
         self.assertEqual(["unowned/"], stats["non_code_files"])
         self.assertEqual(before, roles.partition(changes))
         self.assertEqual(role_policy.AMBIGUOUS, roles.role("mystery_tests.py"))
-        with self.assertRaisesRegex(ValueError, "mystery_tests.py"):
-            verify.diff_stats(self.root, self.base, changes, roles=roles)
+        self.assertIn("mystery_tests.py", roles.settlements)
+        self.assertTrue(roles.is_product("mystery_tests.py"))
+        # The settled change no longer refuses measurement: the decision is recorded, not asked of a person.
+        settled_stats = verify.diff_stats(self.root, self.base, changes, roles=roles)
+        self.assertEqual(stats["source_files"], settled_stats["source_files"])
 
     def legacy_binding(self):
         run_dir = self.root.parent / "run"
@@ -229,19 +234,74 @@ class PythonPathRoleTests(unittest.TestCase):
         self.assertEqual(original_state, state)
         self.assertEqual(original_settings, settings)
 
-    def test_ambiguous_changed_file_is_unverified_before_any_scratch_tree_or_command(self):
+    def test_ambiguous_changed_file_is_settled_as_both_test_and_product(self):
+        # #4095 (supersedes the old "unverified before any scratch tree or command" stop): a changed Python
+        # file whose product/test ownership is ambiguous is settled deterministically as both test and
+        # product, recorded, instead of stopping the run before the Tester to ask a person about machinery.
         (self.root / "pkg/billing_tests.py").write_text(PinnedRolePolicyTests.CASE)
-        with mock.patch.object(verify, "make_tree") as make_tree, mock.patch.object(verify, "run_suite") as execute:
-            result = verify.verify(
-                self.root,
-                self.base,
-                self.root.parent / "proof",
-                framework=verify.Framework("unittest", "python -m unittest discover -v", python=sys.executable),
-            )
-        self.assertEqual(verify.UNVERIFIED, result["verdict"])
-        self.assertTrue(any("ambiguous" in reason for reason in result["unverified"]))
-        make_tree.assert_not_called()
-        execute.assert_not_called()
+        changes = {"pkg/billing_tests.py": "modified"}
+        roles = role_inventory.from_git(self.root, self.base, verify.is_test_path, changes=changes)
+        self.assertEqual(role_policy.AMBIGUOUS, roles.role("pkg/billing_tests.py"))
+        self.assertIn("pkg/billing_tests.py", roles.settlements)
+        self.assertTrue(roles.is_test("pkg/billing_tests.py"))
+        self.assertTrue(roles.is_product("pkg/billing_tests.py"), "no escape from product changed-line evidence")
+        tests, sources, ambiguous = roles.partition(changes)
+        self.assertEqual(["pkg/billing_tests.py"], tests)
+        self.assertEqual(["pkg/billing_tests.py"], sources)
+        self.assertEqual([], ambiguous)
+
+    def test_ambiguous_test_reached_only_by_a_loose_script_is_proven_not_paused(self):
+        # #4095 confirmed-live case: a declared test module under tests/ that a loose archive script
+        # bare-imports (a test-named module outside any test tree enables the reach walk) is classified
+        # ambiguous. Before the fix the proof refused it ("ownership is ambiguous") before any command and
+        # the run paused to ask a person about machinery; now it is settled as both test and product,
+        # recorded in the proof's evidence, and proven through the Tester.
+        temporary = tempfile.TemporaryDirectory(prefix="ambiguous-reach-")
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name) / "project"
+        for directory in ("pkg", "tests", "audits", "tools"):
+            (root / directory).mkdir(parents=True)
+        (root / "pkg/__init__.py").write_text("")
+        (root / "pkg/service.py").write_text("def charge():\n    return 2\n")
+        (root / "tests/test_opencode.py").write_text(
+            "import unittest\nfrom pkg.service import charge\n"
+            "class T(unittest.TestCase):\n    def test_charge(self):\n        self.assertEqual(charge(), 1)\n"
+        )
+        (root / "audits/probes.py").write_text("from test_opencode import T\n")
+        (root / "tools/test_kilo_fake.py").write_text("VALUE=1\n")
+        (root / "pyproject.toml").write_text('[tool.setuptools]\npackages = ["pkg"]\n')
+
+        def git(*args):
+            return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
+
+        git("init", "-q")
+        git("config", "maintenance.auto", "false")
+        git("config", "gc.auto", "0")
+        git("add", ".")
+        git("-c", "user.name=F", "-c", "user.email=f@e.test", "commit", "-qm", "original")
+        base = git("rev-parse", "HEAD")
+        # The approved plan fixes the product and rewrites the ambiguous test.
+        (root / "pkg/service.py").write_text("def charge():\n    return 1\n")
+        (root / "tests/test_opencode.py").write_text(
+            "import unittest\nfrom pkg.service import charge\n"
+            "class T(unittest.TestCase):\n    def test_charge(self):\n        # rewritten\n        self.assertEqual(charge(), 1)\n"
+        )
+        changes = verify.changed_files(root, base)
+        roles = role_inventory.from_git(root, base, verify.is_test_path, changes=changes)
+        self.assertEqual(role_policy.AMBIGUOUS, roles.role("tests/test_opencode.py"))
+        self.assertIn("tests/test_opencode.py", roles.settlements)
+        result = verify.verify(
+            root,
+            base,
+            root.parent / "proof",
+            framework=verify.Framework(
+                "unittest", f"{sys.executable} -m unittest discover -s tests -v", python=sys.executable
+            ),
+        )
+        self.assertEqual(verify.PASS, result["verdict"], result)
+        self.assertEqual(["tests.test_opencode.T.test_charge"], result["fail_to_pass"])
+        self.assertFalse(any("ambiguous" in reason for reason in result.get("unverified") or []))
+        self.assertTrue(any("Settled ambiguous" in note for note in result.get("notes") or []))
 
     def test_changed_product_obligation_includes_shipped_suffix_and_refuses_ambiguous_escape(self):
         state = {"workspace": str(self.root), "base_commit": self.base}
@@ -592,8 +652,13 @@ class PinnedRolePolicyTests(unittest.TestCase):
                     candidate_links={"test_alias.py": path},
                 )
                 self.assertEqual(original.role(path), result.role(path))
-                with self.assertRaisesRegex(ValueError, "ambiguous"):
-                    result.is_test("test_alias.py")
+                # #4095: the added link of unknown ownership is settled as both test and product (recorded),
+                # never promoted to a pure test that escapes product evidence; the original role is frozen.
+                self.assertEqual(role_policy.AMBIGUOUS, result.role("test_alias.py"))
+                self.assertIn("test_alias.py", result.settlements)
+                self.assertTrue(result.is_test("test_alias.py"))
+                self.assertTrue(result.is_product("test_alias.py"))
+                self.assertTrue(result.protected("test_alias.py"))
 
     def test_a_fixture_link_that_leads_to_no_file_has_the_role_of_its_place(self):
         # A change that adds `tests/data/linked/alias -> real` ended its proof UNVERIFIED: "Product/test
@@ -690,8 +755,12 @@ class NestedProjectTestTreeTests(unittest.TestCase):
         added = "proj/test/test_parsers/test_include_number_lines.py"
         roles = self.roles(self.project(), candidates={added: self.CASE, "proj/__init__.py": ""})
         self.assertTrue(roles.is_test("proj/test/test_parsers/test_include.py"), "original roles are frozen")
-        with self.assertRaisesRegex(ValueError, "ambiguous"):
-            roles.is_test(added)
+        # #4095: the added test in a package's test/ subpackage is ambiguous; settled as both test and
+        # product (recorded), so it cannot escape product changed-line evidence.
+        self.assertEqual(role_policy.AMBIGUOUS, roles.role(added))
+        self.assertIn(added, roles.settlements)
+        self.assertTrue(roles.is_test(added))
+        self.assertTrue(roles.is_product(added))
 
 
 class DeclaredTestPathTests(unittest.TestCase):
@@ -801,9 +870,16 @@ class DeclaredTestPathTests(unittest.TestCase):
         sources = self.project({"pyproject.toml": '[project]\nname = "pkg"\n'})
         config = '[project]\nname = "pkg"\n[tool.pytest.ini_options]\ntestpaths = ["testing"]\n'
         roles = self.roles(sources, candidates={"pyproject.toml": config, "testing/test_added.py": self.CASE})
-        for path in ("testing/test_rewrite.py", "testing/test_added.py"):
-            with self.subTest(path=path), self.assertRaisesRegex(ValueError, "ambiguous"):
-                roles.is_test(path)
+        # The candidate's configuration cannot name the ORIGINAL tree's test paths: the unchanged
+        # testing/test_rewrite.py stays ambiguous and protected (no retroactive test authority).
+        with self.assertRaisesRegex(ValueError, "ambiguous"):
+            roles.is_test("testing/test_rewrite.py")
+        # #4095: the test the change itself adds is settled as both test and product (recorded), so its
+        # declared tests run while its changed lines still need product changed-line evidence.
+        self.assertEqual(role_policy.AMBIGUOUS, roles.role("testing/test_added.py"))
+        self.assertIn("testing/test_added.py", roles.settlements)
+        self.assertTrue(roles.is_test("testing/test_added.py"))
+        self.assertTrue(roles.is_product("testing/test_added.py"))
 
     def test_the_configuration_read_is_recorded_with_the_roles(self):
         sources = self.project({"tox.ini": "[pytest]\ntestpaths = testing\n"})
