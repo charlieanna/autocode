@@ -125,7 +125,7 @@ def answer_effort(state: RunState, failure, role, effort):
 
 
 def effort_drift(state: RunState, failure, role):
-    """A recognized saved and current effort differ for this route."""
+    """A recognized saved effort differs from the current supported or unset level."""
     bound = ((failure.get("configuration") or {}).get("roles") or {}).get(role) or {}
     current = (((state.get("settings") or {}).get("roles") or {}).get(role)) or {}
     if not isinstance(bound, dict) or not isinstance(current, dict):
@@ -134,8 +134,10 @@ def effort_drift(state: RunState, failure, role):
     return (
         isinstance(saved_effort, str)
         and saved_effort in quota_route.route_fit.SCALE
-        and isinstance(current_effort, str)
-        and current_effort in quota_route.route_fit.SCALE
+        and (
+            current_effort is None
+            or (isinstance(current_effort, str) and current_effort in quota_route.route_fit.SCALE)
+        )
         and saved_effort != current_effort
     )
 

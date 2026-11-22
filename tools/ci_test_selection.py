@@ -59,6 +59,7 @@ EXTENSION_HOST_RESOURCES = {
         "vscode-extension/test/host/named-proof-refusal.test.cjs",
         "vscode-extension/test/host/python-semantic.test.cjs",
         "vscode-extension/test/host/semver-reference-repair.test.cjs",
+        "vscode-extension/test/host/status-retry.test.cjs",
     ),
     "tools/autocode_changed_code_evidence.py": ("vscode-extension/test/host/python-semantic.test.cjs",),
     "tools/autocode_changed_code_measurement.py": ("vscode-extension/test/host/python-semantic.test.cjs",),
@@ -79,6 +80,7 @@ EXTENSION_HOST_RESOURCES = {
         "vscode-extension/test/host/semver-reference-repair.test.cjs",
         "vscode-extension/test/host/classification-outcome.test.cjs",
         "vscode-extension/test/host/python-semantic.test.cjs",
+        "vscode-extension/test/host/status-retry.test.cjs",
     ),
     "tests/classification_vscode_fixture.py": ("vscode-extension/test/host/classification-outcome.test.cjs",),
     **dict.fromkeys(
@@ -102,6 +104,7 @@ EXTENSION_HOST_RESOURCES = {
     ),
     "tests/job_route_vscode_fixture.py": ("vscode-extension/test/host/job-route-effort.test.cjs",),
     "tests/kilo_route_vscode_fixture.py": ("vscode-extension/test/host/kilo-route-effort.test.cjs",),
+    "tools/autocode_job_retry_admission.py": ("vscode-extension/test/host/kilo-route-effort.test.cjs",),
     "tests/provider_auth_fixture.py": ("vscode-extension/test/host/editor-host.test.cjs",),
     "tests/protected_link_vscode_fixture.py": ("vscode-extension/test/host/protected-link-recovery.test.cjs",),
     "tests/python_semantic_vscode_fixture.py": ("vscode-extension/test/host/python-semantic.test.cjs",),
