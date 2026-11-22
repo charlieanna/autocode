@@ -34,6 +34,7 @@ from pathlib import Path, PurePosixPath
 try:
     from . import autocode_check_outcome as check_outcome
     from . import autocode_command_receipt as command_receipt
+    from . import autocode_focused_suite as focused_suite
     from . import autocode_package_scope as package_scope
     from . import autocode_plan_command_roles as plan_roles
     from . import autocode_plan_proof_command as plan_command
@@ -55,6 +56,7 @@ try:
 except ImportError:
     import autocode_check_outcome as check_outcome
     import autocode_command_receipt as command_receipt
+    import autocode_focused_suite as focused_suite
     import autocode_package_scope as package_scope
     import autocode_plan_command_roles as plan_roles
     import autocode_plan_proof_command as plan_command
@@ -364,6 +366,71 @@ def replay_parts(command, changed, workspace, *, detected=True, homes=None) -> l
 ATTEMPTS = ("candidate", "original", "original_recheck")
 
 
+def _bounded_replay(state: RunState, original, changed, workspace, timeout):
+    """A bounded command for the protected pair when the whole bound suite cannot finish under ``timeout``.
+
+    The regression proof already observes a detected whole suite that times out on the original code and
+    records the bounded focused selection it fell back to (``autocode_focused_suite``,
+    ``proof["suite_fallback"]``). The protected pair reads that one recorded answer rather than spending the
+    whole suite's bound on both halves and pausing for the person (#3963): it runs the changed original test
+    modules together with the proof's recorded bounded subset, through the same ``Invocation.targeted`` the
+    replay already uses. None when there is no such recorded evidence, the bound command is the person's own
+    (``project_suite.detected`` is False), a changed test was deleted, or the suite cannot be targeted — the
+    whole suite then runs as before. This never claims a full-suite pass: the caller records the selection and
+    its verification gap in the receipt, and both halves must still authenticate and pass.
+    """
+    if not project_suite.detected(state):
+        return None
+    fallback = (state.get("regression_proof") or {}).get("suite_fallback")
+    if not isinstance(fallback, dict) or fallback.get("whole_suite") != original:
+        return None
+    if fallback.get("whole_suite_outcome") != focused_suite.TIMED_OUT:
+        return None
+    limit = fallback.get("timeout_seconds")
+    if isinstance(limit, (int, float)) and limit < timeout:
+        return None  # a shorter recorded bound does not show this bound cannot finish
+    invocation = python_tests.parse(original)
+    if invocation is None:
+        return None
+    modules = []
+    for name in sorted(changed):
+        try:
+            path_in(workspace, name)
+        except (OSError, ValueError):
+            return None  # a deleted or replaced test keeps the whole suite
+        if name.endswith((".py", ".pyi")) and python_tests.TEST_MODULE.match(PurePosixPath(name).name):
+            modules.append(name)
+    tests = sorted(set(fallback.get("tests") or ()) | set(modules))
+    if not tests:
+        return None
+    targeted = invocation.targeted(tests)
+    if not targeted or targeted == original:
+        return None
+    scope = fallback.get("selection_scope") or focused_suite.SCOPE_FULL_CLOSURE
+    gap = (
+        "the whole bound suite was not re-run: it timed out on the original code in the regression proof, "
+        "so the protected pair ran the changed original tests and the proof's recorded bounded subset"
+    )
+    return {
+        "version": 1,
+        "decision": "bounded_protected_replay",
+        "source": "regression_suite_fallback",
+        "whole_suite": original,
+        "whole_suite_outcome": fallback.get("whole_suite_outcome"),
+        "timeout_seconds": limit,
+        "command": targeted,
+        "tests": tests,
+        "selection_scope": scope,
+        "verification_gap": gap,
+        "reason": (
+            f"The whole bound suite timed out on the original code in the regression proof, so the protected "
+            f"pair ran the bounded {scope} selection (changed original tests and the proof's recorded subset): "
+            + ", ".join(tests)
+            + f". Verification gap: {gap}."
+        ),
+    }
+
+
 def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=None):
     """Run the changed original tests on the candidate and with the original tests overlaid.
 
@@ -401,6 +468,15 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=N
         original, changed, workspace, detected=project_suite.detected(state), homes=test_homes.away(state)
     )
     command = " ; ".join(parts)
+    if original and command == original:
+        # The whole bound suite would run on both halves. When the regression proof already recorded that it
+        # cannot finish under this bound, run the bounded selection it chose instead of timing out and pausing
+        # for the person (#3963); the decision and its gap are recorded in the receipt.
+        bounded = _bounded_replay(state, original, changed, workspace, timeout)
+        if bounded:
+            command = bounded["command"]
+            parts = [command]
+            result["bounded_selection"] = bounded
     if not command:
         result.update(
             verdict="NOT_VERIFIED", error="No original suite command was available; explicit user revision required"
