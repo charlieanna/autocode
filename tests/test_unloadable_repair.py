@@ -348,13 +348,13 @@ class CargoTargetTests(unittest.TestCase):
         self.assertFalse(result["fail_to_pass"])
 
     def test_in_a_workspace_the_tests_that_could_not_run_are_every_crates(self):
-        # Cargo's test ids name no crate, and one crate that does not build stops the tests of all.
+        # One crate that does not build stops the tests of all; each test id names its crate's directory (#4082).
         project = Project({".gitignore": "target/\n", **RS_WORKSPACE})
         self.addCleanup(project.close)
         project.write({"core/src/lib.rs": RS_RESOLVED})
         result = project.verify()
         self.assertEqual(verify.PASS, result["verdict"], result)
-        self.assertEqual(["tests/one.rs::one"], result["fail_to_pass"])
+        self.assertEqual(["app/tests/one.rs::one"], result["fail_to_pass"])
 
 
 class RuleTests(unittest.TestCase):
