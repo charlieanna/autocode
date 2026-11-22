@@ -963,6 +963,75 @@ class RequirementsObservationsTests(unittest.TestCase):
         self.seal()
         self.assertEqual([], suite_view.project(self.state, self.run, lambda: source.snapshot(self.workspace)))
 
+    def test_plan_approval_keeps_current_collection_as_a_report_not_a_pass(self):
+        import autocode_run_view as run_view
+        import autocode_util as util
+        import autopilot
+
+        command = "python3 -m pytest --collect-only -q"
+        selected = "python3 -m pytest -v test_api.py::test_one"
+        self.events = [
+            self.command(
+                "collect",
+                command,
+                "test_api.py::test_one\ntest_api.py::test_two\n2 tests collected in 0.1s\n",
+                output_truncated=False,
+            ),
+            self.command(
+                "run",
+                selected,
+                "collected 1 item\ntest_api.py::test_one PASSED [100%]\n=== 1 passed in 0.1s ===\n",
+                output_truncated=False,
+            ),
+            self.command("filtered", command + " | tail -1", "358 tests collected in 0.1s\n", output_truncated=False),
+        ]
+        self.write_events()
+        self.record.update(stage="draft_plan", role="planner")
+        self.state.pop("requirements_handoff")
+        accepted = {"report": self.report, "output": self.record["output"]}
+
+        def accept(*args, **kwargs):
+            self.state["planning"] = {"reports": {"draft_plan": accepted}}
+
+        observations.prepare(self.record)
+        with (
+            mock.patch.object(autopilot.planning_unit, "is_planning", return_value=True),
+            mock.patch.object(autopilot, "apply_planning", side_effect=accept),
+        ):
+            autopilot.apply_planning_result(self.state, "draft_plan", self.report, self.record)
+        contract = {
+            "task_id": "fixture",
+            "revision": 1,
+            "body": {
+                "acceptance_criteria": [
+                    {"id": "C1", "criterion": "Keep tests", "current_behavior": "The full suite passes."}
+                ]
+            },
+        }
+        contract["hash"] = util.digest(contract)
+        token = f"r1:{contract['hash']}"
+        self.state.update(status="AWAITING_GOAL_APPROVAL", goal_contract=contract, displayed_goal=token)
+        shown = run_view.view(self.state, workspace=self.workspace, run_dir=self.run)
+        shown_plan = shown["displayed_plan"]
+        reports = shown_plan.get("suite_reports", [])
+        self.assertEqual(
+            [("collection", command, 2, None, False), ("execution", selected, 1, True, False)],
+            [
+                (r["kind"], r["command"], r["reported_count"], r.get("selected"), r["independently_verified"])
+                for r in reports
+            ],
+        )
+        self.assertIn("Reported current behavior (not independently verified)", shown_plan["review_markdown"])
+        self.assertEqual(token, shown_plan["token"])
+        unchanged_plan = {key: value for key, value in shown_plan.items() if key != "suite_reports"}
+        accepted["report"] = {**self.report, "summary": "Changed after acceptance"}
+        different_report = run_view.view(self.state, workspace=self.workspace, run_dir=self.run)
+        self.assertEqual(unchanged_plan, different_report["displayed_plan"])
+        accepted["report"] = self.report
+        (self.workspace / "app.py").write_text("VALUE = 2\n")
+        stale = run_view.view(self.state, workspace=self.workspace, run_dir=self.run)
+        self.assertEqual(unchanged_plan, stale["displayed_plan"], "display evidence does not rebind approval")
+
     def test_real_status_view_names_collected_scope_without_claiming_execution(self):
         import autocode_run_view as run_view
 

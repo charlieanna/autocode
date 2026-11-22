@@ -53,15 +53,26 @@ _COLLECTED = re.compile(r"^(?:collecting \.\.\. )?collected (\d+) items?$", re.I
 
 def pytest_execution(command, output):
     """Read a complete verbose passing execution as reported data, not as a proof."""
+    return _pytest_execution(command, output, selected=False)
+
+
+def pytest_selected_execution(command, output):
+    """Read a scoped verbose pytest run for display only."""
+    return _pytest_execution(command, output, selected=True)
+
+
+def _pytest_execution(command, output, *, selected):
     if not isinstance(command, str) or not isinstance(output, str):
         return None
     try:
         words = shlex.split(command)
     except ValueError:
         return None
-    if len(words) != 4 or Path(words[0]).name not in {"python", "python3"}:
+    if len(words) < 4 or Path(words[0]).name not in {"python", "python3"}:
         return None
-    if words[1:] != ["-m", "pytest", "-v"]:
+    if words[1:4] != ["-m", "pytest", "-v"] or bool(words[4:]) != selected:
+        return None
+    if any(not word or word.startswith("-") for word in words[4:]):
         return None
     lines = [line.strip() for line in output.splitlines() if line.strip()]
     if not lines or not (summary := _EXECUTION_SUMMARY.fullmatch(lines[-1])):

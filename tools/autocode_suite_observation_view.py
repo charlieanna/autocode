@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -27,10 +28,23 @@ def project(state: RunState, run_dir, current_source):
     """Describe retained complete outputs; neither their text nor this view is execution proof."""
     if (state.get("settings") or {}).get("replay_recording"):
         return []
-    handoff = review.current_turn_handoff(state)
-    packet = observations._handoff_packet(state, "claim_evidence", handoff, run_dir, current_source)
-    if not packet:
-        return []
+    if state.get("status") == "AWAITING_GOAL_APPROVAL":
+        packets = observations.plan_packets(state, run_dir, cache(current_source))
+    else:
+        handoff = review.current_turn_handoff(state)
+        packets = (observations._handoff_packet(state, "claim_evidence", handoff, run_dir, current_source),)
+    rows = []
+    for packet in packets:
+        if packet:
+            for row in _reports(packet, run_dir):
+                if row not in rows:
+                    rows.append(row)
+                if len(rows) == MAX_REPORTS:
+                    return rows
+    return rows
+
+
+def _reports(packet, run_dir):
     try:
         raw = observations._read(Path(run_dir), packet["artifact"]["path"])
         if hashlib.sha256(raw).hexdigest() != packet["artifact"]["sha256"]:
@@ -53,6 +67,9 @@ def project(state: RunState, run_dir, current_source):
             ):
                 continue
             parsed = named.pytest_collection(command, output) or named.pytest_execution(command, output)
+            selected = False
+            if parsed is None and (parsed := named.pytest_selected_execution(command, output)):
+                selected = True
             if not parsed:
                 continue
             paths = sorted({node.split("::", 1)[0] for node in parsed["node_ids"]})
@@ -66,6 +83,7 @@ def project(state: RunState, run_dir, current_source):
                     "paths": paths[:MAX_PATHS],
                     "omitted_paths": max(0, len(paths) - MAX_PATHS),
                     "independently_verified": False,
+                    **({"selected": True} if selected else {}),
                 }
             )
             if len(rows) == MAX_REPORTS:
