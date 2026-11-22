@@ -36,7 +36,7 @@ def failure_details(output):
         yield (*header.groups(), output[header.end() : footer.start() if footer else end])
 
 
-def setup_error(traceback, tree, is_test_path):
+def setup_error(traceback, tree, is_test_path, *, outer_message=None):
     """Explain a recognized setup-only failure; return None for anything ambiguous.
 
     ``tree`` is the scratch root and ``is_test_path`` is the caller's existing
@@ -64,12 +64,41 @@ def setup_error(traceback, tree, is_test_path):
     if "test" not in kinds:
         return None
     missing = MISSING_MOCK.findall(traceback)
-    if kinds[-1] == "mock" and len(missing) == 1:
+    if (
+        kinds[-1] == "mock"
+        and len(missing) == 1
+        and (outer_message is None or re.match(r"^AttributeError(?:\s*:|\s*$)", outer_message))
+    ):
         return f"The test could not prepare its mock: target {missing[0]} is absent on base"
     imports = IMPORT_ERROR.findall(traceback)
-    if kinds[-1] == "test" and len(imports) == 1:
+    if (
+        kinds[-1] == "test"
+        and len(imports) == 1
+        and (outer_message is None or re.match(r"^(?:ImportError|ModuleNotFoundError)(?:\s*:|\s*$)", outer_message))
+    ):
         return "The test could not import its dependency on base: " + imports[0]
     return None
+
+
+def not_evidence(results, *, new_behavior) -> dict[str, str]:
+    """The base failures that are setup errors and cannot count as evidence: test id -> reason (#3926).
+
+    This is the one answer the regression proof's judgment (autocode_verify_judgment), the acceptance
+    reference (autocode_acceptance_reference.collect) and a repair's flip (autocode_first_suite.repaired_by_flip,
+    always the bug-fix rule) read. ``results`` are the per-test results of a run on the original code.
+
+    A failure while preparing a test, including a test-origin import, cannot
+    establish the application's behavior on either a bug fix or a new feature.
+    No separately observed module origin grants proof authority.
+
+    Three other readers of ``setup_errors`` stay off this answer, because they make a different decision:
+    autocode_mutation_results and autocode_review_attribution treat any setup error as a run that did not
+    complete (no mutant was observed, no attribution can be read), whatever the task, and
+    autocode_review_proof only records the setup errors it finds for the reviewers to read.
+    """
+    errors = (results or {}).get("setup_errors") if isinstance(results, dict) else None
+    errors = dict(errors) if isinstance(errors, dict) else {}
+    return errors
 
 
 def proof_note(errors):

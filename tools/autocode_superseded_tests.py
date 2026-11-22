@@ -164,9 +164,13 @@ def matches(entry: dict, test_id: str) -> bool:
             directory = str(PurePosixPath(name).parent)
             package_ok = directory in ("", ".") or container == directory or container.endswith("/" + directory)
             return package_ok and (rest == test or rest.startswith(test + "/"))
-        return _same_file(container, name) and (
-            test in own_names(rest) or (name.endswith(".rb") and rest.endswith(" " + test))
-        )
+        if _same_file(container, name):
+            return test in own_names(rest) or (name.endswith(".rb") and rest.endswith(" " + test))
+        if not name.endswith(".py") or "/" in container or container.endswith(".py"):
+            return False
+        # pytest names a test in a unittest class by its module and class, ``pkg.module.Class::test``
+        # (its JUnit classname), not by its file: the same test as unittest's ``pkg.module.Class.test``.
+        test_id = container + "." + rest.replace("::", ".")
     # unittest: package.module.Class.test_name
     module = name[:-3].replace("/", ".") if name.endswith(".py") else ""
     if not module or not test_id.endswith("." + test):

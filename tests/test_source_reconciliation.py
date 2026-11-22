@@ -213,6 +213,93 @@ class SourceReconciliationTests(unittest.TestCase):
         self.state["stop_reason"] = "Source path has a symlinked parent: scratch-only/file.py"
         self.assertEqual("continue", self.view()["needs"]["kind"])
 
+    def test_pinned_link_policy_is_bound_to_the_recovery_token(self):
+        import autocode_recovery_view as recovery
+
+        original = recovery.token(self.state)
+        self.state["source_link_recovery"] = "strict"
+        strict = recovery.token(self.state)
+        self.state["source_link_recovery"] = "protected"
+        protected = recovery.token(self.state)
+        self.assertEqual(3, len({original, strict, protected}))
+        self.state.pop("source_link_recovery")
+        self.assertEqual(original, recovery.token(self.state), "Legacy tokens remain stable without the new field")
+
+    def test_pinned_link_refusal_is_not_offered_until_its_source_is_safe(self):
+        source = self.workspace / "source.txt"
+        target = self.workspace / "target.txt"
+        target.write_text("retained source\n")
+        subprocess.run(["git", "-C", str(self.workspace), "add", "target.txt"], check=True)
+        source.unlink()
+        source.symlink_to(target)
+        self.state["source_link_recovery"] = "protected"
+        self.state["stop_reason"] = "Pinned source link cannot be bound"
+        self.assertIsNone(self.view()["next_command"])
+        runner = SimpleNamespace(
+            native_calls=None,
+            assert_stage_stopped=lambda _active: None,
+            support=SimpleNamespace(snapshot=util.snapshot),
+        )
+        before = copy.deepcopy(self.state)
+        with self.assertRaises(util.Paused):
+            reconciliation.prepare(runner, self.state, self.workspace)
+        self.assertEqual(before, self.state)
+        source.unlink()
+        source.write_text("retained source\n")
+        self.assertIsNotNone(self.view()["next_command"])
+
+    def test_unknown_pinned_link_policy_never_offers_or_accepts_recovery(self):
+        self.state["source_link_recovery"] = "untrusted"
+        self.assertIsNone(self.view()["next_command"])
+        runner = SimpleNamespace(
+            native_calls=None,
+            assert_stage_stopped=lambda _active: None,
+            support=SimpleNamespace(snapshot=util.snapshot),
+        )
+        with self.assertRaises(util.Paused):
+            reconciliation.prepare(runner, self.state, self.workspace)
+
+    def test_transient_source_failure_keeps_the_original_pinned_link_hold(self):
+        import autocode_run_status as run_status
+
+        source = self.workspace / "source.txt"
+        target = self.workspace / "target.txt"
+        target.write_text("retained source\n")
+        subprocess.run(["git", "-C", str(self.workspace), "add", "target.txt"], check=True)
+        source.unlink()
+        source.symlink_to(target)
+        self.state["source_link_recovery"] = "strict"
+        runner = SimpleNamespace(
+            native_calls=None,
+            assert_stage_stopped=lambda _active: None,
+            support=SimpleNamespace(snapshot=util.snapshot),
+        )
+        with patch.object(
+            reconciliation.source_scope,
+            "snapshot",
+            side_effect=util.Paused("PAUSED_SOURCE_UNAVAILABLE", "transient source read"),
+        ):
+            with self.assertRaises(util.Paused) as held:
+                reconciliation.prepare(runner, self.state, self.workspace)
+        run_status.pause(self.state, held.exception.status, str(held.exception))
+        self.assertEqual("strict", self.state["source_link_recovery"])
+        self.assertIsNone(self.view()["next_command"], "The original unsafe link still blocks Resume")
+        run_status.running(self.state, "BUILDING")
+        self.assertNotIn("source_link_recovery", self.state)
+
+    def test_pinned_link_recovery_uses_only_its_recorded_copy_policy(self):
+        source = self.workspace / "source.txt"
+        target = self.workspace / "new.txt"
+        target.write_text("new source\n")
+        source.unlink()
+        source.symlink_to("new.txt")
+        self.state["source_link_recovery"] = "strict"
+        self.assertIsNone(self.view()["next_command"])
+        self.state["source_link_recovery"] = "protected"
+        self.assertIsNotNone(self.view()["next_command"])
+        self.state.pop("source_link_recovery")
+        self.assertIsNotNone(self.view()["next_command"], "An unrelated source hold keeps its prior admission")
+
     def test_other_source_holds_still_recover_with_a_tracked_link_leaf(self):
         (self.workspace / "source-link.txt").symlink_to("source.txt")
         subprocess.run(["git", "-C", str(self.workspace), "add", "source-link.txt"], check=True)

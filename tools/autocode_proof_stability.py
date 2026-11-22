@@ -39,6 +39,21 @@ NEXT_STEP = (
 SHELL = re.compile(r"[;&|<>`$\n]")
 
 
+def runner(run, trees, framework, run_suite, timeout):
+    """The owner's one repeat runner, retaining each repeat's receipt in the proof."""
+
+    def repeat(command, side, label):
+        if run.progress:
+            run.progress(
+                f"Checking regression test stability ({label})", command=command, output=run.run_dir, phase="stability"
+            )
+        tree = trees["candidate" if side == "candidate" else "base_with_tests"]
+        run.checks[label] = run_suite(framework, command, tree, run.run_dir, label, timeout=timeout)
+        return run.checks[label]
+
+    return repeat
+
+
 def proving_tests(cases, candidate_ids, base_ids, framework_name) -> dict[str, str]:
     """Map each test a due case matches to ``restore`` (``test:``) or ``preserve`` (``guard:``).
 

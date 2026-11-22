@@ -296,6 +296,7 @@ KEYS: frozenset[str] = frozenset(
         "sessions",
         "settings",
         "setup_check_retries",
+        "source_link_recovery",
         "source_log",
         "source_revision",
         "source_catalog_receipt",
@@ -688,6 +689,7 @@ class RunState(TypedDict, total=False):
     # goals.install_draft; read only by autocode_scope_question, which re-binds each
     # receipt to the scope identity, turn and assignment digest it was recorded under.
     scope_exclusion_corrections: list[dict]
+    source_link_recovery: str | None  # runner-owned pinned-link refusal; source recovery rechecks it
     source_revision: Any
     git_delivery: Any  # controller-owned commit + receipt pin; completion gate reads it
     source_snapshot: Any

@@ -85,15 +85,17 @@ def _names(identity, name) -> bool:
 def _read(identity, known) -> dict:
     """For each directory a runner may name its tests from, the test file ``identity`` names there and the
     test's name within that file: ``FILE::test``, ``pkg.module::test`` (pytest) or ``pkg.module.Class.test``
-    (unittest), where the longest module that is a file is the test's."""
+    (unittest), where the longest module that is a file is the test's. pytest names a test in a class
+    ``pkg.module.Class::test``: a head that names no file is read by the same longest-module rule, and the test's
+    name within the file is ``Class::test``."""
     head, mark, rest = identity.partition("::")
-    if mark:
-        return {root: (path, rest) for root, path in known.get(head, {}).items()}
+    if mark and head in known:
+        return {root: (path, rest) for root, path in known[head].items()}
     found: dict = {}
-    parts = identity.split(".")
+    parts = head.split(".")
     for cut in range(len(parts) - 1, 0, -1):
         for root, path in known.get(".".join(parts[:cut]), {}).items():
-            found.setdefault(root, (path, ".".join(parts[cut:])))
+            found.setdefault(root, (path, ".".join(parts[cut:]) + mark + rest))
     return found
 
 

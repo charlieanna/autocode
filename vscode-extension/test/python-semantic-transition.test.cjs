@@ -44,3 +44,15 @@ test('a continuing controller establishes a transition even if the old approval 
   assert.equal(completes({ status: 'RUNNING', needs: { kind: 'continue' } }), false);
   assert.equal(completes({ status: 'TASK_COMPLETE', done: true }), true);
 });
+
+test('a settled internal pause needs no person action to end observation', () => {
+  const old = { status: 'AWAITING_GOAL_APPROVAL', needs: { kind: 'approve_plan', token: 'r2:plan' },
+    displayed_plan: { token: 'r2:plan' } };
+  for (const status of ['PAUSED_PROVIDER_UNCERTAIN', 'PAUSED_BUILDER_CLASSIFICATION']) {
+    const observe = afterApproval(old);
+    assert.equal(observe(old), false);
+    assert.equal(observe({ status: 'RUNNING', needs: { kind: 'continue' } }), false);
+    assert.equal(observe({ status, needs: null, next_command: null, progress: { continuing: true } }), false);
+    assert.equal(observe({ status, needs: null, next_command: null, progress: { continuing: false } }), true);
+  }
+});

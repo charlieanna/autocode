@@ -97,6 +97,19 @@ if __name__ == "__main__":
     unittest.main()
 """
 
+# The durable-host fixture exercises worker ownership, not collection failure.
+# Its option keeps every assertion while allowing the test module to load on an empty base.
+TEST_GREET_LOADABLE = (
+    TEST_GREET_PY.replace("from greet import greet\n", "")
+    .replace("    def test_greet(self):\n", "    def test_greet(self):\n        from greet import greet\n")
+    .replace("    def test_unicode(self):\n", "    def test_unicode(self):\n        from greet import greet\n")
+)
+
+
+def _fixture_tests() -> str:
+    return TEST_GREET_LOADABLE if os.environ.get("LIVE_FIXTURE_LOADABLE_TESTS") == "1" else TEST_GREET_PY
+
+
 README_MD = """# Greeting CLI
 
 Deterministic greeting: `greet.py NAME` prints `Hello, NAME` and exits 0.
@@ -331,7 +344,7 @@ def _planning_contract(repair_error: str = "") -> dict:
 
 def _write_files() -> list[str]:
     Path("greet.py").write_text(GREET_PY)
-    Path("test_greet.py").write_text(TEST_GREET_PY)
+    Path("test_greet.py").write_text(_fixture_tests())
     Path("README.md").write_text(README_MD)
     return ["greet.py", "test_greet.py", "README.md"]
 
@@ -436,7 +449,7 @@ def _changed_code_reasons(data):
         tests = Path("test_greet.py").read_text()
     except OSError:
         return []
-    if product != GREET_PY.encode() or tests != TEST_GREET_PY or not proof.get("path"):
+    if product != GREET_PY.encode() or tests != _fixture_tests() or not proof.get("path"):
         return []
     reasons = LINE_REASONS
     source = product.decode().splitlines()

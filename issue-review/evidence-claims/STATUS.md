@@ -3,6 +3,10 @@
 ## Latest verification, 2026-11-21
 
 PR #3996 was merged at `5335ff6e6895b1203c42bc650a37119d380ac744`.
+Its historical exact-head run `44886364594` ultimately failed the Ubuntu suite
+and `ci-required`; the later offline SemVer editor and repaired-task evidence
+described below does not change that CI result. The [PR's post-merge record](https://github.com/charlieanna/autocode/pull/3996)
+keeps both the failed run and remaining custody/claim limitations explicit.
 The following post-merge checks used that exact runtime. Older pending entries
 below are historical and do not override these results.
 

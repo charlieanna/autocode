@@ -283,6 +283,8 @@ def apply_job(stage, state: RunState, value, record, workspace, run_dir=None, ru
                 tests,
                 command=command_policy.configured_targeted(state.get("settings"), tests)
                 or _planned_go_targeted(state, tests),
+                # Which original-code failures count as evidence depends on the task, as in the regression proof.
+                new_behavior=goals.task_kind(state) != "bugfix",
             ),
             send_back=lambda body, changes: send_back_plan(state, body, changes, record),
         )

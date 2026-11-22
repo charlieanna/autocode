@@ -218,6 +218,83 @@ class IncompleteCheckOutcomeTests(unittest.TestCase):
                 self.assertIs(written, receipt["results_file_written"])
                 self.assertEqual(outcome, check_outcome.classify(receipt)["outcome"])
 
+    def test_pytest_result_capture_is_bound_to_the_runner_receipt(self):
+        import subprocess
+        import sys
+
+        import autocode_verification_schedule as schedule
+        import autocode_verify as verify
+
+        if subprocess.run([sys.executable, "-c", "import pytest"], capture_output=True).returncode:
+            self.skipTest("pytest is not installed")
+        (self.root / "tests").mkdir()
+        (self.root / "tests" / "test_a.py").write_text("def test_one():\n    assert False, 'failure detail'\n")
+        command = f"{sys.executable} -m pytest -q tests"
+        evidence = self.root / "evidence"
+        evidence.mkdir()
+        receipt = verify.run_suite(
+            verify.Framework("pytest", command), command, self.root, evidence, "suite", timeout=120
+        )
+        self.assertTrue(receipt["results_file_written"])
+        self.assertFalse(
+            schedule.results_capture_intact({key: value for key, value in receipt.items() if key != "results_capture"})
+        )
+        self.assertTrue(schedule.intact(receipt, root=evidence))
+        result_file = Path(receipt["results_capture"]["path"])
+        self.assertTrue(result_file.is_file())
+        result_file.write_text("<testsuites/>")
+        self.assertFalse(schedule.intact(receipt, root=evidence))
+        result_file.unlink()
+        self.assertFalse(schedule.intact(receipt, root=evidence))
+        result_file.symlink_to(Path(receipt["output"]))
+        self.assertFalse(schedule.intact(receipt, root=evidence))
+
+    def test_unreadable_result_capture_does_not_crash_or_authorize_proof(self):
+        import subprocess
+        import sys
+        from unittest.mock import patch
+
+        import autocode_verification_schedule as schedule
+        import autocode_verify as verify
+
+        if subprocess.run([sys.executable, "-c", "import pytest"], capture_output=True).returncode:
+            self.skipTest("pytest is not installed")
+        (self.root / "test_a.py").write_text("def test_one():\n    assert True\n")
+        evidence = self.root / "evidence"
+        evidence.mkdir()
+        command = f"{sys.executable} -m pytest -q test_a.py"
+        file_hash = verify.util.file_hash
+
+        def hash_or_fail(path):
+            if str(path).endswith(".junit.xml"):
+                raise OSError("result file became unreadable")
+            return file_hash(path)
+
+        with patch.object(verify.util, "file_hash", side_effect=hash_or_fail):
+            receipt = verify.run_suite(
+                verify.Framework("pytest", command), command, self.root, evidence, "suite", timeout=120
+            )
+        self.assertFalse(schedule.intact(receipt, root=evidence))
+
+    def test_result_capture_handles_a_quoted_evidence_directory(self):
+        import subprocess
+        import sys
+
+        import autocode_verification_schedule as schedule
+        import autocode_verify as verify
+
+        if subprocess.run([sys.executable, "-c", "import pytest"], capture_output=True).returncode:
+            self.skipTest("pytest is not installed")
+        (self.root / "test_a.py").write_text("def test_one():\n    assert True\n")
+        evidence = self.root / "reviewer's results"
+        evidence.mkdir()
+        command = f"{sys.executable} -m pytest -q test_a.py"
+        receipt = verify.run_suite(
+            verify.Framework("pytest", command), command, self.root, evidence, "suite", timeout=120
+        )
+        self.assertTrue(receipt["results_file_written"])
+        self.assertTrue(schedule.results_capture_intact(receipt, root=evidence))
+
     def test_ac9_aborted_base_reports_incomplete_preservation_evidence(self):
         aborted = {"exit_code": 3, "timed_out": False, "tail": "INTERNALERROR> RuntimeError: plugin crashed"}
         base_suite = {

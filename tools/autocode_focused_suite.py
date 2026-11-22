@@ -23,6 +23,7 @@ and the caller never replaces it. This module only selects and describes; it run
 from __future__ import annotations
 
 import copy
+import re
 from pathlib import PurePosixPath
 
 try:
@@ -30,12 +31,14 @@ try:
     from . import autocode_plan_proof_command as plan_command
     from . import autocode_python_test_roles as policy
     from . import autocode_suite_definition_inputs as definition_inputs
+    from . import autocode_test_cases as test_cases
     from . import autocode_test_role_inventory as inventory
 except ImportError:
     import autocode_command_receipt as command_receipt
     import autocode_plan_proof_command as plan_command
     import autocode_python_test_roles as policy
     import autocode_suite_definition_inputs as definition_inputs
+    import autocode_test_cases as test_cases
     import autocode_test_role_inventory as inventory
 
 VERSION = 4
@@ -150,6 +153,34 @@ def _changed_and_named(base_files, changes, roles) -> set[str]:
     return tests
 
 
+def _plan_named_tests(base_files, roles, goal_contract, read) -> set[str]:
+    """Original test files that define a test the approved plan names in a ``test:`` or ``guard:`` criterion.
+
+    The proof looks for each named test by name (autocode_test_cases.match_cases), and a guard must pass on
+    the original code and with the change, so a focused suite that leaves its file out fails the guard as
+    "no test named ..." though the test is there and passes. A live self-build named guards in two test files
+    no changed product file was named after, and its proof failed four guards that way."""
+    if not isinstance(goal_contract, dict) or goal_contract.get("approval_status") != "approved":
+        return set()  # only an approved plan's names are trusted, as for its commands
+    names = sorted(
+        {case["test_name"] for case in test_cases.plan_cases(goal_contract.get("body")) if case.get("test_name")}
+    )
+    if not names or read is None:
+        return set()
+    pattern = re.compile(r"(?<![\w])(?:" + "|".join(map(re.escape, names)) + r")(?![\w])")
+    found = set()
+    for path in base_files:
+        if roles.role(path) != policy.TEST:
+            continue
+        try:
+            text = read(path)
+        except (OSError, ValueError, KeyError):
+            continue
+        if isinstance(text, str) and pattern.search(text):
+            found.add(path)
+    return found
+
+
 def _named_in_command(command: str, files: set[str]) -> set[str]:
     named = set(plan_command.test_files(command, files))
     words = command.split()
@@ -202,7 +233,10 @@ def candidates(
     if framework is None:
         return []
     base_files = frozenset(base_files)
-    changed_named = _changed_and_named(base_files, changes, roles)
+    # The plan's named tests run in every tier, the narrowest too: each is needed for the proof to pass.
+    changed_named = _changed_and_named(base_files, changes, roles) | _plan_named_tests(
+        base_files, roles, goal_contract, read
+    )
     approved_named = changed_named | _approved_plan_tests(base_files, roles, goal_contract)
     direct = approved_named | (_direct_importing_tests(base_files, changes, roles, read) if read is not None else set())
     full = direct | (_importing_tests(base_files, changes, roles, read) if read is not None else set())

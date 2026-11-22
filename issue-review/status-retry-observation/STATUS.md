@@ -1,5 +1,7 @@
 # Status and failed-job retry observation
 
+**Post-merge correction:** #4004 merged as `1644ee1ef948bb6b65161e166c652ad0604d5b97`, and its historical exact-head run `44887352303` subsequently failed the Ubuntu suite and `ci-required` despite its actual Linux editor checks passing. Later separately qualified follow-ups #4031, #4022, #4035 and #4041 do not change that failed historical result; wider #4005 cases remain open. See the [PR's post-merge record](https://github.com/charlieanna/autocode/pull/4004).
+
 ## Current #4009 qualification
 
 The production recovery correction is on master through #4014, whose required

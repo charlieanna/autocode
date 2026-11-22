@@ -2200,6 +2200,11 @@ GREETING_REFERENCE = (
     "4611627c9ef9c3b8ae32bb1b4946ae4fa3c735aff704dd160a92ff2dbbdc1e70",
     "52eccb4f679487a8e767237fb93d2418057ecf6deafdc79040b6789152fc5776",
 )
+# Identical greeting assertions with test-only imports moved into the two tests.
+GREETING_LOADABLE_REFERENCE = (
+    "4611627c9ef9c3b8ae32bb1b4946ae4fa3c735aff704dd160a92ff2dbbdc1e70",
+    "e4299f6a691ccd2cd73917b3f61b7175445b18cffe3f3e886a555078ab4dff52",
+)
 # capacity-recovery's broken/accepts-empty-name: the reference without the empty-name guard, and the
 # reference tests without test_cli_empty_name (which that product fails). Its scripted run must still
 # complete, so the scenario oracle, not the changed-line gate, is what catches the wrong delivery.
@@ -2227,7 +2232,7 @@ def _greeting(data, root):
         if tests is None:
             return []
         inputs = (digest, hashlib.sha256(tests.read_bytes()).hexdigest())
-        if inputs not in (GREETING_REFERENCE, GREETING_ACCEPTS_EMPTY_NAME):
+        if inputs not in (GREETING_REFERENCE, GREETING_LOADABLE_REFERENCE, GREETING_ACCEPTS_EMPTY_NAME):
             return []
     except OSError:
         return []
@@ -2247,7 +2252,7 @@ def _greeting(data, root):
     lines, accepted = source.decode().splitlines(), []
     capture = (
         _killed_capture(proof, "greet.py", digest, lines.index('    return f"Hello, {name}"') + 1)
-        if inputs == GREETING_REFERENCE
+        if inputs in (GREETING_REFERENCE, GREETING_LOADABLE_REFERENCE)
         else []
     )
     for row in (proof.get("changed_code_evidence") or {}).get("obligations") or []:

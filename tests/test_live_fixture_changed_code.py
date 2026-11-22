@@ -1,12 +1,15 @@
 """The handwritten greeting reviewer cannot waive unknown or weak fixtures."""
 
+import ast
 import contextlib
 import copy
 import hashlib
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import autocode_context as context
 import live_fixture_provider as fixture
@@ -38,6 +41,23 @@ class GreetingReasonsTests(unittest.TestCase):
     def decisions(self, data=None):
         with contextlib.chdir(self.root):
             return fixture._changed_code_reasons(data or self.data)
+
+    def test_loadable_host_fixture_preserves_assertions_and_rejects_changed_bytes(self):
+        class WithoutGreetingImports(ast.NodeTransformer):
+            def visit_ImportFrom(self, node):
+                return None if node.module == "greet" else node
+
+        original = WithoutGreetingImports().visit(ast.parse(fixture.TEST_GREET_PY))
+        loadable = WithoutGreetingImports().visit(ast.parse(fixture.TEST_GREET_LOADABLE))
+        self.assertEqual(ast.dump(original), ast.dump(loadable))
+        self.assertIn("from greet import greet\n", fixture.TEST_GREET_PY)
+        with patch.dict(os.environ, {"LIVE_FIXTURE_LOADABLE_TESTS": "1"}):
+            (self.root / "test_greet.py").write_text(fixture.TEST_GREET_LOADABLE)
+            self.assertTrue(self.decisions())
+            (self.root / "test_greet.py").write_text(fixture.TEST_GREET_LOADABLE + "# unknown modification\n")
+            self.assertEqual([], self.decisions())
+        with patch.dict(os.environ, {"LIVE_FIXTURE_LOADABLE_TESTS": "0"}):
+            self.assertEqual(fixture.TEST_GREET_PY, fixture._fixture_tests())
 
     def test_only_precise_known_declaration_and_unsupported_statement_reasons_are_given(self):
         decisions = self.decisions()

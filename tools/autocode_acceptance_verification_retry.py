@@ -201,7 +201,11 @@ def dispatch(runtime, state: RunState, stage, workspace, run_dir, *, apply):
         return record
     except (OSError, ValueError, KeyError) as error:
         if checking:
-            pending["failures"].append({"at": util.now(), "reason": str(error)})
+            failure = {"at": util.now(), "reason": str(error)}
+            original_reference = getattr(error, "original_reference", None)
+            if original_reference:
+                failure["original_reference"] = copy.deepcopy(original_reference)
+            pending["failures"].append(failure)
             runtime.write_json(Path(run_dir) / "state.json", state)
         # Existing bounded investigation owns machinery after the local retry.
         raise util.Paused(

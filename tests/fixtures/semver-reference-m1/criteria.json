@@ -1,0 +1,154 @@
+[
+  {
+    "criterion": "Given the new semver functions, when dumps_version(\"1.2.3-rc.1+007\") is called, then it returns exactly the string {\"major\":1,\"minor\":2,\"patch\":3,\"prerelease\":\"rc.1\",\"build\":\"007\"}; when dumps_version(Version(1, 2, 3)) is called, then it returns exactly {\"major\":1,\"minor\":2,\"patch\":3,\"prerelease\":null,\"build\":null}. Both outputs are single-line compact JSON with no whitespace, keys in the order major, minor, patch, prerelease, build, and all five keys always present; the optional fields are the strings \"rc.1\" and \"007\" when present and JSON null for a final release.",
+    "current_behavior": "semver 3.0.4 has no dumps_version; importing it from semver raises ImportError/AttributeError.",
+    "human_review": false,
+    "id": "AC1",
+    "sources": [
+      {
+        "quote": "dumps_version accepts a Version or a version string accepted by Version.parse.",
+        "source_id": "task:0"
+      },
+      {
+        "quote": "Emit a compact JSON object in the order major, minor, patch, prerelease, build.",
+        "source_id": "task:0"
+      },
+      {
+        "quote": "Always emit all five keys.",
+        "source_id": "task:0"
+      },
+      {
+        "quote": "For 1.2.3-rc.1+007 the optional fields are the strings \"rc.1\" and \"007\".",
+        "source_id": "task:0"
+      },
+      {
+        "quote": "For a final release both optional fields are JSON null.",
+        "source_id": "task:0"
+      }
+    ],
+    "supersedes": [],
+    "verification_method": "test: test_ac1_dumps_version_compact_five_key_output"
+  },
+  {
+    "criterion": "Given loads_version, when given the JSON text {\"major\":1,\"minor\":2,\"patch\":3,\"prerelease\":\"rc.1\",\"build\":\"007\"}, then it returns a Version with str(result) == \"1.2.3-rc.1+007\" (the full decoded string including build metadata, not bare Version equality, which ignores build metadata); when given loads_version(dumps_version(\"3.2.1\")), then it returns a Version with str(result) == \"3.2.1\"; when given {\"major\":1,\"minor\":2,\"patch\":3} or {\"major\":1,\"minor\":2,\"patch\":3,\"prerelease\":null,\"build\":null}, then it returns Version(1, 2, 3) with str \"1.2.3\"; when given loads_version(dumps_version(Version(9223372036854775808, 2, 3))) (major = 2**63), then it returns a Version with str(result) == \"9223372036854775808.2.3\" and major exactly 9223372036854775808. This is the manifest round trip: fields in, original version out.",
+    "current_behavior": "semver 3.0.4 has no loads_version; importing it raises ImportError/AttributeError.",
+    "human_review": false,
+    "id": "AC2",
+    "sources": [
+      {
+        "quote": "Add JSON interchange for a single python-semver Version so a release manifest can store its individual fields and reconstruct the original version.",
+        "source_id": "task:0"
+      },
+      {
+        "quote": "loads_version returns a Version.",
+        "source_id": "task:0"
+      },
+      {
+        "quote": "Run the full existing pytest suite including the documentation examples.Add JSON interchange for a single python-semver Version so a release manifest can store its individual fields and reconstruct the original version.",
+        "source_id": "task:0"
+      },
+      {
+        "quote": "In examples 3 and 7 compare the full decoded string or individual fields including build (e.g.",
+        "source_id": "answer:requirements-review-79c97cb0af3f59ec"
+      },
+      {
+        "quote": "str(result) == \"1.2.3-rc.1+007\"); Version equality ignores build metadata.",
+        "source_id": "answer:requirements-review-79c97cb0af3f59ec"
+      }
+    ],
+    "supersedes": [],
+    "verification_method": "test: test_ac2_loads_version_valid_and_round_trip"
+  },
+  {
+    "criterion": "Given loads_version, when given each of the following inputs, then it raises ValueError: {\"major\":true,\"minor\":2,\"patch\":3} (boolean); {\"major\":\"1\",\"minor\":2,\"patch\":3} (string number); {\"major\":1,\"minor\":2,\"patch\":1.5} (fractional); {\"major\":1,\"minor\":2,\"patch\":-1} (negative); {\"major\":1,\"patch\":3} (missing minor); {\"major\":1,\"minor\":2,\"patch\":3,\"extra\":1} (unknown key); {\"major\":1,\"minor\":2,\"patch\":3,\"major\":2} (duplicate key with all three required fields present, so only the duplicate triggers the error); the malformed text {\"major\":1, ending early; the non-object inputs [1,2,3], \"1.2.3\" and 3; {\"major\":1,\"minor\":2,\"patch\":3,\"prerelease\":\"rc.01\"} (invalid SemVer prerelease); {\"major\":1,\"minor\":2,\"patch\":3,\"build\":\"x y\"} (invalid SemVer build); {\"major\":1,\"minor\":2,\"patch\":3,\"prerelease\":\"\"} and {\"major\":1,\"minor\":2,\"patch\":3,\"build\":\"\"} (empty strings, not valid identifier sequences); and {\"major\":1,\"minor\":2,\"patch\":3,\"prerelease\":\"rc.1+007\"} (plus sign inside a prerelease, which must not be split into prerelease plus build).",
+    "current_behavior": "semver 3.0.4 has no loads_version; importing it raises ImportError/AttributeError.",
+    "human_review": false,
+    "id": "AC3",
+    "sources": [
+      {
+        "quote": "The three number fields are required nonnegative JSON integers; booleans, strings and fractional numbers are invalid.",
+        "source_id": "task:0"
+      },
+      {
+        "quote": "Optional fields may be missing or null, otherwise they must be valid SemVer prerelease/build strings.",
+        "source_id": "task:0"
+      },
+      {
+        "quote": "Reject unknown or duplicate keys, malformed JSON and non-object inputs with ValueError.",
+        "source_id": "task:0"
+      },
+      {
+        "quote": "In example 5 use {\"major\":1,\"minor\":2,\"patch\":3,\"major\":2} for duplicate keys, so a missing field cannot make that test pass accidentally.",
+        "source_id": "answer:requirements-review-79c97cb0af3f59ec"
+      },
+      {
+        "quote": "Keep the corrected duplicate and full-build controls.",
+        "source_id": "feedback:feedback-27b172693b14"
+      }
+    ],
+    "supersedes": [],
+    "verification_method": "test: test_ac3_loads_version_rejects_invalid_inputs"
+  },
+  {
+    "criterion": "Given dumps_version, when called with the string \"1.2\" (which Version.parse rejects), then it raises ValueError; when called with 42 (neither a Version nor a string), then it raises TypeError; and when called with the bytes b\"1.2.3\", then it raises TypeError, because dumps_version accepts str or Version only, even though Version.parse itself accepts bytes.",
+    "current_behavior": "semver 3.0.4 has no dumps_version; importing it raises ImportError/AttributeError.",
+    "human_review": false,
+    "id": "AC4",
+    "sources": [
+      {
+        "quote": "dumps_version accepts a Version or a version string accepted by Version.parse.",
+        "source_id": "task:0"
+      },
+      {
+        "quote": "Second, dumps_version accepts str or Version only.",
+        "source_id": "feedback:feedback-27b172693b14"
+      },
+      {
+        "quote": "bytes such as b'1.2.3' must raise TypeError even though Version.parse itself accepts bytes.",
+        "source_id": "feedback:feedback-27b172693b14"
+      }
+    ],
+    "supersedes": [],
+    "verification_method": "test: test_ac4_dumps_version_rejects_invalid_input"
+  },
+  {
+    "criterion": "Given the Version methods: Version.parse(\"1.2.3\").to_json() returns exactly dumps_version(\"1.2.3\"); for any valid JSON text t accepted by loads_version, str(Version.from_json(t)) == str(loads_version(t)), comparing the full decoded string or the individual fields including build (e.g. \"1.2.3-rc.1+007\"), not bare Version equality; and for every invalid text t listed in AC3, Version.from_json(t) raises the same exception type as loads_version(t).",
+    "current_behavior": "Version in 3.0.4 has no to_json/from_json attributes; calling them raises AttributeError.",
+    "human_review": false,
+    "id": "AC5",
+    "sources": [
+      {
+        "quote": "Also expose Version.to_json() and Version.from_json(text).",
+        "source_id": "task:0"
+      },
+      {
+        "quote": "The public methods and module functions must agree.",
+        "source_id": "task:0"
+      },
+      {
+        "quote": "In examples 3 and 7 compare the full decoded string or individual fields including build (e.g.",
+        "source_id": "answer:requirements-review-79c97cb0af3f59ec"
+      },
+      {
+        "quote": "str(result) == \"1.2.3-rc.1+007\"); Version equality ignores build metadata.",
+        "source_id": "answer:requirements-review-79c97cb0af3f59ec"
+      }
+    ],
+    "supersedes": [],
+    "verification_method": "test: test_ac5_version_json_methods_agree"
+  },
+  {
+    "criterion": "Given the semver package, when executing from semver import dumps_version, loads_version, then both resolve and are callable; the names \"dumps_version\" and \"loads_version\" appear in semver.__all__; and both are importable from the dedicated library module under src/semver/ that defines them (for example via importlib.import_module(semver.dumps_version.__module__)).",
+    "current_behavior": "semver.__all__ in 3.0.4 contains no dumps_version/loads_version; importing them from the package root raises ImportError.",
+    "human_review": false,
+    "id": "AC6",
+    "sources": [
+      {
+        "quote": "Export semver.dumps_version(value) and semver.loads_version(text) from a dedicated library module and the package root.",
+        "source_id": "task:0"
+      }
+    ],
+    "supersedes": [],
+    "verification_method": "test: test_ac6_package_exports"
+  }
+]

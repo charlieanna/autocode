@@ -11,6 +11,7 @@ try:
     from . import autocode_changed_tests as changed_tests
     from . import autocode_project_inventory as project_inventory
     from . import autocode_project_kinds as project_kinds
+    from . import autocode_test_setup as test_setup
     from . import autocode_test_support as test_support
     from . import autocode_util as util
     from . import autocode_verification_schedule as schedule
@@ -18,6 +19,7 @@ except ImportError:
     import autocode_changed_tests as changed_tests
     import autocode_project_inventory as project_inventory
     import autocode_project_kinds as project_kinds
+    import autocode_test_setup as test_setup
     import autocode_test_support as test_support
     import autocode_util as util
     import autocode_verification_schedule as schedule
@@ -49,6 +51,21 @@ def contains_go_project(paths) -> bool:
         if name.name in ("go.mod", "go.work") or name.suffix == ".go":
             return True
     return False
+
+
+def pristine_document_only(run, document_only_base) -> bool:
+    """Use the same pinned-base observation for first-suite proof and preservation."""
+    return bool(
+        run.test_root is None
+        and not run.base_patch
+        and document_only_base(
+            run.workspace,
+            run.base,
+            dependencies_from=run.dependencies_from,
+            independent=run.independent_dependencies,
+            ignored_inputs=run.ignored_inputs,
+        )
+    )
 
 
 # Project, dependency and license manifests: data naming tools and versions,
@@ -511,7 +528,9 @@ def reloaded(run, on_candidate) -> list[str]:
         return []
     if not changed_tests.inline_tests_kept(run.workspace, run.base, run.changes):
         return []
-    return loaded(run.base_suite["receipt"]["results"], candidate, gone, added)
+    result = loaded(run.base_suite["receipt"]["results"], candidate, gone, added)
+    targeted = set(((run.checks.get("regression_on_base") or {}).get("results") or {}).get("skipped") or ())
+    return [test for test in result if test not in targeted]
 
 
 def reloads(run, trees, run_suite) -> list[str]:
@@ -631,10 +650,13 @@ def repaired_by_flip(base_suite, on_base_with_tests, on_candidate):
     if not (base.get("complete") and candidate.get("complete")):
         return []
     base_results = ((base_suite or {}).get("receipt") or {}).get("results") or {}
+    # A repair's flip is evidence of a bug fixed, so it reads the shared setup-error answer's bug-fix rule.
     ran_and_failed = (
         set(base.get("failed") or [])
         - set(base.get("collection_errors") or [])
-        - set((base.get("setup_errors") or {}).keys())
+        - set(base.get("uncollected") or [])
+        - set(base.get("skipped") or [])
+        - set(test_setup.not_evidence(base, new_behavior=False))
     )
     return sorted(set(base_results.get("failed") or []) & ran_and_failed & set(candidate.get("passed") or []))
 

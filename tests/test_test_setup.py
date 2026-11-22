@@ -20,6 +20,7 @@ from pathlib import Path
 
 import autocode_test_setup as test_setup
 import autocode_verify as verify
+import autocode_verify_judgment as judgment
 
 TREE = "/project-545"
 RULE, SEPARATOR = "-" * 70, "=" * 70
@@ -238,6 +239,143 @@ class StockUnittestOutputTests(unittest.TestCase):
         self.assertTrue(quoted_footer < APP_FRAME.search(output).start() < footer)
         self.assertEqual(["tests.test_quotes_a_run.O.test_quotes_a_run"], results["failed"])
         self.assertIsNone(results.get("setup_errors"))
+
+
+SELECTED = "tests.test_feature.Feature.test_ac1_answer"
+UNITTEST_UNLOADED = "unittest.loader._FailedTest.test_feature"
+
+
+def base_results(*, failed=(), unloaded=(), setup=None, complete=True):
+    ids = sorted({*failed, *unloaded})
+    results = {
+        "passed": [],
+        "failed": ids,
+        "skipped": [],
+        "collection_errors": sorted(unloaded),
+        "uncollected": sorted(unloaded),
+        "total": len(ids),
+        "complete": complete,
+    }
+    if setup:
+        results["setup_errors"] = setup
+    return results
+
+
+class SharedSetupAnswerTests(unittest.TestCase):
+    """One answer for "is this base failure a setup error that cannot count as evidence" (#3926)."""
+
+    def test_new_behavior_does_not_count_an_unrelated_missing_dependency_as_a_behavioral_failure(self):
+        reason = "The test could not import its dependency on base: No module named 'external_dependency'"
+        results = base_results(failed=[SELECTED], setup={SELECTED: reason})
+        self.assertEqual({SELECTED: reason}, test_setup.not_evidence(results, new_behavior=True))
+
+    def test_setup_errors_remain_excluded_for_both_task_kinds(self):
+        reason = "The test could not import its dependency on base: cannot import name 'dumps_version'"
+        results = base_results(failed=[SELECTED], setup={SELECTED: reason})
+        self.assertEqual({SELECTED: reason}, test_setup.not_evidence(results, new_behavior=False))
+        self.assertEqual({SELECTED: reason}, test_setup.not_evidence(results, new_behavior=True))
+        self.assertEqual({}, test_setup.not_evidence(base_results(failed=[SELECTED]), new_behavior=False))
+        self.assertEqual({}, test_setup.not_evidence(None, new_behavior=False))
+
+
+class RegressionImportJudgmentTests(unittest.TestCase):
+    def judge(self, base, *, new_behavior=True, **kwargs):
+        candidate = {
+            "exit_code": 0,
+            "timed_out": False,
+            "results_expected": True,
+            "results": {"passed": [SELECTED], "failed": [], "skipped": [], "total": 1, "complete": True},
+        }
+        original = {"exit_code": 1, "timed_out": False, "results": base}
+        failed, unverified, notes, proof, reviews = [], [], [], {}, []
+        judgment.judge_regression(
+            candidate,
+            original,
+            failed,
+            unverified,
+            notes,
+            proof,
+            reviews,
+            known_failures=lambda: set(),
+            new_behavior=new_behavior,
+            **kwargs,
+        )
+        return failed, unverified, proof
+
+    def test_unrelated_missing_dependency_cannot_prove_a_new_feature(self):
+        reason = "The test could not import its dependency on base: No module named 'external_dependency'"
+        failed, unverified, proof = self.judge(base_results(failed=[SELECTED], setup={SELECTED: reason}))
+        self.assertEqual([], proof["fail_to_pass"])
+        self.assertTrue(failed or unverified)
+
+    def test_unobserved_unloaded_test_cannot_prove_a_new_feature(self):
+        failed, unverified, proof = self.judge(base_results(unloaded=[UNITTEST_UNLOADED]))
+        self.assertEqual([], proof["fail_to_pass"])
+        self.assertTrue(failed or unverified)
+
+    def test_collection_failure_sharing_a_test_id_cannot_prove_it_ran(self):
+        failed, unverified, proof = self.judge(base_results(unloaded=[SELECTED]))
+        self.assertEqual([], proof["fail_to_pass"])
+        self.assertEqual([SELECTED], proof["not_run_on_base"])
+        self.assertTrue(failed or unverified)
+
+    def test_contradictory_skipped_and_failed_result_is_not_a_proof(self):
+        base = base_results(failed=[SELECTED])
+        base["skipped"] = [SELECTED]
+        failed, unverified, proof = self.judge(base)
+        self.assertEqual([], proof["fail_to_pass"])
+        self.assertEqual([SELECTED], proof["not_run_on_base"])
+        self.assertTrue(failed or unverified)
+
+    def test_first_suite_exception_does_not_count_skipped_tests(self):
+        base = base_results(unloaded=[UNITTEST_UNLOADED])
+        base["skipped"] = [SELECTED]
+        failed, unverified, proof = self.judge(base, absent_first_suite=True)
+        self.assertEqual([], proof["fail_to_pass"])
+        self.assertEqual([SELECTED], proof["not_run_on_base"])
+        self.assertTrue(failed or unverified)
+
+    def test_unloadable_repair_does_not_count_a_skipped_targeted_test(self):
+        base = base_results(unloaded=[UNITTEST_UNLOADED])
+        base["skipped"] = [SELECTED]
+        failed, unverified, proof = self.judge(base, new_behavior=False, reloaded=lambda: [SELECTED])
+        self.assertEqual([], proof["fail_to_pass"])
+        self.assertEqual([SELECTED], proof["not_run_on_base"])
+        self.assertTrue(failed or unverified)
+
+
+class PytestOuterFailureTests(unittest.TestCase):
+    def test_nested_import_stderr_is_not_the_outer_assertion_exception(self):
+        with tempfile.TemporaryDirectory(prefix="pytest-outer-failure-") as directory:
+            root = Path(directory).resolve()
+            test = root / "test_outer.py"
+            test.write_text(
+                "import subprocess, sys\n"
+                "def test_assertion_with_nested_import():\n"
+                "    child = subprocess.run([sys.executable, '-c', 'import missing_child_3926'], "
+                "capture_output=True, text=True)\n"
+                "    assert child.returncode == 0, child.stderr\n"
+                "def test_outer_import_with_assertion_in_message():\n"
+                "    raise ImportError('AssertionError: a message, not the outer exception')\n"
+                "def test_missing_external_dependency():\n"
+                "    import missing_external_3926\n"
+            )
+            result = root / "results.xml"
+            log = root / "pytest.log"
+            command = [sys.executable, "-m", "pytest", "-v", str(test), f"--junitxml={result}"]
+            with log.open("w") as output:
+                subprocess.run(command, cwd=root, stdout=output, stderr=subprocess.STDOUT, check=False, timeout=30)
+            parsed = verify.per_test_results(
+                verify.Framework("pytest", "python -m pytest -v test_outer.py"),
+                {"output": str(log)},
+                result,
+                tree=root,
+            )
+            setup = parsed.get("setup_errors", {})
+            self.assertNotIn("test_outer::test_assertion_with_nested_import", setup)
+            self.assertIn("test_outer::test_outer_import_with_assertion_in_message", setup)
+            self.assertIn("test_outer::test_missing_external_dependency", setup)
+            self.assertEqual(3, len(parsed["failed"]))
 
 
 if __name__ == "__main__":
