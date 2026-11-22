@@ -63,6 +63,12 @@ def _worker(request):
         except admission.RetryConfigurationChanged as error:
             config_error = str(error)
         except (ValueError, OSError, KeyError, TypeError, util.Paused) as error:
+            if (state.get("settings") or {}).get("replay_recording"):
+                return {
+                    "allowed": False,
+                    "replay_unavailable": True,
+                    "reason": "The recorded job action is unavailable",
+                }
             return {"allowed": False, "reason": str(error)}
         if (state.get("settings") or {}).get("replay_recording"):
             return _replay_job(state, payload, config_error)

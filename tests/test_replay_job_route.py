@@ -88,6 +88,23 @@ class ReplayStoppedJobTests(unittest.TestCase):
             ):
                 with self.assertRaisesRegex(recording.RecordingError, "does not preserve the original effort"):
                     replay_job_action.answer(state, state, workspace, "architect", "gpt-6-luna", None)
+            # An intermediate model is not the final dispatch; this unsupported
+            # synthetic chain must hold rather than applying an inferred route.
+            multi = copy.deepcopy(tape.document)
+            intermediate = copy.deepcopy(multi["actions"][0])
+            intermediate["payload"]["model"] = "gpt-6-astra"
+            multi["actions"][0]["match"]["route"]["current_model"] = "gpt-6-astra"
+            multi["actions"].insert(0, intermediate)
+            candidate = copy.deepcopy(state)
+            candidate["settings"]["roles"]["architect"].update(model="gpt-6-astra", reasoning_effort="medium")
+            with (
+                mock.patch.object(
+                    replay_job_action.transport, "selected", return_value=dataclasses.replace(tape, document=multi)
+                ),
+                mock.patch.object(replay_job_action.recording, "verify_source"),
+            ):
+                with self.assertRaisesRegex(recording.RecordingError, "model differs"):
+                    replay_job_action.answer(state, candidate, workspace, "architect", "gpt-6-astra", "medium")
             for key in ("route_role", "engine", "current_model", "cause", "stopped_model"):
                 with self.subTest(saved_route=key):
                     changed_state = copy.deepcopy(state)
@@ -106,8 +123,23 @@ class ReplayStoppedJobTests(unittest.TestCase):
                 source.write_bytes(source_bytes + b"\n# changed after the recorded stop\n")
                 with self.assertRaises(recording.RecordingError):
                     replay_job_action.next_action(state, workspace)
+                held = replay.status()
+                self.assertEqual("replay_stopped", held["needs"]["kind"])
+                self.assertIsNone(held["next_command"])
             finally:
                 source.write_bytes(source_bytes)
+            # Fixture-only damaged checkpoint: a missing source pin cannot offer
+            # a retry or ask for a new model either.
+            missing_source = copy.deepcopy(state)
+            missing_source["job_failure"]["source_identity"] = None
+            checkpoint.write_text(json.dumps(missing_source))
+            try:
+                held = replay.status()
+                self.assertEqual("continue", held["needs"]["kind"])
+                self.assertNotIn("--answer", held["next_command"])
+                self.assertNotIn("--retry-failed-stage", held["next_command"])
+            finally:
+                checkpoint.write_text(json.dumps(state))
             changed_state = copy.deepcopy(state)
             changed_state["job_failure"]["stage"] = "foreign"
             with self.assertRaises(recording.RecordingError):

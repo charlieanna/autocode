@@ -1579,6 +1579,7 @@ def needs(
                     "kind": "replay_stopped",
                     "stage": failure["stage"],
                     "reason": "Replay cannot continue from the recorded job actions.",
+                    "resume_unavailable": "Replay cannot continue from the recorded job actions.",
                     "action": None,
                 }
             replay_action = admission.get("replay_action")
@@ -1589,7 +1590,11 @@ def needs(
                 elif replay_action.get("kind") == "retry_job":
                     flags = ["--resume-paused", "--retry-failed-stage", "--job-retry-token", "-"]
                 else:
-                    return {"kind": "replay_stopped", "reason": "Replay has no valid recorded job action."}
+                    return {
+                        "kind": "replay_stopped",
+                        "reason": "Replay has no valid recorded job action.",
+                        "resume_unavailable": "Replay has no valid recorded job action.",
+                    }
                 return {
                     "kind": "continue",
                     "stage": failure["stage"],
