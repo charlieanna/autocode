@@ -361,6 +361,9 @@ def replay_parts(command, changed, workspace, *, detected=True, homes=None) -> l
     return [*([single] if single else []), *sorted(set(placed.values()))]
 
 
+ATTEMPTS = ("candidate", "original", "original_recheck")
+
+
 def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=None):
     """Run the changed original tests on the candidate and with the original tests overlaid.
 
@@ -429,7 +432,11 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=N
             return run_check(
                 label,
                 execute,
-                policy={**policy, "command": part},
+                policy={
+                    **policy,
+                    "command": part,
+                    **({"timeout_seconds": timeout_seconds} if label == "original-recheck" else {}),
+                },
                 accepted_failure=lambda row: superseded_tests.excused(row, replaced, changed) is not None,
             )
 

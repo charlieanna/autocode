@@ -16,9 +16,15 @@ except ImportError:
 
 
 def _named(receipt, root):
-    if not isinstance(receipt, dict) or not schedule.intact(receipt, root=root):
+    if not isinstance(receipt, dict):
         return None
-    if not schedule.complete_results(receipt):
+    if "scheduling" in receipt:
+        # The report-local pair receipt points to an exact scheduler attempt
+        # under check-replay/obligations, outside the pair's own directory.
+        if len(root.parents) < 3 or root.parent.name != "protected-tests" or root.parents[2].name != "check-replay":
+            return None
+        root = schedule.authenticated_attempt(receipt, root.parents[2] / "obligations")
+    if root is None or not schedule.intact(receipt, root=root) or not schedule.complete_results(receipt):
         return None
     results = node.bound_results(receipt, root)
     return results if results == receipt.get("results") else None

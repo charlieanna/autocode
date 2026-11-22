@@ -15,3 +15,20 @@ refused. Three actual local Node 22 comparisons passed, including build reuse,
 recovery after cancellation and a real failure found on recheck. The adjacent
 reporter, architecture and editor qualification still need to finish. The
 shared source-link boundary is outside this change.
+
+The full public CLI preflight found a difference from direct replay. The
+Tester scheduler puts captures in an obligation's exact published attempt
+directory, outside the pair's report directory. The new case fails on the
+previous candidate and passes once the scheduler's immutable receipt binds
+the capture, command and per-test rows. Completion rechecks both attempts
+and their captured reports. A modified scheduler receipt or report holds.
+The retry's remaining time and execution are included in its scheduling
+record and summary. All 32 focused Node, reuse and architecture tests pass,
+along with full Ruff and mypy.
+
+The updated offline fixture reaches the real protected replay and passes
+its named regression proof. It subsequently holds at changed-line evidence
+because the fixture's npm build chain cannot supply a proving-test mutation
+selection. That fixture will need its exact scripted Tester judgment or a
+demonstrated mutation selection before the editor can verify completion.
+The actual VS Code outcome and required CI are still outstanding.

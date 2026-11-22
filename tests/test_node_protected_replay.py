@@ -6,7 +6,9 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
+import autocode_check_replay as check_replay
 import autocode_protected_oracles as guard
+import autocode_util as util
 import autocode_verify as verify
 
 from . import test_superseded_tests as fixture
@@ -86,6 +88,40 @@ class NodeProtectedReplayTests(unittest.TestCase):
         capture = Path(result["original_recheck"]["node_capture"]["path"])
         capture.write_bytes(capture.read_bytes() + b"\n")
         self.assertFalse(guard.ready(self.state, result["source_revision"]))
+
+    def test_scheduled_replay_binds_the_original_and_recheck_attempts(self):
+        original = fixture.JS_ORIGINAL.replace("test('a fifty dollar order pays the fee', () => {\n", HANG_ON_FIX)
+        root = self.prepare(original)
+        events = self.run_dir / "tester.events.jsonl"
+        events.write_text('{"type": "fixture Tester execution"}\n')
+
+        def identity(workspace, **_kwargs):
+            return {"source_revision": util.snapshot(workspace)["revision"], "reuse_supported": False}
+
+        proof = check_replay.replay(
+            [],
+            root,
+            self.run_dir,
+            {"stage": "tester", "events": str(events), "source_revision": identity(root)["source_revision"]},
+            verify.scratch_run,
+            timeout=60,
+            approved_state=self.state,
+            execution_identity=identity,
+        )
+        self.state["validation"] = {"check_replay": proof}
+        pair = proof["protected_tests"]
+        self.assertEqual("PASS", pair["verdict"])
+        self.assertGreater(proof["scheduling"]["executed_count"], 2)
+        self.assertEqual("execute", pair["original_recheck"]["scheduling"]["action"])
+        self.assertTrue(guard.ready(self.state, proof["source_revision"]))
+        path = Path(pair["original_recheck"]["scheduling"]["receipt"])
+        pins = check_replay.evidence_pins(proof)
+        for name in ("original", "original_recheck"):
+            capture = pair[name]["node_capture"]
+            self.assertEqual(capture["sha256"], pins[capture["path"]])
+        self.assertEqual(pair["original_recheck"]["scheduling"]["receipt_sha256"], pins[str(path)])
+        path.write_bytes(path.read_bytes() + b"\n")
+        self.assertFalse(guard.ready(self.state, proof["source_revision"]))
 
     def test_an_actual_failure_after_cancellation_is_not_excused(self):
         original = fixture.JS_ORIGINAL.replace("test('a fifty dollar order pays the fee', () => {\n", HANG_ON_FIX)
