@@ -1903,7 +1903,22 @@ def _prove_regression(run: _Run, trees, test_changes, *, no_go_project, no_junit
         review_reasons,
         new_behavior=new_behavior,
         compiled_framework=framework.name if framework is not None else None,
-        absent_first_suite=judgment.first_suite_absent(base_suite, base, commands["suite"]),
+        absent_first_suite=judgment.first_suite_absent(
+            base_suite,
+            base,
+            commands["suite"],
+            document_only=lambda: (
+                run.test_root is None
+                and not base_patch
+                and _document_only_base(
+                    workspace,
+                    base,
+                    dependencies_from=dependencies_from,
+                    independent=run.independent_dependencies,
+                    ignored_inputs=ignored_inputs,
+                )
+            ),
+        ),
         preserve_only=preserve,
         absent_first_go=first_go_proved,
         absent_junit_base=no_junit_project

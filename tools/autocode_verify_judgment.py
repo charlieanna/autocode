@@ -41,16 +41,23 @@ UNLOADABLE = (
 )
 
 
-def first_suite_absent(base_suite, base, command):
-    """Accept only the matching completed baseline's own no-suite observation."""
+def first_suite_absent(base_suite, base, command, *, document_only=None):
+    """Accept only the matching completed baseline, and a base that had no suite to run.
+
+    The base had none when its own receipt says so (``first_suite.no_base_suite``), or when its pinned
+    inventory holds no behavior (``document_only``, the observation the preservation check reads,
+    ``_document_only_base``): a runner's exit on a project that does not exist yet (npm 254 with no
+    package.json, unittest 1 with no test directory) varies by runner and is not what is judged.
+    """
+    receipt = (base_suite or {}).get("receipt") or {}
     return bool(
         base
         and command
         and base_suite
         and base_suite.get("base") == base
         and base_suite.get("command") == command
-        and command_receipt.completed(base_suite.get("receipt") or {})
-        and first_suite.no_base_suite(base_suite.get("receipt") or {})
+        and command_receipt.completed(receipt)
+        and (first_suite.no_base_suite(receipt) or (document_only is not None and document_only()))
     )
 
 

@@ -30,6 +30,29 @@ class CompiledFeatureEvidenceTests(unittest.TestCase):
             )
         )
 
+    def test_a_document_only_base_has_no_suite_whatever_the_runner_exits(self):
+        # npm exits 254 when the base has no package.json; that exit is the runner's, not an observed suite.
+        receipt = {"results_expected": False, "results": None, "exit_code": 254, "timed_out": False}
+        baseline = {"base": "pinned", "command": "npm test --silent", "receipt": receipt}
+        self.assertFalse(judgment.first_suite_absent(baseline, "pinned", "npm test --silent"))
+        self.assertFalse(
+            judgment.first_suite_absent(baseline, "pinned", "npm test --silent", document_only=lambda: False)
+        )
+        self.assertTrue(
+            judgment.first_suite_absent(baseline, "pinned", "npm test --silent", document_only=lambda: True)
+        )
+        self.assertFalse(
+            judgment.first_suite_absent(baseline, "other", "npm test --silent", document_only=lambda: True)
+        )
+        self.assertFalse(
+            judgment.first_suite_absent(
+                {**baseline, "receipt": {**receipt, "supervision_errors": []}},
+                "pinned",
+                "npm test --silent",
+                document_only=lambda: True,
+            )
+        )
+
     def test_go_build_failure_is_bound_to_its_exact_package(self):
         base = {
             "passed": [],
