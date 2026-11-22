@@ -15,6 +15,8 @@ Both new assertions failed on pre-change master `b06e3d4268`. All four focused
 fixture and stock cleanup cases pass. The extension build succeeded, and its
 unit and webview selection passed 806 tests with 22 explicit skips.
 
-Exact-candidate actual macOS execution with the normally inherited `TMPDIR`
-and GitHub required CI are pending. The earlier actual macOS pass used the
-short-root workaround on the proof-gates checkout.
+The actual macOS VS Code Extension Host passed the first-Go end-to-end test
+on product-equivalent commit `e69d87bc7`, with the normal inherited per-user
+`TMPDIR`, the shared helper selecting the private profile root, and normal
+owned cleanup. Ruff and mypy (999 files) passed. GitHub required CI is
+pending. The evidence log is `/private/tmp/autocode-mac-socket-root-exact-host.log`.
