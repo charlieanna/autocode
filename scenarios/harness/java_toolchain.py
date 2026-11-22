@@ -16,6 +16,7 @@ import shlex
 import shutil
 import subprocess
 import tarfile
+import time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -31,6 +32,8 @@ JDK_URL = (
     "OpenJDK17U-jdk_aarch64_mac_hotspot_17.0.16_8.tar.gz"
 )
 JDK_SHA256 = "f9845abc8403f1d489402201064e7b9f2c57605d8717b85a95a15d94f882eeb7"
+MAVEN_SETUP_SECONDS = 300
+MAVEN_RETRY_DELAYS = (5, 20)
 
 
 def archive(root: Path, url: str, digest: str, algorithm: str) -> Path:
@@ -55,6 +58,44 @@ def unpack(source: Path, root: Path) -> None:
         packed.extractall(root, filter="data")
 
 
+def warm_repository(command: list[str], project: Path, environment: dict[str, str], log: Path) -> None:
+    deadline = time.monotonic() + MAVEN_SETUP_SECONDS
+    output = ""
+    exit_code = None
+    # Maven may cache an earlier transfer failure. Force it to recheck missing
+    # releases on a retry, under the same seed test and the same overall deadline.
+    retry_command = [command[0], "-U", *command[1:]]
+    for delay in (0, *MAVEN_RETRY_DELAYS):
+        if deadline - time.monotonic() <= delay:
+            break
+        if delay:
+            time.sleep(delay)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        result = subprocess.run(
+            retry_command if delay else command,
+            cwd=project,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=remaining,
+        )
+        exit_code = result.returncode
+        latest = result.stdout + result.stderr
+        if delay:
+            output += f"\n[Maven retried dependency warmup after HTTP 429, delay {delay}s]\n"
+        output += latest
+        log.write_text(output)
+        if exit_code == 0:
+            return
+        if not any(
+            "Could not transfer artifact" in line and "status code: 429" in line for line in latest.splitlines()
+        ):
+            break
+    raise RuntimeError(f"Pinned Maven setup exited {exit_code}; see {log}\n" + output)
+
+
 def prepare(root: Path, *, install_jdk: bool = False) -> dict:
     root = root.resolve()
     root.mkdir(parents=True, exist_ok=True)
@@ -71,10 +112,12 @@ def prepare(root: Path, *, install_jdk: bool = False) -> dict:
             unpack(archive(root, JDK_URL, JDK_SHA256, "sha256"), root)
     else:
         java_home = os.environ.get("JAVA_HOME")
-        executable = shutil.which("javac")
-        if not java_home and not executable:
+        if java_home:
+            java = Path(java_home).resolve()
+        elif executable := shutil.which("javac"):
+            java = Path(executable).resolve().parent.parent
+        else:
             raise ValueError("Supply a Java 17 JDK or use --install-jdk on macOS arm64")
-        java = Path(java_home).resolve() if java_home else Path(executable).resolve().parent.parent
     subprocess.run([str(java / "bin/javac"), "-version"], check=True, capture_output=True, text=True, timeout=15)
     bindir = root / "bin"
     bindir.mkdir(exist_ok=True)
@@ -105,12 +148,7 @@ def prepare(root: Path, *, install_jdk: bool = False) -> dict:
     # Execute the real seed's guard, resolving the pinned compiler, engine and
     # Surefire provider too. dependency:go-offline alone can miss that provider.
     command = [str(wrapper), "-B", "-q", "-Dtest=PageCountTest", "test"]
-    result = subprocess.run(command, cwd=prime, env=environment, capture_output=True, text=True, timeout=300)
-    (root / "setup.log").write_text(result.stdout + result.stderr)
-    if result.returncode:
-        raise RuntimeError(
-            f"Pinned Maven setup exited {result.returncode}; see {root / 'setup.log'}\n" + result.stdout + result.stderr
-        )
+    warm_repository(command, prime, environment, root / "setup.log")
     metadata = {
         "bin": str(bindir),
         "java_home": str(java),
