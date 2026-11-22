@@ -3,11 +3,10 @@ const assert = require('node:assert/strict');
 const {randomUUID} = require('node:crypto');
 const {spawnSync} = require('node:child_process');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const {test} = require('node:test');
 const {openHistoryRow} = require('./open-history.cjs');
-const {settleFixture} = require('../owned-fixture-cleanup.cjs');
+const { privateHostRoot, settleFixture } = require('../owned-fixture-cleanup.cjs');
 
 const EXTENSION = path.resolve(__dirname, '../..');
 const REPO = path.resolve(EXTENSION, '..');
@@ -33,7 +32,7 @@ async function executable() {
 }
 
 test('editor approves a plan and shows an unresolved classification as a stopped outcome', {timeout: 600_000, skip: process.platform !== 'linux'}, async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'autocode-classification-host-'));
+  const root = privateHostRoot('autocode-classification-host-');
   const tempDir = path.join(root, 'tmp'); fs.mkdirSync(tempDir);
   const reads = path.join(root, 'reads'); fs.writeFileSync(reads, '');
   const env = {...process.env, TMPDIR: tempDir, AUTOCODE_SOURCE_HOST: '0'};

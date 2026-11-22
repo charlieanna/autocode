@@ -325,6 +325,7 @@ function execute(
 }
 
 const CAPABILITY_NOTICE = "autocode: dropped CAP_SYS_PTRACE and CAP_SYS_ADMIN for this invocation";
+const PROCESS_CHECK_DIAGNOSTIC = /^Process check for PID \d+: evidence=(?:exact-arguments|unconfirmed) category=(?:provider-command|possible-runner|unknown) status-option=(?:absent|present|unknown)$/;
 
 function withoutCapabilityNotice(text: string): string {
   return text.split("\n").filter((line) => line.replace(/\r$/, "") !== CAPABILITY_NOTICE).join("\n");
@@ -358,7 +359,9 @@ export async function readStatus<T>(options: CliOptions, workspace: string, runD
  * reads only the why, so the usage line and the prefix are dropped; the core's words are kept.
  */
 export function tail(result: CliResult): string {
-  const text = withoutCapabilityNotice(result.stderr).trim() || result.stdout.trim();
+  const stderr = withoutCapabilityNotice(result.stderr).split(/\r?\n/)
+    .filter((line) => !PROCESS_CHECK_DIAGNOSTIC.test(line)).join("\n").trim();
+  const text = stderr || result.stdout.trim();
   if (!text) return `autocode exited ${result.code}`;
   const lines = text.split("\n")
     .filter((line) => !/^usage: /.test(line))

@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import stat
 from copy import deepcopy
 from pathlib import Path
 
@@ -62,6 +64,50 @@ def owned_relative(path, root) -> tuple[Path, Path] | None:
     ):
         return None
     return canonical, target.relative_to(prefix)
+
+
+def pinned_bytes(path, digest, root, *, limit):
+    """Read bounded immutable capture bytes through no-follow directory FDs."""
+    if not isinstance(path, str) or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise ValueError("command artifact has no exact pin")
+    if (
+        not all(hasattr(os, flag) for flag in ("O_NOFOLLOW", "O_DIRECTORY", "O_NONBLOCK"))
+        or os.open not in os.supports_dir_fd
+    ):
+        raise ValueError("descriptor-anchored command reads are unavailable on this host")
+    owned = owned_relative(path, root)
+    if owned is None:
+        raise ValueError("command artifact path is not an ordinary owned path")
+    canonical_root, relative = owned
+    descriptor = os.open(canonical_root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        for part in relative.parts[:-1]:
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = child
+        leaf = os.open(relative.parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=descriptor)
+        try:
+            before = os.fstat(leaf)
+            if not stat.S_ISREG(before.st_mode) or before.st_size > limit:
+                raise ValueError("command artifact is not a bounded regular file")
+            with os.fdopen(leaf, "rb", closefd=False) as stream:
+                data = stream.read(limit + 1)
+            after = os.fstat(leaf)
+            if len(data) > limit or (
+                before.st_dev,
+                before.st_ino,
+                before.st_size,
+                before.st_mtime_ns,
+                before.st_ctime_ns,
+            ) != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+                raise ValueError("command artifact changed while being captured")
+        finally:
+            os.close(leaf)
+    finally:
+        os.close(descriptor)
+    if hashlib.sha256(data).hexdigest() != digest:
+        raise ValueError("command artifact changed")
+    return data
 
 
 def load(metadata, *, root=None, pin=None):

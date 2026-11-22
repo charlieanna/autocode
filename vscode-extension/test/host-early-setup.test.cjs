@@ -14,7 +14,7 @@ for (const [label, host, fixture] of [
   const realRequire = createRequire(hostFile);
   const calls = [];
   let callback, fixtureRoot, fixtureEnvironment;
-  const fakeFs = { ...fs, mkdtempSync(prefix) { fixtureRoot = fs.mkdtempSync(prefix); return fixtureRoot; } };
+  const fakeFs = { ...fs, mkdtempSync() { throw new Error('host fixture bypassed the private profile root'); } };
   const fakeChild = { spawnSync(_command, args, options) {
     if (args.some((value) => String(value).endsWith(fixture))) {
       fixtureEnvironment = options.env;
@@ -30,6 +30,13 @@ for (const [label, host, fixture] of [
     if (id === 'node:test') return { test: (_name, _options, body) => { callback = body; } };
     if (id === 'node:fs') return fakeFs;
     if (id === 'node:child_process') return fakeChild;
+    if (id === '../owned-fixture-cleanup.cjs') {
+      const fixtureHelpers = realRequire(id);
+      return { ...fixtureHelpers, privateHostRoot(prefix) {
+        fixtureRoot = fixtureHelpers.privateHostRoot(prefix);
+        return fixtureRoot;
+      } };
+    }
     return realRequire(id);
   };
   const inherited = '/synthetic/inherited/operator';
@@ -41,6 +48,7 @@ for (const [label, host, fixture] of [
   try {
     await assert.rejects(callback(), /fixture setup failure|offline quota fixture|Editor test or owned cleanup failed/);
     assert.deepEqual(calls, [], 'setup failure must not invoke inherited-host cleanup');
+    assert.ok(fixtureRoot, 'the profile uses the shared private host root');
     assert.equal(fixtureEnvironment.AUTOCODE_HOME, path.join(fixtureRoot, 'registry'));
     assert.equal(fixtureEnvironment.HOME, process.env.HOME);
     assert.equal(fixtureEnvironment.CODEX_HOME, process.env.CODEX_HOME);

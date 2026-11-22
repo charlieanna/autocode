@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
 from copy import deepcopy
 from pathlib import Path
+from shlex import join as shell_join
 
 try:
     from . import autocode_acceptance_recovery as acceptance_recovery
@@ -42,6 +43,7 @@ except ImportError:
     import autocode_stop as stop
 
 try:
+    from . import autocode_acceptance_retry_exhaustion as acceptance_exhaustion
     from . import autocode_acceptance_retry_next as retry_next
     from . import autocode_acceptance_tests as acceptance_tests
     from . import autocode_accepted_source as accepted_source
@@ -121,6 +123,7 @@ try:
     from . import autocode_workflows as workflows
     from . import autocode_worktree_choice as worktree_choice
 except ImportError:
+    import autocode_acceptance_retry_exhaustion as acceptance_exhaustion
     import autocode_acceptance_retry_next as retry_next
     import autocode_acceptance_tests as acceptance_tests
     import autocode_accepted_source as accepted_source
@@ -363,6 +366,8 @@ def view(
     stop_reason = (
         recovery_exhaustion.NOTICE
         if recovery_exhaustion.pending(saved_state)
+        else acceptance_exhaustion.NOTICE
+        if acceptance_exhaustion.pending(saved_state, retained)
         else job_end.NOTICE
         if job_end.pending(saved_state)
         else verification_config.NOTICE
@@ -375,6 +380,11 @@ def view(
         if no_progress_recovery.pending_legacy(saved_state)
         else state.get("stop_reason")
     )
+    observed_need = next_action.get("needs") or {}
+    if observed_need.get("replay_job") is True:
+        stop_reason = "Replay is continuing the recorded job action."
+    elif observed_need.get("kind") == "replay_stopped":
+        stop_reason = observed_need.get("reason")
     try:
         from . import autocode_checkpoint_reconciliation as reconciliation
     except ImportError:
@@ -1564,6 +1574,36 @@ def needs(
                 failure.get("job_retry_token"),
                 run_dir or state.get("run_dir"),
             )
+            if admission.get("replay_unavailable") is True:
+                return {
+                    "kind": "replay_stopped",
+                    "stage": failure["stage"],
+                    "reason": "Replay cannot continue from the recorded job actions.",
+                    "resume_unavailable": "Replay cannot continue from the recorded job actions.",
+                    "action": None,
+                }
+            replay_action = admission.get("replay_action")
+            if admission["allowed"] and isinstance(replay_action, dict):
+                route = quota_route.job_question(state)
+                if replay_action.get("kind") == "route_job" and isinstance(route, dict):
+                    flags = ["--answer", f"{route['id']}={replay_action['answer']}", "--job-retry-token", "-"]
+                elif replay_action.get("kind") == "retry_job":
+                    flags = ["--resume-paused", "--retry-failed-stage", "--job-retry-token", "-"]
+                else:
+                    return {
+                        "kind": "replay_stopped",
+                        "reason": "Replay has no valid recorded job action.",
+                        "resume_unavailable": "Replay has no valid recorded job action.",
+                    }
+                return {
+                    "kind": "continue",
+                    "stage": failure["stage"],
+                    "job_retry_token": failure["job_retry_token"],
+                    "route": _route(route) if isinstance(route, dict) else None,
+                    "replay_job": True,
+                    "action": shell_join(flags),
+                    "reason": "Continuing the recorded job action.",
+                }
             route_required = not admission["allowed"] and admission.get("route_allowed") is True
             if route_required:
                 need["retry_unavailable"] = admission["reason"]
@@ -1780,8 +1820,12 @@ def needs(
             return protected_offer
         if retained is _UNSET:
             retained = status_observation.retained_retry(state, state.get("workspace"))
+        if acceptance_exhaustion.pending(state, retained):
+            # No re-check of the saved tests is left and the Investigator has looked: nothing automatic
+            # remains, so the next resume ends the run with a report (acceptance_exhaustion.settle, #4037).
+            return {"kind": "continue", "action": "--resume-paused"}
         if retry_next.exhausted_pause(state, retained):
-            # The retained report is spent or cannot be authenticated: plain resume would only re-pause.
+            # The retained report cannot be authenticated: plain resume would only re-pause.
             # The recovery card preserves the evidence and explains the hold.
             return None
         need = {"kind": "resume", "reason": state.get("stop_reason") or status}

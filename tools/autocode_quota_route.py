@@ -78,6 +78,21 @@ JOB_PREFLIGHT_PAUSES = (AUTH_STATUS, "PAUSED_BILLING_ROUTE", "PAUSED_INTERVENTIO
 CROSS_MODEL_STATUS = "PAUSED_CROSS_MODEL"
 CROSS_CAUSE = "cross_model"
 MODEL_STOPS = JOB_STATUSES + (CROSS_MODEL_STATUS,)
+
+
+def stop_cause(status):
+    """The public route cause for a classified model stop."""
+    return {
+        QUOTA_STATUS: "quota",
+        REFUSAL_STATUS: "content_filter",
+        OUTPUT_STATUS: "output_limit",
+        CONTEXT_STATUS: "context_window",
+        AUTH_STATUS: "authentication",
+        TIMEOUT_STATUS: "timeout",
+        CROSS_MODEL_STATUS: CROSS_CAUSE,
+    }.get(status)
+
+
 _STOPPED = {
     QUOTA_STATUS: "stopped on quota",
     REFUSAL_STATUS: "its provider's content filter refused",
@@ -87,6 +102,7 @@ _STOPPED = {
     TIMEOUT_STATUS: "exceeded its execution time limit",
 }
 KIND = "route_assignment"
+_UNRECORDED_EFFORT = object()
 # Roles a person can route by flag on resume (autocode_args: --<role>-model).
 ROLES = ("task_planner", "builder", "tester", "completion", "planner", "requirements", "resolver", "plan_reviewer")
 # Workflow-job models are changed by an answer with the exact job token, never a
@@ -434,7 +450,7 @@ def question(
         "job": job,
         "current_model": current,
         "engine": engine(settings, role),
-        "cause": "quota",
+        "cause": stop_cause(attempt.get("pause_status")) or "quota",
         "stopped_model": stopped_on,
     }
     if engine(settings, role) == "opencode":
@@ -444,7 +460,6 @@ def question(
         )
     if attempt.get("pause_status") == AUTH_STATUS:
         asked.update(
-            cause="authentication",
             question=f"{job}'s provider authentication failed; name another model or repair its login",
             why=(
                 f"The {job} could not authenticate on {stopped_on}. Repair that provider's credentials and retry "
@@ -455,7 +470,6 @@ def question(
         return asked
     if attempt.get("pause_status") == TIMEOUT_STATUS:
         asked.update(
-            cause="timeout",
             question=f"{job} exceeded its execution time limit; name another model or retry unchanged",
             why=(
                 f"The {job} did not finish on {stopped_on} within its saved time limit. "
@@ -485,7 +499,6 @@ def question(
         return asked
     if attempt.get("pause_status") == CONTEXT_STATUS:
         asked.update(
-            cause="context_window",
             question=f"{job}'s request no longer fit its model's context window; name a model with a larger window",
             why=(
                 f"The {job} stopped on {stopped_on}: its request exceeded the model's context window, or the provider "
@@ -509,7 +522,6 @@ def question(
                 f"on a route that honors it, set {variable} to a larger number of tokens before resuming."
             )
         asked.update(
-            cause="output_limit",
             question=f"{job}'s response exhausted its output limit; name another model to continue on",
             why=(
                 f"The {job} stopped on {stopped_on}: reasoning and report text shared the response output limit, "
@@ -548,7 +560,6 @@ def question(
     if attempt.get("pause_status") != REFUSAL_STATUS:
         return asked
     asked.update(
-        cause="content_filter",
         question=f"{job}'s model was refused by its provider's content filter; name another model to continue on",
         why=(
             f"The {job} stopped on {stopped_on}: its provider's content filter refused the response, "
@@ -1068,6 +1079,7 @@ def assign(
     actor: str = "user_cli",
     effort: str | None = None,
     tool: dict | None = None,
+    requested_effort=_UNRECORDED_EFFORT,
 ) -> dict:
     """Set the role's model, drop its session and append the route_assignment record; return the record.
 
@@ -1096,6 +1108,8 @@ def assign(
         "pause_status": (attempt or {}).get("pause_status") or QUOTA_STATUS,
         "events": (attempt or {}).get("events"),
     }
+    if requested_effort is not _UNRECORDED_EFFORT:
+        record["requested_effort"] = requested_effort
     if request_id:
         record["request_id"] = request_id
     previous = route.get("model")

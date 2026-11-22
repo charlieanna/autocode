@@ -24,7 +24,7 @@ WORKSPACE = Path("/project")
 RUN = WORKSPACE / ".autocode/runs/chat"
 
 
-def working_view(**capability):
+def working_view(*, can_interrupt=False, **capability):
     state = {
         "status": "RUNNING",
         "settings": {"spec_first": True},
@@ -36,6 +36,7 @@ def working_view(**capability):
         "status": "RUNNING",
         "needs": {"kind": "continue"},
         "liveness": {"kind": "supervised"},
+        "controller": {"kind": "running", "checked": True, "alive": True, "receipt": {"can_interrupt": can_interrupt}},
     }
     view["chat"] = chat_view.project(state, view, workspace=WORKSPACE, run_dir=RUN)
     return view
@@ -84,7 +85,8 @@ class MessageOfferTests(unittest.TestCase):
     def test_a_runner_that_ends_a_step_for_a_message_also_names_send_now(self):
         # #3259: "Send now" is the same submission with --now, named only when the runner records support.
         self.assertNotIn("now_command", working_view()["chat"]["input"])
-        view = working_view(supports_message_now=True)
+        self.assertNotIn("now_command", working_view(supports_message_now=True)["chat"]["input"])
+        view = working_view(can_interrupt=True)
         offer = view["chat"]["input"]
         words = shlex.split(offer["next_command"])
         self.assertEqual([*words[:-1], "--now", "--json"], shlex.split(offer["now_command"]))
