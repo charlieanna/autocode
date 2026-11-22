@@ -7,6 +7,7 @@ Unsupported shell wrappers keep their normal exit-code-only behavior.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -15,9 +16,13 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 try:
+    from . import autocode_command_receipt as command_receipt
     from . import autocode_npm_scripts as npm_scripts
+    from . import autocode_util as util
 except ImportError:
+    import autocode_command_receipt as command_receipt
     import autocode_npm_scripts as npm_scripts
+    import autocode_util as util
 
 VALUE_OPTIONS = {
     "--require",
@@ -60,11 +65,19 @@ FLAG_OPTIONS = {
 
 def command_words(command):
     """A direct node --test invocation whose reporter the runner can safely own."""
-    if not isinstance(command, str) or re.search(r"[;&|<>`$()\n\r]", command):
+    if not isinstance(command, str):
         return None
     try:
         words = shlex.split(command)
     except ValueError:
+        return None
+    shell_syntax = r"[;&|<>`$()\n\r]"
+    if re.search(shell_syntax, command) and not (
+        len(words) > 1
+        and words[1].startswith("--test-skip-pattern=")
+        and command == shlex.join(words)
+        and not re.search(shell_syntax, shlex.join([words[0], *words[2:]]))
+    ):
         return None
     if len(words) < 2 or Path(words[0]).name not in ("node", "node.exe") or "--test" not in words:
         return None
@@ -136,6 +149,46 @@ def parse(command):
     """Keep one direct Node test invocation; shell wrappers remain unsupported."""
     words = command_words(command)
     return Invocation(words[0], tuple(words[1:]), command) if words else None
+
+
+def exclude_tests(command, names):
+    """Build one retry of a direct Node invocation using exact leaf names."""
+    words = command_words(command)
+    if not words or not names or any(word.startswith("--test-skip-pattern") for word in words):
+        return None
+    if any(not name or any(ord(char) < 32 for char in name) for name in names):
+        return None
+    # JS and Python disagree about escaping ordinary punctuation. Quote only
+    # the regex characters, and let shlex quote the full option for the shell.
+    names = [re.sub(r"([.\^$*+?{}\[\]\\|()])", r"\\\1", name) for name in names]
+    return shlex.join([words[0], "--test-skip-pattern=^(?:" + "|".join(names) + ")$", *words[1:]])
+
+
+def result_capture(receipt, report):
+    """Retain the exact structured output used for a collateral recheck."""
+    path = Path(report).absolute()
+    if not path.is_symlink() and path.is_file() and path.stat().st_nlink == 1:
+        receipt["node_capture"] = {"path": str(path), "sha256": util.file_hash(path)}
+
+
+def bound_results(receipt, root):
+    """Re-read only the exact runner-reported capture retained by this check."""
+    capture = receipt.get("node_capture") or {}
+    try:
+        path = Path(capture["path"])
+        if (
+            command_receipt.owned_relative(path, root) is None
+            or path.stat().st_nlink != 1
+            or not path.is_file()
+            or f"--test-reporter-destination={path.resolve()}" not in shlex.split(receipt["command"])
+        ):
+            return None
+        captured = path.read_bytes()
+        if hashlib.sha256(captured).hexdigest() != capture["sha256"]:
+            return None
+        return result_events(captured.decode())
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
 
 
 def script_steps(script):
@@ -254,14 +307,21 @@ def test_files(root, paths):
 def results(path):
     """Return complete per-test results, or None for absent/invalid/ambiguous evidence."""
     try:
-        rows = [json.loads(line) for line in Path(path).read_text().splitlines()]
+        return result_events(Path(path).read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def result_events(text):
+    try:
+        rows = [json.loads(line) for line in text.splitlines()]
         if len(rows) < 3 or rows[0] != {"protocol": "autocode-node-tests", "version": 1} or rows[-1] != {"type": "end"}:
             return None
         starts, outcomes, parents, identities = {}, {}, {}, set()
         summary = None
         counts = dict(tests=0, suites=0, passed=0, failed=0, skipped=0, todo=0, cancelled=0)
         passed, failed, skipped, collection = set(), set(), set(), set()
-        uncollected = set()
+        uncollected, cancelled_by_parent = set(), set()
         for row in rows[1:-1]:
             if not isinstance(row, dict) or summary is not None:
                 return None
@@ -333,6 +393,8 @@ def results(path):
                 passed.add(identity)
             else:
                 failed.add(identity)
+                if row.get("failure_type") == "cancelledByParent":
+                    cancelled_by_parent.add(identity)
                 if row.get("failure_type") != "testCodeFailure":
                     collection.add(identity)  # a failed hook/cancellation is not a reproduction
         if (
@@ -352,6 +414,7 @@ def results(path):
             "uncollected": sorted(uncollected),
             "total": len(passed | failed | skipped),
             "complete": True,
+            **({"cancelled_by_parent": sorted(cancelled_by_parent)} if cancelled_by_parent else {}),
         }
     except (OSError, ValueError, KeyError, TypeError):
         return None

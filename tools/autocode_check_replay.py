@@ -120,9 +120,12 @@ def evidence_pins(result):
         if on_base.get("base_output") and on_base.get("base_output_sha256"):
             pins[on_base["base_output"]] = on_base["base_output_sha256"]
     protected = (result or {}).get("protected_tests") or {}
-    for name in ("candidate", "original"):
-        pins.update(command_receipt.pins(protected.get(name)))
-        receipt = (protected.get(name) or {}).get("scheduling") or {}
+    for name in protected_oracles.ATTEMPTS:
+        row = protected.get(name) or {}
+        pins.update(command_receipt.pins(row))
+        if protected.get("original_recheck") and (capture := row.get("node_capture")):
+            pins[capture["path"]] = capture["sha256"]
+        receipt = row.get("scheduling") or {}
         if receipt.get("receipt") and receipt.get("receipt_sha256"):
             pins[receipt["receipt"]] = receipt["receipt_sha256"]
     pins.update(brief_evidence.evidence_pins((result or {}).get("brief_acceptance")))
@@ -167,6 +170,7 @@ def _protected_check(run_dir, obligation, measured, timeout, label, execute, *, 
     current approved supersedes policy excuses exactly its failures; the gate reinterprets it anyway.
     """
     command = policy["command"]
+    timeout = policy.get("timeout_seconds", timeout)
     eligible = bool(schedule.collection_kind(command))
 
     def identity(*, refresh=False):
@@ -528,7 +532,7 @@ def replay(
     # Each decision is counted once: the protected pair's rows are their own obligations (#3040).
     decisions = [row for row in seen.values() if row.get("scheduling")] + [
         row
-        for row in ((protected or {}).get(name) for name in ("candidate", "original"))
+        for row in ((protected or {}).get(name) for name in protected_oracles.ATTEMPTS)
         if (row or {}).get("scheduling")
     ]
     result["scheduling"] = {
