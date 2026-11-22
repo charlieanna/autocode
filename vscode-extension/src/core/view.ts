@@ -19,6 +19,8 @@ export interface Needs {
   token?: string;
   reason?: string;
   action?: string | null;
+  /** The core offers this exact token-bound continuation without a person decision. */
+  automatic_reconciliation?: boolean;
   /** The saved frontier cannot take its named resume yet; the core offers no next command. */
   resume_unavailable?: string;
   questions?: Question[];

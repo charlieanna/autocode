@@ -112,6 +112,43 @@ class ScopeTests(unittest.TestCase):
                     ci_test_selection.EXTENSION_HOST_RESOURCES[fixture],
                 )
 
+    def test_retained_report_resources_select_the_real_host(self):
+        from tools import ci_test_selection
+
+        for resource in (
+            "docs/schemas/status-view.schema.json",
+            "tests/retained_report_vscode_fixture.py",
+            "tests/retained_report_vscode_cli.py",
+            "tests/retained_report_fixture_support.py",
+            "tests/python_semantic_vscode_fixture.py",
+            "tests/fixtures/python-semantic-host/displayed-plan.json",
+            "scenarios/harness/driver.py",
+            "scenarios/harness/fake_codex.py",
+            "scenarios/harness/fake_changed_code.py",
+            "tools/autocode_retained_report_incident.py",
+            "tools/autocode_action_recovery.py",
+            "tools/autocode_operational_admission.py",
+            "tools/autocode_operational_disposition.py",
+            "tools/autocode_recovery_view.py",
+            "tools/autocode_run_view.py",
+            "tools/autocode_status_observation.py",
+            "tools/autocode_status_observation_worker.py",
+            "tools/autocode_report_revalidation_binding.py",
+            "tools/autocode_report_revalidation.py",
+            "tools/autocode_repaired_result.py",
+            "vscode-extension/test/host/held_cli.py",
+            "vscode-extension/test/owned-fixture-cleanup.cjs",
+            "tests/host_reader_cleanup.py",
+            "tests/status_retry_host_cleanup.py",
+        ):
+            with self.subTest(resource=resource):
+                self.assertIn(
+                    "vscode-extension/test/host/retained-report.test.cjs",
+                    ci_test_selection.EXTENSION_HOST_RESOURCES[resource],
+                )
+                self.assertIn("extension", self.enabled(resource))
+        self.assertTrue({"docs", "suite", "extension"} <= self.enabled("docs/schemas/status-view.schema.json"))
+
     def test_classification_host_resources_are_exact_and_select_the_host(self):
         from tools import ci_test_selection
 

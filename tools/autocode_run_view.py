@@ -460,6 +460,7 @@ def view(
             "next_command": None,
         }
     need = next_action["needs"]
+    report_incident_offer = next_action.get("_retained_report_revalidation")
     task = state.get("current_task") or {}
     active = state.get("active_stage")
     supervision = active.get("supervision") if isinstance(active, dict) else None
@@ -475,7 +476,13 @@ def view(
     recovery = (
         None
         if continuing
-        else recovery_view.project(saved_state, need, retained=retained, report_repair_unavailable=report_hold)
+        else recovery_view.project(
+            saved_state,
+            need,
+            retained=retained,
+            report_repair_unavailable=report_hold,
+            retained_report_revalidation=report_incident_offer,
+        )
     )
     result = {
         "replay_source": None if invalid_replay else replay_view.project(state, run_dir=run_dir),
@@ -550,7 +557,9 @@ def view(
             needs=need,
             held_cause=pause_authority.answered_cause(saved_state),
             ready=(controller or {}).get("kind") == "ready",
-            internal_failure=operational_block.presentation(saved_state, include_hold=True),
+            internal_failure=None
+            if report_incident_offer
+            else operational_block.presentation(saved_state, include_hold=True),
             recovery=recovery,
         ),
         "current_task": {key: task.get(key) for key in ("id", "objective", "milestone_id")} if task else None,
@@ -1286,6 +1295,23 @@ def action(
             "next_command": None,
         }
     if operational_block.presentation(state, include_hold=True):
+        if report_offer := status_observation.retained_report_incident(
+            state, workspace or state.get("workspace"), run_dir or state.get("run_dir")
+        ):
+            report_need = {"kind": "continue", "action": "--resume-paused", "automatic_reconciliation": True}
+            return {
+                "needs": report_need,
+                "pause_category": None,
+                "pause_category_label": None,
+                "_retained_report_revalidation": report_offer,
+                "next_command": pause_command.command(
+                    report_need,
+                    for_client=True,
+                    run_dir=run_dir or state.get("run_dir"),
+                    workspace=workspace or state.get("workspace"),
+                    recovery_token=recovery_view.token(state),
+                ),
+            }
         return {"needs": None, "pause_category": "autocode", "pause_category_label": "AutoCode", "next_command": None}
     if changeset_barrier.held_approval(display_state):
         held_need = {

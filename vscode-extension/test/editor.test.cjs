@@ -4455,6 +4455,35 @@ test('source recovery takes one bound resume and preserves held or foreign actio
   assert.equal(launch.mock.callCount(), 1, 'an unchanged source hold cannot loop');
 });
 
+test('only an explicit token-bound automatic recovery offer is taken', async (t) => {
+  const ui = await openChat(t, workingView());
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  const offered = {
+    status: 'PAUSED_REPEATED_FAILURE', done: false,
+    needs: { kind: 'continue', automatic_reconciliation: true },
+    recovery: { token: 'recovery-v1:bound' },
+    controller: { kind: 'ended', checked: true, alive: false },
+    next_command: `AUTOCODE_EXPECTED_RECOVERY_TOKEN=recovery-v1:bound autocode --workspace ${run.workspace} --run-dir ${run.runDir} --resume-paused --expected-recovery-token -`,
+  };
+  for (const view of [
+    { ...offered, needs: { kind: 'continue' } },
+    { ...offered, needs: { kind: 'continue', automatic_reconciliation: false } },
+    { ...offered, recovery: { token: 'recovery-v1:other' } },
+    { ...offered, next_command: offered.next_command.replace('AUTOCODE_EXPECTED_RECOVERY_TOKEN=recovery-v1:bound ', '') },
+    { ...offered, next_command: offered.next_command + ' --retry-failed-stage' },
+    { ...offered, next_command: offered.next_command.replace(run.runDir, '/foreign/run') },
+  ]) {
+    await ui.poll(view); await flush();
+    assert.equal(launch.mock.callCount(), 0);
+  }
+  await ui.poll(offered); await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 1);
+  assert.deepEqual(launch.mock.calls[0].arguments[1],
+    ['--resume-paused', '--expected-recovery-token', '-', '--workspace', run.workspace, '--run-dir', run.runDir]);
+  await ui.poll(offered); await flush();
+  assert.equal(launch.mock.callCount(), 1, 'the same offer cannot loop');
+});
+
 for (const kind of ['source', 'decision', 'supervision']) for (const persistent of [false, true]) {
   test(`automatic ${kind} continuation ${persistent ? 'bounds unchanged failed invocations' : 'recovers a failed invocation without asking the person'}`, async (t) => {
     const ui = await openChat(t, workingView());

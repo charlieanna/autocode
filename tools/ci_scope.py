@@ -156,6 +156,8 @@ def select(paths: list[str], *, full: bool = False) -> dict[str, bool]:
             selected["containers"] = True
         elif path.startswith(("docs/", "README", "CHANGELOG", "mkdocs.", "LICENSE")):
             selected["docs"] = True
+            if path == "docs/schemas/status-view.schema.json":
+                selected["suite"] = True
         elif path.startswith(".github/workflows/"):
             # Other standalone workflows keep their existing triggers.
             continue

@@ -672,6 +672,15 @@ def checked_recovery(state: RunState, row, *, _ledger=None):
     return None
 
 
+def single_checked(state: RunState, selection):
+    """One retained incident and its matching owner; this is not work admission."""
+    rows = incidents(state)
+    if len(rows) != 1:
+        return None
+    checked = checked_recovery(state, rows[0])
+    return checked if checked and checked.get("selection") == selection else None
+
+
 def inspectable(state: RunState):
     """Every retained incident has authenticated evidence; this grants no recovery."""
     ledger = _Ledger(state)

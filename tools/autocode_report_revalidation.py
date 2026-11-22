@@ -40,7 +40,7 @@ def prepare_repair(runtime, state: RunState, run_dir, workspace):
     return True
 
 
-def revalidate(runtime, state: RunState, run_dir, workspace, *, resolver_request=None):
+def revalidate(runtime, state: RunState, run_dir, workspace, *, resolver_request=None, on_accept=None):
     """Apply only the same completed attempt under its pinned evidence and normal gates.
 
     Whether the saved report is still that evidence is decided once, by
@@ -77,9 +77,22 @@ def revalidate(runtime, state: RunState, run_dir, workspace, *, resolver_request
     # The loader seals the copy afresh at its own path.
     candidate.pop("rework_evidence", None)
     try:
-        repaired_result.accept(
-            runtime, state, run_dir, workspace, None, candidate, revalidate=True, resolver_request=resolver_request
-        )
+        if on_accept is None:
+            repaired_result.accept(
+                runtime, state, run_dir, workspace, None, candidate, revalidate=True, resolver_request=resolver_request
+            )
+        else:
+            repaired_result.accept(
+                runtime,
+                state,
+                run_dir,
+                workspace,
+                None,
+                candidate,
+                revalidate=True,
+                resolver_request=resolver_request,
+                on_accept=on_accept,
+            )
     except runtime.support.Paused:
         raise
     except repaired_result.RevalidationRejected as error:

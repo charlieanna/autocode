@@ -1014,6 +1014,20 @@ revalidates the retained report without abandoning it or replaying that provider
 call. Usage, model routes, limits and plan-approval gates stay in force. An
 unaccounted, interrupted or missing result keeps its existing recovery controls.
 
+When an internal report-rejection incident holds a completed attempt and the
+validator has changed, status may name one `continue` action to recheck that
+same report. A bounded observation checks the incident, run, source and pinned
+artifacts; the locked writer repeats those checks. Acceptance and the incident's
+checked receipt commit together before ordinary continuation. A report still
+rejected stays held with its new diagnostic; the check grants no repair attempt
+or allowance and starts no provider retry. Missing or changed evidence, a
+pending intervention, a different run or an uncertain owner keeps the hold.
+An automatic offer is a `continue` need with `automatic_reconciliation: true`
+and the exact `--resume-paused --expected-recovery-token -` action, bound to the
+recovery token through its private environment channel. A client may take that
+named action without asking the person; the token only binds the observed pause,
+and the locked owner still validates all evidence and ordinary work admission.
+
 ### Pausing a working run
 
 While a run works (a live stage, a fresh birth-bound controller, or a controller

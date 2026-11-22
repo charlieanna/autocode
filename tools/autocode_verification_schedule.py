@@ -196,6 +196,35 @@ def _completed(directory):
         return None
 
 
+def authenticated_attempt(result, root):
+    """Resolve a scheduled result to its exact immutable attempt directory."""
+    try:
+        scheduling = result["scheduling"]
+        identity = scheduling["identity"]
+        attempt = scheduling["attempt_id"]
+        if re.fullmatch(r"[0-9a-f]{64}", identity) is None or re.fullmatch(r"[0-9a-f]{32}", attempt) is None:
+            return None
+        root = Path(root)
+        if root.is_symlink():
+            return None
+        root = root.resolve(strict=True)
+        receipt = root / identity / attempt / "receipt.json"
+        if receipt != Path(scheduling["receipt"]):
+            return None
+        saved, digest = recovery.read_regular(receipt, root)
+        if (
+            digest == scheduling["receipt_sha256"]
+            and saved.get("runner_owned") is True
+            and saved.get("attempt_id") == attempt
+            and util.digest(saved["identity"]) == identity
+            and saved.get("result") == {key: value for key, value in result.items() if key != "scheduling"}
+        ):
+            return receipt.parent
+    except (OSError, ValueError, RuntimeError, KeyError, TypeError):
+        pass
+    return None
+
+
 def _reconcile_pending(root):
     pending = root / "pending.json"
     if pending.is_symlink():
