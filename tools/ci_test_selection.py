@@ -96,6 +96,7 @@ EXTENSION_HOST_RESOURCES = {
     "tests/provider_auth_fixture.py": ("vscode-extension/test/host/editor-host.test.cjs",),
     "tests/python_semantic_vscode_fixture.py": ("vscode-extension/test/host/python-semantic.test.cjs",),
     "tests/requirements_standing_vscode_fixture.py": ("vscode-extension/test/host/requirements-standing.test.cjs",),
+    "tests/requirements_standing_host_cli.py": ("vscode-extension/test/host/requirements-standing.test.cjs",),
     "tests/requirements_standing_provider.py": ("vscode-extension/test/host/requirements-standing.test.cjs",),
     "tests/fixtures/python-semantic-host/displayed-plan.json": ("vscode-extension/test/host/python-semantic.test.cjs",),
     "tests/rustup_vscode_fixture.py": ("vscode-extension/test/host/rustup-containment.test.cjs",),

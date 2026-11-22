@@ -75,6 +75,7 @@ class ScopeTests(unittest.TestCase):
             "tests/provider_auth_fixture.py",
             "tests/python_semantic_vscode_fixture.py",
             "tests/requirements_standing_vscode_fixture.py",
+            "tests/requirements_standing_host_cli.py",
             "tests/requirements_standing_provider.py",
             "scenarios/harness/driver.py",
             "vscode-extension/test/requirements-standing-readiness.cjs",
@@ -119,6 +120,7 @@ class ScopeTests(unittest.TestCase):
 
         for resource in (
             "tests/requirements_standing_vscode_fixture.py",
+            "tests/requirements_standing_host_cli.py",
             "tests/requirements_standing_provider.py",
             "scenarios/harness/driver.py",
             "vscode-extension/test/requirements-standing-readiness.cjs",

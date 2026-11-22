@@ -72,7 +72,7 @@ test('editor distinguishes a reported convention from approval of the understand
     }
     const userData = path.join(root, 'user-data'); fs.mkdirSync(path.join(userData, 'User'), {recursive: true});
     fs.writeFileSync(path.join(userData, 'User/settings.json'), JSON.stringify({
-      'autocode.cliPath': python, 'autocode.cliArgs': [path.join(__dirname, 'held_cli.py')], 'autocode.pollSeconds': 2,
+      'autocode.cliPath': python, 'autocode.cliArgs': [path.join(REPO, 'tests/requirements_standing_host_cli.py')], 'autocode.pollSeconds': 2,
       'workbench.startupEditor': 'none', 'security.workspace.trust.enabled': false, 'chat.disableAIFeatures': true,
       'update.mode': 'none', 'extensions.autoUpdate': false, 'telemetry.telemetryLevel': 'off',
     }));
