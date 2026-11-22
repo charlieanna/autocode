@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 import autocode as runner
+import autocode_controller_owner as owners
 import autocode_interventions as interventions
 import autocode_pause_offer as pause_offer
 import autocode_run_setup as run_setup
@@ -17,6 +18,10 @@ from tests import test_subprocess
 
 CAPABLE = {"intervention_capability": {"supported": True, "version": 1}}
 LIVE = {"done": False, "liveness": {"kind": "supervised"}, "controller": {"kind": "unknown"}}
+INTERRUPTIBLE = {
+    **LIVE,
+    "controller": {"kind": "running", "checked": True, "alive": True, "receipt": {"can_interrupt": True}},
+}
 
 
 class PauseOfferTests(unittest.TestCase):
@@ -77,7 +82,7 @@ class StopNowOfferTests(unittest.TestCase):
 
     def test_a_runner_that_can_end_a_step_offers_stop_now_beside_the_pause(self):
         # #3263: a client had no way to end a runaway step; the person paid for up to an hour.
-        offer = pause_offer.project(self.STOPPABLE, LIVE, run_dir="/w/.autocode/runs/r", workspace="/w")
+        offer = pause_offer.project(CAPABLE, INTERRUPTIBLE, run_dir="/w/.autocode/runs/r", workspace="/w")
         stop_now = offer["stop_now"]
         self.assertEqual("Stop now", stop_now["label"])
         self.assertIn("ends now", stop_now["effect"])
@@ -85,13 +90,24 @@ class StopNowOfferTests(unittest.TestCase):
         self.assertEqual([*offer["next_command"][:-1], "--now", "--json"], stop_now["next_command"])
 
     def test_an_older_runner_offers_only_the_boundary_pause(self):
-        self.assertNotIn("stop_now", pause_offer.project(CAPABLE, LIVE))
+        legacy = {**LIVE, "controller": {"kind": "running", "checked": True, "alive": True, "receipt": {}}}
+        self.assertNotIn("stop_now", pause_offer.project(self.STOPPABLE, legacy))
+
+    def test_an_unknown_or_replaced_controller_cannot_offer_stop_now(self):
+        for change in ({"kind": "busy"}, {"checked": False}, {"alive": False}):
+            with self.subTest(change=change):
+                observation = {**INTERRUPTIBLE, "controller": {**INTERRUPTIBLE["controller"], **change}}
+                offer = pause_offer.project(self.STOPPABLE, observation)
+                self.assertIsNotNone(offer["next_command"])
+                self.assertNotIn("stop_now", offer)
 
     def test_a_queued_boundary_pause_still_offers_stop_now_and_a_queued_stop_now_offers_neither(self):
-        waiting = pause_offer.project(self.STOPPABLE, LIVE, pending=[{"id": "p", "kind": "pause"}])
+        waiting = pause_offer.project(self.STOPPABLE, INTERRUPTIBLE, pending=[{"id": "p", "kind": "pause"}])
         self.assertIsNone(waiting["next_command"])
         self.assertIsNotNone(waiting["stop_now"]["next_command"], "a boundary pause lets the step run on")
-        stopping = pause_offer.project(self.STOPPABLE, LIVE, pending=[{"id": "n", "kind": "pause", "now": True}])
+        stopping = pause_offer.project(
+            self.STOPPABLE, INTERRUPTIBLE, pending=[{"id": "n", "kind": "pause", "now": True}]
+        )
         self.assertTrue(stopping["stop_now"]["requested"])
         self.assertIsNone(stopping["stop_now"]["next_command"])
         self.assertIsNone(stopping["next_command"])
@@ -107,7 +123,7 @@ class ControllerCapabilityTests(unittest.TestCase):
         self.assertEqual(written[0]["intervention_capability"], run_setup.CONTROLLER_CAPABILITY)
         self.assertEqual(interventions.INBOX_VERSION, run_setup.CONTROLLER_CAPABILITY["version"])
         state = {"intervention_capability": dict(run_setup.CONTROLLER_CAPABILITY)}
-        offer = pause_offer.project(state, LIVE, run_dir="/w/.autocode/runs/r", workspace="/w")
+        offer = pause_offer.project(state, INTERRUPTIBLE, run_dir="/w/.autocode/runs/r", workspace="/w")
         self.assertEqual([*offer["next_command"][:-1], "--now", "--json"], offer["stop_now"]["next_command"])
 
 
@@ -119,6 +135,23 @@ class PauseOfferStatusTests(unittest.TestCase):
 
     def view(self, run):
         return json.loads(self.launch(["--run-dir", str(run), "--status"], 0).stdout)["view"]
+
+    def test_a_new_status_writer_does_not_upgrade_the_live_legacy_controller(self):
+        self.launch(["Build greeting"], 2)
+        run, state = self.saved()
+        state["status"] = "RUNNING"
+        state["intervention_capability"] = {"supported": True, "version": interventions.INBOX_VERSION}
+        with support.run_lock(run), owners.Owner(state, run, runner.write_json) as owner:
+            # The receipt has the identity of the live controller but no claim
+            # that it can stop a step immediately. A generic status checkpoint
+            # through the newer writer must not supply that missing capability.
+            runner.write_json(run / "state.json", state)
+            self.assertTrue(state["intervention_capability"]["supports_stop_now"])
+            view = self.view(run)
+            self.assertEqual("running", view["controller"]["kind"])
+            self.assertIsNotNone(view["pause"]["next_command"])
+            self.assertNotIn("stop_now", view["pause"])
+            owner.result(2, ready=True)
 
     def test_status_names_pause_only_while_the_run_is_owned_and_working(self):
         self.launch(["Build greeting"], 2)
@@ -132,25 +165,26 @@ class PauseOfferStatusTests(unittest.TestCase):
             ["intervention", "submit", "--workspace", str(self.project), "--run-dir", str(run)],
             offer["next_command"][:6],
         )
-        argv = [word.replace("REQUEST_ID", "pause-1") for word in offer["next_command"]]
-        submitted = subprocess.run(
-            [*self.entry, *argv], cwd=self.root, env=self.env, capture_output=True, text=True, timeout=60
-        )
-        self.assertEqual(0, submitted.returncode, submitted.stdout + submitted.stderr)
-        self.assertEqual("pause", json.loads(submitted.stdout)["receipt"]["kind"])
-        with support.workspace_lock(self.project):
+        self.assertNotIn("stop_now", offer, "a lock alone does not identify a controller that can end a step")
+        with support.run_lock(run), owners.Owner(state, run, runner.write_json, can_interrupt=True) as owner:
+            offer = self.view(run)["pause"]
+            argv = [word.replace("REQUEST_ID", "pause-1") for word in offer["next_command"]]
+            submitted = subprocess.run(
+                [*self.entry, *argv], cwd=self.root, env=self.env, capture_output=True, text=True, timeout=60
+            )
+            self.assertEqual(0, submitted.returncode, submitted.stdout + submitted.stderr)
+            self.assertEqual("pause", json.loads(submitted.stdout)["receipt"]["kind"])
             queued = self.view(run)["pause"]
-        self.assertEqual((True, None), (queued["requested"], queued["next_command"]))
-        # The runner records that it can end a step on request, so the view also offers Stop now (#3263).
-        stop_now = queued["stop_now"]
-        self.assertFalse(stop_now["requested"], "a boundary pause lets the step run on")
-        argv = [word.replace("REQUEST_ID", "stop-1") for word in stop_now["next_command"]]
-        self.assertEqual(["--kind", "pause", "--now", "--json"], argv[-4:])
-        submitted = subprocess.run(
-            [*self.entry, *argv], cwd=self.root, env=self.env, capture_output=True, text=True, timeout=60
-        )
-        self.assertEqual(0, submitted.returncode, submitted.stdout + submitted.stderr)
-        self.assertIs(True, json.loads(submitted.stdout)["receipt"]["now"])
-        with support.workspace_lock(self.project):
+            self.assertEqual((True, None), (queued["requested"], queued["next_command"]))
+            stop_now = queued["stop_now"]
+            self.assertFalse(stop_now["requested"], "a boundary pause lets the step run on")
+            argv = [word.replace("REQUEST_ID", "stop-1") for word in stop_now["next_command"]]
+            self.assertEqual(["--kind", "pause", "--now", "--json"], argv[-4:])
+            submitted = subprocess.run(
+                [*self.entry, *argv], cwd=self.root, env=self.env, capture_output=True, text=True, timeout=60
+            )
+            self.assertEqual(0, submitted.returncode, submitted.stdout + submitted.stderr)
+            self.assertIs(True, json.loads(submitted.stdout)["receipt"]["now"])
             stopping = self.view(run)["pause"]["stop_now"]
-        self.assertEqual((True, None), (stopping["requested"], stopping["next_command"]))
+            self.assertEqual((True, None), (stopping["requested"], stopping["next_command"]))
+            owner.result(2, ready=True)
