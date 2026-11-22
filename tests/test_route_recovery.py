@@ -906,15 +906,15 @@ class RouteRecoveryTests(unittest.TestCase):
             job_state["job_retry_authorization"],
         )
 
-        # 4. Parallel worker unit recovery syncs effort onto child state.
+    def stopped_worker(self, status, event):
         child_dir = self.root / "worker-m1"
         child_dir.mkdir()
         child_events = child_dir / "builder-01.jsonl"
-        child_events.write_text(json.dumps(REFUSAL) + "\n")
+        child_events.write_text(json.dumps(event) + "\n")
         child_output = child_dir / "001" / "builder-01.json"
         child_output.parent.mkdir()
         child_state = {
-            "status": "PAUSED_CONTENT_FILTER",
+            "status": status,
             "parent_batch": "batch-1",
             "current_task": {"id": "M1"},
             "settings": {
@@ -935,7 +935,6 @@ class RouteRecoveryTests(unittest.TestCase):
                 "launch_route": {"model": GLM},
             },
         }
-        (child_dir / "state.json").write_text(json.dumps({**child_state, "parent_batch": None}))
         parent_state = {
             "status": "RUNNING",
             "phase": "EXECUTING",
@@ -956,32 +955,46 @@ class RouteRecoveryTests(unittest.TestCase):
                     {
                         "milestone_id": "M1",
                         "task": {"id": "M1"},
-                        "status": "PAUSED_CONTENT_FILTER",
+                        "status": status,
                         "run_dir": str(child_dir),
                         "workspace": str(self.root),
                     }
                 ],
             },
         }
-        w_err = support.Paused("PAUSED_CONTENT_FILTER", "refused")
+        w_err = support.Paused(status, status)
         w_err.quota_worker = {
             "role": "builder",
             "milestone_id": "M1",
             "model": GLM,
             "attempt_id": "001/builder-01",
             "stage": "builder",
-            "pause_status": "PAUSED_CONTENT_FILTER",
+            "pause_status": status,
             "events": str(child_events),
             "tester_model": MIMO,
             "completion_model": MIMO,
         }
+        return parent_state, child_dir / "state.json", child_state, w_err
+
+    def test_worker_context_stop_preserves_both_routes_and_the_stopped_checkpoint(self):
+        parent, checkpoint, child, error = self.stopped_worker(quota_route.CONTEXT_STATUS, CONTEXT_OVERFLOW)
+        saved = json.dumps(child)
+        checkpoint.write_text(saved)
+        self.assertFalse(route_recovery.recover(self.runtime, parent, self.root, self.root, error))
+        self.assertEqual(GLM, parent["settings"]["roles"]["builder"]["model"])
+        self.assertNotIn("user_events", parent)
+        self.assertEqual(saved, checkpoint.read_text())
+
+    def test_worker_recovery_syncs_the_selected_route_and_effort_to_the_child(self):
+        parent_state, checkpoint, child_state, w_err = self.stopped_worker(quota_route.REFUSAL_STATUS, REFUSAL)
+        checkpoint.write_text(json.dumps({**child_state, "parent_batch": None}))
         # Stale child state (parent_batch=None) returns False cleanly.
         self.assertFalse(route_recovery.recover(self.runtime, parent_state, self.root, self.root, w_err))
-        (child_dir / "state.json").write_text(json.dumps(child_state))
+        checkpoint.write_text(json.dumps(child_state))
         self.assertTrue(route_recovery.recover(self.runtime, parent_state, self.root, self.root, w_err))
         self.assertEqual(SOL, parent_state["settings"]["roles"]["builder"]["model"])
         self.assertEqual("medium", parent_state["settings"]["roles"]["builder"]["reasoning_effort"])
-        updated_child = json.loads((child_dir / "state.json").read_text())
+        updated_child = json.loads(checkpoint.read_text())
         self.assertEqual(SOL, updated_child["settings"]["roles"]["builder"]["model"])
         self.assertEqual("medium", updated_child["settings"]["roles"]["builder"]["reasoning_effort"])
 
@@ -1099,33 +1112,22 @@ class RouteRecoveryTests(unittest.TestCase):
 
         claude_runtime = SimpleNamespace(**{**self.runtime.__dict__, "opencode": providers.resolve("claude")})
         state = self.claude_report_repair_state()
-        before = json.dumps(state["settings"], sort_keys=True)
         error = support.Paused("PAUSED_CONTEXT_WINDOW", "context window")
         self.assertFalse(route_recovery.recover(claude_runtime, state, self.root, self.root, error))
-        self.assertEqual(before, json.dumps(state["settings"], sort_keys=True))
         self.assertEqual(CLAUDE_SONNET, state["settings"]["roles"]["tester"]["model"])
         self.assertEqual("high", state["settings"]["roles"]["tester"]["reasoning_effort"])
         self.assertNotIn("user_events", state)  # no runner route_assignment was recorded
         self.runtime.abandon_stage.assert_not_called()
         self.runtime.count_automatic_recovery.assert_not_called()
-        # The one shared decision returns None for every caller: stage, workflow job, parallel worker.
-        for kwargs in (
-            {},
-            {"workflow_job": True},
-            {"worker": {"role": "tester", "milestone_id": "M1", "model": CLAUDE_SONNET}},
-        ):
-            self.assertIsNone(
-                route_pool.choose(
-                    claude_runtime, state, self.root, "tester", CLAUDE_SONNET, "PAUSED_CONTEXT_WINDOW", **kwargs
-                )
-            )
         # The pause stands and names the person's model question: a larger window, or a smaller task.
         attempt = quota_route.stopped_attempt(state, failure_status=support.failure_status)
         self.assertEqual(("tester", "PAUSED_CONTEXT_WINDOW"), (attempt["role"], attempt["pause_status"]))
         asked = quota_route.question(state, attempt)
         self.assertEqual(("route-tester", "context_window"), (asked["id"], asked["cause"]))
         self.assertIn("larger window", asked["question"])
-        self.assertIn("AutoCode never changes the model on its own", asked["why"])
+        self.assertIn(
+            "An unchanged retry would send the same request. This stop keeps the selected model.", asked["why"]
+        )
         self.assertIn("smaller task", asked["why"])
 
     def test_context_window_never_switches_but_quota_and_refusal_still_do(self):

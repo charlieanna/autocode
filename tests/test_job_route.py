@@ -46,8 +46,11 @@ model=next((argv[argv.index(f)+1] for f in ('--model','-m') if f in argv[:-1]),N
 with Path(os.environ['JOB_CALLS']).open('a') as f:f.write('request %s\n'%model)
 print(json.dumps({'type':'thread.started','thread_id':str(uuid.uuid4())}),flush=True)
 if os.environ.get('REFUSE_MODEL') in ('*',model):
- error=({'name':'ContentFilterError','message':'The response was blocked by the content filter'}
-        if os.environ.get('REFUSE_KIND','filter')=='filter' else {'message':'subscription usage limit reached'})
+ error={
+  'filter':{'name':'ContentFilterError','message':'The response was blocked by the content filter'},
+  'quota':{'message':'subscription usage limit reached'},
+  'context_window':{'code':'context_length_exceeded','message':'prompt is too long'},
+ }[os.environ.get('REFUSE_KIND','filter')]
  print(json.dumps({'type':'error','error':error}),flush=True);raise SystemExit(1)
 result={'design_document':'docs/double.md','summary':'double() adds n to itself','constraints':[],'conflicts':[{'design_says':'double() returns n + n','conflicts_with':'calc.py multiplies by 2','files':['calc.py'],'options':['keep the multiplication','change the design'],'example':'double(3) is computed as 3 * 2','probe':'','counterexample':{'file':'','find':'','replace':''}}]}
 Path(argv[argv.index('-o')+1]).write_text(json.dumps(result))
@@ -555,6 +558,25 @@ class JobModelRouteTests(JobHarness):
         self.assertEqual(["gpt-6-sol"], self.models())
         # The shown token still retries exactly (on the refused model: the person's choice).
         self.assertEqual(need["job_retry_token"], self.stopped(run)["job_retry_token"])
+
+    def test_context_window_keeps_the_job_model_until_the_named_answer(self):
+        self.options = tuple(option for option in self.options if option != "--no-auto-select")
+        run = self.refused("context_window")
+        view = run.status()
+        self.assertEqual(["gpt-6-sol"], self.models())
+        self.assertEqual([], view["route_assignments"])
+        route = view["needs"]["route"]
+        self.assertEqual(("context_window", "gpt-6-sol"), (route["cause"], route["current_model"]))
+        self.assertIn("larger context window", view["recovery"]["what_happened"])
+        self.assertEqual(route["command"], view["next_command"])
+        self.assertNotIn("retry_job", [action["kind"] for action in view["recovery"]["actions"]])
+
+        assigned = run.assign_model("architect", "gpt-6-luna")
+        self.assertEqual(["gpt-6-sol"], self.models())
+        self.assertNotEqual(view["needs"]["job_retry_token"], assigned["needs"]["job_retry_token"])
+        self.assertIn("retry_job", [action["kind"] for action in assigned["recovery"]["actions"]])
+        self.finished(run.retry_job(assigned["needs"]["job_retry_token"]))
+        self.assertEqual(["gpt-6-sol", "gpt-6-luna"], self.models())
 
     def test_a_quota_stop_names_the_quota_and_takes_a_model_or_an_unchanged_retry(self):
         run = self.refused("quota")

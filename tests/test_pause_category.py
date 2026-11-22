@@ -119,7 +119,7 @@ class PauseCategoryTests(unittest.TestCase):
         self.assertEqual("your_decision", pauses.category(status, {"kind": "review", "token": "current"}))
 
     def test_model_route_answers_preserve_the_provider_cause(self):
-        for cause in ("quota", "content_filter", "output_limit"):
+        for cause in ("quota", "content_filter", "output_limit", "context_window"):
             for kind in ("answer", "retry_job"):
                 for status in ("PAUSED_BUDGET", "WAITING_FOR_USER", "PAUSED_JOB_FAILURE"):
                     with self.subTest(cause=cause, kind=kind, status=status):
