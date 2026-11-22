@@ -91,7 +91,7 @@ def judge_regression(
     known_failures,
     new_behavior=False,
     preserve_only=False,
-    absent_go_base=False,
+    absent_first_go=False,
     absent_junit_base=False,
     seam_names=None,
     changed_tests=None,
@@ -176,22 +176,22 @@ def judge_regression(
                     "Tests in the changed files that already fail on base were not counted: "
                     + ", ".join(sorted(failed)[:20])
                 )
+        if absent_first_go and on_base is None and new_behavior and not preserve_only:
+            if not failed and not candidate.get("skipped") and on_candidate["exit_code"] == 0 and changed_tests:
+                names = sorted(name for name in passed if changed_tests(name))
+                if names:
+                    proof.update(fail_to_pass=names, pass_to_pass=[], not_run_on_base=names)
+                    notes.append("The pinned base has no Go project; these changed tests did not run on base.")
+                    return
+            unverified.append("The first Go project's changed named tests were not completely established")
+            return
         if on_base is None:
             return
         if on_base["timed_out"]:
             unverified.append("The regression tests timed out on base; no complete fail-to-pass proof exists")
             return
         if base is None:
-            # Outside a module, `go test` on the new files exits before any test event.
-            # Those tests did not pass on a base that has no Go project (#685).
-            if (
-                new_behavior
-                and not preserve_only
-                and (absent_go_base or absent_junit_base)
-                and passed
-                and on_base is not None
-                and (absent_junit_base or first_suite.go_reported_nothing(on_base))
-            ):
+            if new_behavior and not preserve_only and absent_junit_base and passed:
                 names = sorted(passed)
                 proof["fail_to_pass"] = names
                 proof["pass_to_pass"] = []

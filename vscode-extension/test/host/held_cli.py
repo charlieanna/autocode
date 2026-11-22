@@ -10,6 +10,7 @@ cleanup cannot mistake wrapper exit for completion of the real CLI.
 """
 
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -25,7 +26,32 @@ def record(line: str) -> None:
         reads.write(line + "\n")
 
 
+def _offline_fixture():
+    """Pin the scripted route in each editor child, even after login PATH resolution."""
+    root = Path(os.environ["AUTOCODE_HOST_READS"]).resolve(strict=True).parent
+    provider = root / "bin" / "codex"
+    recorded = root / "fake-config.json"
+    source = CLI.parents[1] / "scenarios/harness/fake_codex.py"
+    if (
+        recorded.is_symlink()
+        or not recorded.is_file()
+        or Path(os.environ["SCENARIO_FAKE_CONFIG"]) != recorded
+        or provider.parent.is_symlink()
+        or provider.is_symlink()
+        or not provider.is_file()
+        or provider.read_bytes() != source.read_bytes()
+        or not os.access(provider, os.X_OK)
+    ):
+        raise ValueError("The editor fixture cannot identify its scripted provider")
+    os.environ["PATH"] = os.pathsep.join((str(provider.parent), os.environ.get("PATH", "")))
+    if shutil.which("codex") != str(provider):
+        raise ValueError("The editor fixture did not select its scripted provider")
+
+
 def main(argv: list[str]) -> int:
+    if argv[:1] == ["--offline-fixture"]:
+        _offline_fixture()
+        argv = argv[1:]
     if "--status" not in argv:
         return subprocess.call([sys.executable, str(CLI), *argv])
     record(f"start {os.getpid()} {psutil.Process().create_time()}")

@@ -10,10 +10,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import autocode_acceptance_retry_exhaustion as acceptance_exhaustion
 import autocode_acceptance_retry_next as retry_next
 import autocode_acceptance_tests as acceptance
 import autocode_acceptance_tests_job as job
 import autocode_acceptance_verification_retry as retry
+import autocode_action_retained_recovery as retained_recovery
 import autocode_command_receipt as receipts
 import autocode_contract_identity as identity
 import autocode_progress_view as progress_view
@@ -1138,15 +1140,74 @@ class AcceptanceVerificationRetryTests(unittest.TestCase):
         self.assertFalse(acceptance.receipts(self.state))
         self.runtime.run_role.assert_not_called()
 
-    def test_ac5_exhausted_recheck_offers_no_resume(self):
+    def test_ac5_exhausted_recheck_names_the_resume_that_ends_the_run(self):
+        # #4037: the spent re-check used to leave no next command, no chat input and only "inspect".
         shown = self.exhausted()
-        self.assertIsNone(shown["needs"])
-        self.assertIsNone(shown["next_command"])
+        self.assertEqual({"kind": "continue", "action": "--resume-paused"}, shown["needs"])
+        self.assertIn("--resume-paused", shown["next_command"])
+        self.assertEqual(acceptance_exhaustion.NOTICE, shown["stop_reason"])
         card = shown["recovery"]
         self.assertNotIn("resume", [row["kind"] for row in card["actions"]])
         self.assertIn(EXHAUSTED_SENTENCE, card["what_happened"])
+        self.assertIn(acceptance_exhaustion.NOTICE, card["what_happened"])
         self.assertEqual({"next": "exhausted", "rechecks": 1, "allowed": 1}, shown.get("acceptance_verification_retry"))
         self.assertNotIn("Try the Tester step again", json.dumps(shown))
+
+    def test_exhausted_recheck_resume_ends_the_run_with_a_report(self):
+        self.exhausted()
+        runner = SimpleNamespace(now=util.now, write_json=util.atomic_json)
+        state_path = self.run / "state.json"
+        handled, code = retained_recovery.settle(
+            runner, SimpleNamespace(), None, self.state, state_path, self.run, self.workspace, SimpleNamespace()
+        )
+        self.assertEqual((True, 2), (handled, code))
+        self.assertEqual("PAUSED_INTERVENTION", self.state["status"])
+        saved = json.loads(state_path.read_text())
+        ended = next(row for row in saved["applied_interventions"] if row.get("actor") == "autocode")["outcome"]
+        self.assertEqual("could_not_finish", ended["result"])
+        self.assertIn(EXHAUSTED_SENTENCE, ended["reason"])
+        self.assertIn("original-reference execution missing", ended["reason"])
+        self.assertEqual({"next": "exhausted", "rechecks": 1, "allowed": 1}, ended["evidence"]["verification_retry"])
+        self.assertEqual(2, len(ended["evidence"]["failures"]))
+        self.assertEqual(2, self.reference.call_count, "ending the run runs no check and no model")
+        self.runtime.run_role.assert_not_called()
+        shown = self.project()
+        self.assertIsNone(shown["needs"])
+        self.assertEqual("AutoCode could not finish this task", shown["recovery"]["title"])
+        self.assertEqual(ended, shown["recovery"]["outcome"])
+        # Idempotent: a second resume records nothing new.
+        self.assertFalse(acceptance_exhaustion.settle(self.state, self.workspace, at=util.now()))
+
+    def test_raised_exhausted_recheck_ends_the_run_at_once(self):
+        self.spend_recheck()
+        with self.assertRaises(util.Paused) as stopped:
+            self.dispatch()
+        self.assertIn("The bounded acceptance verification retry is exhausted", str(stopped.exception))
+        self.assertTrue(
+            acceptance_exhaustion.conclude_pause(self.state, stopped.exception, self.workspace, at=util.now())
+        )
+        self.assertEqual("PAUSED_INTERVENTION", self.state["status"])
+        ended = self.project()["recovery"]["outcome"]
+        self.assertEqual("could_not_finish", ended["result"])
+        self.assertEqual(str(stopped.exception), ended["evidence"]["paused_with"])
+
+    def test_recheck_still_owed_is_not_ended(self):
+        self.reference.side_effect = None
+        self.reference.return_value = {"error": "original-reference execution missing"}
+        self.start_retry()
+        self.pause_at_tester()
+        error = util.Paused("PAUSED_INVALID_OUTPUT", "Acceptance verification retry could not finish: x")
+        self.assertFalse(acceptance_exhaustion.conclude_pause(self.state, error, self.workspace, at=util.now()))
+        self.assertFalse(acceptance_exhaustion.settle(self.state, self.workspace, at=util.now()))
+        self.assertEqual("PAUSED_INVALID_OUTPUT", self.state["status"])
+
+    def test_recheck_granted_by_environment_advice_is_not_ended(self):
+        self.spend_recheck()
+        self.advise("2026-11-20T02:26:26+00:00", "environment")
+        self.pause_at_tester()
+        self.assertFalse(acceptance_exhaustion.settle(self.state, self.workspace, at=util.now()))
+        self.assertEqual("PAUSED_INVALID_OUTPUT", self.state["status"])
+        self.assertIn("--resume-paused", self.project()["next_command"])
 
     def test_ac6_exhausted_recheck_reports_failure_without_requesting_machinery_feedback(self):
         shown = self.exhausted()
@@ -1156,14 +1217,11 @@ class AcceptanceVerificationRetryTests(unittest.TestCase):
 
     def test_ac21_exhausted_recheck_reports_a_blocked_outcome(self):
         shown = self.exhausted()
-        self.assertIsNone(shown["needs"])
-        self.assertIsNone(shown["next_command"])
         card = shown["recovery"]
         self.assertEqual("blocked", card["category"])
         self.assertEqual("No re-check of the saved tests is left", card["title"])
         self.assertIn("1 of 1 allowed times", card["what_happened"])
         self.assertEqual(card["what_happened"], shown["chat"]["notice"])
-        self.assertIsNone(shown["chat"]["input"])
 
     def test_ac7_pending_recheck_is_labelled_as_recheck(self):
         self.reference.side_effect = None
