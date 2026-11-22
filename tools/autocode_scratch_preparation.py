@@ -12,6 +12,7 @@ try:
     from . import autocode_dependency_dirs as dependency_dirs
     from . import autocode_joint_inputs as joint_inputs
     from . import autocode_review_proof as review_proof
+    from . import autocode_scratch_location as scratch_location
     from . import autocode_scratch_overlay as scratch_overlay
     from . import autocode_source_snapshot as source_snapshot
     from . import autocode_test_environment as test_environment
@@ -20,6 +21,7 @@ except ImportError:
     import autocode_dependency_dirs as dependency_dirs
     import autocode_joint_inputs as joint_inputs
     import autocode_review_proof as review_proof
+    import autocode_scratch_location as scratch_location
     import autocode_scratch_overlay as scratch_overlay
     import autocode_source_snapshot as source_snapshot
     import autocode_test_environment as test_environment
@@ -157,7 +159,7 @@ def _same_source_after_copy(workspace, run_dir, tree, before, after, source_path
     try:
         root = Path(workspace).resolve()
         actual = Path(tree).resolve()
-        expected = (Path(run_dir) / "scratch" / "tree").resolve()
+        expected = (scratch_location.scratch_root(run_dir) / "tree").resolve()
         relative = actual.relative_to(root).as_posix()
         scoped = any(
             relative == name or relative.startswith(name + "/") or name.startswith(relative + "/")
@@ -230,7 +232,7 @@ def prepare(
     tree = make_tree(
         workspace,
         head,
-        run_dir / "scratch" / "tree",
+        scratch_location.scratch_root(run_dir) / "tree",
         workspace,
         changes,
         dependencies_from=dependencies_from or workspace,

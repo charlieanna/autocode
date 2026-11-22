@@ -26,11 +26,13 @@ try:
     from . import autocode_node_tests as node_tests
     from . import autocode_package_scope as package_scope
     from . import autocode_python_self_suite as python_self_suite
+    from . import autocode_scratch_location as scratch_location
     from . import autocode_verification_commands as command_policy
 except ImportError:
     import autocode_node_tests as node_tests
     import autocode_package_scope as package_scope
     import autocode_python_self_suite as python_self_suite
+    import autocode_scratch_location as scratch_location
     import autocode_verification_commands as command_policy
 
 SPAWN_MODULE = re.compile(
@@ -182,7 +184,7 @@ def valid_preflight_refusal(result, workspace, out, parameters):
     if any(parameters.get(key) for key in ("patch", "files", "links", "review_mutation", "native_execution")):
         return False
     payload = result["acceptance_refusal"]
-    tree, workspace = Path(out).resolve() / "scratch/tree", Path(workspace).resolve()
+    tree, workspace = scratch_location.scratch_root(out) / "tree", Path(workspace).resolve()
     if (
         not isinstance(payload, dict)
         or payload.get("tree") != str(tree)

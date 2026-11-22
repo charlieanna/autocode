@@ -6,6 +6,7 @@ from pathlib import Path
 try:
     from . import autocode_launch_inputs as launch_inputs
     from . import autocode_preparation_source_failure as source_failure
+    from . import autocode_scratch_location as scratch_location
     from . import autocode_util as util
     from . import autocode_verification_preparation as preparation
     from . import autocode_verification_recovery as recovery
@@ -13,6 +14,7 @@ try:
 except ImportError:
     import autocode_launch_inputs as launch_inputs
     import autocode_preparation_source_failure as source_failure
+    import autocode_scratch_location as scratch_location
     import autocode_util as util
     import autocode_verification_preparation as preparation
     import autocode_verification_recovery as recovery
@@ -59,7 +61,7 @@ def main():
         if request["operation"] == "prepare":
             answer["tree"] = str(verify.prepare_scratch_tree(workspace, out, **parameters))
         elif request["operation"] == "remove":
-            verify.remove_tree(workspace, out / "scratch" / "tree")
+            verify.remove_tree(workspace, scratch_location.scratch_root(out) / "tree")
         else:
             # All discovery, preparation, capture and cleanup retain the original keeper.
             value = verify.scratch_run(workspace, out, **parameters)

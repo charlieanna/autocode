@@ -18,9 +18,11 @@ from typing import TYPE_CHECKING
 
 try:
     from . import autocode_launch_inputs as launch_inputs
+    from . import autocode_scratch_location as scratch_location
     from . import autocode_verify as verify
 except ImportError:
     import autocode_launch_inputs as launch_inputs
+    import autocode_scratch_location as scratch_location
     import autocode_verify as verify
 
 if TYPE_CHECKING:
@@ -46,7 +48,7 @@ def looker(state: RunState, workspace, run_dir, base, say, *, limit):
             tree = verify.make_tree(
                 workspace,
                 base,
-                Path(run_dir) / "scratch" / f"roles-{out.name[-8:]}-{len(runs):02d}",
+                scratch_location.scratch_root(run_dir) / f"roles-{out.name[-8:]}-{len(runs):02d}",
                 workspace,
                 changes,
                 dependencies_from=dependencies,

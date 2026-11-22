@@ -13,9 +13,11 @@ from pathlib import Path
 
 try:
     from . import autocode_joint_inputs as joint_inputs
+    from . import autocode_scratch_location as scratch_location
     from . import autocode_verify as verify
 except ImportError:
     import autocode_joint_inputs as joint_inputs
+    import autocode_scratch_location as scratch_location
     import autocode_verify as verify
 
 
@@ -38,7 +40,7 @@ def run(
     tree = verify.make_tree(
         workspace,
         base,
-        run_dir / "scratch" / "base",
+        scratch_location.scratch_root(run_dir) / "base",
         workspace,
         {},
         dependencies_from=dependencies_from or workspace,

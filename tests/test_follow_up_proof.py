@@ -8,6 +8,7 @@ import autocode_code_checkpoints as checkpoints
 import autocode_contract_identity as identity
 import autocode_follow_up_proof as follow_proof
 import autocode_regression as regression
+import autocode_scratch_location as scratch_location
 import autocode_util as util
 import autocode_verify as verify
 
@@ -128,7 +129,7 @@ class BaselineIdentity(unittest.TestCase):
                     inputs=None,
                     timeout=30,
                 )
-        tree = self.run / "follow-up-baseline"
+        tree = scratch_location.relocate(self.run / "follow-up-baseline")
         self.assertTrue(tree.is_dir())
         verify.remove_tree(self.project.root, tree)
 
@@ -283,4 +284,4 @@ class FreshBaselineExecution(unittest.TestCase):
         self.assertTrue(any("test_guard" in test for test in receipt["results"]["passed"]))
         self.assertTrue(any("test_new_feature" in test for test in receipt["results"]["failed"]))
         self.assertIn("start=0", (project.root / "totals.py").read_text())
-        self.assertFalse((run / "follow-up-baseline").exists())
+        self.assertFalse(scratch_location.relocate(run / "follow-up-baseline").exists())

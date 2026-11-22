@@ -22,6 +22,7 @@ try:
     from . import autocode_command_supervision as commands
     from . import autocode_preparation_source_failure as source_failure
     from . import autocode_process as processes
+    from . import autocode_scratch_location as scratch_location
     from . import autocode_supervision as supervision
     from . import autocode_util as util
     from . import autocode_verification_recovery as recovery
@@ -31,6 +32,7 @@ except ImportError:
     import autocode_command_supervision as commands
     import autocode_preparation_source_failure as source_failure
     import autocode_process as processes
+    import autocode_scratch_location as scratch_location
     import autocode_supervision as supervision
     import autocode_util as util
     import autocode_verification_recovery as recovery
@@ -257,7 +259,7 @@ def launch(operation, workspace, out, parameters, *, timeout, env):
         )
     if operation == "prepare":
         tree = Path(answer["tree"])
-        if tree != out / "scratch" / "tree" or tree != tree.resolve() or not tree.is_dir():
+        if tree != scratch_location.scratch_root(out) / "tree" or tree != tree.resolve() or not tree.is_dir():
             recovery.hold("preparation worker returned an unowned tree")
         return tree
     if operation == "execute":

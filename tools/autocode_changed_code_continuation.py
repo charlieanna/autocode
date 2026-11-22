@@ -25,6 +25,7 @@ try:
     from . import autocode_mutation_check as mutation
     from . import autocode_mutation_checkpoint as mutation_checkpoint
     from . import autocode_runner_check as runner_check
+    from . import autocode_scratch_location as scratch_location
     from . import autocode_source_scope as source_scope
     from . import autocode_status as status
     from . import autocode_util as util
@@ -36,6 +37,7 @@ except ImportError:
     import autocode_mutation_check as mutation
     import autocode_mutation_checkpoint as mutation_checkpoint
     import autocode_runner_check as runner_check
+    import autocode_scratch_location as scratch_location
     import autocode_source_scope as source_scope
     import autocode_status as status
     import autocode_util as util
@@ -185,7 +187,7 @@ def _window(
         tree = verify.make_tree(
             workspace,
             result["base"],
-            out / "scratch" / "candidate",
+            scratch_location.scratch_root(out) / "candidate",
             workspace,
             result["changes"],
             dependencies_from=state.get("project_workspace") or workspace,

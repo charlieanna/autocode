@@ -30,9 +30,11 @@ from pathlib import Path
 
 try:
     from . import autocode_command_receipt as command_receipt
+    from . import autocode_scratch_location as scratch_location
     from . import autocode_verification_commands as verification_commands
 except ImportError:
     import autocode_command_receipt as command_receipt
+    import autocode_scratch_location as scratch_location
     import autocode_verification_commands as verification_commands
 
 BASE, CHANGE = "base", "change"
@@ -51,7 +53,9 @@ def candidate_root(row):
     """The clean copy the replay ran ``row`` in: autocode_verify.scratch_run writes its log beside the
     ``scratch/tree`` it runs in. A guess that is wrong only leaves the outputs different."""
     output = row.get("output")
-    return str(Path(output).parent / "scratch" / "tree") if isinstance(output, str) and output else None
+    return (
+        str(scratch_location.scratch_root(Path(output).parent) / "tree") if isinstance(output, str) and output else None
+    )
 
 
 def _output(path, root):
