@@ -1,7 +1,7 @@
 """Candidate route pool and paired-role swap search for automatic model-stop recovery.
 
-When a stage, report repair, workflow job or parallel Builder worker hits a model stop
-(``quota_route.STATUSES``), AutoCode searches for a replacement model in three tiers:
+When a stage, report repair, workflow job or parallel Builder worker hits a quota, content-filter
+or output-limit stop, AutoCode searches for a replacement model in three tiers:
 
 1. The run's saved ``route_selection.candidates`` permitted set, when present;
 2. The models already configured in ``settings.roles`` on the same backend — first as a
@@ -693,7 +693,8 @@ def choose(
     settings = state.get("settings") or {}
     if settings.get("single_model_mode") or settings.get("auto_select_disabled"):
         return None
-    if pause_status not in quota_route.STATUSES or not dead:
+    # A full context window needs a larger window or a smaller task. Keep the stage's selected model.
+    if not dead or pause_status not in quota_route.AUTO_SWITCH_STATUSES:
         return None
 
     selection = settings.get("route_selection") or {}

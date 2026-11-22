@@ -1674,12 +1674,11 @@ def needs(
         route = quota_route.job_question(state)
         if known_source and isinstance(route, dict):
             need["route"] = _route(route)
-            # Until a person names another model (job_failure.route_assignment), the exact retry of a
-            # refused job would replay the refused model: the next step is the answer. job_retry_token
-            # stays, since the CLI still accepts it. A quota stop keeps the retry (the quota resets).
+            # Authentication and timeouts also offer an unchanged retry after the underlying problem clears.
             if need["kind"] == "retry_job" and (
                 route_required
-                or need["route"]["cause"] in ("content_filter", "output_limit", "authentication", "timeout")
+                or quota_route.job_awaits_new_model(failure, route)
+                or need["route"]["cause"] in ("authentication", "timeout")
                 and not isinstance(failure.get("route_assignment"), dict)
             ):
                 # A timeout whose model declares a lighter variant names that answer itself (#1902).

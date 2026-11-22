@@ -64,7 +64,8 @@ OUTPUT_STATUS = output_cap.STATUS
 # The request no longer fit the model's context window, or the provider compacted the conversation (#1942):
 # a person names a model with a larger window, or gives the job a smaller task.
 CONTEXT_STATUS = context_window.STATUS
-STATUSES = (QUOTA_STATUS, REFUSAL_STATUS, OUTPUT_STATUS, CONTEXT_STATUS)
+AUTO_SWITCH_STATUSES = (QUOTA_STATUS, REFUSAL_STATUS, OUTPUT_STATUS)
+STATUSES = (*AUTO_SWITCH_STATUSES, CONTEXT_STATUS)
 AUTH_STATUS = "PAUSED_AUTH"
 # Authentication rerouting is limited to retained workflow jobs with exact tokens.
 TIMEOUT_STATUS = "PAUSED_PROVIDER_TIMEOUT"
@@ -287,6 +288,13 @@ def _job_row(state: RunState) -> dict | None:
     )
 
 
+def job_awaits_new_model(failure: dict, route: dict) -> bool:
+    """The job has an unanswered route question whose unchanged retry would repeat the model stop."""
+    return route.get("cause") in ("content_filter", "output_limit", "context_window") and not isinstance(
+        failure.get("route_assignment"), dict
+    )
+
+
 def job_question(state: RunState) -> dict | None:
     """The saved model question, or a bound legacy stopped-job projection.
 
@@ -503,8 +511,8 @@ def question(
             why=(
                 f"The {job} stopped on {stopped_on}: its request exceeded the model's context window, or the provider "
                 "compacted (summarized) the conversation to make it fit, so the response was not produced from the "
-                "whole handoff and is not accepted. An unchanged retry would send the same request. AutoCode never "
-                f"changes the model on its own. Name a model with a larger context window for the same engine "
+                "whole handoff and is not accepted. An unchanged retry would send the same request. This stop "
+                "keeps the selected model. Name a model with a larger context window for the same engine "
                 f"({engine(settings, role)}) that passes the producer/checker independence rules, or set the attempt "
                 "aside and give the job a smaller task (a narrower --package, or a split milestone). The attempt and "
                 "its usage remain retained."
