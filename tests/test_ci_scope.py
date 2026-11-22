@@ -86,6 +86,16 @@ class ScopeTests(unittest.TestCase):
             with self.subTest(fixture=fixture):
                 self.assertIn("extension", self.enabled(fixture))
 
+    def test_status_retry_host_depends_on_its_cleanup_helpers(self):
+        from tools import ci_test_selection
+
+        for fixture in ("tests/host_reader_cleanup.py", "vscode-extension/test/owned-fixture-cleanup.cjs"):
+            with self.subTest(fixture=fixture):
+                self.assertIn(
+                    "vscode-extension/test/host/status-retry.test.cjs",
+                    ci_test_selection.EXTENSION_HOST_RESOURCES[fixture],
+                )
+
     def test_classification_host_resources_are_exact_and_select_the_host(self):
         from tools import ci_test_selection
 
