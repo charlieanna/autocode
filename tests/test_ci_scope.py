@@ -56,6 +56,7 @@ class ScopeTests(unittest.TestCase):
 
     def test_each_host_fixture_alone_selects_its_actual_extension_host_consumer(self):
         for fixture in (
+            "scenarios/harness/fake_changed_code.py",
             "scenarios/harness/fake_codex.py",
             "vscode-extension/test/python-semantic-transition.cjs",
             "vscode-extension/test/host/held_cli.py",
@@ -67,13 +68,17 @@ class ScopeTests(unittest.TestCase):
             "tools/autocode_changed_code_review_application.py",
             "tools/autocode_diff_coverage.py",
             "tools/autocode_mutants.py",
+            "tools/autocode_named_collection.py",
             "tools/autocode_python_semantic_lines.py",
+            "tools/autocode_requirements_observations.py",
+            "tools/autocode_suite_observation_view.py",
             "tests/guard_host_hook/sitecustomize.py",
             "tests/host_status_site/sitecustomize.py",
             "tests/job_route_vscode_cli.py",
             "tests/job_route_vscode_fixture.py",
             "tests/kilo_route_vscode_fixture.py",
             "tools/autocode_job_retry_admission.py",
+            "tests/plan_collection_vscode_fixture.py",
             "tests/provider_auth_fixture.py",
             "tests/protected_link_vscode_fixture.py",
             "tests/python_semantic_vscode_fixture.py",

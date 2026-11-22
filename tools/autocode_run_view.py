@@ -27,6 +27,7 @@ try:
     from . import autocode_current_behavior as current_behavior
     from . import autocode_interaction_timing as interaction_timing
     from . import autocode_internal_failure_view as operational_block
+    from . import autocode_operational_block as operational_denial
     from . import autocode_plan_only as plan_only
     from . import autocode_runner_check as runner_check
     from . import autocode_scope_pause as scope_pause
@@ -37,6 +38,7 @@ except ImportError:
     import autocode_current_behavior as current_behavior
     import autocode_interaction_timing as interaction_timing
     import autocode_internal_failure_view as operational_block
+    import autocode_operational_block as operational_denial
     import autocode_plan_only as plan_only
     import autocode_runner_check as runner_check
     import autocode_scope_pause as scope_pause
@@ -772,6 +774,21 @@ def view(
                         }
                     ),
                 }
+                if (
+                    state.get("status") == "AWAITING_GOAL_APPROVAL"
+                    and run_dir is not None
+                    and workspace is not None
+                    and any(
+                        isinstance(stage, dict)
+                        and stage.get("stage") != "requirements_gather"
+                        and isinstance(stage.get("requirements_observations"), dict)
+                        and stage["requirements_observations"].get("status") == "sealed"
+                        for stage in state.get("stages") or []
+                    )
+                ):
+                    reports = status_observation.suite_reports(state, workspace, run_dir)
+                    if reports:
+                        result["displayed_plan"]["suite_reports"] = reports
         except (AttributeError, KeyError, TypeError, ValueError):
             pass  # Missing, stale or unsealed plans cannot supply approval authority.
         approved = plan
@@ -1514,11 +1531,17 @@ def needs(
         or (operational_block.presentation(state, include_hold=True))
     ):
         return None
-    if status == "PAUSED_VERIFICATION_UNCERTAIN" and runner_check.restart_recoverable(
-        state, run_dir or state.get("run_dir")
+    if status == "PAUSED_VERIFICATION_UNCERTAIN" and (
+        runner_check.restart_recoverable(state, run_dir or state.get("run_dir"))
+        or runner_check.cleanup_recoverable(state, run_dir or state.get("run_dir"))
     ):
-        # A host restart ended the interrupted check (and the model attempt it served): AutoCode's to
-        # settle on the next resume, which records the interrupted check and runs it again (#3965).
+        # A host restart ended the interrupted check (and the model attempt it served), or every process
+        # the check recorded is gone in this boot: AutoCode's to settle on the next resume, which records
+        # the interrupted check and runs it again (#3965, #4096).
+        return {"kind": "continue", "action": "--resume-paused"}
+    if status == "PAUSED_PROCESS_CLEANUP" and operational_denial.resume_recovers(state):
+        # The original metadata family's cleanup authenticates on the next resume's guard: AutoCode's to
+        # settle, not a dead end for a person (#4096).
         return {"kind": "continue", "action": "--resume-paused"}
     if recovery_exhaustion.pending(state):
         # A spent automatic recovery allowance is AutoCode's to close, not a grant for a person:

@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 try:
     from . import autocode_classification_recovery as classification
     from . import autocode_no_progress_recovery as no_progress
+    from . import autocode_operational_block as operational
     from . import autocode_operational_block_view as blocked
     from . import autocode_operational_disposition as disposition
     from . import autocode_operational_hold as hold
@@ -27,6 +28,7 @@ try:
 except ImportError:
     import autocode_classification_recovery as classification
     import autocode_no_progress_recovery as no_progress
+    import autocode_operational_block as operational
     import autocode_operational_block_view as blocked
     import autocode_operational_disposition as disposition
     import autocode_operational_hold as hold
@@ -46,14 +48,20 @@ def presentation(state: RunState, *, include_hold=False):
         # A spent recovery allowance or a held command correction is not a block: the next resume settles it.
         return None
     specific = blocked.presentation(state) or startup.presentation(state)
+    if specific is not None and operational.resume_recovers(state):
+        # The next resume's guard authenticates the original cleanup and advances: not a block (#4096).
+        return None
     if specific or not include_hold:
         return specific
     if not disposition.inspectable(state):
         return hold.presentation(state)
     check = state.get("active_runner_check")
     if state.get("status") == "PAUSED_VERIFICATION_UNCERTAIN" and isinstance(check, dict) and check.get("supervision"):
-        if runner_check.restart_recoverable(state, state.get("run_dir")):
-            # A host restart ended the check: the next resume settles it, so it is not a block (#3965).
+        if runner_check.restart_recoverable(state, state.get("run_dir")) or runner_check.cleanup_recoverable(
+            state, state.get("run_dir")
+        ):
+            # A host restart ended the check, or its recorded processes are all gone: the next resume
+            # settles it, so it is not a block (#3965, #4096).
             return None
         return {
             "title": "AutoCode could not verify cleanup",

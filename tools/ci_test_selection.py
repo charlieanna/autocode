@@ -38,6 +38,11 @@ PUBLIC_FLOW_CONSUMERS = ("tests.test_launch_state_cli", "tests.test_completion_s
 # These helpers are loaded dynamically by the extension-host tests, not by a
 # Python import. Keep the consuming test named so fixture-only edits run it.
 EXTENSION_HOST_RESOURCES = {
+    "scenarios/harness/fake_changed_code.py": (
+        "vscode-extension/test/host/editor-host.test.cjs",
+        "vscode-extension/test/host/python-semantic.test.cjs",
+        "vscode-extension/test/host/retained-report.test.cjs",
+    ),
     "docs/schemas/status-view.schema.json": ("vscode-extension/test/host/retained-report.test.cjs",),
     "tests/first_go_vscode_fixture.py": ("vscode-extension/test/host/python-semantic.test.cjs",),
     "tools/autocode_first_go_proof.py": ("vscode-extension/test/host/python-semantic.test.cjs",),
@@ -47,7 +52,6 @@ EXTENSION_HOST_RESOURCES = {
         "vscode-extension/test/host/retained-report.test.cjs",
         "vscode-extension/test/host/requirements-standing.test.cjs",
     ),
-    "scenarios/harness/fake_changed_code.py": ("vscode-extension/test/host/retained-report.test.cjs",),
     "scenarios/harness/driver.py": (
         "vscode-extension/test/host/retained-report.test.cjs",
         "vscode-extension/test/host/requirements-standing.test.cjs",
@@ -72,7 +76,10 @@ EXTENSION_HOST_RESOURCES = {
     ),
     "tools/autocode_assumption_ledger.py": ("vscode-extension/test/host/requirements-standing.test.cjs",),
     "tools/autocode_code_citations.py": ("vscode-extension/test/host/requirements-standing.test.cjs",),
+    "tools/autocode_named_collection.py": ("vscode-extension/test/host/plan-collection.test.cjs",),
+    "tools/autocode_requirements_observations.py": ("vscode-extension/test/host/plan-collection.test.cjs",),
     "tools/autocode_requirements_review.py": ("vscode-extension/test/host/requirements-standing.test.cjs",),
+    "tools/autocode_suite_observation_view.py": ("vscode-extension/test/host/plan-collection.test.cjs",),
     "vscode-extension/test/python-semantic-transition.cjs": (
         "vscode-extension/test/host/named-proof-refusal.test.cjs",
         "vscode-extension/test/host/python-semantic.test.cjs",
@@ -80,6 +87,7 @@ EXTENSION_HOST_RESOURCES = {
     ),
     "vscode-extension/test/host/held_cli.py": (
         "vscode-extension/test/host/editor-host.test.cjs",
+        "vscode-extension/test/host/plan-collection.test.cjs",
         "vscode-extension/test/host/python-semantic.test.cjs",
         "vscode-extension/test/host/retained-report.test.cjs",
         "vscode-extension/test/host/requirements-standing.test.cjs",
@@ -90,6 +98,7 @@ EXTENSION_HOST_RESOURCES = {
         "vscode-extension/test/host/job-route-effort.test.cjs",
         "vscode-extension/test/host/kilo-route-effort.test.cjs",
         "vscode-extension/test/host/named-proof-refusal.test.cjs",
+        "vscode-extension/test/host/plan-collection.test.cjs",
         "vscode-extension/test/host/python-semantic.test.cjs",
         "vscode-extension/test/host/retained-report.test.cjs",
         "vscode-extension/test/host/semver-reference-repair.test.cjs",
@@ -115,6 +124,7 @@ EXTENSION_HOST_RESOURCES = {
         "vscode-extension/test/host/named-proof-refusal.test.cjs",
         "vscode-extension/test/host/semver-reference-repair.test.cjs",
         "vscode-extension/test/host/classification-outcome.test.cjs",
+        "vscode-extension/test/host/plan-collection.test.cjs",
         "vscode-extension/test/host/python-semantic.test.cjs",
         "vscode-extension/test/host/retained-report.test.cjs",
         "vscode-extension/test/host/requirements-standing.test.cjs",
@@ -167,6 +177,7 @@ EXTENSION_HOST_RESOURCES = {
         "vscode-extension/test/host/replay-job-route.test.cjs",
         "vscode-extension/test/host/retained-report.test.cjs",
     ),
+    "tests/plan_collection_vscode_fixture.py": ("vscode-extension/test/host/plan-collection.test.cjs",),
     "tests/provider_auth_fixture.py": ("vscode-extension/test/host/editor-host.test.cjs",),
     "tests/python_semantic_vscode_fixture.py": (
         "vscode-extension/test/host/python-semantic.test.cjs",
@@ -214,6 +225,7 @@ EXTENSION_HOST_RESOURCES = {
         "vscode-extension/test/host/job-route-effort.test.cjs",
         "vscode-extension/test/host/kilo-route-effort.test.cjs",
         "vscode-extension/test/host/named-proof-refusal.test.cjs",
+        "vscode-extension/test/host/plan-collection.test.cjs",
         "vscode-extension/test/host/python-semantic.test.cjs",
         "vscode-extension/test/host/retained-report.test.cjs",
         "vscode-extension/test/host/replay-job-route.test.cjs",
@@ -495,6 +507,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "scenarios/harness/fake_changed_code.py",
         (
             "tests.test_risk_cli",
+            "tests.test_risk_fixture_named_proof",
             "tests.test_brief_cli",
             "tests.test_scenario_changed_code_fixtures",
             "tests.test_native_scenario_fixture_reasons",
@@ -505,16 +518,24 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ),
     ),
     (
+        "scenarios/catalog/ladder-18-durable-lease-queue/reference/",
+        ("tests.test_risk_cli", "tests.test_risk_fixture_named_proof", "tests.test_scenario_changed_code_fixtures"),
+    ),
+    (
+        "scenarios/catalog/ladder-19-transactional-outbox/reference/",
+        ("tests.test_risk_cli", "tests.test_risk_fixture_named_proof", "tests.test_scenario_changed_code_fixtures"),
+    ),
+    (
         "scenarios/catalog/ladder-18-durable-lease-queue/broken/non-atomic-claim/",
-        ("tests.test_risk_cli",),
+        ("tests.test_risk_cli", "tests.test_risk_fixture_named_proof", "tests.test_scenario_changed_code_fixtures"),
     ),
     (
         "scenarios/catalog/ladder-18-durable-lease-queue/broken/process-local-tokens/",
-        ("tests.test_risk_cli",),
+        ("tests.test_risk_cli", "tests.test_risk_fixture_named_proof", "tests.test_scenario_changed_code_fixtures"),
     ),
     (
         "scenarios/catalog/ladder-19-transactional-outbox/broken/ack-with-exception-rollback/",
-        ("tests.test_risk_cli",),
+        ("tests.test_risk_cli", "tests.test_risk_fixture_named_proof", "tests.test_scenario_changed_code_fixtures"),
     ),
     (
         "tools/goal_fixtures.py",

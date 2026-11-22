@@ -564,7 +564,7 @@ advisory context. `autocode notes` lists, retracts and corrects them. See
 | `--reconcile-review CRITERION=ANSWER` | Bind an authenticated legacy acceptance to current validated evidence without granting a new approval. |
 | `--accept-completion` | Accept completion only after the runner verifies every gate, when the model completion report cannot be produced. Records who accepted it, as an approval does ([Who approved](execution.md#who-approved)), and a project's `require-approver` checks it ([Required approver](execution.md#required-approver)). |
 | `--evidence-provenance fake\|live\|unknown` | Disclose the run's model-evidence origin; saved with a new run. |
-| `--context-soft-tokens N`, `--rotate-after-input-tokens N` | Context-compaction and checkpointed session-rotation thresholds; `0` disables rotation. |
+| `--context-soft-tokens N`, `--rotate-after-input-tokens N` | Context-compaction and checkpointed session-rotation thresholds; `0` disables rotation. The same bound keeps a report repair from resuming a session that has grown to it: the repair (and the same-session format correction) starts fresh with the bounded rejected report and refusals, recording `repair_fresh_reason` `session_rotation_threshold` (#4094). |
 | `--tool-output-mode raw\|conservative` | Display mode for AutoCode capture/file-read tools; saved across resume. |
 | `--headroom off\|on` | Off by default; `on` refuses to run until compatibility has been verified. |
 | `--planning-v2` | Opt in to transactional planning artifacts; keeps the existing role models and default planning flow. |

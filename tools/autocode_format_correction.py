@@ -42,12 +42,14 @@ try:
     from . import autocode_cmd_only_report as cmd_only
     from . import autocode_leaked_markup_report as leaked_markup
     from . import autocode_providers as providers
+    from . import autocode_session_rotation as session_rotation
     from . import autocode_support as support
     from .autocode_run_records import stage_completed, stage_supports_sessions
 except ImportError:
     import autocode_cmd_only_report as cmd_only
     import autocode_leaked_markup_report as leaked_markup
     import autocode_providers as providers
+    import autocode_session_rotation as session_rotation
     import autocode_support as support
     from autocode_run_records import stage_completed, stage_supports_sessions
 
@@ -85,7 +87,13 @@ def session_for(state: RunState, pending, route_role=None) -> str | None:
         # cannot work. Leave the original report intact for the full repair.
         # A configured Kilo connection gets the same launch (#2010), so the same skip.
         return None
-    return event_thread_id(Path(original["events"]))
+    thread = event_thread_id(Path(original["events"]))
+    if thread and session_rotation.session_reached(state, thread):
+        # #4094: the session this reminder would resume already carries the rotation threshold's
+        # reported input. Leave the report intact for the full repair, which starts fresh on that
+        # same bound instead of growing the conversation once more.
+        return None
+    return thread
 
 
 def same_route(state: RunState, original, route_role=None) -> bool:
@@ -164,6 +172,13 @@ def repair_session(state: RunState, pending, route_role=None, *, native=None) ->
     thread = event_thread_id(events_path) if events_path and events_path.is_file() else None
     if not thread:
         return None, "missing_session_thread"
+    if session_rotation.session_reached(state, thread):
+        # #4094: every repair resumes this one thread, so its provider-side conversation grows by
+        # the rejected report, the refusal and the new attempt each round while the repair prompt
+        # stays bounded. Once the input reported on that thread reaches the threshold
+        # rotate_if_needed rotates on (#1939), the repair starts fresh: the bounded handoff carries
+        # the rejected report and the exact refusals, and the request cannot overflow the window.
+        return None, "session_rotation_threshold"
     return thread, None
 
 

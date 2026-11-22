@@ -91,6 +91,22 @@ def ended_with_host(state: RunState):
     return active is None or (isinstance(active, dict) and processes.host_restarted(active.get("supervision")))
 
 
+def _pending_authenticates(root, check):
+    """Read-only: a present pending obligation authenticates exactly as the resume will."""
+    pending = root / "pending.json"
+    try:
+        if pending.is_symlink() or not pending.is_file():
+            return False
+        active, _ = verification_recovery.read_regular(pending, root.resolve())
+        if active.get("preparation_admission") and active.get("phase") == "post_execution_identity":
+            verification_recovery.authenticate_publication(root.resolve(), active)
+        else:
+            verification_recovery.authenticate(root.resolve(), active, check)
+    except (command_supervision.receipts.OwnershipUncertain, processes.ProcessError, OSError, ValueError):
+        return False
+    return True
+
+
 def restart_recoverable(state: RunState, run_dir):
     """Whether the next resume retires a verification a host restart interrupted (#3965).
 
@@ -100,18 +116,35 @@ def restart_recoverable(state: RunState, run_dir):
     """
     if run_dir is None or not ended_with_host(state):
         return False
+    return _pending_authenticates(Path(run_dir) / "check-replay" / "obligations", state.get("active_runner_check"))
+
+
+def cleanup_recoverable(state: RunState, run_dir):
+    """Whether the next plain resume retires a held runner check in this boot (#4096).
+
+    Read-only mirror of the resume's own recovery: a pending scheduled obligation must authenticate
+    (``schedule.recover_interrupted`` would otherwise hold again), and the check's supervision must
+    reconcile or show every recorded process gone — the same test ``clear`` applies when the resume
+    retires the check. A live process, an unreadable receipt or denied inspection keeps the hold.
+    """
+    if run_dir is None or state.get("active_stage"):
+        return False
+    check = state.get("active_runner_check")
+    if not isinstance(check, dict):
+        return False
     root = Path(run_dir) / "check-replay" / "obligations"
     pending = root / "pending.json"
-    try:
-        if pending.is_symlink() or not pending.is_file():
-            return False
-        active, _ = verification_recovery.read_regular(pending, root.resolve())
-        if active.get("preparation_admission") and active.get("phase") == "post_execution_identity":
-            verification_recovery.authenticate_publication(root.resolve(), active)
-        else:
-            verification_recovery.authenticate(root.resolve(), active, state.get("active_runner_check"))
-    except (command_supervision.receipts.OwnershipUncertain, processes.ProcessError, OSError, ValueError):
+    if (pending.exists() or pending.is_symlink()) and not _pending_authenticates(root, check):
         return False
+    if "supervision" not in check:
+        return True
+    try:
+        command_supervision.reconcile(check["supervision"])
+    except command_supervision.receipts.OwnershipUncertain:
+        try:
+            return command_supervision.processes_absent(check["supervision"])
+        except (processes.ProcessError, OSError, ValueError, KeyError, TypeError):
+            return False
     return True
 
 

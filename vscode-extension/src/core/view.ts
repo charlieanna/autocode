@@ -107,6 +107,17 @@ export type AssumptionStanding =
 
 export type RequirementConflict = string | { requirement_ids: string[]; description: string };
 
+/** Historical provider output that carries no independent execution or claim authority. */
+export interface SuiteReport {
+  kind: 'collection' | 'execution';
+  command: string;
+  reported_count: number;
+  paths: string[];
+  omitted_paths: number;
+  independently_verified: false;
+  selected?: true;
+}
+
 export interface RequirementsView {
   handoff_ref: string;
   intended_outcome: string;
@@ -115,15 +126,7 @@ export interface RequirementsView {
   acceptance_tests: string[];
   constraints?: string[];
   conflicts: RequirementConflict[];
-  /** Historical provider output, with no independent execution or claim authority. */
-  suite_reports?: Array<{
-    kind: 'collection' | 'execution';
-    command: string;
-    reported_count: number;
-    paths: string[];
-    omitted_paths: number;
-    independently_verified: false;
-  }>;
+  suite_reports?: SuiteReport[];
 }
 
 export interface ChatGate {
@@ -196,6 +199,7 @@ export interface DisplayedPlan {
   token?: string;
   review_summary_markdown?: string;
   review_markdown?: string;
+  suite_reports?: SuiteReport[];
   acceptance_criteria?: AcceptanceCriterion[];
   constraints?: string[];
   permission_boundaries?: string[];

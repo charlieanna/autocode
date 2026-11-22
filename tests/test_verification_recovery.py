@@ -654,6 +654,28 @@ class VerificationRecoveryTests(unittest.TestCase):
             runner_check.recover_interrupted(state, self.fixture.root.parent, lambda *_: None)
         self.assertTrue(self.fixture.pending.exists())
 
+    def test_a_lost_keeper_in_this_boot_is_recoverable_when_every_process_is_gone(self):
+        # #4096: the keeper died with an armed receipt and every recorded process gone, no host restart.
+        run = self.fixture.root.parent / "run"
+        fixture = AdmissionFixture(run / "check-replay" / "obligations")
+        state = {"status": "PAUSED_VERIFICATION_UNCERTAIN", "active_runner_check": fixture.check}
+        fixture.terminal = {**fixture.terminal, "phase": "armed", "cause": None}
+        fixture.write()
+        # A pending obligation that cannot authenticate keeps the hold: the resume would hold again.
+        self.assertFalse(runner_check.cleanup_recoverable(state, run))
+        fixture.pending.unlink()
+        self.assertTrue(runner_check.cleanup_recoverable(state, run))
+        self.assertTrue(fixture.pending.exists() is False, "the check is read, never settled")
+        self.observe.return_value = [{"pid": 2147480004}]
+        self.assertFalse(runner_check.cleanup_recoverable(state, run), "a live recorded process keeps the hold")
+        self.observe.return_value = []
+        self.assertFalse(
+            runner_check.cleanup_recoverable({**state, "active_stage": {"stage": "tester"}}, run),
+            "the model attempt must be set aside first",
+        )
+        self.observe.side_effect = processes.ProcessError("denied")
+        self.assertFalse(runner_check.cleanup_recoverable(state, run), "denied inspection keeps the hold")
+
 
 class PublicResumeRegression(unittest.TestCase):
     def test_public_taskrun_resume_after_model_abandonment_retires_failed_check(self):
@@ -671,7 +693,15 @@ class PublicResumeRegression(unittest.TestCase):
         # action, and resume asked a person to abandon the attempt, then refused the unfinished receipt.
         self.assert_public_resume("PAUSED_VERIFICATION_UNCERTAIN", host_restarted=True)
 
-    def assert_public_resume(self, initial_status, *, original_completed=False, host_restarted=False):
+    def test_public_taskrun_resume_retires_a_check_whose_keeper_was_lost(self):
+        # #4096: the disk filled and the command keeper died with an armed receipt, every recorded process
+        # gone in the same boot. Before, status named no action and offered only inspection; a plain resume
+        # retires the check (runner_check.clear -> processes_absent) and runs the proof again.
+        self.assert_public_resume("PAUSED_VERIFICATION_UNCERTAIN", lost_keeper=True)
+
+    def assert_public_resume(
+        self, initial_status, *, original_completed=False, host_restarted=False, lost_keeper=False
+    ):
         # The fixture starts after legitimate model abandonment. Only the final
         # build loop is stopped to avoid a provider; real CLI recovery and its
         # pre-review verification guard run through the public TaskRun API.
@@ -700,6 +730,10 @@ class PublicResumeRegression(unittest.TestCase):
         run_dir = workspace / ".autocode/runs/recovered"
         run_dir.mkdir(parents=True)
         fixture = AdmissionFixture(run_dir / "check-replay/obligations")
+        if lost_keeper:
+            fixture.terminal = {**fixture.terminal, "phase": "armed", "cause": None}
+            fixture.write()
+            fixture.pending.unlink()  # the proof's own supervision; no scheduled pending obligation
         active_stage = None
         if host_restarted:
             VerificationRecoveryTests.restart_host(None, fixture)
@@ -750,11 +784,12 @@ class PublicResumeRegression(unittest.TestCase):
             timeout=30,
             env={"AUTOCODE_HOME": str(Path(temporary.name).resolve() / "registry")},
         )
-        before = fixture.pending.read_bytes()
+        before = fixture.pending.read_bytes() if fixture.pending.exists() else None
         status = run.status()
         self.assertEqual(initial_status, status["status"])
-        self.assertEqual(before, fixture.pending.read_bytes(), "Status cannot reconcile a pending check")
-        if host_restarted:
+        if before is not None:
+            self.assertEqual(before, fixture.pending.read_bytes(), "Status cannot reconcile a pending check")
+        if host_restarted or lost_keeper:
             # The view names the step that settles it, so no client is left without one.
             self.assertEqual("continue", status["needs"]["kind"])
             self.assertTrue(status["next_command"].endswith(" --resume-paused"), status["next_command"])
@@ -763,6 +798,12 @@ class PublicResumeRegression(unittest.TestCase):
         self.assertEqual("PAUSED_REQUESTED", view["status"], view)
         self.assertIsNone(view["runner_check"])
         self.assertIsNone(view["evidence"]["regression_proof"])
+        if lost_keeper:
+            saved = util.read(run_dir / "state.json")
+            self.assertNotIn("active_runner_check", saved)
+            (retired,) = [row for row in saved["user_events"] if row["kind"] == "runner_check_retired"]
+            self.assertEqual("runner", retired["actor"])
+            return
         self.assertFalse(fixture.pending.exists())
         pointer = util.read(fixture.out.parent / "completed.json")
         failed = util.read(fixture.out.parent / pointer["name"])
