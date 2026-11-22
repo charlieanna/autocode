@@ -42,6 +42,8 @@ SCHEMA = {"type": "object"}
 PROBE = "evidence-check3-independent-probe.json"
 EXIT_2_LIMITATION = f"A header-only CSV uses the exit-2 stderr-only channel ({PROBE})"
 BACKLOG = f"A header-only CSV succeeds with unchanged stock ({PROBE})"
+SUCCESS_PROSE = f"A header-only CSV imports successfully as unchanged stock ({PROBE})"
+FAILURE_PROSE = f"A header-only CSV fails to import ({PROBE})"
 C3 = "The new usage page's :func: references to semver.dumps_version and semver.loads_version resolve"
 SINGLE_BUILD = "sphinx-build -W docs docs/_build"
 COMPARED_BUILD = "sphinx-build -n docs docs/_build"
@@ -313,6 +315,79 @@ class ReportCheckClaimTests(unittest.TestCase):
         self.assertEqual([], report_check.check_report(text, spec=spec))
         self.assertEqual(report, json.loads(text))
         self.assertEqual([f"A header-only CSV exits 0 with unchanged stock ({PROBE})"], report["agreed_limitations"])
+
+    def rows(self, report, state=None):
+        context = claim_evidence.context(
+            state or self.state(), self.root, record={"events": str(self.root / ".autocode/claim-events.jsonl")}
+        )
+        return claim_evidence.judge("review_completion", report, context)
+
+    def test_prose_success_contradicting_cited_probe_is_refused(self):
+        # #3904: a definite success assertion citing a probe that recorded exit 2 contradicts its evidence.
+        write_capture(self.root, PROBE, "python inventory.py apply header-only.csv", 2)
+        report = completion_report([], [SUCCESS_PROSE])
+        errors = self.check("review_completion", report, self.state())
+        self.assertEqual(1, len(errors), errors)
+        self.assertIn("deferred_backlog", errors[0])
+        self.assertIn(PROBE, errors[0])
+        self.assertIn("exit 2", errors[0])
+
+    def test_prose_failure_contradicting_cited_probe_is_refused(self):
+        write_capture(self.root, PROBE, "python inventory.py apply header-only.csv", 0)
+        report = completion_report([], [FAILURE_PROSE])
+        errors = self.check("review_completion", report, self.state())
+        self.assertEqual(1, len(errors), errors)
+        self.assertIn("deferred_backlog", errors[0])
+        self.assertIn("nonzero", errors[0])
+
+    def test_issue_scenario_binds_backlog_success_and_refuses_limitation(self):
+        # The reported review: exit-2 limitation and a success backlog both cite the same exit-0 probe.
+        write_capture(self.root, PROBE, "python inventory.py apply header-only.csv", 0)
+        report = completion_report([EXIT_2_LIMITATION], [SUCCESS_PROSE])
+        errors = self.check("review_completion", report, self.state())
+        self.assertEqual(1, len(errors), errors)
+        self.assertIn("agreed_limitations", errors[0])
+        problems, rows = self.rows(report)
+        self.assertEqual(problems, errors)
+        backlog = [row for row in rows if row["source"] == "deferred_backlog"]
+        self.assertEqual(1, len(backlog), rows)
+        self.assertEqual("established", backlog[0]["status"])
+
+    def test_consistent_prose_success_is_established(self):
+        write_capture(self.root, PROBE, "python inventory.py apply header-only.csv", 0)
+        report = completion_report([], [SUCCESS_PROSE])
+        self.assertEqual([], self.check("review_completion", report, self.state()))
+        problems, rows = self.rows(report)
+        self.assertEqual([], problems)
+        self.assertEqual([("deferred_backlog", "established")], [(r["source"], r["status"]) for r in rows])
+
+    def test_ambiguous_prose_is_never_refused(self):
+        # False-positive guards: even with an exit-2 probe present, none of these is bound or refused.
+        write_capture(self.root, PROBE, "python inventory.py apply header-only.csv", 2)
+        for backlog in (
+            "A header-only CSV imports successfully as unchanged stock",  # no cited probe
+            f"A header-only CSV succeeds but invalid UTF-8 fails ({PROBE})",  # mixed success/failure
+            f"A header-only CSV does not fail ({PROBE})",  # negated assertion
+            f"A failure mode is documented ({PROBE})",  # vague noun, not a definite assertion
+            f"The suite passes with the change ({PROBE})",  # "passes" is not a trigger
+            f"See failed-events.jsonl for the retry path ({PROBE})",  # failure word inside a file name
+        ):
+            with self.subTest(backlog=backlog):
+                report = completion_report([], [backlog])
+                self.assertEqual([], self.check("review_completion", report, self.state()))
+                self.assertEqual([], self.rows(report)[1])
+
+    def test_prose_claim_on_unattested_capture_is_unverified_not_refused(self):
+        path = write_capture(self.root, PROBE, "python inventory.py apply header-only.csv", 2)
+        (self.root / ".autocode/claim-events.jsonl").write_text("")
+        report = completion_report([], [SUCCESS_PROSE])
+        self.assertEqual([], self.check("review_completion", report, self.state()))
+        problems, rows = self.rows(report)
+        self.assertEqual([], problems)
+        self.assertEqual([("deferred_backlog", "unverified")], [(r["source"], r["status"]) for r in rows])
+        self.assertIn("not authenticated", rows[0]["reason"])
+        attest_capture(path)
+        self.assertEqual(1, len(self.check("review_completion", report, self.state())))
 
     def test_ac15_exit_code_rule_skips_test_runs_and_partial_matches(self):
         state = self.state([("C2", "Whitespace input exits 2")])
