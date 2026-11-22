@@ -464,6 +464,59 @@ class ProjectConventionsReportCompatibilityTests(unittest.TestCase):
         self.assertEqual({}, json.loads(output.read_text()))
         self.assertNotIn("reported_output", record)
 
+    def test_absent_suite_claim_defaults_to_null_and_supplied_claim_is_preserved(self):
+        # #3939: a proposed assumption's suite_claim is null when it makes no suite-coverage claim.
+        # Reports written before the field, and fixtures that never name a claim, omit it; the strict
+        # generation schema requires it, so the loader defaults the absent field to null without
+        # changing a supplied claim, and an old schema without the field does not gain it.
+        schema = model_output_schema(
+            role_schema.obj(
+                {
+                    "summary": {"type": "string"},
+                    "proposed_assumptions": {"type": "array", "items": autoplanner.ASSUMPTION},
+                }
+            )
+        )
+        raw = {
+            "summary": "Conventions read.",
+            "proposed_assumptions": [
+                {
+                    "id": "A1",
+                    "text": "Keep the exception convention.",
+                    "kind": "inferable",
+                    "category": "technical",
+                    "convention_ref": "convention.py:2",
+                    "rationale": "The module uses ValueError.",
+                    "supports": [],
+                }
+            ],
+        }
+        with self.assertRaisesRegex(ValueError, "missing suite_claim"):
+            validate_schema(copy.deepcopy(raw), schema)
+        normalized = normalize_absent_authority(copy.deepcopy(raw), schema, {"stage": "requirements_gather"})
+        self.assertIsNone(normalized["proposed_assumptions"][0]["suite_claim"])
+        validate_schema(normalized, schema)
+        claim = {
+            "kind": "named_tests_pass",
+            "node_ids": ["tests/test_x.py::test_y"],
+            "collection_command": "python -m pytest --collect-only -q",
+        }
+        supplied = copy.deepcopy(raw)
+        supplied["proposed_assumptions"][0]["suite_claim"] = claim
+        normalized = normalize_absent_authority(supplied, schema, {"stage": "requirements_gather"})
+        self.assertEqual(claim, normalized["proposed_assumptions"][0]["suite_claim"])
+        validate_schema(normalized, schema)
+        old = model_output_schema(
+            role_schema.obj(
+                {
+                    "summary": {"type": "string"},
+                    "proposed_assumptions": {"type": "array", "items": role_schema.obj({"id": {"type": "string"}})},
+                }
+            )
+        )
+        legacy = {"summary": "s", "proposed_assumptions": [{"id": "A1"}]}
+        self.assertEqual(legacy, normalize_absent_authority(legacy, old, {"stage": "requirements_gather"}))
+
 
 class GitDeliveryReportCompatibilityTests(unittest.TestCase):
     def test_loader_defaults_only_absent_nullable_delivery_and_preserves_raw(self):

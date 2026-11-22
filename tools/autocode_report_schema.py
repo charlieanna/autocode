@@ -52,6 +52,13 @@ def normalize_absent_authority(value, schema, record):
         for row in result["requirement_trace"]:
             if isinstance(row, dict):
                 row.setdefault("proxy_reason", None)
+    # A proposed assumption's suite_claim (#3939) is null when it makes no suite-coverage claim; reports
+    # written before it, and fixtures that never name a claim, leave it out.
+    assumption_row = properties.get("proposed_assumptions", {}).get("items", {}).get("properties", {})
+    if "suite_claim" in assumption_row and isinstance(result.get("proposed_assumptions"), list):
+        for row in result["proposed_assumptions"]:
+            if isinstance(row, dict):
+                row.setdefault("suite_claim", None)
     stage = str(record.get("original_stage") or record.get("stage", "")).removesuffix("_report_repair")
     # A missing first-review correction receipt grants no authority. Strict generation makes this optional
     # field required; accept legacy omissions as null without changing supplied receipts or old schemas.
