@@ -23,6 +23,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **A Tester check whose captured program uses `$(...)` or backticks is accepted**: the receipt check refused any capture event whose command line held `$(` or a backtick anywhere, even inside the single-quoted `sh -c '...'` program the capture ran and recorded as its argv. Such a report could never be authenticated, its report repair failed the same way, and the run paused for a repeated failure. The check now reads quotes, `$'...'` quotes and comments as the shell does, at each wrapper level, and still refuses a substitution the shell running the event line would perform.
+
 - **A host restart during a runner check no longer strands the run** (#3965): when the machine restarted while AutoCode checked a Tester's report, status named no action, a resume asked for `--abandon-stage`, and then refused because the check's cleanup receipt was never finished. Each launch now records the boot it ran in, and a launch from an earlier boot is known to have ended with it. The next resume, which status now names, sets the interrupted attempt aside, records the check as interrupted with its evidence kept, and runs it again. An interrupted check still proves nothing.
 
 - **Run details lists only the lines a send-back left open** (#3925): a changed-line send-back listed every line its assessment examined, including those it had already tested or excepted, so 59 lines were called untested when 2 were.
