@@ -30,12 +30,21 @@ except ImportError:
     from autocode_util import Paused
 
 STATUS = "PAUSED_PROCESS_CLEANUP"
+# How long an observation waits for a live invocation's admission lock (#4099). Reconcile windows last
+# milliseconds; an owner still holding the lock past this passed its entry reconcile, which refuses any
+# unsettled leftover, so a store busy this long holds no leftover journal to attribute to the attempt.
+ALLOWANCE_SECONDS = 5.0
 
 
 def before(environment: Mapping[str, str]) -> dict:
-    """What the store held as the attempt started: its unsettled group, or that it could not be read."""
+    """What the store held as the attempt started: its unsettled group, or that it could not be read.
+
+    A store a live invocation keeps busy past the allowance has no leftover group to record.
+    """
     try:
-        held = custody.unsettled(environment)
+        held = custody.unsettled(environment, timeout=ALLOWANCE_SECONDS)
+    except custody.MetadataAdmissionBusy:
+        return {"readable": True, "group": None}
     except custody.CustodyUncertain:
         return {"readable": False, "group": None}
     return {"readable": True, "group": held[1]["group_nonce"] if held else None}
@@ -47,9 +56,13 @@ def after(start: dict, environment: Mapping[str, str]) -> custody.CustodyUncerta
     A store that became unreadable during the attempt is a hold with no binding,
     which no later cleanup can authenticate; one unreadable before and after
     proves nothing about this attempt, and is left to the shared admission hold.
+    So is a store a live invocation keeps busy past the allowance: its journal is
+    that invocation's, and every later admission still refuses a real leftover.
     """
     try:
-        held = custody.unsettled(environment)
+        held = custody.unsettled(environment, timeout=ALLOWANCE_SECONDS)
+    except custody.MetadataAdmissionBusy:
+        return None
     except custody.CustodyUncertain as error:
         return error if start.get("readable") else None
     if held is None:
