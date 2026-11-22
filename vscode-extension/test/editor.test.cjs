@@ -9028,6 +9028,32 @@ test('complete material canonical plan is reviewable before approval on both exi
   }
 });
 
+test('the full plan shows test collection separately from the unverified current-behavior claim', async (t) => {
+  for (const surface of ['chat', 'Run details']) {
+    await t.test(surface, async (t) => {
+      const view = approvalView();
+      view.displayed_plan.review_summary_markdown = 'Preserve the baseline';
+      view.displayed_plan.review_markdown = 'Reported current behavior (not independently verified):\n\nThe full suite passes.';
+      view.displayed_plan.suite_reports = [
+        { kind: 'collection', command: 'python3 -m pytest --collect-only -q',
+          reported_count: 2, paths: ['tests/test_cli.py'], omitted_paths: 0, independently_verified: false },
+        { kind: 'execution', command: 'python3 -m pytest -v tests/test_cli.py::test_one',
+          reported_count: 1, paths: ['tests/test_cli.py'], omitted_paths: 0, independently_verified: false, selected: true },
+      ];
+      const ui = surface === 'chat' ? await openChat(t, view) : await openPanel(t, view);
+      const details = ui.document.querySelector('details.plan-evidence');
+      assert.match(details.textContent, /Reported test observations from the Planner \(not independently verified\)/);
+      assert.match(details.textContent, /Reported collected 2 tests — python3 -m pytest --collect-only -q/);
+      assert.match(details.textContent, /Collection lists tests without running them/);
+      assert.match(details.textContent, /Reported current behavior \(not independently verified\)/);
+      assert.match(details.textContent, /Reported passing 1 selected test — python3 -m pytest -v tests\/test_cli.py::test_one/);
+      await ui.poll({ ...view, displayed_plan: { ...view.displayed_plan, suite_reports: undefined } });
+      assert.doesNotMatch(ui.document.querySelector('details.plan-evidence').textContent, /pytest --collect-only/);
+      assert.ok(ui.document.querySelector('#take-action'), 'display evidence grants or withholds no approval authority');
+    });
+  }
+});
+
 test('Run details gives the current decision priority over runtime history and progress records', async (t) => {
   for (const decision of ['plan', 'question']) {
     await t.test(decision, async (t) => {
@@ -9329,7 +9355,7 @@ test('structured Requirements & Assumptions card renders assumptions, rationale,
   assert.ok(reqCard.textContent.includes('Matches repository CLI exit code convention'));
   assert.ok(reqCard.textContent.includes('Legacy script exited 1 on usage errors'));
   assert.ok(reqCard.textContent.includes('Reported test observations (not independently verified)'));
-  assert.ok(reqCard.textContent.includes('Collection lists tests; it does not run them.'));
+  assert.ok(reqCard.textContent.includes('Collection lists tests without running them.'));
   assert.ok(reqCard.textContent.includes('docs/guide.rst, tests/test_cli.py (1 more omitted)'));
 
   // Typing an inline override switches the primary action from 'plan' to the override text.

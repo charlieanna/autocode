@@ -57,6 +57,7 @@ try:
     from . import autocode_regression as regression
     from . import autocode_report_revalidation as report_revalidation
     from . import autocode_requirements_handoff as requirements_handoff
+    from . import autocode_requirements_observations as requirements_observations
     from . import autocode_requirements_triage as requirements_triage
     from . import autocode_resolver_human as human
     from . import autocode_resolver_recovery as resolver_recovery
@@ -115,6 +116,7 @@ except ImportError:
     import autocode_regression as regression
     import autocode_report_revalidation as report_revalidation
     import autocode_requirements_handoff as requirements_handoff
+    import autocode_requirements_observations as requirements_observations
     import autocode_requirements_triage as requirements_triage
     import autocode_resolver_human as human
     import autocode_resolver_recovery as resolver_recovery
@@ -617,6 +619,7 @@ def apply_planning(state: RunState, stage, value, record, *, run_dir=None):
 def apply_planning_result(state: RunState, stage, value, record, *, run_dir=None):
     if planning_unit.is_planning(state, stage):
         apply_planning(state, stage, value, record, run_dir=run_dir)
+        requirements_observations.seal_plan(state, record)
         return
     schema = support.read(Path(record["schema"])) if record.get("schema") else goals.DISCOVERY_SCHEMA
     support.validate_schema(value, schema)

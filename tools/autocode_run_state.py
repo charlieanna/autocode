@@ -32,11 +32,11 @@ class InteractionTiming(TypedDict):
 class RequirementsObservationSeal(TypedDict, total=False):
     """Local optional data cache, never portable proof or current execution authority.
 
-    job_source's fresh launch marks pending; requirements_handoff acceptance seals
-    it through requirements_observations. Accepted report repair seals on its
+    job_source's fresh Requirements or Planner launch marks pending; acceptance seals
+    it through requirements_observations. Requirements report repair seals on its
     retained repair record, bound to the original pending marker and core repair
-    history; original execution artifacts remain the data source. Only initial
-    draft_plan reads it.
+    history; original execution artifacts remain the data source. Planner seals
+    hold suite observations for the approval view only.
     Legacy/replay/recovered records are not upgraded. Sealed paths are relative
     to the owned run's context directory and are omitted from replay projections.
     """

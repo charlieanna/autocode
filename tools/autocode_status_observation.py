@@ -201,6 +201,7 @@ def suite_reports(state: RunState, workspace, run_dir):
                 or type(row.get("omitted_paths")) is not int
                 or row["omitted_paths"] < 0
                 or row.get("independently_verified") is not False
+                or ("selected" in row and (row.get("selected") is not True or row["kind"] != "execution"))
             ):
                 return []
         return rows

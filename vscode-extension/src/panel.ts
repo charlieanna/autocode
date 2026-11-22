@@ -104,7 +104,7 @@ export interface PanelState {
   /** The run's whole change, once a step is saved: the one diff a person reads (owner decision 2026-11-13). */
   allChanges: { label: string; context: string } | null;
   /** The plan the current token asks to approve, only when the view shows it. */
-  plan: { revision: number | null; identity: string; overview: TextNode[]; review: TextNode[]; criteria: AcceptanceCriterion[]; constraints: string[]; boundaries: string[]; exclusions: string[]; delivery: string | null; milestones: { id: string; objective: string; acceptance_criteria: string[] }[]; flow: string[] } | null;
+  plan: { revision: number | null; identity: string; overview: TextNode[]; review: TextNode[]; suiteReports?: DisplayedPlan["suite_reports"]; criteria: AcceptanceCriterion[]; constraints: string[]; boundaries: string[]; exclusions: string[]; delivery: string | null; milestones: { id: string; objective: string; acceptance_criteria: string[] }[]; flow: string[] } | null;
   /** The token the approval is bound to; the webview echoes it back so a stale click cannot approve. */
   token: string | null;
   /** False when the action would be an approval of a plan this client never displayed. */
@@ -617,6 +617,7 @@ function planOf(plan: DisplayedPlan): NonNullable<PanelState["plan"]> {
     identity: plan.token ?? JSON.stringify([plan.revision, plan.hash, plan.review_markdown]),
     overview: typeof plan.review_summary_markdown === "string" ? markdown(plan.review_summary_markdown) : [],
     review: markdown(plan.review_markdown ?? ""),
+    suiteReports: plan.suite_reports,
     criteria: plan.acceptance_criteria ?? [],
     constraints: plan.constraints ?? [],
     boundaries: plan.permission_boundaries ?? [],
@@ -1864,22 +1865,7 @@ function render(state) {
               reqCard.appendChild(row);
             });
           }
-          if (suiteReports.length > 0) {
-            const suiteDetails = el('details', 'requirements-details');
-            suiteDetails.appendChild(el('summary', null, 'Reported test observations (not independently verified)'));
-            suiteReports.forEach((report) => {
-              const label = report.kind === 'collection' ? 'Reported collected' : 'Reported passing';
-              suiteDetails.appendChild(el('div', 'row', label + ' ' + report.reported_count + ' tests: ' + report.command));
-              if (report.kind === 'collection') {
-                suiteDetails.appendChild(el('div', 'why', 'Collection lists tests; it does not run them.'));
-              }
-              if (Array.isArray(report.paths) && report.paths.length) {
-                suiteDetails.appendChild(el('div', 'why', 'Reported paths: ' + report.paths.join(', ')
-                  + (report.omitted_paths > 0 ? ' (' + report.omitted_paths + ' more omitted)' : '')));
-              }
-            });
-            reqCard.appendChild(suiteDetails);
-          }
+          renderSuiteReports(reqCard, suiteReports);
           if (conflicts.length > 0) {
             reqCard.appendChild(el('h2', null, 'Conflicts'));
             conflicts.forEach((conflict) => {
@@ -2164,6 +2150,29 @@ function render(state) {
   restoreFocusedField(focusedAttr, selection);
 }
 
+function renderSuiteReports(parent, reports, inPlan = false) {
+  if (!Array.isArray(reports) || !reports.length) return;
+  const details = el('details', 'requirements-details');
+  const title = inPlan ? 'Reported test observations from the Planner' : 'Reported test observations';
+  details.appendChild(el('summary', null, title + ' (not independently verified)'));
+  if (inPlan) details.open = true;
+  reports.forEach((report) => {
+    const collection = report.kind === 'collection';
+    const label = collection ? 'Reported collected' : 'Reported passing';
+    const scope = report.selected ? ' selected' : '';
+    const noun = report.reported_count === 1 ? ' test' : ' tests';
+    details.appendChild(el('div', 'row', label + ' ' + report.reported_count + scope + noun + ' — ' + report.command));
+    if (collection) {
+      details.appendChild(el('div', 'why', 'Collection lists tests without running them.'));
+    }
+    if (Array.isArray(report.paths) && report.paths.length) {
+      details.appendChild(el('div', 'why', 'Reported paths: ' + report.paths.join(', ')
+        + (report.omitted_paths > 0 ? ' (' + report.omitted_paths + ' more omitted)' : '')));
+    }
+  });
+  parent.appendChild(details);
+}
+
 function renderPlan(parent, plan) {
   const content = el('div', 'plan-content message-content');
   if (plan.overview.length) {
@@ -2177,6 +2186,7 @@ function renderPlan(parent, plan) {
     disclosure.dataset.planEvidence = key;
     evidence.appendChild(disclosure);
     const full = el('div', 'plan-full');
+    renderSuiteReports(full, plan.suiteReports, true);
     appendFormatted(full, plan.review);
     evidence.appendChild(full);
     evidence.addEventListener('toggle', () => {
@@ -2185,7 +2195,10 @@ function renderPlan(parent, plan) {
       vscode.setState?.({ ...saved, openPlanEvidence });
     });
     content.appendChild(evidence);
-  } else appendFormatted(content, plan.review);
+  } else {
+    renderSuiteReports(content, plan.suiteReports, true);
+    appendFormatted(content, plan.review);
+  }
   parent.appendChild(content);
 }
 

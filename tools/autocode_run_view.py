@@ -753,6 +753,21 @@ def view(
                         }
                     ),
                 }
+                if (
+                    state.get("status") == "AWAITING_GOAL_APPROVAL"
+                    and run_dir is not None
+                    and workspace is not None
+                    and any(
+                        isinstance(stage, dict)
+                        and stage.get("stage") != "requirements_gather"
+                        and isinstance(stage.get("requirements_observations"), dict)
+                        and stage["requirements_observations"].get("status") == "sealed"
+                        for stage in state.get("stages") or []
+                    )
+                ):
+                    reports = status_observation.suite_reports(state, workspace, run_dir)
+                    if reports:
+                        result["displayed_plan"]["suite_reports"] = reports
         except (AttributeError, KeyError, TypeError, ValueError):
             pass  # Missing, stale or unsealed plans cannot supply approval authority.
         approved = plan

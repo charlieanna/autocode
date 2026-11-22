@@ -2404,6 +2404,11 @@ card and Run details show the overview first with the complete content in an exp
 **Full plan and acceptance criteria** section before approval. Older cores with complete
 `review_markdown` but no summary keep the full text visible. A missing,
 empty or malformed review blocks approval with the existing client-gap explanation.
+When current-source Planner output is available, `displayed_plan.suite_reports`
+describes the historical command, named test count and reported paths. Collection and
+execution are separate observations. An execution command with explicit test selectors
+sets `selected: true`. The reports have `independently_verified: false`, leave
+free-text plan claims unverified and do not change the approval token.
 Saved legacy bodies are rendered from their available terms without changing their
 identity; older cores lacking this field must be updated before the new editor can
 offer plan approval. Missing,

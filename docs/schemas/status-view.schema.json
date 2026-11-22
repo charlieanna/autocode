@@ -944,6 +944,24 @@
           "properties": {
             "review_summary_markdown": {"type": "string", "description": "Bounded overview generated from the same sealed canonical plan: proposed approach, stages, scope, missing estimates, decisions and approval status. Display only; never sufficient for approval without the complete review_markdown."},
             "review_markdown": {"type": "string", "description": "Core-generated readable material terms of this exact canonical plan, without file front matter, approval tokens or opaque runner records; never parsed as action authority."},
+            "suite_reports": {
+              "type": "array",
+              "maxItems": 8,
+              "description": "Current-source historical Planner tool output for display. The command and count describe one observation and cannot satisfy a plan claim or provide approval authority.",
+              "items": {
+                "type": "object",
+                "required": ["kind", "command", "reported_count", "paths", "omitted_paths", "independently_verified"],
+                "properties": {
+                  "kind": {"enum": ["collection", "execution"]},
+                  "command": {"type": "string", "maxLength": 512},
+                  "reported_count": {"type": "integer", "minimum": 1},
+                  "paths": {"type": "array", "maxItems": 40, "items": {"type": "string", "maxLength": 256}},
+                  "omitted_paths": {"type": "integer", "minimum": 0},
+                  "independently_verified": {"const": false},
+                  "selected": {"const": true, "description": "The execution command explicitly selected tests."}
+                }
+              }
+            },
             "milestones": {
               "type": "array",
               "items": {
