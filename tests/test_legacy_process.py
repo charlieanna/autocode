@@ -5,9 +5,10 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import autocode_legacy_process as legacy
 import autocode_process as processes
@@ -318,9 +319,18 @@ class ExactArgvTests(unittest.TestCase):
         for error, expected in (
             (psutil.NoSuchProcess(pid), legacy.PROCESS_GONE),
             (psutil.AccessDenied(pid), None),
-            (psutil.ZombieProcess(pid), None),
+            (psutil.ZombieProcess(pid), legacy.PROCESS_GONE),
         ):
             with self.subTest(error=type(error).__name__), patch.object(legacy.psutil, "Process", side_effect=error):
+                self.assertIs(expected, legacy._exact_argv(pid, command))
+
+    def test_a_zombie_whose_arguments_read_empty_is_gone(self):
+        # Linux reads an exited, uncollected process's arguments as empty instead of refusing them (#4083).
+        pid = 48123
+        command = "python3 autocode.py --status --run-dir /ws/run"
+        for status, expected in ((psutil.STATUS_ZOMBIE, legacy.PROCESS_GONE), (psutil.STATUS_RUNNING, None)):
+            process = Mock(**{"cmdline.return_value": [], "status.return_value": status})
+            with self.subTest(status=status), patch.object(legacy.psutil, "Process", return_value=process):
                 self.assertIs(expected, legacy._exact_argv(pid, command))
 
     def test_lineage_holds_this_process_and_every_ancestor(self):
@@ -376,6 +386,41 @@ class LiveProcessGuardTests(unittest.TestCase):
         self.addCleanup(process.communicate, "", timeout=30)
         self.assertEqual("ready\n", process.stdout.readline())
         legacy.assert_no_legacy_process(self.run, self.workspace)
+
+    def test_a_process_that_exits_after_the_listing_blocks_nothing(self):
+        # A client polls --status while it starts its next action. ps lists the reader while it still runs; it
+        # exits before its argv is read, and stays a zombie until the client collects it (#4083). The stale
+        # listing named a possible runner, so the launch was refused as a duplicate. A writer that has exited
+        # holds nothing either.
+        for args in ([*self.paths, "--status", "--json"], [*self.paths, "--approve-goal", "token"]):
+            with self.subTest(args=args[-2:]):
+                process = subprocess.Popen([sys.executable, str(self.autocode), *args], stdin=subprocess.PIPE)
+                self.addCleanup(process.wait, timeout=30)
+                listing = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True, timeout=30)
+                self.assertIn(str(self.run), listing.stdout)
+                process.stdin.close()
+                observed, deadline = psutil.Process(process.pid), time.monotonic() + 30
+                while observed.status() != psutil.STATUS_ZOMBIE:
+                    self.assertLess(time.monotonic(), deadline, "the stand-in never exited")
+                    time.sleep(0.01)
+                with patch.object(legacy.subprocess, "run", return_value=listing):
+                    legacy.assert_no_legacy_process(self.run, self.workspace)
+
+    def test_a_listed_process_whose_arguments_cannot_be_read_blocks_only_while_it_lives(self):
+        # macOS refuses a process's arguments part way through its exit (psutil AccessDenied), a moment before
+        # it is a zombie (#4083). The guard watches it: one that finishes exiting blocks nothing, one that stays
+        # alive is still refused.
+        self.autocode.write_text("import sys\nsys.stdin.read()\n")
+        process = subprocess.Popen([sys.executable, str(self.autocode), *self.paths], stdin=subprocess.PIPE)
+        self.addCleanup(process.wait, timeout=30)
+        unreadable = patch.object(legacy, "_exact_argv", return_value=None)
+        with unreadable, patch.object(legacy, "EXIT_OBSERVATION_SECONDS", 0):
+            self.assert_busy(process.pid)
+        listing = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True, timeout=30)
+        self.assertIn(str(self.run), listing.stdout)
+        process.stdin.close()  # it exits while the guard watches the stale listing's row
+        with unreadable, patch.object(legacy.subprocess, "run", return_value=listing):
+            legacy.assert_no_legacy_process(self.run, self.workspace)
 
     def test_path_first_status_observer_does_not_block_a_writer(self):
         self.hold(sys.executable, str(self.autocode), *self.paths, "--status", "--json")
@@ -483,6 +528,10 @@ class ProcessGuardTests(unittest.TestCase):
         identity = patch.object(legacy, "_exact_argv", return_value=None)
         identity.start()
         self.addCleanup(identity.stop)
+        # ... and stay alive while they are watched for an exit.
+        alive = patch.object(legacy, "_exits_now", return_value=False)
+        alive.start()
+        self.addCleanup(alive.stop)
 
     def listing(self, *commands):
         """A fake listing whose row pids are never this test's own runner or an ancestor.
