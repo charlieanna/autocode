@@ -2,6 +2,7 @@
 
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -128,6 +129,46 @@ class ClassifyTests(unittest.TestCase):
             self.assertEqual(
                 attribute_failure.PRE_EXISTING,
                 attribute_failure.classify("tests.test_runs", self.base, 60, head_failures=head),
+            )
+
+    def test_real_comparison_ignores_only_the_appended_temporary_context(self):
+        def fixture(expected):
+            return (
+                "import tempfile, unittest\n"
+                f"EXPECTED = {expected!r}\n"
+                "class Runs(unittest.TestCase):\n"
+                "    def test_status(self):\n"
+                "        with tempfile.TemporaryDirectory(prefix='diagnostic-') as path:\n"
+                "            self.assertEqual('PAUSED', EXPECTED, {'workspace': path})\n"
+            )
+
+        with tempfile.TemporaryDirectory(prefix="head-attribution-") as temp:
+            head_root = Path(temp)
+            (head_root / "tests").mkdir()
+            (head_root / "tests/__init__.py").touch()
+            (self.base / "tests/__init__.py").touch()
+            (head_root / "tests" / "cases.py").write_text(fixture("RUNNING"))
+            module = "tests.cases"
+            head = subprocess.run(
+                [sys.executable, "-m", "unittest", module],
+                cwd=head_root,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            self.assertEqual(1, head.returncode, head.stderr)
+            self.assertIn("diagnostic-", head.stderr)
+            signatures = attribute_failure.failure_signatures.signatures(head.stderr, head_root)
+            self.assertEqual(1, len(signatures))
+            self.module("cases", fixture("RUNNING"))
+            self.assertEqual(
+                attribute_failure.PRE_EXISTING,
+                attribute_failure.classify(module, self.base, 30, head_failures=signatures),
+            )
+            self.module("cases", fixture("ABORTED"))
+            self.assertEqual(
+                attribute_failure.DIFFERENT,
+                attribute_failure.classify(module, self.base, 30, head_failures=signatures),
             )
 
     def test_incomplete_base_output_cannot_exonerate_matching_failures(self):

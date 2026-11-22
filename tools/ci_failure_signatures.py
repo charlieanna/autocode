@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
+import inspect
 import json
 import re
 import sys
+import unittest
 from pathlib import Path
 
 HEADER = re.compile(r"^={70}\n(FAIL|ERROR|UNEXPECTED SUCCESS): (\S+) \(([^\n()]+)\)([^\n]*)\n", re.M)
 FOOTER = re.compile(r"^-{70}\nRan \d+ tests? in [^\n]*\n\n(?:FAILED|OK)\b", re.M)
 # A traceback frame header; its path and line number are where the code is, not what failed.
-FRAME = re.compile(r'^  File "[^"\n]*", line \d+(?:, in (.*))?$')
+FRAME = re.compile(r'^  File "([^"\n]*)", line \d+(?:, in (.*))?$')
 # unittest joins a FAIL's standard message and the test's own message with "%s : %s".
 APPENDED = " : "
 QUOTE_OPENERS = " ([{,:="
@@ -41,6 +44,39 @@ def appended_at(line: str) -> int | None:
     return None
 
 
+def has_unittest_message(code: list[str]) -> bool:
+    """Only drop a message when the failure shows a standard assertion call with a message argument."""
+    if not code:
+        return False
+    try:
+        statement = ast.parse(code[0]).body[0]
+    except (SyntaxError, IndexError):
+        return False
+    if not isinstance(statement, ast.Expr) or not isinstance(call := statement.value, ast.Call):
+        return False
+    method = call.func
+    if (
+        not isinstance(method, ast.Attribute)
+        or not isinstance(method.value, ast.Name)
+        or method.value.id != "self"
+        or not method.attr.startswith("assert")
+        or any(isinstance(arg, ast.Starred) for arg in call.args)
+        or any(keyword.arg is None for keyword in call.keywords)
+    ):
+        return False
+    standard = getattr(unittest.TestCase, method.attr, None)
+    if not inspect.isfunction(standard):
+        return False
+    # Bound placeholders identify the actual message argument without evaluating test code.
+    try:
+        bound = inspect.signature(standard).bind(
+            None, *[None for _ in call.args], **{keyword.arg: None for keyword in call.keywords if keyword.arg}
+        )
+    except TypeError:
+        return False
+    return "msg" in bound.arguments
+
+
 def compared(exception: str) -> str:
     """A FAIL's exception text without the message the test appended to what the assertion compared.
 
@@ -51,8 +87,7 @@ def compared(exception: str) -> str:
     lines = exception.split("\n")
     cut = appended_at(lines[0])
     if cut is not None:
-        lines[0] = lines[0][:cut]
-        return "\n".join(lines)
+        return lines[0][:cut]
     for index, line in enumerate(lines[1:], 1):
         if line.startswith(APPENDED):
             return "\n".join(lines[:index])
@@ -63,25 +98,21 @@ def compared(exception: str) -> str:
 
 
 def identity(test: str, kind: str, detail: str) -> str:
-    """Hash the test, the kind, each frame's function and code, and the exception text after the last frame."""
+    """Keep the whole traceback and omit only a diagnostic appended to a known assertion."""
     lines = detail.splitlines()
-    frames: list[list[str]] = []
-    start = 0
-    index = 0
-    while index < len(lines):
-        frame = FRAME.match(lines[index])
+    start, code = 0, []
+    for index, line in enumerate(lines):
+        if FRAME.match(line):
+            start = index + 1
+    index = start
+    while index < len(lines) and lines[index].startswith("    "):
+        code.append(lines[index].strip())
         index += 1
-        if frame:
-            code = []
-            while index < len(lines) and lines[index].startswith("    "):
-                code.append(lines[index].strip())
-                index += 1
-            frames.append([frame.group(1) or "", *code])
-            start = index
-    exception = "\n".join(lines[start:]).strip()
-    if kind == "FAIL":
-        exception = compared(exception)
-    return hashlib.sha256(json.dumps([test, kind, frames, exception]).encode()).hexdigest()
+    exception = "\n".join(lines[index:])
+    if kind == "FAIL" and exception.startswith("AssertionError: ") and start and has_unittest_message(code):
+        lines[index:] = compared(exception).splitlines()
+    normalized = re.sub(r'(File "[^"\n]+", line )\d+', r"\1<line>", "\n".join(lines))
+    return hashlib.sha256(json.dumps([test, kind, normalized]).encode()).hexdigest()
 
 
 def signatures(output: str, root: Path) -> list[dict[str, str]]:

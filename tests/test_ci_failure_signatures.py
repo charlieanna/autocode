@@ -164,6 +164,28 @@ class FailureSignaturesTests(unittest.TestCase):
                     attribute_failure.classify("tests.test_runs", base, 60, head_failures=head),
                 )
 
+    def test_custom_failure_text_does_not_look_like_unittest_message(self):
+        rows = [
+            evidence.signatures(
+                assertion_output("/repo", "self.fail(reason)", f"AssertionError: rejected : {reason}"),
+                Path("/repo"),
+            )
+            for reason in ("missing file", "wrong result")
+        ]
+        self.assertNotEqual(*rows)
+
+    def test_keyword_multiline_message_does_not_change_a_one_line_assertion(self):
+        rows = [
+            evidence.signatures(
+                assertion_output(
+                    "/repo", "self.assertTrue(result, msg=detail)", "AssertionError: False is not true : row\n" + detail
+                ),
+                Path("/repo"),
+            )
+            for detail in ("workspace one", "workspace two")
+        ]
+        self.assertEqual(*rows)
+
     def test_generated_ref_normalization_keeps_other_failure_details(self):
         original = ref_failure_output("/base", "refs/autocode/partial-work/start/" + "a" * 40)
         other_commit = ref_failure_output("/base", "refs/autocode/partial-work/start/" + "b" * 40)
