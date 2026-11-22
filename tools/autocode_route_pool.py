@@ -695,6 +695,14 @@ def choose(
         return None
     if pause_status not in quota_route.STATUSES or not dead:
         return None
+    # A context-window stop is the person's model question, never an automatic switch (#4093).
+    # The request no longer fit the model's window, or the provider compacted the conversation;
+    # that is not evidence the stage struggled on its model, so another configured model is not a
+    # recovery. AutoCode keeps the saved model and asks for a larger window or a smaller task
+    # (autocode_quota_route, #1942). This is the one decision shared by stage, workflow-job and
+    # parallel-worker recovery; quota, content-filter and output-limit stops still switch below.
+    if pause_status == quota_route.CONTEXT_STATUS:
+        return None
 
     selection = settings.get("route_selection") or {}
     failed_identities = {

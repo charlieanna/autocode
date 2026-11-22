@@ -1,11 +1,15 @@
 """Automatic model-stop recovery across permitted, configured, and subscription routes.
 
 When a stage, report repair, workflow job, or parallel Builder worker hits a model stop
-(``PAUSED_BUDGET``, ``PAUSED_CONTENT_FILTER``, ``PAUSED_CONTEXT_WINDOW``, ``PAUSED_OUTPUT_CAP``),
+(``PAUSED_BUDGET``, ``PAUSED_CONTENT_FILTER``, ``PAUSED_OUTPUT_CAP``),
 AutoCode switches to the next eligible model on the same backend — preserving cross-model
 verifier independence across both configured routes and already-produced work — and pauses
 to ask the person only when no eligible model remains, automatic recoveries are spent, or
 the run opted out (``--single-model`` or ``--no-auto-select``).
+
+A context-window stop (``PAUSED_CONTEXT_WINDOW``) is never an automatic switch: the request
+no longer fit the model's window, so the saved model is kept and the person is asked for a
+larger window or a smaller task (#1942 / #4093).
 """
 
 import io
@@ -37,6 +41,17 @@ SOL = "openai/gpt-6-sol"
 LUNA = "openai/gpt-6-luna"
 ASTRA = "openai/gpt-6-astra"
 OPUS = "anthropic/claude-opus-5-5"
+# Claude-engine models for the #4093 context-window regression: the Tester is saved Sonnet/high,
+# Fable is configured only for the Resolver and Investigator, never for the Tester.
+CLAUDE_SONNET = "claude-sonnet-5-5"
+CLAUDE_FABLE = "claude-fable-5-2"
+CLAUDE_HAIKU = "claude-haiku-4-5-20251001"
+CLAUDE_OPUS = "claude-opus-5-5"
+# A provider context-window overflow: the request no longer fit the model's window (#1942).
+CONTEXT_OVERFLOW = {
+    "type": "turn.failed",
+    "error": {"code": "context_window_exceeded", "message": "prompt is too long"},
+}
 
 
 def accounts():
@@ -1042,6 +1057,94 @@ class RouteRecoveryTests(unittest.TestCase):
             "route",
             dispatch.recover(self.runtime, state, self.root, self.root, support.Paused("PAUSED_BUDGET", "quota")),
         )
+
+    def claude_report_repair_state(self, error=CONTEXT_OVERFLOW):
+        """A Claude-engine Tester report repair stopped on its model, Tester saved Sonnet/high (#4093)."""
+        events = self.make_events(error, "tester_report_repair-01.jsonl")
+        return {
+            "status": "RUNNING",
+            "phase": "REPORT_REPAIR",
+            "next_stage": "tester",
+            "pending_report_repair": {"original": {"stage": "tester"}, "attempts": 1},
+            "settings": {
+                "engine": "opencode",
+                "provider": "claude",
+                "roles": {
+                    "builder": {"engine": "opencode", "model": CLAUDE_HAIKU, "reasoning_effort": "medium"},
+                    "tester": {"engine": "opencode", "model": CLAUDE_SONNET, "reasoning_effort": "high"},
+                    "completion": {"engine": "opencode", "model": CLAUDE_OPUS, "reasoning_effort": "medium"},
+                    "resolver": {"engine": "opencode", "model": CLAUDE_FABLE, "reasoning_effort": "high"},
+                    "stuck_investigator": {"engine": "opencode", "model": CLAUDE_FABLE, "reasoning_effort": "high"},
+                    "task_planner": {"engine": "opencode", "model": CLAUDE_OPUS, "reasoning_effort": "high"},
+                },
+            },
+            "sessions": {"tester": "old-session"},
+            "active_stage": {
+                "stage": "tester_report_repair",
+                "original_stage": "tester",
+                "report_only": True,
+                "role": "tester",
+                "route_role": "tester",
+                "iteration": 1,
+                "output": str(self.root / "tester-repair.json"),
+                "events": str(events),
+                "launch_route": {"engine": "opencode", "model": CLAUDE_SONNET},
+            },
+        }
+
+    def test_context_window_report_repair_keeps_the_saved_model_and_asks_the_person(self):
+        # #4093: a Tester report repair stopped PAUSED_CONTEXT_WINDOW must not move the Tester off the
+        # Sonnet/high the person saved, onto Fable (or any other configured model) on its own.
+        import autocode_providers as providers
+
+        claude_runtime = SimpleNamespace(**{**self.runtime.__dict__, "opencode": providers.resolve("claude")})
+        state = self.claude_report_repair_state()
+        before = json.dumps(state["settings"], sort_keys=True)
+        error = support.Paused("PAUSED_CONTEXT_WINDOW", "context window")
+        self.assertFalse(route_recovery.recover(claude_runtime, state, self.root, self.root, error))
+        self.assertEqual(before, json.dumps(state["settings"], sort_keys=True))
+        self.assertEqual(CLAUDE_SONNET, state["settings"]["roles"]["tester"]["model"])
+        self.assertEqual("high", state["settings"]["roles"]["tester"]["reasoning_effort"])
+        self.assertNotIn("user_events", state)  # no runner route_assignment was recorded
+        self.runtime.abandon_stage.assert_not_called()
+        self.runtime.count_automatic_recovery.assert_not_called()
+        # The one shared decision returns None for every caller: stage, workflow job, parallel worker.
+        for kwargs in (
+            {},
+            {"workflow_job": True},
+            {"worker": {"role": "tester", "milestone_id": "M1", "model": CLAUDE_SONNET}},
+        ):
+            self.assertIsNone(
+                route_pool.choose(
+                    claude_runtime, state, self.root, "tester", CLAUDE_SONNET, "PAUSED_CONTEXT_WINDOW", **kwargs
+                )
+            )
+        # The pause stands and names the person's model question: a larger window, or a smaller task.
+        attempt = quota_route.stopped_attempt(state, failure_status=support.failure_status)
+        self.assertEqual(("tester", "PAUSED_CONTEXT_WINDOW"), (attempt["role"], attempt["pause_status"]))
+        asked = quota_route.question(state, attempt)
+        self.assertEqual(("route-tester", "context_window"), (asked["id"], asked["cause"]))
+        self.assertIn("larger window", asked["question"])
+        self.assertIn("AutoCode never changes the model on its own", asked["why"])
+        self.assertIn("smaller task", asked["why"])
+
+    def test_context_window_never_switches_but_quota_and_refusal_still_do(self):
+        # The fix is narrow: on the same auto-selected pool a context-window stop keeps the saved model,
+        # while quota and content-filter stops still switch on their own (gates unchanged).
+        cw = self.state(error=CONTEXT_OVERFLOW)
+        self.assertFalse(
+            route_recovery.recover(
+                self.runtime, cw, self.root, self.root, support.Paused("PAUSED_CONTEXT_WINDOW", "cw")
+            )
+        )
+        self.assertEqual(SOL, cw["settings"]["roles"]["builder"]["model"])
+        self.assertNotIn("user_events", cw)
+        for status, error_row in (("PAUSED_BUDGET", QUOTA), ("PAUSED_CONTENT_FILTER", REFUSAL)):
+            st = self.state(error=error_row)
+            self.assertTrue(
+                route_recovery.recover(self.runtime, st, self.root, self.root, support.Paused(status, "stop"))
+            )
+            self.assertNotEqual(SOL, st["settings"]["roles"]["builder"]["model"])
 
 
 if __name__ == "__main__":
