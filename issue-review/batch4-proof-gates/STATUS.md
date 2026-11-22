@@ -736,3 +736,18 @@ actual Linux editor passed all 18 cases. The independent proof checkpoint
 macOS extension. Three mixed unbound-link cases remain open. #4091 tracks the
 Maven setup prerequisite separately. The corrected current head still needs
 its own required CI and actual Linux editor result.
+
+### Saved proof outcome observation
+
+On `0282e1fac`, the Linux editor passed the first-Go and unsafe protected-link
+controls. One missing-base named-proof control stopped on a public
+`PAUSED_INTERVENTION` sample before its saved recovery outcome was visible.
+A deterministic public status regression reproduced the projection mismatch:
+the live controller's ownership suppresses the outcome, while the saved ended
+headline incorrectly marks the same observation settled. Progress now shows
+continuation until the controller releases that saved state. The editor test
+still requires the actual recovery outcome and named-test proof, and logs the
+controller, recovery and proof observations if an unexpected result settles.
+The new status regression is red on `0282e1fac` and green with the correction.
+The 93 focused status, progress and recovery tests and three editor transition
+tests passed. Exact-head CI and the Linux named-proof editor check are pending.

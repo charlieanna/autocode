@@ -103,7 +103,9 @@ for (const mode of ['skip', 'missing']) test(`editor refuses ${mode} base named 
       if (settled && view.recovery?.outcome?.result === 'could_not_finish') return {view};
       const kind = view.needs?.kind;
       if (settled) {
-        return {unexpected: {status: view.status, needs: kind, reason: view.stop_reason}};
+        return {unexpected: {status: view.status, needs: kind, reason: view.stop_reason,
+          continuing: view.progress?.continuing, controller: view.controller?.kind, recovery: view.recovery?.category,
+          outcome: view.recovery?.outcome?.result, proof: view.evidence?.regression_proof?.verdict}};
       }
       return null;
     }, 480_000);

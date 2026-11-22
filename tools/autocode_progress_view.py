@@ -164,13 +164,14 @@ def progress(
         asked = "nothing needed from you"
     elif done:
         headline = plan_only.ACCEPTED_HEADLINE if plan_only.owns(state) else "Complete"
-    elif status == "PAUSED_INTERVENTION" and str(state.get("stop_reason") or "").startswith(run_status.ENDED_PREFIX):
-        headline, stage = ENDED, None
-        asked = "nothing needed from you"
     elif continuing:
+        # The controller still owns this transition and the view withholds the saved recovery outcome.
         headline, stage = "Continuing", None
         asked = "nothing needed from you"
         observed_continuation = True
+    elif status == "PAUSED_INTERVENTION" and str(state.get("stop_reason") or "").startswith(run_status.ENDED_PREFIX):
+        headline, stage = ENDED, None
+        asked = "nothing needed from you"
     elif (
         _mapping(recovery).get("category") == "blocked"
         and kind == "resume"

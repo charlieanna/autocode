@@ -53,6 +53,35 @@ class ConsistentSampleTests(unittest.TestCase):
         result = json.loads(output.getvalue())
         return result if envelope else result["view"]
 
+    def test_ended_recovery_settles_when_the_controller_releases_it(self):
+        import autocode_stop as stop
+
+        saved = state_at("resolve")
+        stop.end(saved, "The named test never failed on the original code", {}, at="2026-11-22T04:48:00Z")
+
+        def owner(kind, alive):
+            return lambda *_args, **_kwargs: {
+                "kind": kind,
+                "alive": alive,
+                "checked": True,
+                "receipt": {"identity": {"pid": 1}},
+            }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp).resolve() / "run"
+            run.mkdir()
+            (run / "state.json").write_text(json.dumps(saved))
+            continuing = self.render(saved, run, owner("running", True))
+            ended = self.render(saved, run, owner("boundary", False))
+        self.assertEqual("PAUSED_INTERVENTION", continuing["status"])
+        self.assertIsNone(continuing["recovery"])
+        self.assertIsNone(continuing["next_command"])
+        self.assertTrue(continuing["progress"]["continuing"])
+        self.assertEqual("Continuing", continuing["progress"]["headline"])
+        self.assertFalse(ended["progress"]["continuing"])
+        self.assertEqual("could_not_finish", ended["recovery"]["outcome"]["result"])
+        self.assertIsNone(ended["next_command"])
+
     def test_the_envelope_and_editor_share_one_fresh_decision_projection(self):
         with tempfile.TemporaryDirectory() as tmp:
             run = Path(tmp).resolve() / "run"
