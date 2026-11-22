@@ -60,9 +60,7 @@ EXTENSION_HOST_RESOURCES = {
     "tools/autocode_operational_admission.py": ("vscode-extension/test/host/retained-report.test.cjs",),
     "tools/autocode_operational_disposition.py": ("vscode-extension/test/host/retained-report.test.cjs",),
     "tools/autocode_recovery_view.py": ("vscode-extension/test/host/retained-report.test.cjs",),
-    "tools/autocode_run_view.py": ("vscode-extension/test/host/retained-report.test.cjs",),
     "tools/autocode_status_observation.py": ("vscode-extension/test/host/retained-report.test.cjs",),
-    "tools/autocode_status_observation_worker.py": ("vscode-extension/test/host/retained-report.test.cjs",),
     "tools/autocode_report_revalidation_binding.py": ("vscode-extension/test/host/retained-report.test.cjs",),
     "tools/autocode_report_revalidation.py": ("vscode-extension/test/host/retained-report.test.cjs",),
     "tools/autocode_repaired_result.py": ("vscode-extension/test/host/retained-report.test.cjs",),
@@ -141,8 +139,14 @@ EXTENSION_HOST_RESOURCES = {
     "tools/autocode_replay_transport.py": ("vscode-extension/test/host/replay-job-route.test.cjs",),
     "tools/autocode_replay_view.py": ("vscode-extension/test/host/replay-job-route.test.cjs",),
     "tools/autocode_role_launch.py": ("vscode-extension/test/host/replay-job-route.test.cjs",),
-    "tools/autocode_run_view.py": ("vscode-extension/test/host/replay-job-route.test.cjs",),
-    "tools/autocode_status_observation_worker.py": ("vscode-extension/test/host/replay-job-route.test.cjs",),
+    "tools/autocode_run_view.py": (
+        "vscode-extension/test/host/replay-job-route.test.cjs",
+        "vscode-extension/test/host/retained-report.test.cjs",
+    ),
+    "tools/autocode_status_observation_worker.py": (
+        "vscode-extension/test/host/replay-job-route.test.cjs",
+        "vscode-extension/test/host/retained-report.test.cjs",
+    ),
     "tests/provider_auth_fixture.py": ("vscode-extension/test/host/editor-host.test.cjs",),
     "tests/python_semantic_vscode_fixture.py": (
         "vscode-extension/test/host/python-semantic.test.cjs",
