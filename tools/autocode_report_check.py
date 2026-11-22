@@ -136,9 +136,9 @@ def build_spec(
         spec[claim_evidence.SPEC_KEY] = claim_evidence.context(
             state, workspace, record={"events": str(events_path)} if events_path else None
         )
-    if stage == "tester":
+    if stage in ("tester", "review_checkpoint"):
         # The approved required commands, so a PASS criterion citing only them is refused here as the runner
-        # refuses it (autocode_tester_probes).
+        # refuses it (autocode_tester_probes), on either Tester route.
         try:
             context = progressive_state.context(state)
             spec["approved_commands"] = verification_plan.approved_commands(state, progressive_context=context)
@@ -385,7 +385,11 @@ def _check_tester_probes(data: dict[str, Any], spec: dict[str, Any], workspace: 
         if isinstance(check, dict) and check.get("command") is None:
             check["command"] = _receipt_command(workspace, check.get("evidence_ref"))
     try:
-        tester_probes.admit(report, [command for command in approved if isinstance(command, str)])
+        tester_probes.admit(
+            report,
+            [command for command in approved if isinstance(command, str)],
+            workspace=workspace if spec.get("workspace") else None,
+        )
     except ValueError as exc:
         errors.append(str(exc))
 
@@ -478,6 +482,8 @@ def check_report(raw_text: str, *, spec: dict[str, Any]) -> list[str]:
         _check_claims(stage, data, spec, workspace, errors)
         if stage == "tester":
             _check_tester_probes(data, spec, workspace, errors)
+        elif stage == "review_checkpoint" and isinstance(data.get("validation"), dict):
+            _check_tester_probes(data["validation"], spec, workspace, errors)
     elif stage == "investigate_stuck":
         _check_investigate_stuck(data, errors)
     return errors

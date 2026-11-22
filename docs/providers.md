@@ -561,7 +561,12 @@ left out) are kept beside the log as `<stage>.claude.jsonl`.
 - **Evidence.** Every Bash call is a `command_execution` event with Claude Code's real exit code,
   cited as `event:item_N`; capture receipts work too. A command whose exit code Claude Code did not
   report (moved to the background, interrupted, timed out, denied, or an unrecognized result) has
-  exit code `null` and is never evidence: run it again in the foreground.
+  exit code `null` and is never evidence: run it again in the foreground. While a command Claude
+  Code moved to the background is still running (its `task_started` or `task_updated` row says
+  `is_backgrounded`, and no `task_notification` or terminal status has followed), the stage log holds
+  a running `BackgroundTask` tool, so the stage runs under the tool limit, not the inactivity limit.
+  Claude Code may end its turn with a result while such a command runs and start a new turn of the
+  same session when it ends; that turn's text and report are the stage's (#3989).
 - **Tools and permissions.** The same `--tools Bash,Read,Edit,Write,Glob,Grep` on every stage, no
   MCP servers (`--strict-mcp-config`), no skills (`--disable-slash-commands`), project settings only
   (`--setting-sources project`). A stage that may write runs with `--permission-mode acceptEdits`:
