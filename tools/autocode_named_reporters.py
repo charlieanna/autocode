@@ -15,7 +15,9 @@ from __future__ import annotations
 from pathlib import Path
 
 try:
+    from . import autocode_cargo_build_evidence as cargo_build
     from . import autocode_cargo_tests as cargo_tests
+    from . import autocode_command_receipt as command_receipt
     from . import autocode_jest_tests as jest_tests
     from . import autocode_minitest_tests as minitest_tests
     from . import autocode_mocha_tests as mocha_tests
@@ -25,7 +27,9 @@ try:
     from . import autocode_rspec_tests as rspec_tests
     from . import autocode_vitest_tests as vitest_tests
 except ImportError:
+    import autocode_cargo_build_evidence as cargo_build
     import autocode_cargo_tests as cargo_tests
+    import autocode_command_receipt as command_receipt
     import autocode_jest_tests as jest_tests
     import autocode_minitest_tests as minitest_tests
     import autocode_mocha_tests as mocha_tests
@@ -109,7 +113,7 @@ def instrument(command, result_path, tree=None, root=None) -> str | None:
         updated = [*steps[:idx], chain_runner.instrument(steps[idx], result_path, tree), *steps[idx + 1 :]]
         return npm_scripts.npm_exec_call(updated)
     if cargo_tests.command_words(command):
-        return cargo_tests.instrument(command)
+        return cargo_tests.instrument(command, targets=tree is not None)
     if minitest_tests.command_words(command):
         return minitest_tests.instrument(command, result_path)
     return None
@@ -127,15 +131,34 @@ def reader(result_path, receipt=None, root=None):
     if found:
         return found
     within = package_scope.within((receipt or {}).get("command") or "")
-    if cargo_tests.command_words(within):
-        return lambda _path: _cargo_results(receipt.get("output"))
+    if words := cargo_tests.command_words(within, include_owned=True):
+        return lambda path: _cargo_results(
+            receipt, root, Path(path).parent, structured="--message-format=json" in words
+        )
     if minitest_tests.command_words(within):
         return lambda _path: _minitest_results(receipt.get("output"), root)
     return None
 
 
-def _cargo_results(output):
-    return cargo_tests.results(Path(output).read_text(errors="replace")) if output and Path(output).is_file() else None
+def _cargo_results(receipt, cwd, evidence, *, structured):
+    output = receipt.get("output")
+    if not structured:
+        return (
+            cargo_tests.results(Path(output).read_text(errors="replace")) if output and Path(output).is_file() else None
+        )
+    if (
+        cwd is None
+        or receipt.get("output_truncated")
+        or not all(name in receipt for name in command_receipt.OWNERSHIP_FIELDS)
+        or not command_receipt.completed(receipt, root=evidence)
+    ):
+        return None
+    try:
+        capture = command_receipt.pinned_bytes(output, receipt.get("output_sha256"), evidence, limit=64 * 1024 * 1024)
+    except (OSError, ValueError):
+        return None
+    text = capture.decode(errors="replace")
+    return cargo_tests.results(text, build=cargo_build.emitted(text, cwd))
 
 
 def _minitest_results(output, root):
