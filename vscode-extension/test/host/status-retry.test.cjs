@@ -3,11 +3,10 @@
 const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { test } = require('node:test');
 const { openHistoryRow } = require('./open-history.cjs');
-const { ownedWarmHostSteps, privateHostEnvironment, settleFixture } = require('../owned-fixture-cleanup.cjs');
+const { privateHostRoot, privateHostEnvironment, settleFixture } = require('../owned-fixture-cleanup.cjs');
 
 const EXTENSION = path.resolve(__dirname, '../..');
 const REPO = path.resolve(EXTENSION, '..');
@@ -32,7 +31,7 @@ async function executable() {
 
 for (const kind of ['job', 'repeat']) {
   test(`real editor recovers from a timed-out ${kind} source worker`, { timeout: 240_000 }, async () => {
-    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `autocode-${kind}-host-`)));
+    const root = privateHostRoot(`autocode-${kind}-host-`);
     const marker = path.join(root, 'timeout');
     const log = path.join(root, 'observations');
     const operation = kind === 'job' ? 'job_retry' : 'failure_retry';
@@ -170,12 +169,6 @@ for (const kind of ['job', 'repeat']) {
       fs.mkdirSync(path.join(EXTENSION, '.vscode-test'), { recursive: true });
       await win?.screenshot({ path: path.join(EXTENSION, '.vscode-test', `host-status-${kind}.png`), timeout: 5_000 }).catch(() => {});
     } finally {
-      const invokeHost = (action) => {
-        const result = spawnSync(python, [path.join(REPO, 'tests/status_retry_host_cli.py'), 'serve', action, '--json'],
-          { cwd: REPO, env, encoding: 'utf8', timeout: 15_000 });
-        assert.equal(result.status, 0, `isolated warm host ${action}: ${result.stderr}`);
-        return JSON.parse(result.stdout);
-      };
       try {
         await settleFixture([
           ['release held workers', () => fs.rmSync(marker, { force: true })],
@@ -193,9 +186,12 @@ for (const kind of ['job', 'repeat']) {
               assert.equal(stopped.status, 0, `stop owned editor: ${stopped.stderr}`);
             }
           }],
-          ...ownedWarmHostSteps(ownsWarmHost,
-            () => invokeHost('--stop'),
-            () => assert.equal(invokeHost('--status').running, false, 'isolated warm host exited')),
+          ['stop private warm hosts', () => {
+            if (!ownsWarmHost) return;
+            const result = spawnSync(python, [path.join(REPO, 'tests/host_reader_cleanup.py'), '--stop-source-hosts', root],
+              { cwd: REPO, env, encoding: 'utf8', timeout: 15_000 });
+            assert.equal(result.status, 0, result.stderr);
+          }],
           ['check owned readers and workers', async () => {
             if (!fs.existsSync(log)) return;
             await until('all owned status readers and workers to exit', () => {
