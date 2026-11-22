@@ -64,6 +64,12 @@ test('editor distinguishes a reported convention from approval of the understand
       {id: 'A2', text: "Keep the project's sorted single-line JSON convention.", ref: 'convention.py:5', why: 'The existing encoder sorts keys without indentation'},
     ];
     assert.equal(before.needs?.kind, 'answer'); assert.ok(question);
+    const reviewedConfirmation = before.chat?.review?.spend_confirmation;
+    assert.deepEqual(reviewedConfirmation, {
+      match: 'trim_lower', title: 'Prepare a reviewed plan?',
+      detail: 'Planning uses your selected models and saved limits. Building still waits for your approval of the displayed plan.',
+      label: 'Prepare plan',
+    });
     assert.equal(assumptions?.length, expected.length);
     for (const item of expected) {
       const assumption = assumptions.find((row) => row.id === item.id);
@@ -109,6 +115,19 @@ test('editor distinguishes a reported convention from approval of the understand
     assert.equal(fresh.needs?.resolver_token, before.needs.resolver_token);
     assert.deepEqual(fresh.requirements?.proposed_assumptions, before.requirements.proposed_assumptions);
     assert.deepEqual(fresh.needs?.questions, before.needs.questions, 'review the exact question before approving it');
+    assert.deepEqual(fresh.chat?.review?.spend_confirmation, reviewedConfirmation);
+    // Electron's native modal is outside Playwright's webview. Simulate only
+    // the exact reviewed confirmation, and fail closed for any other dialog.
+    await app.evaluate(({dialog}, input) => {
+      const {reviewedChoice} = require(input.helper);
+      globalThis.__standingConfirmationCount = 0;
+      dialog.showMessageBox = async (...args) => {
+        const options = args.length === 1 ? args[0] : args[1];
+        const response = reviewedChoice(options, input.expected);
+        globalThis.__standingConfirmationCount++;
+        return {response, checkboxChecked: false};
+      };
+    }, {helper: path.join(EXTENSION, 'test/requirements-standing-confirmation.cjs'), expected: reviewedConfirmation});
     await frame.locator('#take-action').click();
     const after = await until('the saved approval in public status', () => {
       const current = status();
@@ -120,6 +139,7 @@ test('editor distinguishes a reported convention from approval of the understand
       assert.equal(assumption.text, item.text);
       assert.notEqual(assumption.standing, 'confirmed_by_person');
     }
+    assert.equal(await app.evaluate(() => globalThis.__standingConfirmationCount), 1, 'the exact reviewed confirmation was accepted once');
     await until('the editor to leave the Requirements approval', async () => {
       frame = await chat();
       const action = frame.locator('#take-action');

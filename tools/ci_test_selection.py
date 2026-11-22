@@ -47,6 +47,9 @@ EXTENSION_HOST_RESOURCES = {
     "vscode-extension/test/requirements-standing-readiness.cjs": (
         "vscode-extension/test/host/requirements-standing.test.cjs",
     ),
+    "vscode-extension/test/requirements-standing-confirmation.cjs": (
+        "vscode-extension/test/host/requirements-standing.test.cjs",
+    ),
     "tools/autocode_assumption_ledger.py": ("vscode-extension/test/host/requirements-standing.test.cjs",),
     "tools/autocode_code_citations.py": ("vscode-extension/test/host/requirements-standing.test.cjs",),
     "tools/autocode_requirements_review.py": ("vscode-extension/test/host/requirements-standing.test.cjs",),
