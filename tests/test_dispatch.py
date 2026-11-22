@@ -15,6 +15,7 @@ import autocode as runner
 import autocode_dispatch as d
 import autocode_goal_lifecycle as lifecycle
 import autocode_goals as g
+import autocode_legacy_process as legacy
 import autocode_milestones as m
 import autocode_recovery_view as recovery
 import autocode_support as s
@@ -786,6 +787,11 @@ class DispatchTests(unittest.TestCase):
         def ps(command):
             return subprocess.CompletedProcess([], 0, stdout=f"999999 python autocode_builder_worker.py {command}\n")
 
+        # The listing's pid exists only in this fake listing: say it is alive with unreadable arguments, as a
+        # real Builder ps listed would be, rather than letting the guard find that no such process exists.
+        identity = patch.object(legacy, "_exact_argv", return_value=None)
+        identity.start()
+        self.addCleanup(identity.stop)
         with patch.object(s.subprocess, "run", return_value=ps("/unrelated/.autocode/runs/builder-other-1")):
             s.assert_no_legacy_process(Path(row["run_dir"]), Path(row["workspace"]))
         for command in (row["run_dir"], os.path.relpath(row["run_dir"], row["workspace"])):
