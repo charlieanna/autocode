@@ -155,6 +155,7 @@ except ImportError:
 
 try:
     from . import autocode_job_source as job_source, autocode_job_failure as job_failure, autocode_provider_auth as provider_auth, autocode_provider_refusal as provider_refusal  # noqa: F401 - compatibility API
+    from . import autocode_capture_handoff as capture_handoff
     from . import autocode_stage_stops as stage_stops
     from . import autocode_workspaces as task_workspaces, autocode_figma as figma  # noqa: F401 - compatibility API
     from . import autopilot  # noqa: F401 - compatibility API
@@ -195,6 +196,7 @@ try:
     from . import autocode_idle_policy as idle_policy  # noqa: F401 - compatibility API
 except ImportError:
     import autocode_job_source as job_source
+    import autocode_capture_handoff as capture_handoff
     import autocode_job_failure as job_failure
     import autocode_provider_auth as provider_auth  # noqa: F401 - compatibility API
     import autocode_provider_refusal as provider_refusal  # noqa: F401 - compatibility API
@@ -662,6 +664,7 @@ def run_role(
             network_retry.bind_attempt(state, record, before, workspace)
             role_launch.bind_prompt_metrics(state, record, prompt)
             job_source.capture(workspace, base, record, before)
+            capture_hold_start = capture_handoff.before(child_options["env"])  # #4028
             with interventions.admission(run_dir):
                 native_prepared = role_launch.admit_launch(
                     state,
@@ -846,6 +849,10 @@ def run_role(
     if not cleanup_error and exit_code is not None:
         job_source.stopped(workspace, base, record)
     save(run_dir / "state.json", state)
+    # A capture family this attempt's tools left unsettled pauses this run before its exit is read (#4028).
+    capture_handoff.require_settled(
+        capture_hold_start, child_options["env"], record, lambda: save(run_dir / "state.json", state)
+    )
     role_launch.raise_for_exit(
         state,
         record,
