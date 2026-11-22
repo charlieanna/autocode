@@ -2419,9 +2419,7 @@ def verify(
                 generated_unrecorded=generated_unrecorded,
                 ignored_inputs=ignored_inputs,
             )
-        # A base with no Go project cannot run `go test` (no module, or no packages).
-        # The same fact lets the suite comparison and, when the base run reports nothing,
-        # the regression comparison treat that as absence rather than a broken suite (#685).
+        # Use the pinned inventory to establish eligibility for the first-Go rule (#685).
         no_go_project = bool(
             test_root is None
             and new_behavior
