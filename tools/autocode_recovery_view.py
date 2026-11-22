@@ -18,6 +18,7 @@ from copy import deepcopy
 from pathlib import PurePath
 
 try:
+    from . import autocode_acceptance_retry_exhaustion as acceptance_exhaustion
     from . import autocode_acceptance_retry_next as retry_next
     from . import autocode_accepted_source as accepted_source
     from . import autocode_builder_policy as builder_policy
@@ -37,6 +38,7 @@ try:
     from . import autocode_stop as stop
     from .autocode_role_names import role_name
 except ImportError:
+    import autocode_acceptance_retry_exhaustion as acceptance_exhaustion
     import autocode_acceptance_retry_next as retry_next
     import autocode_accepted_source as accepted_source
     import autocode_builder_policy as builder_policy
@@ -900,6 +902,11 @@ def project(state: RunState, need=None, *, retained=_UNSET, report_repair_unavai
             )
         else:
             result.update(category="blocked", title="No re-check of the saved tests is left")
+        if acceptance_exhaustion.pending(state, retained):
+            # Nothing automatic remains: the next resume ends the run with a report (#4037).
+            result["what_happened"] = " ".join(
+                part for part in (result.get("what_happened"), acceptance_exhaustion.NOTICE) if part
+            )
     for member in _parallel_members(state):
         label, effect = member_stop.card(state, member) or (
             "Retry Builder task " + member,

@@ -15,6 +15,7 @@ import autocode_native_invocation as invocation
 import autocode_operational_block as block
 import autocode_run_setup as setup
 import autocode_run_view as run_view
+import autocode_stop as stop
 import autocode_util as util
 
 from . import test_recovery_view as view_fixtures
@@ -315,6 +316,27 @@ class RunSetupBoundaryTests(unittest.TestCase):
         self.assertEqual(saved, event["reason"])
         self.assertNotEqual("Saved task boundary", receipt["reason"])
         self.popen.assert_not_called()
+
+    def test_raised_exhausted_acceptance_recheck_ends_the_run(self):
+        # #4037: a re-check pause the Investigator declined ends with a recorded outcome, not a dead end.
+        error = util.Paused(
+            "PAUSED_INVALID_OUTPUT",
+            "Acceptance verification retry could not finish: The bounded acceptance verification retry is exhausted",
+        )
+        self.runtime.build_loop.run.side_effect = error
+
+        def conclude(state, raised, workspace, *, at):
+            self.assertIs(error, raised)
+            self.assertEqual(self.workspace, workspace)
+            stop.end(state, "The Tester's saved tests could not be verified.", {}, at=at)
+            return True
+
+        with patch.object(setup.acceptance_exhaustion, "conclude_pause", side_effect=conclude) as concluded:
+            self.assertEqual(2, self.run_locked())
+        concluded.assert_called_once()
+        saved = util.read(self.path)
+        self.assertEqual("PAUSED_INTERVENTION", saved["status"])
+        self.assertEqual("could_not_finish", stop.applied_stop(saved)["outcome"]["result"])
 
 
 if __name__ == "__main__":

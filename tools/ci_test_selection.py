@@ -43,7 +43,18 @@ EXTENSION_HOST_RESOURCES = {
     "scenarios/harness/fake_codex.py": (
         "vscode-extension/test/host/editor-host.test.cjs",
         "vscode-extension/test/host/python-semantic.test.cjs",
+        "vscode-extension/test/host/requirements-standing.test.cjs",
     ),
+    "scenarios/harness/driver.py": ("vscode-extension/test/host/requirements-standing.test.cjs",),
+    "vscode-extension/test/requirements-standing-readiness.cjs": (
+        "vscode-extension/test/host/requirements-standing.test.cjs",
+    ),
+    "vscode-extension/test/requirements-standing-confirmation.cjs": (
+        "vscode-extension/test/host/requirements-standing.test.cjs",
+    ),
+    "tools/autocode_assumption_ledger.py": ("vscode-extension/test/host/requirements-standing.test.cjs",),
+    "tools/autocode_code_citations.py": ("vscode-extension/test/host/requirements-standing.test.cjs",),
+    "tools/autocode_requirements_review.py": ("vscode-extension/test/host/requirements-standing.test.cjs",),
     "vscode-extension/test/python-semantic-transition.cjs": (
         "vscode-extension/test/host/named-proof-refusal.test.cjs",
         "vscode-extension/test/host/python-semantic.test.cjs",
@@ -52,6 +63,7 @@ EXTENSION_HOST_RESOURCES = {
     "vscode-extension/test/host/held_cli.py": (
         "vscode-extension/test/host/editor-host.test.cjs",
         "vscode-extension/test/host/python-semantic.test.cjs",
+        "vscode-extension/test/host/requirements-standing.test.cjs",
     ),
     "vscode-extension/test/owned-fixture-cleanup.cjs": (
         "vscode-extension/test/host/classification-outcome.test.cjs",
@@ -61,6 +73,7 @@ EXTENSION_HOST_RESOURCES = {
         "vscode-extension/test/host/named-proof-refusal.test.cjs",
         "vscode-extension/test/host/python-semantic.test.cjs",
         "vscode-extension/test/host/semver-reference-repair.test.cjs",
+        "vscode-extension/test/host/requirements-standing.test.cjs",
         "vscode-extension/test/host/status-retry.test.cjs",
     ),
     "tools/autocode_changed_code_evidence.py": ("vscode-extension/test/host/python-semantic.test.cjs",),
@@ -82,6 +95,7 @@ EXTENSION_HOST_RESOURCES = {
         "vscode-extension/test/host/semver-reference-repair.test.cjs",
         "vscode-extension/test/host/classification-outcome.test.cjs",
         "vscode-extension/test/host/python-semantic.test.cjs",
+        "vscode-extension/test/host/requirements-standing.test.cjs",
         "vscode-extension/test/host/status-retry.test.cjs",
     ),
     "tests/classification_vscode_fixture.py": ("vscode-extension/test/host/classification-outcome.test.cjs",),
@@ -111,6 +125,9 @@ EXTENSION_HOST_RESOURCES = {
     "tests/protected_link_vscode_fixture.py": ("vscode-extension/test/host/protected-link-recovery.test.cjs",),
     "tests/protected_directory_vscode_fixture.py": ("vscode-extension/test/host/python-semantic.test.cjs",),
     "tests/python_semantic_vscode_fixture.py": ("vscode-extension/test/host/python-semantic.test.cjs",),
+    "tests/requirements_standing_vscode_fixture.py": ("vscode-extension/test/host/requirements-standing.test.cjs",),
+    "tests/requirements_standing_host_cli.py": ("vscode-extension/test/host/requirements-standing.test.cjs",),
+    "tests/requirements_standing_provider.py": ("vscode-extension/test/host/requirements-standing.test.cjs",),
     "tests/fixtures/python-semantic-host/displayed-plan.json": ("vscode-extension/test/host/python-semantic.test.cjs",),
     "tests/rustup_vscode_fixture.py": ("vscode-extension/test/host/rustup-containment.test.cjs",),
     "tests/named_proof_vscode_fixture.py": ("vscode-extension/test/host/named-proof-refusal.test.cjs",),
@@ -147,6 +164,7 @@ EXTENSION_HOST_RESOURCES = {
         "vscode-extension/test/host/kilo-route-effort.test.cjs",
         "vscode-extension/test/host/named-proof-refusal.test.cjs",
         "vscode-extension/test/host/python-semantic.test.cjs",
+        "vscode-extension/test/host/requirements-standing.test.cjs",
         "vscode-extension/test/host/status-retry.test.cjs",
         "vscode-extension/test/host/semver-reference-repair.test.cjs",
     ),
@@ -1840,6 +1858,7 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         # reaches the build loop and the status command's progress line through the in-process CLI.
         (
             "tools/autocode_acceptance_retry_admission.py",
+            "tools/autocode_acceptance_retry_exhaustion.py",
             "tools/autocode_acceptance_retry_next.py",
             "tools/autocode_status_observation.py",
             "tools/autocode_status_observation_worker.py",
