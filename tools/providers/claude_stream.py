@@ -137,6 +137,12 @@ BACKGROUND_KEYS = (
     "backgroundedToDeliverMessage",
     "timedOutAfterMs",
 )
+# Claude Code's task lifecycle rows (2.1.330): a background task ends with a task_notification, or a
+# task_updated patch whose status is one of TASK_TERMINAL (Claude Code's own client reads the same three).
+TASK_ROWS = frozenset({"task_started", "task_updated", "task_notification"})
+TASK_TERMINAL = frozenset({"completed", "failed", "killed"})
+BACKGROUND_TOOL = "BackgroundTask"
+MAX_TASKS = 1024
 FILE_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
 # What a tool call names, kept on its item for the chat's live log ("Searched tools for “x”"): only
 # these inputs, each a bounded string. Not ``arguments``: that names a call's full signature, which
@@ -348,6 +354,11 @@ class Translator:
         self._partial: str | None = None
         self._thinking: int | None = None
         self._compacted: dict | None = None
+        self._earlier: dict | None = None
+        self._reported: dict | None = None
+        self._tasks: dict[str, dict] = {}
+        self._tasks_ended: set[str] = set()
+        self._task_descriptions: dict[str, str] = {}
 
     # -- input ---------------------------------------------------------------------------------
 
@@ -369,7 +380,16 @@ class Translator:
         kind = row.get("type")
         if kind == "result":
             return self._on_result(row)
+        if kind == "system" and row.get("subtype") in TASK_ROWS:
+            # A background task outlives the result that ended its turn (#3989): it is still running.
+            return self._on_task(row)
         if self._result is not None:
+            if kind == "system" and row.get("subtype") == "init":
+                # Claude Code answers a background task that finished after the turn's result with a new
+                # turn of the same session (2.1.330); what it says and reports there supersedes that result.
+                # The earlier result stays the answer when the new turn never ends or reports nothing.
+                self._earlier, self._result = self._result, None
+                return self._on_system(row)
             return []  # task summaries after the result describe nothing new
         if kind == "system":
             return self._on_system(row)
@@ -420,6 +440,37 @@ class Translator:
             }
         return []
 
+    def _on_task(self, row: dict) -> list[dict]:
+        """A Claude Code task that runs in the background is an open tool until its terminal row (#3989).
+
+        ``task_started`` with ``is_backgrounded`` or a later ``task_updated`` patch with it opens one
+        ``tool_call`` item; a ``task_notification`` or a terminal ``task_updated`` status closes it. A task
+        that ran in the foreground stays its own tool's call and adds no item."""
+        task = row.get("task_id")
+        if not isinstance(task, str) or not task or task in self._tasks_ended:
+            return []
+        subtype = row.get("subtype")
+        patch = _dict(row.get("patch"))
+        status = patch.get("status") if subtype == "task_updated" else row.get("status")
+        if subtype == "task_notification" or (subtype == "task_updated" and status in TASK_TERMINAL):
+            if len(self._tasks_ended) < MAX_TASKS:
+                self._tasks_ended.add(task)
+            entry = self._tasks.pop(task, None)
+            if entry is None:
+                return []
+            outcome = "completed" if status == "completed" else "failed"
+            return [{"type": "item.completed", "item": {**entry, "status": outcome}}]
+        if subtype == "task_started" and isinstance(row.get("description"), str):
+            self._task_descriptions[task] = row["description"][:DISPLAY_LIMIT]
+        backgrounded = row.get("is_backgrounded") if subtype == "task_started" else patch.get("is_backgrounded")
+        if backgrounded is not True or task in self._tasks or len(self._tasks) >= MAX_TASKS:
+            return []
+        entry = {"id": self._new_id(), "type": "tool_call", "name": BACKGROUND_TOOL}
+        if task in self._task_descriptions:
+            entry["display_input"] = {"description": self._task_descriptions[task]}
+        self._tasks[task] = entry
+        return [{"type": "item.started", "item": {**entry, "status": "in_progress"}}]
+
     def _on_rate_limit(self, row: dict) -> None:
         info = row.get("rate_limit_info")
         if not isinstance(info, dict):
@@ -440,6 +491,8 @@ class Translator:
         if isinstance(session, str) and session and self.session_id is not None and session != self.session_id:
             self._mixed = True
         self.total_cost_usd = _money(row.get("total_cost_usd"))
+        if isinstance(row.get("structured_output"), dict):
+            self._reported = row["structured_output"]
         return []
 
     # -- streamed text and progress ------------------------------------------------------------
@@ -679,6 +732,10 @@ class Translator:
         for entry in list(self._progress.values()):
             rows += self._close(entry, "reasoning")
         self._progress.clear()
+        for entry in self._tasks.values():
+            # Claude Code ended before the task reported its end: it was stopped with Claude Code.
+            rows.append({"type": "item.completed", "item": {**entry, "status": "failed"}})
+        self._tasks.clear()
         return rows
 
     def _cost(self) -> float | None:
@@ -798,7 +855,7 @@ class Translator:
 
     def finish(self, exit_code: int, *, stderr_tail: str = "", terminated: bool = False) -> tuple[list[dict], int]:
         """The rows that end the stage and the translator's exit code (SPEC #717 §3.7, first match wins)."""
-        result = self._result
+        result = self._result or self._earlier
         api = self._api_error or {}
         failing = exit_code or 1
         tail = _ANSI.sub("", stderr_tail or "").strip()
@@ -807,6 +864,8 @@ class Translator:
         text = (api.get("text") or (str(result.get("result") or "") if result and is_error else "")).strip()[:300]
         clean = 0 if exit_code == 0 or (exit_code == 1 and is_error) else exit_code
         report = (result or {}).get("structured_output")
+        if not isinstance(report, dict) and not is_error:
+            report = self._reported  # an earlier turn's report, when a later turn of the call gave none
         if self.billing_source is not None:
             message = (
                 f"Claude Code would bill an API key ({self.billing_source}) instead of your Claude subscription "

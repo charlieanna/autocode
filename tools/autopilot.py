@@ -838,15 +838,18 @@ def apply_review_result(runtime, state: RunState, stage, value, record, workspac
     native = getattr(runtime, "native_calls", None)
     native_execution = native.verification_execution(state, record) if native is not None else None
     replay_context = progressive_state.context(state)
-    if (record.get("original_stage") or record.get("stage") or stage) == "tester":  # not review_checkpoint
+    route = record.get("original_stage") or record.get("stage") or stage
+    if stage == "tester" and route in ("tester", "review_checkpoint"):  # both Tester routes (#3979)
         rerun = tester_probes.rerun_used(
             state.get("resolve_repair_history"),
-            "tester",
+            route,
             record.get("source_revision"),
             (state.get("goal_contract") or {}).get("hash"),
         )
         approved = verification_plan.approved_commands(state, progressive_context=replay_context)
-        validation["tester_probes"] = tester_probes.admit(value, approved, rerun_used=rerun or not modern)
+        validation["tester_probes"] = tester_probes.admit(
+            value, approved, rerun_used=rerun or not modern, workspace=workspace
+        )
     whole = human_pending or brief_obligations.whole_product_claim(state, value, progressive_context=replay_context)
     clean_run, clean_identity = launch_inputs.runners(
         state, workspace, run_dir, verify.scratch_run, verify.execution_identity if native is None else None

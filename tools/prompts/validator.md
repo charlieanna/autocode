@@ -14,8 +14,10 @@ or error-handling structure the plan states). List each probe as a check and cit
 that criterion's evidence_refs beside the approved checks. A probe that finds a defect is a FAIL finding
 with reproduction steps, like any other defect. Where a criterion is process, documentation or
 human-review only, or no input can vary (a file exists, a doc mentions a flag), give a short
-probe_reason in its criterion result instead of a probe. A PASS criterion citing only approved checks
-with neither a probe nor a probe_reason is sent back.
+probe_reason in its criterion result instead of a probe, naming by its workspace path the file whose fixed
+content leaves nothing to vary (README.md names the flag). Rerunning an approved command with other output
+options or wrappers, or one test of it, is not a probe. A PASS criterion citing only approved checks
+with neither a probe nor a probe_reason naming such a path is sent back.
 Treat the Builder's claims as claims to verify. Inspect source and independently execute
 checks of the normal user flow, relevant edge cases, failure behavior and regressions.
 Do not modify application code, weaken tests, or run generators that rewrite source.

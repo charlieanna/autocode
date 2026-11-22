@@ -13,6 +13,18 @@ import sys
 import uuid
 from pathlib import Path
 
+
+def _fixed_file():
+    """A workspace file a scripted Tester's probe_reason names: a reason stands only when it names a path
+    that exists in the workspace (tools/autocode_tester_probes.py)."""
+    root = Path.cwd()
+    for path in sorted(root.rglob("*")):
+        relative = path.relative_to(root)
+        if path.is_file() and "." in path.name[1:] and not any(part.startswith(".") for part in relative.parts):
+            return relative.as_posix()
+    return ""
+
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 from blackbox_build_provider import SOURCE_VERDICT, cite_sources, source_trace_for
@@ -606,7 +618,9 @@ def main():
         row_fields = schema["properties"].get("criterion_results", {}).get("items", {}).get("properties", {})
         if stage == "tester" and "probe_reason" in row_fields:
             # The scripted Tester runs only the approved joint suite, so it records why (autocode_tester_probes).
-            report["criterion_results"][0]["probe_reason"] = "Scripted coordination Tester: C1 has only the fixed suite"
+            report["criterion_results"][0]["probe_reason"] = (
+                f"Scripted coordination Tester: C1 has only the fixed suite; {_fixed_file()} holds the input"
+            )
     elif stage in ("plan_task", "review_completion", "review_checkpoint", "resolve"):
         done = (
             stage in ("review_completion", "review_checkpoint")
