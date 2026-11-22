@@ -32,3 +32,13 @@ The adjacent status/admission matrix passed 45 tests. Repository Ruff and format
 checks and mypy (996 source files) passed. The saved red control is
 `/private/tmp/autocode-4005-master-red.log`; local preflight and test logs are
 unpublished diagnostic artifacts, not repository proof receipts.
+
+Local macOS host attempts have not qualified the editor result. The first
+stopped before editor launch because Python resolved `/var` to `/private/var`
+while the host compared the uncanonicalized temporary root; the fixture now
+canonicalizes its owned root before comparison and cleanup. The next attempt
+stopped before launch because the local dependency directory lacked
+`playwright-core`. With an existing matching dependency supplied read-only,
+VS Code launched but its Electron target closed before `firstWindow`, with no
+answer submitted. The three failed attempts and their fixture roots were
+retained; Linux extension-host CI remains the required editor observation.

@@ -32,7 +32,7 @@ async function executable() {
 }
 
 for (const mode of ['changed-effort', 'unset-effort']) test(`real editor offers a synthetic Kilo model and effort decision (${mode})`, { timeout: 180_000 }, async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'autocode-synthetic-kilo-'));
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'autocode-synthetic-kilo-')));
   let app;
   let win;
   let env;
