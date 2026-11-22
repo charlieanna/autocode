@@ -1633,6 +1633,27 @@ test('model selection enables the action immediately, survives polling and disab
 });
 
 
+test('History reads the registry only while visible and catches up immediately when reopened', async (t) => {
+  const changed = new host.vscode.EventEmitter();
+  const tree = { visible: false, onDidChangeVisibility: changed.event, dispose() {} };
+  t.mock.method(host.vscode.window, 'createTreeView', () => tree);
+  const list = t.mock.method(RunController.prototype, 'list', async () => ({ runs: [] }));
+  const context = { workspaceState: host.workspaceState, subscriptions: [] };
+  t.after(() => { for (const sub of context.subscriptions) sub.dispose(); changed.dispose(); });
+  activate(context);
+  const refresh = host.commands.get('autocode.refresh');
+  await refresh();
+  assert.equal(list.mock.callCount(), 0, 'activation and refresh with only chat visible');
+  for (const visible of [true, false, true]) {
+    tree.visible = visible;
+    const before = list.mock.callCount();
+    changed.fire({ visible }); await flush();
+    assert.equal(list.mock.callCount(), before + Number(visible), 'visibility change');
+    await refresh();
+    assert.equal(list.mock.callCount(), before + 2 * Number(visible), 'ordinary refresh');
+  }
+});
+
 test('VS Code tree event replaces the sidebar\'s reading row after registry refresh', async () => {
   let listed = [];
   const provider = new RunsProvider({ list: async () => ({ runs: listed, diagnostics: [] }) });

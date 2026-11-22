@@ -33,7 +33,7 @@ function editor() {
     window: {
       createOutputChannel: () => log,
       createStatusBarItem: () => ({ hide() {}, show() {}, dispose() {} }),
-      createTreeView: () => ({ dispose() {} }),
+      createTreeView: () => ({ visible: false, onDidChangeVisibility: () => ({ dispose() {} }), dispose() {} }),
       registerWebviewViewProvider: (id, provider) => { providers.set(id, provider); return { dispose() {} }; },
       showInformationMessage: (message, ...items) => new Promise((resolve) => {
         notices.push({ message, items, resolve });

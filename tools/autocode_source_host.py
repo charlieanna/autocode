@@ -8,7 +8,7 @@ per-user helper over a private ``0700`` Unix socket instead.
 A host serves one code version (a digest of ``tools/`` and ``pyproject.toml``) and one Git environment,
 keeps ``ContentHashes`` in memory, never writes snapshot state to disk, and exits after ``IDLE_SECONDS``
 (or on ``autocode serve --stop`` / ``SIGINT`` / ``SIGTERM``). When no host is running yet, the caller
-starts one in the background and runs in-process transparently.
+starts one in the background. Read-only CLI callers briefly wait to share its imports.
 """
 
 from __future__ import annotations
@@ -37,6 +37,7 @@ except ImportError:
 SETTING = "AUTOCODE_SOURCE_HOST"
 IDLE_SECONDS = 30 * 60
 CONNECT_SECONDS = 0.5
+STARTUP_SECONDS = 1.0
 ANSWER_SECONDS = 120.0
 # Environment that can change what `git ls-files`, `git rev-parse` and backend/config lookups report.
 GIT_ENV = ("HOME", "PATH", "XDG_CONFIG_HOME")
@@ -301,6 +302,29 @@ def _needs_capability_reexec() -> bool:
     return bool((sets["CapBnd"] & _CAP_MASK) and (sets["CapEff"] & _CAP_SETPCAP))
 
 
+@contextlib.contextmanager
+def _cli_connection(path: Path):
+    """Only retry the connect, before any request has been sent."""
+    deadline = None
+    while True:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+            connection.settimeout(CONNECT_SECONDS)
+            try:
+                connection.connect(str(path))
+            except (FileNotFoundError, ConnectionRefusedError):
+                if deadline is None:
+                    _start(path)
+                    deadline = time.monotonic() + STARTUP_SECONDS
+            else:
+                yield connection
+                return
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            yield None  # Cold execution still works if the host never becomes ready.
+            return
+        time.sleep(min(0.025, remaining))
+
+
 def cli_fast_path(argv: list[str] | tuple[str, ...] | None = None) -> int | None:
     """Serve an eligible read-only CLI query over the warm host socket, or return None to run cold."""
     drop_git_repository_variables()
@@ -313,16 +337,13 @@ def cli_fast_path(argv: list[str] | tuple[str, ...] | None = None) -> int | None
         return None
     path = socket_path()
     try:
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
-            connection.settimeout(CONNECT_SECONDS)
-            connection.connect(str(path))
+        with _cli_connection(path) as connection:
+            if connection is None:
+                return None
             connection.settimeout(ANSWER_SECONDS)
             request = {"kind": "cli", "argv": list(args), "cwd": cwd, "env": dict(os.environ)}
             connection.sendall(json.dumps(request).encode() + b"\n")
             answer = json.loads(_read_line(connection))
-    except (FileNotFoundError, ConnectionRefusedError):
-        _start(path)
-        return None
     except (OSError, ValueError):
         _state["failed"] = True
         return None

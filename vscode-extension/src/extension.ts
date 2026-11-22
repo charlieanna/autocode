@@ -29,6 +29,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push({ dispose: () => setReadLog(undefined) });
   const controller = new RunController(log);
   const runs = new RunsProvider(controller);
+  const history = vscode.window.createTreeView("autocode.runs", { treeDataProvider: runs, showCollapseAll: true });
   const connections = new ConnectionsPanel(context.workspaceState);
   // One list of new-chat stage models for the chat and the Stage models panel, kept per workspace.
   const stageLists = new StageListCache(context.workspaceState);
@@ -109,7 +110,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // Surfaces refresh together so one slow read (the runs registry) cannot delay
   // the status line or the chat's own polls behind it.
   const refresh = async (): Promise<void> => {
-    await Promise.all([runs.refresh(), updateStatus(), chat.refresh()]);
+    await Promise.all([history.visible && runs.refresh(), updateStatus(), chat.refresh()]);
   };
 
   const chat = new ChatView(controller, context.workspaceState, {
@@ -177,7 +178,8 @@ export function activate(context: vscode.ExtensionContext): void {
       void vscode.window.showErrorMessage(`AutoCode Stage Models: ${messageOf(error)}`);
     })),
     vscode.window.registerWebviewViewProvider("autocode.chat", chat, { webviewOptions: { retainContextWhenHidden: true } }),
-    vscode.window.createTreeView("autocode.runs", { treeDataProvider: runs, showCollapseAll: true }),
+    history,
+    history.onDidChangeVisibility(({ visible }) => { if (visible) void runs.refresh(); }),
     vscode.commands.registerCommand("autocode.showChat", () => chat.focus()),
     vscode.commands.registerCommand("autocode.startRun", async () => {
       chat.show();
