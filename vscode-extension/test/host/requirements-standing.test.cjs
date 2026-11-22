@@ -137,14 +137,15 @@ test('editor distinguishes a reported convention from approval of the understand
       }
     }],
     ['check owned readers exited', async () => {
-      if (!app) return;
-      assert.match(fs.readFileSync(reads, 'utf8'), /^start \d+ /m, 'the actual editor made a recorded status read');
       await until('owned status readers to exit', () => {
         const checked = spawnSync(python, [path.join(REPO, 'tests/host_reader_cleanup.py'), reads, root],
           {cwd: REPO, env, encoding: 'utf8', timeout: 15_000});
         assert.equal(checked.status, 0, checked.stderr);
         return JSON.parse(checked.stdout).running.length === 0;
       }, 30_000);
+    }],
+    ['check the editor read status', () => {
+      if (passed) assert.match(fs.readFileSync(reads, 'utf8'), /^start \d+ /m, 'the actual editor made a recorded status read');
     }],
   ], () => fs.rmSync(root, {recursive: true, force: true}), testError);
 });
