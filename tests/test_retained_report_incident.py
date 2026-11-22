@@ -63,6 +63,11 @@ class RetainedReportIncidentTests(unittest.TestCase):
         self.assertIs(public["needs"]["automatic_reconciliation"], True)
         self.assertIn("--resume-paused --expected-recovery-token -", public["next_command"])
         self.assertIn(public["recovery"]["token"], public["next_command"])
+        schema = json.loads((Path(__file__).resolve().parents[1] / "docs/schemas/status-view.schema.json").read_text())
+        need_schema = schema["properties"]["view"]["properties"]["needs"]
+        util.validate_schema(public["needs"], need_schema)
+        with self.assertRaises(ValueError):
+            util.validate_schema({**public["needs"], "automatic_reconciliation": "yes"}, need_schema)
         self.assertNotEqual("blocked", (public.get("recovery") or {}).get("category"))
         self.assertEqual(before, self.state, "status observes without changing the held incident")
 

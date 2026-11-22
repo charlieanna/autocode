@@ -50,7 +50,9 @@ grant a retry of a timed-out or uncertain provider (#3963).
   The old validator and provider were scripted; no live inference is claimed.
 - This branch subsequently integrated master `b06e3d42`, including other
   recovery/view changes and the #4077 host mappings. The current runtime digest
-  is `0aa42029983a78e96757bc712c39361a7ed66bdcaddbe7085f183341584ff5ba`;
+  was `0aa42029983a78e96757bc712c39361a7ed66bdcaddbe7085f183341584ff5ba`.
+  The subsequent public-schema and CI-selection correction changes that digest
+  to `9c743a0677cc7d5f43c4cf2f3615f13dbc9b40f838627ef1798efd7415ee569b`;
   the Mac result above is prior-runtime evidence. Exact-head Linux editor and
   required CI remain pending.
 - On the integrated tree, 56 focused tests passed, including the retained-report,

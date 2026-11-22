@@ -38,6 +38,7 @@ PUBLIC_FLOW_CONSUMERS = ("tests.test_launch_state_cli", "tests.test_completion_s
 # These helpers are loaded dynamically by the extension-host tests, not by a
 # Python import. Keep the consuming test named so fixture-only edits run it.
 EXTENSION_HOST_RESOURCES = {
+    "docs/schemas/status-view.schema.json": ("vscode-extension/test/host/retained-report.test.cjs",),
     "tests/first_go_vscode_fixture.py": ("vscode-extension/test/host/python-semantic.test.cjs",),
     "tools/autocode_first_go_proof.py": ("vscode-extension/test/host/python-semantic.test.cjs",),
     "scenarios/harness/fake_codex.py": (

@@ -112,6 +112,7 @@ class ScopeTests(unittest.TestCase):
         from tools import ci_test_selection
 
         for resource in (
+            "docs/schemas/status-view.schema.json",
             "tests/retained_report_vscode_fixture.py",
             "tests/retained_report_vscode_cli.py",
             "tests/retained_report_fixture_support.py",
@@ -142,6 +143,7 @@ class ScopeTests(unittest.TestCase):
                     ci_test_selection.EXTENSION_HOST_RESOURCES[resource],
                 )
                 self.assertIn("extension", self.enabled(resource))
+        self.assertTrue({"docs", "suite", "extension"} <= self.enabled("docs/schemas/status-view.schema.json"))
 
     def test_classification_host_resources_are_exact_and_select_the_host(self):
         from tools import ci_test_selection
