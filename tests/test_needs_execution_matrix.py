@@ -39,6 +39,7 @@ KIND_CASES = {
     "review": "test_human_review_accepts_only_the_current_validated_artifact",
     "planning_budget": "test_planning_budget_feedback_releases_only_a_new_draft",
     "recover_source": "test_recover_source_names_the_required_inspection",
+    "replay_stopped": "test_a_missing_recording_holds_the_stopped_job_without_dispatch",
     "retry_job": "test_exact_job_retry_checks_source_and_current_token",
     "resume": "test_actionable_resume_executes_the_displayed_bound_command",
     "dependency": "test_dependency_wait_releases_only_for_bound_verified_delivery",
@@ -837,7 +838,7 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
         self.assertIn("recovery_grant", [e["kind"] for e in saved["user_events"]])
         self.provider.assert_not_called()
 
-    def test_job_retry_status_fails_closed_when_source_observation_times_out(self):
+    def stopped_design_job(self):
         self.state.update(status="PAUSED_JOB_FAILURE", next_stage="check_design")
         self.state["job_failure"] = {
             "reason": "The Design Reviewer stopped",
@@ -850,6 +851,26 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
             "write_diagnosis": {},
             "unrestored": [],
         }
+
+    def test_a_missing_recording_holds_the_stopped_job_without_dispatch(self):
+        self.state["settings"]["replay_recording"] = {
+            "path": str(self.directory / "missing-recording.json"),
+            "sha256": "a" * 64,
+            "checks": "fresh",
+            "dispatch_ids": [],
+        }
+        self.stopped_design_job()
+        self.save()
+        before = (self.directory / "state.json").read_bytes()
+        held = self.run.advance_until_input()
+        self.assertEqual("replay_stopped", held["needs"]["kind"])
+        self.assertTrue(held["needs"]["resume_unavailable"])
+        self.assertIsNone(held["next_command"])
+        self.assertEqual(before, (self.directory / "state.json").read_bytes())
+        self.provider.assert_not_called()
+
+    def test_job_retry_status_fails_closed_when_source_observation_times_out(self):
+        self.stopped_design_job()
         with patch.object(
             run_view.status_observation.captured, "run", side_effect=subprocess.TimeoutExpired("status-worker", 15)
         ):
