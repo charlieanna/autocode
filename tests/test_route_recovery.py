@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import autocode_quota_route as quota_route
 import autocode_recovery_dispatch as dispatch
 import autocode_resolver_recovery as resolver_recovery
+import autocode_route_fit as route_fit
 import autocode_route_pool as route_pool
 import autocode_route_recovery as route_recovery
 import autocode_route_selector as selector
@@ -1147,6 +1148,64 @@ class RouteRecoveryTests(unittest.TestCase):
                 route_recovery.recover(self.runtime, st, self.root, self.root, support.Paused(status, "stop"))
             )
             self.assertNotEqual(SOL, st["settings"]["roles"]["builder"]["model"])
+
+    def test_refusal_recovery_to_a_model_listing_no_levels_drops_the_level_and_keeps_the_stop(self):
+        # #3910: a MiMo Plan Reviewer refuses (content filter); GLM wrote the plan so it is ineligible,
+        # and the only eligible replacement is a subscription model that lists NO reasoning variant
+        # (levels_listed=True, levels=[]). Recovery must not carry the saved 'high' onto it: preflight
+        # would refuse PAUSED_TRANSPORT_UNVERIFIED and hide the original refusal. It drops to the model's
+        # default, and the original content-filter stop stays visible in the route_assignment record.
+        minimax = "alibaba-token-plan/MiniMax-M2.5"
+        events = self.make_events(REFUSAL, "plan-finalize-01.jsonl")
+        state = {
+            "status": "RUNNING",
+            "phase": "PLANNING",
+            "goal_contract": {"approved": False},
+            "settings": {
+                "engine": "opencode",
+                "roles": {
+                    "planner": {"model": GLM, "reasoning_effort": "high"},
+                    "plan_reviewer": {"model": MIMO, "reasoning_effort": "high"},
+                },
+            },
+            "stages": [{"stage": "draft_plan", "launch_route": {"model": GLM}}],
+            "sessions": {},
+            "active_stage": {
+                "stage": "finalize_plan",
+                "role": "plan_reviewer",
+                "route_role": "plan_reviewer",
+                "iteration": 1,
+                "output": str(self.root / "plan-finalize-01.json"),
+                "events": str(events),
+                "launch_route": {"model": MIMO},
+            },
+        }
+        offers = [
+            {"model": minimax, "billing": "subscription", "account": "Alibaba", "levels": [], "levels_listed": True}
+        ]
+        self.assertTrue(
+            route_recovery.recover(
+                self.runtime,
+                state,
+                self.root,
+                self.root,
+                support.Paused("PAUSED_CONTENT_FILTER", "refused"),
+                offers_fn=lambda backend, ws: offers,
+            )
+        )
+        route = state["settings"]["roles"]["plan_reviewer"]
+        self.assertEqual(minimax, route["model"])
+        # The destination lists no reasoning variant: the unavailable 'high' is dropped to its default.
+        self.assertIsNone(route.get("reasoning_effort"))
+        self.assertEqual([], state["settings"]["declared_variants"][minimax])
+        # The original refusal stop stays visible in the recovery record (the view's route_assignments).
+        (record,) = [e for e in state["user_events"] if e["kind"] == "route_assignment"]
+        self.assertEqual("runner", record["actor"])
+        self.assertEqual("PAUSED_CONTENT_FILTER", record["pause_status"])
+        self.assertEqual(MIMO, record["from"])
+        self.assertEqual({"from": "high", "to": None}, record.get("effort"))
+        # The next launch fits the dropped level, never the unavailable 'high' the destination lists.
+        self.assertIsNone(route_fit.fit(state["settings"], "plan_reviewer").effort)
 
 
 if __name__ == "__main__":

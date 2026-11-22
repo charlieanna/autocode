@@ -180,7 +180,12 @@ def note(decision) -> str | None:
         return plan_difficulty.note(decision)
     if isinstance(decision, dict) and decision.get("reason") == route_fit.ROUTE_ANSWER_FIT:
         text = decision.get("text")
-        return f"Running at {decision.get('level')}: {text}." if isinstance(text, str) else None
+        if not isinstance(text, str):
+            return None
+        level = decision.get("level")
+        # A destination that offers no reasoning variant drops the level to its default (#3910): say so
+        # without naming a level, rather than "Running at None".
+        return f"Running at {level}: {text}." if level is not None else f"{text}."
     if not isinstance(decision, dict) or not decision.get("lowered"):
         return None
     level, ceiling = decision.get("level"), decision.get("ceiling")

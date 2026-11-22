@@ -340,6 +340,18 @@ class RouteAnswerFitTests(unittest.TestCase):
             ("high", None), review_effort.launch(state, "requirements_gather", "requirements", False, route)
         )
 
+    def test_a_level_dropped_to_the_default_is_said_without_naming_a_level(self):
+        # #3910: the destination offers no reasoning variant, so the route answer dropped the level to its
+        # default (None). The launch says so without printing "Running at None".
+        state, route = self.moved("requirements", effort=None, saved="high")
+        level, choice = review_effort.launch(state, "requirements_gather", "requirements", False, route)
+        self.assertIsNone(level)
+        self.assertEqual("route_answer_fit", choice["reason"])
+        self.assertEqual(
+            f"{GLM} offers no reasoning variants, so this stage runs at its default instead of high.",
+            review_effort.note(choice),
+        )
+
 
 class RunnerLaunchTests(unittest.TestCase):
     def test_a_format_repair_launches_below_the_saved_level_and_records_why(self):
