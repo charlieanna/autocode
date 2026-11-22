@@ -482,7 +482,8 @@ class VerificationSourceTests(unittest.TestCase):
         self.git("add", ".")
         self.git("-c", "user.name=Test", "-c", "user.email=test@localhost", "commit", "-qm", "link")
         if not hasattr(os, "lchmod"):
-            # No way to mark a link itself here (Linux), where a copy is one read-only mount instead.
+            # No way to mark a link itself here (Linux), where a copy is one overlay mount over a
+            # read-only lower layer instead (#4033).
             with self.assertRaisesRegex(ValueError, "cannot seal a copied symlink"):
                 self.sealed_copy()
             return
