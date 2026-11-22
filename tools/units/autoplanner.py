@@ -522,22 +522,23 @@ ASSUMPTION = obj(
         "convention_ref": S,
         "rationale": S,
         "supports": SS,
-        # #3939: when an assumption claims the project suite already exercises named examples, it
-        # proposes that claim's exact scope here so the runner can bind it to what the command really
-        # collects. null when the assumption makes no suite-coverage claim. A runner flag alone is not
-        # coverage; the recorded collection answer decides, and the claim stays unverified.
-        "suite_claim": {
-            "type": ["object", "null"],
-            "properties": {
-                "kind": {"type": "string", "enum": ["all_suite_pass", "named_tests_pass"]},
-                "node_ids": SS,
-                "collection_command": S,
-            },
-            "required": ["kind", "node_ids", "collection_command"],
-            "additionalProperties": False,
-        },
     }
 )
+# #3939: when an assumption claims the project suite already exercises named examples, it proposes
+# that claim's exact scope here so the runner can bind it to what the command really collects. Added
+# after obj() so it stays optional: a report produced before this field (no suite_claim) still
+# validates. null or absent when the assumption makes no suite-coverage claim; a runner flag alone is
+# not coverage — the recorded collection answer decides, and the claim stays unverified.
+ASSUMPTION["properties"]["suite_claim"] = {
+    "type": ["object", "null"],
+    "properties": {
+        "kind": {"type": "string", "enum": ["all_suite_pass", "named_tests_pass"]},
+        "node_ids": SS,
+        "collection_command": S,
+    },
+    "required": ["kind", "node_ids", "collection_command"],
+    "additionalProperties": False,
+}
 ASSUMPTIONS = {"type": "array", "items": ASSUMPTION}
 IGNORED_REQUIREMENT = obj(
     {
