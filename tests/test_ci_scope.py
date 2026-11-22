@@ -55,6 +55,7 @@ class ScopeTests(unittest.TestCase):
 
     def test_each_host_fixture_alone_selects_its_actual_extension_host_consumer(self):
         for fixture in (
+            "scenarios/harness/fake_changed_code.py",
             "scenarios/harness/fake_codex.py",
             "vscode-extension/test/python-semantic-transition.cjs",
             "vscode-extension/test/host/held_cli.py",
