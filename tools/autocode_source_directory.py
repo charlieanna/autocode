@@ -38,6 +38,17 @@ def _directory(root: Path, path: PurePosixPath):
         os.close(descriptor)
 
 
+def portable_link_target(value) -> bool:
+    """Whether these link bytes can resolve relative to an independent source copy."""
+    return bool(
+        isinstance(value, str)
+        and value
+        and not value.startswith("/")
+        and "\\" not in value
+        and not PureWindowsPath(value).drive
+    )
+
+
 def link_is_bound(root, name, files, tracked, checked_directories, *, allow_untracked, code_suffixes):
     """Observe every component of a relative fixture link against the pinned tree."""
     path = PurePosixPath(name)
@@ -66,13 +77,7 @@ def link_is_bound(root, name, files, tracked, checked_directories, *, allow_untr
                     if len(visited) >= _MAX_LINKS or current.as_posix() not in tracked or not identity:
                         return False
                     target = os.readlink(part, dir_fd=directory)
-                    if (
-                        identity != "symlink:" + target
-                        or not target
-                        or target.startswith("/")
-                        or "\\" in target
-                        or PureWindowsPath(target).drive
-                    ):
+                    if identity != "symlink:" + target or not portable_link_target(target):
                         return False
                     visited.append(current)
                     todo.extendleft(reversed(target.split("/")))

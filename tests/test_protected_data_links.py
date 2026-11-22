@@ -18,6 +18,7 @@ import os
 import shlex
 import sys
 import unittest
+from unittest.mock import Mock
 
 import autocode_protected_oracles as guard
 import autocode_protected_store as store
@@ -165,18 +166,24 @@ class DataLinkTests(unittest.TestCase):
 
 
 class InTreeDirectoryReplayTests(unittest.TestCase):
-    def test_the_gate_runs_both_halves_with_a_bound_fixture_directory(self):
-        project = Project(FILES)
+    links = {"tests/data/current": "v2/", "tests/shared": "../samples", "tests/data/example": "current/report.txt"}
+
+    def make_project(self, links=None, files=None):
+        project = Project(FILES if files is None else files)
         self.addCleanup(project.close)
-        root = project.root
-        link(
-            root,
-            {"tests/data/current": "v2/", "tests/shared": "../samples", "tests/data/example": "current/report.txt"},
-        )
-        git(root, "add", ".")
-        git(root, *IDENTITY, "commit", "-qm", "finite in-tree fixture directories")
+        link(project.root, self.links if links is None else links)
+        git(project.root, "add", ".")
+        git(project.root, *IDENTITY, "commit", "-qm", "finite in-tree fixture directories")
+        return project
+
+    def retain(self, project):
         command = shlex.join([sys.executable, "-B", "-m", "unittest", "discover", "-v"])
-        record = guard.retain(root, project.evidence, guard.inventory(root, verify.is_test_path), command)
+        return guard.retain(project.root, project.evidence, guard.inventory(project.root, verify.is_test_path), command)
+
+    def test_the_gate_runs_both_halves_with_a_bound_fixture_directory(self):
+        project = self.make_project()
+        root = project.root
+        record = self.retain(project)
         (root / "tests/test_report.py").write_text(
             TESTS + "\n    def test_other_rows(self):\n        self.assertTrue(render([('x', 1)]))\n"
         )
@@ -194,11 +201,7 @@ class InTreeDirectoryReplayTests(unittest.TestCase):
         self.assertIn("test_other_rows", result["candidate"]["tail"])
 
     def test_a_directory_fixture_with_an_uninventoried_member_holds(self):
-        project = Project(FILES | {".gitignore": "tests/data/v2/generated.txt\n"})
-        self.addCleanup(project.close)
-        link(project.root, {"tests/data/current": "v2"})
-        git(project.root, "add", ".")
-        git(project.root, *IDENTITY, "commit", "-qm", "finite in-tree fixture directory")
+        project = self.make_project(files=FILES | {".gitignore": "tests/data/v2/generated.txt\n"})
         snapshot = verify.source_snapshot.snapshot(project.root)
         probe = lambda: verify.source_snapshot.unbound_symlinks(
             project.root,
@@ -212,14 +215,9 @@ class InTreeDirectoryReplayTests(unittest.TestCase):
         self.assertEqual(["tests/data/current"], probe())
 
     def test_a_change_to_the_staged_fixture_invalidates_its_check(self):
-        project = Project(FILES)
-        self.addCleanup(project.close)
-        link(project.root, {"tests/data/current": "v2"})
-        git(project.root, "add", ".")
-        git(project.root, *IDENTITY, "commit", "-qm", "finite in-tree fixture directory")
-        command = shlex.join([sys.executable, "-B", "-m", "unittest", "discover", "-v"])
+        project = self.make_project()
         root = project.root
-        record = guard.retain(root, project.evidence, guard.inventory(root, verify.is_test_path), command)
+        record = self.retain(project)
         (root / "tests/test_report.py").write_text(
             TESTS + "\n    def test_updates_its_sample(self):\n"
             "        (DATA / 'v2' / 'report.txt').write_text('regenerated fixture')\n"
@@ -235,17 +233,9 @@ class InTreeDirectoryReplayTests(unittest.TestCase):
         self.assertEqual("pen: 12\n", (project.root / "tests/data/v2/report.txt").read_text())
 
     def test_archive_overlay_restores_a_fixture_and_keeps_the_pinned_product(self):
-        project = Project(FILES)
-        self.addCleanup(project.close)
+        project = self.make_project()
         root = project.root
-        link(
-            root,
-            {"tests/data/current": "v2/", "tests/shared": "../samples", "tests/data/example": "current/report.txt"},
-        )
-        git(root, "add", ".")
-        git(root, *IDENTITY, "commit", "-qm", "finite in-tree fixture directories")
-        command = shlex.join([sys.executable, "-B", "-m", "unittest", "discover", "-v"])
-        record = guard.retain(root, project.evidence, guard.inventory(root, verify.is_test_path), command)
+        record = self.retain(project)
         self.assertIn("tests/data/v2/report.txt", record["files"])
         self.assertNotIn("samples/a.txt", record["files"])
         (root / "samples/a.txt").write_text("new product bytes\n")
@@ -280,6 +270,50 @@ class InTreeDirectoryReplayTests(unittest.TestCase):
             )
         self.assertEqual(0, result["exit_code"], result)
         self.assertEqual("new fixture bytes\n", (root / "tests/data/v2/report.txt").read_text())
+
+    def test_an_unusable_retained_link_stops_both_halves_before_dispatch(self):
+        project = self.make_project()
+        root = project.root
+        current = root / "tests/data/current"
+        current.unlink()
+        current.symlink_to(root / "tests/data/v2")
+        record = self.retain(project)
+        current.unlink()
+        current.symlink_to("v2")
+        scratch = Mock(side_effect=AssertionError("The replay must hold before dispatch"))
+        with self.assertRaisesRegex(util.PinnedSourceLinkRefusal, "An original protected fixture has a link") as held:
+            guard.replay({"settings": {"protected_tests": record}}, root, project.evidence, scratch, timeout=30)
+        self.assertEqual("protected", held.exception.policy)
+        self.assertEqual({"symlink": str(root / "tests/data/v2")}, record["files"]["tests/data/current"])
+        scratch.assert_not_called()
+
+    def test_replay_reinstalls_the_original_directory_link_after_either_candidate_edit(self):
+        for replacement_directory in (False, True):
+            with self.subTest(replacement_directory=replacement_directory):
+                project = self.make_project()
+                root = project.root
+                record = self.retain(project)
+                (root / "report.py").write_text(PADDED)
+                current = root / "tests/data/current"
+                current.unlink()
+                if replacement_directory:
+                    current.mkdir()
+                else:
+                    alternative = current.parent / "v3"
+                    alternative.mkdir()
+                    current.symlink_to("v3")
+                (current / "report.txt").write_text("pen     12\n")
+                out = project.evidence / "replay-edited-directory"
+                with self.assertRaisesRegex(ValueError, "original gate did not pass"):
+                    guard.replay({"settings": {"protected_tests": record}}, root, out, verify.scratch_run, timeout=30)
+                [path] = list(out.glob("protected-tests/*/receipt.json"))
+                receipt = json.loads(path.read_text())
+                self.assertEqual("FAIL", receipt["verdict"])
+                self.assertIn("tests/data/current", receipt["changed_tests"])
+                self.assertEqual(0, receipt["candidate"]["exit_code"])
+                self.assertEqual(1, receipt["original"]["exit_code"])
+                self.assertIn("test_report_matches_the_current_sample", receipt["original"]["tail"])
+                self.assertEqual("pen     12\n", (current / "report.txt").read_text())
 
 
 # Python 3.11 has no quote of the string's own kind inside an f-string's braces.

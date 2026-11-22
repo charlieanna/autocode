@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import autocode_client_actions as client
+import autocode_protected_oracles as protected
 import autocode_run_view as run_view
 import autocode_source_reconciliation as reconciliation
 import autocode_status_observation as status_observation
@@ -247,6 +248,41 @@ class SourceReconciliationTests(unittest.TestCase):
         source.unlink()
         source.write_text("retained source\n")
         self.assertIsNotNone(self.view()["next_command"])
+
+    def test_live_source_recovery_cannot_authorize_an_unusable_retained_link(self):
+        original = self.workspace / "tests/data/sample"
+        original.parent.mkdir(parents=True)
+        target = original.with_name("ref.txt")
+        target.write_text("retained fixture\n")
+        original.symlink_to(target)
+        record = protected.retain(
+            self.workspace,
+            self.run,
+            {"tests/data/sample": {"symlink": str(target)}},
+            "python3 -m unittest",
+        )
+        original.unlink()
+        original.symlink_to("ref.txt")
+        subprocess.run(["git", "-C", str(self.workspace), "add", "tests"], check=True)
+        self.state["settings"]["protected_tests"] = record
+        self.state["source_link_recovery"] = "protected"
+        self.state["stop_reason"] = (
+            "An original protected fixture has a link that cannot be resolved inside the verification copy. "
+            "Its saved contents and the verification result remain held."
+        )
+        before = copy.deepcopy(self.state)
+        view = self.view()
+        self.assertIsNone(view["needs"])
+        self.assertIsNone(view["next_command"])
+        self.assertIn("original protected fixture", view["recovery"]["what_happened"])
+        runner = SimpleNamespace(
+            native_calls=None,
+            assert_stage_stopped=lambda _active: None,
+            support=SimpleNamespace(snapshot=util.snapshot),
+        )
+        with self.assertRaises(util.PinnedSourceLinkRefusal):
+            reconciliation.prepare(runner, self.state, self.workspace)
+        self.assertEqual(before, self.state)
 
     def test_unknown_pinned_link_policy_never_offers_or_accepts_recovery(self):
         self.state["source_link_recovery"] = "untrusted"

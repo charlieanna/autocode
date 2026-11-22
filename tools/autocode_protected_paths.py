@@ -15,9 +15,27 @@ from pathlib import Path, PurePosixPath
 try:
     from . import autocode_project_kinds as project_kinds
     from . import autocode_util as util
+    from .autocode_source_directory import portable_link_target
 except ImportError:
     import autocode_project_kinds as project_kinds
     import autocode_util as util
+    from autocode_source_directory import portable_link_target
+
+
+REPLAY_LINK_UNAVAILABLE = (
+    "An original protected fixture has a link that cannot be resolved inside the verification copy. "
+    "Its saved contents and the verification result remain held."
+)
+
+
+def unsupported_replay_link(record, support):
+    """Recognize retained link text that no source edit can make copy-relative."""
+    files = (record or {}).get("files") or {}
+    excluded = set(support)
+    return any(
+        name not in excluded and "symlink" in value and not portable_link_target(value["symlink"])
+        for name, value in files.items()
+    )
 
 
 def relative_name(name):

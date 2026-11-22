@@ -410,6 +410,10 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=N
         # Test support the proof showed defines no test (autocode_test_support): its candidate bytes stay, so
         # the original tests' own assertions run on the repaired fixture or helper.
         support = [name for name in test_support.proven(state.get("regression_proof"), revision) if name in changed]
+        if paths.unsupported_replay_link(record, support):
+            raise util.PinnedSourceLinkRefusal(
+                "PAUSED_SOURCE_UNAVAILABLE", paths.REPLAY_LINK_UNAVAILABLE, policy="protected"
+            )
         policy = {
             "binding_hash": record["binding_hash"],
             "command": command,

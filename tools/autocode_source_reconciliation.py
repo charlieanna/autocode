@@ -15,18 +15,22 @@ if TYPE_CHECKING:
 try:
     from . import autocode_catalog_context as catalog_context
     from . import autocode_liveness as liveness
+    from . import autocode_protected_paths as protected_paths
     from . import autocode_repo_catalog as repo_catalog
     from . import autocode_source_scope as source_scope
     from . import autocode_source_snapshot as source_snapshot
     from . import autocode_stop as stop
+    from . import autocode_test_support as test_support
     from . import autocode_util as util
 except ImportError:
     import autocode_catalog_context as catalog_context
     import autocode_liveness as liveness
+    import autocode_protected_paths as protected_paths
     import autocode_repo_catalog as repo_catalog
     import autocode_source_scope as source_scope
     import autocode_source_snapshot as source_snapshot
     import autocode_stop as stop
+    import autocode_test_support as test_support
     import autocode_util as util
 
 STATUS = "PAUSED_SOURCE_UNAVAILABLE"
@@ -115,6 +119,11 @@ def _unsafe_copy_source(workspace, state: RunState, current):
         )
         if links:
             return policy
+        if policy == "protected" and protected_paths.unsupported_replay_link(
+            (state.get("settings") or {}).get("protected_tests"),
+            test_support.proven(state.get("regression_proof"), current.get("revision")),
+        ):
+            return policy
     return None
 
 
@@ -183,6 +192,8 @@ def presentation(state: RunState, need):
             if ready
             else str(state.get("stop_reason")) + ". The original inventory remains recorded."
             if changed
+            else protected_paths.REPLAY_LINK_UNAVAILABLE
+            if state.get("stop_reason") == protected_paths.REPLAY_LINK_UNAVAILABLE
             else NOTICE
         ),
     }
