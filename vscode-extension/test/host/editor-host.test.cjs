@@ -15,11 +15,10 @@
 const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { after, before, test } = require('node:test');
 const { openHistoryRow } = require('./open-history.cjs');
-const { privateHostEnvironment, ownedWarmHostSteps, settleFixture } = require('../owned-fixture-cleanup.cjs');
+const { privateHostRoot, privateHostEnvironment, ownedWarmHostSteps, settleFixture } = require('../owned-fixture-cleanup.cjs');
 
 const EXTENSION = path.resolve(__dirname, '../..');
 const REPO = path.resolve(EXTENSION, '..');
@@ -65,7 +64,7 @@ function reads(file) {
   return { rows, started, held, outstanding: started.filter((pid) => !ended.has(pid)) };
 }
 
-const root = fs.mkdtempSync(path.join(os.tmpdir(), 'autocode-host-'));
+const root = privateHostRoot('autocode-host-');
 const hold = path.join(root, 'hold');
 const log = path.join(root, 'reads');
 let app;

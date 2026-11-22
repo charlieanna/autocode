@@ -38,7 +38,7 @@ except ImportError:
 # fmt: off
 try:
     from .autocode_baseline import BASELINE_POLICY  # noqa: F401 - compatibility API
-    from .autocode_legacy_process import assert_no_legacy_process, duplicate_runner_command  # noqa: F401 - compatibility API
+    from .autocode_legacy_process import assert_no_legacy_process, cli_refusal_text, duplicate_runner_command  # noqa: F401
     from .autocode_report_schema import review_generation_schema, review_validation_schema, hydrate_review_report, normalize_absent_authority, normalize_loaded_report  # noqa: F401 - compatibility API
     from . import autocode_output_filter as output_filter, autocode_request_usage as request_usage  # noqa: F401 - compatibility API
     from . import autocode_evidence_snapshot as evidence_snapshot  # noqa: F401 - compatibility API
@@ -52,7 +52,7 @@ try:
     from .autocode_event_matching import same_command  # noqa: F401 - compatibility API
 except ImportError:
     from autocode_baseline import BASELINE_POLICY  # noqa: F401 - compatibility API
-    from autocode_legacy_process import assert_no_legacy_process, duplicate_runner_command  # noqa: F401 - compatibility API
+    from autocode_legacy_process import assert_no_legacy_process, cli_refusal_text, duplicate_runner_command  # noqa: F401
     from autocode_report_schema import review_generation_schema, review_validation_schema, hydrate_review_report, normalize_absent_authority, normalize_loaded_report  # noqa: F401 - compatibility API
     import autocode_output_filter as output_filter
     import autocode_request_usage as request_usage  # noqa: F401 - compatibility API

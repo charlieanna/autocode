@@ -448,6 +448,7 @@ class OwnerInspectionTests(unittest.TestCase):
             {**valid, "schema": True},
             {**valid, "checkpoint": "not-a-digest"},
             {**valid, "id": "z" * 32},
+            {**valid, "can_interrupt": "yes"},
         ):
             with self.subTest(receipt=changed):
                 util.atomic_json(self.run_dir / owners.FILE, changed)

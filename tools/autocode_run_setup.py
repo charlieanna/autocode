@@ -1038,7 +1038,9 @@ def run_locked(
                 load()
             if native is not None:
                 native.require_supported_action(args, state)
-            owner = ownership.enter_context(controller_owner.Owner(state, run_dir, runner.write_json))
+            owner = ownership.enter_context(
+                controller_owner.Owner(state, run_dir, runner.write_json, can_interrupt=True)
+            )
             worker_binding.bind(args, state, run_dir, workspace, owner, runner.write_json)
             code = runner.run_actions.handle(runner, args, parser, state, state_path, run_dir, workspace)
             if code is not None:

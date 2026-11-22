@@ -35,6 +35,30 @@ PROCESS_GONE = object()
 PYTHON_FLAGS = re.compile(r"-[BbdEIiOPqRSsuv]+")
 
 
+class LegacyProcessBusy(Paused):
+    """A refusal with the evidence available to this very process-list scan."""
+
+    def __init__(self, pid, argv):
+        super().__init__("PAUSED_WORKSPACE_BUSY", f"Existing run process {pid} is active; leave it untouched")
+        if argv is None:
+            evidence, category = "unconfirmed", "unknown"
+        elif os.path.basename(argv[0]) in PROVIDER_VERBS:
+            evidence, category = "exact-arguments", "provider-command"
+        else:
+            evidence, category = "exact-arguments", "possible-runner"
+        status = "unknown"
+        if argv is not None:
+            status = "present" if "--status" in (_entry_arguments(argv) or []) else "absent"
+        # Fixed vocabulary only. The process list and argv may contain credentials or task text.
+        self.diagnostic = f"Process check for PID {pid}: evidence={evidence} category={category} status-option={status}"
+
+
+def cli_refusal_text(error):
+    if isinstance(error, LegacyProcessBusy):
+        return f"{error}\n{error.diagnostic}"
+    return str(error)
+
+
 def references_run(command, absolute, relative):
     return any(
         re.search(r"(?:^|[\s='\"(])" + re.escape(path) + r"(?=$|[/\s'\")])", command) for path in (absolute, relative)
@@ -328,4 +352,4 @@ def assert_no_legacy_process(run_dir, workspace):
             # Text can identify a possible runner, but cannot exempt an observer.
             possible = duplicate_runner_command(command) or _runner_marker(command) or _provider_marker(command)
         if possible:
-            raise Paused("PAUSED_WORKSPACE_BUSY", f"Existing run process {pid} is active; leave it untouched")
+            raise LegacyProcessBusy(pid, argv)

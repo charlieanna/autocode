@@ -1511,7 +1511,10 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
         (
             "tools/autocode_command_supervision.py",
+            "tools/autocode_controller_owner.py",
+            "tools/autocode_pause_offer.py",
             "tools/autocode_runner_check.py",
+            "tools/autocode_run_setup.py",
             "tools/autocode_process.py",
             "tools/autocode_interventions.py",
             "tools/autocode_stop.py",
