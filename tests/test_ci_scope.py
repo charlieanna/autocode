@@ -124,6 +124,8 @@ class ScopeTests(unittest.TestCase):
             "tools/autocode_code_citations.py",
             "tools/autocode_requirements_review.py",
             "scenarios/harness/fake_codex.py",
+            "vscode-extension/test/host/held_cli.py",
+            "tests/host_reader_cleanup.py",
             "vscode-extension/test/owned-fixture-cleanup.cjs",
             "tests/status_retry_host_cleanup.py",
         ):

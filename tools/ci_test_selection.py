@@ -51,6 +51,7 @@ EXTENSION_HOST_RESOURCES = {
     "vscode-extension/test/host/held_cli.py": (
         "vscode-extension/test/host/editor-host.test.cjs",
         "vscode-extension/test/host/python-semantic.test.cjs",
+        "vscode-extension/test/host/requirements-standing.test.cjs",
     ),
     "vscode-extension/test/owned-fixture-cleanup.cjs": (
         "vscode-extension/test/host/classification-outcome.test.cjs",
@@ -73,6 +74,7 @@ EXTENSION_HOST_RESOURCES = {
         "vscode-extension/test/host/editor-host.test.cjs",
         "vscode-extension/test/host/classification-outcome.test.cjs",
         "vscode-extension/test/host/python-semantic.test.cjs",
+        "vscode-extension/test/host/requirements-standing.test.cjs",
     ),
     "tests/classification_vscode_fixture.py": ("vscode-extension/test/host/classification-outcome.test.cjs",),
     "tests/test_failure_routing_cli.py": ("vscode-extension/test/host/classification-outcome.test.cjs",),

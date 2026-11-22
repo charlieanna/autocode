@@ -30,7 +30,9 @@ async function executable() {
 test('editor distinguishes a reported convention from approval of the understanding', {timeout: 600_000}, async () => {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'autocode-standing-host-')));
   const tmp = path.join(root, 'tmp'); fs.mkdirSync(tmp);
-  const env = {...privateHostEnvironment(process.env, root), TMPDIR: tmp, AUTOCODE_SOURCE_HOST: '0'};
+  const reads = path.join(root, 'reads'); fs.writeFileSync(reads, '');
+  const env = {...privateHostEnvironment(process.env, root), TMPDIR: tmp, AUTOCODE_SOURCE_HOST: '0',
+    AUTOCODE_HOST_READS: reads, AUTOCODE_HOST_HOLD: path.join(root, 'no-hold')};
   for (const key of Object.keys(env)) {
     if (key !== 'HOME' && key !== 'CODEX_HOME' &&
       (key.startsWith('GIT_CONFIG_') || /^(OPENAI_|ANTHROPIC_|AWS_|AZURE_|GOOGLE_|KILO_API_|CODEX_API_|ZAI_API_)/.test(key) ||
@@ -62,7 +64,7 @@ test('editor distinguishes a reported convention from approval of the understand
     assert.equal(assumption?.standing, 'convention_not_approved');
     const userData = path.join(root, 'user-data'); fs.mkdirSync(path.join(userData, 'User'), {recursive: true});
     fs.writeFileSync(path.join(userData, 'User/settings.json'), JSON.stringify({
-      'autocode.cliPath': python, 'autocode.cliArgs': [cli], 'autocode.pollSeconds': 2,
+      'autocode.cliPath': python, 'autocode.cliArgs': [path.join(__dirname, 'held_cli.py')], 'autocode.pollSeconds': 2,
       'workbench.startupEditor': 'none', 'security.workspace.trust.enabled': false, 'chat.disableAIFeatures': true,
       'update.mode': 'none', 'extensions.autoUpdate': false, 'telemetry.telemetryLevel': 'off',
     }));
@@ -133,6 +135,16 @@ test('editor distinguishes a reported convention from approval of the understand
           {cwd: REPO, env, encoding: 'utf8', timeout: 15_000});
         assert.equal(stopped.status, 0, stopped.stderr);
       }
+    }],
+    ['check owned readers exited', async () => {
+      if (!app) return;
+      assert.match(fs.readFileSync(reads, 'utf8'), /^start \d+ /m, 'the actual editor made a recorded status read');
+      await until('owned status readers to exit', () => {
+        const checked = spawnSync(python, [path.join(REPO, 'tests/host_reader_cleanup.py'), reads, root],
+          {cwd: REPO, env, encoding: 'utf8', timeout: 15_000});
+        assert.equal(checked.status, 0, checked.stderr);
+        return JSON.parse(checked.stdout).running.length === 0;
+      }, 30_000);
     }],
   ], () => fs.rmSync(root, {recursive: true, force: true}), testError);
 });
