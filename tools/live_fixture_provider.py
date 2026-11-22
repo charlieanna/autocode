@@ -724,6 +724,7 @@ def main() -> int:
                     "convention_ref": f"{_real_sources[0]}:1" if _real_sources else "task",
                     "rationale": "The task specifies a command-line tool",
                     "supports": [],
+                    "suite_claim": None,
                 }
             ],
             "open_questions": [],
