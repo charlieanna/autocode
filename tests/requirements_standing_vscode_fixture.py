@@ -22,7 +22,10 @@ def main() -> None:
     project, reference = root / "project", root / "reference"
     project.mkdir()
     reference.mkdir()
-    (project / "convention.py").write_text('def reject():\n    raise ValueError("invalid input")\n')
+    (project / "convention.py").write_text(
+        'def reject():\n    raise ValueError("invalid input")\nimport json\n'
+        "def encode(value):\n    return json.dumps(value, sort_keys=True)\n"
+    )
     git = ["git", "-c", "credential.helper=", "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false"]
     subprocess.run([*git, "init", "-q", str(project)], check=True)
     subprocess.run([*git, "-C", str(project), "add", "."], check=True)
@@ -77,7 +80,10 @@ def main() -> None:
         "requirements-review-"
     ):
         raise AssertionError(f"Expected Requirements review, got {need}")
-    if len(rows) != 1 or rows[0].get("standing") != "convention_not_approved":
+    if {row.get("id"): row.get("standing") for row in rows} != {
+        "A1": "convention_not_approved",
+        "A2": "convention_not_approved",
+    }:
         raise AssertionError(f"Expected the unapproved convention: {rows}")
     print(json.dumps({"workspace": str(project), "run_dir": str(run.run_dir), "env": env, "brief": BRIEF}))
 

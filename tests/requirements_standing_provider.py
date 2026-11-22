@@ -45,10 +45,19 @@ def main() -> int:
             "text": "Keep the project's existing exception convention.",
             "kind": "inferable",
             "category": "technical",
-            "convention_ref": "convention.py:1",
+            "convention_ref": "convention.py:2",
             "rationale": "The existing module uses ValueError.",
             "supports": [],
-        }
+        },
+        {
+            "id": "A2",
+            "text": "Keep the project's sorted single-line JSON convention.",
+            "kind": "inferable",
+            "category": "technical",
+            "convention_ref": "convention.py:5",
+            "rationale": "The existing encoder sorts keys without indentation.",
+            "supports": [],
+        },
     ]
     target.write_text(json.dumps(report))
     read = subprocess.run(["cat", "convention.py"], capture_output=True, text=True, check=True)

@@ -57,11 +57,18 @@ test('editor distinguishes a reported convention from approval of the understand
     assert.equal(env.HOME, process.env.HOME); assert.equal(env.CODEX_HOME, process.env.CODEX_HOME);
     const before = status();
     const question = before.needs?.questions?.find((row) => row.id.startsWith('requirements-review-'));
-    const assumption = before.requirements?.proposed_assumptions?.find((row) => row.id === 'A1');
+    const assumptions = before.requirements?.proposed_assumptions;
+    const expected = [
+      {id: 'A1', text: "Keep the project's existing exception convention.", ref: 'convention.py:2', why: 'The existing module uses ValueError'},
+      {id: 'A2', text: "Keep the project's sorted single-line JSON convention.", ref: 'convention.py:5', why: 'The existing encoder sorts keys without indentation'},
+    ];
     assert.equal(before.needs?.kind, 'answer'); assert.ok(question);
-    assert.equal(assumption?.text, "Keep the project's existing exception convention.");
-    assert.equal(assumption?.convention_ref, 'convention.py:1');
-    assert.equal(assumption?.standing, 'convention_not_approved');
+    assert.equal(assumptions?.length, expected.length);
+    for (const item of expected) {
+      const assumption = assumptions.find((row) => row.id === item.id);
+      assert.equal(assumption?.text, item.text); assert.equal(assumption?.convention_ref, item.ref);
+      assert.equal(assumption?.standing, 'convention_not_approved');
+    }
     const userData = path.join(root, 'user-data'); fs.mkdirSync(path.join(userData, 'User'), {recursive: true});
     fs.writeFileSync(path.join(userData, 'User/settings.json'), JSON.stringify({
       'autocode.cliPath': python, 'autocode.cliArgs': [path.join(__dirname, 'held_cli.py')], 'autocode.pollSeconds': 2,
@@ -87,13 +94,18 @@ test('editor distinguishes a reported convention from approval of the understand
     await openHistoryRow(win.locator('.monaco-list-row', {hasText: fixture.brief}).first(), chat, 'Requirements standing');
     let frame;
     await until('the reported convention and its review action', async () => {
-      frame = await chat(); const row = frame.locator('.assumption-row').filter({hasText: assumption.text});
-      return await row.count() && (await row.innerText()).includes('reported convention, not independently verified or approved') &&
-        await frame.$('#take-action') ? true : null;
+      frame = await chat();
+      for (const item of expected) {
+        const row = frame.locator('.assumption-row').filter({hasText: item.text});
+        if (!await row.count() || !(await row.innerText()).includes('reported convention, not independently verified or approved')) return null;
+      }
+      return await frame.$('#take-action') ? true : null;
     });
-    const row = frame.locator('.assumption-row').filter({hasText: assumption.text});
-    assert.equal(await row.locator('.state.done').count(), 0, 'the convention is not presented as confirmed');
-    assert.match(await row.innerText(), /The existing module uses ValueError/);
+    for (const item of expected) {
+      const row = frame.locator('.assumption-row').filter({hasText: item.text});
+      assert.equal(await row.locator('.state.done').count(), 0, `${item.id} is not presented as confirmed`);
+      assert.ok((await row.innerText()).includes(item.why));
+    }
     assert.match(await frame.locator('#take-action').innerText(), /Approve understanding and prepare plan/i);
     assert.match(await frame.locator('body').innerText(), /Build a command that greets a person by name/);
     const fresh = status();
@@ -103,11 +115,14 @@ test('editor distinguishes a reported convention from approval of the understand
     await frame.locator('#take-action').click();
     const after = await until('the saved approval in public status', () => {
       const current = status();
-      const value = current.requirements?.proposed_assumptions?.find((item) => item.id === 'A1');
-      return value?.standing === 'approved_with_understanding' ? current : null;
+      const rows = current.requirements?.proposed_assumptions || [];
+      return expected.every((item) => rows.find((row) => row.id === item.id)?.standing === 'approved_with_understanding') ? current : null;
     }, 180_000);
-    assert.equal(after.requirements.proposed_assumptions.find((item) => item.id === 'A1').text, assumption.text);
-    assert.notEqual(after.requirements.proposed_assumptions.find((item) => item.id === 'A1').standing, 'confirmed_by_person');
+    for (const item of expected) {
+      const assumption = after.requirements.proposed_assumptions.find((row) => row.id === item.id);
+      assert.equal(assumption.text, item.text);
+      assert.notEqual(assumption.standing, 'confirmed_by_person');
+    }
     await until('the editor to leave the Requirements approval', async () => {
       frame = await chat();
       const action = frame.locator('#take-action');
