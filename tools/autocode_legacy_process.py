@@ -10,6 +10,7 @@ import contextlib
 import os
 import re
 import subprocess
+import time
 from pathlib import Path
 
 try:
@@ -293,6 +294,33 @@ def _process_commands(output):
 
 
 INSPECTION_SECONDS = 30
+# How long a listed process whose arguments could not confirm it is watched for its exit before it is refused.
+EXIT_OBSERVATION_SECONDS = 2.0
+
+
+def _exits_now(pid):
+    """True when ``pid`` finishes exiting within EXIT_OBSERVATION_SECONDS: gone, or a zombie.
+
+    A process ps listed can be part way through exiting when its arguments are read: macOS
+    then refuses them (EINVAL, which psutil reports as AccessDenied) and Linux reads them
+    empty, a moment before it is a zombie (#4083). A client polling ``--status`` while it
+    launches its next action left exactly such a reader, and its stale listing refused the
+    launch. This is observed, not assumed: a process still alive at the end is refused.
+    """
+    if psutil is None:
+        return False
+    deadline = time.monotonic() + EXIT_OBSERVATION_SECONDS
+    try:
+        process = psutil.Process(pid)
+        while process.status() != psutil.STATUS_ZOMBIE:
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.02)
+    except psutil.NoSuchProcess:
+        return True
+    except (psutil.Error, OSError):
+        return False
+    return True
 
 
 def _cannot_inspect(cause):
@@ -358,5 +386,7 @@ def assert_no_legacy_process(run_dir, workspace):
         else:
             # Text can identify a possible runner, but cannot exempt an observer.
             possible = duplicate_runner_command(command) or _runner_marker(command) or _provider_marker(command)
+        if possible and argv is None and _exits_now(pid):
+            continue
         if possible:
             raise LegacyProcessBusy(pid, argv)

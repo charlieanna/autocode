@@ -406,6 +406,22 @@ class LiveProcessGuardTests(unittest.TestCase):
                 with patch.object(legacy.subprocess, "run", return_value=listing):
                     legacy.assert_no_legacy_process(self.run, self.workspace)
 
+    def test_a_listed_process_whose_arguments_cannot_be_read_blocks_only_while_it_lives(self):
+        # macOS refuses a process's arguments part way through its exit (psutil AccessDenied), a moment before
+        # it is a zombie (#4083). The guard watches it: one that finishes exiting blocks nothing, one that stays
+        # alive is still refused.
+        self.autocode.write_text("import sys\nsys.stdin.read()\n")
+        process = subprocess.Popen([sys.executable, str(self.autocode), *self.paths], stdin=subprocess.PIPE)
+        self.addCleanup(process.wait, timeout=30)
+        unreadable = patch.object(legacy, "_exact_argv", return_value=None)
+        with unreadable, patch.object(legacy, "EXIT_OBSERVATION_SECONDS", 0):
+            self.assert_busy(process.pid)
+        listing = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True, timeout=30)
+        self.assertIn(str(self.run), listing.stdout)
+        process.stdin.close()  # it exits while the guard watches the stale listing's row
+        with unreadable, patch.object(legacy.subprocess, "run", return_value=listing):
+            legacy.assert_no_legacy_process(self.run, self.workspace)
+
     def test_path_first_status_observer_does_not_block_a_writer(self):
         self.hold(sys.executable, str(self.autocode), *self.paths, "--status", "--json")
         legacy.assert_no_legacy_process(self.run, self.workspace)
@@ -512,6 +528,10 @@ class ProcessGuardTests(unittest.TestCase):
         identity = patch.object(legacy, "_exact_argv", return_value=None)
         identity.start()
         self.addCleanup(identity.stop)
+        # ... and stay alive while they are watched for an exit.
+        alive = patch.object(legacy, "_exits_now", return_value=False)
+        alive.start()
+        self.addCleanup(alive.stop)
 
     def listing(self, *commands):
         """A fake listing whose row pids are never this test's own runner or an ancestor.
