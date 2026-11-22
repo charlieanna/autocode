@@ -24,6 +24,18 @@ from goal_fixtures import (
     write_greeting_source,
 )
 
+
+def _fixed_file():
+    """A workspace file a scripted Tester's probe_reason names: a reason stands only when it names a path
+    that exists in the workspace (tools/autocode_tester_probes.py)."""
+    root = Path.cwd()
+    for path in sorted(root.rglob("*")):
+        relative = path.relative_to(root)
+        if path.is_file() and "." in path.name[1:] and not any(part.startswith(".") for part in relative.parts):
+            return relative.as_posix()
+    return ""
+
+
 _NUMBER = re.compile(r"\d+(?:\.\d+)*")
 _NEGATION = re.compile(r"\b(?:must not|never|do not|don't|cannot|can't|not|no)\b", re.I)
 SOURCE_VERDICT = {
@@ -838,7 +850,9 @@ elif stage == "tester":
         # The scripted Tester runs only its fixed greeting check, so it records why (autocode_tester_probes).
         for row in result["criterion_results"]:
             if row["status"] == "PASS":
-                row["probe_reason"] = f"Scripted Tester: {row['id']} is checked by the fixed greeting run only"
+                row["probe_reason"] = (
+                    f"Scripted Tester: {row['id']} is checked by the fixed greeting run only; {_fixed_file()} holds the input"
+                )
 else:
     complete = stage == "review_completion"
     result = {

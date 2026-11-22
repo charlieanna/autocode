@@ -23,6 +23,7 @@ import autocode_python_tests as python_tests
 import autocode_regression as regression
 import autocode_run_view as run_view
 import autocode_stage_context as stage_context
+import autocode_test_environment as test_env
 import autocode_verify as verify
 
 from tests.test_prompt_rendering import SNAPSHOT, STATE_PATH, fixed_state
@@ -149,39 +150,18 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual({"killed"}, {row[2] for row in self.outcomes(strong)})
         self.assertEqual(WINDOW, (self.tree / "app.py").read_text())
 
-    def test_only_the_proving_tests_run_with_the_collection_owned_bytecode_cache(self):
+    def test_only_the_proving_tests_run_in_the_proofs_own_environment(self):
+        """#4062: no mutant command sets a cache of its own, so a test sees what it saw in the proof."""
         run = FakeRun(self.tree, WEAK)
         self.collect(run, command="env LANG=C /usr/bin/python3 -m unittest -v tests/test_app.py")
         self.assertEqual(["unmutated", *[f"mutant-{n:02d}" for n in range(1, 7)]], [c["label"] for c in run.calls])
-        caches = set()
         for call in run.calls:
             invocation = python_tests.parse(call["command"])
             self.assertIsNotNone(invocation, call["command"])
-            self.assertEqual(("env", "LANG=C"), invocation.prefix[:2])
-            (cache,) = [word for word in invocation.prefix if word.startswith("PYTHONPYCACHEPREFIX=")]
-            caches.add(cache)
+            self.assertEqual(("env", "LANG=C"), invocation.prefix)
             # Never the whole suite: the two proving tests, by name; the other judged test is not run.
             self.assertEqual(("-v", C1, C2), invocation.arguments)
-        self.assertEqual(1, len(caches))
-
-    def test_each_collection_starts_with_a_fresh_cache_even_in_the_same_evidence_directory(self):
-        caches = []
-        for _ in range(2):
-            reference = FakeRun(self.tree, STRONG)
-
-            def run(command, label, timeout):
-                words = python_tests.parse(command).prefix
-                cache = Path(next(word.split("=", 1)[1] for word in words if word.startswith("PYTHONPYCACHEPREFIX=")))
-                if label == "unmutated":
-                    self.assertFalse(cache.exists() and any(cache.iterdir()), "old collection bytecode cannot leak in")
-                    cache.mkdir(parents=True, exist_ok=True)
-                    (cache / "previous-collection").write_text("old bytecode")
-                    caches.append(cache)
-                return reference(command, label, timeout)
-
-            check = self.collect(run)
-            self.assertIsNone(check["note"], check)
-        self.assertNotEqual(caches[0], caches[1])
+        self.assertEqual({run.calls[0]["command"]}, {call["command"] for call in run.calls})
 
     def test_the_original_bytes_come_back_and_an_error_never_reaches_the_proof(self):
         for error in (OSError("the runner lost its log directory"), RuntimeError("unexpected")):
@@ -383,22 +363,6 @@ class StaleBytecodeTests(unittest.TestCase):
         )
         self.assertEqual(1, len(set(compiled)), "unchanged dependency bytecode should be compiled only once")
         self.assertEqual((LIMIT_FIVE, EPOCH_2020 * 1_000_000_000), (app.read_text(), app.stat().st_mtime_ns))
-
-    def test_isolated_overrides_pythondontwritebytecode_so_shared_pycache_warms_under_test_environment(self):
-        temporary = tempfile.TemporaryDirectory(prefix="mutation-dontwritebytecode-")
-        self.addCleanup(temporary.cleanup)
-        tree = Path(temporary.name)
-        cache = tree / "evidence" / "pycache"
-        (tree / "app.py").write_text("def ok():\n    return True\n")
-        (tree / "test_app.py").write_text(
-            "import unittest, app\nclass AppTests(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(app.ok())\n"
-        )
-        cmd = mutation_check.isolated(f"{shlex.quote(sys.executable)} -m unittest -v test_app.py", cache)
-        env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", PYTHONPATH=str(tree))
-        completed = subprocess.run(["/bin/sh", "-c", cmd], cwd=tree, env=env, capture_output=True, text=True)
-        self.assertEqual(0, completed.returncode, completed.stderr)
-        self.assertTrue(list(cache.rglob("*.pyc")), "expected warm bytecode files under PYTHONPYCACHEPREFIX")
-        self.assertFalse((tree / "__pycache__").exists())
 
     def test_each_mutant_runs_its_own_code_when_two_are_written_in_the_same_second(self):
         temporary = tempfile.TemporaryDirectory(prefix="mutation-pyc-")
@@ -658,6 +622,32 @@ class ProofTests(unittest.TestCase):
                 self.assertNotIn("tests.test_small", row["command"])
         self.assertEqual("PASS", proof["changed_code_evidence"]["status"], proof["changed_code_evidence"])
         self.assertEqual(source, (self.root / "calc.py").read_text())
+
+    def test_the_base_the_candidate_and_every_mutant_run_see_one_cache_environment(self):
+        """#4061, #4062: a test can read PYTHONPYCACHEPREFIX. It was a new path for each proof command and
+        another for each mutation collection, so the halves of a proof, and a proof and its mutation check,
+        ran under environments a test could tell apart."""
+        observed = self.root.parent / "observed.txt"
+        record = (
+            "import os\n"
+            f"with open({str(observed)!r}, 'a') as seen:\n"
+            "    seen.write(repr((os.environ.get('PYTHONPYCACHEPREFIX'), os.environ.get('PYTHONDONTWRITEBYTECODE'))) + '\\n')\n"
+        )
+        (self.root / "tests/test_calc.py").write_text(record + WEAK_TEST)
+        suite = shlex.join([sys.executable, "-m", "unittest", "-v", "tests.test_small"])
+        targeted = shlex.join([sys.executable, "-m", "unittest", "-v", "tests.test_calc"])
+        self.state["settings"]["regression"] = {"test_command": suite, "regression_command": targeted}
+
+        proof = regression.prove(self.state, self.root, self.run_dir)
+        self.assertEqual(verify.PASS, proof["verdict"], proof["failures"] + proof["unverified"])
+        self.assertTrue(proof["mutation_check"]["files"], proof["mutation_check"])
+        seen = observed.read_text().splitlines()
+        # The base and the candidate halves, the mutation check's unmutated run and each mutant.
+        self.assertGreaterEqual(len(seen), 4, seen)
+        self.assertEqual(1, len(set(seen)), seen)
+        launched = test_env.bytecode_cache_environment()
+        expected = repr((launched["PYTHONPYCACHEPREFIX"], launched["PYTHONDONTWRITEBYTECODE"]))
+        self.assertEqual({expected}, set(seen))
 
     def test_generated_test_output_does_not_invalidate_unchanged_product_inputs(self):
         self.state["investigation"]["test_cases"][0]["then"] = "returns 9"

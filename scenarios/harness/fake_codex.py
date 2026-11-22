@@ -39,6 +39,18 @@ import time
 import uuid
 from pathlib import Path
 
+
+def _fixed_file():
+    """A workspace file a scripted Tester's probe_reason names: a reason stands only when it names a path
+    that exists in the workspace (tools/autocode_tester_probes.py)."""
+    root = Path.cwd()
+    for path in sorted(root.rglob("*")):
+        relative = path.relative_to(root)
+        if path.is_file() and "." in path.name[1:] and not any(part.startswith(".") for part in relative.parts):
+            return relative.as_posix()
+    return ""
+
+
 CONFIG = json.loads(Path(os.environ["SCENARIO_FAKE_CONFIG"]).read_text())
 PROMPT = ""
 OUTPUT_SCHEMA: dict = {}
@@ -2988,13 +3000,24 @@ def _main() -> int:
             "source_verdict",
             {"verdict": "PASS", "uncovered": [], "summary": "Scripted: every criterion traces to the brief"},
         )
-    row_fields = OUTPUT_SCHEMA.get("properties", {}).get("criterion_results", {}).get("items", {}).get("properties", {})
-    if stage == "tester" and "probe_reason" in row_fields and isinstance(report.get("criterion_results"), list):
+    tester_schema, tester_report = OUTPUT_SCHEMA.get("properties", {}), report
+    if stage == "review_checkpoint":  # the combined route's Tester half (autocode_tester_probes, #3979)
+        tester_schema = tester_schema.get("validation", {}).get("properties", {})
+        tester_report = report.get("validation") if isinstance(report.get("validation"), dict) else {}
+    row_fields = tester_schema.get("criterion_results", {}).get("items", {}).get("properties", {})
+    if (
+        stage in ("tester", "review_checkpoint")
+        and "probe_reason" in row_fields
+        and isinstance(tester_report.get("criterion_results"), list)
+    ):
         # The scripted Tester runs only the scenario's fixed commands and varies no input of its own, so it
-        # records why for each PASS criterion (tools/autocode_tester_probes.py); review_checkpoint offers none.
-        for row in report["criterion_results"]:
+        # records why for each PASS criterion (tools/autocode_tester_probes.py), on either Tester route.
+        for row in tester_report["criterion_results"]:
             if isinstance(row, dict) and row.get("status") == "PASS":
-                row.setdefault("probe_reason", f"Scripted scenario Tester: {row.get('id')} has only its fixed commands")
+                row.setdefault(
+                    "probe_reason",
+                    f"Scripted scenario Tester: {row.get('id')} has only its fixed commands; {_fixed_file()} holds the input",
+                )
     if "--output-schema" in sys.argv:
         schema = WIRE_SCHEMA if "repair_report" in report else OUTPUT_SCHEMA
         # Runner-owned brief fields exist only for protected human declarations.
