@@ -234,19 +234,26 @@ def _exact_argv(pid, command):
     """The argument vector of ``pid``, only while it is still the process ps listed as ``command``.
 
     PROCESS_GONE only when the listed process has already exited; None when it
-    cannot be read or matched, so the conservative ps verdict stands.
+    cannot be read or matched, so the conservative ps verdict stands. A zombie has
+    exited too: it runs nothing and holds no lock, only an exit status its parent
+    has not collected yet, so it is gone, as ``autocode_process.live_processes``
+    counts it (#4083). A client that polls ``--status`` while it launches its next
+    action left such a reader behind for an instant, and ps still listed its old
+    command line, which refused the launch as a duplicate runner.
     """
     if psutil is None:
         return None
     try:
-        argv = psutil.Process(pid).cmdline()
-    except psutil.ZombieProcess:
-        return None
-    except psutil.NoSuchProcess:
+        process = psutil.Process(pid)
+        argv = process.cmdline()
+        if argv and " ".join(argv) == command:
+            return argv
+        # Linux reads a zombie's arguments as empty rather than refusing them.
+        return PROCESS_GONE if process.status() == psutil.STATUS_ZOMBIE else None
+    except psutil.NoSuchProcess:  # ZombieProcess included
         return PROCESS_GONE
     except (psutil.Error, OSError):
         return None
-    return argv if argv and " ".join(argv) == command else None
 
 
 def own_lineage():
