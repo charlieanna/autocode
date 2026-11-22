@@ -53,6 +53,9 @@ class StageObservationMetadata(TypedDict, total=False):
     # report_source writes a trailing-comma normalization receipt; response_text retains
     # its exact source. Ordinary schema/evidence admission still owns acceptance.
     syntax_corrections: dict
+    # autoplanner.requirements_checks writes the mechanical ambiguity-audit ref-kind relabels it
+    # applied before the gate (#3975); each names the dimension, the old/new status and its refs.
+    audit_relabels: list
     repair_session_mode: str
     repair_fresh_reason: str
 

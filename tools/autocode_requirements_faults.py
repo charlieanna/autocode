@@ -102,8 +102,16 @@ def faults(report: dict, ctx: dict, *, cite=None, catalog_ok=None) -> list[str]:
 
     found: list[str] = []
     if "audit_source_ids" in ctx:
-        found += ambiguity_audit.problems(
+        # The same mechanical ref-kind relabel admission applies before its gate (#3975), so
+        # report-check and a rejection's fault list give one answer with admission (#3865).
+        audit_report, _ = ambiguity_audit.relabel(
             report,
+            sources=set(ctx["audit_source_ids"]),
+            cite=cite if readable else None,
+            catalog_ok=catalog_ok or (lambda ref: True),
+        )
+        found += ambiguity_audit.problems(
+            audit_report,
             sources=set(ctx["audit_source_ids"]),
             cite=cite if readable else None,
             catalog_ok=catalog_ok or (lambda ref: True),

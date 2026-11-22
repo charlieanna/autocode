@@ -241,6 +241,42 @@ class RequirementsParityTests(unittest.TestCase):
         self.accept(ac7_requirements_report())
         self.assertEqual(["app.py:2"], self.state["requirements_handoff"]["report"]["source_refs"])
 
+    def test_mechanical_ref_kind_mislabel_is_relabelled_not_rejected(self):
+        # #3975: a specified_in_source dimension citing only code the stage read is a mechanical
+        # mislabel. Admission relabels it to repo_convention with no rejection, repair or person
+        # pause, keeps the refs, and records the receipt; report-check gives the same answer.
+        report = requirements_report(error_refs=["app.py:2"], source_refs=["app.py:2"])
+        report["ambiguity_audit"]["error_and_failure_behavior"] = entry("specified_in_source", "app.py:2")
+        spec, _path = self.spec_file()
+        self.assertEqual([], report_check.check_report(json.dumps(report), spec=spec))
+        record = self.read_record()
+        _value, done = self.accept(report, record)
+        self.assertTrue(done)
+        admitted = self.state["requirements_handoff"]["report"]["ambiguity_audit"]["error_and_failure_behavior"]
+        self.assertEqual({"status": "repo_convention", "refs": ["app.py:2"]}, admitted)
+        self.assertEqual(
+            [
+                {
+                    "dimension": "error_and_failure_behavior",
+                    "from": "specified_in_source",
+                    "to": "repo_convention",
+                    "refs": ["app.py:2"],
+                }
+            ],
+            record["audit_relabels"],
+        )
+
+    def test_a_semantic_audit_fault_is_not_relabelled_and_still_rejects(self):
+        # A ref that is not verified code (an unread file, a nonexistent file, or a source id mixed
+        # with code) is not a mechanical mislabel: the gate still rejects it, unchanged (#3975).
+        for refs in (["README.md"], ["missing.py"], ["task", "app.py:2"]):
+            with self.subTest(refs=refs):
+                report = requirements_report(error_refs=["app.py:2"], source_refs=["app.py:2"])
+                report["ambiguity_audit"]["error_and_failure_behavior"] = entry("specified_in_source", *refs)
+                error = self.rejection(report)
+                self.assertIs(ValueError, type(error))
+                self.assertIn("ambiguity_audit.error_and_failure_behavior", str(error))
+
     def test_ac21_admission_names_bad_dimension_ref_and_unread_source_together(self):
         report = ac1_report()
         report["source_refs"] = ["README.md"]
