@@ -58,3 +58,15 @@ joined the first-Go reporter presence check and the Node report capture at
 the shared report reader. It now checks the actual instrumented command once
 and retains the Node event report where the replay requires it. The integrated
 head receives its own editor and required CI verification.
+
+The integrated product commit `3f8eaaae9` passed 81 focused Node,
+first-Go, invocation environment and architecture tests, Ruff, formatting and
+Mypy. Both Node regressions reproduced on master `2f1b57932`. The first
+integrated editor attempt recorded the expected original recheck, then held
+because the copied fixture was missing its pinned Tester judgment for the
+scripted source line. Restoring the preserved judgment in the isolated fixture
+reached verified completion in the actual macOS VS Code Extension Development
+Host with Node 22.23.3. The first original report recorded both cancellations,
+the distinct scheduled replay passed the untouched original test, and owned
+cleanup passed. This run took 67.2 seconds. The integrated branch still needs
+its own required CI verdict.
