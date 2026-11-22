@@ -364,20 +364,6 @@ def _job_model_stop(state: RunState, role, need):
     return None
 
 
-def _awaits_model(state: RunState, need):
-    """A workflow job its provider's content filter refused, with no other model named yet (#463).
-
-    Its exact retry would replay the refused model, so the card offers it only once a person named
-    another model (``route_assignment``, retried with the new token). A quota stop keeps it (the
-    quota resets), and so does a refusal with no model question (the exact retry is its only way on).
-    """
-    return (
-        bool(need.get("retry_unavailable"))
-        or _dict(need.get("route")).get("cause") in ("content_filter", "output_limit")
-        and not isinstance(_dict(state.get("job_failure")).get("route_assignment"), dict)
-    )
-
-
 def _args(kind, fields):
     """The exact CLI flags an execution action runs, after the caller's --expected-recovery-token; else None."""
     if kind == "abandon":
@@ -788,7 +774,9 @@ def project(
             )
         )
     elif need.get("kind") == "retry_job" and need.get("job_retry_token"):
-        if not _awaits_model(state, need):
+        if not need.get("retry_unavailable") and not quota_route.job_awaits_new_model(
+            _dict(state.get("job_failure")), _dict(need.get("route"))
+        ):
             actions.append(
                 _action(
                     "retry_job",

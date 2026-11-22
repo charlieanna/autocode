@@ -208,7 +208,12 @@ def category(status: object, needs: Mapping[str, object] | None = None) -> str |
         return "autocode"  # the change conflicts with the original-test gate; no model or provider failed (#2748)
 
     route = needs.get("route")
-    if isinstance(route, Mapping) and route.get("cause") in ("quota", "content_filter", "output_limit"):
+    if isinstance(route, Mapping) and route.get("cause") in (
+        "quota",
+        "content_filter",
+        "output_limit",
+        "context_window",
+    ):
         return "model_or_provider"
 
     scope = needs.get("resolver_scope")
