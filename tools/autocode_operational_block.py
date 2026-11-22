@@ -241,6 +241,25 @@ def guard(runtime, state: RunState, run_dir, workspace):
     raise BlockedOperation(current, persisted=True)
 
 
+def resume_recovers(state: RunState):
+    """Whether the next resume's guard retires the effective metadata hold (#4096).
+
+    Read-only: the same custody authentication ``guard`` applies on advancement, with the same
+    refusals. A worker-evidence denial, a remaining admission hold or an applied stop keeps the
+    block, so status names the resume only when the core would actually advance.
+    """
+    if stop.applied_stop(state) is not None:
+        return False
+    if receipt(state, WORKER_EVIDENCE) is not None:
+        return False
+    current = receipt(state, METADATA)
+    if current is None or receipt(state, ADMISSION) is not None:
+        return False
+    evidence = current["receipt"].get("evidence") or {}
+    binding = evidence.get("custody_binding") if isinstance(evidence, dict) else None
+    return custody.recover(binding)
+
+
 def worker_receipt(state: RunState):
     candidates = [receipt(state, scope) for scope in block_view.POLICY]
     return max(

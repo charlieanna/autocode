@@ -176,7 +176,10 @@ class OperationalBlockTests(unittest.TestCase):
             self.assertIsNone(dispatch.recover(self.runtime, self.state, self.run, self.workspace, self.failure))
         recover.assert_not_called()
 
-    def test_public_views_never_probe_healthy_or_recorded_custody(self):
+    def test_public_views_never_probe_global_custody_status_or_mutate(self):
+        # A view may run the read-only recoverability check for a recorded hold to name the resume
+        # (#4096), but never the global status probe and never a mutation. A healthy run has no hold
+        # to authenticate, so it never probes custody at all.
         for held in (False, True):
             with self.subTest(held=held):
                 state = copy.deepcopy(self.state)
@@ -185,12 +188,51 @@ class OperationalBlockTests(unittest.TestCase):
                 original = copy.deepcopy(state)
                 with (
                     patch.object(custody, "status", side_effect=AssertionError("No global status probe")) as status,
-                    patch.object(custody, "recover", side_effect=AssertionError("No recovery from a view")) as recovery,
+                    patch.object(custody, "recover", return_value=False) as recovery,
                 ):
                     run_view.view(state)
                 status.assert_not_called()
-                recovery.assert_not_called()
+                if held:
+                    self.assertTrue(recovery.called, "a recorded hold is checked read-only for the resume offer")
+                else:
+                    recovery.assert_not_called()
                 self.assertEqual(original, state)
+
+    def test_a_settled_custody_hold_names_the_plain_resume(self):
+        # #4096: the original metadata family's cleanup authenticates on the next resume's guard, so the
+        # view names the resume instead of offering only inspection.
+        self.retain()
+        with patch.object(custody, "recover", return_value=True):
+            self.assertTrue(block.resume_recovers(self.state))
+            view = run_view.view(self.state, workspace=self.workspace, run_dir=self.run)
+        self.assertEqual("continue", view["needs"]["kind"])
+        self.assertTrue(view["next_command"].endswith(" --resume-paused"), view["next_command"])
+        self.assertNotEqual("blocked", view["recovery"]["category"])
+
+    def test_an_unsettled_custody_hold_keeps_the_block(self):
+        self.retain()
+        with patch.object(custody, "recover", return_value=False):
+            self.assertFalse(block.resume_recovers(self.state))
+            view = run_view.view(self.state, workspace=self.workspace, run_dir=self.run)
+        self.assertIsNone(view["next_command"])
+        self.assertEqual("blocked", view["recovery"]["category"])
+
+    def test_resume_recovers_refuses_a_stronger_hold(self):
+        self.retain()
+        with patch.object(custody, "recover", return_value=True):
+            worker = copy.deepcopy(self.state)
+            block.record(
+                worker,
+                block.worker_refusal(
+                    {"id": "b"}, {"run_dir": self.run, "workspace": self.workspace, "task": {"id": "t"}}
+                ),
+                run_dir=self.run,
+                workspace=self.workspace,
+            )
+            self.assertFalse(block.resume_recovers(worker), "a worker-evidence denial dominates")
+            admission = copy.deepcopy(self.state)
+            block.record(admission, admission_failure(), run_dir=self.run, workspace=self.workspace)
+            self.assertFalse(block.resume_recovers(admission), "an admission hold re-pauses after recovery")
 
     def test_public_status_keeps_family_control_bindings_private(self):
         private = {
