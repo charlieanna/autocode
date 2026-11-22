@@ -10,9 +10,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
-import os
 import re
-import stat
 import tokenize
 import types
 from copy import deepcopy
@@ -314,47 +312,8 @@ def coverage_envelope(report, inventory_rows, *, source_revision, proof_context,
 
 
 def pinned(path, digest, root):
-    """Read bounded immutable capture bytes through no-follow directory FDs."""
-    if not isinstance(path, str) or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
-        raise ValueError("measurement artifact has no exact pin")
-    if (
-        not all(hasattr(os, flag) for flag in ("O_NOFOLLOW", "O_DIRECTORY", "O_NONBLOCK"))
-        or os.open not in os.supports_dir_fd
-    ):
-        raise ValueError("descriptor-anchored measurement reads are unavailable on this host")
-    owned = command_receipt.owned_relative(path, root)
-    if owned is None:
-        raise ValueError("measurement artifact path is not an ordinary owned path")
-    canonical_root, relative = owned
-    descriptor = os.open(canonical_root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-    try:
-        for part in relative.parts[:-1]:
-            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=descriptor)
-            os.close(descriptor)
-            descriptor = child
-        leaf = os.open(relative.parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=descriptor)
-        try:
-            before = os.fstat(leaf)
-            if not stat.S_ISREG(before.st_mode) or before.st_size > MAX_CAPTURE_BYTES:
-                raise ValueError("measurement artifact is not a bounded regular file")
-            with os.fdopen(leaf, "rb", closefd=False) as stream:
-                data = stream.read(MAX_CAPTURE_BYTES + 1)
-            after = os.fstat(leaf)
-            if len(data) > MAX_CAPTURE_BYTES or (
-                before.st_dev,
-                before.st_ino,
-                before.st_size,
-                before.st_mtime_ns,
-                before.st_ctime_ns,
-            ) != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns):
-                raise ValueError("measurement artifact changed while being captured")
-        finally:
-            os.close(leaf)
-    finally:
-        os.close(descriptor)
-    if hashlib.sha256(data).hexdigest() != digest:
-        raise ValueError("measurement artifact changed")
-    return data
+    """Read the exact bounded measurement capture from the proof directory."""
+    return command_receipt.pinned_bytes(path, digest, root, limit=MAX_CAPTURE_BYTES)
 
 
 def _owned(receipt, root):

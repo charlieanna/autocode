@@ -3,11 +3,10 @@ const assert = require('node:assert/strict');
 const { createHash, randomUUID } = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { test } = require('node:test');
 const { openHistoryRow } = require('./open-history.cjs');
-const { privateHostEnvironment, ownedWarmHostSteps, settleFixture } = require('../owned-fixture-cleanup.cjs');
+const { privateHostRoot, privateHostEnvironment, ownedWarmHostSteps, settleFixture } = require('../owned-fixture-cleanup.cjs');
 const { afterApproval } = require('../python-semantic-transition.cjs');
 
 const EXTENSION = path.resolve(__dirname, '../..');
@@ -37,7 +36,7 @@ async function executable() {
 }
 
 async function completeInEditor({ kind, fixtureFile, prompt, overviewText, criteria, verifyCompletion }) {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `autocode-${kind}-host-`)));
+  const root = privateHostRoot(`autocode-${kind}-host-`);
   const tmp = path.join(root, 'tmp'); fs.mkdirSync(tmp);
   const reads = path.join(root, 'reads'); fs.writeFileSync(reads, '');
   const env = { ...privateHostEnvironment(process.env, root), XDG_CONFIG_HOME: path.join(root, 'user-config'), TMPDIR: tmp,

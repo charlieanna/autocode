@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 try:
     from . import autocode_acceptance_tests_job as acceptance_tests_job
     from . import autocode_chat_history as history
+    from . import autocode_controller_owner as controller_owner
     from . import autocode_gate_chat as gate_chat
     from . import autocode_pause_authority as pause_authority
     from . import autocode_planning_feedback as planning_feedback
@@ -30,6 +31,7 @@ try:
 except ImportError:
     import autocode_acceptance_tests_job as acceptance_tests_job
     import autocode_chat_history as history
+    import autocode_controller_owner as controller_owner
     import autocode_gate_chat as gate_chat
     import autocode_pause_authority as pause_authority
     import autocode_planning_feedback as planning_feedback
@@ -427,7 +429,7 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
             "MESSAGE",
         ]
         message_input = {"kind": "message", "label": "Send message", "next_command": shlex.join([*words, "--json"])}
-        if (state.get("intervention_capability") or {}).get("supports_message_now") is True:
+        if controller_owner.interruptible(public.get("controller")):
             # The same message, which also ends the step that is running and is answered at once (#3259).
             message_input["now_command"] = shlex.join([*words, "--now", "--json"])
     if action and run_dir is not None and workspace is not None:

@@ -4,14 +4,14 @@
 const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { privateHostRoot } = require('../owned-fixture-cleanup.cjs');
 const { after, before, test } = require('node:test');
 const { openHistoryRow } = require('./open-history.cjs');
 
 const EXTENSION = path.resolve(__dirname, '../..');
 const REPO = path.resolve(EXTENSION, '..');
-const root = fs.mkdtempSync(path.join(os.tmpdir(), 'autocode-source-host-'));
+const root = privateHostRoot('autocode-source-host-');
 const started = path.join(root, 'action-started');
 const release = path.join(root, 'action-release');
 const finished = path.join(root, 'action-finished');

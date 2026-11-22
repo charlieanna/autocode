@@ -4,6 +4,46 @@ import json
 import sys
 
 
+def _replay_job(state, payload, configuration_error):
+    from pathlib import Path
+
+    import autocode_dispatch as dispatch
+    import autocode_interventions as interventions
+    import autocode_job_retry_admission as admission
+    import autocode_replay_job_action as replay_job_action
+    import autocode_support as support
+    import autocode_util as util
+
+    run_dir = payload.get("run_dir") or state.get("run_dir")
+    try:
+        if not isinstance(run_dir, str) or interventions.pending(Path(run_dir)):
+            raise ValueError("A pending intervention must be applied first")
+        _, _, action = replay_job_action.next_action(state, payload["workspace"])
+        if action["kind"] == "retry_job":
+            if configuration_error:
+                raise ValueError(configuration_error)
+            replay_job_action.retry(state, payload["workspace"])
+            return {"allowed": True, "replay_action": {"kind": "retry_job"}}
+        choice = action["payload"]
+        role = choice["role"]
+        answer = choice["model"] + ("@" + choice["effort"] if choice["effort"] is not None else "")
+        possible = admission.route_is_repairable(
+            state,
+            cross_check=dispatch.enforce_cross_model_verification,
+            failure_status=support.failure_status,
+            configured_tool=True,
+            recorded_answers=[answer],
+            candidate_check=lambda candidate, _: replay_job_action.answer(
+                state, candidate, payload["workspace"], role, choice["model"], choice["effort"]
+            ),
+        )
+        if not possible:
+            raise ValueError("The recorded route is not currently admissible")
+        return {"allowed": True, "replay_action": {"kind": "route_job", "role": role, "answer": answer}}
+    except (OSError, TypeError, ValueError, KeyError, RuntimeError, util.Paused):
+        return {"allowed": False, "replay_unavailable": True, "reason": "The recorded job action is unavailable"}
+
+
 def _worker(request):
     if not isinstance(request, dict):
         raise ValueError("Invalid status observation")
@@ -17,9 +57,22 @@ def _worker(request):
         import autocode_util as util
 
         state = payload["state"]
+        config_error = None
         try:
             admission.validate_retry(state, payload["workspace"], payload["token"])
         except admission.RetryConfigurationChanged as error:
+            config_error = str(error)
+        except (ValueError, OSError, KeyError, TypeError, util.Paused) as error:
+            if (state.get("settings") or {}).get("replay_recording"):
+                return {
+                    "allowed": False,
+                    "replay_unavailable": True,
+                    "reason": "The recorded job action is unavailable",
+                }
+            return {"allowed": False, "reason": str(error)}
+        if (state.get("settings") or {}).get("replay_recording"):
+            return _replay_job(state, payload, config_error)
+        if config_error:
             from pathlib import Path
 
             import autocode_dispatch as dispatch
@@ -30,15 +83,13 @@ def _worker(request):
 
             run_dir = payload.get("run_dir") or state.get("run_dir")
             if not isinstance(run_dir, str) or interventions.pending(Path(run_dir)):
-                return {"allowed": False, "reason": str(error)}
+                return {"allowed": False, "reason": config_error}
             question = admission.quota_route.job_question(state)
             role = question.get("route_role") if isinstance(question, dict) else None
             if not isinstance(role, str) or role not in admission.quota_route.ROUTABLE:
-                return {"allowed": False, "reason": str(error)}
+                return {"allowed": False, "reason": config_error}
             try:
                 saved = state.get("settings") or {}
-                if saved.get("replay_recording"):
-                    return {"allowed": False, "reason": "The saved replay provider could not be inspected"}
                 facade = providers.resolve(providers.select(None, saved, default="opencode"))
                 if admission.quota_route.engine(saved, role) == "opencode":
                     role_transport.adapter(saved, role, facade, payload["workspace"])
@@ -54,10 +105,8 @@ def _worker(request):
                 "allowed": False,
                 "route_allowed": possible,
                 "effort_drift": possible and admission.effort_drift(state, state.get("job_failure") or {}, role),
-                "reason": str(error),
+                "reason": config_error,
             }
-        except (ValueError, OSError, KeyError, TypeError, util.Paused) as error:
-            return {"allowed": False, "reason": str(error)}
         return {"allowed": True}
     if request.get("operation") == "failure_retry":
         import autocode_failure_retry_admission as admission

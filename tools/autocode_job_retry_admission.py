@@ -142,7 +142,9 @@ def effort_drift(state: RunState, failure, role):
     )
 
 
-def route_is_repairable(state: RunState, *, cross_check, failure_status, configured_tool=False):
+def route_is_repairable(
+    state: RunState, *, cross_check, failure_status, configured_tool=False, recorded_answers=None, candidate_check=None
+):
     """Try saved offered models against the same concrete assignment configuration gate."""
     question = quota_route.job_question(state)
     failure = state.get("job_failure") or {}
@@ -167,7 +169,7 @@ def route_is_repairable(state: RunState, *, cross_check, failure_status, configu
         return False
     expected = copy.deepcopy(failure.get("configuration"))
     current = configuration(state)
-    if isinstance(expected, dict):
+    if recorded_answers is None and isinstance(expected, dict):
         expected_role = (expected.get("roles") or {}).get(role)
         current_role = (current.get("roles") or {}).get(role)
         if isinstance(expected_role, dict) and isinstance(current_role, dict):
@@ -179,12 +181,23 @@ def route_is_repairable(state: RunState, *, cross_check, failure_status, configu
                     # its concrete answer still passes every normal locked gate.
                     return True
     saved_candidates = question.get("candidates")
-    candidates = list(saved_candidates) if isinstance(saved_candidates, list) else []
+    candidates = (
+        list(recorded_answers)
+        if recorded_answers is not None
+        else list(saved_candidates)
+        if isinstance(saved_candidates, list)
+        else []
+    )
     bound = ((failure.get("configuration") or {}).get("roles") or {}).get(role) or {}
     if not isinstance(bound, dict):
         return False
     saved_model, saved_effort = bound.get("model"), bound.get("reasoning_effort")
-    if isinstance(saved_model, str) and isinstance(saved_effort, str) and effort_drift(state, failure, role):
+    if (
+        recorded_answers is None
+        and isinstance(saved_model, str)
+        and isinstance(saved_effort, str)
+        and effort_drift(state, failure, role)
+    ):
         candidates.append(f"{saved_model}@{saved_effort}")
         routes = (state.get("settings") or {}).get("roles") or {}
         if isinstance(routes, dict) and len(routes) <= 32:
@@ -228,6 +241,8 @@ def route_is_repairable(state: RunState, *, cross_check, failure_status, configu
                 attempt=attempt,
             )
             if route_configuration_matches(candidate, failure, assignment):
+                if candidate_check is not None:
+                    candidate_check(candidate, assignment)
                 return True
         except (ValueError, KeyError, TypeError):
             continue
