@@ -59,3 +59,37 @@ This branch is a snapshot of an AutoCode run. Claude usage ran out partway, so t
 
 - PR #3972 merged as `4393e5ec98f9492e9b705fbc0a1ce94ddbb9e702`; its merged tree matched the independently integrated index. The ten-module focused suite passed 371 tests with one skipped in 326 seconds.
 - The historical #3972 lint job encountered a baseline mypy failure introduced by #3982. Current-master corrected CI is still required; do not close related issues solely on that historical run.
+
+## Live controller capability follow-up for #3869
+
+The earlier #3972 Linux CLI job passed the resumed regression and immediate
+pause test. Its overall required CI failed. The remaining cross-version case
+now has a public-CLI regression on exact master `a6389bbb1`. It creates a real
+birth-bound legacy owner, checkpoints it through the current generic writer,
+and observes the false Stop Now action. The boundary Pause is correctly
+available. The regression fails on master and passes with the follow-up.
+
+The controller publishes immediate-interruption support on its own immutable
+invocation receipt. The status projector checks the current live receipt
+before offering Stop Now or Send Now. A legacy receipt, an uncertain process,
+and a stale receipt each leave the boundary action available. Tests cover
+invalid receipt values and keep the native CLI cancellation tests selected
+when the controller changes.
+
+Focused controller, intervention, architecture and state checks passed 116
+with five Linux-only skips. CI selection passed all 181 tests. Ruff, format
+and mypy passed (999 Python files). The existing resumed-check public CLI
+acceptance also passed in a one-case native macOS run outside its default
+Linux-only test selection. Log `/private/tmp/autocode-3869-native-mac-resumed-control.log`.
+
+The actual macOS VS Code Extension Host opened the public run history for a
+resumed held regression proof, clicked Pause, then clicked the still-offered
+Stop Now. The disposable harness drove the original resume via the public
+CLI, and VS Code sent both intervention requests. The real command and its
+descendant exited, the status reached PAUSED_INTERVENTION, the attempt count
+stayed at four, and no regression proof was accepted. The editor displayed
+the stopped state and named continuation. The owned-process scan returned
+empty. No model was used. The editor log is
+`/private/tmp/autocode-3869-actual-editor.log`, and its owned artifact root is
+recorded in `/private/tmp/autocode-3869-actual-editor-root.txt`. Hosted Linux
+and required CI for the follow-up are pending.
