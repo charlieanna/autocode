@@ -112,7 +112,7 @@ def _prerequisites(body, milestone_id) -> set[str]:
 def _checkpoint(state: RunState, body, milestone_id) -> RunState:
     """The run as the gate sees it at ``milestone_id``'s checkpoint: the plan approved, that milestone current
     and its prerequisites accepted. A shallow view; the gate's case selection only reads it."""
-    view = cast(dict, dict(state))
+    view: dict = dict(state)
     view["goal_contract"] = {"body": body, "approval_status": "approved", "hash": _CHECKPOINT_HASH}
     view["current_task"] = {"milestone_id": milestone_id}
     view["milestone_progress"] = {
@@ -343,16 +343,19 @@ def send_back(state: RunState, install) -> bool:
     if not contracts.approved(state):
         return False
     revision = contract.get("revision")
-    if any(isinstance(row, dict) and row.get("contract_revision") == revision for row in state.get(KEY) or []):
+    if any(
+        isinstance(row, dict) and row.get("contract_revision") == revision
+        for row in state.get("fail_first_corrections") or []
+    ):
         return False
     accepted = _accepted(state)
     found = [mid for mid in unprovable(state, body) if mid not in accepted]
     if not found:
         return False
-    candidate = cast(dict, copy.deepcopy(state))
+    candidate = copy.deepcopy(state)
     try:
         corrected, merges = correct(state, body)
-        candidate.setdefault(KEY, []).append(
+        candidate.setdefault("fail_first_corrections", []).append(
             {
                 "contract_revision": revision,
                 "milestones": found,
@@ -377,9 +380,9 @@ def send_back(state: RunState, install) -> bool:
         install(candidate, corrected, origin=ORIGIN, changes=changes, record=None, queue_human=False)
         planning_cycle.start(candidate)
     except ValueError as error:
-        candidate = cast(dict, copy.deepcopy(state))
+        candidate = copy.deepcopy(state)
         text = str(error) if PHRASE in str(error) else refusal(found[0])
-        candidate.setdefault(KEY, []).append(
+        candidate.setdefault("fail_first_corrections", []).append(
             {"contract_revision": revision, "milestones": found, "merged": [], "outcome": "planner", "at": util.now()}
         )
         candidate.setdefault("user_events", []).append(
@@ -400,7 +403,7 @@ def send_back(state: RunState, install) -> bool:
         if candidate.get("current_task"):
             candidate.setdefault("task_archive", []).append(candidate.pop("current_task"))
         for key in ("next_action", "user_request", human.PRIVATE, human.PUBLIC):
-            candidate.pop(key, None)
+            cast(dict, candidate).pop(key, None)
         run_status.running(
             candidate,
             "DISCOVERING",
@@ -408,5 +411,5 @@ def send_back(state: RunState, install) -> bool:
             pending_questions=[],
         )
     cast(dict, state).clear()
-    state.update(cast("RunState", candidate))
+    state.update(candidate)
     return True

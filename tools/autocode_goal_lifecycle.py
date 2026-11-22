@@ -477,7 +477,7 @@ def install_draft(state: RunState, body, *, origin, allow_legacy=False, changes=
     # the revision guard did or skipped for this origin (#2467).
     scope_question.record_installed_corrections(state, body, changes or [], revision)
     if merges:
-        state.setdefault(fail_first.KEY, []).append(
+        state.setdefault("fail_first_corrections", []).append(
             {"contract_revision": revision, "origin": origin, "merged": merges, "at": contract["created_at"]}
         )
     state["goal_contract"] = contract
