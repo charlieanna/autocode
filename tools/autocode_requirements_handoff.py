@@ -26,6 +26,7 @@ import copy
 from pathlib import Path
 
 try:
+    from . import autocode_acceptance_examples as acceptance_examples
     from . import autocode_coordination_context as coordination_context
     from . import autocode_goals as goals
     from . import autocode_plan_chat as plan_chat
@@ -42,6 +43,7 @@ try:
     from . import autocode_workflows as workflows
     from . import autocode_workspace_scope as workspace_scope
 except ImportError:
+    import autocode_acceptance_examples as acceptance_examples
     import autocode_coordination_context as coordination_context
     import autocode_goals as goals
     import autocode_plan_chat as plan_chat
@@ -134,6 +136,12 @@ def _accept(state: RunState, value: dict, record: dict, *, check_code_refs, queu
     if previous:
         state.setdefault("requirements_history", []).append(copy.deepcopy(previous))
     goals.check_requirement_handoff(state, value)
+    # A JSON acceptance example a duplicate-accepting or build-dropping decoder still satisfies is sent
+    # back to its writer through this same rejection (#3912); report-check reads the one answer too
+    # (autocode_requirements_faults.faults).
+    example_faults = acceptance_examples.problems(value.get("acceptance_tests"))
+    if example_faults:
+        raise ValueError("; ".join(example_faults))
     input_refs = requirements_faults.input_refs(state)
     # The one filter report-check and a rejection's fault list also use (autocode_requirements_faults).
     local_refs = requirements_faults.cited_source_refs(value["source_refs"], input_refs)

@@ -494,6 +494,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("tests.test_planning_scope_discipline",),
     ),
     ("tools/autocode_acceptance_policy.py", ("tests.test_planning_scope_discipline",)),
+    ("tools/autocode_acceptance_examples.py", ("tests.test_acceptance_examples", "tests.test_report_admission_parity")),
     ("tools/autocode_legacy_process.py", ("tests.test_json_status_observer_cli",)),
     (
         "tools/autocode_saved_names.py",
