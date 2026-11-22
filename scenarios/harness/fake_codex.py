@@ -28,6 +28,7 @@ resolves that pointer before parsing the brief.
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 import os
 import re
@@ -761,16 +762,14 @@ def _unbracket_list_format(text: str, listed: str) -> str:
     )
 
 
+_VERIFY_EVENT_NUMBER = itertools.count(1)
+
+
 def run_verify(command: str, *, fabricated=False) -> tuple[int, str]:
-    """Run one milestone's verification and record it as a real command event
-    whose id the reports then cite, the way the runner requires."""
+    """Run a check and give each actual command execution its own event ID."""
     import shlex
 
-    event_id = "check-" + (
-        uuid.uuid5(uuid.NAMESPACE_URL, command).hex[:24]
-        if PROGRESSIVE
-        else re.sub(r"[^a-z0-9]+", "-", command.lower()).strip("-")[:24]
-    )
+    event_id = f"check-{next(_VERIFY_EVENT_NUMBER)}-{uuid.uuid5(uuid.NAMESPACE_URL, command).hex[:24]}"
     proc = subprocess.run(shlex.split(command), cwd=Path.cwd(), capture_output=True, text=True, timeout=600)
     emit(
         {
