@@ -10,6 +10,17 @@ import uuid
 from pathlib import Path
 
 
+def _fixed_file():
+    """A workspace file a scripted Tester's probe_reason names: a reason stands only when it names a path
+    that exists in the workspace (tools/autocode_tester_probes.py)."""
+    root = Path.cwd()
+    for path in sorted(root.rglob("*")):
+        relative = path.relative_to(root)
+        if path.is_file() and "." in path.name[1:] and not any(part.startswith(".") for part in relative.parts):
+            return relative.as_posix()
+    return ""
+
+
 def report_for(stage, data, common, config, run_check, requirements):
     trace = Path(os.environ["SCENARIO_FAKE_CONFIG"]).parent / "rework-trace.jsonl"
     previous = [json.loads(line) for line in trace.read_text().splitlines()] if trace.exists() else []
@@ -108,7 +119,9 @@ def report_for(stage, data, common, config, run_check, requirements):
                     "evidence_refs": list(criterion_evidence),
                     # The scripted Tester runs only the approved greeting check (autocode_tester_probes).
                     **(
-                        {"probe_reason": f"Scripted Tester: {row['id']} has only the fixed greeting check"}
+                        {
+                            "probe_reason": f"Scripted Tester: {row['id']} has only the fixed greeting check; {_fixed_file()} holds the input"
+                        }
                         if code == 0
                         else {}
                     ),

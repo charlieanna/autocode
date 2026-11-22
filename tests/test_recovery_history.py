@@ -426,6 +426,35 @@ class RecoveryHistoryTests(unittest.TestCase):
         legacy = history.project(state())
         self.assertIn("Builder sent back for untested lines", [row["headline"] for row in legacy])
 
+    def test_a_send_back_lists_only_the_lines_its_assessment_left_open(self):
+        # #3925: the SemVer run's assessment had 40 tested, 17 excepted and 2 open lines, and the
+        # recovery called all 59 missing. Tested and excepted lines have their evidence.
+        obligations = [
+            *({"path": "src/semver/jsonio.py", "line": line, "status": "tested"} for line in range(10, 50)),
+            *({"path": "src/semver/__init__.py", "line": 31, "status": "excepted"},),
+            *({"path": "src/semver/version.py", "line": line, "status": "excepted"} for line in range(60, 76)),
+            {"path": "src/semver/jsonio.py", "line": 100, "status": "reason_required"},
+            {"path": "src/semver/jsonio.py", "line": 108, "status": "reason_required"},
+        ]
+        rework = {
+            **state()["regression_proofs"][1],
+            "assessment": {"reason": "open: src/semver/jsonio.py:100, :108", "obligations": obligations},
+        }
+        (row,) = [row for row in history.project(state(regression_proofs=[rework])) if row["kind"] == "sent_back"]
+        self.assertEqual(
+            "Changed lines have no test that fails when they break, and no checked reason: "
+            "src/semver/jsonio.py lines 100, 108.",
+            row["problem"],
+        )
+        # One open line is one line, even when the record repeats it.
+        rework["assessment"]["obligations"] = obligations[:-1] + [obligations[-2]]
+        (row,) = [row for row in history.project(state(regression_proofs=[rework])) if row["kind"] == "sent_back"]
+        self.assertTrue(row["problem"].endswith("src/semver/jsonio.py line 100."), row["problem"])
+        # An assessment with nothing left open falls back to its own reason rather than an empty list.
+        rework["assessment"]["obligations"] = obligations[:-2]
+        (row,) = [row for row in history.project(state(regression_proofs=[rework])) if row["kind"] == "sent_back"]
+        self.assertEqual("open: src/semver/jsonio.py:100, :108", row["problem"])
+
     def test_a_third_send_back_names_the_investigator_and_carries_its_guidance(self):
         rework = state()["regression_proofs"][1]
         third = {

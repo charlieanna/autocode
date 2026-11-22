@@ -19,6 +19,7 @@ try:
     from . import autocode_operational_hold as hold
     from . import autocode_recovery_exhaustion as recovery_exhaustion
     from . import autocode_recovery_progress as recovery_progress
+    from . import autocode_runner_check as runner_check
     from . import autocode_startup_timeout_view as startup
     from . import autocode_stop as stop
     from . import autocode_validation_exhaustion_recovery as validation
@@ -31,6 +32,7 @@ except ImportError:
     import autocode_operational_hold as hold
     import autocode_recovery_exhaustion as recovery_exhaustion
     import autocode_recovery_progress as recovery_progress
+    import autocode_runner_check as runner_check
     import autocode_startup_timeout_view as startup
     import autocode_stop as stop
     import autocode_validation_exhaustion_recovery as validation
@@ -50,6 +52,9 @@ def presentation(state: RunState, *, include_hold=False):
         return hold.presentation(state)
     check = state.get("active_runner_check")
     if state.get("status") == "PAUSED_VERIFICATION_UNCERTAIN" and isinstance(check, dict) and check.get("supervision"):
+        if runner_check.restart_recoverable(state, state.get("run_dir")):
+            # A host restart ended the check: the next resume settles it, so it is not a block (#3965).
+            return None
         return {
             "title": "AutoCode could not verify cleanup",
             "category": "blocked",

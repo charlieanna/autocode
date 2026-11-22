@@ -4,6 +4,18 @@ import copy
 import json
 import os
 import subprocess
+from pathlib import Path
+
+
+def _fixed_file():
+    """A workspace file a scripted Tester's probe_reason names: a reason stands only when it names a path
+    that exists in the workspace (tools/autocode_tester_probes.py)."""
+    root = Path.cwd()
+    for path in sorted(root.rglob("*")):
+        relative = path.relative_to(root)
+        if path.is_file() and "." in path.name[1:] and not any(part.startswith(".") for part in relative.parts):
+            return relative.as_posix()
+    return ""
 
 
 def report_for(data, common, emit):
@@ -47,7 +59,9 @@ def report_for(data, common, emit):
                 "evidence_refs": ["check:1"],
                 # The supplemental run varies no input of its own, so the Tester records why (autocode_tester_probes).
                 **(
-                    {"probe_reason": f"Scripted Tester: {row['id']} has only its fixed test run"}
+                    {
+                        "probe_reason": f"Scripted Tester: {row['id']} has only its fixed test run; {_fixed_file()} holds the input"
+                    }
                     if status == "PASS"
                     else {}
                 ),

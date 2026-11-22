@@ -690,6 +690,14 @@ class DynamicDependenciesTests(unittest.TestCase):
         kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
         self.assertEqual([consumer], list(kept))
 
+    def test_scripted_provider_keeps_event_identity_consumer_when_slow(self):
+        consumer = "tests.test_fake_codex_event_identity"
+        selected = run_suite.select_tests(
+            ["scenarios/harness/fake_codex.py"], {consumer: "", "tests.test_unrelated": ""}
+        )
+        kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+        self.assertEqual([consumer], list(kept))
+
     def test_scripted_repair_source_keeps_its_lifecycle_cli_consumer_when_slow(self):
         consumer = "tests.test_risk_cli"
         selected = run_suite.select_tests(

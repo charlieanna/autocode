@@ -1641,3 +1641,48 @@ class BootEndedTests(unittest.TestCase):
         row = processes.process_table({os.getpid()})[os.getpid()]
         self.assertFalse(processes.boot_ended([processes.identity(row)]))
         self.assertTrue(processes.boot_ended([{**processes.identity(row), "birth_identity": 1e8}]))
+
+
+class HostRestartedTests(unittest.TestCase):
+    """One answer to "did the host restart since this launch" for every reader (#3965)."""
+
+    BOOT = "0f4b4e3a-2a7e-4d8e-9a51-6f0c2b7d9e10"
+    LATER = "5d2c9b1e-7f3a-4c6b-8e2d-1a9f0b3c4d5e"
+
+    def launch(self, **extra):
+        return {
+            "owner": {"pid": 101, "birth_identity": 8105.55},
+            "keeper": {"pid": 102, "birth_identity": 8105.6},
+            "provider": {"pid": 103, "birth_identity": 8106.0},
+            **extra,
+        }
+
+    def test_a_launch_in_another_boot_ended_with_it_however_long_this_boot_has_lasted(self):
+        with patch.object(processes.sys, "platform", "linux"):
+            restarted = self.launch(boot_id=self.BOOT)
+            self.assertTrue(processes.host_restarted(restarted, current_boot=self.LATER, uptime=99999.0))
+            self.assertFalse(processes.host_restarted(restarted, current_boot=self.BOOT, uptime=1.0))
+
+    def test_a_recorded_boot_that_cannot_be_compared_proves_nothing(self):
+        with patch.object(processes.sys, "platform", "linux"):
+            for recorded, current in (("not-a-boot", self.LATER), (self.BOOT, None), (7, self.LATER)):
+                with self.subTest(recorded=recorded, current=current):
+                    launch = self.launch(boot_id=recorded)
+                    with patch.object(processes, "boot_id", return_value=None):
+                        self.assertFalse(processes.host_restarted(launch, current_boot=current, uptime=1.0))
+
+    def test_a_launch_saved_before_boots_were_recorded_is_judged_by_its_start_times(self):
+        with patch.object(processes.sys, "platform", "linux"):
+            self.assertTrue(processes.host_restarted(self.launch(), uptime=150.0))
+            self.assertFalse(processes.host_restarted(self.launch(), uptime=9000.0))
+            self.assertFalse(processes.host_restarted(None))
+            self.assertFalse(processes.host_restarted({"owner": None}, uptime=1.0))
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "the kernel names a boot on Linux")
+    def test_this_boot_is_the_kernel_s_own(self):
+        current = processes.boot_id()
+        self.assertEqual(Path(processes.BOOT_ID_PATH).read_text().strip(), current)
+        self.assertFalse(processes.host_restarted(self.launch(boot_id=current)))
+        self.assertTrue(
+            processes.host_restarted(self.launch(boot_id=self.BOOT if current != self.BOOT else self.LATER))
+        )

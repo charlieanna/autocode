@@ -230,6 +230,47 @@ def boot_ended(saved, uptime=None) -> bool:
     return all(value > uptime for value in starts)
 
 
+BOOT_ID_PATH = "/proc/sys/kernel/random/boot_id"
+
+
+def boot_id():
+    """This boot's identity on Linux, or None where the kernel names none."""
+    if not sys.platform.startswith("linux"):
+        return None
+    try:
+        with open(BOOT_ID_PATH, encoding="ascii") as stream:
+            value = stream.read().strip()
+    except (OSError, ValueError):
+        return None
+    return value if _boot_identity(value) else None
+
+
+def _boot_identity(value):
+    return (
+        isinstance(value, str)
+        and len(value) == 36
+        and all(part and all(c in "0123456789abcdef" for c in part) for part in value.split("-"))
+        and [len(part) for part in value.split("-")] == [8, 4, 4, 4, 12]
+    )
+
+
+def host_restarted(metadata, *, current_boot=None, uptime=None) -> bool:
+    """Whether the host restarted since this supervised launch, so none of its processes can be alive.
+
+    The one answer for every reader of a launch's supervision (#3965). A launch records the boot it ran
+    in (``boot_id``); a different boot now means the host restarted, however long ago. A launch saved
+    before it recorded one is judged by its processes' birth identities (``boot_ended``). A launch in
+    this boot, or one nothing identifies, is not claimed: its processes are checked as they always were.
+    """
+    if not isinstance(metadata, dict):
+        return False
+    recorded = metadata.get("boot_id")
+    if recorded is not None:
+        current = boot_id() if current_boot is None else current_boot
+        return _boot_identity(recorded) and _boot_identity(current) and recorded != current
+    return boot_ended([metadata.get(key) for key in ("owner", "keeper", "provider")], uptime)
+
+
 def live_processes(saved, table=None):
     table = process_table({p["pid"] for p in saved}) if table is None else table
     return [

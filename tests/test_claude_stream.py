@@ -12,9 +12,15 @@ claude-2.1.299-length-stop.jsonl):
 - length-stop: ``--tools Bash,Read,Edit,Write,Glob,Grep`` and the provider's other flags, with
   ``CLAUDE_CODE_MAX_OUTPUT_TOKENS=64``; three automatic continuations, then a length stop. claude exited 1.
 
+claude-2.1.330-background.jsonl is a trimmed live sample from Claude Code 2.1.330 on claude-haiku-4-5
+(``claude -p --output-format stream-json --verbose --allowedTools Bash``): one Bash call with
+``run_in_background``, a result that ends the turn while the command runs, the task's end, and the new
+turn Claude Code starts for it. The three ``keep_alive`` rows stand for the wait the #3989 run logged.
+
 Cases labelled "synthesized" are shapes not yet seen live (Claude Code's own error texts, a refusal).
 """
 
+import copy
 import json
 import math
 import os
@@ -37,6 +43,7 @@ from providers import claude, claude_stream
 
 FIXTURES = Path(__file__).resolve().parents[1] / "tools" / "fixtures"
 RUN = FIXTURES / "claude-2.1.299-run.jsonl"
+BACKGROUND = FIXTURES / "claude-2.1.330-background.jsonl"
 RESUME = FIXTURES / "claude-2.1.299-resume.jsonl"
 LENGTH_STOP = FIXTURES / "claude-2.1.299-length-stop.jsonl"
 SESSION = "11111111-2222-4333-8444-555555555555"
@@ -310,6 +317,95 @@ class LiveSampleTests(TempMixin, unittest.TestCase):
         with path.open("a") as handle:  # the grown note is
             handle.write(json.dumps(notes[1]) + "\n")
         self.assertEqual(0, monitor.poll()["idle_seconds"])
+
+
+class BackgroundTaskTests(TempMixin, unittest.TestCase):
+    """A command Claude Code moves to the background is a running tool until it ends (#3989)."""
+
+    def wait_index(self, rows):
+        return next(n for n, row in enumerate(rows) if row.get("type") == "keep_alive")
+
+    def test_a_backgrounded_command_is_a_running_tool_not_inactivity(self):
+        raw = sample(BACKGROUND)
+        wait = self.wait_index(raw)
+        translator = claude_stream.Translator(clock=lambda: 0.0)
+        before = [event for row in raw[:wait] for event in translator.feed(row)]
+        path = self.write(before)
+        now = [0.0]
+        monitor = ActivityMonitor(path, idle_seconds=300, tool_seconds=1800, clock=lambda: now[0])
+        monitor.poll()
+        now[0] = 1200.0
+        snapshot = monitor.poll()  # 20 minutes of keep_alive rows: still the running command, not idle
+        self.assertEqual(("running_tool", None), (snapshot["activity"], monitor.expired()), snapshot)
+        bounded = ActivityMonitor(path, idle_seconds=300, tool_seconds=1800, clock=lambda: now[0])
+        bounded.poll()
+        now[0] = 1200.0 + 1800
+        self.assertEqual("tool", bounded.expired()["kind"])  # the tool limit still bounds it
+        now[0] = 1300.0
+        after = [event for row in raw[wait:] for event in translator.feed(row)]
+        with path.open("a") as handle:
+            handle.write("".join(json.dumps(event) + "\n" for event in after))
+        self.assertEqual(0, monitor.poll()["active_tool_count"])
+        now[0] = 1300.0 + 300
+        self.assertEqual("idle", monitor.expired()["kind"])  # once it ends, the inactivity limit applies again
+
+    def test_the_turn_claude_code_starts_after_the_task_ends_is_translated(self):
+        rows, code = translate(sample(BACKGROUND))
+        self.assertEqual(0, code)
+        self.assertEqual(set(), {row["type"] for row in rows} - CODEX_TYPES)
+        command = items(rows, "command_execution")
+        self.assertEqual(
+            [(None, "moved to the background")], [(i["exit_code"], i["exit_code_unknown"]) for i in command]
+        )
+        started = items(rows, "tool_call", "item.started")
+        task = [item for item in started if item["name"] == claude_stream.BACKGROUND_TOOL]
+        self.assertEqual([{"description": "sleep 25; echo finished"}], [item["display_input"] for item in task])
+        ended = [item for item in items(rows, "tool_call") if item["id"] == task[0]["id"]]
+        self.assertEqual(["completed"], [item["status"] for item in ended])
+        texts = [item["text"] for item in items(rows, "agent_message") if item["id"] == claude_stream.RESULT_TEXT_ITEM]
+        self.assertEqual(["DONE"], texts)  # the new turn's answer, not the earlier "Waiting ..."
+        self.assertEqual("turn.completed", rows[-1]["type"])
+
+    def test_a_report_from_either_turn_is_the_stage_report(self):
+        raw = sample(BACKGROUND)
+        results = [n for n, row in enumerate(raw) if row.get("type") == "result"]
+        later = copy.deepcopy(raw)
+        later[results[-1]]["structured_output"] = {"verdict": "PASS"}
+        earlier = copy.deepcopy(raw)
+        earlier[results[0]]["structured_output"] = {"verdict": "FAIL"}
+        for stream, verdict in ((later, "PASS"), (earlier, "FAIL")):
+            rows, _ = translate(stream)
+            report = [i["text"] for i in items(rows, "agent_message") if i["id"] == claude_stream.REPORT_ITEM]
+            self.assertEqual([json.dumps({"verdict": verdict}, separators=(",", ":"))], report)
+
+    def test_a_task_that_never_ends_is_closed_with_the_stage(self):
+        raw = sample(BACKGROUND)
+        rows, _ = translate(raw[: self.wait_index(raw)], exit_code=143)
+        task = [i for i in items(rows, "tool_call") if i.get("name") == claude_stream.BACKGROUND_TOOL]
+        self.assertEqual(["failed"], [item["status"] for item in task])
+
+    def test_a_later_move_to_the_background_opens_the_tool_and_a_foreground_task_adds_none(self):
+        task = {
+            "type": "system",
+            "subtype": "task_started",
+            "task_id": "t1",
+            "description": "pytest",
+            "is_backgrounded": False,
+        }
+        moved = {"type": "system", "subtype": "task_updated", "task_id": "t1", "patch": {"is_backgrounded": True}}
+        killed = {"type": "system", "subtype": "task_updated", "task_id": "t1", "patch": {"status": "killed"}}
+        translator = claude_stream.Translator()
+        self.assertEqual([], translator.feed(init()) and translator.feed(task))
+        opened = translator.feed(moved)
+        self.assertEqual(["item.started"], [row["type"] for row in opened])
+        self.assertEqual([], translator.feed(moved))
+        closed = translator.feed(killed)
+        self.assertEqual([("item.completed", "failed")], [(row["type"], row["item"]["status"]) for row in closed])
+        self.assertEqual([], translator.feed(moved))  # an ended task never reopens
+        foreground = claude_stream.Translator()
+        foreground.feed(init())
+        ended = {"type": "system", "subtype": "task_notification", "task_id": "t1", "status": "completed"}
+        self.assertEqual([], foreground.feed(task) + foreground.feed(ended))
 
 
 class DisplayInputTests(unittest.TestCase):

@@ -479,12 +479,12 @@ class RealRunnerMutationTests(unittest.TestCase):
 
     def test_only_a_go_test_command_is_made_uncached(self):
         self.assertEqual(
-            "go test -count=1 -run '^TestA$' ./...", mutation_check._uncached("go test -run '^TestA$' ./...", "c")
+            "go test -count=1 -run '^TestA$' ./...", mutation_check._uncached("go test -run '^TestA$' ./...")
         )
-        self.assertEqual("cd svc && go test -count=1 ./...", mutation_check._uncached("cd svc && go test ./...", "c"))
+        self.assertEqual("cd svc && go test -count=1 ./...", mutation_check._uncached("cd svc && go test ./..."))
         for kept in ("go test -count=3 ./...", "env A=1 go test -count 2 ./...", "node --test", "go vet ./..."):
             with self.subTest(command=kept):
-                self.assertEqual(kept, mutation_check._uncached(kept, "c"))
+                self.assertEqual(kept, mutation_check._uncached(kept))
 
     @unittest.skipUnless(shutil.which("node"), "node is not installed")
     def test_node_test_kills_a_mutant_and_keeps_an_unobserved_one_a_survivor(self):

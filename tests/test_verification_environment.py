@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest import mock
 
 import autocode_regression as regression
+import autocode_test_environment as test_env
 import autocode_util as util
 import autocode_verify as verify
 
@@ -71,7 +72,9 @@ class VerificationEnvironmentTests(unittest.TestCase):
             self.assertEqual(1, baseline.call_count, "A new tool invocation must not repeat the baseline")
             self.assertEqual(1, execute.call_count, "A new tool invocation must not repeat the proof")
             identity = second["execution_context"]["identity"]
-            self.assertEqual(util.digest(verify.test_environment(project.root)), identity["environment_hash"])
+            # What the command was launched with, its bytecode cache included (#4061).
+            launched = {**verify.test_environment(project.root), **test_env.bytecode_cache_environment()}
+            self.assertEqual(util.digest(launched), identity["environment_hash"])
 
             os.environ["PROOF_MODE"] = "different"
             changed = regression.prove(resumed, project.root, project.evidence)
