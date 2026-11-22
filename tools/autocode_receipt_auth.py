@@ -5,6 +5,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import sys
 from pathlib import Path
 
@@ -19,9 +20,55 @@ except ImportError:
 
 
 def _tokens(command):
-    lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|<>()")
+    """Shell words; an unquoted newline separates commands as ``;`` does, so it is its own ``;`` word."""
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|<>()\n")
+    lexer.whitespace = " \t\r"
     lexer.whitespace_split = True
-    return list(lexer)
+    words = []
+    for word in lexer:
+        if word and all(char in ";&|<>()\n" for char in word) and "\n" in word:
+            word = word.replace("\n", "") or ";"
+        if word != ";" or (words and words[-1] not in (";", "&&")):
+            words.append(word)
+    while words and words[0] == ";":
+        words.pop(0)
+    while words and words[-1] == ";":
+        words.pop()
+    return words
+
+
+_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_LITERAL = re.compile(r"[^$`\\*?\[\]~{}\n]*")
+
+
+def _setup(step, cwd, names, workspace):
+    """The directory after one step that prints nothing a receipt could be read from, else None.
+
+    Live Testers wrote ``cd <workspace>; C="<capture>"; $C --output ... -- ...``: a ``cd`` inside the
+    workspace, ``mkdir -p`` and assignments of literal text, joined to the capture runs by ``;``,
+    ``&&`` or a newline. None of them can print a receipt or its attestation. An assignment is kept
+    in ``names``; a ``cd`` out of the workspace is refused as before.
+    """
+    if len(step) == 2 and step[0] == "cd":
+        target = Path(_expand(step[1], names))
+        cwd = (target if target.is_absolute() else cwd / target).resolve()
+        return cwd if cwd.is_relative_to(Path(workspace).resolve()) else False
+    if len(step) >= 3 and step[:2] == ["mkdir", "-p"] and not any(word.startswith("-") for word in step[2:]):
+        return cwd
+    if len(step) == 1 and "=" in step[0] and _NAME.fullmatch(step[0].split("=", 1)[0]):
+        name, value = step[0].split("=", 1)
+        if not _LITERAL.fullmatch(value):
+            return False
+        names[name] = value
+        return cwd
+    return None
+
+
+def _expand(word, names):
+    """A ``$NAME`` or ``${NAME}`` word set by a literal assignment, as the shell splits it."""
+    match = re.fullmatch(r"\$(?:([A-Za-z_][A-Za-z0-9_]*)|\{([A-Za-z_][A-Za-z0-9_]*)\})", word)
+    name = match and (match.group(1) or match.group(2))
+    return names.get(name, word)
 
 
 def _substitutes(command):
@@ -77,9 +124,16 @@ def _without_redirects(words):
 
 
 def _filter(words):
-    if not words or words[0] not in {
-        f"{root}/{name}" for root in ("/bin", "/usr/bin") for name in ("grep", "head", "tail", "cut")
-    }:
+    if not words:
+        return False
+    # A bare name is the system program when this host's PATH finds it there, as the shell's did.
+    program = shutil.which(words[0]) if "/" not in words[0] else words[0]
+    if (
+        words[0] not in ("grep", "head", "tail", "cut")
+        and "/" not in words[0]
+        or program
+        not in {f"{root}/{name}" for root in ("/bin", "/usr/bin") for name in ("grep", "head", "tail", "cut")}
+    ):
         return False
     name, args = Path(words[0]).name, words[1:]
     if name == "grep":
@@ -88,6 +142,20 @@ def _filter(words):
     if name in ("head", "tail"):
         return bool(re.fullmatch(r"(?:-[cn]\s*[-+]?\d+|[-+]\d+)", " ".join(args)))
     return bool(re.fullmatch(r"-[bcf]\s*[\d,-]+", " ".join(args)))
+
+
+def _shown(tool_outputs, names, receipt, attested):
+    """Whether an event that names this receipt printed it or capture's attestation of it."""
+    for item in tool_outputs:
+        command = item.get("command")
+        if not isinstance(command, str) or "capture" not in command or not any(name in command for name in names):
+            continue
+        for line in str(item.get("aggregated_output", "")).splitlines():
+            with contextlib.suppress(ValueError):
+                value = json.loads(line)
+                if value == receipt or (attested is not None and receipts.attests(value, attested)):
+                    return True
+    return False
 
 
 def _batch_location(plan, path, workspace, receipt):
@@ -116,11 +184,83 @@ def _batch_location(plan, path, workspace, receipt):
     }
 
 
+def _run(words, cwd, names, path, workspace, receipt, *, allow_batch, output):
+    """Whether one capture run, with output-only filters, wrote this receipt; None when it is not one run."""
+    words = _without_redirects(words)
+    chunks = [[]]
+    for word in words:
+        if word == "|":
+            chunks.append([])
+        elif word and all(char in ";&|<>()" for char in word):
+            return None
+        else:
+            chunks[-1].append(word)
+    if not chunks[0] or not all(_filter(chunk) for chunk in chunks[1:]):
+        return None
+    args = [part for word in chunks[0] for part in (_expand(word, names).split() if word.startswith("$") else [word])]
+    executable = Path(args[0])
+    if executable.is_absolute() and executable == Path(sys.executable):
+        if len(args) < 3:
+            return None
+        script = Path(args[1])
+        expected = Path(__file__).resolve().with_name("autocode_ready_capture_batch.py")
+        if script == expected:
+            if (
+                not allow_batch
+                or len(args) != 3
+                or not (match := re.fullmatch(r"ready-[0-9a-f]{32}-(\d+)\.json", path.name))
+            ):
+                return None
+            plan = batch_plan._plan(args[2])
+            index = int(match.group(1)) - 1
+            if not 0 <= index < len(plan["commands"]) or plan["commands"][index] != receipt.get("command"):
+                return False
+            if not _batch_location(plan, path, workspace, receipt):
+                return False
+            references = []
+            for line in output.splitlines():
+                try:
+                    value = json.loads(line)
+                    if isinstance(value, dict) and value.get("evidence_ref") == str(path):
+                        references.append(value)
+                except ValueError:
+                    continue
+            return (
+                len(references) == 1
+                and references[0].get("command") == receipt.get("command")
+                and references[0].get("exit_code") == receipt.get("exit_code")
+            )
+        if script != Path(__file__).resolve().with_name("autocode.py"):
+            return None
+        args = args[1:]
+    else:
+        return None
+    if len(args) < 4 or args[1] != "capture" or "--" not in args:
+        return None
+    end = args.index("--")
+    options = args[2:end]
+    outputs = [options[i + 1] for i, word in enumerate(options[:-1]) if word == "--output"]
+    outputs += [word.split("=", 1)[1] for word in options if word.startswith("--output=")]
+    if len(outputs) != 1:
+        return None
+    if args[end + 1 :] != receipt.get("command"):
+        return False
+    if "sphinx_reference_control" in receipt:
+        proof = receipt["sphinx_reference_control"]
+        documents = [options[i + 1] for i, word in enumerate(options[:-1]) if word == "--reference-doc"]
+        documents += [word.split("=", 1)[1] for word in options if word.startswith("--reference-doc=")]
+        if not isinstance(proof, dict) or sorted(documents) != proof.get("documents"):
+            return False
+    target = Path(outputs[0])
+    return (target if target.is_absolute() else cwd / target).resolve() == path.resolve()
+
+
 def _invocation(command, path, workspace, receipt, *, allow_batch, output):
     """Bind an event to an actual direct capture or the runner-owned batch helper.
 
-    Shell wrappers, a workspace `cd`, and output-only filters are allowed. Other shell chains
-    are not proof: a reprint plus a commented or inert `capture` word is not an execution.
+    Shell wrappers, setup steps that print nothing (``_setup``), other capture runs and output-only
+    filters are allowed. Other shell chains are not proof: a reprint plus a commented or inert
+    `capture` word is not an execution.
     """
     if not isinstance(command, str) or not isinstance(output, str) or _substitutes(command):
         return False
@@ -145,78 +285,33 @@ def _invocation(command, path, workspace, receipt, *, allow_batch, output):
             if _substitutes(body):
                 return False
             words = _tokens(body)
-        cwd = Path(workspace).resolve()
-        if len(words) >= 3 and words[0] == "cd" and words[2] == "&&":
-            target = Path(words[1])
-            cwd = (target if target.is_absolute() else cwd / target).resolve()
-            if not cwd.is_relative_to(Path(workspace).resolve()):
+        cwd, names, runs, step = Path(workspace).resolve(), {}, [], []
+        for word in [*words, ";"]:
+            if word not in (";", "&&"):
+                step.append(word)
+                continue
+            if not step:
                 return False
-            words = words[3:]
-        words = _without_redirects(words)
-        chunks = [[]]
-        for word in words:
-            if word == "|":
-                chunks.append([])
-            elif word and all(char in ";&|<>()" for char in word):
+            after = _setup(step, cwd, names, workspace)
+            if after is False:
                 return False
+            if after is None:
+                runs.append((step, cwd, dict(names)))
             else:
-                chunks[-1].append(word)
-        if not chunks[0] or not all(_filter(chunk) for chunk in chunks[1:]):
+                cwd = after
+            step = []
+        if not runs:
             return False
-        args = chunks[0]
-        executable = Path(args[0])
-        if executable.is_absolute() and executable == Path(sys.executable):
-            if len(args) < 3:
+        matched = False
+        for step, cwd, names in runs:
+            # Every other run in the line is capture too, which prints only its own receipt lines.
+            found = _run(
+                step, cwd, names, path, workspace, receipt, allow_batch=allow_batch and len(runs) == 1, output=output
+            )
+            if found is None:
                 return False
-            script = Path(args[1])
-            expected = Path(__file__).resolve().with_name("autocode_ready_capture_batch.py")
-            if script == expected:
-                if (
-                    not allow_batch
-                    or len(args) != 3
-                    or not (match := re.fullmatch(r"ready-[0-9a-f]{32}-(\d+)\.json", path.name))
-                ):
-                    return False
-                plan = batch_plan._plan(args[2])
-                index = int(match.group(1)) - 1
-                if not 0 <= index < len(plan["commands"]) or plan["commands"][index] != receipt.get("command"):
-                    return False
-                if not _batch_location(plan, path, workspace, receipt):
-                    return False
-                references = []
-                for line in output.splitlines():
-                    try:
-                        value = json.loads(line)
-                        if isinstance(value, dict) and value.get("evidence_ref") == str(path):
-                            references.append(value)
-                    except ValueError:
-                        continue
-                return (
-                    len(references) == 1
-                    and references[0].get("command") == receipt.get("command")
-                    and references[0].get("exit_code") == receipt.get("exit_code")
-                )
-            if script != Path(__file__).resolve().with_name("autocode.py"):
-                return False
-            args = args[1:]
-        else:
-            return False
-        if len(args) < 4 or args[1] != "capture" or "--" not in args:
-            return False
-        end = args.index("--")
-        options = args[2:end]
-        outputs = [options[i + 1] for i, word in enumerate(options[:-1]) if word == "--output"]
-        outputs += [word.split("=", 1)[1] for word in options if word.startswith("--output=")]
-        if len(outputs) != 1 or args[end + 1 :] != receipt.get("command"):
-            return False
-        if "sphinx_reference_control" in receipt:
-            proof = receipt["sphinx_reference_control"]
-            documents = [options[i + 1] for i, word in enumerate(options[:-1]) if word == "--reference-doc"]
-            documents += [word.split("=", 1)[1] for word in options if word.startswith("--reference-doc=")]
-            if not isinstance(proof, dict) or sorted(documents) != proof.get("documents"):
-                return False
-        target = Path(outputs[0])
-        return (target if target.is_absolute() else cwd / target).resolve() == path.resolve()
+            matched |= found
+        return matched
     except (OSError, TypeError, ValueError, IndexError):
         return False
 
@@ -261,14 +356,25 @@ def authenticate(receipt, path, workspace, tool_outputs, *, receipt_only, captur
     if not matched:
         names = {str(path), os.path.relpath(path.resolve(), Path(workspace).resolve())}
         shortened = receipts.display_filter([item.get("command") for item in tool_outputs], names)
-        raise ValueError(
-            "No independently executed Validator tool event matches receipt; use this stage's exact capture_command"
-            + (
+        if _shown(tool_outputs, names, receipt, attested):
+            # The receipt reached the output, so no filter dropped it: the command line around the
+            # capture run is what the runner could not read as one run (saying "dropped" sent
+            # fresh attempts back to the same command, #4110).
+            detail = (
+                ": the event's output shows this receipt, but its command line ran capture together with"
+                " other commands, so it is not one capture run. Run capture as its own Bash command, with"
+                " at most `cd <workspace> &&` before it and `2>&1 | tail -c N` after it, and cite that receipt."
+            )
+        elif shortened:
+            detail = (
                 f": its capture command sent the output through `{shortened}`, which dropped both the receipt"
                 " line and capture's short exit_code line. Run capture again without filtering its output"
                 " and cite that new receipt."
-                if shortened
-                else ""
             )
+        else:
+            detail = ""
+        raise ValueError(
+            "No independently executed Validator tool event matches receipt; use this stage's exact capture_command"
+            + detail
         )
     return "executed_capture_event"

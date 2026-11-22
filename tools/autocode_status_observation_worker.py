@@ -150,6 +150,17 @@ def _worker(request):
             payload["run_dir"],
             lambda: source_scope.snapshot(workspace, state, base_snapshot=support.snapshot),
         )
+    if request.get("operation") == "suite_claims":
+        import autocode_source_scope as source_scope
+        import autocode_suite_observation_view as suites
+        import autocode_support as support
+
+        state, workspace = payload["state"], payload["workspace"]
+        return suites.claims(
+            state,
+            payload["run_dir"],
+            lambda: source_scope.snapshot(workspace, state, base_snapshot=support.snapshot),
+        )
     if request.get("operation") == "evidence_inspection":
         from pathlib import Path
 

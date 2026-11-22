@@ -1052,6 +1052,74 @@ class RequirementsObservationsTests(unittest.TestCase):
         self.assertEqual(["docs/guide.rst", "tests/test_api.py"], reports[0]["paths"])
         self.assertIs(reports[0]["independently_verified"], False)
 
+    def test_status_view_binds_suite_coverage_claim_to_collection_not_a_runner_flag(self):
+        # #3939: a Requirements claim that source docstrings are "examples already exercised" because
+        # .pytest.ini enables --doctest-modules must bind to what the command actually collects. The
+        # project's collection roots are tests/ and docs/, so src/ doctests are never collected.
+        import autocode_run_view as run_view
+
+        test_path = self.workspace / "tests/a.py"
+        test_path.parent.mkdir()
+        test_path.write_text("def test_one(): pass\ndef test_two(): pass\n")
+        src_path = self.workspace / "src/semver/jsonio.py"
+        src_path.parent.mkdir(parents=True)
+        src_path.write_text('def dumps_version():\n    """Example:\n\n    >>> 1 + 1\n    2\n    """\n')
+        self.product = source.snapshot(self.workspace)
+        self.record["source_revision"] = self.product["revision"]
+        for field in ("before_ref", "after_ref"):
+            Path(self.record[field]).write_text(json.dumps(self.product))
+        command = "python3 -m pytest --collect-only -q"
+        nodes = ["tests/a.py::test_one", "tests/a.py::test_two"]
+        flag_text = (
+            "Source docstrings in src/semver/jsonio.py are examples already exercised by the suite "
+            "because .pytest.ini enables --doctest-modules."
+        )
+        bound_text = "The whole collected suite currently passes."
+        self.report["proposed_assumptions"] = [
+            {
+                "id": "A3",
+                "text": flag_text,
+                "category": "technical",
+                "suite_claim": {
+                    "kind": "named_tests_pass",
+                    "node_ids": ["src/semver/jsonio.py::semver.jsonio.dumps_version"],
+                    "collection_command": command,
+                },
+            },
+            {
+                "id": "A4",
+                "text": bound_text,
+                "category": "technical",
+                "suite_claim": {"kind": "all_suite_pass", "node_ids": nodes, "collection_command": command},
+            },
+        ]
+        Path(self.record["output"]).write_text(json.dumps(self.report))
+        self.events = [
+            self.command(
+                "collection", command, "\n".join(nodes) + "\n2 tests collected in 0.1s\n", output_truncated=False
+            )
+        ]
+        self.write_events()
+        self.seal()
+        self.state.update(status="WAITING_FOR_USER", next_stage="draft_plan")
+        public = run_view.view(self.state, workspace=self.workspace, run_dir=self.run)
+        claims = public["requirements"]["suite_claims"]
+        by_id = {row["assumption_id"]: row for row in claims}
+        self.assertEqual({"A3", "A4"}, set(by_id))
+        # The flag-only claim about uncollected source doctests is not presented as established coverage.
+        self.assertIs(by_id["A3"]["bound"], False)
+        self.assertEqual("unverified", by_id["A3"]["status"])
+        self.assertEqual(0, by_id["A3"]["collected_count"])
+        self.assertIn("runner flag alone", by_id["A3"]["reason"])
+        # A claim bound to actual collected node IDs is accepted, still unverified (collection is not execution).
+        self.assertIs(by_id["A4"]["bound"], True)
+        self.assertEqual("unverified", by_id["A4"]["status"])
+        self.assertEqual(nodes, by_id["A4"]["claimed_node_ids"])
+        self.assertEqual(2, by_id["A4"]["collected_count"])
+        # The same recorded collection answer feeds the display: the collected scope excludes src/.
+        reports = public["requirements"]["suite_reports"]
+        self.assertEqual(["tests/a.py"], reports[0]["paths"])
+
     def test_public_suite_report_marks_omitted_paths(self):
         import autocode_suite_observation_view as suite_view
 

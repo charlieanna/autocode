@@ -1,11 +1,15 @@
 """Switch a stopped model's role to its next eligible route without asking the person.
 
-On a quota, content-filter, context-window or output-limit stop (``quota_route.STATUSES``),
+On a quota, content-filter or output-limit stop,
 AutoCode moves the stopped stage, report repair, workflow job or parallel Builder worker
 to the next eligible model on its own (``autocode_route_pool``) — keeping cross-model
 verifier independence across both configured routes and already-produced work — and pauses
 to ask the person only when no eligible model remains or automatic recoveries are spent.
 ``--single-model`` and ``--no-auto-select`` opt out.
+
+A context-window stop (``PAUSED_CONTEXT_WINDOW``) is never an automatic switch: the request
+no longer fit the model's window, so AutoCode keeps the saved model and asks the person for a
+larger window or a smaller task (``autocode_quota_route``, #1942 / #4093).
 
 Every automatic move records the same ``route_assignment`` event (``actor="runner"``) that
 a person's answer records, so route records, held recovery bindings and final reports read

@@ -226,6 +226,36 @@ def suite_reports(state: RunState, workspace, run_dir):
         return []
 
 
+def suite_claims(state: RunState, workspace, run_dir):
+    """Observe suite-coverage claim bindings within the shared status deadline, never as proof."""
+    try:
+        rows = _observe("suite_claims", {"state": state, "workspace": str(workspace), "run_dir": str(run_dir)})
+        if not isinstance(rows, list) or len(rows) > 8:
+            return []
+        for row in rows:
+            if (
+                not isinstance(row, dict)
+                or not isinstance(row.get("assumption_id"), str)
+                or not row["assumption_id"]
+                or row.get("status") != "unverified"
+                or type(row.get("bound")) is not bool
+                or (row.get("kind") is not None and row["kind"] not in ("all_suite_pass", "named_tests_pass"))
+                or not isinstance(row.get("claimed_node_ids"), list)
+                or len(row["claimed_node_ids"]) > 40
+                or any(not isinstance(node, str) or len(node) > 256 for node in row["claimed_node_ids"])
+                or type(row.get("omitted_claimed")) is not int
+                or row["omitted_claimed"] < 0
+                or type(row.get("collected_count")) is not int
+                or row["collected_count"] < 0
+                or not isinstance(row.get("reason"), str)
+                or not row["reason"]
+            ):
+                return []
+        return rows
+    except (OSError, TypeError, ValueError, subprocess.SubprocessError, captured.ProcessError):
+        return []
+
+
 def evidence_inspection(state: RunState, workspace, run_dir, *, accepted_human_ids=(), initial_snapshot=None):
     """Bound source walks, evidence hashing and the checkpoint reread together."""
     try:

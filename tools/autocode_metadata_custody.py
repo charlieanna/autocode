@@ -397,21 +397,27 @@ def _deadline(timeout):
     return util.monotonic() + timeout
 
 
+def _lock(handle, deadline):
+    """Poll the admission lock until ``deadline``; ``MetadataAdmissionBusy`` when it stays held."""
+    while True:
+        try:
+            util.lock_file(handle)
+            return
+        except BlockingIOError:
+            remaining = None if deadline is None else deadline - util.monotonic()
+            if remaining is None or remaining <= 0:
+                raise MetadataAdmissionBusy() from None
+            util.sleep(min(POLL_SECONDS, remaining))
+
+
 def _acquire(root, deadline):
     try:
         handle = _open(root / "admission.lock", os.O_CREAT | os.O_RDWR)
     except (OSError, ProcessError) as error:
         raise _guard_failure(root, error) from None
     try:
-        while True:
-            try:
-                util.lock_file(handle)
-                return handle
-            except BlockingIOError:
-                remaining = None if deadline is None else deadline - util.monotonic()
-                if remaining is None or remaining <= 0:
-                    raise MetadataAdmissionBusy() from None
-                util.sleep(min(POLL_SECONDS, remaining))
+        _lock(handle, deadline)
+        return handle
     except BaseException:
         handle.close()
         raise
@@ -704,29 +710,47 @@ def status(env=None):
             handle.close()
 
 
-def unsettled(environment):
+def unsettled(environment, timeout=0):
     """The validated journal the store for ``environment`` still holds, or None (#4028).
 
-    Read-only and lock-free: nothing is created, archived or repaired, and a held
-    admission lock is no evidence either way. A journal whose every member has a
-    clean primary or kernel family receipt is settled; an archived one is gone.
+    Judged only under the store's existing admission lock (#4099): a live
+    invocation holds that lock from its entry until its exit reconcile, so its
+    in-progress journal is never read as a hold. The lock is polled until
+    ``timeout`` as admission polls it, and ``MetadataAdmissionBusy`` when it stays
+    held. With no admission lock no invocation can own the store, so the journal
+    is judged as it stands. Nothing is created, archived or repaired; the lock is
+    only taken and released. A journal whose every member has a clean primary or
+    kernel family receipt is settled; an archived one is gone.
     ``CustodyUncertain`` (unbound) when the store or its journal cannot be read
     or validated, so a tampered record never reads as no hold.
     """
     if sys.platform != "linux":
         return None
+    deadline = _deadline(timeout)
+    handle = None
     try:
         root = store_root(environment)
         if not _private_root(root, create=False):
             return None
+        try:
+            handle = _open(root / "admission.lock", os.O_RDWR)
+        except FileNotFoundError:
+            pass
+        else:
+            _lock(handle, deadline)
         pending = _pending(root)
         if pending is None:
             return None
         if all(_settled(root, member, pending["boot_id"]) for member in pending["attempts"]):
             return None
         return root, pending
+    except MetadataAdmissionBusy:
+        raise
     except (OSError, ValueError, TypeError, KeyError, ProcessError, family.FamilyError):
         raise CustodyUncertain() from None
+    finally:
+        if handle is not None:
+            handle.close()
 
 
 def bound(root, pending):

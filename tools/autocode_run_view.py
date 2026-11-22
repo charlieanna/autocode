@@ -710,6 +710,7 @@ def view(
         )
     ):
         result["requirements"]["suite_reports"] = status_observation.suite_reports(state, workspace, run_dir)
+        result["requirements"]["suite_claims"] = status_observation.suite_claims(state, workspace, run_dir)
     result["chat"] = chat_view.project(state, result, run_dir=run_dir, workspace=workspace)
     result["attention"] = attention.project(
         state, result, workspace=workspace, run_dir=run_dir, context=result["chat"]["context"]
@@ -789,6 +790,9 @@ def view(
                     reports = status_observation.suite_reports(state, workspace, run_dir)
                     if reports:
                         result["displayed_plan"]["suite_reports"] = reports
+                    claims = status_observation.suite_claims(state, workspace, run_dir)
+                    if claims:
+                        result["displayed_plan"]["suite_claims"] = claims
         except (AttributeError, KeyError, TypeError, ValueError):
             pass  # Missing, stale or unsealed plans cannot supply approval authority.
         approved = plan
@@ -1670,12 +1674,11 @@ def needs(
         route = quota_route.job_question(state)
         if known_source and isinstance(route, dict):
             need["route"] = _route(route)
-            # Until a person names another model (job_failure.route_assignment), the exact retry of a
-            # refused job would replay the refused model: the next step is the answer. job_retry_token
-            # stays, since the CLI still accepts it. A quota stop keeps the retry (the quota resets).
+            # Authentication and timeouts also offer an unchanged retry after the underlying problem clears.
             if need["kind"] == "retry_job" and (
                 route_required
-                or need["route"]["cause"] in ("content_filter", "output_limit", "authentication", "timeout")
+                or quota_route.job_awaits_new_model(failure, route)
+                or need["route"]["cause"] in ("authentication", "timeout")
                 and not isinstance(failure.get("route_assignment"), dict)
             ):
                 # A timeout whose model declares a lighter variant names that answer itself (#1902).
