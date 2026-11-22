@@ -209,6 +209,57 @@ class AmbiguityAuditTests(unittest.TestCase):
         self.assertEqual(list(audit.DIMENSIONS), wire["properties"][audit.FIELD]["required"])
         self.assertEqual(list(audit.STATUSES), audit.ENTRY["properties"]["status"]["enum"])
 
+    def test_correct_relabels_a_code_only_dimension_before_the_gate(self):
+        # #3975: a specified_in_source dimension citing only code the stage read is a mechanical
+        # mislabel; correct relabels it to repo_convention with a receipt, and the unchanged gate
+        # then accepts it instead of sending it to a repair or a person pause.
+        report = self.changed("error_and_failure_behavior", entry("specified_in_source", "cli.py:4"))
+        self.assertIn("is code this stage read", self.problems(report) or "")
+        receipts = audit.correct(self.state, report)
+        self.assertEqual(
+            [
+                {
+                    "dimension": "error_and_failure_behavior",
+                    "from": "specified_in_source",
+                    "to": "repo_convention",
+                    "refs": ["cli.py:4"],
+                }
+            ],
+            receipts,
+        )
+        self.assertEqual(entry("repo_convention", "cli.py:4"), report[audit.FIELD]["error_and_failure_behavior"])
+        self.assertIsNone(self.problems(report))
+
+    def test_correct_leaves_a_semantic_fault_for_the_gate(self):
+        # An unread file, a nonexistent file, or a source id mixed with code is not a mechanical
+        # mislabel: nothing is relabelled and the gate still rejects it.
+        for refs in (["README.md"], ["the usual convention"], ["R1", "cli.py:4"], ["cli.py:4", "R9"]):
+            with self.subTest(refs=refs):
+                report = self.changed("error_and_failure_behavior", entry("specified_in_source", *refs))
+                before = copy.deepcopy(report)
+                self.assertEqual([], audit.correct(self.state, report))
+                self.assertEqual(before, report)
+                self.assertIsNotNone(self.problems(report))
+
+    def test_relabel_is_pure_and_a_greenfield_workspace_relabels_nothing(self):
+        import autocode_code_citations as code_citations
+
+        report = self.changed("error_and_failure_behavior", entry("specified_in_source", "cli.py:4"))
+        before = copy.deepcopy(report)
+        corrected, receipts = audit.relabel(
+            report,
+            sources=audit.source_ids(self.state, {}),
+            cite=lambda ref, field: code_citations.verify_citation(self.state, audit.STAGE, ref, field=field),
+            catalog_ok=lambda ref: False,
+        )
+        self.assertEqual(before, report, "relabel never mutates its input")
+        self.assertEqual("repo_convention", corrected[audit.FIELD]["error_and_failure_behavior"]["status"])
+        self.assertEqual(1, len(receipts))
+        empty = self.workspace.parent / "empty"
+        empty.mkdir()
+        self.state["workspace"] = str(empty)
+        self.assertEqual([], audit.correct(self.state, report), "nothing to read, nothing to relabel")
+
 
 if __name__ == "__main__":
     unittest.main()

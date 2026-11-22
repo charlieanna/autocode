@@ -12,8 +12,11 @@ report (``open_question``). The runner holds each answer to its evidence, from o
   (``kind=decision``, any category but technical) is named by some dimension, so the audit and
   the questions cannot disagree.
 
-A report without the field (saved before it existed, or the triage pass) is not checked. Domain
-layer: pure over the run state and the report.
+A ``specified_in_source`` dimension whose refs are all code the stage read is a mechanical
+ref-kind mislabel: ``relabel``/``correct`` change its status to ``repo_convention`` before the gate,
+so it costs no repair or person pause (#3975), and the receipt is kept as evidence. Every other
+disagreement is still rejected. A report without the field (saved before it existed, or the triage
+pass) is not checked. Domain layer: pure over the run state and the report.
 """
 
 from __future__ import annotations
@@ -89,18 +92,71 @@ def _code_hint(cite, refs: list[str]) -> str:
     )
 
 
+def _bindings(state: RunState):
+    """The sources, read-aware citation check and catalog verifier admission binds for this run."""
+
+    def cite(ref, field):
+        return code_citations.verify_citation(state, STAGE, ref, field=field)
+
+    def catalog_ok(ref):
+        return bool(source_catalog.evidence(state, ref))
+
+    return source_ids(state, {}), None if code_citations.greenfield(state) else cite, catalog_ok
+
+
 def validate(state: RunState, report: dict) -> None:
     """Raise ValueError naming every dimension whose status its refs do not support."""
-    found = problems(
-        report,
-        sources=source_ids(state, {}),
-        cite=None
-        if code_citations.greenfield(state)
-        else lambda ref, field: code_citations.verify_citation(state, STAGE, ref, field=field),
-        catalog_ok=lambda ref: bool(source_catalog.evidence(state, ref)),
-    )
+    sources, cite, catalog_ok = _bindings(state)
+    found = problems(report, sources=sources, cite=cite, catalog_ok=catalog_ok)
     if found:
         raise ValueError("; ".join(found))
+
+
+def relabel(report: dict, *, sources, cite, catalog_ok) -> tuple[dict, list[dict]]:
+    """Deterministically correct a ``specified_in_source`` dimension whose refs are all code this
+    stage read (#3975): it becomes ``repo_convention``, the status that cites read workspace code.
+    The refs are unchanged; only the label is corrected, so no gate is weakened. A dimension with a
+    ref that is not verified code (a source id, an unread or nonexistent file, or a mix) is left for
+    ``problems`` to reject, as is a ``repo_convention`` dimension citing source ids, which stays a
+    repair case. Pure: returns a corrected copy and one receipt per relabel, never mutating the
+    input; ``cite`` None (a greenfield workspace with nothing to read) relabels nothing. The callers
+    bind ``cite`` to what they can decide, exactly as for ``problems``."""
+    audit = report.get(FIELD)
+    if cite is None or not isinstance(audit, dict) or set(audit) != set(DIMENSIONS):
+        return report, []
+    sources = set(sources) | {
+        row["id"] for row in report.get("requirements") or [] if isinstance(row, dict) and _text(row.get("id"))
+    }
+
+    def valid_source(ref: str) -> bool:
+        return ref in sources or (ref.startswith("catalog/") and bool(catalog_ok(ref)))
+
+    corrections: list[dict] = []
+    relabeled = dict(audit)
+    for dimension in DIMENSIONS:
+        entry = audit[dimension] if isinstance(audit[dimension], dict) else {}
+        status, refs = entry.get("status"), [ref for ref in entry.get("refs") or [] if isinstance(ref, str)]
+        if status != "specified_in_source" or not refs:
+            continue
+        label = f"{FIELD}.{dimension}"
+        missing = [ref for ref in refs if not valid_source(ref)]
+        if missing and all(cite(ref, label) is None for ref in refs):
+            relabeled[dimension] = {**entry, "status": "repo_convention"}
+            corrections.append({"dimension": dimension, "from": status, "to": "repo_convention", "refs": refs})
+    if not corrections:
+        return report, []
+    return {**report, FIELD: relabeled}, corrections
+
+
+def correct(state: RunState, report: dict) -> list[dict]:
+    """Apply the mechanical ref-kind relabel in place before validation (#3975), with the read-aware
+    citation evidence admission holds, and return one receipt per relabel for the stage's evidence.
+    A genuine semantic fault is untouched, so ``validate`` still rejects it."""
+    sources, cite, catalog_ok = _bindings(state)
+    corrected, corrections = relabel(report, sources=sources, cite=cite, catalog_ok=catalog_ok)
+    if corrections:
+        report[FIELD] = corrected[FIELD]
+    return corrections
 
 
 def problems(report: dict, *, sources, cite, catalog_ok) -> list[str]:

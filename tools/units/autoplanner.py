@@ -2013,6 +2013,12 @@ def requirements_checks(state: RunState, stage, value, check_code_refs, record=N
     that pass only ``{"output": ...}`` with no provider events keep the file-existence check."""
     if stage != "requirements_gather":
         return check_code_refs
+    # A mechanical ref-kind mislabel (a specified_in_source dimension whose refs are all code the
+    # stage read) is corrected deterministically before the gate, so it costs no repair or person
+    # pause (#3975); the receipt is kept as the stage's evidence. A semantic fault still reaches validate.
+    relabels = ambiguity_audit.correct(state, value)
+    if relabels and record is not None:
+        record["audit_relabels"] = relabels
     ambiguity_audit.validate(state, value)
     if not code_citations.stage_evidenced(state, stage, record):
         return check_code_refs
