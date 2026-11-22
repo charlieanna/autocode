@@ -709,3 +709,30 @@ A broad intermediate run retained seven failures (`/private/tmp/autocode-proof-r
 The six branch-only expectations that the abandoned import-origin probe could authorize proof are now fail-closed controls; the original master import-failure test and all its assertions are restored. The first cleanup run found a stale pre-attempt-directory assertion and a three-line architecture limit overrun; the preserved-tree assertion now follows the actual unique attempt and the sentinel moved to the existing judgment layer. The final 95-test acceptance, adversarial, source-link, architecture and state selection passed (`/private/tmp/autocode-proof-cleanup-final-focused.log`), as did Ruff, formatting and mypy. #3944 remains unresolved: matching a volatile pytest failure still needs independently bound same-execution failure identity. #3926 still needs full TaskRun and actual editor verification before closure; no proof issue is claimed fixed by this cleanup alone.
 
 Integrated master `a9289d86fa` in one reviewed merge after a linear replay of the 71 branch commits conflicted at its first historical commit. The one overlapping acceptance-reference hunk retains both the new failure-evidence path and master's `wholly_passing` multi-example gate. The real protected-link extension fixture is now in the exact-path host-resource registry; its fixture-only selection control fails current master (`/private/tmp/autocode-proof-host-scope-master.log`) and passes here without matching an unrelated same-named path. The combined 235-test selection, Ruff/format and mypy passed (`/private/tmp/autocode-proof-merged-focused.log`); exact-head CI and extension host remain required. #3926 and #3944 stay open.
+
+### First-suite gate correction
+
+The upstream `f94b92e5a` change restores a first Node suite whose pinned original
+revision contains only documentation. The real Node fixture on the preceding
+`97952cbb5` head failed with npm exit 254 (no package manifest), while the
+candidate's named test passed. The new gate keeps the named result unexecuted
+on base and uses the existing source-bound first-suite policy. Independent
+qualification exposed a separate `autocode_verify.py` line-limit violation on
+`f94b92e5a` (2,593 / 2,580). First-suite judgment and preservation now share the
+same pristine document-only predicate in `autocode_first_suite`, retaining the
+existing independent/ignored-source, original-test, and test-root requirements.
+The architecture check passes at 2,575 lines, along with 49 focused verification,
+architecture and state tests, Ruff, format, and mypy. The actual macOS first-Go
+extension check passed with Node 22 and a private short profile root. Logs
+`/private/tmp/autocode-3981-first-node-parent-red.log`,
+`/private/tmp/autocode-3981-f94-first-suite-audit.log`,
+`/private/tmp/autocode-3981-first-suite-shared-focused.log` and
+`/private/tmp/autocode-3981-first-suite-shared-mac.log`.
+
+The workflow on `97952cbb5` was superseded by `f94b92e5a`, so its scenario and
+advisory coverage results were cancelled and its required check failed. Its
+actual Linux editor passed all 18 cases. The independent proof checkpoint
+`2c0d696b0` records both protected-directory halves and first-Go passing in the
+macOS extension. Three mixed unbound-link cases remain open. #4091 tracks the
+Maven setup prerequisite separately. The corrected current head still needs
+its own required CI and actual Linux editor result.

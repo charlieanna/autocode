@@ -53,6 +53,21 @@ def contains_go_project(paths) -> bool:
     return False
 
 
+def pristine_document_only(run, document_only_base) -> bool:
+    """Use the same pinned-base observation for first-suite proof and preservation."""
+    return bool(
+        run.test_root is None
+        and not run.base_patch
+        and document_only_base(
+            run.workspace,
+            run.base,
+            dependencies_from=run.dependencies_from,
+            independent=run.independent_dependencies,
+            ignored_inputs=run.ignored_inputs,
+        )
+    )
+
+
 # Project, dependency and license manifests: data naming tools and versions,
 # not behavior a suite runs. A first project can commit them before any source
 # exists (#1783).

@@ -1907,17 +1907,7 @@ def _prove_regression(run: _Run, trees, test_changes, *, no_go_project, no_junit
             base_suite,
             base,
             commands["suite"],
-            document_only=lambda: (
-                run.test_root is None
-                and not base_patch
-                and _document_only_base(
-                    workspace,
-                    base,
-                    dependencies_from=dependencies_from,
-                    independent=run.independent_dependencies,
-                    ignored_inputs=ignored_inputs,
-                )
-            ),
+            document_only=lambda: first_suite.pristine_document_only(run, _document_only_base),
         ),
         preserve_only=preserve,
         absent_first_go=first_go_proved,
@@ -1955,7 +1945,7 @@ def _preserve_suite(run: _Run, trees, *, no_go_project, no_junit_project) -> lis
     """
     workspace, base, run_dir, framework, commands = run.workspace, run.base, run.run_dir, run.framework, run.commands
     changes, timeout, base_suite, base_patch = run.changes, run.timeout, run.base_suite, run.base_patch
-    dependencies_from, independent_dependencies = run.dependencies_from, run.independent_dependencies
+    dependencies_from = run.dependencies_from
     generated_record, generated_unrecorded = run.generated_record, run.generated_unrecorded
     ignored_inputs, new_behavior, preserve = run.ignored_inputs, run.new_behavior, run.preserve
     test_root, guards = run.test_root, run.guards
@@ -1975,20 +1965,12 @@ def _preserve_suite(run: _Run, trees, *, no_go_project, no_junit_project) -> lis
     # existing program, so any other base file or copied ignored code
     # still counts.
     allow_empty_base = bool(
-        test_root is None
-        and new_behavior
+        new_behavior
         and not preserve
-        and not base_patch
         and comparable
         and comparable.get("base") == base
         and (framework is None or framework.name != "go" or no_go_project)
-        and _document_only_base(
-            workspace,
-            base,
-            dependencies_from=dependencies_from,
-            independent=independent_dependencies,
-            ignored_inputs=ignored_inputs,
-        )
+        and first_suite.pristine_document_only(run, _document_only_base)
     )
     # The pristine receipt can establish absence of a Go suite only when
     # the pinned base has no Go project. Inspect the command inside package scope.
