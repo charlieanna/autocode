@@ -1,12 +1,12 @@
-// Real extension and core, with immediate timeouts injected at the status observation seam.
-// No provider is launched. The timeout simulation does not test worker process cleanup.
+// Real extension and core, with a fixture worker held past the production deadline.
+// No provider is launched. Check the owned worker's exit as well as the recovery card.
 const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { test } = require('node:test');
 const { openHistoryRow } = require('./open-history.cjs');
+const { privateHostRoot, privateHostEnvironment, settleFixture } = require('../owned-fixture-cleanup.cjs');
 
 const EXTENSION = path.resolve(__dirname, '../..');
 const REPO = path.resolve(EXTENSION, '..');
@@ -30,29 +30,38 @@ async function executable() {
 }
 
 for (const kind of ['job', 'repeat']) {
-  test(`real editor shows ${kind} source observation timeout and recovery`, async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), `autocode-${kind}-host-`));
+  test(`real editor recovers from a timed-out ${kind} source worker`, { timeout: 240_000 }, async () => {
+    const root = privateHostRoot(`autocode-${kind}-host-`);
     const marker = path.join(root, 'timeout');
     const log = path.join(root, 'observations');
+    const operation = kind === 'job' ? 'job_retry' : 'failure_retry';
     let app;
     let win;
     let env;
     let editorPid;
     let editorStarted;
     let lastState;
+    let ownsWarmHost = false;
+    let testError;
     try {
       const temp = path.join(root, 'tmp');
       fs.mkdirSync(temp);
-      env = { ...process.env, HOME: path.join(root, 'home'), TMPDIR: temp };
+      env = { ...privateHostEnvironment(process.env, root), TMPDIR: temp };
+      assert.equal(env.HOME, process.env.HOME);
+      assert.equal(env.CODEX_HOME, process.env.CODEX_HOME);
       delete env.GIT_CONFIG_COUNT;
       delete env.GIT_CONFIG_KEY_0;
       delete env.GIT_CONFIG_VALUE_0;
-      const made = spawnSync(python, [path.join(REPO, 'tests/status_retry_host_fixture.py'), root, kind], { cwd: REPO, encoding: 'utf8', env });
+      const made = spawnSync(python, [path.join(REPO, 'tests/status_retry_host_fixture.py'), root, kind],
+        { cwd: REPO, encoding: 'utf8', env, timeout: 30_000 });
       assert.equal(made.status, 0, `offline ${kind} fixture: ${made.stderr}`);
       const fixture = JSON.parse(made.stdout);
+      assert.equal(fixture.registry, env.AUTOCODE_HOME);
+      assert.ok(fs.lstatSync(fixture.registry).isDirectory(), 'fixture owns its private registry');
+      ownsWarmHost = true;
       Object.assign(env, {
-        AUTOCODE_HOME: fixture.registry,
         AUTOCODE_HOST_OBSERVATION_TIMEOUT: marker,
+        AUTOCODE_HOST_OBSERVATION_OPERATION: operation,
         AUTOCODE_HOST_OBSERVATION_LOG: log,
         PYTHONPATH: [path.join(REPO, 'tests/host_status_site'), process.env.PYTHONPATH].filter(Boolean).join(path.delimiter),
       });
@@ -121,8 +130,10 @@ for (const kind of ['job', 'repeat']) {
       await until('healthy retry action', async () => retryVisible(await state()));
       assertNamedRetry();
       fs.writeFileSync(marker, '');
-      const operation = kind === 'job' ? 'job_retry' : 'failure_retry';
-      await until('injected timeout', () => fs.existsSync(log) && fs.readFileSync(log, 'utf8').includes(`timeout ${operation}`));
+      await until('the owned worker to exceed its deadline', () => {
+        const events = fs.readFileSync(log, 'utf8');
+        return /^child \d+ \d+(?:\.\d+)?$/m.test(events) && events.includes(`timeout ${operation}`);
+      });
       if (kind === 'job') {
         await until('blocked job in the chat', async () => {
           const shown = await state();
@@ -135,49 +146,66 @@ for (const kind of ['job', 'repeat']) {
         });
       }
       const unavailable = publicStatus();
-      assert.doesNotMatch(unavailable.next_command ?? '', /--retry-failed-stage/, 'timeout does not name a stale retry');
+      assert.equal(unavailable.next_command, null, 'timeout does not name a dead continuation');
       fs.rmSync(marker);
       await until('recovered retry action', async () => retryVisible(await state()));
       assertNamedRetry();
+      if (kind === 'repeat') {
+        // An observed source edit is distinguishable from an unavailable observation.
+        fs.writeFileSync(path.join(fixture.workspace, 'changed.py'), 'changed = True\n');
+        const changed = publicStatus();
+        assert.match(changed.next_command ?? '', /--resume-paused/);
+        assert.doesNotMatch(changed.next_command, /--retry-failed-stage/);
+        const continuation = changed.recovery?.actions?.find((action) => action.kind === 'resume' &&
+          action.args?.includes('--resume-paused') && !action.args.includes('--retry-failed-stage'));
+        await until('plain continuation for the changed source', async () =>
+          (await state()).action === (continuation?.label ?? 'Continue'));
+      }
     } catch (error) {
+      testError = error;
       console.log(`Host diagnostics for ${kind}:`, JSON.stringify({
         lastState, observations: fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '(no wrapper log)',
       }));
-      await win?.screenshot({ path: path.join(EXTENSION, '.vscode-test', 'host-last.png'), timeout: 5_000 }).catch(() => {});
-      throw error;
+      fs.mkdirSync(path.join(EXTENSION, '.vscode-test'), { recursive: true });
+      await win?.screenshot({ path: path.join(EXTENSION, '.vscode-test', `host-status-${kind}.png`), timeout: 5_000 }).catch(() => {});
     } finally {
-      fs.rmSync(marker, { force: true });
-      if (app) {
-        let timer;
-        const timedOut = await Promise.race([
-          app.close().then(() => false, () => true),
-          new Promise((resolve) => { timer = setTimeout(() => resolve(true), 5_000); }),
-        ]);
-        clearTimeout(timer);
-        if (timedOut) {
-          const stoppedEditor = spawnSync(python, [path.join(REPO, 'tests/status_retry_host_cleanup.py'),
-            'stop', String(editorPid), String(editorStarted)], { cwd: REPO, env, encoding: 'utf8', timeout: 15_000 });
-          assert.equal(stoppedEditor.status, 0, `stop owned editor: ${stoppedEditor.stderr}`);
-        }
+      try {
+        await settleFixture([
+          ['release held workers', () => fs.rmSync(marker, { force: true })],
+          ['close editor', async () => {
+            if (!app) return;
+            let timer;
+            const timedOut = await Promise.race([
+              app.close().then(() => false, () => true),
+              new Promise((resolve) => { timer = setTimeout(() => resolve(true), 5_000); }),
+            ]);
+            clearTimeout(timer);
+            if (timedOut) {
+              const stopped = spawnSync(python, [path.join(REPO, 'tests/status_retry_host_cleanup.py'),
+                'stop', String(editorPid), String(editorStarted)], { cwd: REPO, env, encoding: 'utf8', timeout: 15_000 });
+              assert.equal(stopped.status, 0, `stop owned editor: ${stopped.stderr}`);
+            }
+          }],
+          ['stop private warm hosts', () => {
+            if (!ownsWarmHost) return;
+            const result = spawnSync(python, [path.join(REPO, 'tests/host_reader_cleanup.py'), '--stop-source-hosts', root],
+              { cwd: REPO, env, encoding: 'utf8', timeout: 15_000 });
+            assert.equal(result.status, 0, result.stderr);
+          }],
+          ['check owned readers and workers', async () => {
+            if (!fs.existsSync(log)) return;
+            await until('all owned status readers and workers to exit', () => {
+              const result = spawnSync(python, [path.join(REPO, 'tests/host_reader_cleanup.py'), log, root],
+                { cwd: REPO, env, encoding: 'utf8', timeout: 15_000 });
+              assert.equal(result.status, 0, result.stderr);
+              return JSON.parse(result.stdout).running.length === 0;
+            }, 20_000);
+          }],
+        ], () => fs.rmSync(root, { recursive: true, force: true, maxRetries: 3 }), testError);
+      } catch (error) {
+        console.error(`Preserved failed ${kind} status host fixture at ${root}`);
+        throw error;
       }
-      if (env) {
-        // The default warm host has a unique TMPDIR/socket owned by this fixture.
-        const stopped = spawnSync(python, [path.join(REPO, 'tests/status_retry_host_cli.py'), 'serve', '--stop', '--json'],
-          { cwd: REPO, env, encoding: 'utf8', timeout: 15_000 });
-        const checked = spawnSync(python, [path.join(REPO, 'tests/status_retry_host_cli.py'), 'serve', '--status', '--json'],
-          { cwd: REPO, env, encoding: 'utf8', timeout: 15_000 });
-        assert.equal(stopped.status, 0, `stop isolated warm host: ${stopped.stderr}`);
-        assert.equal(checked.status, 0, `check isolated warm host: ${checked.stderr}`);
-        assert.equal(JSON.parse(checked.stdout).running, false, 'isolated warm host exited');
-        if (fs.existsSync(log)) {
-          const lines = fs.readFileSync(log, 'utf8').trim().split('\n');
-          const pids = lines.filter((line) => line.startsWith('status ')).map((line) => Number(line.split(' ')[1]));
-          await until('all owned status CLI processes to exit', () => pids.every((pid) => {
-            try { process.kill(pid, 0); return false; } catch (error) { if (error.code === 'ESRCH') return true; throw error; }
-          }), 15_000);
-        }
-      }
-      fs.rmSync(root, { recursive: true, force: true, maxRetries: 3 });
     }
   });
 }
