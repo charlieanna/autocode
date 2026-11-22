@@ -3,12 +3,11 @@
 const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { test } = require('node:test');
 const { openHistoryRow } = require('./open-history.cjs');
 const { routeDecisionReady } = require('../job-route-readiness.cjs');
-const { privateHostEnvironment, ownedWarmHostSteps, settleFixture } = require('../owned-fixture-cleanup.cjs');
+const { privateHostRoot, privateHostEnvironment, ownedWarmHostSteps, settleFixture } = require('../owned-fixture-cleanup.cjs');
 
 const EXTENSION = path.resolve(__dirname, '../..');
 const REPO = path.resolve(EXTENSION, '..');
@@ -32,7 +31,7 @@ async function executable() {
 }
 
 for (const mode of ['changed-effort', 'unset-effort']) test(`real editor offers a synthetic Kilo model and effort decision (${mode})`, { timeout: 180_000 }, async () => {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'autocode-synthetic-kilo-')));
+  const root = privateHostRoot('autocode-synthetic-kilo-');
   let app;
   let win;
   let env;
