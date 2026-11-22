@@ -830,6 +830,30 @@ class AcceptanceVerificationRetryTests(unittest.TestCase):
         self.assertFalse(acceptance.receipts(self.state))
         self.runtime.run_role.assert_not_called()
 
+    def test_an_original_reference_runner_that_never_started_is_retried_on_each_resume(self):
+        # Live run 3 of #3977: the original-code check ran an empty .venv ("No module named pytest"). Read as an
+        # ordinary failure it spent the one bounded re-check, and once AutoCode fixed the interpreter it had
+        # chosen (#4020) no resume could re-run the checks. It is now the candidate's own rule (#3877).
+        not_started = {
+            "error": "Cannot classify passing tests against the original reference: The original-reference test "
+            "command could not start its test runner (exit 1): /usr/bin/python3: No module named pytest",
+            "runner_not_started": self.not_started(),
+        }
+        self.reference.side_effect = [not_started, not_started, not_started, {"verdicts": {"AC1": "fails"}}]
+        written = (self.workspace / "tests/test_feature.py").read_bytes()
+        self.apply(acceptance.STAGE, self.state, self.value, self.record, self.workspace)
+        self.assert_runner_not_started_pause(written)
+        self.assertEqual(retry.RUNNER_NOT_STARTED, self.state[acceptance.KEY][retry.KEY]["kind"])
+        for _ in range(2):  # past the bound an ordinary failure gets, with no model call
+            self.state["status"] = "RUNNING"
+            self.dispatch()
+            self.assert_runner_not_started_pause(written)
+            self.assertEqual(retry.RUNNER_NOT_STARTED, self.state[acceptance.KEY][retry.KEY]["kind"])
+        self.state["status"] = "RUNNING"
+        self.dispatch()
+        self.assertEqual("builder", self.state["next_stage"])
+        self.runtime.run_role.assert_not_called()
+
     def test_ac11_runner_that_never_started_keeps_writer_and_retries_without_model(self):
         written = self.first_runner_not_started_pause()
         self.assert_runner_not_started_pause(written)

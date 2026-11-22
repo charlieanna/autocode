@@ -27,6 +27,18 @@ import sys
 import uuid
 from pathlib import Path
 
+
+def _fixed_file():
+    """A workspace file a scripted Tester's probe_reason names: a reason stands only when it names a path
+    that exists in the workspace (tools/autocode_tester_probes.py)."""
+    root = Path.cwd()
+    for path in sorted(root.rglob("*")):
+        relative = path.relative_to(root)
+        if path.is_file() and "." in path.name[1:] and not any(part.startswith(".") for part in relative.parts):
+            return relative.as_posix()
+    return ""
+
+
 MANIFEST = json.loads(Path(os.environ["FAKE_MANIFEST"]).read_text())
 
 
@@ -800,7 +812,10 @@ def main() -> int:
             # The scripted Tester runs only the component's one check, so it records why (autocode_tester_probes).
             for row in report.get("criterion_results") or []:
                 if row.get("status") == "PASS":
-                    row.setdefault("probe_reason", f"Scripted component Tester: {row['id']} has only its fixed check")
+                    row.setdefault(
+                        "probe_reason",
+                        f"Scripted component Tester: {row['id']} has only its fixed check; {_fixed_file()} holds the input",
+                    )
         if "source_verdict" in schema.get("properties", {}):
             report.setdefault(
                 "source_verdict",

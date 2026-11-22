@@ -685,9 +685,11 @@ def run_command(
         if type(native_execution) is not native_checks.NativeCheckExecution:
             raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Original concrete native check owner required")
         return native_execution.run_command(command, cwd, log_path, timeout=timeout, env=env, checkpoint=checkpoint)
-    environment = test_environment(cwd, env)
-    environment_hash = util.digest(environment)
-    receipt = command_supervision.run(command, cwd, log_path, timeout=timeout, env=environment, checkpoint=checkpoint)
+    with test_env.own_bytecode_cache(test_environment(cwd, env), cwd) as environment:
+        environment_hash = util.digest(environment)
+        receipt = command_supervision.run(
+            command, cwd, log_path, timeout=timeout, env=environment, checkpoint=checkpoint
+        )
     return {**receipt, "execution_environment_sha256": environment_hash}
 
 
@@ -1181,7 +1183,7 @@ def execution_identity(
         workspace, source_snapshot_value["files"], lambda: _read_git(workspace, "ls-files", "-z").split("\0")
     )
     source_metadata = source_snapshot.metadata(workspace, source_snapshot_value.get("files", {}))
-    environment = test_environment(workspace)
+    environment = {**test_environment(workspace), **test_env.bytecode_cache_environment()}
     # The command executes in the workspace, or the package ``cd PACKAGE && RUNNER``
     # enters: resolve its relative paths there, never in the controller cwd (#2982).
     package = package_scope.entered(command)
@@ -1406,7 +1408,7 @@ def baseline_identity(
         generated_unrecorded=generated_unrecorded,
         ignored_inputs=ignored_inputs,
     )
-    environment = test_environment(workspace)
+    environment = {**test_environment(workspace), **test_env.bytecode_cache_environment()}
     roots = test_env.dependency_roots(dependencies_from or workspace)
     dependencies = []
     for name in DEPENDENCY_DIRS:
@@ -1581,6 +1583,9 @@ def scratch_run(
             for root in dict.fromkeys((str(workspace.resolve()), str(workspace))):
                 command = command.replace(root, str(tree))
             framework = command_framework(command) or package_scope.recognize(command, command_framework)
+            framework = toolchain_suite.with_project_build(
+                framework, lambda root: detect_framework(root, python=python or python_for(workspace)), tree
+            )
             # A reporter-owned command can name tests without a recognized framework object.
             if framework or (native_execution is None and expects_results(None, command, tree)):
                 receipt = scratch_suites.explicit(

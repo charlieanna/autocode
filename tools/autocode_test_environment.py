@@ -20,6 +20,10 @@ import sys
 import tempfile
 import tomllib
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_python_tests as python_tests
@@ -104,6 +108,20 @@ def recorded_python(settings, project):
     protected = settings.get("protected_tests")
     command = protected.get("command") if isinstance(protected, dict) else None
     return python_for_test_command(project, command) if isinstance(command, str) and command else None
+
+
+def run_python(state: RunState | None, workspace) -> str:
+    """The interpreter a run's own checks use: the one it recorded with its suite, else ``python_for``.
+
+    ``python_for`` takes whichever virtualenv is in the project now. A run whose suite was recorded with
+    one Python and that later gained a ``.venv`` (a Builder's ``uv sync`` without network leaves an empty
+    one) ran its regression proof with that venv's Python, which had no pytest: no test ran and the
+    Resolver asked the person for a test environment (#4020). Every check of the run reads the one
+    answer the run recorded (``recorded_python``, #3790).
+    """
+    state = state or {}
+    project = state.get("project_workspace") or workspace
+    return recorded_python(state.get("settings"), project) or python_for(project)
 
 
 def _owned_private_dir(path: Path) -> bool:
@@ -270,3 +288,54 @@ def external_roots(paths, workspace) -> set[Path]:
     workspace = Path(workspace).resolve()
     shims = {Path(p).resolve() for p in scratch_import_roots(workspace)}
     return {p for p in paths if not p.is_relative_to(workspace) and p not in shims}
+
+
+def bytecode_cache_environment() -> dict[str, str]:
+    """The bytecode-cache variables every check command is launched with, the same for every command.
+
+    One private directory per user, at a fixed path: a test can read ``PYTHONPYCACHEPREFIX``, so a
+    path that changed with each command made the base and the candidate, two runs of one baseline, or
+    a proof and its mutation check run under environments a test could tell apart while their recorded
+    identities matched (#4061, #4062). Python mirrors each source's absolute path under the prefix and
+    checks a cached compile against its source's time and size, so commands in different trees never
+    share a tree's compiles. Empty, and bytecode writing stays off, when that directory is not the
+    user's own; ``execution_identity`` binds the same answer this returns.
+    """
+    uid = os.getuid() if hasattr(os, "getuid") else "user"
+    root = Path(tempfile.gettempdir()) / f"autocode-pycache-{uid}"
+    if not _owned_private_dir(root):
+        return {}
+    return {"PYTHONDONTWRITEBYTECODE": "", "PYTHONPYCACHEPREFIX": str(root)}
+
+
+def _mirrors(prefix: Path, directories) -> set[Path]:
+    """Where Python's ``prefix`` cache keeps the compiles of sources under each of ``directories``."""
+    found = set()
+    for directory in directories:
+        for path in {Path(os.path.abspath(directory)), Path(directory).resolve()}:
+            relative = str(path).lstrip(os.sep)
+            if relative:
+                found.add(prefix / relative)
+    return found
+
+
+@contextlib.contextmanager
+def own_bytecode_cache(environment, cwd):
+    """Give a command's Python a bytecode cache outside the tree, and remove the tree's compiles when it ends.
+
+    ``environment`` turns bytecode writing off so nothing lands in the tree; a suite whose tests start the
+    project's own Python again (a CLI's end-to-end tests) then compiled every module in every child. Two test
+    modules of AutoCode's took 940 s in a scratch copy and 354 s in the checkout, and the original-test gate's
+    900-second limit stopped both halves (2026-11-21). The cache's path is ``bytecode_cache_environment``'s,
+    the same for every command; what the command compiled from ``cwd`` and its ``PYTHONPATH`` roots is
+    removed afterwards, so the next command (the next mutant, the next window) compiles that code again.
+    """
+    cache = bytecode_cache_environment()
+    environment.update(cache)
+    roots = [cwd, *(p for p in environment.get("PYTHONPATH", "").split(os.pathsep) if os.path.isabs(p))]
+    try:
+        yield environment
+    finally:
+        if cache:
+            for mirror in _mirrors(Path(cache["PYTHONPYCACHEPREFIX"]), roots):
+                shutil.rmtree(mirror, ignore_errors=True)

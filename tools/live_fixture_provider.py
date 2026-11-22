@@ -22,6 +22,18 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+
+def _fixed_file():
+    """A workspace file a scripted Tester's probe_reason names: a reason stands only when it names a path
+    that exists in the workspace (tools/autocode_tester_probes.py)."""
+    root = Path.cwd()
+    for path in sorted(root.rglob("*")):
+        relative = path.relative_to(root)
+        if path.is_file() and "." in path.name[1:] and not any(part.startswith(".") for part in relative.parts):
+            return relative.as_posix()
+    return ""
+
+
 GREET_PY = '''\
 """Deterministic greeting CLI."""
 import sys
@@ -977,7 +989,7 @@ def main() -> int:
         for row in report["criterion_results"]:
             if row["status"] == "PASS":
                 row["probe_reason"] = (
-                    f"Handwritten fixture Tester: {row['id']} is checked by its fixed unittest run only"
+                    f"Handwritten fixture Tester: {row['id']} is checked by its fixed unittest run only; {_fixed_file()} holds the input"
                 )
     handoff = (data.get("requirements_handoff") or {}).get("report") or {}
     if "requirement_trace" in report and any(row.get("id") == "R5" for row in handoff.get("requirements", [])):

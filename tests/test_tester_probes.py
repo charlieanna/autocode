@@ -112,6 +112,7 @@ class TesterProbeTests(unittest.TestCase):
         )
         self.run = self.root / ".autocode" / "runs" / "fixture"
         self.run.mkdir(parents=True)
+        (self.root / "README.md").write_text("Run with --strict.\n")  # the file REASON names
         self.state = self.make_state([APPROVED])
 
     def make_state(self, validation_plan):
@@ -336,7 +337,7 @@ class TesterProbeTests(unittest.TestCase):
         util.validate_schema(ac5_report(), self.stage_schema())
         self.admit(ac5_report())
         self.assertEqual(
-            {"tester_checks": [], "approved_checks": [APPROVED], "reason": REASON},
+            {"tester_checks": [], "approved_checks": [APPROVED], "reason": REASON, "reason_paths": ["README.md"]},
             self.state["validation"]["tester_probes"]["C1"],
         )
         self.state.pop("validation")
@@ -448,7 +449,7 @@ class TesterProbeTests(unittest.TestCase):
         self.assertEqual((0, ""), (code, err))
         self.assertIn("OK (tester)", out)
 
-    def test_ac20_probe_reason_offered_only_in_tester_stage_schema(self):
+    def test_ac20_probe_reason_offered_only_in_tester_route_schemas(self):
         item = self.stage_schema()["properties"]["criterion_results"]["items"]
         self.assertEqual({"type": ["string", "null"]}, item["properties"]["probe_reason"])
         self.assertNotIn("probe_reason", item["required"])
@@ -459,7 +460,11 @@ class TesterProbeTests(unittest.TestCase):
             workflow.checkpoint_schema(SCHEMA_DIR), self.state, "review_checkpoint"
         )
         validation = checkpoint["properties"]["validation"]
-        self.assertNotIn("probe_reason", validation["properties"]["criterion_results"]["items"]["properties"])
+        # The combined route's validation is a Tester report too (#3979).
+        self.assertEqual(
+            {"type": ["string", "null"]},
+            validation["properties"]["criterion_results"]["items"]["properties"]["probe_reason"],
+        )
 
     def test_an_omitted_probe_reason_is_null_under_the_strict_wire_schema(self):
         # Strict generation requires every property, so a report written before probe_reason (or by a
@@ -484,12 +489,140 @@ class TesterProbeTests(unittest.TestCase):
         kept = report_schema.normalize_absent_authority(supplied, wire, {"stage": "tester"})
         self.assertEqual("Docs", kept["criterion_results"][0]["probe_reason"])
 
-    def test_a_combined_review_checkpoint_validation_is_not_gated(self):
-        # review_checkpoint applies its validation as "tester", but its schema offers no probe_reason.
+    def test_the_combined_review_checkpoint_route_is_gated_like_the_tester(self):
+        # review_checkpoint applies its validation as "tester" (workflow.apply_checkpoint) (#3979).
         record = {**self.record(), "stage": "review_checkpoint"}
-        self.admit(ac2_report(), record)
-        self.assertEqual("PASS", self.state["validation"]["verdict"])
-        self.assertNotIn("tester_probes", self.state["validation"])
+        error = self.rejection(ac2_report(), record)
+        self.assertIsInstance(error, util.ExecutionEvidenceRequired)
+        self.assertIn(MISSING, str(error))
+        self.assertEqual("missing_execution", repair_triage.classify_rejection(self.state, record, error))
+        state = copy.deepcopy(self.state)
+        self.assertTrue(resolve_repair_job.queue_missing_execution(state, record, error))
+        self.assertEqual("review_checkpoint", state["resolve_repair_request"]["stage"])
+        self.state["resolve_repair_history"] = [
+            {
+                "kind": "missing_execution",
+                "stage": "review_checkpoint",
+                "source_revision": record["source_revision"],
+                "contract_hash": "approved",
+            }
+        ]
+        self.assertNotIsInstance(self.rejection(ac2_report(), record), util.ExecutionEvidenceRequired)
+        self.admit(ac4_report(), record)
+        self.assertEqual([PROBE], self.state["validation"]["tester_probes"]["C1"]["tester_checks"])
+        self.state.pop("validation")
+        self.admit(ac5_report(), record)
+        self.assertEqual(["README.md"], self.state["validation"]["tester_probes"]["C1"]["reason_paths"])
+
+    def test_report_check_gates_the_combined_route_validation(self):
+        schema = report_schema.review_generation_schema(
+            workflow.checkpoint_schema(SCHEMA_DIR), self.state, "review_checkpoint"
+        )
+        spec = report_check.build_spec(stage="review_checkpoint", workspace=self.root, schema=schema, state=self.state)
+        self.assertEqual([APPROVED], spec["approved_commands"])
+        spec = {**spec, "schema": {}}  # the probe check alone, without a whole decision object
+        for validation, refused in ((ac2_report(), True), (ac5_report("anything"), True), (ac4_report(), False)):
+            with self.subTest(validation=validation["criterion_results"][0]):
+                errors = [e for e in report_check.check_report(json.dumps({"validation": validation}), spec=spec)]
+                self.assertEqual(refused, any("Tester PASS" in error for error in errors), errors)
+
+    def test_a_probe_reason_must_name_a_file_in_the_workspace(self):
+        # #3979: "anything" was accepted as the reason no probe could vary the input.
+        (self.root / "docs").mkdir()
+        (self.root / "docs" / "cli.md").write_text("--strict\n")
+        outside = self.root.parent / "outside-note.md"
+        self.addCleanup(lambda: outside.unlink(missing_ok=True))
+        outside.write_text("x")
+        for reason in (
+            "anything",
+            "Documentation only; no input can vary",
+            "C1 names a flag in GUIDE.md",  # no such file
+            f"See ../{outside.name}",  # outside the workspace
+            f"See {outside}",
+            "Fixed value v1.2",
+        ):
+            with self.subTest(reason=reason):
+                error = self.rejection(ac5_report(reason))
+                self.assertNotIsInstance(error, util.ExecutionEvidenceRequired)  # a report repair can name the file
+                self.assertIn("probe_reason that names no file: C1", str(error))
+                self.state.pop("validation", None)
+                code, _out, err = self.report_check(ac5_report(reason))
+                self.assertEqual(1, code)
+                self.assertIn("names no file", err)
+        for reason, paths in (
+            ("Documentation only: `docs/cli.md` names --strict", ["docs/cli.md"]),
+            ("The docs/ folder holds only prose", ["docs/"]),
+            (f"{self.root / 'README.md'} is fixed text.", [str(self.root / "README.md")]),
+        ):
+            with self.subTest(reason=reason):
+                self.admit(ac5_report(reason))
+                self.assertEqual(paths, self.state["validation"]["tester_probes"]["C1"]["reason_paths"])
+                self.state.pop("validation")
+        mixed = make_tester_report(
+            [check(APPROVED, "event:item_1")], [row("C1", "check:1"), row("C2", "check:1", probe_reason="anything")]
+        )
+        error = self.rejection(mixed)
+        self.assertIsInstance(error, util.ExecutionEvidenceRequired)  # C1 still needs a run of its own
+        self.assertIn("Tester PASS without a probe: C1", str(error))
+        self.assertIn("names no file: C2", str(error))
+
+    def test_rerunning_an_approved_command_another_way_is_not_a_probe(self):
+        # #3979: the approved command with -q was admitted as a Tester-owned check.
+        same = (
+            APPROVED + " -q",
+            APPROVED + " --verbose",
+            "python -m unittest -v tests.test_store",
+            ".venv/bin/python -m unittest tests.test_store",
+            "timeout 600 " + APPROVED,
+            "env PYTHONPATH=. " + APPROVED,
+            "PYTHONPATH=src " + APPROVED + " -b",
+            APPROVED + " 2>&1 | tail -n 40",
+            APPROVED + "; echo exit=$?",
+            "bash -lc " + shlex.quote("cd /tmp && " + APPROVED + " -q"),
+            f"cd {shlex.quote(str(self.root))} && {APPROVED} -q 2>&1",
+            APPROVED + ".StoreTests.test_keeps_records",
+        )
+        for command in same:
+            with self.subTest(command=command):
+                report = make_tester_report([check(APPROVED, "event:item_1"), check(command, "event:item_2")], [])
+                report["criterion_results"] = [row("C1", "check:1", "check:2")]
+                record = self.record(rows=[("item_1", APPROVED, 0), ("item_2", command, 0)])
+                self.assertIsInstance(self.rejection(report, record), util.ExecutionEvidenceRequired)
+        probes = (
+            PROBE,
+            "python3 -c " + shlex.quote("import store; store.load('caf\u00e9.json')"),
+            "python3 -m unittest tests.test_store_probe",
+            "printf '{}' | python3 store.py list",
+            APPROVED + " && python3 probe_store.py",
+        )
+        for command in probes:
+            with self.subTest(command=command):
+                report = make_tester_report(
+                    [check(APPROVED, "event:item_1"), check(command, "event:item_2")], [row("C1", "check:1", "check:2")]
+                )
+                self.admit(report, self.record(rows=[("item_1", APPROVED, 0), ("item_2", command, 0)]))
+                self.assertEqual([command], self.state["validation"]["tester_probes"]["C1"]["tester_checks"])
+                self.state.pop("validation")
+
+    def test_a_display_option_or_one_test_of_a_pytest_command_is_not_a_probe(self):
+        self.state = self.make_state([PYTEST])
+        for command, own in (
+            ("python3 -m pytest tests/test_store.py::test_keeps -k 'store and not slow' --tb=short -q", False),
+            ("python3 -m pytest -k 'store and not slow' --color no tests/test_store.py", False),
+            ("python3 -m pytest -k slow tests/test_store.py", True),
+            ("python3 -m pytest tests/test_store_probe.py", True),
+        ):
+            with self.subTest(command=command):
+                report = make_tester_report(
+                    [check(PYTEST, "event:item_1"), check(command, "event:item_2")], [row("C1", "check:1", "check:2")]
+                )
+                record = self.record(rows=[("item_1", PYTEST, 0), ("item_2", command, 0)])
+                if own:
+                    self.admit(report, record)
+                    self.assertEqual([command], self.state["validation"]["tester_probes"]["C1"]["tester_checks"])
+                    self.state.pop("validation")
+                else:
+                    self.assertIsInstance(self.rejection(report, record), util.ExecutionEvidenceRequired)
 
     def test_a_saved_run_without_a_contract_rerun_goes_to_report_repair(self):
         self.state["version"] = 2  # queue_missing_execution never reruns such a run

@@ -724,6 +724,12 @@ def apply(
             # This temporary verdict is pure; it grants no receipt or transition.
             _verdicts(state, cases, value, workspace, run, inherited=inherited, retained=selected)
             original_reference = run_reference(selected, files)
+            if original_reference.get("runner_not_started"):
+                # The same rule as the candidate's own run (#3877): a runner that never started judged no test,
+                # so the finished writer is kept and each resume re-runs the checks without a model call. Read as
+                # an ordinary failure, it spent the one bounded re-check, and a cause AutoCode then fixed (the
+                # interpreter it chose, #4020) left a pause no resume could clear.
+                raise RunnerDidNotStart(original_reference["error"], original_reference["runner_not_started"])
             if original_reference.get("error"):
                 setup_errors = original_reference.get("setup_errors")
                 if setup_errors and original_reference.get("receipt"):

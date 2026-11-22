@@ -22,7 +22,6 @@ import copy
 import hashlib
 import os
 import shlex
-import tempfile
 import time
 from pathlib import Path
 
@@ -107,28 +106,19 @@ def proving_tests(cases, proof, framework_name) -> list[str]:
     return sorted(test for test in selected if test not in unstable)
 
 
-def isolated(command, cache) -> str:
-    """Use this collection's own bytecode cache. Unchanged dependencies can reuse their compile;
-    _collect gives each changed source version its own whole-second modification time, including
-    for child interpreters that ignore this environment. A new collection starts with a fresh cache.
-    ``PYTHONDONTWRITEBYTECODE=`` overrides ``test_environment``'s ``1`` so Python populates ``cache``.
+def _proof_environment(command) -> str:
+    """A Python mutant's command is the proving command, in the proof's own environment.
+
+    The command runner gives every check command the same bytecode cache
+    (``autocode_test_environment.bytecode_cache_environment``) and removes the tree's compiles when it
+    ends. The collection once set a cache of its own, a new path for each collection: a test that read
+    that path ran differently under the mutation check than under the proof, and a continuation kept a
+    kill from a window whose path the next window's test never saw (#4062).
     """
-    invocation = python_tests.parse(command, include_owned=True)
-    prefix = [
-        word
-        for word in (list(invocation.prefix) or ["env"])
-        if not word.startswith(("PYTHONDONTWRITEBYTECODE=", "PYTHONPYCACHEPREFIX="))
-    ] or ["env"]
-    return invocation.render(
-        prefix=[
-            *prefix,
-            "PYTHONDONTWRITEBYTECODE=",
-            f"PYTHONPYCACHEPREFIX={cache}",
-        ]
-    )
+    return command
 
 
-def _uncached(command, cache) -> str:
+def _uncached(command) -> str:
     """A runner that is not Python keeps its command, except that Go may not answer from its test cache.
 
     ``go test`` replays a package's earlier result when the test binary and the files the test opened
@@ -272,6 +262,7 @@ def collect_selected_tests(
             return record("the selected tests do not contain ordinary test IDs")
         tests = sorted(set(tests))
         maximum = clock() + BUDGET_SECONDS
+        outer = deadline
         deadline = min(deadline, maximum) if deadline is not None else maximum
         return _collect(
             framework_name,
@@ -288,6 +279,7 @@ def collect_selected_tests(
             enforcement=enforcement,
             previous=previous,
             progress=progress,
+            outer_deadline=outer,
         )
     except command_receipt.OwnershipUncertain:
         raise
@@ -311,6 +303,7 @@ def _collect(
     enforcement=False,
     previous=None,
     progress=None,
+    outer_deadline=None,
 ) -> dict:
     if not tests:
         return record("no judged test is named after a due case, so the mutation check ran no test")
@@ -322,7 +315,7 @@ def _collect(
             unavailable=NO_SELECTION,
         )
     make = mutants.python_mutants if python else text_mutants.text_mutants
-    prepare = isolated if python else _uncached
+    prepare = _proof_environment if python else _uncached
     suffixes: tuple[str, ...] = (
         (".py", ".pyi")
         if python
@@ -393,7 +386,6 @@ def _collect(
                     "outcome": "not_run",
                 }
             return failed
-    cache = Path(tempfile.mkdtemp(prefix="pycache-", dir=evidence))
     started_wall = time.monotonic()
     total_mutants = len(planned)
     if progress is not None:
@@ -408,7 +400,8 @@ def _collect(
             total=total_mutants,
             elapsed_seconds=elapsed,
         )
-    reference = run(prepare(narrowed, cache), "unmutated", reference_limit)
+    reference_started = clock()
+    reference = run(prepare(narrowed), "unmutated", reference_limit)
     observed_reference = reference if python else mutation_results.selected(reference, tests)
     outcome, passed = (proved_outcome if enforcement else judge)(observed_reference, tests)
     if outcome != "survived" or (strict and set(passed) != set(tests)):
@@ -424,6 +417,14 @@ def _collect(
                 "outcome": outcome,
             }
         return failed
+    if previous is not None:
+        # A continuation window runs the unmutated reference again in its new tree, which is right, but
+        # its time is not the mutants' budget. Charged to it, a reference over half the window left no
+        # mutant that runs every selected test enough time, in this window or any later one, so a slow
+        # suite cut the same kind of site short in every window (#3945 run). The caller's total
+        # allowance still bounds the window.
+        extended = deadline + max(0.0, clock() - reference_started)
+        deadline = min(outer_deadline, extended) if outer_deadline is not None else extended
     bound = max(MUTANT_FLOOR_SECONDS, MUTANT_FACTOR * float(reference.get("duration_seconds") or 0))
     # A runner selected by name pattern runs to the end: its early stop would leave tests beside the
     # selected ones unreported in an order nothing here controls.
@@ -499,7 +500,7 @@ def _collect(
                 target,
                 ns=(times.st_atime_ns, _later(target) if forward else times.st_mtime_ns - number * 1_000_000_000),
             )
-            receipt = run(prepare(active_command, cache), label, limit)
+            receipt = run(prepare(active_command), label, limit)
         except command_receipt.OwnershipUncertain:
             ownership_uncertain = strict
             raise

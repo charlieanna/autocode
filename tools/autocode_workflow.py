@@ -317,6 +317,10 @@ def activate(state: RunState, *, approval_source):
 
 def checkpoint_schema(schema_dir):
     validation = goals.role_schema(support.read(schema_dir / "v2/sol-report.schema.json"), "tester")
+    # The validation half is the Tester's report on the Plan Reviewer, under the same probe gate (#3979).
+    row = ((validation.get("properties") or {}).get("criterion_results") or {}).get("items", {}).get("properties")
+    if isinstance(row, dict):
+        row["probe_reason"] = {"type": ["string", "null"]}
     decision = goals.role_schema(support.read(schema_dir / "v2/astra-decision.schema.json"), "task_planner")
     return goals.obj(
         {
