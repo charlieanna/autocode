@@ -32,6 +32,7 @@ def _offline_fixture():
     provider = root / "bin" / "codex"
     recorded = root / "fake-config.json"
     source = CLI.parents[1] / "scenarios/harness/fake_codex.py"
+    helper = provider.parent / "fake_changed_code.py"
     if (
         recorded.is_symlink()
         or not recorded.is_file()
@@ -41,6 +42,9 @@ def _offline_fixture():
         or not provider.is_file()
         or provider.read_bytes() != source.read_bytes()
         or not os.access(provider, os.X_OK)
+        or helper.is_symlink()
+        or not helper.is_file()
+        or helper.read_bytes() != source.with_name(helper.name).read_bytes()
     ):
         raise ValueError("The editor fixture cannot identify its scripted provider")
     os.environ["PATH"] = os.pathsep.join((str(provider.parent), os.environ.get("PATH", "")))

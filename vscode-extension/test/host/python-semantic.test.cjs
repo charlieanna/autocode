@@ -279,3 +279,25 @@ test('real editor verifies the first Go project against a pristine original base
       }
     },
   }));
+
+test('real editor completes after both protected replay halves read the pinned directory fixture', { timeout: 600_000 }, () =>
+  completeInEditor({
+    kind: 'pf-dir',
+    fixtureFile: 'protected_directory_vscode_fixture.py',
+    prompt: 'pager.page_count(11, 5) returns 2',
+    overviewText: 'pager.page_count',
+    criteria: ['unittest'],
+    verifyCompletion(after, fixture) {
+      const replay = after.evidence?.check_replay?.protected_tests;
+      assert.equal(replay?.verdict, 'PASS');
+      assert.equal(replay.source_revision, after.verification.source_revision);
+      assert.deepEqual(replay.changed_tests, ['tests/test_pager.py']);
+      for (const half of ['candidate', 'original']) {
+        assert.equal(replay[half].exit_code, 0, replay[half]);
+        assert.match(replay[half].tail, /Original directory fixture verified/);
+      }
+      assert.equal(fs.readlinkSync(path.join(fixture.workspace, 'tests/fixtures/current')), 'v2/');
+      console.log('Protected directory replay', JSON.stringify({ verification: after.verification.source_revision,
+        changed: replay.changed_tests, candidate: replay.candidate.exit_code, original: replay.original.exit_code }));
+    },
+  }));

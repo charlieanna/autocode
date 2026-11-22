@@ -51,6 +51,7 @@ class ScopeTests(unittest.TestCase):
             "tools/autocode_progress_view.py",
             "tests/provider_auth_fixture.py",
             "tests/protected_link_vscode_fixture.py",
+            "tests/protected_directory_vscode_fixture.py",
         ):
             self.assertIn("extension", self.enabled(path))
 
@@ -76,6 +77,7 @@ class ScopeTests(unittest.TestCase):
             "tools/autocode_job_retry_admission.py",
             "tests/provider_auth_fixture.py",
             "tests/protected_link_vscode_fixture.py",
+            "tests/protected_directory_vscode_fixture.py",
             "tests/python_semantic_vscode_fixture.py",
             "tests/first_go_vscode_fixture.py",
             "tools/autocode_first_go_proof.py",
