@@ -21,6 +21,18 @@ from goal_fixtures import (
     write_greeting_source,
 )
 
+
+def _fixed_file():
+    """A workspace file a scripted Tester's probe_reason names: a reason stands only when it names a path
+    that exists in the workspace (tools/autocode_tester_probes.py)."""
+    root = Path.cwd()
+    for path in sorted(root.rglob("*")):
+        relative = path.relative_to(root)
+        if path.is_file() and "." in path.name[1:] and not any(part.startswith(".") for part in relative.parts):
+            return relative.as_posix()
+    return ""
+
+
 # The stages that run on the per-task Planner's route (autocode_names.TASK_PLANNER_STAGES). This fake is
 # copied out of tools/ to run, so it names them itself.
 TASK_PLANNER_STAGES = {
@@ -1068,13 +1080,14 @@ if stage in ("tester", "review_checkpoint") and "changed_code_exceptions" in val
     )  # one reason per gap: the gate refuses a duplicate gap_id
     validation_report["changed_code_exceptions"] = quote_changed_lines(data, reasons[:cap])
 criterion_row = validation_schema.get("criterion_results", {}).get("items", {}).get("properties", {})
-if stage == "tester" and (not schema or "probe_reason" in criterion_row):
+if stage in ("tester", "review_checkpoint") and (not schema or "probe_reason" in criterion_row):
     # A scripted Tester runs no probe of its own beyond its one scripted CLI check, so it records why for
-    # each PASS criterion (autocode_tester_probes); review_checkpoint's schema offers no probe_reason.
+    # each PASS criterion (autocode_tester_probes), on either Tester route.
     for row in validation_report.get("criterion_results") or []:
         if row.get("status") == "PASS":
             row.setdefault(
-                "probe_reason", f"Scripted fixture Tester: {row['id']} is checked by its fixed scripted CLI flow only"
+                "probe_reason",
+                f"Scripted fixture Tester: {row['id']} is checked by its fixed scripted CLI flow only; {_fixed_file()} holds the input",
             )
 if "--output-schema" in sys.argv:
     if "workspace_scope" in schema.get("properties", {}):

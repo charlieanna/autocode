@@ -4,7 +4,12 @@ Read the approved contract, exact changes and relevant source. The Builder's sum
 proof. Run the relevant checks read-only; do not fix files. Return a validation object
 with actual command/event evidence for each tested criterion, and a decision object.
 Apply the same independent validation rules formerly assigned to the Validator. Record unknown
-criteria as NOT_VERIFIED. COMPLETE requires passing evidence for EVERY criterion,
+criteria as NOT_VERIFIED. Each behavioral criterion the validation marks PASS needs at least one probe
+of your own beyond the approved checks, varying its input along an axis the approved examples held fixed,
+listed as a check and cited as check:<n>; rerunning an approved command with other output options or
+wrappers, or one test of it, is not a probe. Where the criterion is process, documentation or human-review
+only, or no input can vary, give a short probe_reason that names by its workspace path the file whose fixed
+content leaves nothing to vary. COMPLETE requires passing evidence for EVERY criterion,
 current artifact/contract, required human reviews and the complete required flow.
 REWORK assigns a coherent Builder correction of blocking findings. CONTINUE assigns the
 next substantial approved milestone. Preserve requirements; never invent extra scope.

@@ -109,13 +109,13 @@ the recorded reason path makes the gate cheap for criteria where nothing can var
 
 ## Still open
 
-1. **Combined review routing.** Under `glm_first_v1` the testing job runs as `review_checkpoint`, whose
-   prompt is not `validator.md` and whose schema has no `probe_reason`; it gets neither the probe
-   paragraph nor the gate (`autopilot` gates only a record whose stage is `tester`).
-2. **The gate compares argument lists, not intent.** A cited command whose argument list differs from
-   every approved command counts as a probe, so rerunning the suite or an approved test with another
-   flag (`-v`, `-k`) passes it. Whether a probe varies an input along one of the axes is the prompt's
-   instruction and the Completion Reviewer's judgment, not something the runner checks.
+Items 1, 2 and 5 below were closed by #3979 (see "Follow-up: #3979" at the end).
+
+1. ~~**Combined review routing.**~~ Under `glm_first_v1` the testing job runs as `review_checkpoint`;
+   it now gets the probe paragraph, the `probe_reason` field in its `validation` and the gate.
+2. ~~**The gate compares argument lists, not intent.**~~ Display options, wrappers and one test of an
+   approved test file no longer count as a probe. Whether a probe varies an input along one of the axes
+   is still the prompt's instruction and the Completion Reviewer's judgment.
 3. **mypy.** mypy is not installed in this checkout's `.venv` and is never installed into the project;
    the type check of the changed `tools/` modules comes from the CI mypy job for the revision.
 4. **`tests/coordination_provider.py`.** Updated as the person decided (answer Q1): its scripted Tester
@@ -124,7 +124,7 @@ the recorded reason path makes the gate cheap for criteria where nothing can var
    not pass in this environment; the operator verifies the coordination flow and the pull request's CI
    is the evidence (`tests.test_coordination_tui_e2e` fails here on the base commit as well, 7 failures
    and 2 errors of 9, for the session-boundary reason above).
-5. **Any nonblank reason is accepted.** The gate does not check that a criterion with a `probe_reason`
+5. ~~**Any nonblank reason is accepted.**~~ A reason must now name an existing workspace path. The gate does not check that a criterion with a `probe_reason`
    is really process, documentation or human-review only, or that no input can vary; a Tester could
    write a reason where a probe was due. That judgment stays with the prompt and the reviewers.
 
@@ -132,3 +132,38 @@ the recorded reason path makes the gate cheap for criteria where nothing can var
 
 Resources: `tools/prompts/validator.md`
 Exempt reason: The approved plan for this change forbids live model runs (permission boundary: no live model runs). The prompt paragraph is checked by tests.test_tester_probes (the axes and the plan-approach comparison are present, none of the five cases is named) and every runner and report-check behavior it relies on is covered by model-free saved-report tests; a live Tester run on the five issues' fixtures is left for the operator.
+
+## Follow-up: #3979
+
+The gate could still admit a PASS with no independent probe in three ways, one cause each:
+
+- **What counted as "the same command" was the exact argument list.** `python3 -m unittest tests.test_store
+  -q` was a Tester probe of `python3 -m unittest tests.test_store`. `autocode_tester_probes.is_approved` now
+  compares what a check runs: it splits the shell line (`;`, `&&`, `|`, redirections), drops the runner's
+  `cd` wrapper, `sh -c`/`bash -lc`, `VAR=value`, `env` and `timeout` prefixes, `echo` notes and output
+  filters (`| tail`), reduces the program to its name (`.venv/bin/python`, `python3.13` are `python`), and
+  compares the inputs selected: options are dropped (a few display options that take a separate value,
+  `--tb`, `--color`, `--format`, `--reporter`, drop their value too), and a positional word may name a part of
+  an approved one (`tests.test_store.StoreTests.test_x`, `tests/test_store.py::test_x`). A check that runs
+  anything else (another script, `python -c`, another test module, an approved command followed by a probe)
+  is the Tester's own.
+- **Any nonblank `probe_reason` stood.** A reason now stands only when it names, by path, a file or
+  directory that exists in the workspace (`reason_paths`), the file whose fixed content leaves nothing to
+  vary; `anything` names nothing AutoCode can find. Such a refusal is a plain `ValueError`, so the bounded
+  report-only repair can name the file or report the criterion NOT_VERIFIED. The scripted Testers name a
+  workspace file in their reasons.
+- **The combined `review_checkpoint` route had no gate.** Its `validation` is applied as `tester`, but the
+  gate keyed on the record's stage. The gate now runs on both routes, the bounded rerun is keyed on the
+  record's own stage, the checkpoint schema offers `probe_reason`, `report-check` checks the `validation`,
+  and the checkpoint prompt carries the probe paragraph.
+
+**Rejection rate (rule 8).** The same survey archive now holds 406 saved Tester reports with their run
+state; 292 are PASS and 236 of those have approved required commands. `master`'s gate refuses 223 of the
+236, this change 230. The 7 more are each an approved command rerun another way: `.venv/bin/python -m
+pytest tests` for `python -m pytest tests`, `... -q`, `bundle exec rspec --format documentation` for
+`bundle exec rspec`, `python3 -m unittest -v` for `python3 -m unittest`. No saved report from before #3966
+carries a `probe_reason`, so the reason check's rate on live answers is not measured here.
+
+**Still open.** A positional option value (`-k slow`) still makes a different selection, which counts as
+a probe; a probe that drops an approved `-k` filter is not counted, although it runs more tests. Whether
+the file a reason names really leaves nothing to vary is the reviewers' judgment.
