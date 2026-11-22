@@ -240,6 +240,7 @@ def answer(runner, args, state: RunState, run_dir, workspace):
         role = asked["route_role"]
         # MODEL@LEVEL also names the effort (#1902): the same model at a lighter variant is a change.
         model, effort = quota_route.split_effort(model)
+        requested_effort = effort
         effort = job_failure.retry_admission.answer_effort(state, failure, role, effort)
         if failure.get("pause_status") in (
             quota_route.REFUSAL_STATUS,
@@ -264,7 +265,8 @@ def answer(runner, args, state: RunState, run_dir, workspace):
         )
         if effort is not None:
             quota_route.check_effort(candidate, role, model, effort, job=asked.get("job"))
-        if quota_route.engine(candidate["settings"], role) == "opencode":
+        replay = bool(candidate["settings"].get("replay_recording"))
+        if quota_route.engine(candidate["settings"], role) == "opencode" and not replay:
             try:
                 facade = role_transport.adapter(candidate["settings"], role, runner.opencode, workspace)
                 facade.check_models({role: {"model": model}}, workspace)
@@ -276,8 +278,21 @@ def answer(runner, args, state: RunState, run_dir, workspace):
         if not attempt or attempt["kind"] != "job" or attempt["role"] != role:
             raise ValueError("The stopped job attempt is no longer current; run with --status to see it")
         record = quota_route.assign(
-            candidate, role, model, at=runner.now(), via="answer", attempt=attempt, effort=effort
+            candidate,
+            role,
+            model,
+            at=runner.now(),
+            via="answer",
+            attempt=attempt,
+            effort=effort,
+            requested_effort=requested_effort,
         )
+        if replay:
+            try:
+                from . import autocode_replay_job_action as replay_job_action
+            except ImportError:
+                import autocode_replay_job_action as replay_job_action
+            replay_job_action.answer(state, candidate, workspace, role, model, requested_effort)
         token = job_failure.reroute(runner, candidate, run_dir, workspace, record)
     except (ValueError, KeyError) as error:
         print(f"Input rejected: {error}", file=sys.stderr)

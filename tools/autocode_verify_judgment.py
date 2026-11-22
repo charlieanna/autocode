@@ -10,19 +10,25 @@ its verdict. Missing evidence is UNVERIFIED, never PASS.
 from __future__ import annotations
 
 try:
+    from . import autocode_cargo_build_evidence as cargo_build
+    from . import autocode_cargo_tests as cargo_tests
     from . import autocode_check_outcome as check_outcome
     from . import autocode_command_receipt as command_receipt
     from . import autocode_first_suite as first_suite
     from . import autocode_junit_first_suite as junit_first
+    from . import autocode_package_scope as package_scope
     from . import autocode_proof_seam as proof_seam
     from . import autocode_test_root as test_roots
     from . import autocode_test_setup as test_setup
     from . import autocode_verification_schedule as schedule
 except ImportError:
+    import autocode_cargo_build_evidence as cargo_build
+    import autocode_cargo_tests as cargo_tests
     import autocode_check_outcome as check_outcome
     import autocode_command_receipt as command_receipt
     import autocode_first_suite as first_suite
     import autocode_junit_first_suite as junit_first
+    import autocode_package_scope as package_scope
     import autocode_proof_seam as proof_seam
     import autocode_test_root as test_roots
     import autocode_test_setup as test_setup
@@ -279,6 +285,15 @@ def judge_regression(
             not_run -= preserved
             if unchanged:
                 notes.append(f"Not proof (unchanged): {len(unchanged)} test(s); kept from base: {len(preserved)}")
+        if new_behavior and cargo_tests.command_words(
+            package_scope.within(on_candidate.get("command")), include_owned=True
+        ):
+            skipped = set(base.get("skipped") or [])
+            flipped = [
+                name
+                for name in flipped
+                if name in ran_and_failed or (name not in skipped and cargo_build.was_blocked(base, candidate, name))
+            ]
         proof["fail_to_pass"] = flipped
         proof["pass_to_pass"] = sorted(kept)
         proof["not_run_on_base"] = sorted(not_run)

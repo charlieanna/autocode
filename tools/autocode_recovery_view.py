@@ -288,6 +288,10 @@ def _job_model_stop(state: RunState, role, need):
     """
     if not quota_route.job_pause_current(state):
         return None
+    if need.get("replay_job") is True:
+        return "Replay is continuing the recorded job action."
+    if need.get("kind") == "replay_stopped":
+        return "Replay cannot continue from the recorded job actions."
     failure = _dict(state.get("job_failure"))
     route = _dict(quota_route.job_question(state))
     cause = quota_route.job_stop_status(failure) or _JOB_STOP_CAUSE.get(failure.get("kind"))

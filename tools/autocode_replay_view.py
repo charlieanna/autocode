@@ -12,11 +12,13 @@ from pathlib import Path
 
 try:
     from . import autocode_answer_options as answer_options
+    from . import autocode_quota_route as quota_route
     from . import autocode_regression_state as regression_state
     from . import autocode_replay_dependency_evidence as copy_evidence
     from . import autocode_util as util
 except ImportError:
     import autocode_answer_options as answer_options
+    import autocode_quota_route as quota_route
     import autocode_regression_state as regression_state
     import autocode_replay_dependency_evidence as copy_evidence
     import autocode_util as util
@@ -313,6 +315,14 @@ def _project(state: RunState, *, run_dir=None):
     ]
     contracts = [*(state.get("contract_history") or []), state.get("goal_contract") or {}]
     actions = []
+    job_retry_ids = {
+        event.get("attempt_id")
+        for event in state.get("user_events") or []
+        if event.get("kind") == "job_retry_authorized"
+    }
+    current_failure = state.get("job_failure") or {}
+    if isinstance(current_failure.get("attempt_id"), str):
+        job_retry_ids.add(current_failure["attempt_id"])
     for event in state.get("user_events") or []:
         kind = event.get("kind")
         anchor = next(
@@ -384,6 +394,60 @@ def _project(state: RunState, *, run_dir=None):
                     "payload": {"criterion": event.get("criterion")},
                 }
             )
+        elif kind in ("route_assignment", "job_retry_authorized") and event.get("attempt_id") in job_retry_ids:
+            attempts = [row for row in records if row.get("output") and util.attempt_id(row) == event["attempt_id"]]
+            if len(attempts) != 1:
+                raise ValueError("Recorded job retry has no unique source attempt")
+            stage = attempts[0]["stage"]
+            if kind == "job_retry_authorized" and event.get("actor") == "user_cli":
+                actions.append(
+                    {
+                        "before_dispatch": anchor,
+                        "kind": "retry_job",
+                        "match": {"kind": "retry_job", "stage": stage},
+                        "payload": {},
+                    }
+                )
+            elif (
+                event.get("actor") == "user_cli"
+                and event.get("via") == "answer"
+                and event.get("stage") == stage
+                and event.get("role") == attempts[0].get("route_role")
+                and event.get("engine") == attempts[0].get("engine")
+                and not event.get("tool")
+            ):
+                effort = event.get("effort") or {}
+                effort_known = "requested_effort" in event or effort.get("named") is True
+                requested = event.get("requested_effort") if "requested_effort" in event else effort.get("to")
+                stopped_model = (attempts[0].get("launch_route") or {}).get("model")
+                cause = quota_route.stop_cause(event.get("pause_status"))
+                if not isinstance(stopped_model, str) or not cause:
+                    raise ValueError("Recorded job stop has no bound cause and model")
+                actions.append(
+                    {
+                        "before_dispatch": anchor,
+                        "kind": "route_job",
+                        "match": {
+                            "kind": "retry_job",
+                            "stage": stage,
+                            "route": {
+                                "role": event.get("role"),
+                                "current_model": event.get("from"),
+                                "engine": event.get("engine"),
+                                "cause": cause,
+                                "stopped_model": stopped_model,
+                            },
+                        },
+                        "payload": {
+                            "role": event.get("role"),
+                            "model": event.get("to"),
+                            "effort": requested if effort_known else None,
+                            "effort_known": effort_known,
+                        },
+                    }
+                )
+            else:
+                raise ValueError("Recorded job route cannot be replayed")
     revisions = [state.get("base_commit")]
     checkpoints = state.get("code_checkpoints") or []
     if not isinstance(checkpoints, list):

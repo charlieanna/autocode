@@ -222,6 +222,38 @@ class ScopeTests(unittest.TestCase):
                 self.assertIn("extension", self.enabled(resource))
         self.assertNotIn("extension", self.enabled("tests/unrelated/classification_vscode_fixture.py"))
 
+    def test_recorded_job_replay_resources_select_the_actual_host(self):
+        from tools import ci_test_selection
+
+        resources = (
+            "tests/replay_job_vscode_fixture.py",
+            "tests/test_job_route.py",
+            "tests/test_job_failure_recovery.py",
+            "tests/job_route_vscode_cli.py",
+            "tests/status_retry_host_cleanup.py",
+            "vscode-extension/test/owned-fixture-cleanup.cjs",
+            "tools/autocode_job_failure.py",
+            "tools/autocode_job_retry_admission.py",
+            "tools/autocode_job_route.py",
+            "tools/autocode_quota_route.py",
+            "tools/autocode_replay_context.py",
+            "tools/autocode_replay_job_action.py",
+            "tools/autocode_replay_recording.py",
+            "tools/autocode_replay_transport.py",
+            "tools/autocode_replay_view.py",
+            "tools/autocode_role_launch.py",
+            "tools/autocode_run_view.py",
+            "tools/autocode_status_observation_worker.py",
+        )
+        for resource in resources:
+            with self.subTest(resource=resource):
+                self.assertIn(
+                    "vscode-extension/test/host/replay-job-route.test.cjs",
+                    ci_test_selection.EXTENSION_HOST_RESOURCES[resource],
+                )
+                self.assertIn("extension", self.enabled(resource))
+        self.assertNotIn("extension", self.enabled("tests/unrelated/replay_job_vscode_fixture.py"))
+
     def test_requirements_standing_resources_select_the_real_host(self):
         from tools import ci_test_selection
 

@@ -15,6 +15,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
+import autocode_cargo_build_evidence as cargo_build
 import autocode_cargo_tests as cargo_tests
 import autocode_changed_tests as changed_tests
 import autocode_named_reporters as reporters
@@ -552,7 +553,9 @@ class ProofTests(unittest.TestCase):
         self.assertEqual(["tests/pages.rs::test_partial_last_page"], result["fail_to_pass"])
         self.assertEqual(["tests/pages.rs::exact_multiple"], result["pass_to_pass"])
         self.assertEqual([], result["review_reasons"])  # named tests, not an exit code
-        self.assertEqual("cargo test --no-fail-fast", result["checks"]["regression_on_base"]["command"])
+        self.assertEqual(
+            "cargo test --no-fail-fast --message-format=json", result["checks"]["regression_on_base"]["command"]
+        )
         # The approved criteria: a restored behavior and one that already worked.
         cases = [
             {
@@ -604,6 +607,55 @@ class ProofTests(unittest.TestCase):
         # Only the new test shows the new behavior; exact_multiple passed on the original code and was kept.
         self.assertEqual(["tests/pages.rs::test_last_page"], result["fail_to_pass"])
         self.assertEqual(["tests/pages.rs::exact_multiple"], result["pass_to_pass"])
+
+    def test_a_build_failure_cannot_prove_a_test_owned_by_another_target(self):
+        addition = "\npub fn last_page(total: u32, size: u32) -> u32 { total % size }\n"
+        proves_feature = "\n#[test]\nfn test_last_page() { assert_eq!(pager::last_page(11, 5), 1); }\n"
+        already_passes = "#[test]\nfn test_already_works() { assert_eq!(pager::page_count(10, 5), 2); }\n"
+        self.write(
+            {
+                "src/lib.rs": LIBRARY + addition,
+                "tests/pages.rs": EXISTING + proves_feature,
+                "tests/unrelated.rs": already_passes,
+            }
+        )
+        result = self.verify(new_behavior=True)
+        self.assertEqual("PASS", result["verdict"], result)
+        self.assertEqual(["tests/pages.rs::test_last_page"], result["fail_to_pass"])
+        self.assertIn("tests/unrelated.rs::test_already_works", result["not_run_on_base"])
+
+    def test_cargo_binds_duplicate_custom_targets_to_their_workspace_packages(self):
+        self.write({"Cargo.toml": '[workspace]\nmembers = ["alpha", "beta"]\nresolver = "2"\n'})
+        for package in ("alpha", "beta"):
+            self.write(
+                {
+                    f"{package}/Cargo.toml": (
+                        f'[package]\nname = "{package}"\nversion = "0.1.0"\nedition = "2021"\n'
+                        '[[test]]\nname = "custom"\npath = "checks/regressions.rs"\n'
+                    ),
+                    f"{package}/src/lib.rs": "pub fn count() -> u8 { 1 }\n",
+                    f"{package}/checks/regressions.rs": (
+                        f"#[test] fn test_count() {{ assert_eq!({package}::count(), 1); }}\n"
+                    ),
+                }
+            )
+        command = "cargo test --workspace"
+        framework = Framework("cargo", command)
+        candidate = verify.run_suite(framework, command, self.root, self.evidence, "candidate", timeout=120)
+        self.assertEqual(0, candidate["exit_code"], candidate["tail"])
+        first, second = (f"{name}/checks/regressions.rs::test_count" for name in ("alpha", "beta"))
+        self.assertCountEqual([first, second], candidate["results"]["passed"])
+        self.write({"beta/src/lib.rs": "pub fn other() -> u8 { 1 }\n"})
+        base = verify.run_suite(framework, command, self.root, self.evidence, "base", timeout=120)
+        self.assertNotEqual(0, base["exit_code"], base["tail"])
+        self.assertTrue(cargo_build.was_blocked(base["results"], candidate["results"], second))
+        self.assertFalse(cargo_build.was_blocked(base["results"], candidate["results"], first))
+
+        result_path = self.evidence / "base.cargo.txt"
+        self.assertIsNotNone(verify.per_test_results(framework, base, result_path, tree=self.root))
+        with Path(base["output"]).open("a") as capture:
+            capture.write("\nThe captured command output changed after collection.\n")
+        self.assertIsNone(verify.per_test_results(framework, base, result_path, tree=self.root))
 
     def test_a_refactor_with_no_new_test_rests_on_the_tests_the_project_has(self):
         helper = "\nfn pages(total: u32, size: u32) -> u32 {\n    total / size\n}\n"
