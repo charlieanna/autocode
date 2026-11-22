@@ -21,6 +21,11 @@ base revision, recorded command), never from a runner, language or file name:
   comparison against another base or one with new diagnostics is refused. One with no new diagnostics
   is admitted but recorded unverified: nothing recorded shows the compared command reports unresolved
   references.
+- A Tester PASS for an approved criterion that states one exit code for the suite command (it quotes the
+  proof's recorded ``commands.suite`` in backticks or says suite command) is read from the current
+  regression proof's recorded ``checks.suite_on_candidate.exit_code`` (#3817): refused when that answer
+  differs, recorded unverified when no current authentic answer can be read (no proof, a receipt whose bytes
+  no longer match its recorded hash, a proof of another source revision). FAIL and UNVERIFIED stay as they are.
 
 ``autocode report-check`` and runner admission call the same functions (one answer, read from one
 place). Imports only low-level helpers; callers pass state, workspace and run directory.
@@ -63,6 +68,7 @@ _CITED = re.compile(r"(?<![A-Za-z0-9_./-])((?:\./)?[A-Za-z0-9_./-]*[A-Za-z0-9_-]
 _REFERENCE = re.compile(r"\b(?:cross-?references?|references?|refs?|xrefs?|links?)\b", re.IGNORECASE)
 _RESOLVE = re.compile(r"\bresolve[sd]?\b", re.IGNORECASE)
 _CHECK = re.compile(r"check:(\d+)")
+_SUITE_WORDS = re.compile(r"\bsuite\s+command\b", re.IGNORECASE)
 
 
 def context(state: RunState, workspace, run_dir=None, *, record=None) -> dict[str, Any]:
@@ -92,7 +98,44 @@ def context(state: RunState, workspace, run_dir=None, *, record=None) -> dict[st
         "attempt": {key: record.get(key) for key in ("events", "output_mode", "capture_context")}
         if isinstance(record, dict)
         else {},
+        "suite_answer": suite_answer(state),
     }
+
+
+def suite_answer(state: RunState) -> dict[str, Any]:
+    """The current regression proof's recorded suite command and ``suite_on_candidate.exit_code``.
+
+    Read only from the receipt whose bytes still hash to the run's recorded ``receipt_sha256`` and whose
+    verdict is PASS, as autocode_proof_recognition reads it; otherwise ``authentic`` is False with the reason.
+    Empty when the run has no proof.
+    """
+    proof = state.get("regression_proof")
+    if not isinstance(proof, dict) or not proof.get("path"):
+        return {}
+    path = Path(str(proof["path"]))
+    answer: dict[str, Any] = {"path": str(path), "authentic": False, "command": "", "exit_code": None}
+    receipt = _read(path) if path.is_file() else None
+    if receipt is None:
+        return {**answer, "reason": f"the current regression proof {path} could not be read"}
+    commands, checks = receipt.get("commands"), receipt.get("checks")
+    command = commands.get("suite") if isinstance(commands, dict) else None
+    candidate = checks.get("suite_on_candidate") if isinstance(checks, dict) else None
+    exit_code = candidate.get("exit_code") if isinstance(candidate, dict) else None
+    revision = proof.get("source_revision") or receipt.get("source_revision")
+    answer.update(command=command if isinstance(command, str) else "", source_revision=revision)
+    try:
+        digest = util.file_hash(path)
+    except OSError:
+        digest = None
+    if proof.get("verdict") != "PASS":
+        reason = f"the current regression proof {path} did not pass"
+    elif digest is None or digest != proof.get("receipt_sha256"):
+        reason = f"the current regression proof {path} changed after the run recorded its hash"
+    elif not isinstance(exit_code, int) or isinstance(exit_code, bool):
+        reason = f"the current regression proof {path} records no `suite_on_candidate.exit_code`"
+    else:
+        return {**answer, "authentic": True, "exit_code": exit_code}
+    return {**answer, "reason": reason}
 
 
 def evidence_dirs(workspace, run_dir) -> list[str]:
@@ -110,6 +153,9 @@ def judge(stage: str, report: dict, claim_context: dict) -> tuple[list[str], lis
         if isinstance(target, dict):
             found, recorded = reference_claims(target, claim_context)
             problems += found
+            rows += recorded
+            recorded = suite_exit_claims(target, claim_context)
+            problems += [row["reason"] for row in recorded if row["status"] == CONTRADICTED]
             rows += recorded
     if stage in ("review_completion", "review_checkpoint"):
         target = report.get("decision") if stage == "review_checkpoint" else report
@@ -255,6 +301,87 @@ def _exit_row(field, index, sentence, stated, cited, claim_context) -> dict:
         "status": UNVERIFIED,
         "reason": f"{field} entry states exit {stated}, which AutoCode has not observed: {'; '.join(reasons)}.",
     }
+
+
+# Suite-exit criteria (#3817) ------------------------------------------------------------------------------
+
+
+def suite_exit_code(text: str, command: str = "") -> int | None:
+    """The one exit code a criterion states for the suite command, or None when it is no such criterion.
+
+    It states exactly one exit code and either quotes the proof's recorded suite command in backticks or
+    says suite command.
+    """
+    codes = {int(match.group(1)) for match in _EXIT.finditer(text)}
+    named = bool(command) and f"`{command}`" in text
+    if len(codes) != 1 or not (named or _SUITE_WORDS.search(text)):
+        return None
+    return codes.pop()
+
+
+def suite_exit_claims(report: dict, claim_context: dict) -> list[dict]:
+    """Rows for Tester PASS results of approved criteria that state the suite command's exit code.
+
+    Judged against the one recorded answer (``suite_answer``): contradicted when the current proof recorded
+    another ``suite_on_candidate.exit_code``, unverified when no current authentic answer can be read. A FAIL
+    or UNVERIFIED result is never judged, so it is never changed.
+    """
+    criteria = claim_context.get("criteria") or {}
+    answer = claim_context.get("suite_answer") or {}
+    capture = (claim_context.get("attempt") or {}).get("capture_context") or {}
+    attempt_revision = capture.get("source_revision") or claim_context.get("source_revision")
+    rows = []
+    for result in report.get("criterion_results") or []:
+        if not isinstance(result, dict) or result.get("status") != "PASS":
+            continue
+        cid = str(result.get("id") or "")
+        text = criteria.get(cid, "")
+        stated = suite_exit_code(text, str(answer.get("command") or ""))
+        if stated is None:
+            continue
+        row = {"source": "criterion_results", "id": cid, "claim": text, "observation": answer.get("path") or ""}
+        if not answer:
+            why = "the run has no regression proof"
+        elif not answer.get("authentic"):
+            why = str(answer.get("reason") or "the current regression proof could not be authenticated")
+        elif attempt_revision and answer.get("source_revision") != attempt_revision:
+            why = f"the current regression proof {answer['path']} was made on another source revision"
+        else:
+            recorded = answer["exit_code"]
+            command = answer.get("command") or "the suite command"
+            if recorded == stated:
+                rows.append(
+                    {
+                        **row,
+                        "status": ESTABLISHED,
+                        "reason": f"{answer['path']} recorded `suite_on_candidate.exit_code` {recorded}.",
+                    }
+                )
+                continue
+            rows.append(
+                {
+                    **row,
+                    "status": CONTRADICTED,
+                    "reason": (
+                        f"Criterion {cid} states the suite command `{command}` exits {stated}, but the current "
+                        f"regression proof {answer['path']} recorded `suite_on_candidate.exit_code` {recorded} "
+                        f"(exit {recorded} on the candidate). That recorded answer decides {cid}: report it as "
+                        f"FAIL, or fix the change so the suite exits {stated}."
+                    ),
+                }
+            )
+            continue
+        rows.append(
+            {
+                **row,
+                "status": UNVERIFIED,
+                "reason": (
+                    f"Criterion {cid} states the suite command exits {stated}, which AutoCode has not read from "
+                    f"the proof's recorded `suite_on_candidate.exit_code`: {why}."
+                ),
+            }
+        )
+    return rows
 
 
 # Reference-resolution claims (#3947) --------------------------------------------------------------------

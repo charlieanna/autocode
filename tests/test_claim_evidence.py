@@ -49,6 +49,8 @@ NEW_WARNINGS = [
     "docs/usage.rst:12: WARNING: py:func reference target not found: semver.dumps_version",
     "docs/usage.rst:14: WARNING: py:func reference target not found: semver.loads_version",
 ]
+SUITE_COMMAND = "python -m unittest"
+SUITE_CRITERION = "The project suite command `python -m unittest` exits 0."
 BASE = "1111111111111111111111111111111111111111"
 OTHER_BASE = "2222222222222222222222222222222222222222"
 
@@ -461,6 +463,99 @@ class ReportCheckClaimTests(unittest.TestCase):
         self.assertEqual([], self.check("tester", unlinked, self.state([("C7", text)], changed_files=[])))
         config.unlink()
         self.assertEqual([], self.check("tester", unlinked, state))
+
+    def proof_state(self, criterion, suite_exit):
+        """A run whose current PASS proof recorded the suite command and its exit code on the candidate."""
+        path = self.run / "regression" / "proof-1.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "verdict": "PASS",
+                    "commands": {"suite": SUITE_COMMAND},
+                    "checks": {"suite_on_candidate": {"exit_code": suite_exit}},
+                }
+            )
+        )
+        proof = {"verdict": "PASS", "path": str(path), "receipt_sha256": s.file_hash(path)}
+        return path, self.state([("AC11", criterion)], regression_proof=proof)
+
+    def test_ac1_suite_exit_criterion_is_read_from_suite_on_candidate_exit_code(self):
+        report = tester_report("AC11", SUITE_COMMAND)
+        _, state = self.proof_state(SUITE_CRITERION, 1)
+        errors = self.check("tester", report, state)
+        self.assertEqual(1, len(errors), errors)
+        self.assertIn("AC11", errors[0])
+        self.assertIn("`suite_on_candidate.exit_code`", errors[0])
+        self.assertIn("exit 1", errors[0])
+        _, state = self.proof_state(SUITE_CRITERION, 0)
+        self.assertEqual([], self.check("tester", report, state))
+
+    def test_ac12_suite_exit_rule_reads_each_phrasing_and_only_an_authentic_answer(self):
+        report = tester_report("AC11", SUITE_COMMAND)
+        for criterion in ("The suite command exits 0.", "The command `python -m unittest` exits 0."):
+            with self.subTest(criterion=criterion):
+                _, state = self.proof_state(criterion, 1)
+                errors = self.check("tester", report, state)
+                self.assertEqual(1, len(errors), errors)
+                self.assertIn("AC11", errors[0])
+                self.assertIn("`suite_on_candidate.exit_code`", errors[0])
+                self.assertIn("exit 1", errors[0])
+        for criterion in (
+            "The suite command exits 0 on the candidate and exits 1 on the original code.",
+            "The command `make lint` exits 0.",
+        ):
+            with self.subTest(criterion=criterion):
+                _, state = self.proof_state(criterion, 1)
+                self.assertEqual([], self.check("tester", report, state))
+        path, state = self.proof_state(SUITE_CRITERION, 1)
+        path.write_text(path.read_text().replace('"exit_code": 1', '"exit_code": 0'))
+        self.assertEqual([], self.check("tester", report, state))
+        problems, rows = claim_evidence.judge("tester", report, claim_evidence.context(state, self.root))
+        self.assertEqual([], problems)
+        self.assertEqual(["unverified"], [row["status"] for row in rows])
+        self.assertIn("AC11", rows[0]["reason"])
+        _, state = self.proof_state(SUITE_CRITERION, 1)
+        for status in ("FAIL", "UNVERIFIED"):
+            with self.subTest(status=status):
+                other = copy.deepcopy(report)
+                other["criterion_results"][0]["status"] = status
+                self.assertEqual([], self.check("tester", other, state))
+
+    def test_suite_exit_rule_reads_only_the_current_passing_proof_of_the_attempts_revision(self):
+        report = tester_report("AC11", SUITE_COMMAND)
+
+        def judged(state, record=None):
+            return claim_evidence.judge("tester", report, claim_evidence.context(state, self.root, record=record))
+
+        path, state = self.proof_state(SUITE_CRITERION, 0)
+        problems, rows = judged(state)
+        self.assertEqual(([], ["established"]), (problems, [row["status"] for row in rows]))
+        state["regression_proof"]["source_revision"] = "revision-1"
+        problems, rows = judged(state, {"source_revision": "revision-2"})
+        self.assertEqual(([], ["unverified"]), (problems, [row["status"] for row in rows]))
+        self.assertIn("another source revision", rows[0]["reason"])
+        self.assertEqual(
+            ["established"], [row["status"] for row in judged(state, {"source_revision": "revision-1"})[1]]
+        )
+        _, state = self.proof_state(SUITE_CRITERION, 1)
+        state["regression_proof"]["source_revision"] = "revision-1"
+        problems, _ = judged(state, {"source_revision": "revision-1"})
+        self.assertEqual(1, len(problems), problems)
+        for change, reason in (
+            ({"regression_proof": None}, "has no regression proof"),
+            ({"regression_proof": {**state["regression_proof"], "verdict": "UNVERIFIED"}}, "did not pass"),
+            ({"regression_proof": {**state["regression_proof"], "path": str(path) + ".missing"}}, "could not be read"),
+        ):
+            with self.subTest(reason=reason):
+                problems, rows = judged({**state, **change})
+                self.assertEqual(([], ["unverified"]), (problems, [row["status"] for row in rows]))
+                self.assertIn(reason, rows[0]["reason"])
+        path.write_text(json.dumps({"verdict": "PASS", "commands": {"suite": SUITE_COMMAND}, "checks": {}}))
+        state["regression_proof"]["receipt_sha256"] = s.file_hash(path)
+        problems, rows = judged(state)
+        self.assertEqual(([], ["unverified"]), (problems, [row["status"] for row in rows]))
+        self.assertIn("records no `suite_on_candidate.exit_code`", rows[0]["reason"])
 
 
 class CompareBaseCaptureTests(unittest.TestCase):

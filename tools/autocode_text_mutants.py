@@ -6,9 +6,11 @@ strings, comments, template literals, regular expressions, Rust raw strings and 
 or Ruby heredocs and percent literals, and each operator matches only code bytes on a changed line. A mutant never adds or removes a line break, so every line number stays as
 it was.
 
-A splice cannot be compiled here. The run decides instead: a mutant that does not build or load
-reports no complete result for its selected tests, so it ends ``not_run`` and never counts as
-``killed`` (autocode_mutation_results.outcome). Only a selected test that ran and failed kills one.
+A splice cannot be compiled here. The mutation check decides instead (autocode_mutation_check): a Go or
+Cargo mutant whose package does not build, and a Ruby mutant ``ruby -c`` refuses, is not a site and is
+left out with a file note. Any other mutant that does not load reports no complete result for its selected
+tests, so it ends ``not_run`` and never counts as ``killed`` (autocode_mutation_results.outcome). Only a
+selected test that ran and failed kills one.
 Pure: bytes in, mutant descriptions out. Imports nothing from AutoCode except the Mutant record.
 
 Operators, each only on a changed line and only on code bytes:
