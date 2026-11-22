@@ -23,6 +23,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **A Claude Code stage no longer stops for inactivity while a backgrounded command runs**: when Claude Code moved a long command (such as a broad test run) to the background, the stage looked idle and was stopped after 5 minutes, and the turn Claude Code started once the command finished was lost with its report. The backgrounded command now counts as a running tool under the tool limit, and that next turn's answer and report are the stage's (#3989).
+
+- **The Tester must probe beyond the approved checks on every route**: a Tester PASS no longer stands on an approved command rerun with `-q`, `--verbose`, a wrapper or one of its tests, on a `probe_reason` that names no file in the workspace, or on the combined checkpoint route that had no such check (#3979).
+
 - **Changed lines are measured when a project runs its own coverage** (#4039): a Python project with pytest-cov in its `addopts` (or any coverage session of its own) took over the tracer the proof's coverage run used, so the measurement collected nothing and every changed line was held as unmeasured. On Python 3.12 and later the proof now observes executed lines through a `sys.monitoring` tool of its own beside the project's session, which runs unchanged; coverage.py still reports the result. Older interpreters keep `coverage run`.
 
 - **A stuck test module no longer holds CI to its six-hour limit**: the Linux suite and diff-coverage jobs ran `tools/run_suite.py` with no per-module limit, so one stuck module kept `ci-required` waiting without saying which module it was. Every module running in parallel now ends as a named timed-out failure after an hour, or two for a module in `tests/suite_slow.json`, bounds measured from hosted Linux CI. `--module-timeout` still sets one limit for every module, and `--module-timeout 0` none (#4011).
