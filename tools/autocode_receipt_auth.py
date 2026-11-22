@@ -24,6 +24,43 @@ def _tokens(command):
     return list(lexer)
 
 
+def _substitutes(command):
+    """Whether the shell running this command line substitutes another program into it.
+
+    `` ` `` and ``$(`` run a program before the line runs, so its words are not what executed.
+    In single quotes, ANSI-C ``$'...'`` quotes, a comment or after a backslash they are literal
+    text, such as the ``sh -c '...'`` program a capture runs, which its receipt records as argv.
+    The scan reads quotes and comments as the shell does, so no quote it imagines hides a live
+    substitution; an unterminated quote counts as one.
+    """
+    quote, escaped, index = "", False, 0
+    while index < len(command):
+        character = command[index]
+        if escaped:
+            escaped = False
+        elif quote in ("'", "$'"):
+            if quote == "$'" and character == "\\":
+                escaped = True
+            elif character == "'":
+                quote = ""
+        elif character == "\\":
+            escaped = True
+        elif character == "`" or command.startswith("$(", index):
+            return True
+        elif quote:
+            quote = "" if character == '"' else quote
+        elif command.startswith("$'", index):
+            quote, index = "$'", index + 1
+        elif character in "'\"":
+            quote = character
+        elif character == "#" and (index == 0 or command[index - 1] in " \t\n;&|()<>"):
+            newline = command.find("\n", index)
+            index = len(command) if newline < 0 else newline
+            continue
+        index += 1
+    return bool(quote) or escaped
+
+
 def _without_redirects(words):
     """Only display redirections, never a second source of receipt text."""
     result = []
@@ -85,7 +122,7 @@ def _invocation(command, path, workspace, receipt, *, allow_batch, output):
     Shell wrappers, a workspace `cd`, and output-only filters are allowed. Other shell chains
     are not proof: a reprint plus a commented or inert `capture` word is not an execution.
     """
-    if not isinstance(command, str) or not isinstance(output, str) or "`" in command or "$(" in command:
+    if not isinstance(command, str) or not isinstance(output, str) or _substitutes(command):
         return False
     try:
         words = _tokens(command)
@@ -95,15 +132,19 @@ def _invocation(command, path, workspace, receipt, *, allow_batch, output):
                 and words[0] in ("/bin/sh", "/bin/bash", "/bin/zsh", "/usr/bin/bash", "/usr/bin/zsh")
                 and words[1] in ("-c", "-lc")
             ):
-                words = _tokens(words[2])
+                body = words[2]
             elif (
                 len(words) == 4
                 and words[0] in ("/bin/bash", "/bin/zsh", "/usr/bin/bash", "/usr/bin/zsh")
                 and words[1:3] == ["-l", "-c"]
             ):
-                words = _tokens(words[3])
+                body = words[3]
             else:
                 break
+            # The wrapper's shell runs its body as a new command line.
+            if _substitutes(body):
+                return False
+            words = _tokens(body)
         cwd = Path(workspace).resolve()
         if len(words) >= 3 and words[0] == "cd" and words[2] == "&&":
             target = Path(words[1])
