@@ -710,6 +710,7 @@ def view(
         )
     ):
         result["requirements"]["suite_reports"] = status_observation.suite_reports(state, workspace, run_dir)
+        result["requirements"]["suite_claims"] = status_observation.suite_claims(state, workspace, run_dir)
     result["chat"] = chat_view.project(state, result, run_dir=run_dir, workspace=workspace)
     result["attention"] = attention.project(
         state, result, workspace=workspace, run_dir=run_dir, context=result["chat"]["context"]
@@ -789,6 +790,9 @@ def view(
                     reports = status_observation.suite_reports(state, workspace, run_dir)
                     if reports:
                         result["displayed_plan"]["suite_reports"] = reports
+                    claims = status_observation.suite_claims(state, workspace, run_dir)
+                    if claims:
+                        result["displayed_plan"]["suite_claims"] = claims
         except (AttributeError, KeyError, TypeError, ValueError):
             pass  # Missing, stale or unsealed plans cannot supply approval authority.
         approved = plan

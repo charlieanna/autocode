@@ -22,6 +22,79 @@ except ImportError:
 
 MAX_REPORTS = 8
 MAX_PATHS = 40
+MAX_CLAIMS = 8
+MAX_CLAIM_NODES = 40
+# A suite-coverage claim names the examples it says the project command exercises (#3939). Only the
+# recorded collection answer decides whether those examples are collected; a runner flag alone does not.
+CLAIM_KINDS = ("all_suite_pass", "named_tests_pass")
+UNBOUND_REASON = (
+    "The named examples are not established by the recorded collection; a runner flag alone does not "
+    "prove the project command exercises them."
+)
+
+
+def claims(state: RunState, run_dir, current_source):
+    """Bind current-turn suite-coverage claims to the recorded collection (#3939), display only.
+
+    Each claim is a model-proposed ``suite_claim`` on a proposed assumption naming the examples it
+    says the suite exercises. The binding reads the same sealed collection answer the suite reports
+    read (``structured_collection_claim``); a claim whose named examples are not collected stays
+    unverified and unbound, never presented as established coverage. Collection alone never proves
+    execution, so even a bound claim remains unverified.
+    """
+    if (state.get("settings") or {}).get("replay_recording"):
+        return []
+    handoff = review.current_turn_handoff(state)
+    report = handoff.get("report") if isinstance(handoff, dict) else None
+    if not isinstance(report, dict):
+        return []
+    rows = []
+    for raw in report.get("proposed_assumptions") or []:
+        if not isinstance(raw, dict) or not isinstance(raw.get("suite_claim"), dict):
+            continue
+        assumption_id, text = raw.get("id"), raw.get("text")
+        if not isinstance(assumption_id, str) or not assumption_id or not isinstance(text, str) or not text.strip():
+            continue
+        proposed = raw["suite_claim"]
+        claim = {
+            "assumption_id": assumption_id,
+            "claim_sha256": hashlib.sha256(text.encode()).hexdigest(),
+            "kind": proposed.get("kind"),
+            "node_ids": proposed.get("node_ids"),
+            "collection_command": proposed.get("collection_command"),
+        }
+        bound = observations.structured_collection_claim(state, run_dir, current_source, claim)
+        rows.append(_claim_row(assumption_id, claim, bound))
+        if len(rows) == MAX_CLAIMS:
+            break
+    return rows
+
+
+def _claim_row(assumption_id, claim, bound):
+    wanted = claim.get("node_ids")
+    wanted = [node for node in wanted if isinstance(node, str) and len(node) <= 256] if isinstance(wanted, list) else []
+    kind = claim.get("kind") if claim.get("kind") in CLAIM_KINDS else None
+    if bound:
+        return {
+            "assumption_id": assumption_id,
+            "status": "unverified",
+            "bound": True,
+            "kind": bound["claim_kind"],
+            "claimed_node_ids": bound["claimed_node_ids"][:MAX_CLAIM_NODES],
+            "omitted_claimed": max(0, len(bound["claimed_node_ids"]) - MAX_CLAIM_NODES),
+            "collected_count": len(bound["node_ids"]),
+            "reason": bound["reason"],
+        }
+    return {
+        "assumption_id": assumption_id,
+        "status": "unverified",
+        "bound": False,
+        "kind": kind,
+        "claimed_node_ids": wanted[:MAX_CLAIM_NODES],
+        "omitted_claimed": max(0, len(wanted) - MAX_CLAIM_NODES),
+        "collected_count": 0,
+        "reason": UNBOUND_REASON,
+    }
 
 
 def project(state: RunState, run_dir, current_source):
