@@ -27,6 +27,7 @@ KNOWN_KINDS = frozenset(
         "resume",
         "retry_job",
         "recover_source",
+        "replay_stopped",
         "dependency",
         "review",
         "answer",
@@ -129,6 +130,19 @@ KIND_STATES = {
 }
 
 
+# Replay of the failed job has no usable recorded action.
+KIND_STATES["replay_stopped"] = {
+    **KIND_STATES["retry_job"],
+    "settings": {"replay_recording": {"path": "/tmp/run/recording.json"}},
+}
+
+
+def observed_job_retry(state, *_):
+    if state.get("settings", {}).get("replay_recording"):
+        return {"allowed": False, "replay_unavailable": True}
+    return {"allowed": True}
+
+
 # Attribute on the parsed args that proves the matching action family was selected.
 def _published_answer(state):
     """Contract fixtures carry a current writer publication, not a fabricated token."""
@@ -172,6 +186,7 @@ KIND_ACCEPTANCE = {
     "dependency": lambda args: args.run_dir == Path("/tmp/producer") and args.workspace == Path("/tmp/producer-ws"),
     "retry_job": lambda args: args.resume_paused and args.retry_failed_stage and args.job_retry_token == "job-token",
     "recover_source": lambda args: args.explain,
+    "replay_stopped": lambda args: args is None,
 }
 
 
@@ -234,7 +249,7 @@ class NeedsContractTests(unittest.TestCase):
         self.assertEqual(KNOWN_KINDS, frozenset(KIND_STATES))
         self.assertEqual(KNOWN_KINDS, frozenset(KIND_ACCEPTANCE))
 
-    @mock.patch.object(run_view.status_observation, "job_retry", new=lambda *_: {"allowed": True})
+    @mock.patch.object(run_view.status_observation, "job_retry", new=observed_job_retry)
     def test_each_kind_from_state_matches_and_its_public_command_parses(self):
         for kind, state in KIND_STATES.items():
             with self.subTest(kind=kind):
@@ -248,18 +263,21 @@ class NeedsContractTests(unittest.TestCase):
                 args, _ = parse_next_command(text)
                 self.assertTrue(KIND_ACCEPTANCE[kind](args), f"kind={kind} command={text!r} args={args!r}")
 
-    @mock.patch.object(run_view.status_observation, "job_retry", new=lambda *_: {"allowed": True})
+    @mock.patch.object(run_view.status_observation, "job_retry", new=observed_job_retry)
     def test_view_next_command_matches_pause_command_for_each_kind(self):
         for kind, state in KIND_STATES.items():
             with self.subTest(kind=kind):
                 view = run_view.view({**copy.deepcopy(state), "workspace": "/tmp/ws", "run_dir": "/tmp/run"})
                 self.assertEqual(kind, (view.get("needs") or {}).get("kind"))
+                if kind == "replay_stopped":
+                    self.assertIsNone(view["next_command"])
+                    continue
                 # continue / approve_plan without a displayed path still offers a relaunch
                 self.assertIsNotNone(view.get("next_command"), view)
                 args, _ = parse_next_command(view["next_command"])
                 self.assertIsNotNone(args)
 
-    @mock.patch.object(run_view.status_observation, "job_retry", new=lambda *_: {"allowed": True})
+    @mock.patch.object(run_view.status_observation, "job_retry", new=observed_job_retry)
     def test_unknown_kind_from_needs_is_not_silently_accepted(self):
         # Guard: if needs() starts returning a kind not in KNOWN_KINDS, this test
         # fails until KIND_STATES / KIND_ACCEPTANCE gain a row.
@@ -328,6 +346,7 @@ TASKRUN_METHODS = {
     "review": ("approve_review",),
     "planning_budget": ("feedback",),
     "recover_source": (),
+    "replay_stopped": (),
     "retry_job": ("retry_job",),
     "resume": ("resume_paused", "abandon_stage", "retry_report", "accept_source_edit", "grant_recovery"),
     "dependency": ("bind_dependency", "receive_dependency"),
@@ -471,7 +490,7 @@ class NeedsContractAgainstDocsTests(unittest.TestCase):
             for method in methods:
                 self.assertTrue(callable(getattr(taskrun.TaskRun, method, None)), f"{kind}: TaskRun.{method}")
 
-    @mock.patch.object(run_view.status_observation, "job_retry", new=lambda *_: {"allowed": True})
+    @mock.patch.object(run_view.status_observation, "job_retry", new=observed_job_retry)
     def test_every_shape_names_an_accepted_action_and_asks_for_it(self):
         shapes = {kind: [state] for kind, state in KIND_STATES.items()}
         for kind, extra in KIND_SHAPES.items():
@@ -484,7 +503,10 @@ class NeedsContractAgainstDocsTests(unittest.TestCase):
                     actions = [need[key] for key in ("action", "feedback_action", "retry_action") if need.get(key)]
                     for action in actions:
                         self.assert_action_accepted(action)
-                    if not actions:
+                    if kind == "replay_stopped":
+                        self.assertEqual([], actions)
+                        self.assertTrue(need["resume_unavailable"])
+                    elif not actions:
                         self.assertTrue(
                             TASKRUN_METHODS[kind] or need.get("recovery_hint"),
                             f"{kind} names no action, no TaskRun method and no hint",
