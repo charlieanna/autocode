@@ -18,6 +18,18 @@ import time
 import uuid
 from pathlib import Path
 
+
+def _fixed_file():
+    """A workspace file a scripted Tester's probe_reason names: a reason stands only when it names a path
+    that exists in the workspace (tools/autocode_tester_probes.py)."""
+    root = Path.cwd()
+    for path in sorted(root.rglob("*")):
+        relative = path.relative_to(root)
+        if path.is_file() and "." in path.name[1:] and not any(part.startswith(".") for part in relative.parts):
+            return relative.as_posix()
+    return ""
+
+
 HELLO_SOURCE = "print('hello')\n"
 HELLO_TESTS = """import subprocess, sys, unittest
 class HelloTests(unittest.TestCase):
@@ -765,7 +777,10 @@ def main():
             # The scripted Tester runs only each criterion's fixed check, so it records why (autocode_tester_probes).
             for row in result.get("criterion_results") or []:
                 if row.get("status") == "PASS":
-                    row.setdefault("probe_reason", f"Scripted Tester: {row['id']} has only its fixed product check")
+                    row.setdefault(
+                        "probe_reason",
+                        f"Scripted Tester: {row['id']} has only its fixed product check; {_fixed_file()} holds the input",
+                    )
     Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))
     record("finish")
     print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}), flush=True)

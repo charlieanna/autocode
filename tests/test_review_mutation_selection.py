@@ -128,7 +128,6 @@ class SelectedReviewMutationTests(unittest.TestCase):
     def test_every_unittest_invocation_selects_only_the_reviewed_ids(self):
         run = StubRun(self.tree)
         self.collect(run, command="env LANG=C " + COMMAND)
-        caches = []
         for call in run.calls:
             invocation = python_tests.parse(call["command"])
             self.assertIsNotNone(invocation)
@@ -139,9 +138,8 @@ class SelectedReviewMutationTests(unittest.TestCase):
             options = [word for index, word in enumerate(arguments) if word != "-k" and arguments[index - 1] != "-k"]
             self.assertEqual(["discover", "-s", "tests", "-v"], options)
             self.assertCountEqual(SELECTED, selectors)
-            self.assertEqual(("env", "LANG=C"), invocation.prefix[:2])
-            caches.extend(word for word in invocation.prefix if word.startswith("PYTHONPYCACHEPREFIX="))
-        self.assertEqual(1, len(set(caches)), "one collection reuses unchanged bytecode")
+            # The proof's own environment: no cache of the collection's own (#4062).
+            self.assertEqual(("env", "LANG=C"), invocation.prefix)
         self.assertGreater(len(run.calls), 1)
 
     def test_pytest_judges_selected_node_ids_without_a_case_name_convention(self):

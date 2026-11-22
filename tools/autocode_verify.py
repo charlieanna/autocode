@@ -687,7 +687,7 @@ def run_command(
         if type(native_execution) is not native_checks.NativeCheckExecution:
             raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Original concrete native check owner required")
         return native_execution.run_command(command, cwd, log_path, timeout=timeout, env=env, checkpoint=checkpoint)
-    with test_env.own_bytecode_cache(test_environment(cwd, env)) as environment:
+    with test_env.own_bytecode_cache(test_environment(cwd, env), cwd) as environment:
         return command_supervision.run(command, cwd, log_path, timeout=timeout, env=environment, checkpoint=checkpoint)
 
 
@@ -1186,7 +1186,7 @@ def execution_identity(
         if value.startswith("symlink:") and name not in DEPENDENCY_DIRS
     ]
     source_metadata = source_snapshot.metadata(workspace, source_snapshot_value.get("files", {}))
-    environment = test_environment(workspace)
+    environment = {**test_environment(workspace), **test_env.bytecode_cache_environment()}
     # The command executes in the workspace, or the package ``cd PACKAGE && RUNNER``
     # enters: resolve its relative paths there, never in the controller cwd (#2982).
     package = package_scope.entered(command)
@@ -1411,7 +1411,7 @@ def baseline_identity(
         generated_unrecorded=generated_unrecorded,
         ignored_inputs=ignored_inputs,
     )
-    environment = test_environment(workspace)
+    environment = {**test_environment(workspace), **test_env.bytecode_cache_environment()}
     roots = test_env.dependency_roots(dependencies_from or workspace)
     dependencies = []
     for name in DEPENDENCY_DIRS:

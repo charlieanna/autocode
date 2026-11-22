@@ -20,6 +20,17 @@ import shutil
 from pathlib import Path
 
 
+def _fixed_file():
+    """A workspace file a scripted Tester's probe_reason names: a reason stands only when it names a path
+    that exists in the workspace (tools/autocode_tester_probes.py)."""
+    root = Path.cwd()
+    for path in sorted(root.rglob("*")):
+        relative = path.relative_to(root)
+        if path.is_file() and "." in path.name[1:] and not any(part.startswith(".") for part in relative.parts):
+            return relative.as_posix()
+    return ""
+
+
 def criteria(reference: Path) -> list[dict]:
     """One test-marked criterion per test_cN_ function in the solution's tests (the plan a Planner writes)."""
     names = re.findall(r"def (test_(c\d+)_\w+)", (reference / "tests" / "test_stock.py").read_text())
@@ -114,7 +125,9 @@ def report_for(stage, data, common, config, run_check, requirements):
                     "evidence_refs": ["check:1"],
                     # The scripted Tester runs only the project's tests (autocode_tester_probes).
                     **(
-                        {"probe_reason": f"Scripted Tester: {row['id']} is its fixed stock test only"}
+                        {
+                            "probe_reason": f"Scripted Tester: {row['id']} is its fixed stock test only; {_fixed_file()} holds the input"
+                        }
                         if code == 0
                         else {}
                     ),

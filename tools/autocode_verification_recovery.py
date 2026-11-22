@@ -255,7 +255,17 @@ def authenticate_bound(bound, *, automatic=False):
     """Require terminal cleanup and native absence after static admission binds."""
     try:
         out, check, terminal, metadata = (bound[name] for name in ("out", "check", "terminal", "metadata"))
-        if automatic:
+        # A host restart since the launch ended every process it owned, whatever its receipt last said: the
+        # keeper that would have finished that receipt is gone with them (#3965). The recorded processes are
+        # still checked below, so a launch that only looks restarted keeps its hold.
+        restarted = processes.host_restarted(metadata)
+        if restarted:
+            rows = [metadata["owner"], metadata["keeper"], metadata["provider"], *check["processes"]]
+            if isinstance(terminal.get("processes"), list):
+                rows += terminal["processes"]
+            if processes.live_processes(rows):
+                hold("an owned command process is still alive")
+        elif automatic:
             if not uncertain_cleanup.settle_with_retry(bound):
                 hold("automatic cleanup settlement could not verify the exact ownership")
         else:
@@ -284,6 +294,7 @@ def authenticate_bound(bound, *, automatic=False):
                 "interrupted": True,
                 "error": ("Automatic" if automatic else "Explicit")
                 + " recovery of an interrupted verification; "
+                + ("the host restarted while it ran, so " if restarted else "")
                 + "the post-execution identity and scheduler result were not published",
                 "supervision": metadata,
                 "supervision_sha256": bound["pins"][metadata["receipt"]],

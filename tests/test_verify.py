@@ -25,6 +25,7 @@ sys.path.insert(0, str(TOOLS))
 
 import autocode_launch_inputs as launch_inputs  # noqa: E402
 import autocode_regression as regression  # noqa: E402
+import autocode_test_environment as test_env  # noqa: E402
 import autocode_verification_schedule as schedule  # noqa: E402
 import autocode_verify as verify  # noqa: E402
 import autocode_workspaces as workspaces  # noqa: E402
@@ -4492,5 +4493,64 @@ class CommandBytecodeCacheTests(unittest.TestCase):
             _, writes, prefix = line.split("|")
             self.assertEqual("True", writes)
             self.assertTrue(prefix and not Path(prefix).resolve().is_relative_to(tree.resolve()), prefix)
-            self.assertFalse(Path(prefix).exists(), "the cache is removed with the command")
+            mirrored = Path(prefix) / str(tree.resolve()).lstrip(os.sep)
+            self.assertFalse(mirrored.exists(), "the tree's compiles are removed with the command")
             self.assertEqual([], list(tree.rglob("__pycache__")))
+
+    def test_every_command_sees_the_same_cache_path_and_the_identity_binds_it(self):
+        """#4061: the cache path was new for each command, so the base and the candidate, or two runs of one
+        baseline, could see different environments while the recorded identity stayed the same."""
+        probe = "import os; print('prefix', os.environ.get('PYTHONPYCACHEPREFIX'), sep='|')"
+        with tempfile.TemporaryDirectory() as temp:
+            seen = []
+            for name in ("base", "candidate", "candidate"):
+                tree = Path(temp) / name
+                tree.mkdir(exist_ok=True)
+                receipt = verify.run_command(
+                    f"{shlex.quote(sys.executable)} -c {shlex.quote(probe)}",
+                    tree,
+                    Path(temp) / f"{name}-{len(seen)}.log",
+                    timeout=60,
+                )
+                self.assertEqual(0, receipt["exit_code"], receipt)
+                output = Path(receipt["output"]).read_text().splitlines()
+                seen.append(next(line for line in output if line.startswith("prefix|")).split("|", 1)[1])
+            self.assertEqual(1, len(set(seen)), seen)
+            launched = test_env.bytecode_cache_environment()
+            self.assertEqual(launched["PYTHONPYCACHEPREFIX"], seen[0])
+            tree = Path(temp) / "base"
+            subprocess.run(["git", "init", "-q", str(tree)], check=True)
+            subprocess.run(
+                ["git", "-C", str(tree), "-c", "user.name=t", "-c", "user.email=t@example.test"]
+                + ["commit", "-q", "--allow-empty", "-m", "seed"],
+                check=True,
+            )
+            bound = verify.baseline_identity(tree)["environment_hash"]
+            executed = verify.execution_identity(tree)["environment_hash"]
+            self.assertEqual(bound, verify.baseline_identity(tree)["environment_hash"])
+            # The launched cache variables are part of the binding: without them it is another identity.
+            with mock.patch.object(test_env, "bytecode_cache_environment", return_value={}):
+                self.assertNotEqual(bound, verify.baseline_identity(tree)["environment_hash"])
+                self.assertNotEqual(executed, verify.execution_identity(tree)["environment_hash"])
+
+    def test_a_later_command_never_runs_an_earlier_commands_compile_of_the_tree(self):
+        """The shared cache keeps no compile of the tree after a command, so source rewritten with the same
+        size and modification time (the next mutant, the next window) is compiled again."""
+        with tempfile.TemporaryDirectory() as temp:
+            tree = Path(temp) / "tree"
+            tree.mkdir()
+            module = tree / "shop.py"
+            values = []
+            for value in ("1", "2"):
+                module.write_text(f"VALUE = {value}\n")
+                os.utime(module, (1_600_000_000, 1_600_000_000))
+                probe = "import shop; print('value', shop.VALUE, sep='|')"
+                receipt = verify.run_command(
+                    f"{shlex.quote(sys.executable)} -c {shlex.quote(probe)}",
+                    tree,
+                    Path(temp) / f"{value}.log",
+                    timeout=60,
+                )
+                lines = Path(receipt["output"]).read_text().splitlines()
+                values.append(next(line for line in lines if line.startswith("value|")).split("|", 1)[1])
+            self.assertEqual(["1", "2"], values)
