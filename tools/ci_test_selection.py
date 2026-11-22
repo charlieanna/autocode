@@ -38,6 +38,11 @@ PUBLIC_FLOW_CONSUMERS = ("tests.test_launch_state_cli", "tests.test_completion_s
 # These helpers are loaded dynamically by the extension-host tests, not by a
 # Python import. Keep the consuming test named so fixture-only edits run it.
 EXTENSION_HOST_RESOURCES = {
+    "scenarios/harness/fake_changed_code.py": (
+        "vscode-extension/test/host/editor-host.test.cjs",
+        "vscode-extension/test/host/python-semantic.test.cjs",
+        "vscode-extension/test/host/retained-report.test.cjs",
+    ),
     "docs/schemas/status-view.schema.json": ("vscode-extension/test/host/retained-report.test.cjs",),
     "tests/first_go_vscode_fixture.py": ("vscode-extension/test/host/python-semantic.test.cjs",),
     "tools/autocode_first_go_proof.py": ("vscode-extension/test/host/python-semantic.test.cjs",),
@@ -47,7 +52,6 @@ EXTENSION_HOST_RESOURCES = {
         "vscode-extension/test/host/retained-report.test.cjs",
         "vscode-extension/test/host/requirements-standing.test.cjs",
     ),
-    "scenarios/harness/fake_changed_code.py": ("vscode-extension/test/host/retained-report.test.cjs",),
     "scenarios/harness/driver.py": (
         "vscode-extension/test/host/retained-report.test.cjs",
         "vscode-extension/test/host/requirements-standing.test.cjs",
@@ -451,6 +455,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "scenarios/harness/fake_changed_code.py",
         (
             "tests.test_risk_cli",
+            "tests.test_risk_fixture_named_proof",
             "tests.test_brief_cli",
             "tests.test_scenario_changed_code_fixtures",
             "tests.test_native_scenario_fixture_reasons",
@@ -461,16 +466,24 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ),
     ),
     (
+        "scenarios/catalog/ladder-18-durable-lease-queue/reference/",
+        ("tests.test_risk_cli", "tests.test_risk_fixture_named_proof", "tests.test_scenario_changed_code_fixtures"),
+    ),
+    (
+        "scenarios/catalog/ladder-19-transactional-outbox/reference/",
+        ("tests.test_risk_cli", "tests.test_risk_fixture_named_proof", "tests.test_scenario_changed_code_fixtures"),
+    ),
+    (
         "scenarios/catalog/ladder-18-durable-lease-queue/broken/non-atomic-claim/",
-        ("tests.test_risk_cli",),
+        ("tests.test_risk_cli", "tests.test_risk_fixture_named_proof", "tests.test_scenario_changed_code_fixtures"),
     ),
     (
         "scenarios/catalog/ladder-18-durable-lease-queue/broken/process-local-tokens/",
-        ("tests.test_risk_cli",),
+        ("tests.test_risk_cli", "tests.test_risk_fixture_named_proof", "tests.test_scenario_changed_code_fixtures"),
     ),
     (
         "scenarios/catalog/ladder-19-transactional-outbox/broken/ack-with-exception-rollback/",
-        ("tests.test_risk_cli",),
+        ("tests.test_risk_cli", "tests.test_risk_fixture_named_proof", "tests.test_scenario_changed_code_fixtures"),
     ),
     (
         "tools/goal_fixtures.py",

@@ -4,11 +4,14 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from outbox import Store
+import outbox
 
 
 class OutboxTests(unittest.TestCase):
     def test_creation_locks_before_the_idempotency_read_and_closes_its_connection(self):
+        self.assertTrue(hasattr(outbox, "Store"))
+        from outbox import Store
+
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "db"
             store = Store(path)
@@ -45,6 +48,9 @@ class OutboxTests(unittest.TestCase):
                     connection.execute("SELECT 1")
 
     def test_orders_publish_and_restart(self):
+        self.assertTrue(hasattr(outbox, "Store"))
+        from outbox import Store
+
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "db"
             store = Store(path)
@@ -58,6 +64,9 @@ class OutboxTests(unittest.TestCase):
             self.assertEqual(store.pending(), [])
 
     def test_sink_failure_retries_same_durable_event(self):
+        self.assertTrue(hasattr(outbox, "Store"))
+        from outbox import Store
+
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "db"
             store = Store(path)
@@ -75,6 +84,9 @@ class OutboxTests(unittest.TestCase):
             self.assertEqual(store.publish(lambda event: None), 1)
 
     def test_inputs_and_conflicts_are_refused_without_effect(self):
+        self.assertTrue(hasattr(outbox, "Store"))
+        from outbox import Store
+
         with tempfile.TemporaryDirectory() as folder:
             store = Store(Path(folder) / "db")
             for amount in (0, -1, True, "9"):

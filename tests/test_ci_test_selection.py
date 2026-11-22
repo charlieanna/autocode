@@ -8,6 +8,24 @@ import run_suite
 
 
 class AccessTransportConsumerTests(unittest.TestCase):
+    def test_risk_scripted_tests_keep_proof_and_pin_consumers(self):
+        consumers = {
+            "tests.test_risk_cli",
+            "tests.test_risk_fixture_named_proof",
+            "tests.test_scenario_changed_code_fixtures",
+        }
+        available = dict.fromkeys(consumers | {"tests.test_unrelated"}, "")
+        for path in (
+            "scenarios/harness/fake_changed_code.py",
+            "scenarios/catalog/ladder-18-durable-lease-queue/reference/tests/test_behavior.py",
+            "scenarios/catalog/ladder-18-durable-lease-queue/broken/non-atomic-claim/tests/test_behavior.py",
+            "scenarios/catalog/ladder-18-durable-lease-queue/broken/process-local-tokens/tests/test_behavior.py",
+            "scenarios/catalog/ladder-19-transactional-outbox/reference/tests/test_behavior.py",
+            "scenarios/catalog/ladder-19-transactional-outbox/broken/ack-with-exception-rollback/tests/test_behavior.py",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(consumers, set(run_suite.select_tests([path], available)))
+
     def test_job_retry_admission_selects_public_route_and_status_consumers(self):
         consumers = {"tests.test_job_route", "tests.test_needs_execution_matrix", "tests.test_status_observation"}
         available = {**dict.fromkeys(consumers, ""), "tests.test_unrelated": ""}

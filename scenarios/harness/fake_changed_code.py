@@ -8,7 +8,9 @@ offered gap, source pin and cited runner proof.
 import copy
 import hashlib
 import json
+import math
 import re
+import stat
 from pathlib import Path
 
 
@@ -580,12 +582,17 @@ def _regclient(data, root):
 
 
 LEASE_SOURCE = "37086ea9920187aa6f500f5d946c70c33229ebade1d69cb1a655235c2c6304e3"
-LEASE_TESTS = "78e4c933baa51d3a0c09167303692e9dacd71439c9769b086163a28f71bd345d"
+LEASE_TESTS = "749013990efc6e77380eb621ca35586a56410a1bcc2709a8bec5010e7788d975"
 LEASE_TOKENS_TESTS = LEASE_TESTS
 _LEASE_TXN = (
     "No supported mutation for this transaction line. Every test in tests/test_behavior.py enqueues, claims "
     "and acknowledges through _db; test_enqueue_claim_restart_and_ack reads the claim back from a new "
     "LeaseQueue on the same file, so omitting the connection, transaction or commit fails it."
+)
+_CLOSING_DELIMITER = (
+    "This line contains only the closing delimiter of the existing expression. The mutation check has no "
+    "site on this line; removing the delimiter makes this exact source fail to parse before any test can run. "
+    "The surrounding expression is exercised by the selected tests."
 )
 LEASE_REASONS = {
     1: "No supported import mutation. Every test constructs LeaseQueue, which opens its store with sqlite3; "
@@ -602,6 +609,7 @@ LEASE_REASONS = {
     "fails every test with no such table.",
     13: "The schema literal has no supported mutation. Every query reads these columns (seq, id, payload, token, "
     "deadline, done); test_enqueue_claim_restart_and_ack and the expiry tests fail on any missing column.",
+    14: _CLOSING_DELIMITER,
     16: "A decorator has no supported mutation. Without contextmanager, 'with self._db()' raises because a "
     "generator is not a context manager, and every test fails.",
     18: _LEASE_TXN,
@@ -665,7 +673,7 @@ LEASE_TOKENS_REASONS = {
 
 
 OUTBOX_SOURCE = "edc2e9466110c1f311254eab65c61b59aad12a324e07577e6be4689e115109e2"
-OUTBOX_TESTS = "bf0b21a820bdeb356f04d5f1ceb955ad8bffeae04aa7ca33c5185815dd862d6f"
+OUTBOX_TESTS = "6ad07728f0d9c2f6f160922524a77185fb57522263a7839977fa499a24617087"
 _OUTBOX_TXN = (
     "No supported mutation for this transaction line. Every test in tests/test_behavior.py creates, reads and "
     "publishes through _db; test_orders_publish_and_restart and test_sink_failure_retries_same_durable_event "
@@ -690,6 +698,7 @@ OUTBOX_REASONS = {
     12: _OUTBOX_SCHEMA,
     13: _OUTBOX_SCHEMA,
     14: _OUTBOX_SCHEMA,
+    15: _CLOSING_DELIMITER,
     17: "A decorator has no supported mutation. Without contextmanager, 'with self._db()' raises because a "
     "generator is not a context manager, and every test fails.",
     19: _OUTBOX_TXN,
@@ -723,6 +732,7 @@ OUTBOX_REASONS = {
     "back through pending() and publish().",
     43: "The event insert's parameters have no supported mutation. The publish tests assert the delivered "
     "order_id, and test_inputs_and_conflicts_are_refused_without_effect asserts the pending amount 1.",
+    44: _CLOSING_DELIMITER,
     46: "A handler header has no supported mutation. test_inputs_and_conflicts_are_refused_without_effect "
     "requires ValueError for an existing order under another key, which sqlite raises as IntegrityError.",
     47: "A raise with a cause has no supported mutation. test_inputs_and_conflicts_are_refused_without_effect "
@@ -740,6 +750,8 @@ OUTBOX_REASONS = {
     61: "The query call has no supported mutation. Every pending() and publish() assertion reads these rows.",
     62: "The query literal has no supported mutation. test_orders_publish_and_restart asserts pending() is empty "
     "after publish, which requires the published=0 filter, and the retry test requires the pending event.",
+    63: _CLOSING_DELIMITER,
+    64: _CLOSING_DELIMITER,
     66: "A header with a default has no supported mutation. The publish tests call publish(sink) with the default "
     "limit and assert the returned count.",
     68: "A for header has no supported mutation. test_orders_publish_and_restart asserts publish delivers the "
@@ -787,6 +799,239 @@ def _outbox_cleanup_equivalent(proof, row, digest):
     )
 
 
+def _owned_artifact(path, boundary):
+    """Require the original lexical path under this owned tree to contain no links."""
+    path, boundary = Path(path), Path(boundary)
+    if not path.is_absolute() or boundary.is_symlink():
+        return None
+    try:
+        parts = path.relative_to(boundary).parts
+    except ValueError:
+        return None
+    if not parts or any(part in (".", "..") for part in parts):
+        return None
+    current = boundary
+    for part in parts:
+        current = current / part
+        if current.is_symlink():
+            return None
+    try:
+        metadata = current.lstat()
+    except OSError:
+        return None
+    return current if stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1 else None
+
+
+def _delimiter_without_sites(data, proof, row, root, source_path, digest):
+    """Use the current complete mutation inventory, never a missing-site assertion alone."""
+    assessment = proof.get("changed_code_evidence") or {}
+    revision, context, line = assessment.get("source_revision"), assessment.get("proof_context"), row.get("line")
+    if (
+        proof.get("verdict") != "PASS"
+        or proof.get("source_revision") != revision
+        or not all(isinstance(value, str) and value for value in (revision, context, proof.get("path")))
+        or type(line) is not int
+        or line < 1
+        or row.get("mutation_outcomes") != []
+        or row.get("overlapping_mutations") not in (None, [])
+        or row.get("overlapping_mutations_omitted") not in (None, 0)
+    ):
+        return False
+    identity = [revision, context, source_path, digest, line]
+    gap = "changed-code:" + hashlib.sha256(json.dumps(identity, separators=(",", ":")).encode()).hexdigest()
+    if row.get("gap_id") != gap:
+        return False
+    try:
+        citation = data.get("changed_code_citation_context") or {}
+        workspace = root.resolve(strict=True)
+        run_home = workspace / ".autocode"
+        boundary = run_home / "runs"
+        if run_home.is_symlink() or boundary.is_symlink():
+            return False
+        artifact = _owned_artifact(proof["path"], boundary)
+        if artifact is None:
+            return False
+        relative = artifact.relative_to(boundary)
+        if (
+            citation.get("proof_reference") != proof["path"]
+            or citation.get("current_proof_reference") != "proof:current"
+            or citation.get("source_revision") != revision
+            or len(relative.parts) != 4
+            or relative.parts[1] != "regression"
+            or relative.parts[3] != "verification.json"
+        ):
+            return False
+        saved = json.loads(artifact.read_bytes())
+        if not isinstance(saved, dict) or any(
+            saved.get(key) != proof.get(key)
+            for key in ("verdict", "source_revision", "mutation_check", "changed_code_evidence")
+        ):
+            return False
+        lines = (root / source_path).read_text().splitlines()
+    except (OSError, UnicodeError, ValueError, KeyError, TypeError, AttributeError):
+        return False
+    if (
+        line > len(lines)
+        or lines[line - 1].strip() not in (")", "]")
+        or row.get("source_line") != lines[line - 1].strip()
+    ):
+        return False
+    check = proof.get("mutation_check")
+    if (
+        not isinstance(check, dict)
+        or check.get("collected") is not True
+        or check.get("selection") != "all_eligible_changed_sites"
+    ):
+        return False
+    selection = check.get("test_selection")
+    files = check.get("files")
+    if (
+        not isinstance(selection, dict)
+        or type(selection.get("unobserved_mutants")) is not int
+        or selection["unobserved_mutants"] != 0
+        or not isinstance(files, list)
+    ):
+        return False
+    matches = [file for file in files if isinstance(file, dict) and file.get("path") == source_path]
+    if len(matches) != 1 or matches[0].get("sha256") != digest or matches[0].get("notes") != []:
+        return False
+    mutants, limit = matches[0].get("mutants"), check.get("limit_per_file")
+    if not isinstance(mutants, list) or not mutants or type(limit) is not int or len(mutants) >= limit:
+        return False
+    observed_parent = False
+    for mutant in mutants:
+        if not isinstance(mutant, dict):
+            return False
+        start, end = mutant.get("line"), mutant.get("end_line")
+        if (
+            type(start) is not int
+            or type(end) is not int
+            or not 0 < start <= end
+            or mutant.get("source_sha256") != digest
+        ):
+            return False
+        if start == line:
+            return False
+        if start < line <= end:
+            if not _killed_overlap(saved, check, mutant, artifact.parent):
+                return False
+            observed_parent = True
+    return observed_parent
+
+
+def _killed_overlap(saved, check, mutant, proof_root):
+    """Match the parent observation to selected failures and intact saved capture bytes."""
+    failed, selected, observed, evidence = (
+        mutant.get("failed_tests"),
+        check.get("selected_tests"),
+        mutant.get("selected_tests"),
+        mutant.get("evidence"),
+    )
+    if (
+        mutant.get("outcome") != "killed"
+        or not isinstance(failed, list)
+        or not failed
+        or not all(isinstance(x, str) and x for x in failed)
+        or not isinstance(selected, list)
+        or not all(isinstance(x, str) and x for x in selected)
+        or not isinstance(observed, list)
+        or not all(isinstance(x, str) and x for x in observed)
+        or not set(failed) <= set(selected)
+        or not set(failed) <= set(observed)
+        or not isinstance(evidence, list)
+        or not evidence
+        or not all(isinstance(x, str) and x for x in evidence)
+        or not isinstance(saved.get("changed_code_receipts"), list)
+    ):
+        return False
+    for ref in evidence:
+        receipts = [r for r in saved["changed_code_receipts"] if isinstance(r, dict) and r.get("output") == ref]
+        if len(receipts) != 1:
+            return False
+        receipt = receipts[0]
+        results, supervisor = receipt.get("results"), receipt.get("supervision")
+        if (
+            type(receipt.get("exit_code")) is not int
+            or receipt["exit_code"] == 0
+            or receipt.get("timed_out") is not False
+            or receipt.get("supervision_errors") != []
+            or receipt.get("results_expected") is not True
+            or not isinstance(results, dict)
+            or results.get("complete") is not True
+            or not isinstance(results.get("failed"), list)
+            or not all(isinstance(x, str) and x for x in results["failed"])
+            or not set(failed) <= set(results["failed"])
+            or results.get("collection_errors") != []
+            or results.get("uncollected") != []
+            or results.get("skipped") != []
+            or not isinstance(supervisor, dict)
+            or not isinstance(supervisor.get("receipt"), str)
+        ):
+            return False
+        try:
+            output = _owned_artifact(ref, proof_root / "mutation-check")
+            supervisor_file = _owned_artifact(supervisor["receipt"], proof_root / "mutation-check")
+            if output is None or supervisor_file is None:
+                return False
+            if hashlib.sha256(output.read_bytes()).hexdigest() != receipt.get("output_sha256"):
+                return False
+            raw_supervisor = supervisor_file.read_bytes()
+            if hashlib.sha256(raw_supervisor).hexdigest() != receipt.get("supervision_sha256"):
+                return False
+            terminal = json.loads(raw_supervisor)
+            if (
+                terminal.get("phase") != "stopped"
+                or "cleanup_error" not in terminal
+                or terminal["cleanup_error"] is not None
+                or terminal.get("cause") not in ("provider_stopped", "controller_finished")
+                or not _well_formed_supervision(supervisor, terminal)
+            ):
+                return False
+        except (OSError, ValueError, TypeError, AttributeError):
+            return False
+    return True
+
+
+def _well_formed_supervision(supervisor, terminal):
+    """Check receipt shape and matched process identities; this is not live process attestation."""
+    roles = ("owner", "keeper", "provider")
+    if (
+        type(supervisor.get("schema")) is not int
+        or supervisor["schema"] != 1
+        or not isinstance(supervisor.get("nonce"), str)
+        or re.fullmatch(r"[0-9a-f]{32}", supervisor["nonce"]) is None
+        or not isinstance(supervisor.get("started_at"), str)
+        or not supervisor["started_at"]
+        or not isinstance(terminal.get("observed_at"), str)
+        or not terminal["observed_at"]
+        or any(
+            key not in terminal or terminal[key] != supervisor.get(key)
+            for key in ("schema", "nonce", *roles, "started_at", "receipt")
+        )
+    ):
+        return False
+
+    def identity(value):
+        if not isinstance(value, dict) or type(value.get("pid")) is not int or value["pid"] <= 0:
+            return False
+        birth = value.get("birth_identity")
+        return type(birth) in (int, float) and (type(birth) is int or math.isfinite(birth)) and birth > 0
+
+    processes = terminal.get("processes")
+    if (
+        not all(identity(supervisor.get(role)) for role in roles)
+        or not isinstance(processes, list)
+        or len(processes) > 20000
+        or not all(identity(item) for item in processes)
+        or len({item["pid"] for item in processes}) != len(processes)
+    ):
+        return False
+    provider = supervisor["provider"]
+    return any(
+        row["pid"] == provider["pid"] and row["birth_identity"] == provider["birth_identity"] for row in processes
+    )
+
+
 def _lifecycle(data, root, source_path, sources, tests_digest):
     """The ladder lifecycle fixtures: no-mutation-site lines of an exact scripted source and its tests."""
     proof = data.get("regression_proof") or {}
@@ -817,6 +1062,13 @@ def _lifecycle(data, root, source_path, sources, tests_digest):
             if equivalent
             else reasons.get(row.get("line"))
         )
+        if reason == _CLOSING_DELIMITER:
+            try:
+                pinned = _fixture_pins(root, {source_path: digest, "tests/test_behavior.py": tests_digest})
+            except (OSError, RuntimeError):
+                pinned = False
+            if not pinned or not _delimiter_without_sites(data, proof, row, root, source_path, digest):
+                continue
         if reason:
             accepted.append(
                 {
@@ -834,10 +1086,11 @@ def _lifecycle(data, root, source_path, sources, tests_digest):
 # runner must still detect its split-transaction race. These five syntax lines
 # have no mutation site; all supported mutants need their actual observations.
 LEASE_NON_ATOMIC_SOURCE = "a7067c3c67d30194cf473870d350072529de7af46d2fe0097aa9efd56183cd02"
-LEASE_NON_ATOMIC_TESTS = "321e48026834c43a636d0bdb3208ae855a58c02737c14e804702e232f02b23b7"
+LEASE_NON_ATOMIC_TESTS = "a81a122ad6cf3d8a3beea0a2f16605d9bce272c0882e7f0001302e9c4d617811"
 LEASE_NON_ATOMIC_REASONS = {
     6: LEASE_REASONS[5],
     14: LEASE_REASONS[13],
+    15: _CLOSING_DELIMITER,
     17: LEASE_REASONS[16],
     22: LEASE_REASONS[21],
     30: LEASE_REASONS[29],
@@ -921,6 +1174,10 @@ def _scripted_cleanup(data, root, producer, *, path, variants, transaction_case,
         ):
             continue
         if line in reasons and not row.get("mutation_outcomes"):
+            if reasons[line] == _CLOSING_DELIMITER and not _delimiter_without_sites(
+                data, proof, row, root, path, digest
+            ):
+                continue
             accepted.append(
                 {
                     "gap_id": gap,
@@ -966,7 +1223,9 @@ OUTBOX_ACK_SOURCE = "0acfa82f221ffc6f29756329fe2049461786a6f295992b47abf16e83d30
 OUTBOX_TRANSACTION_CASE = (
     "tests.test_behavior.OutboxTests.test_creation_locks_before_the_idempotency_read_and_closes_its_connection"
 )
-OUTBOX_ACK_REASONS = {line: OUTBOX_REASONS[line] for line in (5, 14, 17, 22, 42, 43, 53, 60, 61, 62, 66)}
+OUTBOX_ACK_REASONS = {
+    line: OUTBOX_REASONS[line] for line in (5, 14, 15, 17, 22, 42, 43, 44, 53, 60, 61, 62, 63, 64, 66)
+}
 
 
 def _outbox(data, root, producer):
@@ -1337,8 +1596,11 @@ def _fixture_pins(root, pins):
             path = path / part
             if path.is_symlink():
                 return False
+        metadata = path.lstat()
         if (
             not path.resolve(strict=True).is_relative_to(boundary)
+            or not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_nlink != 1
             or hashlib.sha256(path.read_bytes()).hexdigest() != pin
         ):
             return False

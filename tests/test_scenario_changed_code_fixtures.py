@@ -4,6 +4,7 @@ import contextlib
 import copy
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -18,6 +19,270 @@ from scenarios.harness import project_memory_provider as memory_fixture
 from tests import test_follow_up_acceptance_cli as follow_up
 
 REFERENCE = Path(__file__).resolve().parents[1] / "scenarios/catalog/feature-stock-refusals/reference"
+
+
+def delimiter_inventory(proof, path, digest, *, root=None, lines=()):
+    mutants = []
+    receipts = []
+    for line in lines:
+        base = root.resolve() / ".autocode/runs/fixture/regression/proof-01/mutation-check"
+        base.mkdir(parents=True, exist_ok=True)
+        output = base / f"mutant-{line}.log"
+        output.write_text("named test failed\n")
+        supervisor_file = base / f"supervision-{line}.json"
+        supervisor = {
+            "receipt": str(supervisor_file),
+            "schema": 1,
+            "nonce": "a" * 32,
+            "owner": {"pid": 1, "birth_identity": 10},
+            "keeper": {"pid": 2, "birth_identity": 20},
+            "provider": {"pid": 3, "birth_identity": 30},
+            "started_at": "time",
+        }
+        terminal = {
+            **supervisor,
+            "phase": "stopped",
+            "cause": "provider_stopped",
+            "cleanup_error": None,
+            "observed_at": "time",
+            "processes": [supervisor["provider"]],
+        }
+        supervisor_file.write_text(json.dumps(terminal))
+        test = "tests.test_selected"
+        receipts.append(
+            {
+                "output": str(output),
+                "output_sha256": hashlib.sha256(output.read_bytes()).hexdigest(),
+                "exit_code": 1,
+                "timed_out": False,
+                "results_expected": True,
+                "results": {
+                    "complete": True,
+                    "failed": [test],
+                    "collection_errors": [],
+                    "uncollected": [],
+                    "skipped": [],
+                },
+                "supervision_errors": [],
+                "supervision": supervisor,
+                "supervision_sha256": hashlib.sha256(supervisor_file.read_bytes()).hexdigest(),
+            }
+        )
+        start = line - 1
+        while start in lines:
+            start -= 1
+        mutants.append(
+            {
+                "line": start,
+                "end_line": line,
+                "outcome": "killed",
+                "source_sha256": digest,
+                "failed_tests": [test],
+                "selected_tests": [test],
+                "evidence": [str(output)],
+            }
+        )
+    if not mutants:
+        mutants = [{"line": 1, "end_line": 1, "outcome": "killed", "source_sha256": digest}]
+    proof["changed_code_receipts"] = receipts
+    proof["mutation_check"] = {
+        "collected": True,
+        "selection": "all_eligible_changed_sites",
+        "limit_per_file": 100,
+        "selected_tests": ["tests.test_selected"],
+        "test_selection": {"unobserved_mutants": 0},
+        "files": [
+            {
+                "path": path,
+                "sha256": digest,
+                "notes": [],
+                "mutants": mutants,
+            }
+        ],
+    }
+
+
+def save_delimiter_proof(data, root):
+    proof = data["regression_proof"]
+    path = root.resolve() / ".autocode/runs/fixture/regression/proof-01/verification.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    proof["path"] = str(path)
+    data["changed_code_citation_context"] = {
+        "proof_reference": str(path),
+        "current_proof_reference": "proof:current",
+        "source_revision": proof["source_revision"],
+    }
+    path.write_text(json.dumps({key: value for key, value in proof.items() if key != "path"}))
+
+
+class DelimiterCaptureBindingTests(unittest.TestCase):
+    def test_overlapping_kill_requires_named_selected_failure_and_intact_capture(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            output = root / "mutation-check/mutant.log"
+            output.parent.mkdir()
+            output.write_text("captured failing test\n")
+            supervisor_file = root / "mutation-check/command-supervision/receipt.json"
+            supervisor_file.parent.mkdir()
+            supervisor = {
+                "receipt": str(supervisor_file),
+                "schema": 1,
+                "nonce": "a" * 32,
+                "owner": {"pid": 1, "birth_identity": 10.0},
+                "keeper": {"pid": 2, "birth_identity": 20.0},
+                "provider": {"pid": 3, "birth_identity": 30.0},
+                "started_at": "time",
+            }
+            terminal = {
+                **supervisor,
+                "phase": "stopped",
+                "cause": "controller_finished",
+                "cleanup_error": None,
+                "observed_at": "time",
+                "processes": [supervisor["provider"]],
+            }
+            supervisor_file.write_text(json.dumps(terminal))
+            result = {
+                "complete": True,
+                "failed": ["tests.test_named"],
+                "collection_errors": [],
+                "uncollected": [],
+                "skipped": [],
+            }
+            receipt = {
+                "output": str(output),
+                "output_sha256": hashlib.sha256(output.read_bytes()).hexdigest(),
+                "exit_code": 1,
+                "timed_out": False,
+                "results_expected": True,
+                "results": result,
+                "supervision_errors": [],
+                "supervision": supervisor,
+                "supervision_sha256": hashlib.sha256(supervisor_file.read_bytes()).hexdigest(),
+            }
+            proof = {"changed_code_receipts": [receipt]}
+            check = {"selected_tests": ["tests.test_named"]}
+            mutant = {
+                "outcome": "killed",
+                "failed_tests": ["tests.test_named"],
+                "selected_tests": ["tests.test_named"],
+                "evidence": [str(output)],
+            }
+            self.assertTrue(fixture._killed_overlap(proof, check, mutant, root))
+            for key in ("schema", "nonce", "owner", "keeper", "provider", "started_at"):
+                missing_metadata = {k: v for k, v in supervisor.items() if k != key}
+                missing_terminal = {k: v for k, v in terminal.items() if k != key}
+                supervisor_file.write_text(json.dumps(missing_terminal))
+                altered = {
+                    **receipt,
+                    "supervision": missing_metadata,
+                    "supervision_sha256": hashlib.sha256(supervisor_file.read_bytes()).hexdigest(),
+                }
+                self.assertFalse(fixture._killed_overlap({"changed_code_receipts": [altered]}, check, mutant, root))
+            for key, value in (
+                ("schema", True),
+                ("nonce", "invalid"),
+                ("owner", {"pid": 1}),
+                ("keeper", {"pid": 0, "birth_identity": 20.0}),
+                ("started_at", ""),
+            ):
+                bad_supervisor = {**supervisor, key: value}
+                bad_terminal = {**terminal, key: value}
+                supervisor_file.write_text(json.dumps(bad_terminal))
+                altered = {
+                    **receipt,
+                    "supervision": bad_supervisor,
+                    "supervision_sha256": hashlib.sha256(supervisor_file.read_bytes()).hexdigest(),
+                }
+                self.assertFalse(fixture._killed_overlap({"changed_code_receipts": [altered]}, check, mutant, root))
+            for bad_terminal in (
+                {**terminal, "processes": []},
+                {**terminal, "observed_at": ""},
+                {**terminal, "processes": [supervisor["provider"], supervisor["provider"]]},
+            ):
+                supervisor_file.write_text(json.dumps(bad_terminal))
+                altered = {**receipt, "supervision_sha256": hashlib.sha256(supervisor_file.read_bytes()).hexdigest()}
+                self.assertFalse(fixture._killed_overlap({"changed_code_receipts": [altered]}, check, mutant, root))
+            supervisor_file.write_text(json.dumps(terminal))
+            receipt["supervision_sha256"] = hashlib.sha256(supervisor_file.read_bytes()).hexdigest()
+            terminal["cause"] = "provider_stopped"
+            supervisor_file.write_text(json.dumps(terminal))
+            receipt["supervision_sha256"] = hashlib.sha256(supervisor_file.read_bytes()).hexdigest()
+            self.assertTrue(fixture._killed_overlap(proof, check, mutant, root))
+            for bad_cause in ("stage_deadline", "unknown", ""):
+                terminal["cause"] = bad_cause
+                supervisor_file.write_text(json.dumps(terminal))
+                receipt["supervision_sha256"] = hashlib.sha256(supervisor_file.read_bytes()).hexdigest()
+                self.assertFalse(fixture._killed_overlap(proof, check, mutant, root))
+            terminal["cause"] = "controller_finished"
+            supervisor_file.write_text(json.dumps(terminal))
+            receipt["supervision_sha256"] = hashlib.sha256(supervisor_file.read_bytes()).hexdigest()
+            missing_cleanup = {key: value for key, value in terminal.items() if key != "cleanup_error"}
+            supervisor_file.write_text(json.dumps(missing_cleanup))
+            receipt["supervision_sha256"] = hashlib.sha256(supervisor_file.read_bytes()).hexdigest()
+            self.assertFalse(fixture._killed_overlap(proof, check, mutant, root))
+            for key, value in (("cleanup_error", "unknown cleanup"), ("phase", "running"), ("nonce", "forged")):
+                altered_terminal = {**terminal, key: value}
+                supervisor_file.write_text(json.dumps(altered_terminal))
+                receipt["supervision_sha256"] = hashlib.sha256(supervisor_file.read_bytes()).hexdigest()
+                self.assertFalse(fixture._killed_overlap(proof, check, mutant, root))
+            supervisor_file.write_text(json.dumps(terminal))
+            receipt["supervision_sha256"] = hashlib.sha256(supervisor_file.read_bytes()).hexdigest()
+            hardlink = root / "mutation-check/hardlink.log"
+            os.link(output, hardlink)
+            self.assertFalse(fixture._killed_overlap(proof, check, mutant, root))
+            hardlink_mutant = {**mutant, "evidence": [str(hardlink)]}
+            hardlink_receipt = {**receipt, "output": str(hardlink)}
+            self.assertFalse(
+                fixture._killed_overlap({"changed_code_receipts": [hardlink_receipt]}, check, hardlink_mutant, root)
+            )
+            hardlink.unlink()
+            hardlink = root / "mutation-check/command-supervision/hardlink.json"
+            os.link(supervisor_file, hardlink)
+            self.assertFalse(fixture._killed_overlap(proof, check, mutant, root))
+            hardlink.unlink()
+            alias = root / "mutation-check/alias.log"
+            alias.symlink_to(output)
+            alias_mutant = {**mutant, "evidence": [str(alias)]}
+            alias_receipt = {**receipt, "output": str(alias)}
+            self.assertFalse(
+                fixture._killed_overlap({"changed_code_receipts": [alias_receipt]}, check, alias_mutant, root)
+            )
+            parent_alias = root / "mutation-check/aliased"
+            parent_alias.symlink_to(output.parent, target_is_directory=True)
+            alias_mutant = {**mutant, "evidence": [str(parent_alias / output.name)]}
+            alias_receipt = {**receipt, "output": alias_mutant["evidence"][0]}
+            self.assertFalse(
+                fixture._killed_overlap({"changed_code_receipts": [alias_receipt]}, check, alias_mutant, root)
+            )
+            supervisor_alias = root / "mutation-check/alias-supervisor.json"
+            supervisor_alias.symlink_to(supervisor_file)
+            alias_receipt = {**receipt, "supervision": {**supervisor, "receipt": str(supervisor_alias)}}
+            self.assertFalse(fixture._killed_overlap({"changed_code_receipts": [alias_receipt]}, check, mutant, root))
+            for change in (
+                {"outcome": "survived"},
+                {"outcome": "not_run"},
+                {"failed_tests": []},
+                {"failed_tests": ["other"]},
+                {"selected_tests": []},
+                {"evidence": []},
+                {"evidence": [str(root / "forged.log")]},
+            ):
+                self.assertFalse(fixture._killed_overlap(proof, check, {**mutant, **change}, root))
+            for change in (
+                {"exit_code": 0},
+                {"timed_out": True},
+                {"results_expected": False},
+                {"output_sha256": "0" * 64},
+                {"supervision_sha256": "0" * 64},
+                {"results": {**result, "failed": ["other"]}},
+                {"results": {**result, "collection_errors": ["collection failed"]}},
+            ):
+                self.assertFalse(
+                    fixture._killed_overlap({"changed_code_receipts": [{**receipt, **change}]}, check, mutant, root)
+                )
+            output.write_text("changed output\n")
+            self.assertFalse(fixture._killed_overlap(proof, check, mutant, root))
 
 
 class TodoFixtureReviewTests(unittest.TestCase):
@@ -795,6 +1060,7 @@ class LeaseCleanupFixtureReviewTests(unittest.TestCase):
     scenario_name = "ladder-18-durable-lease-queue"
     source_path = "leasequeue/__init__.py"
     transaction_case = fixture.LEASE_TRANSACTION_CASE
+    delimiter_lines = (14,)
 
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
@@ -858,6 +1124,113 @@ class LeaseCleanupFixtureReviewTests(unittest.TestCase):
             producer=self.producer if producer is None else producer,
         )
         return [row for row in rows if row["reason_kind"] == "equivalent_mutant"]
+
+    def test_exact_unmutated_delimiters_have_source_bound_reasons(self):
+        source = (self.root / self.path).read_text().splitlines(keepends=True)
+        compile("".join(source), self.path, "exec")
+        for line in self.delimiter_lines:
+            with self.subTest(line=line):
+                self.assertIn(source[line - 1].strip(), {")", "]"})
+                with self.assertRaises(SyntaxError):
+                    compile("".join(source[: line - 1] + source[line:]), self.path, "exec")
+                data = self.data(line)
+                row = data["regression_proof"]["changed_code_evidence"]["obligations"][0]
+                row["mutation_outcomes"] = []
+                row["source_line"] = source[line - 1].strip()
+                delimiter_inventory(
+                    data["regression_proof"], self.path, self.source_digest, root=self.root, lines=[line]
+                )
+                save_delimiter_proof(data, self.root)
+                reasons = fixture.judgments(data, self.root, producer=self.producer)
+                self.assertEqual([row["gap_id"]], [reason["gap_id"] for reason in reasons])
+                self.assertEqual("instrumentation_unavailable", reasons[0]["reason_kind"])
+                for outcome in ("survived", "not_run"):
+                    row["mutation_outcomes"] = [outcome]
+                    self.assertEqual([], fixture.judgments(data, self.root, producer=self.producer))
+                row["mutation_outcomes"] = []
+                for change in (
+                    {"line": line, "end_line": line, "outcome": "killed"},
+                    {"line": line - 1, "end_line": line, "outcome": "survived"},
+                    {"line": line - 1, "end_line": line, "outcome": "not_run"},
+                ):
+                    altered = copy.deepcopy(data)
+                    mutant = altered["regression_proof"]["mutation_check"]["files"][0]["mutants"][0]
+                    mutant.update(change)
+                    save_delimiter_proof(altered, self.root)
+                    self.assertEqual([], fixture.judgments(altered, self.root, producer=self.producer))
+                save_delimiter_proof(data, self.root)
+                altered = copy.deepcopy(data)
+                del altered["regression_proof"]["mutation_check"]
+                self.assertEqual([], fixture.judgments(altered, self.root, producer=self.producer))
+                for change in (
+                    {"collected": False},
+                    {"selection": "unknown"},
+                    {"limit_per_file": 1},
+                    {"test_selection": {"unobserved_mutants": 1}},
+                    {"files": []},
+                ):
+                    altered = copy.deepcopy(data)
+                    altered["regression_proof"]["mutation_check"].update(change)
+                    save_delimiter_proof(altered, self.root)
+                    self.assertEqual([], fixture.judgments(altered, self.root, producer=self.producer))
+                save_delimiter_proof(data, self.root)
+                for change in (
+                    {"overlapping_mutations": [{"outcome": "survived"}]},
+                    {"overlapping_mutations_omitted": 1},
+                    {"gap_id": "stale"},
+                    {"source_line": "unknown"},
+                ):
+                    altered = copy.deepcopy(data)
+                    altered["regression_proof"]["changed_code_evidence"]["obligations"][0].update(change)
+                    save_delimiter_proof(altered, self.root)
+                    self.assertEqual([], fixture.judgments(altered, self.root, producer=self.producer))
+                save_delimiter_proof(data, self.root)
+                altered = copy.deepcopy(data)
+                altered["regression_proof"]["mutation_check"]["files"][0]["mutants"] = []
+                self.assertEqual([], fixture.judgments(altered, self.root, producer=self.producer))
+                altered = copy.deepcopy(data)
+                copied = self.root.resolve() / "fabricated.json"
+                copied.write_bytes(Path(data["regression_proof"]["path"]).read_bytes())
+                altered["regression_proof"]["path"] = str(copied)
+                altered["changed_code_citation_context"]["proof_reference"] = altered["regression_proof"]["path"]
+                self.assertEqual([], fixture.judgments(altered, self.root, producer=self.producer))
+                original = Path(data["regression_proof"]["path"])
+                hardlink = original.parent / "hardlink.json"
+                os.link(original, hardlink)
+                self.assertEqual([], fixture.judgments(data, self.root, producer=self.producer))
+                hardlink.unlink()
+                parent_alias = original.parent.parent / "alias"
+                parent_alias.symlink_to(original.parent, target_is_directory=True)
+                altered["regression_proof"]["path"] = str(parent_alias / original.name)
+                altered["changed_code_citation_context"]["proof_reference"] = altered["regression_proof"]["path"]
+                self.assertEqual([], fixture.judgments(altered, self.root, producer=self.producer))
+                parent_alias.unlink()
+                row["mutation_outcomes"] = []
+                row["sha256"] = "0" * 64
+                self.assertEqual([], fixture.judgments(data, self.root, producer=self.producer))
+                row["sha256"] = self.source_digest
+                for name in (self.path, "tests/test_behavior.py"):
+                    path = self.root / name
+                    link = self.root / "fixture-hardlink"
+                    os.link(path, link)
+                    self.assertEqual([], fixture.judgments(data, self.root, producer=self.producer))
+                    link.unlink()
+                    before = path.read_bytes()
+                    try:
+                        path.write_bytes(before + b"\n# altered fixture\n")
+                        self.assertEqual([], fixture.judgments(data, self.root, producer=self.producer))
+                    finally:
+                        path.write_bytes(before)
+
+    def test_delimiter_reason_requires_an_observed_killed_parent(self):
+        line = self.delimiter_lines[0]
+        data = self.data(line)
+        row = data["regression_proof"]["changed_code_evidence"]["obligations"][0]
+        row["mutation_outcomes"] = []
+        row["source_line"] = (self.root / self.path).read_text().splitlines()[line - 1].strip()
+        delimiter_inventory(data["regression_proof"], self.path, self.source_digest)
+        save_delimiter_proof(data, self.root)
+        self.assertEqual([], fixture.judgments(data, self.root, producer=self.producer))
 
     def test_exact_cleanup_observations_require_the_delivered_transaction_test(self):
         for line in self.cleanup_lines:
@@ -940,6 +1313,7 @@ class NonAtomicLeaseFixtureReviewTests(LeaseCleanupFixtureReviewTests):
     source_digest = "a7067c3c67d30194cf473870d350072529de7af46d2fe0097aa9efd56183cd02"
     cleanup_lines = (24, 25)
     reason_lines = (6, 14, 17, 22, 30)
+    delimiter_lines = (15,)
 
     def test_non_mutable_lines_require_the_pinned_producer_and_exact_current_gap(self):
         for line in self.reason_lines:
@@ -967,15 +1341,85 @@ class ExceptionRollbackOutboxFixtureReviewTests(NonAtomicLeaseFixtureReviewTests
         "tests.test_behavior.OutboxTests.test_creation_locks_before_the_idempotency_read_and_closes_its_connection"
     )
     reason_lines = (5, 14, 17, 22, 42, 43, 53, 60, 61, 62, 66)
+    delimiter_lines = (15, 44, 63, 64)
 
 
 class ProcessLocalTokenFixtureReviewTests(LeaseCleanupFixtureReviewTests):
     variant = "broken/process-local-tokens"
     source_digest = fixture.LEASE_TOKENS_SOURCE
     cleanup_lines = (25, 26)
+    delimiter_lines = (16,)
 
 
 class LifecycleFixtureReviewTests(unittest.TestCase):
+    def test_outbox_reference_delimiter_reasons_require_its_exact_source_and_tests(self):
+        scenario = REFERENCE.parents[1] / "ladder-19-transactional-outbox"
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            shutil.copytree(scenario / "reference", root, dirs_exist_ok=True)
+            path = "outbox/__init__.py"
+            source = (root / path).read_text().splitlines(keepends=True)
+            digest = hashlib.sha256((root / path).read_bytes()).hexdigest()
+            self.assertEqual(fixture.OUTBOX_SOURCE, digest)
+            compile("".join(source), path, "exec")
+            for line in (15, 44, 63, 64):
+                with self.subTest(line=line):
+                    self.assertIn(source[line - 1].strip(), {")", "]"})
+                    with self.assertRaises(SyntaxError):
+                        compile("".join(source[: line - 1] + source[line:]), path, "exec")
+                    revision, context = "a" * 64, "b" * 64
+                    gap_id = (
+                        "changed-code:"
+                        + hashlib.sha256(
+                            json.dumps([revision, context, path, digest, line], separators=(",", ":")).encode()
+                        ).hexdigest()
+                    )
+                    row = {
+                        "gap_id": gap_id,
+                        "path": path,
+                        "line": line,
+                        "status": "reason_required",
+                        "sha256": digest,
+                        "mutation_outcomes": [],
+                        "source_line": source[line - 1].strip(),
+                    }
+                    data = {
+                        "regression_proof": {
+                            "path": "proof.json",
+                            "verdict": "PASS",
+                            "source_revision": revision,
+                            "changed_code_evidence": {
+                                "source_revision": revision,
+                                "proof_context": context,
+                                "obligations": [row],
+                            },
+                        }
+                    }
+                    delimiter_inventory(data["regression_proof"], path, digest, root=root, lines=[line])
+                    save_delimiter_proof(data, root)
+                    reasons = fixture.judgments(data, root)
+                    self.assertEqual([row["gap_id"]], [reason["gap_id"] for reason in reasons])
+                    self.assertEqual("instrumentation_unavailable", reasons[0]["reason_kind"])
+                    for outcome in ("survived", "not_run"):
+                        row["mutation_outcomes"] = [outcome]
+                        self.assertEqual([], fixture.judgments(data, root))
+                    row["mutation_outcomes"] = []
+                    row["sha256"] = "0" * 64
+                    self.assertEqual([], fixture.judgments(data, root))
+                    row["sha256"] = digest
+                    for name in (path, "tests/test_behavior.py"):
+                        actual = root / name
+                        link = root / "fixture-hardlink"
+                        os.link(actual, link)
+                        self.assertEqual([], fixture.judgments(data, root))
+                        link.unlink()
+                        before = actual.read_bytes()
+                        try:
+                            actual.write_bytes(before + b"\n# altered fixture\n")
+                            self.assertEqual([], fixture.judgments(data, root))
+                        finally:
+                            actual.write_bytes(before)
+
     def test_only_the_exact_outbox_cleanup_mutants_get_equivalence_reasons(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
@@ -1061,27 +1505,49 @@ class LifecycleFixtureReviewTests(unittest.TestCase):
                 shutil.copytree(catalog / scenario / "seed", root, dirs_exist_ok=True)
                 shutil.copytree(catalog / scenario / variant, root, dirs_exist_ok=True)
                 source = (root / path).read_bytes()
+                digest = hashlib.sha256(source).hexdigest()
+                revision, context = "a" * 64, "b" * 64
+                gaps = {
+                    i: "changed-code:"
+                    + hashlib.sha256(
+                        json.dumps([revision, context, path, digest, i], separators=(",", ":")).encode()
+                    ).hexdigest()
+                    for i in range(1, len(source.splitlines()) + 1)
+                }
                 data = {
                     "regression_proof": {
                         "path": "proof.json",
+                        "verdict": "PASS",
+                        "source_revision": revision,
                         "changed_code_evidence": {
+                            "source_revision": revision,
+                            "proof_context": context,
                             "obligations": [
                                 {
-                                    "gap_id": f"gap:{i}",
+                                    "gap_id": gaps[i],
                                     "path": path,
                                     "line": i,
                                     "status": "reason_required",
-                                    "sha256": hashlib.sha256(source).hexdigest(),
+                                    "sha256": digest,
                                     "mutation_outcomes": [],
+                                    "source_line": source.splitlines()[i - 1].decode().strip(),
                                 }
                                 for i in range(1, len(source.splitlines()) + 1)
-                            ]
+                            ],
                         },
                     }
                 }
+                delimiter_inventory(
+                    data["regression_proof"],
+                    path,
+                    digest,
+                    root=root,
+                    lines=[i for i, reason in reasons.items() if reason == fixture._CLOSING_DELIMITER],
+                )
+                save_delimiter_proof(data, root)
                 rows = fixture.judgments(data, root)
-                self.assertEqual(set(reasons), {int(row["gap_id"].split(":")[1]) for row in rows})
-                self.assertTrue(all(row["evidence_refs"] == ["proof.json", path] for row in rows))
+                self.assertEqual({gaps[i] for i in reasons}, {row["gap_id"] for row in rows})
+                self.assertTrue(all(row["evidence_refs"] == [data["regression_proof"]["path"], path] for row in rows))
                 for mutation in (
                     {"mutation_outcomes": ["survived"]},
                     {"sha256": "0" * 64},
