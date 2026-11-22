@@ -79,6 +79,17 @@ class ScopeTests(unittest.TestCase):
             "tests/plan_collection_vscode_fixture.py",
             "tests/provider_auth_fixture.py",
             "tests/python_semantic_vscode_fixture.py",
+            "tests/requirements_standing_vscode_fixture.py",
+            "tests/requirements_standing_host_cli.py",
+            "tests/requirements_standing_provider.py",
+            "scenarios/harness/driver.py",
+            "vscode-extension/test/requirements-standing-readiness.cjs",
+            "vscode-extension/test/requirements-standing-confirmation.cjs",
+            "tools/autocode_assumption_ledger.py",
+            "tools/autocode_code_citations.py",
+            "tools/autocode_requirements_review.py",
+            "tests/first_go_vscode_fixture.py",
+            "tools/autocode_first_go_proof.py",
             "tests/fixtures/python-semantic-host/displayed-plan.json",
             "tests/rustup_vscode_fixture.py",
             "tests/source_recovery_vscode_fixture.py",
@@ -121,6 +132,32 @@ class ScopeTests(unittest.TestCase):
                 )
                 self.assertIn("extension", self.enabled(resource))
         self.assertNotIn("extension", self.enabled("tests/unrelated/classification_vscode_fixture.py"))
+
+    def test_requirements_standing_resources_select_the_real_host(self):
+        from tools import ci_test_selection
+
+        for resource in (
+            "tests/requirements_standing_vscode_fixture.py",
+            "tests/requirements_standing_host_cli.py",
+            "tests/requirements_standing_provider.py",
+            "scenarios/harness/driver.py",
+            "vscode-extension/test/requirements-standing-readiness.cjs",
+            "vscode-extension/test/requirements-standing-confirmation.cjs",
+            "tools/autocode_assumption_ledger.py",
+            "tools/autocode_code_citations.py",
+            "tools/autocode_requirements_review.py",
+            "scenarios/harness/fake_codex.py",
+            "vscode-extension/test/host/held_cli.py",
+            "tests/host_reader_cleanup.py",
+            "vscode-extension/test/owned-fixture-cleanup.cjs",
+            "tests/status_retry_host_cleanup.py",
+        ):
+            with self.subTest(resource=resource):
+                self.assertIn(
+                    "vscode-extension/test/host/requirements-standing.test.cjs",
+                    ci_test_selection.EXTENSION_HOST_RESOURCES[resource],
+                )
+                self.assertIn("extension", self.enabled(resource))
 
     def test_visual_changes_keep_their_real_browser_job(self):
         self.assertTrue({"suite", "visual", "wheel"} <= self.enabled("tools/autocode_visual_browser.cjs"))

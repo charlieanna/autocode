@@ -161,6 +161,7 @@ KEYS: frozenset[str] = frozenset(
         "evidence_locations",
         "execution_checkpoints",
         "execution",
+        "fail_first_corrections",
         "failure_history",
         "failure_retry_authorizations",
         "figma_file",
@@ -386,6 +387,10 @@ class RunState(TypedDict, total=False):
     # Original tests the runner sent back to plan review as supersedes entries, once each; written and read only by
     # autocode_superseded_correction (#2748 follow-up).
     superseded_corrections: list
+    # Bug-fix milestones the regression proof could never accept, merged into one with a test: criterion at install,
+    # or a saved approved plan sent back to planning, once per contract revision; written by
+    # autocode_goal_lifecycle.install_draft and autocode_fail_first.send_back, read by send_back (#3962).
+    fail_first_corrections: list
     # Builder rounds the runner queued because an approved plan check failed on the candidate, bounded per
     # command; written by autocode_planned_check_rework, read there and by autocode_resolver_recovery.
     planned_check_reworks: list

@@ -1,5 +1,6 @@
 """Conservative reader/writer classification for the legacy process guard."""
 
+import io
 import os
 import subprocess
 import sys
@@ -380,6 +381,17 @@ class LiveProcessGuardTests(unittest.TestCase):
         self.hold(sys.executable, str(self.autocode), *self.paths, "--status", "--json")
         legacy.assert_no_legacy_process(self.run, self.workspace)
 
+    def test_refusal_records_exact_writer_evidence_with_a_live_observer(self):
+        self.hold(sys.executable, str(self.autocode), *self.paths, "--status", "--json")
+        legacy.assert_no_legacy_process(self.run, self.workspace)
+        writer = self.hold(sys.executable, str(self.autocode), *self.paths)
+        with self.assertRaisesRegex(legacy.Paused, f"Existing run process {writer} is active") as caught:
+            legacy.assert_no_legacy_process(self.run, self.workspace)
+        self.assertEqual(
+            f"Process check for PID {writer}: evidence=exact-arguments category=possible-runner status-option=absent",
+            getattr(caught.exception, "diagnostic", None),
+        )
+
     def test_status_with_mutation_is_still_a_writer(self):
         self.assert_busy(self.hold(sys.executable, str(self.autocode), *self.paths, "--status", "--feedback", "x"))
 
@@ -530,6 +542,43 @@ class ProcessGuardTests(unittest.TestCase):
             patch.object(legacy, "_exact_argv", return_value=command.split()),
         ):
             legacy.assert_no_legacy_process(self.run, self.workspace)
+
+    def test_cli_emits_bounded_diagnostic_for_an_unconfirmed_process(self):
+        import autocode
+
+        stdout, stderr = io.StringIO(), io.StringIO()
+        command = f"{RUNNER} --status {self.paths}"
+        listing = self.listing(command)
+        pid = self.row_pids[0]
+        with (
+            patch.object(legacy.subprocess, "run", return_value=listing),
+            patch.object(
+                autocode, "main", side_effect=lambda: legacy.assert_no_legacy_process(self.run, self.workspace)
+            ),
+            patch.object(sys, "stdout", stdout),
+            patch.object(sys, "stderr", stderr),
+        ):
+            self.assertEqual(2, autocode.cli())
+        self.assertEqual("", stdout.getvalue())
+        self.assertEqual(
+            [
+                f"autocode: Existing run process {pid} is active; leave it untouched",
+                f"Process check for PID {pid}: evidence=unconfirmed category=unknown status-option=unknown",
+            ],
+            stderr.getvalue().splitlines(),
+        )
+
+    def test_confirmed_process_diagnostic_classifies_bounded_facts(self):
+        for argv, category, status in (
+            (["/usr/bin/codex", "exec", "private provider arguments"], "provider-command", "absent"),
+            (["/usr/bin/python3", "autocode.py", "--status"], "possible-runner", "present"),
+        ):
+            with self.subTest(category=category):
+                observation = legacy.LegacyProcessBusy(7, argv)
+                self.assertEqual(
+                    f"Process check for PID 7: evidence=exact-arguments category={category} status-option={status}",
+                    observation.diagnostic,
+                )
 
     def test_exact_path_first_status_does_not_block_a_writer(self):
         argv = [
