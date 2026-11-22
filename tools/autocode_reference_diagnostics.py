@@ -15,7 +15,12 @@ _ANSI = re.compile(rb"\x1b\[[0-?]*[ -/]*[@-~]")
 _SPHINX_START = re.compile(rb"^Running Sphinx v\d+\.", re.MULTILINE)
 _SPHINX_CACHED = re.compile(rb"^loading pickled environment\.\.\.\s+done\s*$", re.MULTILINE)
 _SPHINX_FINISHED = re.compile(rb"^build (?:succeeded\.|finished with problems, \d+ warnings?\.)$", re.MULTILINE)
-_LINKED_DOCUMENT = re.compile(r"\b(?:toctree|link(?:s|ed|ing)?)\b", re.IGNORECASE)
+_DOCUMENTATION_CRITERION = re.compile(
+    r"\b(?:toctree|link(?:s|ed|ing)?|document(?:ation|ing|ed|s)?|docs?|sphinx|manual|readme|restructuredtext)\b"
+    r"|\.rst\b"
+    r"|\busage\s+(?:page|guide)\b",
+    re.IGNORECASE,
+)
 _PYTHON_ROLE = re.compile(r"(?<![\\\w:]):(?:py:)?(func|class|meth|attr|mod|exc|data|obj):`[^`\n]+`")
 _SECTION_ROLE = re.compile(r"(?<![\\\w:]):(?:std:)?ref:`[^`\n]+`")
 _MAX_LOG = 4 * 1024 * 1024
@@ -26,13 +31,18 @@ SPHINX_OPTIONS = ["-E", "-a", "-n", "-W", "--keep-going", "-b", "html"]
 
 
 def linked_sphinx_documents(workspace, criteria: dict[str, str], changed_paths) -> dict[str, list[str]]:
-    """Find changed Sphinx documents explicitly named in linked-page criteria.
+    """Find changed Sphinx documents a documentation criterion makes reference-checkable.
 
-    Both the approved criterion and an existing, ordinary source document
-    must be present. A framework name or a generated report alone is not scope.
+    A criterion that names a changed source document links it directly. A documentation
+    criterion that names no path still links a changed document that actually carries
+    cross-references (#3947): the obligation follows the references the change added, not
+    whether the criterion spells out reference resolution or the file name. Both the approved
+    criterion and an existing, ordinary source document in a Sphinx tree must be present; a
+    framework name or a generated report alone is not scope, and a changed document without
+    cross-references is never inferred.
     """
-    linked_criteria = {cid: text for cid, text in criteria.items() if _LINKED_DOCUMENT.search(text)}
-    if not workspace or not linked_criteria or not isinstance(changed_paths, list):
+    doc_criteria = {cid: text for cid, text in criteria.items() if _DOCUMENTATION_CRITERION.search(text)}
+    if not workspace or not doc_criteria or not isinstance(changed_paths, list):
         return {}
     try:
         root = Path(workspace).resolve(strict=True)
@@ -43,10 +53,6 @@ def linked_sphinx_documents(workspace, criteria: dict[str, str], changed_paths) 
         path = PurePosixPath(raw)
         if path.is_absolute() or path.suffix != ".rst" or ".." in path.parts or path.as_posix() != raw:
             continue
-        name = re.compile(r"(?<![\w./-])" + re.escape(raw) + r"(?![\w./-])")
-        matched = [cid for cid, text in linked_criteria.items() if name.search(text)]
-        if not matched:
-            continue
         try:
             doc = root.joinpath(*path.parts)
             if doc.resolve(strict=True) != doc or not doc.is_file():
@@ -56,9 +62,32 @@ def linked_sphinx_documents(workspace, criteria: dict[str, str], changed_paths) 
                 continue
         except (OSError, ValueError, RuntimeError):
             continue
+        name = re.compile(r"(?<![\w./-])" + re.escape(raw) + r"(?![\w./-])")
+        matched = [cid for cid, text in doc_criteria.items() if name.search(text)]
+        if not matched:
+            # The change added cross-references to a Sphinx page no criterion names: a
+            # documentation criterion still owes the reference comparison for it (#3947).
+            if not _has_cross_references(doc):
+                continue
+            matched = list(doc_criteria)
         for cid in matched:
             documents.setdefault(cid, []).append(raw)
     return documents
+
+
+def _has_cross_references(doc: Path) -> bool:
+    """Whether an ordinary source document carries a cross-reference role the check verifies.
+
+    Reads the same Python and section roles ``controls`` injects, so the inferred trigger
+    fires exactly on documents whose references the scoped comparison can check.
+    """
+    try:
+        if doc.stat().st_size > _MAX_DOC:
+            return False
+        text = doc.read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        return False
+    return bool(_PYTHON_ROLE.search(text) or _SECTION_ROLE.search(text))
 
 
 def _sphinx(command: object) -> bool:
