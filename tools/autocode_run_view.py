@@ -42,6 +42,7 @@ except ImportError:
     import autocode_stop as stop
 
 try:
+    from . import autocode_acceptance_retry_exhaustion as acceptance_exhaustion
     from . import autocode_acceptance_retry_next as retry_next
     from . import autocode_acceptance_tests as acceptance_tests
     from . import autocode_accepted_source as accepted_source
@@ -121,6 +122,7 @@ try:
     from . import autocode_workflows as workflows
     from . import autocode_worktree_choice as worktree_choice
 except ImportError:
+    import autocode_acceptance_retry_exhaustion as acceptance_exhaustion
     import autocode_acceptance_retry_next as retry_next
     import autocode_acceptance_tests as acceptance_tests
     import autocode_accepted_source as accepted_source
@@ -363,6 +365,8 @@ def view(
     stop_reason = (
         recovery_exhaustion.NOTICE
         if recovery_exhaustion.pending(saved_state)
+        else acceptance_exhaustion.NOTICE
+        if acceptance_exhaustion.pending(saved_state, retained)
         else job_end.NOTICE
         if job_end.pending(saved_state)
         else verification_config.NOTICE
@@ -1780,8 +1784,12 @@ def needs(
             return protected_offer
         if retained is _UNSET:
             retained = status_observation.retained_retry(state, state.get("workspace"))
+        if acceptance_exhaustion.pending(state, retained):
+            # No re-check of the saved tests is left and the Investigator has looked: nothing automatic
+            # remains, so the next resume ends the run with a report (acceptance_exhaustion.settle, #4037).
+            return {"kind": "continue", "action": "--resume-paused"}
         if retry_next.exhausted_pause(state, retained):
-            # The retained report is spent or cannot be authenticated: plain resume would only re-pause.
+            # The retained report cannot be authenticated: plain resume would only re-pause.
             # The recovery card preserves the evidence and explains the hold.
             return None
         need = {"kind": "resume", "reason": state.get("stop_reason") or status}

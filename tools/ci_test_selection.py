@@ -1784,6 +1784,7 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         # reaches the build loop and the status command's progress line through the in-process CLI.
         (
             "tools/autocode_acceptance_retry_admission.py",
+            "tools/autocode_acceptance_retry_exhaustion.py",
             "tools/autocode_acceptance_retry_next.py",
             "tools/autocode_status_observation.py",
             "tools/autocode_status_observation_worker.py",
