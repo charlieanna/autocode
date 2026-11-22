@@ -98,19 +98,33 @@ def _dependency_links(tree, source, expected_files):
 
 
 class DependencyGuard:
-    """Keep a pinned scratch copy's generated dependency links stable during its command."""
+    """Keep a pinned scratch copy's linked inputs stable during its command."""
 
     def __init__(self):
         self.binding = None
+        self.protected = None
 
     def capture(self, tree, source, expected_files):
         self.binding = (Path(source), expected_files, _dependency_links(tree, source, expected_files))
+
+    def capture_protected(self, tree, files, tracked):
+        self.protected = (files, tracked)
+        self.check_protected(tree, "The staged protected replay has an unbound source link")
+
+    def check_protected(self, tree, reason):
+        if self.protected is not None:
+            files, tracked = self.protected
+            if source_snapshot.unbound_symlinks(
+                tree, files, lambda: tracked, allow_untracked_terminal=True, allow_directory_terminal=True
+            ):
+                raise util.Paused("PAUSED_SOURCE_UNAVAILABLE", reason)
 
     def check(self, tree):
         if self.binding is not None:
             source, files, before = self.binding
             if _dependency_links(tree, source, files) != before:
                 raise util.Paused("PAUSED_SOURCE_UNAVAILABLE", "Verification dependency links changed during the check")
+        self.check_protected(tree, "Protected fixture inputs changed during the check")
 
 
 def finished(tree, review_snapshot, source_paths, dependency_guard):
@@ -196,7 +210,7 @@ def prepare(
     review_source=None,
     expected_source_revision=None,
     protected_test_snapshot_links=False,
-    _on_prepared=None,
+    _link_guard=None,
 ):
     """Existing copy operations, supplied to the owned preparation worker."""
     validate_protected_policy(protected_test_snapshot_links, expected_source_revision)
@@ -212,6 +226,7 @@ def prepare(
         expected_files,
         lambda: git(workspace, "ls-files", "-z").split("\0"),
         allow_untracked_terminal=protected_test_snapshot_links,
+        allow_directory_terminal=protected_test_snapshot_links,
     ):
         raise util.PinnedSourceLinkRefusal(
             "PAUSED_SOURCE_UNAVAILABLE",
@@ -256,8 +271,8 @@ def prepare(
             or not _same_source_after_copy(workspace, run_dir, tree, before, after, source_paths)
         ):
             raise util.Paused("PAUSED_SOURCE_UNAVAILABLE", "Verification source copy differs from its pinned source")
-        if expected_source_revision is not None and _on_prepared is not None:
-            _on_prepared(tree, dependencies_from or workspace, expected_files)
+        if expected_source_revision is not None and _link_guard is not None:
+            _link_guard.capture(tree, dependencies_from or workspace, expected_files)
         if _before_patch is not None:
             _before_patch(tree)
         if patch:
@@ -266,8 +281,15 @@ def prepare(
                 raise ScratchPatchError(
                     f"git apply {patch} failed: {(applied.stderr or applied.stdout).strip()[-300:]}"
                 )
-        scratch_overlay.apply(tree, files, links)
+        installed = scratch_overlay.apply(tree, files, links, bound=protected_test_snapshot_links)
         joint_inputs.copy(workspace, tree)
+        if protected_test_snapshot_links:
+            guard = _link_guard if _link_guard is not None else DependencyGuard()
+            guard.capture_protected(
+                tree,
+                scratch_overlay.combined_inventory(expected_files, installed),
+                {*git(workspace, "ls-files", "-z").split("\0"), *installed},
+            )
     except BaseException:
         remove_tree(workspace, tree)
         raise

@@ -14,9 +14,11 @@ from pathlib import Path
 
 try:
     from . import autocode_project_kinds as project_kinds
+    from . import autocode_source_directory as source_directory
     from . import autocode_util as util
 except ImportError:
     import autocode_project_kinds as project_kinds
+    import autocode_source_directory as source_directory
     import autocode_util as util
 
 
@@ -224,15 +226,19 @@ def metadata(workspace, files):
 _MAX_FILE_LINK_CHAIN = 8
 
 
-def unbound_symlinks(workspace, files, tracked_paths, *, allow_untracked_terminal=False):
+def unbound_symlinks(
+    workspace, files, tracked_paths, *, allow_untracked_terminal=False, allow_directory_terminal=False
+):
     """Links not bound by this inventory and tracked, ordinary in-tree targets.
 
     Every link is tracked; its terminal regular file must be tracked unless
     an explicitly scoped copy permits an inventoried untracked terminal. All
     bytes still match this snapshot; escapes and unsafe parent links are held.
+    A protected fixture may name a directory with completely observed membership.
+    A file link that stands for source code still has to end at a regular file.
     """
-    if type(allow_untracked_terminal) is not bool:
-        raise ValueError("Untracked terminal policy must be a boolean")
+    if type(allow_untracked_terminal) is not bool or type(allow_directory_terminal) is not bool:
+        raise ValueError("Source link terminal policies must be booleans")
     links = [name for name, value in files.items() if value.startswith("symlink:")]
     if not links:
         return []
@@ -241,6 +247,21 @@ def unbound_symlinks(workspace, files, tracked_paths, *, allow_untracked_termina
         root = Path(workspace).resolve(strict=True)
     except (OSError, ValueError, RuntimeError):
         return sorted(links)
+    if allow_directory_terminal:
+        checked_directories: dict[str, bool] = {}
+        return sorted(
+            name
+            for name in links
+            if not source_directory.link_is_bound(
+                root,
+                name,
+                files,
+                tracked,
+                checked_directories,
+                allow_untracked=allow_untracked_terminal,
+                code_suffixes=project_kinds.CODE_SUFFIXES,
+            )
+        )
     unbound = []
     for name in links:
         try:

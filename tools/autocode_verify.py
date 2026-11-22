@@ -1553,7 +1553,7 @@ def scratch_run(
             )
             return {"review_mutation": envelope}
         try:
-            parameters["_on_prepared"] = link_guard.capture
+            parameters["_link_guard"] = link_guard
             tree = prepare_scratch_tree(workspace, run_dir, **parameters)
         except ScratchPatchError as error:
             return {"error": str(error), "results": None}

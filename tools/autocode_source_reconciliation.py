@@ -111,6 +111,7 @@ def _unsafe_copy_source(workspace, state: RunState, current):
             files,
             lambda: util.git(workspace, "ls-files", "-z").split("\0"),
             allow_untracked_terminal=policy == "protected",
+            allow_directory_terminal=policy == "protected",
         )
         if links:
             return policy

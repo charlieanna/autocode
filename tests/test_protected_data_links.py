@@ -22,6 +22,7 @@ import unittest
 import autocode_protected_oracles as guard
 import autocode_protected_store as store
 import autocode_taskrun as taskrun
+import autocode_util as util
 import autocode_verify as verify
 
 from .test_agent_step import fixture_workspace
@@ -161,6 +162,124 @@ class DataLinkTests(unittest.TestCase):
         del files["tests/test_report.py"]
         with self.assertRaisesRegex(ValueError, "source snapshot"):
             guard.retain(self.root, self.project.evidence / "partial", files, self.command)
+
+
+class InTreeDirectoryReplayTests(unittest.TestCase):
+    def test_the_gate_runs_both_halves_with_a_bound_fixture_directory(self):
+        project = Project(FILES)
+        self.addCleanup(project.close)
+        root = project.root
+        link(
+            root,
+            {"tests/data/current": "v2/", "tests/shared": "../samples", "tests/data/example": "current/report.txt"},
+        )
+        git(root, "add", ".")
+        git(root, *IDENTITY, "commit", "-qm", "finite in-tree fixture directories")
+        command = shlex.join([sys.executable, "-B", "-m", "unittest", "discover", "-v"])
+        record = guard.retain(root, project.evidence, guard.inventory(root, verify.is_test_path), command)
+        (root / "tests/test_report.py").write_text(
+            TESTS + "\n    def test_other_rows(self):\n        self.assertTrue(render([('x', 1)]))\n"
+        )
+        result = guard.replay(
+            {"settings": {"protected_tests": record}},
+            root,
+            project.evidence / "replays",
+            verify.scratch_run,
+            timeout=30,
+        )
+        self.assertEqual("PASS", result["verdict"], result)
+        self.assertEqual(0, result["original"]["exit_code"], result["original"])
+        self.assertEqual(0, result["candidate"]["exit_code"], result["candidate"])
+        self.assertIn("test_report_matches_the_current_sample", result["original"]["tail"])
+        self.assertIn("test_other_rows", result["candidate"]["tail"])
+
+    def test_a_directory_fixture_with_an_uninventoried_member_holds(self):
+        project = Project(FILES | {".gitignore": "tests/data/v2/generated.txt\n"})
+        self.addCleanup(project.close)
+        link(project.root, {"tests/data/current": "v2"})
+        git(project.root, "add", ".")
+        git(project.root, *IDENTITY, "commit", "-qm", "finite in-tree fixture directory")
+        snapshot = verify.source_snapshot.snapshot(project.root)
+        probe = lambda: verify.source_snapshot.unbound_symlinks(
+            project.root,
+            snapshot["files"],
+            lambda: snapshot["files"],
+            allow_untracked_terminal=True,
+            allow_directory_terminal=True,
+        )
+        self.assertEqual([], probe())
+        (project.root / "tests/data/v2/generated.txt").write_text("Uninventoried data")
+        self.assertEqual(["tests/data/current"], probe())
+
+    def test_a_change_to_the_staged_fixture_invalidates_its_check(self):
+        project = Project(FILES)
+        self.addCleanup(project.close)
+        link(project.root, {"tests/data/current": "v2"})
+        git(project.root, "add", ".")
+        git(project.root, *IDENTITY, "commit", "-qm", "finite in-tree fixture directory")
+        command = shlex.join([sys.executable, "-B", "-m", "unittest", "discover", "-v"])
+        root = project.root
+        record = guard.retain(root, project.evidence, guard.inventory(root, verify.is_test_path), command)
+        (root / "tests/test_report.py").write_text(
+            TESTS + "\n    def test_updates_its_sample(self):\n"
+            "        (DATA / 'v2' / 'report.txt').write_text('regenerated fixture')\n"
+        )
+        with self.assertRaisesRegex(util.Paused, "Protected fixture inputs changed during the check"):
+            guard.replay(
+                {"settings": {"protected_tests": record}},
+                root,
+                project.evidence / "mutation-replay",
+                verify.scratch_run,
+                timeout=30,
+            )
+        self.assertEqual("pen: 12\n", (project.root / "tests/data/v2/report.txt").read_text())
+
+    def test_archive_overlay_restores_a_fixture_and_keeps_the_pinned_product(self):
+        project = Project(FILES)
+        self.addCleanup(project.close)
+        root = project.root
+        link(
+            root,
+            {"tests/data/current": "v2/", "tests/shared": "../samples", "tests/data/example": "current/report.txt"},
+        )
+        git(root, "add", ".")
+        git(root, *IDENTITY, "commit", "-qm", "finite in-tree fixture directories")
+        command = shlex.join([sys.executable, "-B", "-m", "unittest", "discover", "-v"])
+        record = guard.retain(root, project.evidence, guard.inventory(root, verify.is_test_path), command)
+        self.assertIn("tests/data/v2/report.txt", record["files"])
+        self.assertNotIn("samples/a.txt", record["files"])
+        (root / "samples/a.txt").write_text("new product bytes\n")
+        (root / "tests/test_report.py").write_text(
+            TESTS + "\n    def test_reads_candidate_source(self):\n"
+            "        sample = Path(__file__).with_name('shared') / 'a.txt'\n"
+            "        self.assertEqual('new product bytes\\n', sample.read_text())\n"
+        )
+        (root / "tests/data/v2/report.txt").write_text("new fixture bytes\n")
+        with store.opened(record, root) as original:
+            originals = {
+                name: str(original / name) for name, value in record["files"].items() if "symlink" not in value
+            }
+            links = {name: value["symlink"] for name, value in record["files"].items() if "symlink" in value}
+            pinned = verify.source_snapshot.snapshot(root)["revision"]
+            contents = (
+                "from pathlib import Path; "
+                "data = Path('tests/data/example'); "
+                "product = Path('tests/shared/a.txt'); "
+                "assert data.read_text() == 'pen: 12\\n'; "
+                "assert product.read_text() == 'new product bytes\\n'"
+            )
+            result = verify.scratch_run(
+                root,
+                project.evidence / "protected-directory",
+                command=shlex.join([sys.executable, "-B", "-c", contents]),
+                timeout=30,
+                files=originals,
+                links=links,
+                expected_source_revision=pinned,
+                protected_test_snapshot_links=True,
+            )
+        self.assertEqual(0, result["exit_code"], result)
+        self.assertEqual("new fixture bytes\n", (root / "tests/data/v2/report.txt").read_text())
 
 
 # Python 3.11 has no quote of the string's own kind inside an f-string's braces.

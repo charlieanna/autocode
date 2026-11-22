@@ -802,8 +802,9 @@ def requirements() -> list[dict]:
 
 def source_refs() -> list[str]:
     """AutoCode requires planning to cite real files once the workspace has any."""
-    tracked = subprocess.run(["git", "ls-files"], capture_output=True, text=True).stdout.split()
-    return tracked[:8] or ["task"]
+    tracked = subprocess.run(["git", "ls-files", "-z"], capture_output=True, text=True).stdout.split("\0")
+    files = [name for name in tracked if name and not Path(name).is_symlink() and Path(name).is_file()]
+    return files[:8] or ["task"]
 
 
 def feedback_rows() -> list[dict]:

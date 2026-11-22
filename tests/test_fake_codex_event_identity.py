@@ -18,6 +18,24 @@ REPO = Path(__file__).resolve().parents[1]
 
 
 class FakeCodexEventIdentityTests(unittest.TestCase):
+    def test_scripted_citations_name_only_ordinary_tracked_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = root / "config.json"
+            config.write_text(json.dumps({"check": "true", "paths": []}))
+            spec = importlib.util.spec_from_file_location(
+                "fake_codex_citation_fixture", REPO / "scenarios/harness/fake_codex.py"
+            )
+            module = importlib.util.module_from_spec(spec)
+            with patch.dict(os.environ, {"SCENARIO_FAKE_CONFIG": str(config)}):
+                spec.loader.exec_module(module)
+            (root / "source with spaces.py").write_text("answer = 42\n")
+            (root / "fixtures").mkdir()
+            (root / "fixtures-current").symlink_to("fixtures")
+            tracked = type("Listing", (), {"stdout": "fixtures-current\0missing.py\0source with spaces.py\0"})()
+            with contextlib.chdir(root), patch.object(module.subprocess, "run", return_value=tracked):
+                self.assertEqual(["source with spaces.py"], module.source_refs())
+
     def test_executed_checks_with_common_prefix_and_repeats_get_distinct_events(self):
         with tempfile.TemporaryDirectory() as temporary:
             config = Path(temporary) / "config.json"
