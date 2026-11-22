@@ -8,6 +8,7 @@ const path = require('node:path');
 const {test} = require('node:test');
 const {openHistoryRow} = require('./open-history.cjs');
 const {privateHostEnvironment, settleFixture} = require('../owned-fixture-cleanup.cjs');
+const {conventionsVisible} = require('../requirements-standing-readiness.cjs');
 
 const EXTENSION = path.resolve(__dirname, '../..');
 const REPO = path.resolve(EXTENSION, '..');
@@ -95,19 +96,15 @@ test('editor distinguishes a reported convention from approval of the understand
     let frame;
     await until('the reported convention and its review action', async () => {
       frame = await chat();
-      for (const item of expected) {
-        const row = frame.locator('.assumption-row').filter({hasText: item.text});
-        if (!await row.count() || !(await row.innerText()).includes('reported convention, not independently verified or approved')) return null;
-      }
-      return await frame.$('#take-action') ? true : null;
+      return await conventionsVisible(frame, expected);
     });
     for (const item of expected) {
       const row = frame.locator('.assumption-row').filter({hasText: item.text});
       assert.equal(await row.locator('.state.done').count(), 0, `${item.id} is not presented as confirmed`);
-      assert.ok((await row.innerText()).includes(item.why));
+      assert.ok((await row.textContent()).includes(item.why));
     }
-    assert.match(await frame.locator('#take-action').innerText(), /Approve understanding and prepare plan/i);
-    assert.match(await frame.locator('body').innerText(), /Build a command that greets a person by name/);
+    assert.match(await frame.locator('#take-action').textContent(), /Approve understanding and prepare plan/i);
+    assert.match(await frame.locator('body').textContent(), /Build a command that greets a person by name/);
     const fresh = status();
     assert.equal(fresh.needs?.resolver_token, before.needs.resolver_token);
     assert.deepEqual(fresh.requirements?.proposed_assumptions, before.requirements.proposed_assumptions);
@@ -126,11 +123,11 @@ test('editor distinguishes a reported convention from approval of the understand
     await until('the editor to leave the Requirements approval', async () => {
       frame = await chat();
       const action = frame.locator('#take-action');
-      return !await action.count() || !/Approve understanding and prepare plan/i.test(await action.innerText());
+      return !await action.count() || !/Approve understanding and prepare plan/i.test(await action.textContent());
     });
     passed = true;
-  } catch (error) { testError = error; }
-  await settleFixture([
+  } catch (error) { testError = error; console.error(`Requirements standing host failed: ${error.stack || error}`); }
+  try { await settleFixture([
     ['capture failed editor', async () => { if (!passed && win) await win.screenshot({path: path.join(EXTENSION, '.vscode-test/host-requirements-standing.png'), timeout: 5_000}); }],
     ['stop owned run if offered', () => {
       if (!fixture) return;
@@ -162,5 +159,9 @@ test('editor distinguishes a reported convention from approval of the understand
     ['check the editor read status', () => {
       if (passed) assert.match(fs.readFileSync(reads, 'utf8'), /^start \d+ /m, 'the actual editor made a recorded status read');
     }],
-  ], () => fs.rmSync(root, {recursive: true, force: true}), testError);
+  ], () => fs.rmSync(root, {recursive: true, force: true}), testError); }
+  catch (error) {
+    console.error('Requirements standing cleanup:', require('node:util').inspect(error, {depth: 6}));
+    throw error;
+  }
 });
