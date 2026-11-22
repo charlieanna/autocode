@@ -28,10 +28,13 @@ except ImportError:
 
 import copy
 import json
+import re
+import subprocess
 import uuid
 from pathlib import Path, PurePosixPath
 
 try:
+    from . import autocode_base_attribution as base_attribution
     from . import autocode_check_outcome as check_outcome
     from . import autocode_command_receipt as command_receipt
     from . import autocode_focused_suite as focused_suite
@@ -52,8 +55,10 @@ try:
     from . import autocode_test_role_inventory as role_inventory
     from . import autocode_test_support as test_support
     from . import autocode_util as util
+    from . import autocode_verification_schedule as schedule
     from .autocode_protected_paths import identity, path_in
 except ImportError:
+    import autocode_base_attribution as base_attribution
     import autocode_check_outcome as check_outcome
     import autocode_command_receipt as command_receipt
     import autocode_focused_suite as focused_suite
@@ -74,6 +79,7 @@ except ImportError:
     import autocode_test_role_inventory as role_inventory
     import autocode_test_support as test_support
     import autocode_util as util
+    import autocode_verification_schedule as schedule
     from autocode_protected_paths import identity, path_in
 
 
@@ -431,12 +437,19 @@ def _bounded_replay(state: RunState, original, changed, workspace, timeout):
     }
 
 
-def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=None):
+def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=None, base_run=None):
     """Run the changed original tests on the candidate and with the original tests overlaid.
 
     ``run_check(label, execute, policy=..., accepted_failure=...)`` lets the caller schedule each run
     under its own obligation (#3040); ``execute(directory)`` performs it. Whatever it returns, the
     gate below interprets the receipt afresh under the current approved supersedes list.
+
+    ``base_run(workspace, folder, *, command, timeout)`` runs the same command once in a clean copy of
+    the run's recorded base revision (autocode_base_command.run, bound by the caller). With it, an
+    original half that fails is compared with that authenticated independent execution of the UNCHANGED
+    base (#3944): a failure the base has identically (whole output, not matching text) is pre-existing
+    and excused, never sent to a Builder repair or a person question about the host. Without it, or when
+    the base does not fail identically, every failure stays the change's, as before.
     """
     record = state.get("settings", {}).get("protected_tests")
     if not record:
@@ -600,6 +613,19 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=N
             if excused:
                 result["verdict"] = "PASS"
                 result["superseded"] = {"tests": _listed(replaced, changed), "excused_failures": excused}
+        if (
+            base_run is not None
+            and len(parts) == 1
+            and result["verdict"] == "FAIL"
+            and outcomes["original"]["outcome"] == check_outcome.FAILED
+            and outcomes["candidate"]["outcome"] in (check_outcome.FAILED, check_outcome.PASSED)
+        ):
+            # An original test that fails identically on the unchanged base is the base's failure, not the
+            # change's (#3944). Grounded in a fresh authenticated execution of the base, never matching text.
+            preexisting = _preexisting(result, base_run, workspace, directory, command, timeout)
+            if preexisting:
+                result["verdict"] = "PASS"
+                result["preexisting_failures"] = preexisting
     verify_binding(record)
     if source_scope.snapshot(workspace, state)["revision"] != revision:
         result.update(verdict="NOT_VERIFIED", error="Candidate changed during protected-test replay")
@@ -655,6 +681,97 @@ def _listed(replaced, changed):
     ]
 
 
+def _failed_names(row):
+    return set(((row or {}).get("results") or {}).get("failed") or [])
+
+
+# A test runner's own timing summary varies between two runs of the same failing test, but it is not a
+# failure detail. Erase only these runner-owned summary lines (unittest's ``Ran N tests in 0.001s`` and
+# pytest's framed ``... in 0.00s ...`` footer), never a failure message: a changed assertion, value or
+# exception still moves the output and keeps the failure the change's (#3944). A runner whose summary is
+# not recognized is left as-is, so its comparison fails closed rather than excusing anything.
+_RUNNER_TIMING = (
+    re.compile(rb"(?m)^(Ran \d+ tests? in )\d+\.\d+s[ \t]*$"),
+    re.compile(rb"(?m)^(=+[^\n]*? in )\d+\.\d+s([^\n]*?=+)[ \t]*$"),
+)
+
+
+def _strip_runner_timing(data: bytes) -> bytes:
+    for pattern in _RUNNER_TIMING:
+        data = pattern.sub(rb"\1<duration>\2" if pattern.groups == 2 else rb"\1<duration>", data)
+    return data
+
+
+def _preexisting(result, base_run, workspace, directory, command, timeout):
+    """The original half's failures when an authenticated execution of the UNCHANGED base has them
+    identically (#3944), else None.
+
+    The base runner executes the same command in a clean copy of the run's base revision; its receipt
+    must be runner-owned and its capture intact. ``base_attribution.judge`` then requires the original
+    half to fail with the SAME nonzero exit and the SAME whole output once each copy's directory is
+    replaced — a changed assertion, value, parameter, exception chain or execution source moves the
+    output and keeps the failure the change's. Matching text alone never excuses: the exemption rests on
+    the independent base execution, not on the message. The candidate half may fail only on tests the
+    original half thus proves fail identically on the base (a new or differently-failing test stays the
+    change's). The base receipt is retained so completion re-verifies the same evidence.
+    """
+    original, candidate = result["original"], result["candidate"]
+    if not (command_receipt.completed(original) and command_receipt.completed(candidate)):
+        return None
+    original_failed = _failed_names(original)
+    if not original_failed or not _failed_names(candidate) <= original_failed:
+        return None
+    try:
+        base = base_run(workspace, directory / "base", command=command, timeout=timeout)
+    except util.Paused:
+        raise
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
+        return None
+    if not isinstance(base, dict) or not base.get("tree") or not command_receipt.completed(base):
+        return None
+    if not schedule.intact(base, root=directory / "base"):
+        return None
+    attribution = base_attribution.judge(original, base, normalize=_strip_runner_timing)
+    if attribution.get("kind") != base_attribution.BASE:
+        return None
+    return {
+        "tests": sorted(original_failed),
+        "reason": attribution["reason"],
+        "base_exit_code": attribution.get("base_exit_code"),
+        "base_output_sha256": attribution.get("base_output_sha256"),
+        "normalized_output_sha256": attribution.get("normalized_output_sha256"),
+        "base": base,
+    }
+
+
+def _preexisting_ready(state: RunState, result):
+    """Re-verify a PASS receipt's excused pre-existing failures from the retained base evidence."""
+    accepted = result.get("preexisting_failures")
+    original, candidate = result.get("original"), result.get("candidate")
+    if not isinstance(accepted, dict) or not isinstance(original, dict) or not isinstance(candidate, dict):
+        return False
+    base = accepted.get("base")
+    if not (
+        isinstance(base, dict)
+        and base.get("tree")
+        and command_receipt.completed(original)
+        and command_receipt.completed(candidate)
+        and command_receipt.completed(base)
+    ):
+        return False
+    original_failed = _failed_names(original)
+    if not original_failed or not _failed_names(candidate) <= original_failed:
+        return False
+    if sorted(original_failed) != accepted.get("tests"):
+        return False
+    try:
+        if not schedule.intact(base, root=Path(base["output"]).parent):
+            return False
+    except (OSError, KeyError, TypeError, ValueError):
+        return False
+    return base_attribution.judge(original, base, normalize=_strip_runner_timing).get("kind") == base_attribution.BASE
+
+
 def ready(state: RunState, current_revision):
     record = state.get("settings", {}).get("protected_tests")
     if not record:
@@ -675,15 +792,19 @@ def ready(state: RunState, current_revision):
             ):
                 return False
         if result.get("changed_tests") or any(result.get(name) is not None for name in ("candidate", "original")):
+            preexisting_ok = _preexisting_ready(state, result)
             for name in ("candidate", "original"):
                 row = result.get(name)
-                if (
-                    not isinstance(row, dict)
-                    or type(row.get("exit_code")) is not int
-                    or check_outcome.classify(row)["outcome"] != check_outcome.PASSED
-                ) and not (name == "original" and _superseded_ready(state, result)):
+                if not isinstance(row, dict) or type(row.get("exit_code")) is not int:
                     return False
-        elif result.get("superseded"):
+                if check_outcome.classify(row)["outcome"] == check_outcome.PASSED:
+                    continue
+                if name == "original" and _superseded_ready(state, result):
+                    continue
+                if preexisting_ok:
+                    continue
+                return False
+        elif result.get("superseded") or result.get("preexisting_failures"):
             return False
         return (
             result.get("verdict") == "PASS"

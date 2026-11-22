@@ -74,12 +74,17 @@ def _failed(row):
     return bool(row.get("error") or row.get("timed_out") or row.get("exit_code") != 0)
 
 
-def judge(candidate, base):
+def judge(candidate, base, *, normalize=None):
     """Attribute ``candidate`` (the failed replay row) to the base revision or to the change.
 
     ``base`` is the same command's receipt from a clean copy of the base revision, naming its copy as
     ``tree``. Returns the record saved as the row's ``base_attribution``: ``kind`` is BASE or CHANGE,
-    with the reason and the base run's exit code, output and digest."""
+    with the reason and the base run's exit code, output and digest.
+
+    ``normalize`` optionally rewrites both outputs after each copy's directory is replaced, before they
+    are compared. The protected-test replay (#3944) uses it to erase a test runner's own timing summary
+    (``Ran N tests in 0.001s``), which varies between runs but is not a failure detail; it never touches
+    failure-message content, so a changed assertion, value or exception still moves the output."""
     record = {
         "kind": CHANGE,
         "base_exit_code": base.get("exit_code"),
@@ -105,6 +110,8 @@ def judge(candidate, base):
     after = _output(candidate.get("output"), candidate_root(candidate))
     if before is None or after is None:
         return {**record, "reason": "The output of one of the two runs could not be read, so they cannot be compared."}
+    if normalize is not None:
+        before, after = normalize(before), normalize(after)
     if before != after:
         return {
             **record,

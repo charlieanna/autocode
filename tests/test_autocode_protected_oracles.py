@@ -1397,5 +1397,126 @@ class ReplayCommandTests(unittest.TestCase):
                 self.assertEqual(command, guard.replay_command(command, changed, self.root))
 
 
+class AuthenticatedBaseFailureTests(unittest.TestCase):
+    """A pre-existing original-test failure is excused only by an authenticated execution of the
+    unchanged base (#3944), never by matching failure text. Real runner receipts throughout."""
+
+    def setUp(self):
+        import functools
+
+        import autocode_base_command as base_command
+
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.project = Path(temp.name).resolve() / "project"
+        self.project.mkdir()
+        self.run = self.project / ".autocode/runs/protected"
+        self.command = shlex.join([sys.executable, "-m", "unittest", "discover", "-v"])
+        self.base_command = base_command
+        self.functools = functools
+
+    def bind(self, original_test, base_product):
+        (self.project / "layout.py").write_text(base_product)
+        (self.project / "test_layout.py").write_text(original_test)
+        git = ["git", "-C", str(self.project), "-c", "user.name=Fixture", "-c", "user.email=f@example.test"]
+        subprocess.run(["git", "init", "-q", str(self.project)], check=True)
+        subprocess.run([*git, "add", "."], check=True)
+        subprocess.run([*git, "commit", "-qm", "original"], check=True)
+        self.base = subprocess.run(
+            [*git, "rev-parse", "HEAD"], capture_output=True, text=True, check=True
+        ).stdout.strip()
+        self.state = {"settings": {}, "run_dir": str(self.run), "workspace": str(self.project)}
+        guard.reconcile(
+            self.state,
+            self.state["settings"],
+            SimpleNamespace(run_dir=None),
+            self.project,
+            self.run,
+            is_test_path=verify.is_test_path,
+            discover_command=lambda: self.command,
+        )
+
+    def base_run(self):
+        return self.functools.partial(self.base_command.run, base=self.base, dependencies_from=str(self.project))
+
+    def change(self, new_test, product):
+        (self.project / "test_layout.py").write_text(new_test)
+        (self.project / "layout.py").write_text(product)
+
+    def replay(self, **kwargs):
+        return guard.replay(self.state, self.project, self.run / "replays", verify.scratch_run, timeout=30, **kwargs)
+
+    MISSING = (
+        "import unittest\nfrom layout import height\n"
+        "class LayoutTests(unittest.TestCase):\n"
+        "    def test_height(self):\n        import missing_autocode_dependency  # noqa: F401\n"
+    )
+    POSITIVE = "\n    def test_positive(self):\n        self.assertGreater(height(), 0)\n"
+
+    def test_authenticated_preexisting_base_failure_is_exempted(self):
+        # The original test fails on the unchanged base (a missing dependency); the change adds a passing
+        # test and fixes product code. An authenticated independent base run shows the same failure.
+        self.bind(self.MISSING, "def height():\n    return 20\n")
+        self.change(self.MISSING + self.POSITIVE, "def height():\n    return 40\n")
+        result = self.replay(base_run=self.base_run())
+        self.assertEqual("PASS", result["verdict"], result)
+        self.assertEqual(["test_layout.LayoutTests.test_height"], result["preexisting_failures"]["tests"])
+        self.assertEqual(1, result["preexisting_failures"]["base_exit_code"])
+        self.state["validation"] = {
+            "check_replay": {"protected_tests": result, "verdict": "PASS", "source_revision": result["source_revision"]}
+        }
+        self.assertTrue(guard.ready(self.state, result["source_revision"]))
+
+    def test_without_a_base_runner_the_same_failure_is_still_refused(self):
+        self.bind(self.MISSING, "def height():\n    return 20\n")
+        self.change(self.MISSING + self.POSITIVE, "def height():\n    return 40\n")
+        with self.assertRaises(guard.commands.OriginalGateFailure):
+            self.replay()
+
+    def test_matching_halves_but_an_authenticated_base_that_passes_is_refused(self):
+        # Both halves fail with identical text on the candidate, but the failure is the change's: the
+        # authenticated unchanged base passes the original test. Matching text cannot excuse it.
+        original = (
+            "import unittest\nfrom layout import height\n"
+            "class LayoutTests(unittest.TestCase):\n"
+            "    def test_height(self):\n        self.assertEqual(height(), 20)\n"
+        )
+        self.bind(original, "def height():\n    return 20\n")
+        self.change(
+            original + "\n    def test_negative(self):\n        self.assertLess(height(), 0)\n",
+            "def height():\n    return -1\n",
+        )
+        with self.assertRaises(guard.commands.OriginalGateFailure):
+            self.replay(base_run=self.base_run())
+        receipt = json.loads(max((self.run / "replays").glob("protected-tests/*/receipt.json")).read_text())
+        self.assertEqual("FAIL", receipt["verdict"])
+        self.assertNotIn("preexisting_failures", receipt)
+
+    def test_base_failure_with_a_different_detail_is_refused(self):
+        # The original test fails on base and on the candidate, but the change moved the failure (another
+        # value): the authenticated base output differs, so it stays the change's.
+        original = (
+            "import unittest\nfrom layout import height\n"
+            "class LayoutTests(unittest.TestCase):\n"
+            "    def test_height(self):\n        self.assertEqual(height(), 20)\n"
+        )
+        self.bind(original, "def height():\n    return 10\n")
+        self.change(original + self.POSITIVE, "def height():\n    return 30\n")
+        with self.assertRaises(guard.commands.OriginalGateFailure):
+            self.replay(base_run=self.base_run())
+        receipt = json.loads(max((self.run / "replays").glob("protected-tests/*/receipt.json")).read_text())
+        self.assertEqual("FAIL", receipt["verdict"])
+        self.assertNotIn("preexisting_failures", receipt)
+
+    def test_a_new_failing_test_beside_the_excused_one_is_refused(self):
+        # The pre-existing failure is authenticated, but the change also adds a test that fails for its own
+        # reason: the candidate half fails on a test the original half does not, so nothing is excused.
+        self.bind(self.MISSING, "def height():\n    return 20\n")
+        broken = self.MISSING + "\n    def test_broken(self):\n        self.assertEqual(height(), 999)\n"
+        self.change(broken, "def height():\n    return 40\n")
+        with self.assertRaises(guard.commands.OriginalGateFailure):
+            self.replay(base_run=self.base_run())
+
+
 if __name__ == "__main__":
     unittest.main()
