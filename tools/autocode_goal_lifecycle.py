@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 try:
     from . import autocode_assumption_ledger as assumption_ledger
     from . import autocode_component_plan as component_plan
+    from . import autocode_fail_first as fail_first
     from . import autocode_plan_defects as plan_defects
     from . import autocode_roles as roles
     from . import autocode_source_scope as source_scope
@@ -24,6 +25,7 @@ try:
 except ImportError:
     import autocode_assumption_ledger as assumption_ledger
     import autocode_component_plan as component_plan
+    import autocode_fail_first as fail_first
     import autocode_plan_defects as plan_defects
     import autocode_roles as roles
     import autocode_source_scope as source_scope
@@ -284,6 +286,9 @@ def validate_body(state: RunState, body, *, ready=False, allow_legacy=False, ori
         native_test_names.check(state, body, origin=origin)
         # Every planned test is one the proof's suite runs (#2889), known now rather than after a Builder round.
         plan_test_suite.check(state, body, origin=origin)
+    if milestones and not questions:
+        # Every bug-fix checkpoint gives its proof something that can fail first, as the gate reads it (#3962).
+        fail_first.refuse(state, body)
     design_plan.validate((state.get("settings") or {}).get("design_manifest"), body, ready=ready)
 
 
@@ -354,12 +359,14 @@ def apply_requirements(state: RunState, body, *, artifact_sha256, record=None):
 # already pass as guard:, and guard: cases it saw fail on the original code as test: (autocode_acceptance_tests_job.ORIGIN);
 # plan review and the user's approval still follow.
 # The compact bug-fix draft (autocode_compact_planning.ORIGIN) is the runner's too (#2021), and so is the
-# supersedes list for an original test the gate saw a fix change in place (autocode_superseded_correction.ORIGIN).
+# supersedes list for an original test the gate saw a fix change in place (autocode_superseded_correction.ORIGIN),
+# and a saved bug-fix plan with its unprovable milestones merged (autocode_fail_first.ORIGIN).
 UNAUTHORED_DRAFTS = (
     "adaptive_review_approval",
     "acceptance_tests_correction",
     "bugfix_compact_draft",
     "superseded_tests_correction",
+    fail_first.ORIGIN,
 )
 
 
@@ -421,6 +428,11 @@ def install_draft(state: RunState, body, *, origin, allow_legacy=False, changes=
     body = risk_obligations.prepare_body(state, body, origin, record)
     if not allow_legacy or any(key in body for key in BRIEF_FIELDS):  # a legacy body has no such box
         body = current_behavior.prepare_body(state, body, origin)
+    merges = []
+    if origin in PLANNER_DRAFT_ORIGINS and not body.get("open_blocking_questions"):
+        # A milestone whose checkpoint the regression proof can never accept joins the next one that can (#3962);
+        # an unsafe merge refuses the draft with the correction, which goes back to the Planner as a report repair.
+        body, merges = fail_first.correct(state, body)
     validate_body(state, body, allow_legacy=allow_legacy, origin=origin)
     if origin in PLANNER_DRAFT_ORIGINS:
         check_planner_assumptions(state, body)
@@ -464,6 +476,10 @@ def install_draft(state: RunState, body, *, origin, allow_legacy=False, changes=
     # row is validated against the current assignment and the installed body, whatever
     # the revision guard did or skipped for this origin (#2467).
     scope_question.record_installed_corrections(state, body, changes or [], revision)
+    if merges:
+        state.setdefault(fail_first.KEY, []).append(
+            {"contract_revision": revision, "origin": origin, "merged": merges, "at": contract["created_at"]}
+        )
     state["goal_contract"] = contract
     if origin == "user_cli_edit" and (pending := state.pop("pending_report_repair", None)):
         # A public edit supersedes the rejected report; keeping its repair would

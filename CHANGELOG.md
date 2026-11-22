@@ -23,6 +23,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **A bug-fix plan no longer approves a milestone its regression proof can never pass** (#3962): an approved bug fix began with a guard-only survey milestone; the Builder delivered it, the proof failed with nothing failing first, and the person was asked to fold it into the next milestone. The plan check now reads the same answer the gate applies (`autocode_fail_first`): a milestone whose checkpoint has no `test:` case where the gate owes a fail-first proof is merged into the next milestone with one at install, or the draft is refused with that correction, which report-check also shows. A plan approved before this is sent back to planning with no person question. A coordinated member's guard-only milestone is still coverage.
+
 - **A host restart during a runner check no longer strands the run** (#3965): when the machine restarted while AutoCode checked a Tester's report, status named no action, a resume asked for `--abandon-stage`, and then refused because the check's cleanup receipt was never finished. Each launch now records the boot it ran in, and a launch from an earlier boot is known to have ended with it. The next resume, which status now names, sets the interrupted attempt aside, records the check as interrupted with its evidence kept, and runs it again. An interrupted check still proves nothing.
 
 - **Run details lists only the lines a send-back left open** (#3925): a changed-line send-back listed every line its assessment examined, including those it had already tested or excepted, so 59 lines were called untested when 2 were.
