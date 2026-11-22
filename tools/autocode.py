@@ -30,26 +30,26 @@ try:
     from . import autocode_attempt_ledger as attempt_ledger
     from . import autocode_controller_owner as controller_owner  # noqa: F401 - runner compatibility export
     from . import autocode_interaction_timing as interaction_timing
-    from . import autocode_names as names
     from . import autocode_phase_timing as phase_timing
     from . import autocode_planning_recovery_policy as planning_recovery_policy
     from . import autocode_prompt_bound as prompt_bound
     from . import autocode_prompts as prompts
     from . import autocode_requirements_chat as requirements_chat
     from . import autocode_route_advisory as route_advisory
+    from . import autocode_session_rotation as session_rotation
     from .autocode_model_inventory import InvocationInventory
 except ImportError:
     import autocode_action_resolver as action_resolver
     import autocode_attempt_ledger as attempt_ledger
     import autocode_controller_owner as controller_owner  # noqa: F401 - runner compatibility export
     import autocode_interaction_timing as interaction_timing
-    import autocode_names as names
     import autocode_phase_timing as phase_timing
     import autocode_planning_recovery_policy as planning_recovery_policy
     import autocode_prompt_bound as prompt_bound
     import autocode_prompts as prompts
     import autocode_requirements_chat as requirements_chat
     import autocode_route_advisory as route_advisory
+    import autocode_session_rotation as session_rotation
     from autocode_model_inventory import InvocationInventory  # noqa: F401 - compatibility API supplied to invocation helpers
 
 # isort: off
@@ -1767,17 +1767,9 @@ def chat_checkpoint(state: RunState, run_dir=None, *, persist=None, native=None)
 
 
 def rotate_if_needed(state: RunState, role, run_dir, *, persist=None):
-    limit = state["settings"].get("rotation_after_input_tokens")
-    latest = next(
-        (
-            r
-            for r in reversed(state.get("stages", []))
-            if r.get("route_role", r.get("role", names.stage_route(r.get("stage")))) == role
-        ),
-        None,
-    )
-    tokens = (latest or {}).get("metrics", {}).get("provider_tokens", {}).get("input_tokens")
-    if limit and tokens and tokens >= limit and state.get("sessions", {}).get(role):
+    # One reported-input bound, read from one place: a tools-off report repair reads the same
+    # measurement before it resumes the attempt's session (#4094, autocode_session_rotation).
+    if session_rotation.reached(state, role) and state.get("sessions", {}).get(role):
         old = state["sessions"].pop(role)
         state.setdefault("session_rotations", []).append(
             {
