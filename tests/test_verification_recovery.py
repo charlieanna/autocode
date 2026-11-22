@@ -18,6 +18,9 @@ import autocode_util as util
 import autocode_verification_recovery as recovery
 import autocode_verification_schedule as schedule
 
+# A boot this host is not in: a launch that recorded it ended with that boot (#3965).
+EARLIER_BOOT = "0f4b4e3a-2a7e-4d8e-9a51-6f0c2b7d9e10"
+
 
 class AdmissionFixture:
     def __init__(self, root):
@@ -591,6 +594,60 @@ class VerificationRecoveryTests(unittest.TestCase):
         self.observe.side_effect = change
         self.assert_held()
 
+    def restart_host(self, fixture):
+        """The check launched in a boot that has since ended (#3965): its receipt was never finished."""
+        fixture.metadata["boot_id"] = EARLIER_BOOT
+        fixture.terminal = {**fixture.terminal, **fixture.metadata, "phase": "armed", "cause": None}
+        fixture.admission["supervision"] = fixture.metadata
+        fixture.write()
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "the kernel names a boot on Linux")
+    def test_a_host_restart_retires_an_unfinished_check_as_interrupted(self):
+        self.fixture.terminal = {**self.fixture.terminal, "phase": "armed", "cause": None}
+        self.fixture.write()
+        self.assert_held()  # In this boot an unfinished receipt keeps its hold, as before.
+        self.restart_host(self.fixture)
+        original = self.fixture.path.read_bytes()
+        saved = util.read(Path(self.fixture.recover()["receipt"]))
+        self.assertTrue(saved["result"]["interrupted"])
+        self.assertIsNone(saved["result"]["exit_code"])
+        self.assertIn("host restarted", saved["result"]["error"])
+        self.assertFalse(receipts.completed(saved["result"]))
+        self.assertFalse(schedule.reusable(saved["result"]))
+        self.assertFalse(self.fixture.pending.exists())
+        self.assertEqual(original, self.fixture.path.read_bytes(), "the interrupted evidence is kept as it was")
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "the kernel names a boot on Linux")
+    def test_a_host_restart_does_not_retire_a_check_whose_process_is_alive(self):
+        self.restart_host(self.fixture)
+        for pid in (2147480001, 2147480002, 2147480003, 2147480004):
+            with self.subTest(pid=pid):
+                self.observe.return_value = [{"pid": pid}]
+                self.assert_held()
+                self.assertIn(pid, [row["pid"] for row in self.observe.call_args.args[0]])
+        self.observe.return_value = []
+        self.observe.side_effect = processes.ProcessError("denied")
+        self.assert_held()
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "the kernel names a boot on Linux")
+    def test_a_host_restart_settles_only_a_check_and_attempt_it_ended(self):
+        run = self.fixture.root.parent / "run"
+        fixture = AdmissionFixture(run / "check-replay" / "obligations")
+        state = {"status": "PAUSED_VERIFICATION_UNCERTAIN", "active_runner_check": fixture.check}
+        fixture.terminal = {**fixture.terminal, "phase": "armed", "cause": None}
+        fixture.write()
+        self.assertFalse(runner_check.restart_recoverable(state, run), "this boot's unfinished check is held")
+        self.restart_host(fixture)
+        self.assertTrue(runner_check.restart_recoverable(state, run))
+        restarted = {"stage": "tester", "supervision": {"boot_id": EARLIER_BOOT}}
+        self.assertTrue(runner_check.restart_recoverable({**state, "active_stage": restarted}, run))
+        current = {"stage": "tester", "supervision": {"boot_id": processes.boot_id()}}
+        self.assertFalse(runner_check.restart_recoverable({**state, "active_stage": current}, run))
+        self.assertFalse(runner_check.restart_recoverable({**state, "active_stage": {"stage": "tester"}}, run))
+        self.observe.return_value = [{"pid": 2147480004}]
+        self.assertFalse(runner_check.restart_recoverable(state, run))
+        self.assertTrue(fixture.pending.exists(), "the check is read, never settled")
+
     def test_model_attempt_must_be_set_aside_before_runner_recovery(self):
         state = {"active_stage": {"stage": "tester"}, "active_runner_check": self.fixture.check}
         with self.assertRaisesRegex(receipts.OwnershipUncertain, "Abandon the exact"):
@@ -608,7 +665,13 @@ class PublicResumeRegression(unittest.TestCase):
     def test_public_taskrun_resume_publishes_original_receipt_without_rewriting_result(self):
         self.assert_public_resume("PAUSED_VERIFICATION_UNCERTAIN", original_completed=True)
 
-    def assert_public_resume(self, initial_status, *, original_completed=False):
+    @unittest.skipUnless(sys.platform.startswith("linux"), "the kernel names a boot on Linux")
+    def test_public_taskrun_after_a_host_restart_sets_the_attempt_aside_and_runs_the_check_again(self):
+        # #3965: the host restarted while the runner checked the Tester's report. Before, status named no
+        # action, and resume asked a person to abandon the attempt, then refused the unfinished receipt.
+        self.assert_public_resume("PAUSED_VERIFICATION_UNCERTAIN", host_restarted=True)
+
+    def assert_public_resume(self, initial_status, *, original_completed=False, host_restarted=False):
         # The fixture starts after legitimate model abandonment. Only the final
         # build loop is stopped to avoid a provider; real CLI recovery and its
         # pre-review verification guard run through the public TaskRun API.
@@ -637,6 +700,10 @@ class PublicResumeRegression(unittest.TestCase):
         run_dir = workspace / ".autocode/runs/recovered"
         run_dir.mkdir(parents=True)
         fixture = AdmissionFixture(run_dir / "check-replay/obligations")
+        active_stage = None
+        if host_restarted:
+            VerificationRecoveryTests.restart_host(None, fixture)
+            active_stage = self.restarted_attempt(workspace, run_dir)
         original = None
         if original_completed:
             fixture.original_receipt()
@@ -662,6 +729,8 @@ class PublicResumeRegression(unittest.TestCase):
                 },
             },
         }
+        if active_stage:
+            state["active_stage"] = active_stage
         util.atomic_json(run_dir / "state.json", state)
         tools = Path(__file__).resolve().parents[1] / "tools"
         wrapper = Path(temporary.name).resolve() / "fixture_cli.py"
@@ -682,8 +751,13 @@ class PublicResumeRegression(unittest.TestCase):
             env={"AUTOCODE_HOME": str(Path(temporary.name).resolve() / "registry")},
         )
         before = fixture.pending.read_bytes()
-        self.assertEqual(initial_status, run.status()["status"])
+        status = run.status()
+        self.assertEqual(initial_status, status["status"])
         self.assertEqual(before, fixture.pending.read_bytes(), "Status cannot reconcile a pending check")
+        if host_restarted:
+            # The view names the step that settles it, so no client is left without one.
+            self.assertEqual("continue", status["needs"]["kind"])
+            self.assertTrue(status["next_command"].endswith(" --resume-paused"), status["next_command"])
         view = run.resume_paused()
         self.assertEqual(2, run.last_advance.returncode)
         self.assertEqual("PAUSED_REQUESTED", view["status"], view)
@@ -701,3 +775,47 @@ class PublicResumeRegression(unittest.TestCase):
             self.assertTrue(failed["result"]["interrupted"])
             self.assertIsNone(failed["result"]["exit_code"])
             self.assertFalse(receipts.completed(failed["result"]))
+        if host_restarted:
+            saved = util.read(run_dir / "state.json")
+            self.assertNotIn("active_stage", saved)
+            self.assertEqual("tester", saved["next_stage"])
+            (archived,) = saved["stages"]
+            self.assertTrue(archived["abandoned"])
+            self.assertEqual({"report": "unchecked"}, util.read(Path(archived["output"])), "the attempt is kept")
+            (abandoned,) = [row for row in saved["user_events"] if row["kind"] == "stage_abandoned"]
+            self.assertEqual("runner", abandoned["actor"])
+            self.assertIn("host restarted", failed["result"]["error"])
+
+    @staticmethod
+    def restarted_attempt(workspace, run_dir):
+        """The Tester attempt whose report the runner was checking, launched in the boot that ended."""
+        import autocode_source_scope as source_scope
+
+        base = run_dir / "iterations" / "validator-01"
+        base.parent.mkdir()
+        before = source_scope.snapshot(workspace, {"workspace": str(workspace), "run_dir": str(run_dir)})
+        util.atomic_json(base.with_suffix(".before.json"), before)
+        base.with_suffix(".jsonl").write_text('{"type":"note","text":"report written"}\n')
+        util.atomic_json(base.with_suffix(".json"), {"report": "unchecked"})
+        launched = {"pid": 2147480011, "birth_identity": 1e8}
+        return {
+            "stage": "tester",
+            "role": "tester",
+            "route_role": "tester",
+            "iteration": 1,
+            "output": str(base.with_suffix(".json")),
+            "events": str(base.with_suffix(".jsonl")),
+            "before_ref": str(base.with_suffix(".before.json")),
+            "source_revision": before["revision"],
+            "task_id": "owned-task",
+            "started_at": "2026-11-20T00:00:00+00:00",
+            "supervision": {
+                "schema": 1,
+                "nonce": "e" * 32,
+                "receipt": str(base.parent / "supervision.json"),
+                "owner": launched,
+                "keeper": {**launched, "pid": 2147480012},
+                "provider": {**launched, "pid": 2147480013},
+                "boot_id": EARLIER_BOOT,
+            },
+        }

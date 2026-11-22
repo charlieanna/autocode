@@ -291,6 +291,12 @@ def receipt(metadata):
     return _read_receipt(metadata)[0]
 
 
+def _boot():
+    """The boot a launch runs in, so a later reader can tell that the host restarted since (#3965)."""
+    boot = processes.boot_id()
+    return {"boot_id": boot} if boot else {}
+
+
 def observe(metadata):
     """Fresh, read-only owner/keeper/provider liveness; denied access is unknown."""
     current_receipt, diagnostic = _read_receipt(metadata)
@@ -299,8 +305,7 @@ def observe(metadata):
         result["family_cleanup"] = True
         if diagnostic == ("open", "not_found"):
             result["family_receipt_missing"] = True
-    launched = [metadata.get(key) for key in ("owner", "keeper", "provider")] if isinstance(metadata, dict) else []
-    if processes.boot_ended(launched):
+    if processes.host_restarted(metadata):
         # The host restarted since the attempt launched: it and every process it started are gone.
         result["boot_ended"] = True
     for key in ("owner", "keeper", "provider"):
@@ -728,6 +733,7 @@ def _launch(command, *, receipt_path, timeout, checkpoint, cleanup_policy, provi
                 "provider": _identity(child.pid),
                 "receipt": str(path),
                 "started_at": util.now(),
+                **_boot(),
             }
             if family_binding is not None:
                 metadata["family_backup"] = family_binding
@@ -1086,6 +1092,7 @@ def protect_owner(
             "provider": _identity(os.getpid()),
             "receipt": str(path),
             "started_at": util.now(),
+            **_boot(),
         }
         _send(
             control_w,

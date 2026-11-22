@@ -27,6 +27,7 @@ try:
     from . import autocode_interaction_timing as interaction_timing
     from . import autocode_internal_failure_view as operational_block
     from . import autocode_plan_only as plan_only
+    from . import autocode_runner_check as runner_check
     from . import autocode_scope_pause as scope_pause
     from . import autocode_stop as stop
 except ImportError:
@@ -36,6 +37,7 @@ except ImportError:
     import autocode_interaction_timing as interaction_timing
     import autocode_internal_failure_view as operational_block
     import autocode_plan_only as plan_only
+    import autocode_runner_check as runner_check
     import autocode_scope_pause as scope_pause
     import autocode_stop as stop
 
@@ -1476,6 +1478,12 @@ def needs(
         or (operational_block.presentation(state, include_hold=True))
     ):
         return None
+    if status == "PAUSED_VERIFICATION_UNCERTAIN" and runner_check.restart_recoverable(
+        state, run_dir or state.get("run_dir")
+    ):
+        # A host restart ended the interrupted check (and the model attempt it served): AutoCode's to
+        # settle on the next resume, which records the interrupted check and runs it again (#3965).
+        return {"kind": "continue", "action": "--resume-paused"}
     if recovery_exhaustion.pending(state):
         # A spent automatic recovery allowance is AutoCode's to close, not a grant for a person:
         # the next resume records the run's outcome (autocode_recovery_exhaustion.settle).

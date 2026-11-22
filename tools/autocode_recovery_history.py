@@ -25,12 +25,14 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_acceptance_retry_next as retry_next
+    from . import autocode_changed_code_evidence as changed_code_evidence
     from . import autocode_python_test_roles as test_roles
     from . import autocode_rejection_classes as rejection_classes
     from . import autocode_roles as roles
     from . import autocode_util as util
 except ImportError:
     import autocode_acceptance_retry_next as retry_next
+    import autocode_changed_code_evidence as changed_code_evidence
     import autocode_python_test_roles as test_roles
     import autocode_rejection_classes as rejection_classes
     import autocode_roles as roles
@@ -384,7 +386,7 @@ def _lines(obligations):
             else:
                 spans.append([number, number])
         text = ", ".join(str(first) if first == last else f"{first}-{last}" for first, last in spans)
-        parts.append(f"{path} line{'s' if len(numbers) > 1 else ''} {text}")
+        parts.append(f"{path} line{'s' if len(set(numbers)) > 1 else ''} {text}")
     return "; ".join(parts)
 
 
@@ -394,7 +396,8 @@ def _sent_back(state: RunState):
         if not isinstance(row, dict) or row.get("kind") != "changed_code_rework":
             continue
         assessment = row.get("assessment") or {}
-        where = _lines(assessment.get("obligations"))
+        # Only the lines this assessment left open: the ones it tested or excepted are not missing (#3925).
+        where = _lines(changed_code_evidence.outstanding(assessment.get("obligations")))
         problem = (
             f"Changed lines have no test that fails when they break, and no checked reason: {where}."
             if where
