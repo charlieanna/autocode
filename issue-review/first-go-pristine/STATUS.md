@@ -22,3 +22,11 @@ editor fixture uses a real task worktree, verifies the exact reviewed
 approval, and requires its completion card and runner proof. Its updated
 host evidence and required CI are pending. The shared proof-read boundary
 and protected-link replay in #3981 remain separate.
+
+The actual macOS retry exposed an environment issue in the host harness:
+an editor child selected the installed provider after the fixture's login
+PATH changed. The test was stopped and its fixture-owned source hosts were
+closed. The extension host wrapper now validates the exact local script and
+its isolated configuration before invoking AutoCode. Two focused controls
+cover the login PATH conflict and refusal after a fixture script changes.
+The new worktree editor check needs fresh qualification with this guard.

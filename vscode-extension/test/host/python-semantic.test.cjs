@@ -71,7 +71,7 @@ async function completeInEditor({ kind, fixtureFile, prompt, overviewText, crite
     assert.match(reviewed.review, /Operating agent review/);
     const userData = path.join(root, 'user-data'); fs.mkdirSync(path.join(userData, 'User'), { recursive: true });
     fs.writeFileSync(path.join(userData, 'User/settings.json'), JSON.stringify({
-      'autocode.cliPath': python, 'autocode.cliArgs': [path.join(__dirname, 'held_cli.py')], 'autocode.pollSeconds': 2,
+      'autocode.cliPath': python, 'autocode.cliArgs': [path.join(__dirname, 'held_cli.py'), '--offline-fixture'], 'autocode.pollSeconds': 2,
       'workbench.startupEditor': 'none', 'security.workspace.trust.enabled': false, 'chat.disableAIFeatures': true,
       'update.mode': 'none', 'extensions.autoUpdate': false, 'telemetry.telemetryLevel': 'off',
     }));
@@ -191,7 +191,11 @@ async function completeInEditor({ kind, fixtureFile, prompt, overviewText, crite
       }, () => {
         const checked = invokeHost('--status'); assert.equal(checked.status, 0, checked.stderr);
         assert.equal(JSON.parse(checked.stdout).running, false, 'private source host exited');
-      }), ['check unrecorded owned readers', async () => {
+      }), ['stop private warm source hosts', () => {
+        const stopped = spawnSync(python, [path.join(REPO, 'tests/host_reader_cleanup.py'), '--stop-source-hosts', root],
+          { cwd: REPO, env, encoding: 'utf8', timeout: 15_000 });
+        assert.equal(stopped.status, 0, stopped.stderr);
+      }], ['check unrecorded owned readers', async () => {
         await until('no Python reader tied to the owned fixture', () => {
           const checked = spawnSync(python, [path.join(REPO, 'tests/host_reader_cleanup.py'), reads, root], {
             cwd: REPO, env, encoding: 'utf8', timeout: 15_000,
