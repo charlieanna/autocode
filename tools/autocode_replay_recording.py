@@ -25,6 +25,7 @@ try:
     from . import autocode_replay_bindings as identity_bindings
     from . import autocode_replay_dependencies as dependencies
     from . import autocode_replay_dependency_evidence as copy_evidence
+    from . import autocode_route_fit as route_fit
     from . import autocode_source_snapshot as source_snapshot
     from . import autocode_test_cases as test_cases
     from . import autocode_util as util
@@ -35,6 +36,7 @@ except ImportError:
     import autocode_replay_bindings as identity_bindings
     import autocode_replay_dependencies as dependencies
     import autocode_replay_dependency_evidence as copy_evidence
+    import autocode_route_fit as route_fit
     import autocode_source_snapshot as source_snapshot
     import autocode_test_cases as test_cases
     import autocode_util as util
@@ -373,10 +375,41 @@ def _validate(document):
             "feedback",
             "follow_up",
             "resume",
+            "route_job",
+            "retry_job",
         ):
             raise RecordingError("Recording operator action is unsupported")
         if not isinstance(action["match"], dict) or not isinstance(action["payload"], dict):
             raise RecordingError("Recording operator action is invalid")
+        if action["kind"] in ("route_job", "retry_job"):
+            match, payload = action["match"], action["payload"]
+            _object(match, {"kind", "stage", "route"} if action["kind"] == "route_job" else {"kind", "stage"})
+            if match["kind"] != "retry_job" or not isinstance(match["stage"], str) or not match["stage"]:
+                raise RecordingError("Recording job action is invalid")
+            if action["kind"] == "retry_job":
+                _object(payload, set())
+            else:
+                _object(payload, {"role", "model", "effort", "effort_known"})
+                _object(match["route"], {"role", "current_model", "engine", "cause", "stopped_model"})
+                route = match["route"]
+                if (
+                    not all(
+                        isinstance(value, str) and value and not any(c.isspace() for c in value)
+                        for value in (
+                            payload["role"],
+                            payload["model"],
+                            route["current_model"],
+                            route["stopped_model"],
+                            route["cause"],
+                        )
+                    )
+                    or route["role"] != payload["role"]
+                    or route["engine"] not in ("codex", "opencode")
+                    or type(payload["effort_known"]) is not bool
+                    or (not payload["effort_known"] and payload["effort"] is not None)
+                    or (payload["effort"] is not None and payload["effort"] not in route_fit.SCALE)
+                ):
+                    raise RecordingError("Recording job route is invalid")
     check_ids = set()
     for check in document["checks"]:
         if not isinstance(check.get("id"), str) or not check["id"] or check["id"] in check_ids:
@@ -1475,7 +1508,18 @@ def match_action(recording, action, view):
     del recording
     needs = view.get("needs") or {}
     selected = {key: needs.get(key) for key in ("kind", "stage", "questions", "scope", "criteria") if key in needs}
+    if (
+        action["kind"] in ("route_job", "retry_job")
+        and needs.get("kind") == "continue"
+        and needs.get("replay_job") is True
+    ):
+        selected["kind"] = "retry_job"
     expected = action["match"]
+    if action["kind"] == "route_job":
+        route = needs.get("route") or {}
+        selected["route"] = {
+            key: route.get(key) for key in ("role", "current_model", "engine", "cause", "stopped_model")
+        }
     recorded_questions = expected.get("questions")
     selected_questions = selected.get("questions")
     if isinstance(recorded_questions, list) and isinstance(selected_questions, list):

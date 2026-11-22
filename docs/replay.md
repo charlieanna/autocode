@@ -47,6 +47,14 @@ fresh tokens from that run. It never invents an answer or adopts an old token
 after a mismatch. A project's `require-approver` does not apply: no person approves
 in a replay ([Required approver](execution.md#required-approver)).
 
+When a recorded workflow job has a retained model answer followed by its retry,
+replay can apply that exact answer and retry using the new run's public actions.
+The stopped stage, role, model, provider, cause, source and next dispatch must
+still match. A recording that lacks the necessary answer or retry, needs an
+ambiguous old effort answer to repair drift, or needs an unsupported source-writing dispatch
+stays stopped; replay does not ask for a new model choice or invent one. The
+original tokens and credentials are never reused.
+
 Replay stops with `REPLAY_REFUSED` when a payload is missing, changed or outside
 the supported format, or when the current controller asks for an unrecorded
 stage or different operator decision. It cannot reconstruct already overwritten

@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
 from copy import deepcopy
 from pathlib import Path
+from shlex import join as shell_join
 
 try:
     from . import autocode_acceptance_recovery as acceptance_recovery
@@ -375,6 +376,11 @@ def view(
         if no_progress_recovery.pending_legacy(saved_state)
         else state.get("stop_reason")
     )
+    observed_need = next_action.get("needs") or {}
+    if observed_need.get("replay_job") is True:
+        stop_reason = "Replay is continuing the recorded job action."
+    elif observed_need.get("kind") == "replay_stopped":
+        stop_reason = observed_need.get("reason")
     try:
         from . import autocode_checkpoint_reconciliation as reconciliation
     except ImportError:
@@ -1564,6 +1570,31 @@ def needs(
                 failure.get("job_retry_token"),
                 run_dir or state.get("run_dir"),
             )
+            if admission.get("replay_unavailable") is True:
+                return {
+                    "kind": "replay_stopped",
+                    "stage": failure["stage"],
+                    "reason": "Replay cannot continue from the recorded job actions.",
+                    "action": None,
+                }
+            replay_action = admission.get("replay_action")
+            if admission["allowed"] and isinstance(replay_action, dict):
+                route = quota_route.job_question(state)
+                if replay_action.get("kind") == "route_job" and isinstance(route, dict):
+                    flags = ["--answer", f"{route['id']}={replay_action['answer']}", "--job-retry-token", "-"]
+                elif replay_action.get("kind") == "retry_job":
+                    flags = ["--resume-paused", "--retry-failed-stage", "--job-retry-token", "-"]
+                else:
+                    return {"kind": "replay_stopped", "reason": "Replay has no valid recorded job action."}
+                return {
+                    "kind": "continue",
+                    "stage": failure["stage"],
+                    "job_retry_token": failure["job_retry_token"],
+                    "route": _route(route) if isinstance(route, dict) else None,
+                    "replay_job": True,
+                    "action": shell_join(flags),
+                    "reason": "Continuing the recorded job action.",
+                }
             route_required = not admission["allowed"] and admission.get("route_allowed") is True
             if route_required:
                 need["retry_unavailable"] = admission["reason"]
