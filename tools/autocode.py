@@ -1821,7 +1821,7 @@ def cli(unit=None):
         with processes.interrupts_held(until_exit=True):
             return main() if unit is None else main(unit=unit)
     except (RuntimeError, ValueError, OSError) as error:
-        print(f"autocode: {error}", file=sys.stderr)
+        print(f"autocode: {support.cli_refusal_text(error)}", file=sys.stderr)
         return 2
 
 
