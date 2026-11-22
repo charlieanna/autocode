@@ -5,10 +5,26 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
+import attribute_failure
 import ci_failure_signatures as evidence
 
-from .ci_failure_fixture import failure_output, ref_failure_output
+from .ci_failure_fixture import (
+    ID_HEAD,
+    LIST_CODE,
+    LIST_DIFF,
+    RUN_HEAD,
+    SET_CODE,
+    SET_DIFF,
+    STRING_CODE,
+    STRING_DIFF,
+    TEMP_HEAD,
+    VOLATILE_PAIRS,
+    assertion_output,
+    failure_output,
+    ref_failure_output,
+)
 
 
 class FailureSignaturesTests(unittest.TestCase):
@@ -34,7 +50,9 @@ class FailureSignaturesTests(unittest.TestCase):
         self.assertEqual("tests.test_value.ValueTests.test_value", head[0]["test"])
         self.assertEqual(head, base)
 
-    def test_other_ref_forms_and_commit_values_remain_distinct(self):
+    def test_appended_ref_forms_and_commit_values_do_not_change_the_failure_identity(self):
+        # Replaces test_other_ref_forms_and_commit_values_remain_distinct (AC1 supersedes it): the ref is the
+        # message assertTrue appended after " : ", not what the assertion compared, whatever its form.
         for form in (
             "{}",
             "refs/autocode/code-checkpoints/{}",
@@ -52,7 +70,7 @@ class FailureSignaturesTests(unittest.TestCase):
                     evidence.signatures(ref_failure_output("/base", form.format(char * 40)), Path("/base"))
                     for char in ("a", "b")
                 ]
-                self.assertNotEqual(*rows)
+                self.assertEqual(*rows)
         for size, chars in ((39, ("a", "b")), (41, ("a", "b")), (40, ("A", "B"))):
             with self.subTest(size=size, chars=chars):
                 rows = [
@@ -61,7 +79,112 @@ class FailureSignaturesTests(unittest.TestCase):
                     )
                     for char in chars
                 ]
-                self.assertNotEqual(*rows)
+                self.assertEqual(*rows)
+
+    def test_ac1_volatile_message_text_keeps_the_same_signature(self):
+        for number, (code, head_text, base_text) in enumerate(VOLATILE_PAIRS, 1):
+            with self.subTest(pair=number):
+                head = evidence.signatures(assertion_output("/head", code, head_text, line=17), Path("/head"))
+                base = evidence.signatures(assertion_output("/base", code, base_text, line=12), Path("/base"))
+                self.assertEqual(1, len(head))
+                self.assertEqual("tests.test_runs.RunTests.test_status", head[0]["test"])
+                self.assertEqual("FAIL", head[0]["kind"])
+                self.assertEqual(head, base)
+
+    def test_ac3_different_assertions_keep_different_signatures(self):
+        original = assertion_output("/head", STRING_CODE, STRING_DIFF + TEMP_HEAD)
+        other_value = assertion_output(
+            "/head",
+            STRING_CODE,
+            "AssertionError: 'COMPLETED' != 'PAUSED_INTERVENTION'\n- COMPLETED\n+ PAUSED_INTERVENTION\n" + TEMP_HEAD,
+        )
+        other_exception = assertion_output(
+            "/head",
+            STRING_CODE,
+            STRING_DIFF.replace("AssertionError:", "RuntimeError:") + TEMP_HEAD,
+            kind="ERROR",
+        )
+        checker = unittest.TestCase()
+
+        def printed(first, second):
+            try:
+                checker.assertEqual(first, second)
+            except AssertionError as error:
+                return "AssertionError: " + str(error)
+            raise AssertionError("the fixture assertion passed")
+
+        tuples = [
+            assertion_output(
+                "/head", "self.assertEqual(state, expected)", printed((status, 1), ("status : RUNNING", 1))
+            )
+            for status in ("status : PAUSED", "status : COMPLETED")
+        ]
+        self.assertTrue(
+            printed(("status : PAUSED", 1), ("status : RUNNING", 1)).startswith(
+                "AssertionError: Tuples differ: ('status : PAUSED', 1) != ('status : RUNNING', 1)"
+            )
+        )
+        membership = [
+            assertion_output(
+                "/head", "self.assertIn(part, text, name)", f"AssertionError: '{part}' not found in 'xyz'" + RUN_HEAD
+            )
+            for part in ("a : b", "a : c")
+        ]
+        for label, first, second in (
+            ("compared value", original, other_value),
+            ("exception", original, other_exception),
+            ("quoted tuple values", *tuples),
+            ("quoted membership values", *membership),
+            (
+                "list values",
+                assertion_output("/head", LIST_CODE, LIST_DIFF + TEMP_HEAD),
+                assertion_output("/head", LIST_CODE, LIST_DIFF.replace("'zzz'", "'yyy'") + TEMP_HEAD),
+            ),
+            (
+                "set values",
+                assertion_output("/head", SET_CODE, SET_DIFF + ID_HEAD),
+                assertion_output("/head", SET_CODE, SET_DIFF.removesuffix("2") + "3" + ID_HEAD),
+            ),
+        ):
+            with self.subTest(label=label):
+                self.assertNotEqual(
+                    evidence.signatures(first, Path("/head")), evidence.signatures(second, Path("/head"))
+                )
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            (base / "tests").mkdir()
+            (base / "tests" / "test_runs.py").write_text("# fixture exists\n")
+            head = evidence.signatures(original, Path("/head"))
+            probe = type(
+                "Probe", (), {"returncode": 1, "stdout": "", "stderr": other_value.replace("/head", str(base))}
+            )()
+            with mock.patch.object(attribute_failure.subprocess, "run", return_value=probe):
+                self.assertEqual(
+                    attribute_failure.DIFFERENT,
+                    attribute_failure.classify("tests.test_runs", base, 60, head_failures=head),
+                )
+
+    def test_custom_failure_text_does_not_look_like_unittest_message(self):
+        rows = [
+            evidence.signatures(
+                assertion_output("/repo", "self.fail(reason)", f"AssertionError: rejected : {reason}"),
+                Path("/repo"),
+            )
+            for reason in ("missing file", "wrong result")
+        ]
+        self.assertNotEqual(*rows)
+
+    def test_keyword_multiline_message_does_not_change_a_one_line_assertion(self):
+        rows = [
+            evidence.signatures(
+                assertion_output(
+                    "/repo", "self.assertTrue(result, msg=detail)", "AssertionError: False is not true : row\n" + detail
+                ),
+                Path("/repo"),
+            )
+            for detail in ("workspace one", "workspace two")
+        ]
+        self.assertEqual(*rows)
 
     def test_generated_ref_normalization_keeps_other_failure_details(self):
         original = ref_failure_output("/base", "refs/autocode/partial-work/start/" + "a" * 40)
