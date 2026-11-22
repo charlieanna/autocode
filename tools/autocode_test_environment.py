@@ -290,15 +290,52 @@ def external_roots(paths, workspace) -> set[Path]:
     return {p for p in paths if not p.is_relative_to(workspace) and p not in shims}
 
 
+def bytecode_cache_environment() -> dict[str, str]:
+    """The bytecode-cache variables every check command is launched with, the same for every command.
+
+    One private directory per user, at a fixed path: a test can read ``PYTHONPYCACHEPREFIX``, so a
+    path that changed with each command made the base and the candidate, two runs of one baseline, or
+    a proof and its mutation check run under environments a test could tell apart while their recorded
+    identities matched (#4061, #4062). Python mirrors each source's absolute path under the prefix and
+    checks a cached compile against its source's time and size, so commands in different trees never
+    share a tree's compiles. Empty, and bytecode writing stays off, when that directory is not the
+    user's own; ``execution_identity`` binds the same answer this returns.
+    """
+    uid = os.getuid() if hasattr(os, "getuid") else "user"
+    root = Path(tempfile.gettempdir()) / f"autocode-pycache-{uid}"
+    if not _owned_private_dir(root):
+        return {}
+    return {"PYTHONDONTWRITEBYTECODE": "", "PYTHONPYCACHEPREFIX": str(root)}
+
+
+def _mirrors(prefix: Path, directories) -> set[Path]:
+    """Where Python's ``prefix`` cache keeps the compiles of sources under each of ``directories``."""
+    found = set()
+    for directory in directories:
+        for path in {Path(os.path.abspath(directory)), Path(directory).resolve()}:
+            relative = str(path).lstrip(os.sep)
+            if relative:
+                found.add(prefix / relative)
+    return found
+
+
 @contextlib.contextmanager
-def own_bytecode_cache(environment):
-    """Give a command's Python a bytecode cache of its own, outside the tree, removed when the command ends.
+def own_bytecode_cache(environment, cwd):
+    """Give a command's Python a bytecode cache outside the tree, and remove the tree's compiles when it ends.
 
     ``environment`` turns bytecode writing off so nothing lands in the tree; a suite whose tests start the
     project's own Python again (a CLI's end-to-end tests) then compiled every module in every child. Two test
     modules of AutoCode's took 940 s in a scratch copy and 354 s in the checkout, and the original-test gate's
-    900-second limit stopped both halves (2026-11-21).
+    900-second limit stopped both halves (2026-11-21). The cache's path is ``bytecode_cache_environment``'s,
+    the same for every command; what the command compiled from ``cwd`` and its ``PYTHONPATH`` roots is
+    removed afterwards, so the next command (the next mutant, the next window) compiles that code again.
     """
-    with tempfile.TemporaryDirectory(prefix="autocode-pycache-") as cache:
-        environment.update(PYTHONDONTWRITEBYTECODE="", PYTHONPYCACHEPREFIX=cache)
+    cache = bytecode_cache_environment()
+    environment.update(cache)
+    roots = [cwd, *(p for p in environment.get("PYTHONPATH", "").split(os.pathsep) if os.path.isabs(p))]
+    try:
         yield environment
+    finally:
+        if cache:
+            for mirror in _mirrors(Path(cache["PYTHONPYCACHEPREFIX"]), roots):
+                shutil.rmtree(mirror, ignore_errors=True)

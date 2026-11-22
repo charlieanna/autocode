@@ -23,6 +23,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **Every check command sees the same Python bytecode-cache path, and baseline reuse binds it** (#4061, #4062): each check command was given a new random `PYTHONPYCACHEPREFIX`, and the mutation check another for each collection, while the recorded runtime identity left it out. A test that read the path could fail on the base and pass on the candidate, reuse a baseline receipt it would fail freshly, or have a mutant killed in one mutation window and survive in the next. Every command now uses one private per-user cache directory, the identities bind it, mutant commands run in the proof's own environment, and each command's compiles of its tree are removed when it ends. Proofs and mutation studies recorded before this run again instead of being reused.
+
 - **A Claude Code stage no longer stops for inactivity while a backgrounded command runs**: when Claude Code moved a long command (such as a broad test run) to the background, the stage looked idle and was stopped after 5 minutes, and the turn Claude Code started once the command finished was lost with its report. The backgrounded command now counts as a running tool under the tool limit, and that next turn's answer and report are the stage's (#3989).
 
 - **The Tester must probe beyond the approved checks on every route**: a Tester PASS no longer stands on an approved command rerun with `-q`, `--verbose`, a wrapper or one of its tests, on a `probe_reason` that names no file in the workspace, or on the combined checkpoint route that had no such check (#3979).
