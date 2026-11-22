@@ -200,7 +200,7 @@ class StatusObservationTests(unittest.TestCase):
             patch.object(providers, "resolve") as resolve,
         ):
             self.assertEqual(
-                {"allowed": False, "reason": "The saved replay provider could not be inspected"},
+                {"allowed": False, "replay_unavailable": True, "reason": "The recorded job action is unavailable"},
                 worker._worker(request),
             )
         resolve.assert_not_called()
