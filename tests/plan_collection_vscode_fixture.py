@@ -87,8 +87,17 @@ def prepare(root):
         "revision": 1,
         "body": {
             "intended_outcome": "Preserve the baseline",
+            "constraints": [],
+            "permission_boundaries": [],
+            "scope_exclusions": [],
             "acceptance_criteria": [
-                {"id": "AC1", "criterion": "Keep the existing checks", "current_behavior": "The full suite passes."}
+                {
+                    "id": "AC1",
+                    "criterion": "Keep the existing checks",
+                    "current_behavior": "The full suite passes.",
+                    "verification_method": "Review the baseline test results.",
+                    "human_review": False,
+                }
             ],
         },
     }

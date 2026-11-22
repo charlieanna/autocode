@@ -2,11 +2,10 @@
 const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { test } = require('node:test');
 const { openHistoryRow } = require('./open-history.cjs');
-const { ownedWarmHostSteps, privateHostEnvironment, settleFixture } = require('../owned-fixture-cleanup.cjs');
+const { privateHostRoot, privateHostEnvironment, settleFixture } = require('../owned-fixture-cleanup.cjs');
 
 const EXTENSION = path.resolve(__dirname, '../..');
 const REPO = path.resolve(EXTENSION, '..');
@@ -31,7 +30,7 @@ async function executable() {
 }
 
 test('real editor distinguishes full pytest collection from a passing baseline at plan approval', { timeout: 240_000 }, async () => {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'autocode-plan-collection-host-')));
+  const root = privateHostRoot('autocode-plan-collection-host-');
   const tmp = path.join(root, 'tmp'); fs.mkdirSync(tmp);
   const reads = path.join(root, 'reads'); fs.writeFileSync(reads, '');
   const env = { ...privateHostEnvironment(process.env, root), TMPDIR: tmp,
@@ -131,9 +130,9 @@ test('real editor distinguishes full pytest collection from a passing baseline a
             String(editorPid), String(editorStarted)], 15_000);
         }
       }],
-      ...ownedWarmHostSteps(Boolean(fixture),
-        () => invoke([cli, 'serve', '--stop', '--json'], 15_000),
-        () => assert.equal(invoke([cli, 'serve', '--status', '--json'], 15_000).running, false)),
+      ['stop private warm hosts', () => {
+        if (fixture) invoke([path.join(REPO, 'tests/host_reader_cleanup.py'), '--stop-source-hosts', root], 15_000);
+      }],
       ['observe owned readers', () => until('the fixture readers to exit', () =>
         invoke([path.join(REPO, 'tests/host_reader_cleanup.py'), reads, root], 15_000).running.length === 0, 20_000)],
     ], () => fs.rmSync(root, { recursive: true, force: true, maxRetries: 3 }), testError);
