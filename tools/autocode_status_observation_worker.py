@@ -70,6 +70,15 @@ def _worker(request):
         except (ValueError, OSError, KeyError, TypeError, util.Paused) as error:
             return {"allowed": False, "reason": str(error), "unavailable": True}
         return {"allowed": True}
+    if request.get("operation") == "retained_report_incident":
+        from types import SimpleNamespace
+
+        import autocode_retained_report_incident as retained_report
+        import autocode_run_records as records
+        import autocode_support as support
+
+        runtime = SimpleNamespace(support=support, stage_completed=records.stage_completed)
+        return retained_report.observe(runtime, payload["state"], payload["workspace"], payload["run_dir"])
     if request.get("operation") == "source_snapshot":
         import autocode_source_scope as source_scope
         import autocode_support as support

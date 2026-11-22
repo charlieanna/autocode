@@ -132,6 +132,23 @@ def report_repair(state: RunState, workspace, revision=None):
     return None
 
 
+def retained_report_incident(state: RunState, workspace, run_dir):
+    """A bounded offer only; the locked owner repeats the complete admission."""
+    try:
+        from . import autocode_retained_report_incident as retained_report
+    except ImportError:
+        import autocode_retained_report_incident as retained_report
+    if not retained_report.possible(state) or not workspace or not run_dir:
+        return None
+    try:
+        value = _observe(
+            "retained_report_incident", {"state": state, "workspace": str(workspace), "run_dir": str(run_dir)}
+        )
+        return value if value in ("pending", "accepted") else None
+    except (OSError, TypeError, ValueError, subprocess.SubprocessError, captured.ProcessError):
+        return None
+
+
 def _retry_admission(operation, payload, reason):
     try:
         value = _observe(operation, payload)
