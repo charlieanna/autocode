@@ -10,19 +10,25 @@ its verdict. Missing evidence is UNVERIFIED, never PASS.
 from __future__ import annotations
 
 try:
+    from . import autocode_cargo_build_evidence as cargo_build
+    from . import autocode_cargo_tests as cargo_tests
     from . import autocode_check_outcome as check_outcome
     from . import autocode_command_receipt as command_receipt
     from . import autocode_first_suite as first_suite
     from . import autocode_junit_first_suite as junit_first
+    from . import autocode_package_scope as package_scope
     from . import autocode_proof_seam as proof_seam
     from . import autocode_test_root as test_roots
     from . import autocode_test_setup as test_setup
     from . import autocode_verification_schedule as schedule
 except ImportError:
+    import autocode_cargo_build_evidence as cargo_build
+    import autocode_cargo_tests as cargo_tests
     import autocode_check_outcome as check_outcome
     import autocode_command_receipt as command_receipt
     import autocode_first_suite as first_suite
     import autocode_junit_first_suite as junit_first
+    import autocode_package_scope as package_scope
     import autocode_proof_seam as proof_seam
     import autocode_test_root as test_roots
     import autocode_test_setup as test_setup
@@ -53,7 +59,7 @@ def judge_regression(
     known_failures,
     new_behavior=False,
     preserve_only=False,
-    absent_go_base=False,
+    absent_first_go=False,
     absent_junit_base=False,
     seam_names=None,
     changed_tests=None,
@@ -136,22 +142,22 @@ def judge_regression(
                     "Tests in the changed files that already fail on base were not counted: "
                     + ", ".join(sorted(failed)[:20])
                 )
+        if absent_first_go and on_base is None and new_behavior and not preserve_only:
+            if not failed and not candidate.get("skipped") and on_candidate["exit_code"] == 0 and changed_tests:
+                names = sorted(name for name in passed if changed_tests(name))
+                if names:
+                    proof.update(fail_to_pass=names, pass_to_pass=[], not_run_on_base=names)
+                    notes.append("The pinned base has no Go project; these changed tests did not run on base.")
+                    return
+            unverified.append("The first Go project's changed named tests were not completely established")
+            return
         if on_base is None:
             return
         if on_base["timed_out"]:
             unverified.append("The regression tests timed out on base; no complete fail-to-pass proof exists")
             return
         if base is None:
-            # Outside a module, `go test` on the new files exits before any test event.
-            # Those tests did not pass on a base that has no Go project (#685).
-            if (
-                new_behavior
-                and not preserve_only
-                and (absent_go_base or absent_junit_base)
-                and passed
-                and on_base is not None
-                and (absent_junit_base or first_suite.go_reported_nothing(on_base))
-            ):
+            if new_behavior and not preserve_only and absent_junit_base and passed:
                 names = sorted(passed)
                 proof["fail_to_pass"] = names
                 proof["pass_to_pass"] = []
@@ -196,6 +202,15 @@ def judge_regression(
             not_run -= preserved
             if unchanged:
                 notes.append(f"Not proof (unchanged): {len(unchanged)} test(s); kept from base: {len(preserved)}")
+        if new_behavior and cargo_tests.command_words(
+            package_scope.within(on_candidate.get("command")), include_owned=True
+        ):
+            skipped = set(base.get("skipped") or [])
+            flipped = [
+                name
+                for name in flipped
+                if name in ran_and_failed or (name not in skipped and cargo_build.was_blocked(base, candidate, name))
+            ]
         proof["fail_to_pass"] = flipped
         proof["pass_to_pass"] = sorted(kept)
         proof["not_run_on_base"] = sorted(not_run)

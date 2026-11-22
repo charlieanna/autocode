@@ -25,8 +25,10 @@ nothing but results: a test's captured output is shown later, under ``failures:`
 count only when they agree with its own ``test result:`` line. One that printed no such line (it exited
 or crashed mid-run), or whose counts disagree, is reported as ``FILE::[no result]``, failed, and the
 results are incomplete. A build that fails runs no test and is reported as ``TARGET::[build failed]``,
-failed and uncollected, as a Go package that does not build is. In a workspace two crates may print the
-same file and test name; the two are one identity, failed when either failed.
+failed and uncollected, as a Go package that does not build is. Owned proofs join the binary named by
+``Running`` to its Cargo compiler artifact and use the target's source path relative to the command root.
+This distinguishes crates that print the same file and test name. For legacy human-only results these
+still collapse into one identity, failed when either failed.
 
 ``instrument`` adds ``--no-fail-fast``: Cargo otherwise stops at the first failing binary, and the tests
 of the binaries after it would be missing from one side of the comparison. A command that changes what
@@ -35,7 +37,8 @@ the harness prints (``-q``, ``--format``, ``--nocapture``) is left alone and jud
 A feature's new test usually calls a function the original code lacks, so the original code with the
 change's test files does not build and none of its tests ran there. ``changed_filter`` then says which
 tests the change itself adds or edits, as autocode_go_tests.changed_filter does for Go (#2505): only
-those can show the new behavior, and an untouched test that passed on the original code was kept.
+those can show the new behavior. A test that did not run on the base also needs an observed compiler
+error for its own target. An untouched test that passed on the original code was kept.
 """
 
 from __future__ import annotations
@@ -45,9 +48,11 @@ import shlex
 from pathlib import Path, PurePosixPath
 
 try:
+    from . import autocode_cargo_build_evidence as build_evidence
     from . import autocode_project_kinds as project_kinds
     from . import autocode_rust_inline_tests as rust_inline_tests
 except ImportError:
+    import autocode_cargo_build_evidence as build_evidence
     import autocode_project_kinds as project_kinds
     import autocode_rust_inline_tests as rust_inline_tests
 
@@ -58,7 +63,7 @@ _CARGO_REFUSED = ("-q", "--quiet", "--no-run", "--help", "-h", "--version", "-V"
 # What the test harness must not be told: each changes the lines it prints between its header and summary.
 _HARNESS_REFUSED = ("-q", "--quiet", "--list", "--nocapture", "--no-capture", "--show-output", "--report-time")
 _ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
-_RUNNING = re.compile(r"^\s*Running (?:unittests )?(\S+) \(\S+\)\s*$")
+_RUNNING = re.compile(r"^\s*Running (?:unittests )?(.+?) \((.+)\)\s*$")
 _DOC_TESTS = re.compile(r"^\s*Doc-tests (\S+)\s*$")
 _HEADER = re.compile(r"^running (\d+) tests?$")
 _TEST = re.compile(r"^test (.+?) \.\.\. (ok|FAILED|ignored)(?:, .*)?$")
@@ -70,7 +75,7 @@ _STATUS = {"ok": "passed", "FAILED": "failed", "ignored": "skipped"}
 _SHOULD_PANIC = " - should panic"
 
 
-def command_words(command):
+def command_words(command, *, include_owned=False):
     """The words of a plain ``cargo test`` command whose per-test lines can be read, or None.
 
     Leading ``NAME=value`` words are kept, as an approved Go command's are."""
@@ -88,34 +93,47 @@ def command_words(command):
     rest = words[start + 2 :]
     split = rest.index("--") if "--" in rest else len(rest)
     cargo, harness = rest[:split], rest[split + 1 :]
-    if any(word in _CARGO_REFUSED or word.startswith("--message-format") for word in cargo):
+    formats = [word for word in cargo if word.startswith("--message-format")]
+    if any(word in _CARGO_REFUSED for word in cargo) or (
+        formats and (not include_owned or formats != ["--message-format=json"])
+    ):
         return None
     if any(word in _HARNESS_REFUSED or word.startswith(("--format", "--logfile", "-Z")) for word in harness):
         return None
     return words
 
 
-def instrument(command):
-    """``command`` running every test binary, so one failing binary hides no other's results."""
+def instrument(command, *, targets=False):
+    """Collect every test binary and, for owned proofs, observe the built targets."""
     words = command_words(command)
-    if not words or "--no-fail-fast" in words:
+    if not words:
         return command
     split = words.index("--") if "--" in words else len(words)
-    return shlex.join([*words[:split], "--no-fail-fast", *words[split:]])
+    flags = []
+    if "--no-fail-fast" not in words[:split]:
+        flags.append("--no-fail-fast")
+    if targets:
+        flags.append("--message-format=json")
+    return shlex.join([*words[:split], *flags, *words[split:]]) if flags else command
 
 
-def results(text):
+def results(text, *, build=None):
     """Per-test results from the output of one ``cargo test`` run, or None when it shows no test binary
     and no failed build."""
     outcome, order = {}, []
     broken, collection = [], []
-    container, block = None, None
+    container, block, owner = None, None, None
+    observations: dict[str, list | None] = {}
     complete = True
 
     def record(name, status):
         key = f"{container or '[unknown]'}::{name}"
         if key not in outcome:
             order.append(key)
+        if build is not None:
+            observed = build_evidence.descriptor(owner) if owner is not None else None
+            if observations.setdefault(key, observed) != observed:
+                observations[key] = None
         # Two crates of a workspace may print one identity; a pass cannot erase the other's failure.
         if outcome.get(key) != "failed" and not (outcome.get(key) == "passed" and status == "skipped"):
             outcome[key] = status
@@ -139,9 +157,13 @@ def results(text):
 
     for raw in _ANSI.sub("", text or "").splitlines():
         line = raw.rstrip()
-        if found := _RUNNING.match(line) or _DOC_TESTS.match(line):
+        running = _RUNNING.match(line)
+        if running or (docs := _DOC_TESTS.match(line)):
             close()
-            container = found.group(1) if _RUNNING.match(line) else f"Doc-tests {found.group(1)}"
+            owner = build.running(running.group(2)) if build is not None and running else None
+            container = (
+                owner.source if owner is not None else running.group(1) if running else f"Doc-tests {docs.group(1)}"
+            )
             continue
         if found := _HEADER.match(line):
             close()
@@ -156,7 +178,7 @@ def results(text):
             continue
         if found := _SUMMARY.match(line):
             close(tuple(int(value) for value in found.groups()))
-            container = None
+            container, owner = None, None
             continue
         if not block["open"]:
             continue
@@ -182,6 +204,17 @@ def results(text):
         "uncollected": sorted(collection),
         "total": len(order) + len(set(broken)) + len(collection),
         "complete": complete,
+        **(
+            {
+                "cargo_build": {
+                    "success": build.success,
+                    "tests": {name: observations[name] for name in passed if observations.get(name) is not None},
+                    "failed_targets": [build_evidence.descriptor(target) for target in sorted(build.failed)],
+                }
+            }
+            if build is not None
+            else {}
+        ),
     }
 
 

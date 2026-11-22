@@ -10,6 +10,23 @@ const { RunController } = host.load('controller.js');
 const options = { command: 'autocode', prefix: [] };
 const flush = async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); };
 
+test('the chat message omits only the fixed process observation and Output retains it', async (t) => {
+  const rows = children(t);
+  const output = [];
+  const message = 'autocode: Existing run process 44 is active; leave it untouched';
+  const diagnostic = 'Process check for PID 44: evidence=exact-arguments category=possible-runner status-option=absent';
+  const context = 'Process check for PID 44: underlying error';
+  const stderr = [message, diagnostic, context].join('\n');
+  const pending = cli.stream(options, [], {}, (chunk) => output.push(chunk));
+  rows[0].stderr.emit('data', Buffer.from(stderr));
+  rows[0].emit('exit', 2);
+  rows[0].emit('close', 2);
+  const result = await pending;
+  assert.equal(result.rejected, true);
+  assert.equal(output.join(''), stderr);
+  assert.equal(cli.tail(result), `${message} … ${context}`);
+});
+
 function children(t) {
   const rows = [];
   t.mock.method(require('node:child_process'), 'spawn', (_file, argv, settings) => {

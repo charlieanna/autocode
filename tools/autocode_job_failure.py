@@ -676,6 +676,12 @@ def change_total_caps(runtime, state: RunState, run_dir, workspace, args):
 
 def authorize(runtime, state: RunState, run_dir, workspace, token):
     failure = _validate_retry(state, workspace, token)
+    if (state.get("settings") or {}).get("replay_recording"):
+        try:
+            from . import autocode_replay_job_action as replay_job_action
+        except ImportError:
+            import autocode_replay_job_action as replay_job_action
+        replay_job_action.retry(state, workspace)
     state["job_retry_authorization"] = {"token": token, "stage": failure["stage"], "consumed": False}
     state.setdefault("user_events", []).append(
         {

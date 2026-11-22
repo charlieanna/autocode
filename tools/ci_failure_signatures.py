@@ -2,19 +2,121 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
+import inspect
 import json
 import re
 import sys
+import unittest
 from pathlib import Path
 
 HEADER = re.compile(r"^={70}\n(FAIL|ERROR|UNEXPECTED SUCCESS): (\S+) \(([^\n()]+)\)([^\n]*)\n", re.M)
 FOOTER = re.compile(r"^-{70}\nRan \d+ tests? in [^\n]*\n\n(?:FAILED|OK)\b", re.M)
-GENERATED_START_REF = re.compile(r"(?<!\S)(refs/autocode/partial-work/start/)[0-9a-f]{40}(?!\S)")
+# A traceback frame header; its path and line number are where the code is, not what failed.
+FRAME = re.compile(r'^  File "([^"\n]*)", line \d+(?:, in (.*))?$')
+# unittest joins a FAIL's standard message and the test's own message with "%s : %s".
+APPENDED = " : "
+QUOTE_OPENERS = " ([{,:="
+
+
+def appended_at(line: str) -> int | None:
+    """Where unittest's ' : ' joins an appended message in this line, outside quoted and bracketed values."""
+    depth = 0
+    quote = ""
+    index = 0
+    while index < len(line):
+        char = line[index]
+        if quote:
+            if char == "\\":
+                index += 1
+            elif char == quote:
+                quote = ""
+        elif char in "'\"" and (index == 0 or line[index - 1] in QUOTE_OPENERS):
+            quote = char
+        elif char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth = max(0, depth - 1)
+        elif depth == 0 and line.startswith(APPENDED, index):
+            return index
+        index += 1
+    return None
+
+
+def has_unittest_message(code: list[str]) -> bool:
+    """Only drop a message when the failure shows a standard assertion call with a message argument."""
+    if not code:
+        return False
+    try:
+        statement = ast.parse(code[0]).body[0]
+    except (SyntaxError, IndexError):
+        return False
+    if not isinstance(statement, ast.Expr) or not isinstance(call := statement.value, ast.Call):
+        return False
+    method = call.func
+    if (
+        not isinstance(method, ast.Attribute)
+        or not isinstance(method.value, ast.Name)
+        or method.value.id != "self"
+        or not method.attr.startswith("assert")
+        or any(isinstance(arg, ast.Starred) for arg in call.args)
+        or any(keyword.arg is None for keyword in call.keywords)
+    ):
+        return False
+    standard = getattr(unittest.TestCase, method.attr, None)
+    if not inspect.isfunction(standard):
+        return False
+    # Bound placeholders identify the actual message argument without evaluating test code.
+    try:
+        bound = inspect.signature(standard).bind(
+            None, *[None for _ in call.args], **{keyword.arg: None for keyword in call.keywords if keyword.arg}
+        )
+    except TypeError:
+        return False
+    return "msg" in bound.arguments
+
+
+def compared(exception: str) -> str:
+    """A FAIL's exception text without the message the test appended to what the assertion compared.
+
+    unittest writes ``standard : message``: on the first line when the standard message is one line, on
+    a line of its own when the standard message ends with a newline (a string diff), otherwise at the end
+    of the last line (a list diff, a set difference, assertCountEqual).
+    """
+    lines = exception.split("\n")
+    cut = appended_at(lines[0])
+    if cut is not None:
+        return lines[0][:cut]
+    for index, line in enumerate(lines[1:], 1):
+        if line.startswith(APPENDED):
+            return "\n".join(lines[:index])
+    cut = appended_at(lines[-1])
+    if cut is not None:
+        lines[-1] = lines[-1][:cut]
+    return "\n".join(lines)
+
+
+def identity(test: str, kind: str, detail: str) -> str:
+    """Keep the whole traceback and omit only a diagnostic appended to a known assertion."""
+    lines = detail.splitlines()
+    start, code = 0, []
+    for index, line in enumerate(lines):
+        if FRAME.match(line):
+            start = index + 1
+    index = start
+    while index < len(lines) and lines[index].startswith("    "):
+        code.append(lines[index].strip())
+        index += 1
+    exception = "\n".join(lines[index:])
+    if kind == "FAIL" and exception.startswith("AssertionError: ") and start and has_unittest_message(code):
+        lines[index:] = compared(exception).splitlines()
+    normalized = re.sub(r'(File "[^"\n]+", line )\d+', r"\1<line>", "\n".join(lines))
+    return hashlib.sha256(json.dumps([test, kind, normalized]).encode()).hexdigest()
 
 
 def signatures(output: str, root: Path) -> list[dict[str, str]]:
-    """Keep test, assertion and exception identity while removing checkout/line-number noise."""
+    """Identify each failure by what failed, not by checkout paths, line numbers or text appended to it."""
     headers = list(HEADER.finditer(output))
     result = []
     for index, match in enumerate(headers):
@@ -26,12 +128,7 @@ def signatures(output: str, root: Path) -> list[dict[str, str]]:
         detail = detail.removeprefix("-" * 70 + "\n").strip()
         for directory in sorted({str(root.absolute()), str(root.resolve())}, key=len, reverse=True):
             detail = detail.replace(directory, "<checkout>")
-        detail = re.sub(r'(File "[^"\n]+", line )\d+', r"\1<line>", detail)
-        # A fresh fixture commit changes this generated pin's suffix, not the assertion that failed.
-        detail = GENERATED_START_REF.sub(r"\1<commit>", detail)
-        result.append(
-            {"test": test_id + suffix, "kind": kind, "signature": hashlib.sha256(detail.encode()).hexdigest()}
-        )
+        result.append({"test": test_id + suffix, "kind": kind, "signature": identity(test_id + suffix, kind, detail)})
     return result
 
 

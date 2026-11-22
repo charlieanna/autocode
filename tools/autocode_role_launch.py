@@ -42,6 +42,7 @@ try:
     from . import autocode_provider_env as provider_env
     from . import autocode_provider_launch as provider_launch
     from . import autocode_regression as regression
+    from . import autocode_replay_context as recorded_context
     from . import autocode_report_check as report_check
     from . import autocode_resolver_recovery as resolver_recovery
     from . import autocode_resolver_runtime as resolver_runtime
@@ -80,6 +81,7 @@ except ImportError:
     import autocode_provider_env as provider_env
     import autocode_provider_launch as provider_launch
     import autocode_regression as regression
+    import autocode_replay_context as recorded_context
     import autocode_report_check as report_check
     import autocode_resolver_recovery as resolver_recovery
     import autocode_resolver_runtime as resolver_runtime
@@ -185,20 +187,14 @@ def changed_code_proof(state: RunState):
 
 def replay_context(state: RunState, *, stage, iteration, report_only, original_stage, changed_code_proof):
     """What replay needs to match this launch to its recorded answer (docs/replay.md)."""
-    context = {
-        "stage": stage,
-        "iteration": iteration,
-        "turn": len(state.get("turns") or []) + 1,
-        "milestone_id": (state.get("current_task") or {}).get("milestone_id"),
-        "task_id": (state.get("current_task") or {}).get("id"),
-        "contract_hash": (state.get("goal_contract") or {}).get("hash"),
-        "criteria_revision": state.get("criteria_revision"),
-        "report_only": report_only,
-        "original_stage": original_stage if report_only else None,
-        "consumed": sum(isinstance(row.get("replay"), dict) for row in state.get("stages", [])),
-        "changed_code_proof": changed_code_proof,
-        "regression_proof_path": (state.get("regression_proof") or {}).get("path"),
-    }
+    context = recorded_context.launch(
+        state,
+        stage=stage,
+        iteration=iteration,
+        report_only=report_only,
+        original_stage=original_stage,
+        changed_code_proof=changed_code_proof,
+    )
     if (original_stage if report_only else stage) == "review_plan":
         draft_snapshot = failure_correction.snapshot(state)
         if draft_snapshot is not None:

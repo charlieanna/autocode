@@ -3,11 +3,10 @@ const assert = require('node:assert/strict');
 const { createHash, randomUUID } = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { test } = require('node:test');
 const { openHistoryRow } = require('./open-history.cjs');
-const { privateHostEnvironment, ownedWarmHostSteps, settleFixture } = require('../owned-fixture-cleanup.cjs');
+const { privateHostRoot, privateHostEnvironment, ownedWarmHostSteps, settleFixture } = require('../owned-fixture-cleanup.cjs');
 const { afterApproval } = require('../python-semantic-transition.cjs');
 
 const EXTENSION = path.resolve(__dirname, '../..');
@@ -36,8 +35,8 @@ async function executable() {
   return downloadAndUnzipVSCode({ version: '1.147.0', cachePath: path.join(EXTENSION, '.vscode-test') });
 }
 
-test('real editor completes an offline task with exact multiline element evidence', { timeout: 600_000 }, async () => {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'autocode-python-semantic-host-')));
+async function completeInEditor({ kind, fixtureFile, prompt, overviewText, criteria, verifyCompletion }) {
+  const root = privateHostRoot(`autocode-${kind}-host-`);
   const tmp = path.join(root, 'tmp'); fs.mkdirSync(tmp);
   const reads = path.join(root, 'reads'); fs.writeFileSync(reads, '');
   const env = { ...privateHostEnvironment(process.env, root), XDG_CONFIG_HOME: path.join(root, 'user-config'), TMPDIR: tmp,
@@ -54,10 +53,10 @@ test('real editor completes an offline task with exact multiline element evidenc
     cwd: REPO, env, encoding: 'utf8', timeout: 15_000,
   });
   try {
-    const made = spawnSync(python, [path.join(REPO, 'tests/python_semantic_vscode_fixture.py'), root], {
+    const made = spawnSync(python, [path.join(REPO, 'tests', fixtureFile), root], {
       cwd: REPO, env, encoding: 'utf8', timeout: 300_000,
     });
-    assert.equal(made.status, 0, `offline semantic fixture: ${made.stderr}`);
+    assert.equal(made.status, 0, `offline fixture: ${made.stderr}`);
     fixture = JSON.parse(made.stdout);
     assert.equal(path.resolve(fixture.registry), path.resolve(root, 'registry'), 'registry belongs to this fixture');
     assert.ok(fs.lstatSync(fixture.registry).isDirectory(), 'private registry is a directory, not a symlink');
@@ -71,7 +70,7 @@ test('real editor completes an offline task with exact multiline element evidenc
     assert.match(reviewed.review, /Operating agent review/);
     const userData = path.join(root, 'user-data'); fs.mkdirSync(path.join(userData, 'User'), { recursive: true });
     fs.writeFileSync(path.join(userData, 'User/settings.json'), JSON.stringify({
-      'autocode.cliPath': python, 'autocode.cliArgs': [path.join(__dirname, 'held_cli.py')], 'autocode.pollSeconds': 2,
+      'autocode.cliPath': python, 'autocode.cliArgs': [path.join(__dirname, 'held_cli.py'), '--offline-fixture'], 'autocode.pollSeconds': 2,
       'workbench.startupEditor': 'none', 'security.workspace.trust.enabled': false, 'chat.disableAIFeatures': true,
       'update.mode': 'none', 'extensions.autoUpdate': false, 'telemetry.telemetryLevel': 'off',
     }));
@@ -101,19 +100,21 @@ test('real editor completes an offline task with exact multiline element evidenc
       return JSON.parse(result.stdout).view;
     };
     await win.locator('.activitybar [aria-label^="AutoCode"]').first().click();
-    await openHistoryRow(win.locator('.monaco-list-row', { hasText: 'Extend labels() to append the exact string added' }).first(), chat, 'multiline semantic fixture');
+    await openHistoryRow(win.locator('.monaco-list-row', { hasText: prompt }).first(), chat, kind);
     let frame = await chat();
     await until('reviewed plan overview in the editor', async () => {
       frame = await chat();
       const overview = frame.locator('.plan-overview');
-      return await overview.count() && (await overview.innerText()).includes('Extend labels') &&
+      return await overview.count() && (await overview.innerText()).includes(overviewText) &&
         await frame.$('details.plan-evidence > summary') && await frame.$('#take-action') ? true : null;
     });
     await frame.locator('details.plan-evidence > summary').click();
     await until('the expanded reviewed criterion in the editor', async () => {
       frame = await chat();
       const details = frame.locator('details.plan-evidence[open]');
-      return await details.count() && (await details.innerText()).includes('test_c1_added_label') ? true : null;
+      if (!(await details.count())) return null;
+      const text = await details.innerText();
+      return criteria.every((criterion) => text.includes(criterion)) ? true : null;
     });
     const before = status();
     assert.equal(before.needs.kind, 'approve_plan');
@@ -130,26 +131,7 @@ test('real editor completes an offline task with exact multiline element evidenc
     }, 300_000);
     assert.equal(after.status, 'TASK_COMPLETE', JSON.stringify({ status: after.status, reason: after.stop_reason, needs: after.needs }));
     assert.equal(after.delivery?.verified_complete, true);
-    const assessment = after.verification?.changed_code_evidence;
-    assert.equal(assessment?.status, 'PASS');
-    const obligation = assessment.obligations.find((row) => row.path === 'labels.py' && row.line === 28);
-    assert.ok(obligation, 'the changed multiline child has an exact public obligation');
-    assert.equal(obligation.sha256, fixture.source_sha256);
-    assert.equal(obligation.source_line, "'added',");
-    assert.equal(obligation.status, 'tested');
-    assert.equal(obligation.mutation_demonstrated, true);
-    assert.deepEqual(obligation.mutation_outcomes, ['killed']);
-    const mutation = after.evidence?.mutation_check?.files?.find((row) => row.path === 'labels.py');
-    const child = mutation?.mutants?.find((row) => row.line === 28 && row.operator === 'none_element');
-    assert.equal(child?.end_line, 28);
-    assert.equal(child?.outcome, 'killed');
-    assert.equal(child?.source_sha256, fixture.source_sha256);
-    assert.deepEqual(child?.failed_tests, ['test_added.Added.test_c1_added_label']);
-    assert.deepEqual(child?.evidence, obligation.evidence);
-    for (const [name, expected] of [['labels.py', fixture.source_sha256], ['test_added.py', fixture.test_sha256],
-      ['test_existing.py', fixture.existing_sha256]]) {
-      assert.equal(digest(fs.readFileSync(path.join(fixture.workspace, name))), expected, `${name} retains its reviewed bytes`);
-    }
+    verifyCompletion(after, fixture);
     phase = 'observing the completed editor view';
     await until('the editor to show the verified task outcome', async () => {
       frame = await chat();
@@ -159,7 +141,7 @@ test('real editor completes an offline task with exact multiline element evidenc
     passed = true;
   } catch (error) {
     testError = error;
-    console.error(`Python semantic host failed during ${phase}: ${error.stack || error.message}`);
+    console.error(`${kind} host failed during ${phase}: ${error.stack || error.message}`);
     if (win) {
       fs.mkdirSync(path.join(EXTENSION, '.vscode-test'), { recursive: true });
       await win.screenshot({ path: path.join(EXTENSION, '.vscode-test/host-python-semantic.png'), timeout: 5_000 })
@@ -208,7 +190,11 @@ test('real editor completes an offline task with exact multiline element evidenc
       }, () => {
         const checked = invokeHost('--status'); assert.equal(checked.status, 0, checked.stderr);
         assert.equal(JSON.parse(checked.stdout).running, false, 'private source host exited');
-      }), ['check unrecorded owned readers', async () => {
+      }), ['stop private warm source hosts', () => {
+        const stopped = spawnSync(python, [path.join(REPO, 'tests/host_reader_cleanup.py'), '--stop-source-hosts', root],
+          { cwd: REPO, env, encoding: 'utf8', timeout: 15_000 });
+        assert.equal(stopped.status, 0, stopped.stderr);
+      }], ['check unrecorded owned readers', async () => {
         await until('no Python reader tied to the owned fixture', () => {
           const checked = spawnSync(python, [path.join(REPO, 'tests/host_reader_cleanup.py'), reads, root], {
             cwd: REPO, env, encoding: 'utf8', timeout: 15_000,
@@ -219,11 +205,76 @@ test('real editor completes an offline task with exact multiline element evidenc
       }]], () => fs.rmSync(root, { recursive: true, force: true, maxRetries: 3 }),
       testError || (!passed ? new Error('editor test did not complete') : undefined));
     } catch (error) {
-      console.error(`Preserved Python semantic host fixture at ${root}`);
+      console.error(`Preserved ${kind} host fixture at ${root}`);
       for (const failure of (error instanceof AggregateError ? error.errors : [error]).slice(0, 8)) {
         console.error(`Editor or cleanup failure: ${String(failure?.stack || failure).slice(0, 4000)}`);
       }
       throw error;
     }
   }
-});
+}
+
+test('real editor completes an offline task with exact multiline element evidence', { timeout: 600_000 }, () =>
+  completeInEditor({
+    kind: 'python-semantic',
+    fixtureFile: 'python_semantic_vscode_fixture.py',
+    prompt: 'Extend labels() to append the exact string added',
+    overviewText: 'Extend labels',
+    criteria: ['test_c1_added_label'],
+    verifyCompletion(after, fixture) {
+    const assessment = after.verification?.changed_code_evidence;
+    assert.equal(assessment?.status, 'PASS');
+    const obligation = assessment.obligations.find((row) => row.path === 'labels.py' && row.line === 28);
+    assert.ok(obligation, 'the changed multiline child has an exact public obligation');
+    assert.equal(obligation.sha256, fixture.source_sha256);
+    assert.equal(obligation.source_line, "'added',");
+    assert.equal(obligation.status, 'tested');
+    assert.equal(obligation.mutation_demonstrated, true);
+    assert.deepEqual(obligation.mutation_outcomes, ['killed']);
+    const mutation = after.evidence?.mutation_check?.files?.find((row) => row.path === 'labels.py');
+    const child = mutation?.mutants?.find((row) => row.line === 28 && row.operator === 'none_element');
+    assert.equal(child?.end_line, 28);
+    assert.equal(child?.outcome, 'killed');
+    assert.equal(child?.source_sha256, fixture.source_sha256);
+    assert.deepEqual(child?.failed_tests, ['test_added.Added.test_c1_added_label']);
+    assert.deepEqual(child?.evidence, obligation.evidence);
+    for (const [name, expected] of [['labels.py', fixture.source_sha256], ['test_added.py', fixture.test_sha256],
+      ['test_existing.py', fixture.existing_sha256]]) {
+      assert.equal(digest(fs.readFileSync(path.join(fixture.workspace, name))), expected, `${name} retains its reviewed bytes`);
+    }
+    },
+  }));
+
+test('real editor verifies the first Go project against a pristine original baseline', { timeout: 600_000 }, () =>
+  completeInEditor({
+    kind: 'first-go',
+    fixtureFile: 'first_go_vscode_fixture.py',
+    prompt: 'Add the first Go implementation alongside',
+    overviewText: 'Add the first Go implementation',
+    criteria: ['TestC1GermanRetention', 'TestC2ExceptionRetention'],
+    verifyCompletion(after, fixture) {
+      assert.equal(after.worktree?.kind, 'worktree');
+      assert.equal(after.worktree?.path, fixture.task_worktree);
+      assert.equal(after.worktree?.folder, fixture.workspace);
+      const proof = after.evidence?.regression_proof;
+      assert.equal(proof?.verdict, 'PASS');
+      assert.equal(proof.source_revision, after.verification.source_revision);
+      const names = ['TestC1GermanRetention', 'TestC2ExceptionRetention']
+        .map((test) => 'example.test/scenario/policy::' + test);
+      assert.deepEqual(proof.case_tests, { C1: [names[0]], C2: [names[1]] });
+      assert.ok(names.every((name) => proof.fail_to_pass.includes(name)));
+      // The host test reads runner-owned proof artifacts, never private run state.
+      const regression = path.join(fixture.run_dir, 'regression');
+      const proofFiles = fs.readdirSync(regression)
+        .filter((name) => /^proof-[0-9]+-/.test(name))
+        .map((name) => path.join(regression, name, 'verification.json'))
+        .filter((name) => fs.existsSync(name));
+      const captured = proofFiles.map((name) => JSON.parse(fs.readFileSync(name, 'utf8')))
+        .filter((row) => row.source_revision === proof.source_revision && row.verdict === 'PASS');
+      assert.ok(captured.length, 'the public PASS has a matching runner proof artifact');
+      for (const row of captured) {
+        assert.ok(names.every((name) => row.not_run_on_base.includes(name)));
+        assert.equal(row.checks.regression_on_base, undefined);
+      }
+    },
+  }));

@@ -504,7 +504,10 @@ class AccessTransportConsumerTests(unittest.TestCase):
         consumers = {"tests.test_stop_now_runner_check_cli", "tests.test_runner_check_cancellation"}
         for path in (
             "tools/autocode_command_supervision.py",
+            "tools/autocode_controller_owner.py",
+            "tools/autocode_pause_offer.py",
             "tools/autocode_runner_check.py",
+            "tools/autocode_run_setup.py",
             "tools/autocode_process.py",
             "tools/autocode_interventions.py",
             "tools/autocode_stop.py",

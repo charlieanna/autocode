@@ -13,6 +13,11 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
+try:
+    from . import autocode_controller_owner as controller_owner
+except ImportError:
+    import autocode_controller_owner as controller_owner
+
 LABEL = "Pause after this step"
 EFFECT = "The current step finishes and is saved, then the run pauses. Resume continues where it paused."
 STOP_NOW_LABEL = "Stop now"
@@ -71,7 +76,7 @@ def project(
         "--json",
     ]
     offer = {"label": LABEL, "effect": EFFECT, "requested": requested, "next_command": None if requested else command}
-    if capability.get("supports_stop_now") is True:
+    if controller_owner.interruptible(view.get("controller")):
         offer["stop_now"] = {
             "label": STOP_NOW_LABEL,
             "effect": STOP_NOW_EFFECT,

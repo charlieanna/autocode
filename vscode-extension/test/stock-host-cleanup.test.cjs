@@ -44,6 +44,13 @@ for (const phase of ['fixture', 'editor']) test(`stock host retains evidence and
     if (id === 'node:test') return { before: (body) => { setup = body; }, after: (body) => { cleanup = body; }, test() {} };
     if (id === 'node:fs') return fakeFs;
     if (id === 'node:child_process') return fakeChild;
+    if (id === '../owned-fixture-cleanup.cjs') {
+      const fixtureHelpers = realRequire(id);
+      return { ...fixtureHelpers, privateHostRoot(prefix) {
+        root = fixtureHelpers.privateHostRoot(prefix);
+        return root;
+      } };
+    }
     if (id === 'playwright-core') return { _electron: { async launch({ env }) {
       return { process: () => ({ pid: 123 }), firstWindow: async () => { throw new Error('forced editor setup failure'); },
         close: async () => { calls.push('close owned editor'); throw new Error('forced close failure'); } };

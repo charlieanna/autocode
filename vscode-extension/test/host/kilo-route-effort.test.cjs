@@ -3,12 +3,11 @@
 const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { test } = require('node:test');
 const { openHistoryRow } = require('./open-history.cjs');
 const { routeDecisionReady } = require('../job-route-readiness.cjs');
-const { privateHostEnvironment, ownedWarmHostSteps, settleFixture } = require('../owned-fixture-cleanup.cjs');
+const { privateHostRoot, privateHostEnvironment, ownedWarmHostSteps, settleFixture } = require('../owned-fixture-cleanup.cjs');
 
 const EXTENSION = path.resolve(__dirname, '../..');
 const REPO = path.resolve(EXTENSION, '..');
@@ -31,8 +30,8 @@ async function executable() {
   return downloadAndUnzipVSCode({ version: '1.147.0', cachePath: path.join(EXTENSION, '.vscode-test') });
 }
 
-test('real editor offers a synthetic Kilo model and effort decision', { timeout: 180_000 }, async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'autocode-synthetic-kilo-'));
+for (const mode of ['changed-effort', 'unset-effort']) test(`real editor offers a synthetic Kilo model and effort decision (${mode})`, { timeout: 180_000 }, async () => {
+  const root = privateHostRoot('autocode-synthetic-kilo-');
   let app;
   let win;
   let env;
@@ -56,7 +55,7 @@ test('real editor offers a synthetic Kilo model and effort decision', { timeout:
     for (const key of Object.keys(env)) {
       if (key === 'GIT_CONFIG_COUNT' || /^(GIT_CONFIG_KEY_|GIT_CONFIG_VALUE_|OPENAI_|ANTHROPIC_|KILO_API_|CODEX_API_|ZAI_API_)/.test(key)) delete env[key];
     }
-    const made = spawnSync(python, [path.join(REPO, 'tests/kilo_route_vscode_fixture.py'), root], { cwd: REPO, encoding: 'utf8', env, timeout: 90_000 });
+    const made = spawnSync(python, [path.join(REPO, 'tests/kilo_route_vscode_fixture.py'), root, mode], { cwd: REPO, encoding: 'utf8', env, timeout: 90_000 });
     assert.equal(made.status, 0, `offline quota fixture: ${made.stderr}`);
     const fixture = JSON.parse(made.stdout);
     assert.equal(path.resolve(fixture.registry), path.resolve(root, 'registry'), 'registry is the owned fixture path');
@@ -112,6 +111,7 @@ test('real editor offers a synthetic Kilo model and effort decision', { timeout:
     const before = publicStatus();
     assert.equal(before.needs.kind, 'retry_job');
     assert.equal(before.needs.effort_drift, true);
+    assert.equal(before.routes.architect.reasoning_effort ?? null, mode === 'unset-effort' ? null : 'high');
     assert.equal(before.recovery.what_happened, "The Design Reviewer's saved model settings changed. Review the model and reasoning level before retrying.");
     assert.equal(before.progress.needs_you, 'review the model and reasoning level for the Design Reviewer, then retry it');
     assert.match(before.next_command ?? '', /--answer route-architect=MODEL/);

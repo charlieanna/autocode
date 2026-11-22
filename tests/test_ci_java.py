@@ -192,6 +192,69 @@ class WorkflowAdmissionTests(unittest.TestCase):
 
 
 class ScenarioToolchainTests(unittest.TestCase):
+    RATE_LIMIT = (
+        "[ERROR] Could not transfer artifact example:plugin:pom:1 from/to central "
+        "(https://repo.maven.apache.org/maven2): status code: 429, reason phrase: Too Many Requests (429)\n"
+    )
+
+    def prepare_with(self, statuses):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        (root / f"apache-maven-{java_toolchain.MAVEN}/bin").mkdir(parents=True)
+        (root / f"apache-maven-{java_toolchain.MAVEN}/bin/mvn").touch()
+        java = root / "jdk"
+        (java / "bin").mkdir(parents=True)
+        run = Mock(
+            side_effect=[
+                subprocess.CompletedProcess([], 0, "javac 17.0.16\n", ""),
+                *(subprocess.CompletedProcess([], code, output, "") for code, output in statuses),
+            ]
+        )
+        for stubbing in (
+            patch.dict(os.environ, {"JAVA_HOME": str(java)}),
+            patch.object(java_toolchain.subprocess, "run", run),
+        ):
+            stubbing.start()
+            self.addCleanup(stubbing.stop)
+        return root, run
+
+    def test_rate_limited_transfer_retries_the_same_guard_and_preserves_first_error(self):
+        root, run = self.prepare_with([(1, self.RATE_LIMIT), (0, "original guard passed\n")])
+        with patch("time.sleep") as delay:
+            java_toolchain.prepare(root)
+        _, first, retry = run.call_args_list
+        first_args, retry_args = first.args[0], retry.args[0]
+        self.assertEqual([first_args[0], "-U", *first_args[1:]], retry_args)
+        delay.assert_called_once()
+        log = (root / "setup.log").read_text()
+        self.assertIn(self.RATE_LIMIT, log)
+        self.assertTrue(log.endswith("original guard passed\n"))
+        self.assertTrue((root / "toolchain.json").exists())
+
+    def test_repeated_transfer_limits_exhaust_without_publishing_success(self):
+        root, run = self.prepare_with([(1, self.RATE_LIMIT)] * 3)
+        with patch("time.sleep") as delay, self.assertRaises(RuntimeError) as error:
+            java_toolchain.prepare(root)
+        self.assertIn("Pinned Maven setup exited 1", str(error.exception))
+        self.assertEqual(4, run.call_count)
+        self.assertEqual(2, delay.call_count)
+        self.assertEqual(3, (root / "setup.log").read_text().count(self.RATE_LIMIT))
+        self.assertFalse((root / "toolchain.json").exists())
+
+    def test_recovery_does_not_sleep_past_the_original_setup_deadline(self):
+        root, run = self.prepare_with([(1, self.RATE_LIMIT)])
+        with (
+            patch("time.monotonic", side_effect=[0, 0, 0, 299]),
+            patch("time.sleep") as delay,
+            self.assertRaises(RuntimeError),
+        ):
+            java_toolchain.prepare(root)
+        delay.assert_not_called()
+        self.assertEqual(2, run.call_count)
+        self.assertEqual(self.RATE_LIMIT, (root / "setup.log").read_text())
+        self.assertFalse((root / "toolchain.json").exists())
+
     def test_failed_maven_setup_keeps_its_output_in_the_error_and_log(self):
         for stdout, stderr in (("[ERROR] dependency resolution failed\n", ""), ("", "compiler setup failed\n")):
             with self.subTest(stdout=stdout, stderr=stderr), tempfile.TemporaryDirectory() as temporary:
