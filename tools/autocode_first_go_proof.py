@@ -3,6 +3,8 @@
 import json
 import os
 import re
+import stat
+import subprocess
 from pathlib import Path
 
 try:
@@ -11,6 +13,7 @@ try:
     from . import autocode_first_suite as first_suite
     from . import autocode_go_tests as go_tests
     from . import autocode_package_scope as package_scope
+    from . import autocode_util as util
     from . import autocode_verification_recovery as recovery
     from . import autocode_verification_schedule as schedule
 except ImportError:
@@ -19,17 +22,20 @@ except ImportError:
     import autocode_first_suite as first_suite
     import autocode_go_tests as go_tests
     import autocode_package_scope as package_scope
+    import autocode_util as util
     import autocode_verification_recovery as recovery
     import autocode_verification_schedule as schedule
 
 
-def inputs_safe(tree, supply):
+def inputs_safe(tree, supply, *, expected_files=None):
     """Refuse unrecorded ignored inputs and any extra copied or linked dependencies."""
     if not isinstance(tree, (str, Path)):
         return False
-    if (
-        supply is None
-        or getattr(supply, "recorded", None) is not True
+    if supply is None:
+        if expected_files is None:
+            return False
+    elif (
+        getattr(supply, "recorded", None) is not True
         or getattr(supply, "unverified", None) != []
         or getattr(supply, "generated", None) != {}
         or getattr(supply, "vendored", None) != {}
@@ -44,9 +50,18 @@ def inputs_safe(tree, supply):
         if tree.is_symlink() or not tree.is_dir():
             return False
         for directory, dirs, files in os.walk(tree, followlinks=False, onerror=raise_walk_error):
+            folder = Path(directory)
             for name in (*dirs, *files):
-                if name in ("node_modules", ".venv", "venv", "vendor") or (Path(directory) / name).is_symlink():
+                path = folder / name
+                mode = path.lstat().st_mode
+                if name in ("node_modules", ".venv", "venv", "vendor") or not (
+                    stat.S_ISDIR(mode) or stat.S_ISREG(mode)
+                ):
                     return False
+                if stat.S_ISREG(mode) and expected_files is not None:
+                    relative = path.relative_to(tree).as_posix()
+                    if relative != ".git" and relative not in expected_files:
+                        return False
         return True
     except OSError:
         return False
@@ -118,9 +133,13 @@ def _capture(receipt, expected, root):
         scratch_root = execution_root.parent
         if scratch_root.name != "scratch":
             return None
+        owned = command_receipt.owned_relative(receipt["output"], root)
+        if owned is None:
+            return None
+        recorded = owned[0] / owned[1]
         bound = recovery.bind_command(
-            Path(receipt["output"]).parent,
-            {**receipt, "processes": []},
+            recorded.parent,
+            {**receipt, "output": str(recorded), "processes": []},
             preparation_cwd=execution_root,
             scratch_root=scratch_root,
         )
@@ -192,13 +211,29 @@ def absent(base_suite, base, suite_command, candidate, regression_command, frame
     )
 
 
-def qualify(run, trees, candidate, no_go_project):
+def _prepared_inputs(run, tree, test_changes):
+    if run.ignored_inputs is not None:
+        return inputs_safe(tree, run.ignored_inputs)
+    if tree is None or run.generated_unrecorded:
+        return False
+    # Separate task worktrees have no in-place manifest. Compare the prepared
+    # tree to its base index and the two overlays the verification owner supplied.
+    try:
+        indexed = set(util.git_names(util.source_git(tree, "ls-files", "-z", timeout=15)))
+    except (OSError, ValueError, subprocess.TimeoutExpired, util.Paused):
+        return False
+    prerequisites = (run.proof.get("test_prerequisites") or {}).get("files", {})
+    overlays = {name for name, status in test_changes.items() if status != "deleted"}
+    return inputs_safe(tree, None, expected_files=indexed | overlays | prerequisites.keys())
+
+
+def qualify(run, trees, candidate, no_go_project, test_changes):
     """Hold, never execute the contaminated base, when first-Go evidence is unavailable."""
     framework = run.framework
     first_go = bool(no_go_project and run.new_behavior and not run.preserve and framework and framework.name == "go")
     if not first_go:
         return False, False
-    proved = inputs_safe(trees.get("base_with_tests"), run.ignored_inputs) and absent(
+    proved = _prepared_inputs(run, trees.get("base_with_tests"), test_changes) and absent(
         run.base_suite,
         run.base,
         run.commands["suite"],

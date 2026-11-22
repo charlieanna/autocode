@@ -35,7 +35,18 @@ def main(root):
         workspace, root, [*flags, "--max-seconds", "600"], env, autocode=cli, max_steps=50, timeout_seconds=240
     )
     assert all(run.env.get(key) == os.environ.get(key) for key in ("HOME", "CODEX_HOME"))
-    run.call("start", task=scenario.brief)
+    started = run.call(
+        "start",
+        scenario.brief,
+        "--workspace",
+        str(workspace),
+        "--no-chat",
+        *run.flags,
+        "--build-in-worktree",
+        bare=True,
+    )
+    if started.returncode != 2:
+        raise AssertionError(f"Unexpected launch result: {started.returncode} {started.stderr[-2000:]}")
     listed = subprocess.run(
         [*cli, "runs", "--workspace", str(workspace), "--json"],
         cwd=workspace,
@@ -46,10 +57,14 @@ def main(root):
         timeout=40,
     )
     rows = json.loads(listed.stdout)["runs"]
-    assert len(rows) == 1 and rows[0]["workspace"] == str(workspace)
+    assert len(rows) == 1, rows
+    task = Path(rows[0]["workspace"]).resolve(strict=True)
+    assert task.is_relative_to(workspace / ".autocode/worktrees"), rows
     run.run_dir = Path(rows[0]["run_dir"]).resolve(strict=True)
-    assert run.run_dir.is_relative_to(workspace / ".autocode/runs")
+    assert run.run_dir.is_relative_to(task / ".autocode/runs")
+    run.project = task
     view = run.until_stopped(say_at="needs:approve_plan")
+    assert view["worktree"]["kind"] == "worktree" and view["worktree"]["path"] == str(task)
     plan, need = view["displayed_plan"], view["needs"]
     (root / "public-before-approval.json").write_text(json.dumps(view, ensure_ascii=False, indent=2))
     require_reviewed_plan(plan, need, sys.executable, REVIEWED_PLAN)
@@ -78,6 +93,7 @@ def main(root):
         json.dumps(
             {
                 "workspace": str(workspace),
+                "task_worktree": str(task),
                 "run_dir": str(run.run_dir),
                 "registry": str(root / "registry"),
                 "plan_review": str(review),

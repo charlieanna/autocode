@@ -1151,8 +1151,7 @@ def run_suite(framework, command, tree, evidence_dir, label, *, timeout, native_
     receipt["results"] = per_test_results(framework, receipt, xml, tree=root)
     receipt["results_expected"] = expects_results(framework, command, root, scripts=scripts)
     if str(xml) in actual:
-        # The command was told to write its per-test results here; a runner that never started writes none
-        # (autocode_check_outcome RUNNER_NOT_STARTED). A runner that parses its own output names no file.
+        # A runner that never started wrote no report (RUNNER_NOT_STARTED).
         receipt["results_file_written"] = xml.is_file()
     if native_execution is not None:
         native_execution.retain_results(receipt)
@@ -1823,7 +1822,7 @@ class _Run:
     progress: Any = None
 
 
-def _prove_regression(run: _Run, trees, *, no_go_project, no_junit_project):
+def _prove_regression(run: _Run, trees, test_changes, *, no_go_project, no_junit_project):
     """Regression proof with a targeted command: identical tests, base source versus candidate source.
 
     The proving tests run on the candidate and, where a base tree with the tests exists, on the base; they
@@ -1843,7 +1842,7 @@ def _prove_regression(run: _Run, trees, *, no_go_project, no_junit_project):
     )
     checks["regression_on_candidate"] = on_candidate
     on_base = None
-    first_go, first_go_proved = first_go_proof.qualify(run, trees, on_candidate, no_go_project)
+    first_go, first_go_proved = first_go_proof.qualify(run, trees, on_candidate, no_go_project, test_changes)
     if "base_with_tests" in trees and not first_go:
         if run.progress:
             run.progress(
@@ -1928,7 +1927,9 @@ def _prove_regression(run: _Run, trees, *, no_go_project, no_junit_project):
             ignored_inputs=ignored_inputs,
         ),
         seam_names=lambda receipt: _seam_names(workspace, base, changes, receipt, roles=run.roles),
-        changed_tests=changed_tests.changed_filter(run, _git) if new_behavior else None,
+        changed_tests=changed_tests.changed_filter(run, _git, first_go=first_go_proved and on_candidate)
+        if new_behavior
+        else None,
         base_suite_passed=lambda: first_suite.passed_on(base_suite, base),
         reloaded=lambda: first_suite.reloads(run, trees, run_suite),
     )
@@ -2446,7 +2447,7 @@ def verify(
         )
         # Regression proof: identical tests, base source versus candidate source.
         if trees and runnable_tests and commands["regression"]:
-            _prove_regression(run, trees, no_go_project=no_go_project, no_junit_project=no_junit_project)
+            _prove_regression(run, trees, test_changes, no_go_project=no_go_project, no_junit_project=no_junit_project)
         elif "base_with_tests" in trees and commands["suite"] and not no_go_project:
             # No targeted command: the whole suite proves the flip when base was green, if it holds the tests.
             if reason := unheld(framework, commands["suite"], runnable_tests):

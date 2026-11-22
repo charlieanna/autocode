@@ -144,6 +144,16 @@ class FirstGoBindingTests(unittest.TestCase):
                 self.assertFalse(first_go.inputs_safe(tree, clean))
             directory.rmdir()
 
+    def test_separate_worktree_requires_exact_prepared_inputs(self):
+        tree = self.root / "tree"
+        tree.mkdir()
+        expected = {"new_test.go"}
+        (tree / ".git").write_text("gitdir: original checkout metadata\n")
+        (tree / "new_test.go").write_text("package sample\n")
+        self.assertTrue(first_go.inputs_safe(tree, None, expected_files=expected))
+        (tree / "generated.json").write_text("{}")
+        self.assertFalse(first_go.inputs_safe(tree, None, expected_files=expected))
+
     def test_missing_tampered_or_unrelated_baseline_is_never_absence(self):
         for changes in (
             {"exit_code": 0},

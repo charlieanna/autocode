@@ -250,6 +250,9 @@ test('real editor verifies the first Go project against a pristine original base
     overviewText: 'Add the first Go implementation',
     criteria: ['TestC1GermanRetention', 'TestC2ExceptionRetention'],
     verifyCompletion(after, fixture) {
+      assert.equal(after.worktree?.kind, 'worktree');
+      assert.equal(after.worktree?.path, fixture.task_worktree);
+      assert.equal(after.worktree?.folder, fixture.workspace);
       const proof = after.evidence?.regression_proof;
       assert.equal(proof?.verdict, 'PASS');
       assert.equal(proof.source_revision, after.verification.source_revision);
