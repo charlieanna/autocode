@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import itertools
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
@@ -62,8 +63,41 @@ def matches(state: RunState, stage, saved, original) -> bool:
     roles = (state.get("settings") or {}).get("roles")
     if not isinstance(route, dict) or not isinstance(role, str) or not isinstance(roles, dict) or role not in roles:
         return False
-    recorded = cast(
-        "RunState",
-        {**state, "settings": {**state["settings"], "roles": {**roles, role: copy.deepcopy(route)}}},
+
+    def has_saved_context(candidate):
+        recorded = cast(
+            "RunState",
+            {**state, "settings": {**state["settings"], "roles": {**roles, role: candidate}}},
+        )
+        return saved == context(recorded, stage)
+
+    # Preserve the existing exact recorded-route interpretation for older
+    # records. New launch records project four fields with dict.get(), which
+    # cannot distinguish an absent field from one explicitly set to None.
+    if has_saved_context(copy.deepcopy(route)):
+        return True
+    current = roles[role]
+    return isinstance(current, dict) and any(
+        has_saved_context(candidate) for candidate in _projected_roles(current, route)
     )
-    return saved == context(recorded, stage)
+
+
+def _projected_roles(current, route):
+    """Invert only the recorded launch projection; the original context hash decides."""
+    fields = ("engine", "provider", "model", "reasoning_effort")
+    if (
+        set(route) != set(fields)
+        or not isinstance(route["model"], str)
+        or not route["model"]
+        or any(route[key] is not None and not isinstance(route[key], str) for key in fields)
+    ):
+        return
+    # Preserve fields the launch record never projected. If any changed, the
+    # independently saved context digest rejects every reconstructed role.
+    base = {key: copy.deepcopy(value) for key, value in current.items() if key not in fields}
+    base.update({key: route[key] for key in fields if route[key] is not None})
+    absent_or_null = tuple(key for key in fields if route[key] is None)
+    for present in itertools.product((False, True), repeat=len(absent_or_null)):
+        candidate = copy.deepcopy(base)
+        candidate.update({key: None for key, include in zip(absent_or_null, present, strict=True) if include})
+        yield candidate

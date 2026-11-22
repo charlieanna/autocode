@@ -32,7 +32,9 @@ class RevalidationRejected(ValueError):
     """The saved report failed a current validation gate; no candidate was committed."""
 
 
-def accept(runtime, owner, run_dir, workspace, value, repair_record, *, revalidate=False, resolver_request=None):
+def accept(
+    runtime, owner, run_dir, workspace, value, repair_record, *, revalidate=False, resolver_request=None, on_accept=None
+):
     """Prepare the speculative repair under its real owner's durable checkpoint."""
 
     # A repair whose job rewrites one of its own pinned inputs (issue #968)
@@ -190,6 +192,8 @@ def accept(runtime, owner, run_dir, workspace, value, repair_record, *, revalida
         if state["status"] == "RUNNING":
             state["phase"] = "PLANNING" if runtime.planning.is_planning(state, state["next_stage"]) else "EXECUTING"
             state.pop("stop_reason", None)
+        if on_accept is not None:
+            on_accept(state)
 
     original_stage = owner_pending["original"]["stage"]
     candidate = result_application.prepare(owner, run_dir, original_stage, apply, persist=runtime.write_json)

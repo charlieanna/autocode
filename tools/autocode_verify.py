@@ -1150,9 +1150,7 @@ def run_suite(framework, command, tree, evidence_dir, label, *, timeout, native_
     receipt["execution_root"] = str(Path(tree).resolve())
     receipt["results"] = per_test_results(framework, receipt, xml, tree=root)
     receipt["results_expected"] = expects_results(framework, command, root, scripts=scripts)
-    if str(xml) in actual:
-        # A runner that never started wrote no report (RUNNER_NOT_STARTED).
-        receipt["results_file_written"] = xml.is_file()
+    test_results.retain_report(receipt, xml, extension, command=actual, retain_node=native_execution is None)
     if native_execution is not None:
         native_execution.retain_results(receipt)
     return receipt
