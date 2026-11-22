@@ -66,6 +66,8 @@ def _action(task: TaskRun, action: dict, view: dict, tape) -> dict:
         return task.feedback(payload["text"]) if kind == "feedback" else task.approve_plan(current["needs"]["token"])
     recording.match_action(tape, action, view)
     need = view["needs"]
+    if kind in ("route_job", "retry_job"):
+        return task.advance()
     if kind == "answer":
         return task.answer(payload["question_id"], payload["text"], resolver_token=need["resolver_token"])
     if kind == "approve_review":
