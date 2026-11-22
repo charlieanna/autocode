@@ -1,10 +1,12 @@
 """Protected replay observes original Node tests cancelled behind a replaced case."""
 
 import json
+import os
 import shutil
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import autocode_check_replay as check_replay
 import autocode_protected_oracles as guard
@@ -71,6 +73,14 @@ class NodeProtectedReplayTests(unittest.TestCase):
         self.assertEqual(
             ["tests/shipping.test.js::a small order pays the fee"], result["original"]["results"]["passed"]
         )
+
+    def test_node_checks_ignore_the_parent_test_context(self):
+        root = self.prepare(fixture.JS_ORIGINAL)
+        with patch.dict(os.environ, {"NODE_TEST_CONTEXT": "child-v8"}):
+            replay = self.replay(root)
+        self.assertTrue(replay["candidate"]["results_file_written"])
+        self.assertTrue(replay["original"]["results_file_written"])
+        self.assertIn("tests/shipping.test.js::a small order pays the fee", replay["original"]["results"]["passed"])
 
     def test_original_collateral_cancellation_requires_a_fresh_pass(self):
         original = fixture.JS_ORIGINAL.replace("test('a fifty dollar order pays the fee', () => {\n", HANG_ON_FIX)

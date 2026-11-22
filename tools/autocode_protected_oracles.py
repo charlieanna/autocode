@@ -593,10 +593,7 @@ def ready(state: RunState, current_revision):
                 if (
                     not isinstance(row, dict)
                     or type(row.get("exit_code")) is not int
-                    or row["exit_code"] != 0
-                    or row.get("timed_out")
-                    or row.get("error")
-                    or not command_receipt.completed(row)
+                    or check_outcome.classify(row)["outcome"] != check_outcome.PASSED
                 ) and not (name == "original" and _superseded_ready(state, result)):
                     return False
         elif result.get("superseded"):

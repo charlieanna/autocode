@@ -32,3 +32,23 @@ because the fixture's npm build chain cannot supply a proving-test mutation
 selection. That fixture will need its exact scripted Tester judgment or a
 demonstrated mutation selection before the editor can verify completion.
 The actual VS Code outcome and required CI are still outstanding.
+
+The actual macOS Extension Host exposed one more cause. Node's parent
+test invocation marks its child environment, and a fresh runner inherited
+that marker, exited zero, and wrote no report. The old protected gate
+recorded PASS even though the full task stayed held. The runner now
+removes the invocation-only marker at the shared test boundary, and the
+outcome reader requires the expected report regardless of exit code.
+Completion rechecks the same outcome for previously retained pairs. The
+two focused controls failed before the fix. The full affected selection
+passes all 81 tests and mypy passes.
+
+The actual VS Code rerun used the reviewed fixture and fixed Node 22
+toolchain. It clicked Approve, verified the genuine named cancellation in
+the first original receipt, verified the untouched original test passed
+under a different scheduler attempt, and reached the verified completion
+card. The host test and fixture cleanup passed in 35.6 seconds. An earlier
+editor retry inherited Node 25 and was stopped through the named action
+after its subprocess stayed in the pending-promise original test. That
+attempt is not Node 25 qualification. The candidate still needs its
+exact-head required CI.
