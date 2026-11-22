@@ -35,6 +35,7 @@ try:
     from . import autocode_limit_events as limit_events
     from . import autocode_model_listing_failure as model_listing_failure
     from . import autocode_operational_admission as operational_admission
+    from . import autocode_operational_disposition as disposition
     from . import autocode_operational_outcome as owner_outcome
     from . import autocode_owned_operations as owned_operations
     from . import autocode_plan_time as plan_time
@@ -45,6 +46,7 @@ try:
     from . import autocode_resolver_human as resolver_human
     from . import autocode_resolver_recovery as resolver_recovery
     from . import autocode_resolver_runtime as resolver_runtime
+    from . import autocode_retained_report_incident as retained_report
     from . import autocode_route_advisory as route_advisory
     from . import autocode_run_status as run_status
     from . import autocode_runner_check as runner_check
@@ -53,6 +55,7 @@ try:
     from . import autocode_stage_stalls as stage_stalls
     from . import autocode_stop as stop
     from . import autocode_support as support
+    from . import autocode_util as util
     from . import autocode_verification_failure as verification_failure
 except ImportError:
     import autocode_accepted_source as accepted_source
@@ -64,6 +67,7 @@ except ImportError:
     import autocode_limit_events as limit_events
     import autocode_model_listing_failure as model_listing_failure
     import autocode_operational_admission as operational_admission
+    import autocode_operational_disposition as disposition
     import autocode_operational_outcome as owner_outcome
     import autocode_owned_operations as owned_operations
     import autocode_plan_time as plan_time
@@ -74,6 +78,7 @@ except ImportError:
     import autocode_resolver_human as resolver_human
     import autocode_resolver_recovery as resolver_recovery
     import autocode_resolver_runtime as resolver_runtime
+    import autocode_retained_report_incident as retained_report
     import autocode_route_advisory as route_advisory
     import autocode_run_status as run_status
     import autocode_runner_check as runner_check
@@ -82,6 +87,7 @@ except ImportError:
     import autocode_stage_stalls as stage_stalls
     import autocode_stop as stop
     import autocode_support as support
+    import autocode_util as util
     import autocode_verification_failure as verification_failure
 
 
@@ -230,9 +236,16 @@ def operations(args, state: RunState | None = None):
     # Observing retained evidence grants no authority itself. The owner must
     # prove its existing credit and pass final admission on plain continuation
     # too; an operator's resume flag adds nothing to that proof.
+    report_candidate = retained_report.candidate(state) if state is not None and args.resume_paused else None
+    checked_report = (
+        state is not None
+        and args.resume_paused
+        and getattr(args, "expected_recovery_token", None)
+        and disposition.single_checked(state, "retained_report")
+    )
     if (
         not selected
-        and owned_operations.observation_available(state)
+        and (report_candidate or checked_report or owned_operations.observation_available(state))
         and not any(owned_operations.user_actions(args).values())
         and not any(
             (
@@ -246,8 +259,49 @@ def operations(args, state: RunState | None = None):
             )
         )
     ):
-        selected.append(OPERATIONS["observe"])
+        selected.append(OPERATIONS["retained_report"] if report_candidate else OPERATIONS["observe"])
     return tuple(selected)
+
+
+def retained_report_check(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
+    """Revalidate only the incident's pinned report; rejection grants no new allowance."""
+    if not args.resume_paused or not retained_report.eligible(runner, state, workspace, run_dir):
+        return operational_admission.refuse()
+    proof = {
+        "incident": decided.operational_incident,
+        "pending": copy.deepcopy(state["pending_report_repair"]),
+        "runtime": util.runtime_source_digest(),
+    }
+    original_status = state.get("status")
+    prepared = []
+
+    def record_checked(candidate):
+        # The checked owner receipt and the accepted report enter one candidate
+        # commit. An orphan receipt file is never an accepted state ledger.
+        if candidate.get("status") == original_status:
+            stage = candidate.get("next_stage")
+            phase = "PLANNING" if runner.planning.is_planning(candidate, stage) else "EXECUTING"
+            run_status.running(candidate, phase)
+        if candidate.get("status") != "RUNNING":
+            raise support.Paused("PAUSED_STALE_VALIDATION", "The retained report needs a separate decision boundary")
+        checked = operational_admission.prepare_checked(runner, candidate, run_dir, decided, "retained_report", proof)
+        if checked is None:
+            raise support.Paused("PAUSED_STALE_VALIDATION", "The retained report's incident could not be authenticated")
+        accepted, observed = checked
+        candidate.clear()
+        candidate.update(accepted)
+        prepared.append(observed)
+
+    if not runner.report_revalidation.revalidate(runner, state, run_dir, workspace, on_accept=record_checked):
+        print("The retained report remains blocked; no retry or new allowance was granted.", file=sys.stderr)
+        return 2
+    if len(prepared) != 1:
+        raise support.Paused("PAUSED_STALE_VALIDATION", "The retained report lacks its checked incident")
+    decided.operational_recovery_checked = prepared[0]
+    decided.evidence_reconciled = True
+    decided.dispatch = True
+    print("The retained report passed current validation without launching a retry.")
+    return None
 
 
 def observe(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
@@ -858,6 +912,9 @@ OPERATIONS = owned_operations.register(
     owned_operations.Operation("failure_retry", retry_failure, validate_failure_retry),
     owned_operations.Operation("resolver_retry", retry_failure, validate_resolver_retry, preserve_request=True),
     owned_operations.Operation("bound", acknowledge_bound, validate_bound, request_bound=False, frontier_bound=False),
+    owned_operations.Operation(
+        "retained_report", retained_report_check, retained_report.validate, request_bound=False, preserve_request=True
+    ),
     owned_operations.Operation(
         "observe", observe, owned_operations.no_work, request_bound=False, preserve_request=True
     ),

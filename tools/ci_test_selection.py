@@ -38,14 +38,32 @@ PUBLIC_FLOW_CONSUMERS = ("tests.test_launch_state_cli", "tests.test_completion_s
 # These helpers are loaded dynamically by the extension-host tests, not by a
 # Python import. Keep the consuming test named so fixture-only edits run it.
 EXTENSION_HOST_RESOURCES = {
+    "docs/schemas/status-view.schema.json": ("vscode-extension/test/host/retained-report.test.cjs",),
     "tests/first_go_vscode_fixture.py": ("vscode-extension/test/host/python-semantic.test.cjs",),
     "tools/autocode_first_go_proof.py": ("vscode-extension/test/host/python-semantic.test.cjs",),
     "scenarios/harness/fake_codex.py": (
         "vscode-extension/test/host/editor-host.test.cjs",
         "vscode-extension/test/host/python-semantic.test.cjs",
+        "vscode-extension/test/host/retained-report.test.cjs",
         "vscode-extension/test/host/requirements-standing.test.cjs",
     ),
-    "scenarios/harness/driver.py": ("vscode-extension/test/host/requirements-standing.test.cjs",),
+    "scenarios/harness/fake_changed_code.py": ("vscode-extension/test/host/retained-report.test.cjs",),
+    "scenarios/harness/driver.py": (
+        "vscode-extension/test/host/retained-report.test.cjs",
+        "vscode-extension/test/host/requirements-standing.test.cjs",
+    ),
+    "tests/retained_report_vscode_fixture.py": ("vscode-extension/test/host/retained-report.test.cjs",),
+    "tests/retained_report_vscode_cli.py": ("vscode-extension/test/host/retained-report.test.cjs",),
+    "tests/retained_report_fixture_support.py": ("vscode-extension/test/host/retained-report.test.cjs",),
+    "tools/autocode_retained_report_incident.py": ("vscode-extension/test/host/retained-report.test.cjs",),
+    "tools/autocode_action_recovery.py": ("vscode-extension/test/host/retained-report.test.cjs",),
+    "tools/autocode_operational_admission.py": ("vscode-extension/test/host/retained-report.test.cjs",),
+    "tools/autocode_operational_disposition.py": ("vscode-extension/test/host/retained-report.test.cjs",),
+    "tools/autocode_recovery_view.py": ("vscode-extension/test/host/retained-report.test.cjs",),
+    "tools/autocode_status_observation.py": ("vscode-extension/test/host/retained-report.test.cjs",),
+    "tools/autocode_report_revalidation_binding.py": ("vscode-extension/test/host/retained-report.test.cjs",),
+    "tools/autocode_report_revalidation.py": ("vscode-extension/test/host/retained-report.test.cjs",),
+    "tools/autocode_repaired_result.py": ("vscode-extension/test/host/retained-report.test.cjs",),
     "vscode-extension/test/requirements-standing-readiness.cjs": (
         "vscode-extension/test/host/requirements-standing.test.cjs",
     ),
@@ -59,6 +77,7 @@ EXTENSION_HOST_RESOURCES = {
     "vscode-extension/test/host/held_cli.py": (
         "vscode-extension/test/host/editor-host.test.cjs",
         "vscode-extension/test/host/python-semantic.test.cjs",
+        "vscode-extension/test/host/retained-report.test.cjs",
         "vscode-extension/test/host/requirements-standing.test.cjs",
     ),
     "vscode-extension/test/owned-fixture-cleanup.cjs": (
@@ -67,6 +86,7 @@ EXTENSION_HOST_RESOURCES = {
         "vscode-extension/test/host/job-route-effort.test.cjs",
         "vscode-extension/test/host/kilo-route-effort.test.cjs",
         "vscode-extension/test/host/python-semantic.test.cjs",
+        "vscode-extension/test/host/retained-report.test.cjs",
         "vscode-extension/test/host/replay-job-route.test.cjs",
         "vscode-extension/test/host/requirements-standing.test.cjs",
         "vscode-extension/test/host/status-retry.test.cjs",
@@ -84,6 +104,7 @@ EXTENSION_HOST_RESOURCES = {
         "vscode-extension/test/host/editor-host.test.cjs",
         "vscode-extension/test/host/classification-outcome.test.cjs",
         "vscode-extension/test/host/python-semantic.test.cjs",
+        "vscode-extension/test/host/retained-report.test.cjs",
         "vscode-extension/test/host/requirements-standing.test.cjs",
         "vscode-extension/test/host/status-retry.test.cjs",
     ),
@@ -118,14 +139,26 @@ EXTENSION_HOST_RESOURCES = {
     "tools/autocode_replay_transport.py": ("vscode-extension/test/host/replay-job-route.test.cjs",),
     "tools/autocode_replay_view.py": ("vscode-extension/test/host/replay-job-route.test.cjs",),
     "tools/autocode_role_launch.py": ("vscode-extension/test/host/replay-job-route.test.cjs",),
-    "tools/autocode_run_view.py": ("vscode-extension/test/host/replay-job-route.test.cjs",),
-    "tools/autocode_status_observation_worker.py": ("vscode-extension/test/host/replay-job-route.test.cjs",),
+    "tools/autocode_run_view.py": (
+        "vscode-extension/test/host/replay-job-route.test.cjs",
+        "vscode-extension/test/host/retained-report.test.cjs",
+    ),
+    "tools/autocode_status_observation_worker.py": (
+        "vscode-extension/test/host/replay-job-route.test.cjs",
+        "vscode-extension/test/host/retained-report.test.cjs",
+    ),
     "tests/provider_auth_fixture.py": ("vscode-extension/test/host/editor-host.test.cjs",),
-    "tests/python_semantic_vscode_fixture.py": ("vscode-extension/test/host/python-semantic.test.cjs",),
+    "tests/python_semantic_vscode_fixture.py": (
+        "vscode-extension/test/host/python-semantic.test.cjs",
+        "vscode-extension/test/host/retained-report.test.cjs",
+    ),
+    "tests/fixtures/python-semantic-host/displayed-plan.json": (
+        "vscode-extension/test/host/python-semantic.test.cjs",
+        "vscode-extension/test/host/retained-report.test.cjs",
+    ),
     "tests/requirements_standing_vscode_fixture.py": ("vscode-extension/test/host/requirements-standing.test.cjs",),
     "tests/requirements_standing_host_cli.py": ("vscode-extension/test/host/requirements-standing.test.cjs",),
     "tests/requirements_standing_provider.py": ("vscode-extension/test/host/requirements-standing.test.cjs",),
-    "tests/fixtures/python-semantic-host/displayed-plan.json": ("vscode-extension/test/host/python-semantic.test.cjs",),
     "tests/rustup_vscode_fixture.py": ("vscode-extension/test/host/rustup-containment.test.cjs",),
     "tests/source_recovery_vscode_fixture.py": ("vscode-extension/test/host/source-recovery.test.cjs",),
     "tests/status_retry_host_cleanup.py": (
@@ -134,6 +167,7 @@ EXTENSION_HOST_RESOURCES = {
         "vscode-extension/test/host/job-route-effort.test.cjs",
         "vscode-extension/test/host/kilo-route-effort.test.cjs",
         "vscode-extension/test/host/python-semantic.test.cjs",
+        "vscode-extension/test/host/retained-report.test.cjs",
         "vscode-extension/test/host/replay-job-route.test.cjs",
         "vscode-extension/test/host/requirements-standing.test.cjs",
         "vscode-extension/test/host/status-retry.test.cjs",
