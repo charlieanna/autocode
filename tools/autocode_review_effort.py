@@ -105,7 +105,7 @@ def decide(state: RunState, stage, route_role, report_only, configured, *, model
         return _kept(configured, "earlier_attempt", "this stage already ran for this task", facts)
     if not small_clear(state):
         return _kept(configured, "not_small_clear", "the task is not both small and clear", facts)
-    offered = _offered(settings, saved_model)
+    offered = route_fit.offered(settings, saved_model)
     if lower is None or offered is not None and lower not in offered:
         return _kept(configured, "no_lower_level", f"{saved_model} offers no level just below {configured}", facts)
     if offered is None:
@@ -208,17 +208,6 @@ def _facts(state: RunState) -> dict:
         "brief_size": workflow.get("brief_size"),
         "plan_size": ((state.get("planning") or {}).get("adaptive") or {}).get("size"),
     }
-
-
-def _offered(settings, model) -> list | None:
-    """The levels the run knows ``model`` serves: the tool's listing and every level a probe passed."""
-    if not isinstance(model, str):
-        return None
-    listed = route_fit.declared_for(settings, model)
-    certified = route_fit.certified_for(settings, model)
-    if listed is None:
-        return None
-    return sorted(set(listed) | set(certified), key=route_fit.SCALE.index)
 
 
 def _earlier(state: RunState, stage) -> bool:

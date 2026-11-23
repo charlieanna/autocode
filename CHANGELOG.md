@@ -23,6 +23,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **A model whose listing names only levels off AutoCode's scale no longer stops a launch**: seven effort rules (review ceiling, hard plan, format repair, light Builder, Requirements triage, output-cap recovery, route ladder) each worked out which levels a model serves with their own copy of the same code, and five of them raised `ValueError` when a tool listed only a variant such as `minimal`. They now read one answer, `autocode_route_fit.offered`, which leaves off-scale variants out.
+
 - A slow provider version check such as `kilo --version` now gets one longer retry before a chat is refused. `autocode doctor` checks free space for the project a new run will use rather than sizing unrelated repositories, and labels partial estimates in large checkouts. Builds still perform the full storage check.
 
 - **A busy warm CLI host no longer stalls other status and registry reads** (#3849): when a request holds the warm host, other reads briefly wait for it and then run in their own CLI process. The first request continues and a later read can reuse the warm host.

@@ -128,6 +128,24 @@ def certified_for(settings: dict, model: str) -> list:
     return [level for level in recorded if level in SCALE] if isinstance(recorded, list) else []
 
 
+def offered(settings: dict, model) -> list[str] | None:
+    """The levels the run knows ``model`` serves, lowest first: its tool's listing (``declared_for``) and
+    every level a probe passed (``certified_for``), each on AutoCode's scale. None when the run holds no
+    listing for the model. A listed variant off the scale (a tool's ``minimal``) is not a level any rule
+    can choose, so it is left out rather than ordered.
+
+    The one answer every effort rule reads (review ceiling, hard plan, format repair, light Builder,
+    Requirements triage, output-cap recovery, route ladder), so none can disagree with another about
+    what a model offers."""
+    if not isinstance(model, str):
+        return None
+    listed = declared_for(settings, model)
+    if listed is None:
+        return None
+    levels = (set(listed) | set(certified_for(settings, model))) & set(SCALE)
+    return [level for level in SCALE if level in levels]
+
+
 def person_named(settings: dict, role: str) -> bool:
     """Whether a person named ``role``'s effort, by a flag, an answer or a saved stage choice.
 

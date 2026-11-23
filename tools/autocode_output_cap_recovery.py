@@ -90,15 +90,6 @@ def decide(state: RunState, stage, configured, *, model=None) -> dict | None:
     }
 
 
-def _offered(settings, model) -> list | None:
-    if not isinstance(model, str):
-        return None
-    listed = route_fit.declared_for(settings, model)
-    if listed is None:
-        return None
-    return sorted(set(listed) | set(route_fit.certified_for(settings, model)), key=route_fit.SCALE.index)
-
-
 def _provider_module(settings: dict):
     """The provider facade this run's own routes used, or None. Never a model request."""
     name = (settings or {}).get("provider") or (settings or {}).get("engine")
@@ -158,7 +149,7 @@ def recover(runtime, state: RunState, run_dir, workspace, error) -> bool:
     if (settings.get("effort_origins") or {}).get(role) == role_route.USER_EXPLICIT:
         return False  # a level the person typed stays exact
     level = record.get("reasoning_effort")
-    offered = _offered(settings, model)
+    offered = route_fit.offered(settings, model)
     # A default route's run records no listing at launch (#3316); read the tool's own answer
     # for this one model now and keep it, so the rest of the run knows it too.
     settings_dict = state.get("settings")
@@ -171,7 +162,7 @@ def recover(runtime, state: RunState, run_dir, workspace, error) -> bool:
         )
         if levels:
             settings_dict.setdefault(route_fit.DECLARED, {})[model] = levels
-            offered = _offered(settings_dict, model)
+            offered = route_fit.offered(settings_dict, model)
     if level not in route_fit.SCALE or not offered:
         return False
     lower = [value for value in offered if route_fit.SCALE.index(value) < route_fit.SCALE.index(level)]
