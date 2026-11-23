@@ -213,6 +213,7 @@ def _run_in_process(command, cwd, log_path, script, timeout, env):
         "output_sha256": hashlib.sha256(data.encode("utf-8", "replace")).hexdigest(),
         "tail": data[-TAIL_CHARS:],
         "in_process": True,
+        "execution_environment_sha256": util.digest(env),
     }
 
 
@@ -407,6 +408,10 @@ def run(
         "output": str(capture),
         "output_sha256": util.file_hash(capture),
         "tail": _tail(capture),
+        # The persisted receipt is the re-authenticatable form of what the
+        # caller holds, so the environment binding is recorded here, before
+        # persistence, from the exact env this launch uses (#3981).
+        "execution_environment_sha256": util.digest(env),
     }
     if stats and stats["truncated"]:
         result.update(output_truncated=True, output_bytes=stats["total"], output_limit_bytes=stats["limit"])
