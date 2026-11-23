@@ -118,6 +118,23 @@ class RequirementsNamesTheJobCliTests(unittest.TestCase):
                 self.assertEqual("answered", result.get("outcome"), result)
                 self.assertIn("Requirements answered", result["summary"])
                 self.assertEqual(before, self.files(project), "Nothing in the project changed")
+                saved = json.loads((Path(run.run_dir) / "state.json").read_text())
+                record = next(
+                    row
+                    for row in saved["stages"]
+                    if row["stage"] == "requirements_gather" and not row.get("report_only")
+                )
+                source_before = json.loads(Path(record["before_ref"]).read_text())
+                source_after = json.loads(Path(record["after_ref"]).read_text())
+                self.assertEqual(source_before["revision"], source_after["revision"])
+                self.assertEqual(source_after["revision"], record["source_revision"])
+                self.assertEqual([], record["changed_files"])
+                self.assertNotIn("verification_copy", record)
+                self.assertEqual("requirements", record["execution_identity"]["role"])
+                self.assertTrue(record["command"])
+                self.assertTrue(Path(record["prompt"]).is_file())
+                self.assertTrue(Path(record["events"]).is_file())
+                self.assertTrue(Path(record["output"]).is_file())
 
     def hold_checkout(self, project):
         """Another run's agents working in the project's checkout, as a second chat finds them."""

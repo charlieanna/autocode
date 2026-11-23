@@ -622,6 +622,7 @@ def launch(
             workspace,
             allow_write=allow_write,
             request=containment,
+            role=role,
             **({"retain_launch_identity": True} if isolation is not None else {}),
         )
         actual = json.loads(child["OPENCODE_CONFIG_CONTENT"])
