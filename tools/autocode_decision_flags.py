@@ -105,6 +105,8 @@ START_FLAGS = (
     "--expected-goal-token",
     "--explain",
     "--export-repair",
+    "--fast-lane",
+    "--no-fast-lane",
     "--figma-additional-file",
     "--figma-approved-scope",
     "--figma-approved-scope-sha256",

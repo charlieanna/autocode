@@ -716,6 +716,15 @@ def verify(state: RunState, body, records, *, ready=False):
         check_ready(body, records, wrapper, coverage_records=_turn_scoped(state, records))
 
 
+def strict_ready(state: RunState, body, records):
+    """``check_ready`` under the strictest trace, the one a review that names no source_trace seals.
+
+    For a draft no Plan Reviewer reads (autocode_fast_lane): every criterion cites, every source sentence is
+    covered and no negation drops, with nothing excused. Only a reviewer may loosen this, so a draft that fails it
+    is reviewed instead. Seals nothing."""
+    check_ready(body, records, DEFAULT_TRACE, coverage_records=_turn_scoped(state, records))
+
+
 # A report without source_trace seals the strictest judgment: nothing is out of
 # scope and no negation may drop. Only the reviewer's pinned output may loosen
 # that; the strict generation schema requires the field, so a live reviewer who

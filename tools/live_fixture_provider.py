@@ -610,6 +610,31 @@ def _conform_ledger(payload: Any, props: dict, default_ref: str) -> None:
                     row.setdefault("convention_ref", "")
 
 
+def _completion_report(common: dict) -> dict:
+    """The Completion Reviewer's COMPLETE decision on the fixed greeting work."""
+    return {
+        **common,
+        "status": "COMPLETE",
+        "acceptance_criteria": _criteria("verified", "event:check"),
+        "evidence": ["event:check"],
+        "next_objective": "",
+        "blocker": "",
+        "plan": [],
+        "affected_paths": [],
+        "next_task": {
+            "kind": "none",
+            "milestone_id": "",
+            "requirements": [],
+            "acceptance_criteria": [],
+            "validation_plan": [],
+            "findings": [],
+        },
+        "findings": [],
+        "finding_dispositions": [],
+        "agreed_limitations": [],
+    }
+
+
 def main() -> int:
     if sys.argv[1:] == ["login", "status"]:
         print("Logged in using ChatGPT (offline live-trial fixture)")
@@ -920,6 +945,8 @@ def main() -> int:
             "recommended_checks": ["Execute greeting and invalid-input regression checks"],
         }
     elif stage in ("tester", "review_checkpoint"):
+        # The combined review (``--review-routing combined``, the fast lane) is the Tester's report and the
+        # Completion Reviewer's decision in one call; it is wrapped below, once the Tester's part is complete.
         report = {
             **common,
             "verdict": "PASS",
@@ -938,27 +965,7 @@ def main() -> int:
             },
         }
     elif stage in ("review_completion", "plan_task", "resolve"):
-        report = {
-            **common,
-            "status": "COMPLETE",
-            "acceptance_criteria": _criteria("verified", "event:check"),
-            "evidence": ["event:check"],
-            "next_objective": "",
-            "blocker": "",
-            "plan": [],
-            "affected_paths": [],
-            "next_task": {
-                "kind": "none",
-                "milestone_id": "",
-                "requirements": [],
-                "acceptance_criteria": [],
-                "validation_plan": [],
-                "findings": [],
-            },
-            "findings": [],
-            "finding_dispositions": [],
-            "agreed_limitations": [],
-        }
+        report = _completion_report(common)
     else:
         report = {
             **common,
@@ -1001,16 +1008,34 @@ def main() -> int:
         report.setdefault("failure_class", "unknown")
         report.setdefault("failure_id", "offline-fixture-failure")
     saved = _saved_report(data) if repairing else {}
+    top = properties
+    if stage == "review_checkpoint":
+        # The combined review's schema nests the Tester's report under validation.
+        properties = properties.get("validation", {}).get("properties", {})
     if stage in ("tester", "review_checkpoint") and "changed_code_exceptions" in properties:
         report["changed_code_exceptions"] = _quote_changed_lines(data, _changed_code_reasons(data))
     criterion_row = properties.get("criterion_results", {}).get("items", {}).get("properties", {})
-    if stage == "tester" and "probe_reason" in criterion_row:
+    if stage in ("tester", "review_checkpoint") and "probe_reason" in criterion_row:
         # The handwritten Tester runs no probe of its own, so it records why (autocode_tester_probes).
         for row in report["criterion_results"]:
             if row["status"] == "PASS":
                 row["probe_reason"] = (
                     f"Handwritten fixture Tester: {row['id']} is checked by its fixed unittest run only; {_fixed_file()} holds the input"
                 )
+    if stage == "review_checkpoint":
+        decision = _completion_report(common)
+        if "source_verdict" in (top.get("decision", {}).get("properties") or {}):
+            decision["source_verdict"] = {
+                "verdict": "PASS",
+                "uncovered": [],
+                "summary": "Handwritten: every criterion traces to the brief",
+            }
+        report = {
+            "validation": report,
+            "decision": decision,
+            "consult_sol": {"requested": False, "question": "", "reason": ""},
+        }
+    properties = top
     handoff = (data.get("requirements_handoff") or {}).get("report") or {}
     if "requirement_trace" in report and any(row.get("id") == "R5" for row in handoff.get("requirements", [])):
         report["requirement_trace"].extend(_trace(("R5", "Python standard library only")))

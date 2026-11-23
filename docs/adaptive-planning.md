@@ -118,6 +118,40 @@ same revision carries the allowance as before. A total you chose with
 `--planning-review-call-limit` stays a total, and a correction to a plan you already
 approved keeps its own bounded review round.
 
+## Fast lane for small, clear tasks
+
+`--fast-lane` (new runs only, owner request 2026-11-23) removes the two model calls a small task gains least
+from, and no gate:
+
+- **One combined review.** The run uses `--review-routing combined`: the Completion Reviewer independently
+  tests the Builder's work and judges completion in one call (`review_checkpoint`) instead of a Tester and
+  then a Completion Reviewer. The policy is written into the plan you approve.
+- **No Plan Reviewer on a plan that qualifies.** The Planner's first draft goes straight to your exact-token
+  approval when, read from the run and never asked of a model: Requirements judged the request clear; the
+  draft is small (one milestone, at most four files); it can go to you as written (no open question, an
+  executable first task); it touches nothing `sensitive-paths` names; the brief holds no exact-output or API
+  risk declaration that needs the Plan Reviewer's observations; and, when criteria cite the request, they pass
+  the strictest source trace (every criterion cites, every sentence is covered, nothing excused), which only a
+  Plan Reviewer may loosen. Progressive and design-backed plans are always reviewed.
+
+Any other draft takes the ordinary path, and the reason is saved with the plan (`planning.fast_lane`). Feedback
+on a shown plan is revised by the Planner and reviewed as usual. The status view's `stage_decisions` shows the
+three skipped planning reviews with the reason, covered by the draft and your approval
+(`tools/autocode_fast_lane.py`).
+
+After approval nothing changes: the Builder, the regression proof, the changed-code evidence (diff coverage,
+mutation check and per-line reasons, checked by the combined review), claim evidence and the completion gate
+decide whether the run may finish.
+
+**Measured, 2026-11-23.** On the offline fixture task (`tests/test_fast_lane.py`) the run completes with four
+model launches (Requirements, Planner, Builder, combined review) instead of six. Replaying the qualification
+over 149 completed live runs from the task survey (Claude Code, small real tasks in eleven languages), 112
+(75%) would have taken the fast lane; the 37 others were not small (18), needed the Plan Reviewer's
+observations (12) or touched sensitive paths (7). On those 112 the removed stages were 30% of model-stage
+time (median 146 s to an estimated 103 s) and 35% of model calls, and held 27 of the 60 rejected answers.
+The estimate assumes the combined review takes as long as the Completion Reviewer alone; a live
+comparison is still to be run.
+
 ## Comparing it with today's pipeline
 
 `scenarios/run.py plan-compare` plans each request in `scenarios/planning.toml`

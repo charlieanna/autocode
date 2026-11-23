@@ -35,6 +35,7 @@ try:
     from . import autocode_codex_settings as codex_settings
     from . import autocode_compact_planning as compact_planning
     from . import autocode_design_manifest as design_manifest
+    from . import autocode_fast_lane as fast_lane
     from . import autocode_figma as figma
     from . import autocode_goals as goals
     from . import autocode_opencode, autocode_providers
@@ -74,6 +75,7 @@ except ImportError:
     import autocode_codex_settings as codex_settings
     import autocode_compact_planning as compact_planning
     import autocode_design_manifest as design_manifest
+    import autocode_fast_lane as fast_lane
     import autocode_figma as figma
     import autocode_goals as goals
     import autocode_opencode
@@ -803,11 +805,33 @@ def _history_routes(state: RunState):
     return models, providers
 
 
+def _check_review_choices(settings, args, *, started):
+    """Refuse a review routing or fast-lane flag that would change a saved run's choice."""
+    review_routing.configured(settings, getattr(args, "review_routing", None), started=started)
+    fast_lane.configured(settings, getattr(args, "fast_lane", None), started=started)
+
+
+def _new_review_settings(settings, args):
+    """A new run's review routing, and the fast lane, which implies the combined review (autocode_fast_lane)."""
+    settings[review_routing.SETTING] = review_routing.configured(
+        settings, getattr(args, "review_routing", None), started=False
+    )
+    settings.update(
+        fast_lane.new_run_settings(
+            settings,
+            getattr(args, "fast_lane", None),
+            review_requested=getattr(args, "review_routing", None),
+            checkpoints=bool(getattr(args, "milestone_checkpoints", False)),
+        )
+    )
+
+
 def _new_milestone_checkpoints(args, milestones):
     """A new run's milestone checkpoints: on unless review is combined, with the limits the flags set."""
     return {
         **milestones.DEFAULTS,
-        "enabled": getattr(args, "review_routing", None) != "combined",
+        # The fast lane implies combined review (autocode_fast_lane), which cannot use enforced checkpoints.
+        "enabled": getattr(args, "review_routing", None) != "combined" and not getattr(args, "fast_lane", None),
         "max_seconds": getattr(args, "max_milestone_seconds", None)
         if getattr(args, "max_milestone_seconds", None) is not None
         else milestones.DEFAULTS["max_seconds"],
@@ -878,7 +902,7 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
     if opencode is None:
         opencode = autocode_opencode
     started = bool(state.get("settings") or state.get("sessions") or state.get("history"))
-    review_routing.configured(state.get("settings") or {}, getattr(args, "review_routing", None), started=started)
+    _check_review_choices(state.get("settings") or {}, args, started=started)
     if getattr(args, "review_routing", None) == "combined" and getattr(args, "milestone_checkpoints", False):
         raise ValueError("Combined review cannot use enforced milestone checkpoints")
     single_model = getattr(args, "single_model", None)
@@ -1102,9 +1126,7 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         settings["plan_review_full"] = True
     if compact_planning.new_run_setting(getattr(args, "compact_bugfix_planning", None), joint):
         settings[compact_planning.SETTING] = True
-    settings[review_routing.SETTING] = review_routing.configured(
-        settings, getattr(args, "review_routing", None), started=False
-    )
+    _new_review_settings(settings, args)
     settings.update(skip_requirements.new_run_settings(args, joint))
     # A persisted review allowance for new runs (#1565): the flag wins, then the
     # user's config.toml, then the machinery's built-in default. A resumed run
