@@ -103,6 +103,47 @@ class SourceHostTests(unittest.TestCase):
         launch.assert_called_once_with(self.socket)
         self.assertEqual(runner.call_count, 2)
 
+    def test_busy_host_leaves_other_reads_and_snapshots_to_the_caller(self):
+        entered = threading.Event()
+        release = threading.Event()
+        held_answer = []
+
+        def run_cli(request):
+            if request["argv"] == ["modes", "list", "--json"]:
+                entered.set()
+                release.wait(10)
+            return {"exit_code": 37}
+
+        # Use the real socket and request lock. Avoid changing the test process's
+        # cwd, environment and streams while the hosted invocation is blocked.
+        runner = mock.Mock()
+        self.serve(cli_runner=runner)
+        with (
+            mock.patch.object(host, "_execute_cli", side_effect=lambda _, request, __: run_cli(request)),
+            mock.patch.dict(os.environ, {host.SETTING: "1"}),
+            mock.patch.object(host, "_needs_capability_reexec", return_value=False),
+            mock.patch.object(host, "ANSWER_SECONDS", 2),
+        ):
+            held = threading.Thread(
+                target=lambda: held_answer.append(host.cli_fast_path(["modes", "list", "--json"])),
+                daemon=True,
+            )
+            held.start()
+            try:
+                self.assertTrue(entered.wait(5), "the held request never entered the host")
+                for args in (["--status"], ["registry", "list", "--json"]):
+                    self.assertIsNone(host.cli_fast_path(args))
+                    self.assertTrue(held.is_alive(), "an independent read waited for the held request to time out")
+                    self.assertFalse(host._state["failed"], "the host should explicitly decline a busy request")
+                self.assertIsNone(host.snapshot(self.root, False))
+                self.assertFalse(host._state["failed"], "a cold read's snapshot must also avoid the busy host")
+            finally:
+                release.set()
+                held.join(5)
+            self.assertEqual([37], held_answer)
+            self.assertEqual(37, host.cli_fast_path(["--status"]))
+            self.assertEqual(self.local(), host.snapshot(self.root, False))
+
     def test_unavailable_starting_host_falls_back_without_sending_a_read(self):
         with (
             mock.patch.dict(os.environ, {host.SETTING: "1"}),

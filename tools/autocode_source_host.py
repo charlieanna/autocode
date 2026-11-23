@@ -38,6 +38,7 @@ SETTING = "AUTOCODE_SOURCE_HOST"
 IDLE_SECONDS = 30 * 60
 CONNECT_SECONDS = 0.5
 STARTUP_SECONDS = 1.0
+BUSY_WAIT_SECONDS = 0.25
 ANSWER_SECONDS = 120.0
 # Environment that can change what `git ls-files`, `git rev-parse` and backend/config lookups report.
 GIT_ENV = ("HOME", "PATH", "XDG_CONFIG_HOME")
@@ -553,23 +554,23 @@ class _Handler(socketserver.StreamRequestHandler):
             elif kind == "stop":
                 answer = {"stopped": True, "pid": os.getpid(), "socket": str(server.socket_file)}
                 stop_after_reply = True
-            elif kind == "cli":
-                if server.cli_runner is None:
-                    answer = {"fallback": True}
-                else:
-                    with server.lock:
-                        _local.in_request = True
-                        try:
-                            answer = _execute_cli(server.cli_runner, request, server.safe_cwd)
-                        finally:
-                            _local.in_request = False
+            elif not server.lock.acquire(timeout=BUSY_WAIT_SECONDS):
+                # One request owns the process-wide cwd, environment and streams.
+                # Let other reads use their own process while that request finishes.
+                answer = {"fallback": True}
             else:
-                with server.lock:
-                    _local.in_request = True
-                    try:
+                _local.in_request = True
+                try:
+                    if kind == "cli":
+                        if server.cli_runner is None:
+                            answer = {"fallback": True}
+                        else:
+                            answer = _execute_cli(server.cli_runner, request, server.safe_cwd)
+                    else:
                         answer = {"snapshot": _util().snapshot(request["root"], request["nested"])}
-                    finally:
-                        _local.in_request = False
+                finally:
+                    _local.in_request = False
+                    server.lock.release()
         except Exception as error:  # noqa: BLE001
             paused_type = getattr(_UTIL, "Paused", ())
             if paused_type and isinstance(error, paused_type):
