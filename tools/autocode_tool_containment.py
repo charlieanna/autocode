@@ -314,9 +314,11 @@ def backend_version(name):
     return None
 
 
-# bubblewrap 0.9.0 added the overlay mounts (--overlay-src/--tmp-overlay) a read-only stage's
-# verification copy needs to create build outputs without a wholly read-only copy (#4033).
-OVERLAY_MINIMUM = (0, 9, 0)
+# bubblewrap 0.11.0 added the overlay mounts (--overlay/--tmp-overlay/--ro-overlay/--overlay-src)
+# a read-only stage's verification copy needs to create build outputs without a wholly read-only
+# copy (#4033). 0.9.0 and 0.10.0 reject --overlay-src as an unknown option, so they keep the
+# read-only copy rather than failing every contained launch.
+OVERLAY_MINIMUM = (0, 11, 0)
 
 
 def _overlay_capable(version):
@@ -988,7 +990,7 @@ def bubblewrap_arguments(
     copy is one mount, not one per file).
 
     ``overlay_trees`` are verification copies a read-only stage builds in (#4033). Each is
-    mounted ``--overlay-src TREE --tmp-overlay TREE`` (bubblewrap 0.9+): the real copy is the
+    mounted ``--overlay-src TREE --tmp-overlay TREE`` (bubblewrap 0.11+): the real copy is the
     read-only lower layer and a discarded tmpfs is the upper, so a check can create build outputs
     (cargo's ``target/``, ``.coverage``, a compiler's output dir) beside the sources while the real
     copy and the read-only workspace are never written. This matches the macOS seal's "existing
