@@ -22,6 +22,11 @@ MAX_DICT_TYPED_STATE_PARAMS = 0
 # time (#695). Every parameter is now annotated (#3468); keep this at 0.
 MAX_UNTYPED_STATE_PARAMS = 0
 
+# RunState keys still typed ``Any`` (#695): mypy checks a key's reads and writes in every function
+# whose ``state`` is a RunState only once the key has a real type. Lower this as keys are typed; a new
+# key arrives typed.
+MAX_ANY_TYPED_KEYS = 137
+
 # Domain-owned state keys whose raw access on ``state`` is confined to their
 # owner module(s) (#3468). Extend this map as each Phase 2 slice migrates.
 OWNED_STATE_KEYS: dict[str, frozenset[str]] = {
@@ -51,6 +56,20 @@ def _state_params(root: Path):
 
 def untyped_state_params(root: Path = TOOLS) -> int:
     return sum(1 for arg in _state_params(root) if arg.annotation is None)
+
+
+def any_typed_keys(contract: type = run_state.RunState) -> int:
+    """How many of ``contract``'s keys are annotated ``Any`` (string annotations: the module uses
+    ``from __future__ import annotations``)."""
+    return sum(1 for annotation in contract.__annotations__.values() if _annotation_text(annotation) == "Any")
+
+
+def _annotation_text(annotation) -> str:
+    if annotation is run_state.Any:
+        return "Any"
+    if isinstance(annotation, str):
+        return annotation
+    return getattr(annotation, "__forward_arg__", None) or repr(annotation)
 
 
 def dict_typed_state_params(root: Path = TOOLS) -> int:
@@ -179,6 +198,18 @@ class RunStateTests(unittest.TestCase):
             count,
             "annotate all state parameters as RunState or their typed contract",
         )
+
+    def test_any_typed_keys_do_not_grow(self):
+        self.assertEqual(
+            MAX_ANY_TYPED_KEYS,
+            any_typed_keys(),
+            "give a new RunState key a real type; after typing keys, lower MAX_ANY_TYPED_KEYS to the new count",
+        )
+
+    def test_any_typed_key_count_reads_the_contracts_annotations(self):
+        sample = run_state.TypedDict("sample", {"typed": int, "loose": run_state.Any}, total=False)
+        self.assertEqual(1, any_typed_keys(sample))
+        self.assertGreater(any_typed_keys(), 0, "the contract's string annotations are read too")
 
     def test_untyped_ratchet_counts_only_unannotated_state_params(self):
         with tempfile.TemporaryDirectory() as directory:
