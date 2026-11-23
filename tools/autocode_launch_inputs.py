@@ -27,9 +27,11 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 try:
+    from . import autocode_build_outputs as build_outputs
     from . import autocode_util as util
     from . import autocode_verify as verify
 except ImportError:
+    import autocode_build_outputs as build_outputs
     import autocode_util as util
     import autocode_verify as verify
 try:
@@ -512,6 +514,37 @@ class Supply:
             _fresh(tree_anchor, tree)
 
 
+def _built(state: RunState, checkout, run_dir, names):
+    """The ignored generated files among ``names`` that the project's build wrote (autocode_build_outputs).
+
+    Each is admitted from its current bytes, which are kept in the launch store like a launch capture,
+    so copy_into and the Supply identity bind them exactly as they bind a file recorded at launch.
+    A file that cannot be read, is not declared by the base revision's packaging or holds more than
+    data is left as it was: changed files stay unverified and added ones stay out.
+    """
+    base, admitted = state.get("base_commit"), {}
+    for name in names:
+        try:
+            data, mode = _read(checkout, name, verify.GENERATED_SOURCE_LIMIT)
+        except (OSError, ValueError):
+            continue
+        if not build_outputs.admitted(checkout, base, name, data):
+            continue
+        digest = hashlib.sha256(data).hexdigest()
+        try:
+            stored = _entry(Path(run_dir) / STORE, digest, verify.GENERATED_SOURCE_LIMIT)[0]
+        except (OSError, ValueError):
+            stored = None
+        if stored != digest:
+            try:
+                with _anchor(run_dir) as anchor:
+                    _write(run_dir, f"{STORE}/{digest}", data, expected_root=anchor)
+            except (OSError, ValueError):
+                continue
+        admitted[name] = [digest, mode]
+    return admitted
+
+
 def supply(state: RunState, checkout, run_dir):
     """Return the current in-place proof policy, or None for a separate task checkout."""
     checkout = Path(checkout)
@@ -568,6 +601,18 @@ def supply(state: RunState, checkout, run_dir):
                     damaged.append(name)
                     continue
             selected[kind][name] = expected
+        added = set(present[kind]) - set(recorded)
+        if kind == "generated":
+            built = _built(state, checkout, run_dir, [*changed, *sorted(added)])
+            selected[kind].update(built)
+            changed = [name for name in changed if name not in built]
+            added -= set(built)
+            if built:
+                notes.append(
+                    "Ignored version files the project's build wrote during this in-place run are in every test "
+                    "copy, because the base revision's packaging declares them and they hold only data: "
+                    + _names(built)
+                )
         if changed:
             errors.append(
                 f"Ignored {kind} files changed or removed since this in-place run started: "
@@ -576,7 +621,6 @@ def supply(state: RunState, checkout, run_dir):
             )
         if damaged:
             errors.append("The launch copies of these ignored source files are missing or damaged: " + _names(damaged))
-        added = set(present[kind]) - set(recorded)
         if added:
             notes.append(
                 f"Ignored {kind} files left out of every test copy (added since this in-place run started): "
