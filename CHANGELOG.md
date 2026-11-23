@@ -23,6 +23,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **A task worktree's proof copies no longer show up as another worktree**: since #4118 a run in a task worktree (or a private project for a folder that is not a repository) kept its proof copies in a folder beside the worktree, inside `.autocode/worktrees` (or `.autocode/projects`), where they were listed with the real ones. They now live in `.autocode/worktrees.autocode-scratch` (or `.autocode/projects.autocode-scratch`), still outside the worktree they check.
+- **A new project's first tests prove its first feature again**: a test that could not load on an empty original project (it imports the module the change adds) counted as the feature's proof until #4130, which made such a run fail its proof instead. It counts again, with the same "preservation unproven" result as before for an original project that may hold hidden code.
+
 - **A model whose listing names only levels off AutoCode's scale no longer stops a launch**: seven effort rules (review ceiling, hard plan, format repair, light Builder, Requirements triage, output-cap recovery, route ladder) each worked out which levels a model serves with their own copy of the same code, and five of them raised `ValueError` when a tool listed only a variant such as `minimal`. They now read one answer, `autocode_route_fit.offered`, which leaves off-scale variants out.
 
 - A slow provider version check such as `kilo --version` now gets one longer retry before a chat is refused. `autocode doctor` checks free space for the project a new run will use rather than sizing unrelated repositories, and labels partial estimates in large checkouts. Builds still perform the full storage check.
