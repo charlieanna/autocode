@@ -39,12 +39,16 @@ The warm host keeps both the imported CLI modules and in-memory workspace
 `ContentHashes`, applies each caller's `cwd` and environment under a request lock,
 and keys its socket path on the Python runtime, Git/config environment, and a
 metadata digest of `tools/` and `pyproject.toml` so code edits never hit stale code.
-If no host is running yet, the caller starts one in the background. Read-only CLI callers
-wait up to one second to connect before falling back to local execution. Snapshot callers
-can take their first snapshot locally while the host starts. Operators and scripts can also run or inspect the warm host directly
-with `autocode serve [--idle-seconds S]`, `autocode serve --status [--json]`, and
-`autocode serve --stop [--json]`. Mutating, interactive, and lifeline-guarded
-invocations always execute directly in their own process.
+If no host is running yet, the caller starts one in the background. Read-only CLI
+callers wait up to one second to connect before falling back to local execution.
+Snapshot callers can take their first snapshot locally while the host starts.
+If another request holds the warm host for more than a quarter of a second, a
+waiting CLI or snapshot request runs locally in its own process. The original
+request continues on the warm host. Operators and scripts can run or inspect the
+warm host directly with `autocode serve [--idle-seconds S]`,
+`autocode serve --status [--json]`, and `autocode serve --stop [--json]`.
+Mutating, interactive, and lifeline-guarded invocations always execute directly in
+their own process.
 
 ## Automatic coordination from chat
 
