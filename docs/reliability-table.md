@@ -8,6 +8,7 @@ numbers do and do not claim. A row names the master commit the sweep ran on.
 
 | Date | Profile | Master | Prompts (SHA-256) | Runs | Passed | False completions | Median (min) | Median spent (USD) | First question (s) | First plan (s) | First Builder (s) | Note |
 | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 2026-11-23 | claude-tiers | `39af945` | not recorded | 4 | 3 | 0 | 13.6 | 2.457444 |  |  |  | Real-repo pilot, one run per case: scenario bugfix-realrepo-docutils-number-lines (PASS 14/14, 19 min) and Arena boltons-indexedset-update (PASS 5/5, 4 min), more-itertools-custom-exceptions (PASS 6/6, 18 min), humanize-intcomma-large (correct fix, oracle 5/5, but PAUSED_INVALID_OUTPUT: a planned check replayed in a clean copy cannot import the gitignored hatch-vcs _version.py). docs/bugs/2026-11-23-real-repo-benchmark-pilot.md |
 | 2026-10-08 | glm53-mimo | `a8852cf4` | not recorded | 3 | 2 | 0 | 94 |  |  |  |  | Three cases, one run each. bugfix-iso-weeks and feature-timesheet-by-project completed (oracle 5/5, 6/6). greenfield-todo-cli stopped honestly at the 100-minute budget in completion review (INTERRUPTED_UNGRADED). |
 | 2026-10-08 | glm53-mimo | `a8852cf4` | not recorded | 1 | 1 | 0 | 82 |  |  |  |  | Re-run of the budget-cut to-do case with a 130-minute budget. TASK_COMPLETE, oracle 10/10. Completes the three-case portfolio for this profile. |
 | 2026-10-07 | glm53-openai | `4e7e6895` | not recorded | 3 | 2 | 0 | 27 |  |  |  |  | Three cases, one run each. Feature stopped honestly on a padding contradiction (#676); bug-fix and to-do completed. docs/bugs/2026-10-07-default-profile-reliability-cases.md |
@@ -23,6 +24,17 @@ Times start at CLI main entry before workspace setup. They include human wait; B
 | Profile | Master | Run | Launched at | First question shown at | First plan shown at | First Builder dispatched at |
 | --- | --- | --- | --- | --- | --- | --- |
 | native-glm53-latency | `e18cf660 + #727 candidate (wheel 756c8a10)` | 20261010-081756-build-a-small-python-standard-library-cli-named--5d277d95 | 2026-10-10T15:17:56.934482+00:00 | 2026-10-10T15:22:48.185894+00:00 (291.251412s) | 2026-10-10T15:27:20.046636+00:00 (563.112154s) | 2026-10-10T15:28:52.096595+00:00 (655.162113s) |
+
+### Cost per case
+
+Each amount is copied from that case's `autocode --status` JSON view (`cost`) and checked by the same rule. Unknown means the run could not price it and is never shown as zero. Spent is the known spend the cap is compared with: a floor when a stage had no rate. The median spent above uses known values only.
+
+| Profile | Master | Case | Run | Spent USD | Estimated USD | Reported USD | Cap USD |
+| --- | --- | --- | --- | ---: | ---: | ---: | ---: |
+| claude-tiers | `39af945` | bugfix-realrepo-docutils-number-lines | not recorded | 5.77104 | unknown | 5.77104 | no cap |
+| claude-tiers | `39af945` | boltons-indexedset-update | not recorded | 1.424771 | unknown | 1.424771 | no cap |
+| claude-tiers | `39af945` | more-itertools-custom-exceptions | not recorded | 2.670147 | unknown | 2.670147 | no cap |
+| claude-tiers | `39af945` | humanize-intcomma-large | not recorded | 2.244741 | unknown | 2.244741 | no cap |
 
 ## Fake provider
 
