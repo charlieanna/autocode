@@ -26,12 +26,14 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_acceptance_examples as acceptance_examples
     from . import autocode_ambiguity_audit as ambiguity_audit
     from . import autocode_code_citations as code_citations
     from . import autocode_requirement_cues as requirement_cues
     from . import autocode_requirement_quotes as requirement_quotes
     from . import autocode_source_log as source_log
 except ImportError:
+    import autocode_acceptance_examples as acceptance_examples
     import autocode_ambiguity_audit as ambiguity_audit
     import autocode_code_citations as code_citations
     import autocode_requirement_cues as requirement_cues
@@ -131,4 +133,6 @@ def faults(report: dict, ctx: dict, *, cite=None, catalog_ok=None) -> list[str]:
             ctx.get("coverage_checklist") or [],
             inherited=bool(ctx.get("inherited")),
         )
+    # JSON acceptance examples must discriminate a duplicate-accepting or build-dropping decoder (#3912).
+    found += acceptance_examples.problems(report.get("acceptance_tests"))
     return found
