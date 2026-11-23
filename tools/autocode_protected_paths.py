@@ -93,6 +93,11 @@ def _directories(root):
     return is_directory
 
 
+def data_links(files):
+    """The names of the data links a protected binding captures as their text."""
+    return sorted(name for name, value in files.items() if isinstance(value, dict) and "symlink" in value)
+
+
 def holds_code(name) -> bool:
     """Whether a link by this name stands for code: a test file, or a module tests import."""
     return PurePosixPath(name).suffix in project_kinds.CODE_SUFFIXES

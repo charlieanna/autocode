@@ -224,15 +224,28 @@ def metadata(workspace, files):
 _MAX_FILE_LINK_CHAIN = 8
 
 
-def unbound_symlinks(workspace, files, tracked_paths, *, allow_untracked_terminal=False):
+def unbound_symlinks(workspace, files, tracked_paths, *, allow_untracked_terminal=False, bound_links=()):
     """Links not bound by this inventory and tracked, ordinary in-tree targets.
 
     Every link is tracked; its terminal regular file must be tracked unless
     an explicitly scoped copy permits an inventoried untracked terminal. All
     bytes still match this snapshot; escapes and unsafe parent links are held.
+    ``bound_links`` names the data links a protected test binding captures as
+    text: the copy carries each un-followed, so its own pinned text is bound
+    and where it leads is the project's fixture, not source bytes.
     """
     if type(allow_untracked_terminal) is not bool:
         raise ValueError("Untracked terminal policy must be a boolean")
+    if not isinstance(bound_links, (list, tuple)) or any(
+        not isinstance(name, str)
+        or not name
+        or name.startswith("/")
+        or ".." in name.split("/")
+        or any(c in name for c in "\\\x00\n\r")
+        for name in bound_links
+    ):
+        raise ValueError("Bound data links must be portable repository-relative paths")
+    bound = set(bound_links)
     links = [name for name, value in files.items() if value.startswith("symlink:")]
     if not links:
         return []
@@ -252,17 +265,16 @@ def unbound_symlinks(workspace, files, tracked_paths, *, allow_untracked_termina
                 visited.add(current)
                 link = root / current
                 text = os.readlink(link)
-                if (
-                    current not in tracked
-                    or files.get(current) != "symlink:" + text
-                    or os.path.isabs(text)
-                    or Path(text).drive
-                    or "\\" in text
-                    or text.endswith("/")
-                ):
+                if current not in tracked or files.get(current) != "symlink:" + text:
                     raise ValueError("unbound link")
                 if any((root / parent).is_symlink() for parent in Path(current).parents if parent != Path(".")):
                     raise ValueError("symlinked link parent")
+                if name in bound:
+                    # A data link the protected binding captures as text: the copy
+                    # carries it un-followed, so its target need not be source bytes.
+                    break
+                if os.path.isabs(text) or Path(text).drive or "\\" in text or text.endswith("/"):
+                    raise ValueError("unbound link")
                 target = link.parent
                 # Preserve literal dot components: ``file/.`` still traverses
                 # the file as a directory, which Path(text).parts would erase.

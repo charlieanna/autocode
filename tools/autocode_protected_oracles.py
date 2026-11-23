@@ -376,6 +376,7 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=N
         return None  # compatibility: do not invent an original binding for old runs
     verify_binding(record)
     revision = source_scope.snapshot(workspace, state)["revision"]
+    data_links = paths.data_links(record["files"])
     changed = []
     for name, expected in record["files"].items():
         try:
@@ -433,6 +434,7 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=N
                     source_paths=source_scope.paths(state),
                     expected_source_revision=revision,
                     protected_test_snapshot_links=True,
+                    protected_data_links=data_links,
                     **overlays,
                 )
 

@@ -157,3 +157,52 @@ class SourceLinkIdentityTests(unittest.TestCase):
     def test_target_with_an_external_hardlink_stays_unbound(self):
         os.link(self.root / "src/product.py", self.root.parent / "outside-hardlink.py")
         self.assertIn("alias.py", self.unbound())
+
+    def test_bound_data_links_waive_only_their_terminal_resolution(self):
+        (self.root / "loop.py").symlink_to("alias.py")
+        git(self.root, "add", "alias.py", "loop.py")
+        tracked = lambda: git(self.root, "ls-files", "-z").split("\0")  # noqa: E731
+        for target in ("src", "src/missing.py", str(self.root / "src/product.py"), "../outside.py", "loop.py"):
+            with self.subTest(target=target):
+                self.retarget(target)
+                files = source_snapshot.snapshot(self.root)["files"]
+                refused = source_snapshot.unbound_symlinks(self.root, files, tracked, allow_untracked_terminal=True)
+                self.assertIn("alias.py", refused)
+                self.assertEqual(
+                    [],
+                    source_snapshot.unbound_symlinks(
+                        self.root, files, tracked, allow_untracked_terminal=True, bound_links=["alias.py", "loop.py"]
+                    ),
+                )
+
+    def test_a_bound_data_link_still_matches_its_pinned_text_and_tracking(self):
+        self.retarget("src")
+        git(self.root, "add", "alias.py")
+        tracked = lambda: git(self.root, "ls-files", "-z").split("\0")  # noqa: E731
+        files = source_snapshot.snapshot(self.root)["files"]
+        self.assertEqual([], source_snapshot.unbound_symlinks(self.root, files, tracked, bound_links=["alias.py"]))
+        self.retarget("src/other.py")
+        self.assertIn("alias.py", source_snapshot.unbound_symlinks(self.root, files, tracked, bound_links=["alias.py"]))
+        self.retarget("src")
+        (self.root / "untracked").symlink_to("src")
+        untracked_files = source_snapshot.snapshot(self.root)["files"]
+        self.assertIn(
+            "untracked",
+            source_snapshot.unbound_symlinks(self.root, untracked_files, tracked, bound_links=["untracked"]),
+        )
+
+    def test_a_non_bound_link_through_a_bound_directory_link_is_still_refused(self):
+        (self.root / "directory").symlink_to("src", target_is_directory=True)
+        git(self.root, "add", "directory")
+        self.retarget("directory/product.py")
+        files = source_snapshot.snapshot(self.root)["files"]
+        tracked = lambda: git(self.root, "ls-files", "-z").split("\0")  # noqa: E731
+        self.assertIn(
+            "alias.py", source_snapshot.unbound_symlinks(self.root, files, tracked, bound_links=["directory"])
+        )
+
+    def test_bound_data_links_must_be_portable_relative_names(self):
+        for bad in (["/abs"], ["../up"], ["a\\b"], ["a\x00b"], [""], [3], "alias.py", None):
+            with self.subTest(bound_links=bad):
+                with self.assertRaises(ValueError):
+                    source_snapshot.unbound_symlinks(self.root, {}, lambda: [], bound_links=bad)

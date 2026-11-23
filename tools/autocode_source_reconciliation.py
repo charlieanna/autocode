@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 try:
     from . import autocode_catalog_context as catalog_context
     from . import autocode_liveness as liveness
+    from . import autocode_protected_paths as protected_paths
     from . import autocode_repo_catalog as repo_catalog
     from . import autocode_source_scope as source_scope
     from . import autocode_source_snapshot as source_snapshot
@@ -23,6 +24,7 @@ try:
 except ImportError:
     import autocode_catalog_context as catalog_context
     import autocode_liveness as liveness
+    import autocode_protected_paths as protected_paths
     import autocode_repo_catalog as repo_catalog
     import autocode_source_scope as source_scope
     import autocode_source_snapshot as source_snapshot
@@ -106,11 +108,16 @@ def _unsafe_copy_source(workspace, state: RunState, current):
     if policy is not None:
         if policy not in ("strict", "protected"):
             raise util.Paused(STATUS, "The pinned source recovery policy is invalid")
+        # The same data-link names the protected replay binds: a recovery recheck
+        # that refused them would never offer a readable source again.
+        record = (state.get("settings") or {}).get("protected_tests") or {}
+        bound = protected_paths.data_links(record.get("files") or {}) if policy == "protected" else ()
         links = source_snapshot.unbound_symlinks(
             workspace,
             files,
             lambda: util.git(workspace, "ls-files", "-z").split("\0"),
             allow_untracked_terminal=policy == "protected",
+            bound_links=bound,
         )
         if links:
             return policy
