@@ -879,6 +879,8 @@ def parse(unit, argv, default_models):
     review_args.validate(args, parser)
     if not args.run_dir and any(present for flag, present in actions.items() if flag not in READ_ACTIONS):
         parser.error("User actions require an existing --run-dir")
+    for project_notice in getattr(args, "_project_config_notices", ()):
+        print(project_notice, file=sys.stderr)
     if notice:
         # stderr: --status and --dry-run print exactly one JSON object on stdout.
         print(notice, file=sys.stderr, flush=True)

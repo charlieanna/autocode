@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import argparse
 import difflib
-import sys
 import tomllib
 from pathlib import Path
 
@@ -180,10 +179,11 @@ def for_new_run(parser, args, explicit) -> set[str]:
     with no typed task starts a new run too: autocode_run_setup takes its task from the accepted handoff."""
     if args.run_dir is not None or (args.task is None and not getattr(args, "ui_run", None)):
         return set()
+    notices = []
     # One input snapshot for this fresh run; saved runs return above without reading it.
     args._project_memory_input = memory_interface.load(args.workspace)
     if args._project_memory_input["status"] == "invalid":
-        print("Project memory ignored: " + args._project_memory_input["note"], file=sys.stderr)
+        notices.append("Project memory ignored: " + args._project_memory_input["note"])
     try:
         applied = apply(
             parser._option_string_actions, args, explicit, args.workspace, memory_input=args._project_memory_input
@@ -194,7 +194,10 @@ def for_new_run(parser, args, explicit) -> set[str]:
     for key, source in applied.items():
         by_source.setdefault(source, []).append(key)
     for source, keys in by_source.items():
-        print(f"Project settings from {source}: {', '.join(keys)}", file=sys.stderr)
+        notices.append(f"Project settings from {source}: {', '.join(keys)}")
+    # Parsing may still reject a contradictory command after applying defaults. Keep
+    # notices with the candidate args; autocode_args prints them only after validation.
+    args._project_config_notices = notices
     return {parser._option_string_actions["--" + key].dest for key in applied if key not in FILE_ONLY}
 
 
