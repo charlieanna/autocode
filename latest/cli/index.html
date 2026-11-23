@@ -1167,6 +1167,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Terminal chat">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#low-memory-terminal-chat" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Low-memory terminal chat
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2281,6 +2298,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Terminal chat">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#low-memory-terminal-chat" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Low-memory terminal chat
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2354,7 +2388,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/a4bb8a503638c157ade2359766bd5fe8e315396b/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/77360057c9aab1b3d80d43d9bb744549acd908b2/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2606,7 +2640,7 @@ they do not represent charges.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/a4bb8a503638c157ade2359766bd5fe8e315396b/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/77360057c9aab1b3d80d43d9bb744549acd908b2/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -3246,7 +3280,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/a4bb8a503638c157ade2359766bd5fe8e315396b/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/77360057c9aab1b3d80d43d9bb744549acd908b2/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -3989,6 +4023,8 @@ also accepts <code>-h</code> / <code>--help</code>.</p>
 </tbody>
 </table>
 <h2 id="terminal-chat">Terminal chat<a class="headerlink" href="#terminal-chat" title="Permanent link">&para;</a></h2>
+<p>Run <code>autocode chat</code> to open the terminal chat. On macOS or Linux you can also
+use the <a href="#low-memory-terminal-chat">low-memory setup</a> below.</p>
 <p><code>autocode chat --execution durable_local "YOUR TASK"</code> opts a new run into the
 <a href="../task-run/#durable-local-workers">durable local worker</a> mode on a supported
 persistent Linux host. The core checks an existing systemd user manager (254+)
@@ -4325,6 +4361,61 @@ directory (a bare <code>y</code>, <code>n</code> or option number is not kept).<
 <p>The older inline chat (<code>--chat</code>, the default when <code>autocode "TASK"</code> runs in a
 terminal) still works and is being replaced by this client. Scripts that call plain
 <code>autocode</code> without a terminal are unchanged.</p>
+<h3 id="low-memory-terminal-chat">Low-memory terminal chat<a class="headerlink" href="#low-memory-terminal-chat" title="Permanent link">&para;</a></h3>
+<p>By default, terminal chat keeps a Python helper alive to reuse workspace
+snapshot hashes between status reads. To use short-lived reads for one chat,
+run <code>AUTOCODE_SOURCE_HOST=0 autocode chat</code>. Cold status reads can take
+longer in large workspaces. <a href="../task-run/#warm-local-cli-host">How the warm CLI host works</a></p>
+<p>The measured setup also used Python 3.12. Create the environment once from an
+AutoCode checkout at the revision you want to run.</p>
+<pre><code class="language-sh">python3.12 -m venv &quot;$HOME/.venvs/autocode-tui&quot;
+&quot;$HOME/.venvs/autocode-tui/bin/python&quot; -m pip install .
+</code></pre>
+<p>For a reusable shortcut, save this script as <code>autocode-tui</code> in a directory
+on your <code>PATH</code> and make it executable with <code>chmod +x autocode-tui</code> from that
+directory. If you already have a Python 3.12 AutoCode environment, use its
+<code>bin/autocode</code> path here and skip installation. <a href="../vscode/#reduce-memory-use-on-macos-or-linux">VS Code setup</a></p>
+<pre><code class="language-sh">#!/bin/sh
+export AUTOCODE_SOURCE_HOST=0
+exec &quot;$HOME/.venvs/autocode-tui/bin/autocode&quot; chat &quot;$@&quot;
+</code></pre>
+<p>Run <code>autocode-tui</code> from your project. It accepts the usual chat arguments,
+including a quoted task or <code>--run-dir RUN</code>. Use <code>autocode chat</code> to return to
+your usual setup.</p>
+<p>On an Apple M1 Max, AutoCode 0.10.2 (<code>5835efc75</code>) ran the same scripted task
+three times per setup in an already-open VS Code integrated terminal. Each number below is the median of
+the three runs, measured above the idle editor and terminal. Typical memory
+is the median during a run, including its 12-second wait for approval.</p>
+<table>
+<thead>
+<tr>
+<th>Terminal chat setup</th>
+<th style="text-align: right;">Typical</th>
+<th style="text-align: right;">Waiting for approval</th>
+<th style="text-align: right;">Peak</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Python 3.14, warm helper</td>
+<td style="text-align: right;">229.3 MiB</td>
+<td style="text-align: right;">144.2 MiB</td>
+<td style="text-align: right;">334.2 MiB</td>
+</tr>
+<tr>
+<td>Python 3.14, helper disabled</td>
+<td style="text-align: right;">180.9 MiB</td>
+<td style="text-align: right;">91.6 MiB</td>
+<td style="text-align: right;">332.0 MiB</td>
+</tr>
+<tr>
+<td>Python 3.12, helper disabled</td>
+<td style="text-align: right;">157.3 MiB</td>
+<td style="text-align: right;">76.0 MiB</td>
+<td style="text-align: right;">285.7 MiB</td>
+</tr>
+</tbody>
+</table>
 <h2 id="unattended-callers-agents">Unattended callers (agents)<a class="headerlink" href="#unattended-callers-agents" title="Permanent link">&para;</a></h2>
 <p><code>autocode unattended</code> (or the internal compatibility wrapper
 <code>autocode unattended</code> / <code>scripts/autocode-unattended</code> from a checkout) runs AutoCode
@@ -4351,7 +4442,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/a4bb8a503638c157ade2359766bd5fe8e315396b/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/77360057c9aab1b3d80d43d9bb744549acd908b2/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,
