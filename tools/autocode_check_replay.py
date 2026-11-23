@@ -400,6 +400,7 @@ def replay(
         scratch_run,
         timeout=timeout,
         run_check=partial(_protected_check, run_dir, obligation, measured, timeout) if obligation else None,
+        base_run=base_run,
     )
     checks, prescribed = executable_checks(checks, approved_state, required_commands, progressive_context)
     test_quality.require_behavioral_tests(workspace, [check["command"] for check in checks])
