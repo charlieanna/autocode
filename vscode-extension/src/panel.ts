@@ -1130,6 +1130,7 @@ function saveDecisionDraft() {
   vscode.setState({ ...saved, decisionDrafts });
 }
 let renderedState = '';
+let renderedHeader = '';
 let allChangesCompare = null;
 let allChangesContext = null;
 let allChangesRequested = false;
@@ -1505,11 +1506,24 @@ function renderHeader(data) {
   if (!host) return;
   const header = data.state && data.state.header;
   host.hidden = !header;
-  if (!header) { host.dataset.content = ''; return; }
+  const body = document.querySelector('#pipeline tbody');
+  const foot = document.querySelector('#pipeline tfoot');
+  const details = document.getElementById('header-details');
+  if (!header || headerCollapsed) {
+    // A folded overview still shows its summary. Release rows and details until opened again.
+    for (const section of [body, foot, details]) if (section.firstChild) section.replaceChildren();
+  }
+  if (!header) { renderedHeader = ''; return; }
   const stageModels = data.state.stageModels || null;
-  const key = JSON.stringify([header, stageModels, headerOpen, headerCollapsed]);
-  if (host.dataset.content === key) return;
-  host.dataset.content = key;
+  const working = header.pipeline.find((step) => step.state === 'working');
+  const workingRoute = working ? [working.model, working.level].filter(Boolean).join(' ') : '';
+  const modelTitle = working && working.route ? working.label + ': ' + working.route : '';
+  const brief = header.total ? [header.total.time, header.total.cost].filter(Boolean).join(' · ') : '';
+  const key = JSON.stringify(headerCollapsed
+    ? [header.state, header.label, header.sentence, brief, workingRoute, modelTitle]
+    : [header, stageModels, headerOpen]);
+  if (renderedHeader === key) return;
+  renderedHeader = key;
   host.className = header.state || '';
   host.classList.toggle('collapsed', headerCollapsed);
   const fold = document.getElementById('header-collapse');
@@ -1517,13 +1531,13 @@ function renderHeader(data) {
   fold.title = foldLabel;
   fold.setAttribute('aria-label', foldLabel);
   fold.setAttribute('aria-expanded', headerCollapsed ? 'false' : 'true');
-  document.getElementById('header-brief').textContent = header.total ? [header.total.time, header.total.cost].filter(Boolean).join(' · ') : '';
-  // The folded line keeps the working stage's model in view, as its table row shows it unfolded.
-  const working = header.pipeline.find((step) => step.state === 'working');
-  const workingRoute = working ? [working.model, working.level].filter(Boolean).join(' ') : '';
+  document.getElementById('header-brief').textContent = brief;
   const model = document.getElementById('header-model');
   model.textContent = workingRoute;
-  model.title = working && working.route ? working.label + ': ' + working.route : '';
+  model.title = modelTitle;
+  document.getElementById('header-label').textContent = header.label;
+  document.getElementById('header-sentence').textContent = header.sentence;
+  if (headerCollapsed) return;
   // A started chat changes its own models only through the list its status view names (stage_models).
   const change = document.getElementById('change-stage-models');
   change.hidden = !stageModels;
@@ -1532,7 +1546,6 @@ function renderHeader(data) {
     : "Change a stage's model and reasoning level for this chat; Stage models applies to new chats";
   const pipeline = document.getElementById('pipeline');
   pipeline.hidden = !header.pipeline.length;
-  const body = pipeline.querySelector('tbody');
   body.textContent = '';
   header.pipeline.forEach((step) => {
     // A working stage after a failed attempt is retrying: its badge and mark say so.
@@ -1575,7 +1588,6 @@ function renderHeader(data) {
     if (step.state === 'working') item.setAttribute('aria-current', 'step');
     body.appendChild(item);
   });
-  const foot = pipeline.querySelector('tfoot');
   foot.textContent = '';
   if (header.total) {
     const total = el('tr', 'total');
@@ -1587,8 +1599,6 @@ function renderHeader(data) {
     total.appendChild(el('td', 'num cost', header.total.cost));
     foot.appendChild(total);
   }
-  document.getElementById('header-label').textContent = header.label;
-  document.getElementById('header-sentence').textContent = header.sentence;
   document.getElementById('header-stage').textContent = header.current || '';
   const place = document.getElementById('header-place');
   place.textContent = header.place;
@@ -1597,7 +1607,6 @@ function renderHeader(data) {
   const toggle = document.getElementById('header-toggle');
   toggle.textContent = headerOpen ? 'Hide details' : 'Show details';
   toggle.setAttribute('aria-expanded', headerOpen ? 'true' : 'false');
-  const details = document.getElementById('header-details');
   details.hidden = !headerOpen;
   details.textContent = '';
   if (!headerOpen) return;
@@ -2747,11 +2756,16 @@ function renderChatPlace(data) {
   const restoreFocus = keepSetupFocus(host, data.runKey);
   const info = data.chatPlace;
   host.hidden = !info || data.busy || Boolean(data.selectedRun) || (!info.places.length && !info.error);
-  if (host.hidden) { host.dataset.content = ''; restoreFocus(); return; }
+  const body = document.getElementById('chat-place-body');
+  if (host.hidden) {
+    if (body.firstChild) body.replaceChildren();
+    host.dataset.content = '';
+    restoreFocus();
+    return;
+  }
   const key = JSON.stringify(info);
   if (host.dataset.content === key) return;
   host.dataset.content = key;
-  const body = document.getElementById('chat-place-body');
   body.textContent = '';
   const chosen = info.places.find((place) => place.id === info.chosen);
   const branchName = chosen && chosen.id === 'branch' ? info.branch : null;
@@ -2812,14 +2826,19 @@ function renderChatModels(data) {
   const restoreFocus = keepSetupFocus(host, data.runKey);
   const info = data.chatStages;
   host.hidden = !info || data.busy || Boolean(data.selectedRun) || (!info.stages.length && !info.error && !info.busy);
-  if (host.hidden) { host.dataset.content = ''; restoreFocus(); return; }
+  const body = document.getElementById('chat-models-body');
+  if (host.hidden) {
+    if (body.firstChild) body.replaceChildren();
+    host.dataset.content = '';
+    restoreFocus();
+    return;
+  }
   const key = JSON.stringify(info);
   if (host.dataset.content === key) return;
   host.dataset.content = key;
   const picked = info.stages.filter((stage) => stage.picked).length;
   document.getElementById('chat-models-summary').textContent = [info.label, picked ? picked + ' changed for this chat' : '']
     .filter(Boolean).join(' · ');
-  const body = document.getElementById('chat-models-body');
   body.textContent = '';
   if (info.error) { const error = el('div', 'chat-models-error', info.error); error.setAttribute('role', 'alert'); body.appendChild(error); }
   if (info.busy && !info.stages.length) body.appendChild(el('div', 'model-note', 'Reading the stages…'));

@@ -235,6 +235,8 @@ after(async () => {
 
 test('a scripted Planner HTTP 401 shows the failed stage, a blocked chat and why its models cannot change', rememberFailure(async () => {
   const frame = await chat();
+  const expand = frame.locator('#header-collapse[aria-expanded="false"]');
+  if (await expand.count()) await expand.click();
   const rows = await frame.evaluate(() => Object.fromEntries([...document.querySelectorAll('#pipeline tbody tr')]
     .map((row) => [row.dataset.job, { state: row.className, mark: row.querySelector('.mark')?.textContent }])));
   assert.deepEqual(rows.Requirements, { state: 'ran', mark: '✓' });
