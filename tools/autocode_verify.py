@@ -1909,6 +1909,7 @@ def _prove_regression(run: _Run, trees, test_changes, *, no_go_project, no_junit
             base,
             commands["suite"],
             document_only=lambda: first_suite.pristine_document_only(run, _document_only_base),
+            has_source=lambda: first_suite.base_holds_source(run, _read_git, is_code_path, is_test_path),
         ),
         preserve_only=preserve,
         absent_first_go=first_go_proved,
