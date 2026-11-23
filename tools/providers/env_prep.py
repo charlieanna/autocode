@@ -172,14 +172,14 @@ def preflight_run(
 
 
 def preflight_listing(command, env: Mapping[str, str], *, timeout, **kwargs):
-    """A model-free listing (a login summary or a model roster), asked once more when it times out (#3313).
+    """A model-free metadata read (version, login summary or model roster), retried once on timeout.
 
     Under load these reads overran their bound by a fraction of a second (`kilo auth list` exited 0
     after 15.3 s against 15 s; `kilo models --verbose` took 21.5 s against 30 s), and the single cut
     refused a person's `autocode stages set` or paused a run to ask about machinery a second read
     settles. The second attempt gets twice the bound, after owned cleanup of the first.
     Only a timeout is retried: a nonzero exit or an OS error is the answer. The caller passes only a
-    listing command, never one that runs a model; the final ``TimeoutExpired`` names the last bound.
+    metadata command, never one that runs a model; the final ``TimeoutExpired`` names the last bound.
     """
     decoding = _decoding(kwargs)
     if decoding is not None:

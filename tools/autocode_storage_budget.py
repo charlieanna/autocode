@@ -57,7 +57,7 @@ def _git_common_dir(root):
         return None
 
 
-def _other_worktrees(root):
+def _other_worktrees(root, entries):
     """Other checkouts are not source inputs, even when stored below this one.
 
     Read the git directory rather than asking git. This runs before a provider
@@ -68,7 +68,8 @@ def _other_worktrees(root):
     if common is None:
         return set()
     found = set()
-    for pointer in sorted((common / "worktrees").glob("*/gitdir")):
+    for entry in entries(common / "worktrees", missing_ok=True):
+        pointer = Path(entry.path) / "gitdir"
         try:
             gitdir = (pointer.parent / pointer.read_text(encoding="utf-8").strip()).resolve()
         except (OSError, UnicodeError):
@@ -87,8 +88,8 @@ def human(size):
     return f"{size} B"
 
 
-def workspace_bytes(workspace):
-    """Source bytes a run's copies multiply.
+def measure_workspace(workspace, *, max_entries=None):
+    """Source bytes a run's copies multiply, and whether the scan reached the end.
 
     Git objects and the run's own storage are excluded: worktrees share the
     object store, and a nested .autocode run dir is the consumer being measured,
@@ -96,39 +97,63 @@ def workspace_bytes(workspace):
     anyway, so the projection stays conservative. Prune excluded trees before
     descending: run history can contain many complete workspace copies.
     """
+    unreadable = exhausted = False
+
+    def entries(directory, *, missing_ok=False):
+        nonlocal max_entries, unreadable, exhausted
+        try:
+            with os.scandir(directory) as listing:
+                for entry in listing:
+                    if max_entries is not None:
+                        if max_entries == 0:
+                            exhausted = True
+                            return
+                        max_entries -= 1
+                    yield entry
+        except FileNotFoundError:
+            if not missing_ok:
+                unreadable = True
+            return
+        except OSError:
+            unreadable = True
+            return
+
     root = Path(workspace).resolve()
-    other_worktrees = _other_worktrees(root)
+    other_worktrees = _other_worktrees(root, entries)
     total = 0
     pending = [root]
-    while pending:
+    while pending and not exhausted:
         directory = pending.pop()
-        try:
-            with os.scandir(directory) as entries:
-                for entry in entries:
-                    if entry.name in _SKIP_DIRS or entry.name in _INTERNAL:
-                        continue
-                    try:
-                        if entry.is_dir(follow_symlinks=False):
-                            path = Path(entry.path)
-                            if path not in other_worktrees:
-                                pending.append(path)
-                        elif (
-                            entry.is_file(follow_symlinks=False)
-                            and Path(entry.name).suffix not in project_kinds.BYTECODE_SUFFIXES
-                        ):
-                            total += entry.stat(follow_symlinks=False).st_size
-                    except OSError:
-                        continue
-        except OSError:
-            continue
-    return total
+        for entry in entries(directory):
+            if entry.name in _SKIP_DIRS or entry.name in _INTERNAL:
+                continue
+            try:
+                if entry.is_dir(follow_symlinks=False):
+                    path = Path(entry.path)
+                    if path not in other_worktrees:
+                        pending.append(path)
+                elif (
+                    entry.is_file(follow_symlinks=False)
+                    and Path(entry.name).suffix not in project_kinds.BYTECODE_SUFFIXES
+                ):
+                    total += entry.stat(follow_symlinks=False).st_size
+            except OSError:
+                unreadable = True
+                continue
+    return total, not (exhausted or unreadable)
+
+
+def workspace_bytes(workspace):
+    return measure_workspace(workspace)[0]
 
 
 def projection(workspace, *, multiplier=SNAPSHOT_MULTIPLIER, disk_usage=shutil.disk_usage):
     """What one run is expected to need on the workspace's filesystem, versus what is free."""
     root = Path(workspace)
-    size = workspace_bytes(root)
-    usage = disk_usage(root)
+    return copy_projection(workspace_bytes(root), disk_usage(root), multiplier)
+
+
+def copy_projection(size, usage, multiplier):
     return {
         "workspace_bytes": size,
         "multiplier": multiplier,

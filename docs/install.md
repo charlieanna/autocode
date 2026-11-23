@@ -129,6 +129,10 @@ For an OpenCode run its `containment` line names the kernel tool boundary the st
 on this machine (macOS Seatbelt or Linux bubblewrap), or warns, with the reason, that the
 run would be refused without one ([native tool containment](execution.md#native-tool-containment)).
 
+If a task would start in a private project, `doctor` checks free space there rather than sizing
+the surrounding folder. In a large checkout its storage estimate may be labeled a lower bound;
+the full disk-space check still runs before a build makes copies.
+
 **4. Start the first task.**
 
 ```sh

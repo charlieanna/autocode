@@ -118,9 +118,12 @@ class CommandProvider:
         if version_command:
             self.warm_checks(workspace, env=env)
             try:
-                result = env_prep.preflight_run(version_command, effective, **version_options)
+                result = env_prep.preflight_listing(version_command, effective, **version_options)
             except subprocess.TimeoutExpired as error:
-                raise RuntimeError(f"{self._config['name']} version check timed out; no agent was launched") from error
+                bounds = env_prep.listing_bounds(version_options["timeout"])
+                raise RuntimeError(
+                    f"{self.NAME} version check timed out after {bounds}; no agent was launched"
+                ) from error
             except OSError as error:
                 raise RuntimeError(
                     f"{self._config['name']} version check cannot start; no agent was launched"

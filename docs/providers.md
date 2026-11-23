@@ -709,7 +709,9 @@ after-stage workspace snapshot, not by the sandbox.
 `{effort}` reaches the tool only if the command uses it.
 Use `{{` and `}}` for literal braces in a command argument, such as
 `${{VAR}}` or `{{"key":1}}`; single braces are reserved for placeholders.
-Changing the config file or the tool version pauses a saved run.
+Changing the config file or the tool version pauses a saved run. `version_command` must be a
+read-only check, such as `kilo --version`. If it times out after 15 seconds, AutoCode retries it
+once with 30 seconds. A second timeout stops the run before any agent launches.
 
 ### A different tool for one role
 
