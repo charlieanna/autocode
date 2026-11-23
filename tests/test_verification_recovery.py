@@ -13,6 +13,7 @@ import autocode_command_receipt as receipts
 import autocode_configure as configure
 import autocode_process as processes
 import autocode_runner_check as runner_check
+import autocode_scratch_location as scratch_location
 import autocode_taskrun as taskrun
 import autocode_util as util
 import autocode_verification_recovery as recovery
@@ -37,7 +38,10 @@ class AdmissionFixture:
         }
         self.pending = self.root / "pending.json"
         self.out = self.root / util.digest(self.active["identity"]) / self.active["attempt_id"]
-        (self.out / "scratch" / "tree").mkdir(parents=True)
+        self.out.mkdir(parents=True)
+        # Preparation builds the proof tree outside the workspace (#4057); the admission binds that cwd.
+        self.scratch = scratch_location.scratch_root(self.out)
+        (self.scratch / "tree").mkdir(parents=True)
         self.output = self.out / "scratch-command.log"
         self.output.write_text("retained native output; not a scheduler PASS\n")
         self.path = self.out / "command-supervision" / ("b" * 32) / "supervision.json"
@@ -70,7 +74,7 @@ class AdmissionFixture:
         self.admission = {
             "schema": 1,
             "command": self.check["command"],
-            "cwd": str(self.out / "scratch" / "tree"),
+            "cwd": str(self.scratch / "tree"),
             "output": str(self.output),
             "supervision": self.metadata,
             "timeout_seconds": 900,
