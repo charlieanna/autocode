@@ -690,11 +690,9 @@ def run_command(
             raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Original concrete native check owner required")
         return native_execution.run_command(command, cwd, log_path, timeout=timeout, env=env, checkpoint=checkpoint)
     with test_env.own_bytecode_cache(test_environment(cwd, env), cwd) as environment:
-        environment_hash = util.digest(environment)
-        receipt = command_supervision.run(
-            command, cwd, log_path, timeout=timeout, env=environment, checkpoint=checkpoint
-        )
-    return {**receipt, "execution_environment_sha256": environment_hash}
+        # The supervisor persists the exact receipt it returns, including the
+        # execution-environment binding; nothing is appended after persistence.
+        return command_supervision.run(command, cwd, log_path, timeout=timeout, env=environment, checkpoint=checkpoint)
 
 
 with_results = test_results.with_results

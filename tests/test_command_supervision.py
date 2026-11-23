@@ -140,6 +140,20 @@ class CommandSupervisionTests(unittest.TestCase):
         self.assertEqual([Path(first["output"]), Path(second["output"])], [row[1] for row in admitted])
         self.assertEqual([first["supervision"], second["supervision"]], [row[2] for row in admitted])
 
+    def test_persisted_receipt_binds_the_execution_environment(self):
+        command = self.command("pass")
+        with patch.dict(os.environ, {"AUTOCODE_RECEIPT_ENV_TEST": "first"}):
+            first = verify.run_command(command, self.root, self.root / "first.log")
+            same = verify.run_command(command, self.root, self.root / "same.log")
+        with patch.dict(os.environ, {"AUTOCODE_RECEIPT_ENV_TEST": "second"}):
+            changed = verify.run_command(command, self.root, self.root / "changed.log")
+        for result in (first, same, changed):
+            directory = Path(result["supervision"]["receipt"]).parent
+            persisted = json.loads((directory / "result.json").read_text())
+            self.assertEqual(result["execution_environment_sha256"], persisted["execution_environment_sha256"])
+        self.assertEqual(first["execution_environment_sha256"], same["execution_environment_sha256"])
+        self.assertNotEqual(first["execution_environment_sha256"], changed["execution_environment_sha256"])
+
     def test_original_deadline_overrides_collected_zero_and_complete_passing_output(self):
         command = self.command(
             "print('test_claim (__main__.Claim.test_claim) ... ok\\n\\nRan 1 test in 0.001s\\n\\nOK',flush=True)"
