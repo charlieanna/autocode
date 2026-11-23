@@ -6,7 +6,7 @@
  * untrusted text.
  */
 
-import * as vscode from "vscode";
+import vscode = require("vscode");
 import { ClientGap, integerValue, requiresConfirmation, type OpenDecision } from "./core/next-command";
 import type { AcceptanceCriterion, ChangesetSummary, DisplayedPlan, IntegerCommandInput, Question, RequirementsView, StatusView } from "./core/view";
 import { approvalToken, hasPlanReview, isWorking, needsSummary, pauseLabel, planForApproval, progressLine, stageWords, statusWords, usageLine } from "./core/view";

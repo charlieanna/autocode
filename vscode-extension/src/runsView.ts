@@ -1,6 +1,6 @@
 /** The Runs side bar: the local run registry, read through the CLI. */
 
-import * as vscode from "vscode";
+import vscode = require("vscode");
 import type { RunController } from "./controller";
 import { activity, byLatest, recentRuns, relativeTime } from "./core/recent";
 import { stageWords, statusWords, type RegistryRun } from "./core/view";

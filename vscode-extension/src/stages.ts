@@ -1,5 +1,5 @@
 /** Each stage's model and reasoning level for new chats: one dropdown per stage, from the public AutoCode CLI. */
-import * as vscode from "vscode";
+import vscode = require("vscode");
 import { randomBytes } from "node:crypto";
 import { invoke, invokeRead, tail, STAGES_TIMEOUT_MS } from "./core/cli";
 import { backendArgs, currentRoute, fillModels, fillProbe, fillSet, modelArgs, probeOutcome, readEstimate, readStages, runListCommand, runRoute, sameEstimate, type ProbeEstimate, type Stage, type StageRoute, type StageView } from "./core/stages";

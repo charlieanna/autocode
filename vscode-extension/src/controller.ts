@@ -8,7 +8,7 @@
  * a gap in AutoCode rather than filled in with a guess.
  */
 
-import * as vscode from "vscode";
+import vscode = require("vscode");
 import { realpath } from "node:fs/promises";
 import { invoke, invokeRead, readStatus, stream, tail, ReadDeadlineExceeded, STATUS_TIMEOUT_MS, type CliResult } from "./core/cli";
 import { LEGACY_PLACEMENT, placementArgs } from "./core/worktrees";

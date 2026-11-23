@@ -7,7 +7,7 @@
  * imports runner internals, and never launches a model without a person asking.
  */
 
-import * as vscode from "vscode";
+import vscode = require("vscode");
 import { statusLine } from "./statusBar";
 import { RunController, type RunRef } from "./controller";
 import { RunPanel } from "./panel";
@@ -114,7 +114,7 @@ export function activate(context: vscode.ExtensionContext): void {
   };
 
   const chat = new ChatView(controller, context.workspaceState, {
-    pickWorkspace, confirmStart: confirmSpend,
+    pickWorkspace, confirmStart: confirmSpend, pollWindow: refresh,
     changed: () => { void refresh(); },
     selected: (run) => {
       active = run;
@@ -265,21 +265,12 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("autocode.showLog", () => log.show()),
   );
 
-  // The interval and the watchdog are separate chains: one dying must not leave the line
-  // frozen, and the cadence the person sets is the cadence both run at.
-  let poll = setInterval(() => void refresh(), pollSeconds() * 1000);
+  // Independent of the shared polling tick: a stalled read must still mark the status line stale.
   let watch = setTimeout(function repeat() {
     watchStatus();
     watch = setTimeout(repeat, pollSeconds() * 1000);
   }, pollSeconds() * 1000);
-  context.subscriptions.push({ dispose: () => clearInterval(poll) });
   context.subscriptions.push({ dispose: () => clearTimeout(watch) });
-  context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((event) => {
-    if (event.affectsConfiguration("autocode.pollSeconds")) {
-      clearInterval(poll);
-      poll = setInterval(() => void refresh(), pollSeconds() * 1000);
-    }
-  }));
 
   void refresh();
 }

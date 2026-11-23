@@ -18,7 +18,7 @@ export function statusLine(view: StatusView, now = Date.now()): StatusLine {
   if (view.done) icon = "$(check)";
   else if (waitsForPerson(view)) icon = "$(bell)";
   else if (running && isWorking(view)) {
-    icon = "$(sync~spin)";
+    icon = "$(sync)";
     what = running.job;
   }
   const tooltip = [view.progress?.line ?? view.status, waitsForPerson(view) ? "Waiting for you" : "", cost ? `Cost: ${totalText(runTotal(view))}\n${costExplanation(view)}` : ""]
