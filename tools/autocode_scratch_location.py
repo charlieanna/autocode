@@ -7,6 +7,11 @@ base observation then reads the candidate, so it is not an independent base fail
 
 Every run-owned proof copy is therefore mirrored to a sibling of the workspace,
 ``workspace.parent / "<workspace.name>.autocode-scratch" / <path relative to workspace>``.
+A workspace AutoCode itself keeps in a store directory (a task worktree at
+``project/.autocode/worktrees/<name>``, a private project at ``.autocode/projects/<id>``)
+mirrors to ``project/.autocode/worktrees.autocode-scratch/<name>`` instead, so the
+store directory keeps holding only what it lists: a mirror beside the worktree read as
+another worktree, and a run directory inside it as another run.
 No ancestor of the mirror is the workspace, so ancestor lookup cannot reach candidate
 source. The mirror is deterministic from the run-owned path alone — the ``.autocode``
 store location the registry binds every run to (``workspace/.autocode/runs/<run>``) — so
@@ -39,8 +44,16 @@ def workspace_of(path):
 
 
 def external_root(workspace):
-    """The scratch mirror root: a sibling of the workspace, never inside it."""
+    """The scratch mirror root: never inside the workspace, and never in a store's listing.
+
+    ``<store>/<kind>/<name>`` (a task worktree or private project AutoCode created) mirrors to
+    ``<store>/<kind>.autocode-scratch/<name>``; any other workspace to its sibling
+    ``<name>.autocode-scratch``.
+    """
     workspace = Path(workspace)
+    kind = workspace.parent
+    if kind.parent.name == STORE and kind.name and not kind.name.endswith(SUFFIX):
+        return kind.parent / (kind.name + SUFFIX) / workspace.name
     return workspace.parent / (workspace.name + SUFFIX)
 
 
@@ -79,6 +92,10 @@ def source_base(root):
         name = parts[index]
         if name.endswith(SUFFIX) and len(name) > len(SUFFIX):
             external = Path(*parts[: index + 1])
+            if external.parent.name == STORE and index + 1 < len(parts) - 1:
+                # <store>/<kind>.autocode-scratch/<name>/... mirrors <store>/<kind>/<name>/...
+                workspace = external.parent / name[: -len(SUFFIX)] / parts[index + 1]
+                return workspace / Path(*parts[index + 2 : -1])
             workspace = external.parent / name[: -len(SUFFIX)]
             return workspace / Path(*parts[index + 1 : -1])
     return None

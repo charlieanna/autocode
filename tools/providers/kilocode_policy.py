@@ -242,6 +242,7 @@ def restrict(argv, child, workspace, *, role, request=None, report_recovery=Fals
             workspace,
             allow_write=write_stage,
             request=request,
+            role=role,
             transport="kilocode",
             resolved_shell_policy=policy,
         )

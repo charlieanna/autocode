@@ -196,10 +196,14 @@ class AttributionWorkflowTests(unittest.TestCase):
         self.assertIn("steps.suite_gate.outcome == 'failure'", attribution)
         self.assertIn("github.event_name == 'pull_request'", attribution)
         self.assertIn(
-            'tools/run_suite.py --verbosity 2 --changed "$BASE" --failed-out "$SUITE_EVIDENCE_DIR/.suite-failed.json"',
+            'tools/run_suite.py --verbosity 2 --changed "$BASE" --all-fast --shard "$SHARD" '
+            '--failed-out "$SUITE_EVIDENCE_DIR/.suite-failed.json"',
             suite,
         )
-        self.assertIn('tools/run_suite.py --verbosity 2 --failed-out "$SUITE_EVIDENCE_DIR/.suite-failed.json"', suite)
+        self.assertIn(
+            'tools/run_suite.py --verbosity 2 --shard "$SHARD" --failed-out "$SUITE_EVIDENCE_DIR/.suite-failed.json"',
+            suite,
+        )
         capture = workflow.split("      - name: Record the checkout the suite will test", 1)[1].split(
             "      - name: Run the suite gate", 1
         )[0]

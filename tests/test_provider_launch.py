@@ -141,36 +141,39 @@ class ProviderLaunchTests(unittest.TestCase):
             run = Path(temporary)
             (run / "planning").mkdir()
             (run / "planning/source-catalog.json").write_text("{}")
-            for write, repair in ((False, False), (True, False), (False, True)):
-                adapter = Stub()
-                with mock.patch.object(catalog_context, "read_roots", return_value=["/authorized/external"]) as roots:
-                    launch.prepare(
-                        engine="opencode",
-                        adapter=adapter,
-                        role="task_planner",
-                        route_role="task_planner",
-                        workspace=run,
-                        run_dir=run,
-                        session=None,
-                        model="m",
-                        effort="medium",
-                        allow_write=write,
-                        planning=True,
-                        report=run / "report",
-                        schema=run / "schema",
-                        prompt_file=run / "prompt",
-                        sandbox="read-only",
-                        transport_args=[],
-                        chatgpt=False,
-                        provider=None,
-                        planning_report_recovery=repair,
-                        source_catalog_receipt="a" * 64,
-                    )
-                actual = (adapter.containment or {}).get("read_roots", [])
-                self.assertEqual(not write and not repair, "/authorized/external" in actual)
-                self.assertEqual(not write and not repair, roots.called)
-                if roots.called:
-                    roots.assert_called_once_with({"run_dir": str(run), "source_catalog_receipt": "a" * 64})
+            for role in ("task_planner", "requirements"):
+                for write, repair in ((False, False), (True, False), (False, True)):
+                    adapter = Stub()
+                    with mock.patch.object(
+                        catalog_context, "read_roots", return_value=["/authorized/external"]
+                    ) as roots:
+                        launch.prepare(
+                            engine="opencode",
+                            adapter=adapter,
+                            role=role,
+                            route_role=role,
+                            workspace=run,
+                            run_dir=run,
+                            session=None,
+                            model="m",
+                            effort="medium",
+                            allow_write=write,
+                            planning=True,
+                            report=run / "report",
+                            schema=run / "schema",
+                            prompt_file=run / "prompt",
+                            sandbox="read-only",
+                            transport_args=[],
+                            chatgpt=False,
+                            provider=None,
+                            planning_report_recovery=repair,
+                            source_catalog_receipt="a" * 64,
+                        )
+                    actual = (adapter.containment or {}).get("read_roots", [])
+                    self.assertEqual(not write and not repair, "/authorized/external" in actual)
+                    self.assertEqual(not write and not repair, roots.called)
+                    if roots.called:
+                        roots.assert_called_once_with({"run_dir": str(run), "source_catalog_receipt": "a" * 64})
 
     def test_tool_free_repair_handoff_matches_the_recorded_launch_boundary(self):
         data = {"report_repair": True, "original_report": {"content": {"diagnosis": "saved"}}}

@@ -1712,6 +1712,7 @@ def configure(
     retain_launch_identity=False,
     transport="opencode",
     resolved_shell_policy=None,
+    role=None,
 ):
     """Constrain one launch and prove its *actual* native bash path before dispatch.
 
@@ -1722,6 +1723,8 @@ def configure(
     native bash too, and that proof is retained in conformance.json. Kilo may pass
     its freshly intersected shell policy to avoid resolving the intermediate agent;
     the final effective native policy and every actual shell probe are still checked.
+    Requirements reads the original workspace under this same boundary without a
+    verification copy; every other readonly role keeps the source-bound copy.
     """
     if transport not in ("opencode", "kilocode"):
         raise ValueError("Unsupported tool containment transport")
@@ -1806,7 +1809,7 @@ def configure(
         protected_paths=request.get("protected_paths", ()),
         loopback_checks=request.get("loopback_checks", ()),
         loopback_authority=request.get("loopback_authority"),
-        verification_copy=not allow_write,
+        verification_copy=not allow_write and role != "requirements",
         source_paths=request.get("source_paths", ()),
         write_paths=None if opt_in_writer else footprint,
         private_run=request.get("private_run"),

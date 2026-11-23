@@ -10,7 +10,19 @@ from tests.test_verify import Project, isolated_python
 
 class CollectionRepairFeedbackTests(unittest.TestCase):
     def test_builder_can_repair_uncollected_tests_without_relaxing_the_gate(self):
-        project = Project({"seed.txt": "base\n"})
+        # The base already has a passing suite, so the new test is not a project's first suite: that
+        # case counts an uncollected test as first-suite proof under its own preservation judgment
+        # (tests.test_verify.PreservationEvidenceCase). Here the test must load and fail on base.
+        project = Project(
+            {
+                "test_seed.py": (
+                    "import unittest\n"
+                    "class Seed(unittest.TestCase):\n"
+                    "    def test_seed(self):\n"
+                    "        self.assertTrue(True)\n"
+                )
+            }
+        )
         self.addCleanup(project.close)
         python = isolated_python(self)
         project.write(

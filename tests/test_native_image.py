@@ -266,10 +266,11 @@ class NativeImageConfigTests(unittest.TestCase):
             {"source_revision": self.snapshot["revision"]}
         )
 
-    def configure(self, command, environment, workspace, *, allow_write, request, retain_launch_identity):
+    def configure(self, command, environment, workspace, *, allow_write, request, retain_launch_identity, role=None):
         self.assertIsNotNone(self.observed_captures)
         self.assertFalse(allow_write)
         self.assertTrue(retain_launch_identity)
+        self.assertEqual("tester", role)
         self.assertEqual(4, command.count("--file"))
         config = json.loads(environment["OPENCODE_CONFIG_CONTENT"])
         self.assertEqual(2, len(config["plugin"]))

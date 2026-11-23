@@ -1502,8 +1502,18 @@ class TaskRunTests(unittest.TestCase):
         # only if it is per-run housekeeping (a log, a lock); a record that coordinates runs does not.
         housekeeping = {".gitignore", "runs", "usage.jsonl", "usage.lock", "writer.lock"}
         if tree:  # the project keeps only the task worktree; the run and its housekeeping are inside it
+            # worktrees.autocode-scratch holds the task worktree's proof copies, kept outside the
+            # worktree so a base check cannot read its candidate source (#4057), and outside
+            # .autocode/worktrees so that directory lists only worktrees.
             self.assertEqual(
-                {".gitignore", "project-memory.lock", "project.json", "worktree-create.lock", "worktrees"},
+                {
+                    ".gitignore",
+                    "project-memory.lock",
+                    "project.json",
+                    "worktree-create.lock",
+                    "worktrees",
+                    "worktrees.autocode-scratch",
+                },
                 names(workspace / ".autocode"),
             )
             self.assertEqual({tree.name}, names(workspace / ".autocode" / "worktrees"))
