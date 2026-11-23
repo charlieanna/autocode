@@ -2495,7 +2495,7 @@ test('self-healing machinery and nonzero live-log commands stay calm in VS Code 
   const rawView = await controller.status(runRef);
   const bar = statusLine(rawView);
   assert.doesNotMatch(bar.text, /\$\(warning\)/);
-  assert.match(bar.text, /^\$\((?:sync~spin|autorenew)\) AutoCode: Builder/);
+  assert.match(bar.text, /^\$\((?:sync|autorenew)\) AutoCode: Builder/);
   assert.doesNotMatch(bar.tooltip, /Struggling:/);
 
   // Expanding Show details still surfaces the recorded rejection for anyone inspecting the run!

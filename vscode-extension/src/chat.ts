@@ -71,6 +71,8 @@ interface ChatMessage {
 interface Actions {
   pickWorkspace(): Promise<string | undefined>;
   confirmStart(): Promise<boolean>;
+  /** Refresh the window's polling surfaces together when this chat is hosted in the extension. */
+  pollWindow?(): Promise<void>;
   changed(): void;
   selected(run?: RunRef): void;
 }
@@ -154,7 +156,8 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   private refreshing: Promise<void> | null = null;
   /** Each chat's outstanding status read; a chat is read again only after its read lands (#3851). */
   private readonly reading = new Map<ChatTab, Promise<void>>();
-  private timer: NodeJS.Timeout | undefined;
+  private regularTimer: NodeJS.Timeout | undefined;
+  private streamTimer: NodeJS.Timeout | undefined;
   private disposed = false;
   /** Last streaming extract per tab and how many reads it stayed unchanged (the TUI's pace). */
   private readonly streamText = new Map<string, string>();
@@ -283,21 +286,25 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   }
 
   private startPolling(): void {
-    this.schedulePoll();
+    if (this.regularTimer) clearInterval(this.regularTimer);
+    const seconds = Math.max(1, vscode.workspace.getConfiguration("autocode").get<number>("pollSeconds", 5));
+    const poll = this.actions.pollWindow ?? (() => this.refresh());
+    this.regularTimer = setInterval(() => void poll(), seconds * 1000);
+    this.scheduleStreamPoll(seconds);
   }
 
-  /** Recursive timeout so a growing reply can poll at the streaming pace (autocode_chat_client.pace). */
-  private schedulePoll(): void {
-    if (this.disposed) return;
-    if (this.timer) clearTimeout(this.timer);
-    const seconds = Math.max(1, vscode.workspace.getConfiguration("autocode").get<number>("pollSeconds", 5));
-    this.timer = setTimeout(() => {
-      this.timer = undefined;
-      // Never wait on the reads: a slow chat's outstanding read must not stop the next tick from
-      // reading the others (#3851). A chat whose read is still out is skipped by refresh().
+  /** Only a growing reply needs extra chat reads between the window's ordinary polls. */
+  private scheduleStreamPoll(seconds: number): void {
+    if (this.streamTimer) clearTimeout(this.streamTimer);
+    this.streamTimer = undefined;
+    const pace = this.pace(seconds);
+    if (this.disposed || pace >= seconds) return;
+    this.streamTimer = setTimeout(() => {
+      this.streamTimer = undefined;
+      // A slow chat must not stop another chat's next read (#3851).
       void this.refresh();
-      this.schedulePoll();
-    }, this.pace(seconds) * 1000);
+      this.scheduleStreamPoll(seconds);
+    }, pace * 1000);
   }
 
   /** The wait before the next read: short while a reply is still changing, else ``seconds``. */
@@ -330,13 +337,13 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       this.streamQuiet.set(tab.key, quiet);
     }
     // A newly growing (or just finished) extract changes the wait: re-arm the timer.
-    if (this.pace(seconds) !== before) this.startPolling();
+    if (this.pace(seconds) !== before) this.scheduleStreamPoll(seconds);
   }
 
   dispose(): void {
     this.disposed = true;
-    if (this.timer) clearTimeout(this.timer);
-    this.timer = undefined;
+    if (this.regularTimer) clearInterval(this.regularTimer);
+    if (this.streamTimer) clearTimeout(this.streamTimer);
     for (const key of this.notices.keys()) this.closeNotice(key);
     this.openNotice.dispose();
     this.configuration.dispose();

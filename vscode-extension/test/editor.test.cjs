@@ -6763,6 +6763,31 @@ test('delayed status resolution does not re-show unwatched run or replace newly 
   assert.ok(mockStatus.text.includes('Other running'), 'late resolution must not replace newer watched run');
 });
 
+test('one ordinary polling tick refreshes the chat and the watched status from one CLI read', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
+  // Let separately scheduled callbacks settle between ticks, as they can in the extension host.
+  const interval = global.setInterval;
+  t.mock.method(global, 'setInterval', (callback, delay, ...args) => interval(callback, delay + 1, ...args));
+  const bar = { show() {}, hide() {}, dispose() {} };
+  t.mock.method(host.vscode.window, 'createStatusBarItem', () => bar);
+  t.mock.method(RunController.prototype, 'list', async () => ({ runs: [], diagnostics: [] }));
+  let headline = 'First read';
+  const reads = t.mock.method(RunController.prototype, 'status', async () => ({
+    status: 'RUNNING', done: false, progress: { headline },
+  }));
+  const context = { subscriptions: [], workspaceState: host.workspaceState };
+  activate(context);
+  t.after(() => context.subscriptions.forEach((item) => item.dispose?.()));
+  await host.commands.get('autocode.openRun')(run);
+  await flush();
+  const before = reads.mock.callCount();
+  headline = 'Next read';
+  t.mock.timers.tick(5000); await flush();
+  t.mock.timers.tick(1); await flush();
+  assert.equal(reads.mock.callCount() - before, 1, 'an on-time chat and status line share a fresh CLI result');
+  assert.match(bar.text, /Next read/);
+});
+
 test('a status line whose reads stop says it is stale, not silently old', async (t) => {
   t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
   let statusText = '';

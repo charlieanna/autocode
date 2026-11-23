@@ -251,12 +251,12 @@ test("the status bar names the working stage and its cost without flashing warni
     spent: 1.21, cap: 5, extra: { needs: { kind: "continue" }, liveness: { kind: "supervised" }, progress: { headline: "Building" } },
   });
   const line = statusLine(working, NOW);
-  assert.equal(line.text, "$(sync~spin) AutoCode: Builder · $1.21 · 184k tokens");
+  assert.equal(line.text, "$(sync) AutoCode: Builder · $1.21 · 184k tokens");
   assert.doesNotMatch(line.tooltip, /Struggling:/);
   const calm = view([attempt("terra", "Builder", { active: true, duration_seconds: 5 })], {
     extra: { needs: { kind: "continue" }, liveness: { kind: "supervised" }, progress: { headline: "Building" } },
   });
-  assert.equal(statusLine(calm, NOW).text, "$(sync~spin) AutoCode: Builder · $0.42 · 184k tokens");
+  assert.equal(statusLine(calm, NOW).text, "$(sync) AutoCode: Builder · $0.42 · 184k tokens");
   const waiting = view([], { extra: { needs: { kind: "approve_plan" }, progress: { headline: "Plan ready" } } });
   assert.match(statusLine(waiting, NOW).text, /^\$\(bell\) AutoCode: Plan ready/);
   assert.match(statusLine(waiting, NOW).tooltip, /Waiting for you/);
