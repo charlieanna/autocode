@@ -312,20 +312,53 @@ The jsdom tests alone establish neither editor-host nor live-provider compatibil
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | `autocode.cliPath` | `autocode` | The CLI to start. |
-| `autocode.cliArgs` | `[]` | Leading arguments, for a source checkout. |
+| `autocode.cliArgs` | `[]` | Arguments passed to the configured executable before the AutoCode command. |
 | `autocode.provider` | `""` | `--provider` for new chats. |
 | `autocode.extraOptions` | `[]` | Extra engine and model flags for new chats. |
 | `autocode.maxStageSeconds` | empty | Time limit for each step of a new chat, in seconds (`--max-stage-seconds`). Empty uses AutoCode's default or `max-stage-seconds` in `.autocode/config.toml`; `0` turns it off. A pause never asks for it. |
 | `autocode.pollSeconds` | `5` | Seconds between read-only status updates. |
 | `autocode.confirmPersonOnly` | `true` | Ask before acting on a pause the run stopped for a person. |
 
-Each status update is a new `autocode` process, which would otherwise read the whole
-workspace once before answering: 13–27 s on a 12.5k-file project, past the 30 s status
-bound, so the update fails instead of showing the run. The extension starts every CLI
-call with `AUTOCODE_SOURCE_HOST=1`, so the updates share one warm snapshot helper
-instead. Setting `AUTOCODE_SOURCE_HOST=0` in the environment the editor starts in turns
-it off; see [Execution](execution.md#who-approved) just above "Who approved" for what
-the helper does and keeps.
+On macOS and Linux, the extension enables AutoCode's warm Python helper by
+default. It keeps CLI modules and workspace snapshot hashes in memory between
+calls. On a 12,500-file project, cold workspace reads took 13–27 seconds of the
+editor's 30-second status deadline. The extension also honors an existing
+`AUTOCODE_SOURCE_HOST` value in the environment VS Code was started in.
+[How the warm CLI host works](task-run.md#warm-local-cli-host)
+
+### Reduce memory use on macOS or Linux
+
+To run each status read in a short-lived process, add these entries to VS
+Code's **User Settings (JSON)**. Use the absolute path to your installed
+`autocode` executable. VS Code passes each array entry as one argument, so
+paths containing spaces work as written.
+
+```json
+{
+  "autocode.cliPath": "/usr/bin/env",
+  "autocode.cliArgs": [
+    "AUTOCODE_SOURCE_HOST=0",
+    "/absolute/path/to/bin/autocode"
+  ]
+}
+```
+
+The measured setup also used a separate Python 3.12 environment for the editor.
+To reproduce it, run these commands from an AutoCode checkout at the revision
+you use. Put the executable path printed by the last command in the array above.
+
+```sh
+python3.12 -m venv "$HOME/.venvs/autocode-vscode"
+"$HOME/.venvs/autocode-vscode/bin/python" -m pip install .
+echo "$HOME/.venvs/autocode-vscode/bin/autocode"
+```
+
+On an Apple M1 Max with VS Code and its terminal already open, switching from
+Python 3.14 with the helper to Python 3.12 with it disabled reduced median
+peak added memory from **340 to 297 MiB**. While waiting for approval, it fell
+from **200 to 133 MiB**. Each configuration ran the same scripted task three
+times with the chat sidebar visible. To undo the change, return both
+`autocode.cliPath` and `autocode.cliArgs` to their previous values.
 
 ## Remaining scope
 
