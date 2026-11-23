@@ -18,6 +18,7 @@ try:
     from . import autocode_code_checkpoints as checkpoints
     from . import autocode_command_receipt as command_receipt
     from . import autocode_contract_identity as contracts
+    from . import autocode_scratch_location as scratch_location
     from . import autocode_test_cases as test_cases
     from . import autocode_util as util
 except ImportError:
@@ -25,6 +26,7 @@ except ImportError:
     import autocode_code_checkpoints as checkpoints
     import autocode_command_receipt as command_receipt
     import autocode_contract_identity as contracts
+    import autocode_scratch_location as scratch_location
     import autocode_test_cases as test_cases
     import autocode_util as util
 
@@ -89,7 +91,7 @@ def collect(context, workspace, out, result, framework, *, verify, dependencies,
     command = (result.get("commands") or {}).get("regression")
     if not tests or not command:
         return {"error": "Follow-up preservation has no current targeted tests"}
-    tree = Path(out) / "follow-up-baseline"
+    tree = scratch_location.relocate(Path(out) / "follow-up-baseline")
     ownership_uncertain = False
     try:
         verify.make_tree(

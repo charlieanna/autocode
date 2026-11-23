@@ -37,6 +37,7 @@ try:
     from . import autocode_preflight_design as design
     from . import autocode_preflight_worker as workers
     from . import autocode_runner_check as runner_check
+    from . import autocode_scratch_location as scratch_location
     from . import autocode_storage_budget as storage_budget
     from . import autocode_test_environment as test_environment
     from . import autocode_util as util
@@ -49,6 +50,7 @@ except ImportError:
     import autocode_preflight_design as design
     import autocode_preflight_worker as workers
     import autocode_runner_check as runner_check
+    import autocode_scratch_location as scratch_location
     import autocode_storage_budget as storage_budget
     import autocode_test_environment as test_environment
     import autocode_util as util
@@ -326,7 +328,7 @@ def guard(state: RunState, workspace, run_dir, *, worker=None, persist=lambda _p
                 and (state["settings"].get("figma_file") or state["settings"].get("design_manifest"))
             )
         )
-        tree = directory / "scratch" / "candidate" if needs_copy else None
+        tree = scratch_location.scratch_root(directory) / "candidate" if needs_copy else None
         if tree:
             verify.make_tree(
                 workspace,

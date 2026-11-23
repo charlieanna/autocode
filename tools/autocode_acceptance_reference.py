@@ -22,6 +22,7 @@ try:
     from . import autocode_launch_inputs as launch_inputs
     from . import autocode_proof_stability as stability
     from . import autocode_run_base as run_base
+    from . import autocode_scratch_location as scratch_location
     from . import autocode_source_scope as source_scope
     from . import autocode_test_cases as test_cases
     from . import autocode_test_environment as test_environment
@@ -40,6 +41,7 @@ except ImportError:
     import autocode_launch_inputs as launch_inputs
     import autocode_proof_stability as stability
     import autocode_run_base as run_base
+    import autocode_scratch_location as scratch_location
     import autocode_source_scope as source_scope
     import autocode_test_cases as test_cases
     import autocode_test_environment as test_environment
@@ -106,7 +108,7 @@ def collect(state: RunState, workspace, run_dir, out, selected, files, command=N
     ``new_behavior`` is whether the approved task adds behavior rather than fixing a bug. The shared setup
     classifier excludes preparation failures from proof for both; incomplete collection stays unverified."""
     workspace, out = Path(workspace), Path(out) / f"attempt-{uuid4().hex}"
-    tree = out / "tree"
+    tree = scratch_location.relocate(out / "tree")
     uncertain = False
     try:
         out.mkdir(parents=True, exist_ok=False)

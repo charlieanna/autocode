@@ -23,6 +23,7 @@ try:
     from . import autocode_command_supervision as command_supervision
     from . import autocode_interventions as interventions
     from . import autocode_process as processes
+    from . import autocode_scratch_location as scratch_location
     from . import autocode_stop as stop_policy
     from . import autocode_uncertain_cleanup as uncertain_cleanup
     from . import autocode_util as util
@@ -32,6 +33,7 @@ except ImportError:
     import autocode_command_supervision as command_supervision
     import autocode_interventions as interventions
     import autocode_process as processes
+    import autocode_scratch_location as scratch_location
     import autocode_stop as stop_policy
     import autocode_uncertain_cleanup as uncertain_cleanup
     import autocode_util as util
@@ -189,7 +191,7 @@ def _proof_scratch(run_root, output_dir):
     if not parts:
         return None
     proof = verification_recovery.owned_path(regression / parts[0], run_root, directory=True)
-    return verification_recovery.owned_path(proof / "scratch", proof, directory=True)
+    return scratch_location.scratch_root(proof)
 
 
 def auto_recover(state: RunState, run_dir, persist, *, source_revision, source_current, all_due=False):

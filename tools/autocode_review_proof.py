@@ -14,6 +14,7 @@ try:
     from . import autocode_command_receipt as receipts
     from . import autocode_review_attribution as attribution
     from . import autocode_review_mutation as mutation
+    from . import autocode_scratch_location as scratch_location
     from . import autocode_source_snapshot as source_snapshot
     from . import autocode_util as util
     from .autocode_protected_paths import path_in
@@ -21,6 +22,7 @@ except ImportError:
     import autocode_command_receipt as receipts
     import autocode_review_attribution as attribution
     import autocode_review_mutation as mutation
+    import autocode_scratch_location as scratch_location
     import autocode_source_snapshot as source_snapshot
     import autocode_util as util
     from autocode_protected_paths import path_in
@@ -163,7 +165,7 @@ def collect(workspace, out, tests, patch, clean_run, *, timeout):
                     "setup_errors": {**receipt["results"].get("setup_errors", {}), **setup_errors},
                 }
             details = attribution.failure_details(
-                receipt, directory / "scratch" / "tree", directory / "scratch-tests.junit.xml"
+                receipt, scratch_location.scratch_root(directory) / "tree", directory / "scratch-tests.junit.xml"
             )
         except (OSError, ValueError, KeyError, TypeError, SyntaxError):
             details = {}

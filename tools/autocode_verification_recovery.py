@@ -18,11 +18,13 @@ from pathlib import Path
 try:
     from . import autocode_command_receipt as receipts
     from . import autocode_process as processes
+    from . import autocode_scratch_location as scratch_location
     from . import autocode_uncertain_cleanup as uncertain_cleanup
     from . import autocode_util as util
 except ImportError:
     import autocode_command_receipt as receipts
     import autocode_process as processes
+    import autocode_scratch_location as scratch_location
     import autocode_uncertain_cleanup as uncertain_cleanup
     import autocode_util as util
 
@@ -101,7 +103,8 @@ def bind_command(out, check, *, preparation_cwd=None, scratch_root=None):
     if scratch_root is not None:
         scratch_root = Path(scratch_root)
         scratch_root = owned_path(scratch_root, scratch_root.parent, directory=True)
-        if scratch_root.name != "scratch" or not out.is_relative_to(scratch_root.parent):
+        proof = scratch_location.source_base(scratch_root) or scratch_root.parent
+        if scratch_root.name != "scratch" or not out.is_relative_to(proof):
             hold("scratch and command output do not belong to the same proof")
     output = owned_path(check["output"], out)
     if output.parent != out or not isinstance(check.get("command"), str) or not check["command"]:
@@ -126,7 +129,11 @@ def bind_command(out, check, *, preparation_cwd=None, scratch_root=None):
         or admission.get("output") != str(output)
         or admission.get("supervision") != metadata
         or not cwd.is_absolute()
-        or (cwd != preparation_cwd if preparation_cwd else not cwd.is_relative_to(scratch_root or out / "scratch"))
+        or (
+            cwd != preparation_cwd
+            if preparation_cwd
+            else not cwd.is_relative_to(scratch_root or scratch_location.scratch_root(out))
+        )
         or cwd != cwd.resolve()
         or any(parent.is_symlink() for parent in (cwd, *cwd.parents))
     ):

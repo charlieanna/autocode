@@ -31,6 +31,7 @@ import autocode_job_source as job_source
 import autocode_person_text as person_text
 import autocode_report_check as report_check
 import autocode_role_launch as role_launch
+import autocode_scratch_location as scratch_location
 import autocode_support as s
 import autocode_util as util
 from goal_fixtures import body, envelope
@@ -697,6 +698,8 @@ class CompareBaseCaptureTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name).resolve()
+        # The proof scratch mirrors outside the workspace (#4057); tidy the sibling too.
+        self.addCleanup(shutil.rmtree, scratch_location.external_root(root), ignore_errors=True)
         git(root, "init", "-q")
         (root / "doc.txt").write_text(committed)
         (root / "check.py").write_text(self.checker)
@@ -913,7 +916,7 @@ class CompareBaseCaptureTests(unittest.TestCase):
         self.assertLessEqual(run.call_args.kwargs["timeout"], comparison.COMPARISON_TIMEOUT)
         self.assertTrue(run.call_args.kwargs["merge_output"])
         self.assertEqual("partial diagnostic\n", (evidence / "comparison.base.log").read_text())
-        self.assertEqual([], list((root / ".autocode/scratch").iterdir()))
+        self.assertEqual([], list(scratch_location.relocate(root / ".autocode/scratch").iterdir()))
         self.assertFalse((evidence / "comparison.json").exists())
 
     def test_uncertain_descendant_cleanup_does_not_create_a_comparison(self):
@@ -926,7 +929,7 @@ class CompareBaseCaptureTests(unittest.TestCase):
         with mock.patch.object(comparison.captured_process, "run_metadata", side_effect=error):
             with self.assertRaisesRegex(comparison.captured_process.ProcessError, "descendant cleanup uncertain"):
                 comparison.compare([sys.executable, "check.py"], "HEAD", root, evidence / "comparison.json")
-        self.assertEqual([], list((root / ".autocode/scratch").iterdir()))
+        self.assertEqual([], list(scratch_location.relocate(root / ".autocode/scratch").iterdir()))
         self.assertFalse((evidence / "comparison.json").exists())
 
     def test_capture_reports_uncertain_cleanup_without_publishing_a_receipt(self):
@@ -954,7 +957,7 @@ class CompareBaseCaptureTests(unittest.TestCase):
         evidence.mkdir(parents=True)
         with self.assertRaises(FileNotFoundError):
             comparison.compare([str(root / "no-such-checker")], "HEAD", root, evidence / "comparison.json")
-        self.assertEqual([], list((root / ".autocode/scratch").iterdir()))
+        self.assertEqual([], list(scratch_location.relocate(root / ".autocode/scratch").iterdir()))
         self.assertFalse((evidence / "comparison.json").exists())
 
     def test_real_comparison_preserves_exact_argv_and_combined_stream_order(self):
@@ -1004,7 +1007,7 @@ class CompareBaseCaptureTests(unittest.TestCase):
         self.assertEqual(0, receipt["base_exit_code"])
         self.assertEqual(0, receipt["candidate_exit_code"])
         self.assertEqual(["WARNING: BROKEN ref"], receipt["new_diagnostics"])
-        scratch = root / ".autocode/scratch"
+        scratch = scratch_location.relocate(root / ".autocode/scratch")
         self.assertEqual([], list(scratch.iterdir()) if scratch.exists() else [])
         self.assertEqual("ok\nBROKEN ref\n", (root / "doc.txt").read_text())
 

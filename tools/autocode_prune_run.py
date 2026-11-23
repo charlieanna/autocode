@@ -29,9 +29,11 @@ import sys
 from pathlib import Path
 
 try:
+    from . import autocode_scratch_location as scratch_location
     from . import autocode_stop as stop
     from . import autocode_util as util
 except ImportError:
+    import autocode_scratch_location as scratch_location
     import autocode_stop as stop
     import autocode_util as util
 
@@ -139,7 +141,7 @@ def prune(plan):
     for item in plan["delete"]:
         path = Path(item["path"])
         if item["kind"] == "verification-copy":
-            scratch = path / "scratch"
+            scratch = scratch_location.scratch_root(path)
             if scratch.is_dir() and not scratch.is_symlink():
                 shutil.rmtree(scratch)
         elif path.is_dir() and not path.is_symlink():

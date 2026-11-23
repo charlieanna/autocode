@@ -15,6 +15,7 @@ import autocode_process as processes
 import autocode_regression as regression
 import autocode_run_view as run_view
 import autocode_runner_check as runner_check
+import autocode_scratch_location as scratch_location
 import autocode_status as status
 import autocode_uncertain_cleanup as uncertain_cleanup
 import autocode_util as util
@@ -191,7 +192,7 @@ class RunnerCheckTests(unittest.TestCase):
         log_dir = proof.joinpath(*log_parts)
         directory = log_dir / "command-supervision" / ("a" * 32)
         directory.mkdir(parents=True)
-        (proof / "scratch" / "candidate").mkdir(parents=True)
+        (scratch_location.scratch_root(proof) / "candidate").mkdir(parents=True)
         output = log_dir / "captured.log"
         output.write_text("partial output")
         path = directory / "supervision.json"
@@ -206,7 +207,7 @@ class RunnerCheckTests(unittest.TestCase):
                 "schema": 1,
                 "command": check["command"],
                 "output": str(output),
-                "cwd": str(proof / "scratch" / "candidate"),
+                "cwd": str(scratch_location.scratch_root(proof) / "candidate"),
                 "supervision": metadata,
             },
         )
@@ -243,7 +244,7 @@ class RunnerCheckTests(unittest.TestCase):
     def test_automatic_cleanup_refuses_scratch_from_a_different_proof(self):
         proof = self.run / "regression" / "proof-a"
         _, receipt = self._automatic_hold(proof=proof, log_parts=("reports",))
-        other = self.run / "regression" / "proof-b" / "scratch" / "candidate"
+        other = scratch_location.scratch_root(self.run / "regression" / "proof-b") / "candidate"
         other.mkdir(parents=True)
         admission_path = receipt.parent / "admission.json"
         admission = util.read(admission_path)
@@ -280,7 +281,7 @@ class RunnerCheckTests(unittest.TestCase):
     def test_command_binding_refuses_an_unrelated_scratch_root(self):
         proof = self.run / "regression" / "proof-a"
         self._automatic_hold(proof=proof, log_parts=("reports",))
-        other = self.run / "regression" / "proof-b" / "scratch"
+        other = scratch_location.scratch_root(self.run / "regression" / "proof-b")
         other.mkdir(parents=True)
         check = self.state["active_runner_check"]
         with self.assertRaises(command_receipt.OwnershipUncertain):

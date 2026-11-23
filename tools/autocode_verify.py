@@ -78,6 +78,7 @@ try:
     from . import autocode_python_tests as python_tests
     from . import autocode_review_mutation as review_mutations
     from . import autocode_review_proof as review_proof
+    from . import autocode_scratch_location as scratch_location
     from . import autocode_scratch_overlay as scratch_overlay
     from . import autocode_scratch_preparation as scratch_preparation
     from . import autocode_scratch_suites as scratch_suites
@@ -131,6 +132,7 @@ except ImportError:
     import autocode_python_tests as python_tests
     import autocode_review_mutation as review_mutations
     import autocode_review_proof as review_proof
+    import autocode_scratch_location as scratch_location
     import autocode_scratch_overlay as scratch_overlay
     import autocode_scratch_preparation as scratch_preparation
     import autocode_scratch_suites as scratch_suites
@@ -1664,7 +1666,7 @@ def baseline(
     tree = make_tree(
         workspace,
         base,
-        Path(run_dir) / "scratch" / "baseline",
+        scratch_location.scratch_root(run_dir) / "baseline",
         workspace,
         {},
         dependencies_from=dependencies_from,
@@ -2391,7 +2393,7 @@ def verify(
             trees["candidate"] = make_tree(
                 workspace,
                 base,
-                candidate_tree or run_dir / "scratch" / "candidate",
+                candidate_tree or scratch_location.scratch_root(run_dir) / "candidate",
                 workspace,
                 changes,
                 dependencies_from=dependencies_from,
@@ -2553,7 +2555,7 @@ def _pre_existing(
     tree = make_tree(
         workspace,
         base,
-        Path(run_dir) / "scratch" / "base",
+        scratch_location.scratch_root(run_dir) / "base",
         workspace,
         {},
         dependencies_from=dependencies_from,

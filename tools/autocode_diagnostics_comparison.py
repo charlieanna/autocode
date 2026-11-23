@@ -32,6 +32,7 @@ try:
     from . import autocode_captured_process as captured_process
     from . import autocode_protected_paths as protected_paths
     from . import autocode_reference_diagnostics as reference_diagnostics
+    from . import autocode_scratch_location as scratch_location
     from . import autocode_scratch_overlay as scratch_overlay
     from . import autocode_source_snapshot as source_snapshot
     from . import autocode_util as util
@@ -39,6 +40,7 @@ except ImportError:
     import autocode_captured_process as captured_process
     import autocode_protected_paths as protected_paths
     import autocode_reference_diagnostics as reference_diagnostics
+    import autocode_scratch_location as scratch_location
     import autocode_scratch_overlay as scratch_overlay
     import autocode_source_snapshot as source_snapshot
     import autocode_util as util
@@ -118,7 +120,7 @@ def compare(
     if base_log.exists() or base_log.is_symlink() or candidate_log.exists() or candidate_log.is_symlink():
         raise FileExistsError("diagnostic comparison logs already exist")
     deadline = time.monotonic() + COMPARISON_TIMEOUT
-    scratch = top / ".autocode" / "scratch"
+    scratch = scratch_location.relocate(top / ".autocode" / "scratch")
     if reference_docs:
         # This opt-in uses separate pinned copies, never a caller's cached outputs.
         docs = reference_diagnostics.sphinx_scope(command, list(reference_docs))

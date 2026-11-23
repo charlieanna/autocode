@@ -38,11 +38,13 @@ from pathlib import Path
 try:
     from . import autocode_input_preflight as input_preflight
     from . import autocode_names as names
+    from . import autocode_scratch_location as scratch_location
     from . import autocode_taskrun as taskrun
     from . import autocode_verify as verify
 except ImportError:  # executed as a script, with tools/ on sys.path
     import autocode_input_preflight as input_preflight
     import autocode_names as names
+    import autocode_scratch_location as scratch_location
     import autocode_taskrun as taskrun
     import autocode_verify as verify
 
@@ -109,7 +111,7 @@ def main(argv=None) -> int:
     except OSError as error:
         return _fail([f"cannot read the task brief {args.brief}: {error}"])
     invocation = datetime.now(UTC).strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:8]
-    destination = workspace / ".autocode" / "prep" / invocation / "source"
+    destination = scratch_location.relocate(workspace / ".autocode" / "prep" / invocation / "source")
     try:
         head = subprocess.run(["git", "-C", str(workspace), "rev-parse", "HEAD"], capture_output=True, text=True)
         if head.returncode:

@@ -45,6 +45,7 @@ try:
     from . import autocode_command_receipt as command_receipt
     from . import autocode_project_suite_health as project_suite_health
     from . import autocode_proof_stability as proof_stability
+    from . import autocode_scratch_location as scratch_location
     from . import autocode_test_cases as test_cases
     from . import autocode_util as util
     from . import autocode_verification_schedule as schedule
@@ -52,6 +53,7 @@ except ImportError:
     import autocode_command_receipt as command_receipt
     import autocode_project_suite_health as project_suite_health
     import autocode_proof_stability as proof_stability
+    import autocode_scratch_location as scratch_location
     import autocode_test_cases as test_cases
     import autocode_util as util
     import autocode_verification_schedule as schedule
@@ -455,7 +457,7 @@ def for_proof(run, trees, on_candidate, comparable, helpers) -> list[str]:
 
     def rerun(command, side, label):
         if side == "base" and not base_tree:
-            destination = Path(run.run_dir) / "scratch" / "flake-base"
+            destination = scratch_location.scratch_root(run.run_dir) / "flake-base"
             base_tree.append(
                 make_tree(
                     run.workspace,

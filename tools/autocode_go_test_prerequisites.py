@@ -11,10 +11,12 @@ import re
 try:
     from . import autocode_command_receipt as command_receipt
     from . import autocode_project_kinds as project_kinds
+    from . import autocode_scratch_location as scratch_location
     from . import autocode_test_parts as test_parts
 except ImportError:
     import autocode_command_receipt as command_receipt
     import autocode_project_kinds as project_kinds
+    import autocode_scratch_location as scratch_location
     import autocode_test_parts as test_parts
 
 _GO_FILES = project_kinds.TEST_PREREQUISITES["go"]
@@ -252,7 +254,9 @@ def prepare_base(make_tree, workspace, base, run_dir, candidate, test_changes, c
     """Prepare the original-source test comparison with validated loading inputs."""
     from pathlib import Path
 
-    tree = make_tree(workspace, base, run_dir / "scratch" / "base-with-tests", workspace, test_changes, **options)
+    tree = make_tree(
+        workspace, base, scratch_location.scratch_root(run_dir) / "base-with-tests", workspace, test_changes, **options
+    )
     parts_receipt = None
     try:
         parts_receipt = test_parts.splice_tree(tree, candidate, test_changes, changes, run_dir / "test-parts")

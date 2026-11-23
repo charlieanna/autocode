@@ -100,6 +100,7 @@ try:
     from . import autocode_roles as roles
     from . import autocode_run_base as run_base
     from . import autocode_runner_check as runner_check
+    from . import autocode_scratch_location as scratch_location
     from . import autocode_status as status
     from . import autocode_test_cases as test_cases
     from . import autocode_test_environment as test_environment
@@ -150,6 +151,7 @@ except ImportError:
     import autocode_roles as roles
     import autocode_run_base as run_base
     import autocode_runner_check as runner_check
+    import autocode_scratch_location as scratch_location
     import autocode_status as status
     import autocode_test_cases as test_cases
     import autocode_test_environment as test_environment
@@ -1250,7 +1252,7 @@ def _listed_tests(looking, changes, roles, framework, workspace, base, out, depe
     def look(reverted, unloadable):
         runs.append(reverted)
         label = f"listed-tests-{len(runs):02d}"
-        tree = Path(out) / "scratch" / label
+        tree = scratch_location.scratch_root(out) / label
         try:
             verify.make_tree(
                 workspace,
@@ -1632,7 +1634,7 @@ def _proving(
             regression_command = options.get("test_command")
         guards = test_cases.guard_names(due, framework.name if framework else None)
         ahead = [] if all_due else pending_tests.withheld(state, workspace, due)
-        kept.append(out / "scratch" / "candidate")
+        kept.append(scratch_location.scratch_root(out) / "candidate")
         # A bug fix the approved plan makes in test files alone: a fixture, a helper (autocode_test_support).
         support_planned = goals.task_kind(state) == "bugfix" and test_support.planned(
             state.get("goal_contract"), lambda path: roles.role(path) == role_policy.TEST
