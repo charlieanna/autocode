@@ -20,13 +20,13 @@ BASE = {
 }
 M1 = {
     "calc.py": BASE["calc.py"] + "def sub(a, b):\n    return a - b\n",
-    "test_m1.py": "import unittest\nfrom calc import sub\nclass First(unittest.TestCase):\n"
-    "    def test_c1_subtracts(self): self.assertEqual(2, sub(5, 3))\n",
+    "test_m1.py": "import unittest\nimport calc\nclass First(unittest.TestCase):\n"
+    "    def test_c1_subtracts(self): self.assertEqual(2, calc.sub(5, 3))\n",
 }
 M2 = {
     "calc.py": M1["calc.py"] + "def mul(a, b):\n    return a * b\n",
-    "test_m2.py": "import unittest\nfrom calc import mul\nclass Second(unittest.TestCase):\n"
-    "    def test_c2_multiplies(self): self.assertEqual(6, mul(2, 3))\n",
+    "test_m2.py": "import unittest\nimport calc\nclass Second(unittest.TestCase):\n"
+    "    def test_c2_multiplies(self): self.assertEqual(6, calc.mul(2, 3))\n",
 }
 
 
