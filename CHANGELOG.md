@@ -23,6 +23,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **A project's build-written version file reaches the clean test copies**: in an in-place run of a hatch-vcs or setuptools-scm project, the `_version.py` a Builder's `pip install -e .` writes was left out of every clean copy, so a planned `pytest` command failed there at collection and the run paused asking the person about AutoCode's checks. A rebuild that rewrote a version file present at launch made the proof `UNVERIFIED` the same way. Such a file is now copied when the base revision's `pyproject.toml`, `setup.cfg` or `setup.py` names its path and it holds only data; any other ignored file written during the run stays out, as before.
+
 - **A model whose listing names only levels off AutoCode's scale no longer stops a launch**: seven effort rules (review ceiling, hard plan, format repair, light Builder, Requirements triage, output-cap recovery, route ladder) each worked out which levels a model serves with their own copy of the same code, and five of them raised `ValueError` when a tool listed only a variant such as `minimal`. They now read one answer, `autocode_route_fit.offered`, which leaves off-scale variants out.
 
 - A slow provider version check such as `kilo --version` now gets one longer retry before a chat is refused. `autocode doctor` checks free space for the project a new run will use rather than sizing unrelated repositories, and labels partial estimates in large checkouts. Builds still perform the full storage check.
