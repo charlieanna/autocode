@@ -23,6 +23,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A slow provider version check such as `kilo --version` now gets one longer retry before a chat is refused. `autocode doctor` checks free space for the project a new run will use rather than sizing unrelated repositories, and labels partial estimates in large checkouts. Builds still perform the full storage check.
+
 - **A busy warm CLI host no longer stalls other status and registry reads** (#3849): when a request holds the warm host, other reads briefly wait for it and then run in their own CLI process. The first request continues and a later read can reuse the warm host.
 
 - **An accepted Planner repair no longer claims a contract-change row it removed** (#3908): when the revision guard refused a declared change ("drop that row") and the report repair dropped it, the repair's concern response and summary could still say the row was re-emitted, and acceptance presented that claim as a published change to the person and the final review. Acceptance now binds those claims to the accepted change list: a response, decision or summary that mentions a removed row carries a runner note marking the claim unverified, the saved repair artifact says the same, and the repair history records the row and concern. A repair that keeps every declared row is untouched, and no gate, question or model call changed.

@@ -10,7 +10,7 @@ import os
 import tempfile
 import threading
 import unittest
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from unittest import mock
 
@@ -27,7 +27,7 @@ if [ -n "$TOGETHER" ]; then
   [ $n -lt 100 ] && echo together >> "{log}.met" || echo alone >> "{log}.met"
 fi
 case "$*" in
-  --version) echo 7.8.3 ;;
+  --version) echo {version} ;;
   "auth list") echo "● OpenAI oauth" ;;
   "models") echo openai/gpt-5.6-sol ;;
   "models --verbose") printf 'openai/gpt-5.6-sol\\n{{"id": "gpt-5.6-sol", "variants": {{"high": {{}}}}}}\\n' ;;
@@ -38,7 +38,7 @@ esac
 """
 
 
-class WarmupTests(unittest.TestCase):
+class KiloFixture(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
@@ -48,7 +48,8 @@ class WarmupTests(unittest.TestCase):
         self.home.mkdir()
         self.log = root / "calls"
         kilo = self.bin / "kilo"
-        kilo.write_text(KILO.format(log=self.log))
+        self.script = KILO.format(log=self.log, version=kilocode.containment.kilo_versions()[0])
+        kilo.write_text(self.script)
         kilo.chmod(0o755)
         self.workspace = root / "project"
         self.workspace.mkdir()
@@ -63,6 +64,8 @@ class WarmupTests(unittest.TestCase):
     def calls(self):
         return self.log.read_text().splitlines() if self.log.exists() else []
 
+
+class WarmupTests(KiloFixture):
     def setup_checks(self):
         """The checks a run asks in turn before its first stage, as the runner asks them."""
         self.provider.local_settings(self.workspace)
@@ -87,7 +90,7 @@ class WarmupTests(unittest.TestCase):
         self.assertEqual([], self.calls())
 
     def test_a_failed_warm_check_is_asked_again_by_the_check_itself(self):
-        (self.bin / "kilo").write_text(KILO.format(log=self.log).replace('"models") echo', '"models") exit 1; echo'))
+        (self.bin / "kilo").write_text(self.script.replace('"models") echo', '"models") exit 1; echo'))
         with env_prep.reuse_checks(self.run_dir):
             self.provider.warm_checks(self.workspace)
             with self.assertRaisesRegex(RuntimeError, "Cannot list kilocode models"):
@@ -105,14 +108,8 @@ class WarmupTests(unittest.TestCase):
         self.assertEqual(["together"] * 4, Path(f"{self.log}.met").read_text().split())
 
 
-class PolicyReuseTests(WarmupTests):
+class PolicyReuseTests(KiloFixture):
     """Kilo's debug answers, read before every stage, kept while nothing they depend on changed."""
-
-    # The warm-up tests ran above; these share only the fixture.
-    test_the_checks_run_at_once_and_the_setup_after_them_starts_no_tool = None
-    test_outside_a_run_nothing_is_warmed = None
-    test_a_failed_warm_check_is_asked_again_by_the_check_itself = None
-    test_the_first_check_a_run_asks_warms_the_rest_once = None
 
     def policy(self):
         child = dict(os.environ)
@@ -147,9 +144,7 @@ class PolicyReuseTests(WarmupTests):
             self.assertEqual(before + 2, len(self.debug_calls()), "both answers were asked again after the change")
 
     def test_an_answer_that_is_not_a_policy_is_never_kept(self):
-        (self.bin / "kilo").write_text(
-            KILO.format(log=self.log).replace("""echo '{"default_agent": "code"}'""", "echo not-json")
-        )
+        (self.bin / "kilo").write_text(self.script.replace("""echo '{"default_agent": "code"}'""", "echo not-json"))
         for _ in range(2):
             with env_prep.reuse_checks(self.run_dir), self.assertRaises(ValueError):
                 self.policy()
@@ -258,6 +253,48 @@ class WarmupCustodyTests(unittest.TestCase):
             with self.assertRaises(custody.ProcessError):
                 env_prep.preflight_run(words, environment, **options)
             self.assertEqual(len(records), native.call_count, "cached success cannot bypass uncertain custody")
+
+
+class VersionTimeoutTests(KiloFixture):
+    def test_a_failed_version_command_is_not_a_timeout(self):
+        result = env_prep.subprocess.CompletedProcess(["kilo", "--version"], 1, "", "failed")
+        with mock.patch.object(env_prep.captured, "run_metadata", return_value=result) as run:
+            with self.assertRaisesRegex(RuntimeError, "version command failed; no agent was launched"):
+                self.provider.local_settings(self.workspace)
+        run.assert_called_once()
+
+    def test_slow_version_retries_once_cold_or_warmed_then_validates_the_answer(self):
+        good = kilocode.containment.kilo_versions()[0]
+        for warmed in (False, True):
+            for answer in (good, "0.0.0", None):
+                bounds = []
+
+                def run(words, *, timeout, **kwargs):
+                    if words == ["kilo", "--version"]:
+                        bounds.append(timeout)
+                        if timeout == 15 or answer is None:
+                            raise env_prep.subprocess.TimeoutExpired(words, timeout)
+                        return env_prep.subprocess.CompletedProcess(words, 0, answer, "")
+                    return env_prep.subprocess.CompletedProcess(words, 1, "", "")
+
+                run_dir = self.run_dir / str(answer)
+                run_dir.mkdir(exist_ok=True)
+                with (
+                    self.subTest(warmed=warmed, answer=answer),
+                    env_prep.reuse_checks(run_dir) if warmed else nullcontext(),
+                    mock.patch.object(env_prep.captured, "run_metadata", side_effect=run),
+                ):
+                    if answer == good:
+                        self.assertEqual(good, self.provider.local_settings(self.workspace)["version"])
+                    elif answer is None:
+                        with self.assertRaisesRegex(
+                            RuntimeError, "timed out after 15 seconds and again after 30 seconds"
+                        ):
+                            self.provider.local_settings(self.workspace)
+                    else:
+                        with self.assertRaisesRegex(RuntimeError, "requires Kilo.*found 0.0.0"):
+                            self.provider.local_settings(self.workspace)
+                    self.assertEqual([15, 30], bounds)
 
 
 class WarmTimeoutTests(unittest.TestCase):

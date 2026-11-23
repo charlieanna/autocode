@@ -66,6 +66,7 @@ try:
     from . import autocode_connected_engine as connected_engine
     from . import autocode_folder_adoption as folder_adoption
     from . import autocode_install_drift
+    from . import autocode_scratch_projects as scratch_projects
     from . import autocode_session_boundary as session_boundary
     from . import autocode_storage_budget as storage_budget
     from . import autocode_tool_containment as tool_containment
@@ -76,6 +77,7 @@ except ImportError:  # direct-script mode has no package parent
     import autocode_connected_engine as connected_engine
     import autocode_folder_adoption as folder_adoption
     import autocode_install_drift
+    import autocode_scratch_projects as scratch_projects
     import autocode_session_boundary as session_boundary
     import autocode_storage_budget as storage_budget
     import autocode_tool_containment as tool_containment
@@ -505,13 +507,21 @@ def engine_verdict(
 OWN_RECORDS = frozenset({".autocode/project.json"})
 
 
-def workspace_check(workspace: Path, runner=run) -> list[Check]:
+def _workspace_location(workspace: Path, runner=run):
     if not workspace.is_dir():
-        return [Check("workspace", MISSING, f"{workspace} is not a directory", "pass --workspace PATH")]
+        return None, None
     top = runner(["git", "rev-parse", "--show-toplevel"], cwd=workspace)
     if top.returncode != 0 and not (workspace / ".git").exists():
+        return top, folder_adoption.reason(workspace)
+    return top, None
+
+
+def workspace_check(workspace: Path, runner=run, *, location=None) -> list[Check]:
+    top, why = location or _workspace_location(workspace, runner)
+    if top is None:
+        return [Check("workspace", MISSING, f"{workspace} is not a directory", "pass --workspace PATH")]
+    if why is not None:
         # Nothing for the person to do: a task there sets the folder up itself (workspaces.bootstrap).
-        why = folder_adoption.reason(workspace)
         does = {
             folder_adoption.EMPTY: "a task makes it one and works there",
             folder_adoption.PROJECT: "a task makes it one, commits none of your files and works on the files there",
@@ -897,32 +907,46 @@ def install_drift_check(checkout=None, installed=None, workspace: Path | None = 
     )
 
 
+STORAGE_SCAN_LIMIT = 4096  # directory entries, including installed dependencies and Git worktree registrations
+
+
 def storage_check(
-    workspace: Path, *, multiplier=storage_budget.SNAPSHOT_MULTIPLIER, disk_usage=shutil.disk_usage
+    workspace: Path, *, multiplier=storage_budget.SNAPSHOT_MULTIPLIER, disk_usage=shutil.disk_usage, location=None
 ) -> Check:
-    """#971: project the run's copy growth (worktrees, verification copies, attempt
-    snapshots, measured ~Nx the workspace) against free space before the first stage spends."""
+    """Check the filesystem a new task will use, without creating its project or doing a full admission scan."""
+    fix = "free disk space on this filesystem, or move the workspace to a larger disk"
     try:
-        budget = storage_budget.projection(workspace, multiplier=multiplier, disk_usage=disk_usage)
+        _, why = location or _workspace_location(workspace)
+        private = why in folder_adoption.BECAUSE
+        destination = scratch_projects.root(workspace) if private else workspace
+        while destination != workspace and not destination.exists():
+            destination = destination.parent
+        usage = disk_usage(destination)
+        if not usage.free:
+            return Check("storage", MISSING, f"no free disk space at {destination}", fix)
+        if private:
+            return Check(
+                "storage",
+                OK,
+                f"a new private project starts empty; {storage_budget.human(usage.free)} free at {destination}",
+            )
+        size, complete = storage_budget.measure_workspace(workspace, max_entries=STORAGE_SCAN_LIMIT)
+        budget = storage_budget.copy_projection(size, usage, multiplier)
     except OSError as error:
         return Check("storage", WARN, f"cannot measure the workspace: {error}")
+    limit = "" if complete else "; copy sizes are lower bounds from a partial scan; the build checks in full"
     reason = storage_budget.refusal(budget)
     if reason:
-        return Check(
-            "storage",
-            MISSING,
-            reason,
-            "free disk space on this filesystem, or move the workspace to a larger disk",
-        )
+        return Check("storage", MISSING, reason + limit, fix)
     note = storage_budget.warning(budget)
     if note:
-        return Check("storage", WARN, note, "prune or move the workspace before a long run")
+        return Check("storage", WARN, note + limit, "prune or move the workspace before a long run")
     return Check(
         "storage",
-        OK,
+        OK if complete else WARN,
         f"workspace {storage_budget.human(budget['workspace_bytes'])} projects "
         f"{storage_budget.human(budget['projected_bytes'])} of run copies; "
-        f"{storage_budget.human(budget['free_bytes'])} free",
+        f"{storage_budget.human(budget['free_bytes'])} free{limit}",
     )
 
 
@@ -996,6 +1020,7 @@ def all_checks(
     containment = containment_status(opencode_version) if builtin_opencode(engine) else None
     if found is not None:
         found["containment"] = containment
+    location = _workspace_location(workspace, runner)
     return [
         python_check(),
         dependency,
@@ -1003,14 +1028,14 @@ def all_checks(
         *checks,
         verdict,
         *([containment_check(containment)] if containment else []),
-        *workspace_check(workspace, runner),
+        *workspace_check(workspace, runner, location=location),
         *local_compose_checks(which, runner),
         session_check(),
         shared_host_check(),
         path_check(which),
         runner_check(),
         install_drift_check(workspace=workspace),
-        storage_check(workspace),
+        storage_check(workspace, location=location),
         project_settings(workspace)[0],
         user_settings_check(),
         project_memory_check(workspace),

@@ -109,6 +109,55 @@ class WorkspaceBytesTests(unittest.TestCase):
                 (self.root / ".git").write_text(dot)
                 self.assertEqual(storage_budget.workspace_bytes(self.root), len(b"source"))
 
+    def test_bounded_measurement_marks_an_unreadable_directory_incomplete(self):
+        blocked = self.root / "private"
+        blocked.mkdir()
+        (self.root / "source.py").write_bytes(b"source")
+        scandir = os.scandir
+
+        def partial(path):
+            if Path(path) == blocked:
+                raise PermissionError("not readable")
+            return scandir(path)
+
+        with mock.patch.object(os, "scandir", side_effect=partial):
+            self.assertEqual((len(b"source"), False), storage_budget.measure_workspace(self.root))
+
+    def test_measurement_marks_unreadable_file_metadata_incomplete(self):
+        class UnreadableFile:
+            name = "source.py"
+            path = str(self.root / name)
+
+            def is_dir(self, *, follow_symlinks):
+                return False
+
+            def is_file(self, *, follow_symlinks):
+                return True
+
+            def stat(self, *, follow_symlinks):
+                raise PermissionError("metadata not readable")
+
+        with mock.patch.object(os, "scandir", return_value=contextlib.nullcontext([UnreadableFile()])):
+            self.assertEqual((0, False), storage_budget.measure_workspace(self.root))
+
+    def test_unreadable_directory_does_not_hide_readable_siblings(self):
+        for name in ("a", "b"):
+            (self.root / name).mkdir()
+            (self.root / name / "source.py").write_bytes(b"source")
+        scandir = os.scandir
+        for limit in (None, 10):
+            visited = []
+
+            def deny_first_child(path):
+                if Path(path).parent == self.root:
+                    visited.append(path)
+                    if len(visited) == 1:
+                        raise PermissionError("not readable")
+                return scandir(path)
+
+            with self.subTest(limit=limit), mock.patch.object(os, "scandir", side_effect=deny_first_child):
+                self.assertEqual((6, False), storage_budget.measure_workspace(self.root, max_entries=limit))
+
     def test_relative_worktree_admin_pointer_is_anchored_at_its_file(self):
         def git(*args):
             return subprocess.run(["git", "-C", str(self.root), *args], check=True, capture_output=True)
@@ -272,6 +321,82 @@ class DoctorCheckTests(unittest.TestCase):
         self.assertTrue(missing.fix)
         self.assertFalse(doctor.passed([missing]))
         self.assertTrue(doctor.passed([warn]))
+
+    def test_private_project_checks_its_filesystem_without_scanning_or_bootstrapping(self):
+        checkout = self.root / "component"
+        (checkout / ".git").mkdir(parents=True)
+        deps = checkout / "node_modules"
+        deps.mkdir()
+        (deps / "package.js").write_bytes(b"not a run input")
+        scandir = os.scandir
+
+        def guarded_scandir(path):
+            self.assertNotEqual(Path(path).resolve(), deps.resolve(), "doctor descended into an unrelated checkout")
+            return scandir(path)
+
+        store = self.root / ".autocode" / "projects"
+        for destination in (self.root, store):
+            if destination == store:
+                store.mkdir(parents=True)
+            disk = mock.Mock(side_effect=fake_disk(250))
+            with self.subTest(destination=destination), mock.patch.object(os, "scandir", side_effect=guarded_scandir):
+                check = doctor.storage_check(self.root, disk_usage=disk)
+                self.assertEqual(doctor.OK, check.status, check.detail)
+                self.assertIn("private project", check.detail)
+                self.assertIn("250 B free", check.detail)
+                disk.assert_called_once_with(destination)
+                self.assertFalse((self.root / ".git").exists())
+                if destination == self.root:
+                    self.assertFalse(store.parent.exists())
+                else:
+                    self.assertEqual([], list(store.iterdir()))
+
+    def test_private_project_still_reports_full_and_unmeasurable_disk(self):
+        (self.root / "a.py").unlink()
+        (self.root / "notes.txt").touch()
+        full = doctor.storage_check(self.root, disk_usage=fake_disk(0))
+        self.assertEqual(doctor.MISSING, full.status)
+        self.assertIn("free", full.fix)
+        failed = doctor.storage_check(self.root, disk_usage=mock.Mock(side_effect=OSError("disk unavailable")))
+        self.assertEqual(doctor.WARN, failed.status)
+        self.assertIn("disk unavailable", failed.detail)
+
+    def test_large_checkout_bounds_doctor_only_and_keeps_proven_shortfalls(self):
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+        deps = self.root / "node_modules"
+        deps.mkdir()
+        for number in range(30):
+            (deps / f"{number}.js").write_bytes(b"x" * 1000)
+        scandir = os.scandir
+
+        @contextlib.contextmanager
+        def guarded_scandir(path):
+            def bounded(entries):
+                for index, entry in enumerate(entries):
+                    self.assertLess(index, 6, "doctor enumerated the entire dependency directory")
+                    yield entry
+
+            with scandir(path) as entries:
+                yield bounded(entries) if Path(path).resolve() == deps.resolve() else entries
+
+        with mock.patch.object(doctor, "STORAGE_SCAN_LIMIT", 5, create=True):
+            with mock.patch.object(os, "scandir", guarded_scandir):
+                for free, status, detail in (
+                    (100_000, doctor.WARN, "free"),
+                    (4_000, doctor.WARN, "3x"),
+                    (500, doctor.MISSING, "even one source copy"),
+                ):
+                    with self.subTest(free=free):
+                        check = doctor.storage_check(self.root, disk_usage=fake_disk(free))
+                        self.assertEqual(status, check.status, check.detail)
+                        self.assertIn("lower bound", check.detail)
+                        self.assertIn(detail, check.detail)
+            # Space that looks ample for the partial scan still fails both actual admission checks.
+            full = storage_budget.projection(self.root, disk_usage=fake_disk(20_000))
+            self.assertEqual(31_000, full["workspace_bytes"])
+            self.assertTrue(storage_budget.refusal(full))
+            with mock.patch.object(storage_budget.shutil, "disk_usage", side_effect=fake_disk(20_000)):
+                self.assertIn("even one source copy", storage_budget.dispatch_refusal(self.root, self.root))
 
 
 class BuildLoopFloorTests(unittest.TestCase):
