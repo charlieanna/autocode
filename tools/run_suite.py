@@ -22,6 +22,7 @@ Usage:
     python3 tools/run_suite.py --changed --all-fast       # every fast module, plus slow ones that changed
     python3 tools/run_suite.py --list-excluded   # print excluded modules and reasons, run nothing
     python3 tools/run_suite.py --scenario-harness  # scenarios/test_*.py, one test per process
+    python3 tools/run_suite.py --shard 2/8         # the second of eight equal slices of what is selected
 
 By default each test module runs in its own interpreter, one per CPU at a time.
 Most of the suite's time is spent waiting on subprocesses and timeouts, so
@@ -40,7 +41,7 @@ explicit resource/public-CLI consumers, and always test_architecture. Suite
 machinery changes select the gate's own controls and small public contracts.
 It does not follow imports transitively, which
 would select almost every test. A break that crosses modules is caught by the
-full run on master.
+nightly full run.
 
 Those rules cannot see a test that drives the CLI as a separate process: it
 imports scenarios.harness, not the tools/ module it exercises, so a change to
@@ -64,6 +65,11 @@ catalog CLI checks, each test in its own interpreter. With --changed it selects
 changed scenario modules/catalogs, lifecycle consumers and the modules that copy
 a changed tools/ script (SCENARIO_FIXTURES); shared harness changes still run
 every scenario module. Master runs all of them (#1088).
+
+--shard K/N runs the K-th of N slices of whatever the other options select, so CI
+can spread one selection over N runners. Every selected module (or scenario test)
+lands in exactly one slice, and the slices are balanced by the seconds each took in
+a recorded master run (tests/suite_durations.json, refreshed by tools/suite_durations.py).
 
 Exit code is 0 only when every non-excluded test passes (or is itself
 skipped by its own test-level skip guard) and every exclusion entry matched
@@ -652,6 +658,65 @@ def run_parallel(
     return not failed
 
 
+def parse_shard(text: str) -> tuple[int, int]:
+    """``K/N`` with 1 <= K <= N, as --shard takes it."""
+    try:
+        index, count = (int(part) for part in text.split("/"))
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"--shard takes K/N, such as 2/8, not {text!r}") from None
+    if not 1 <= index <= count:
+        raise argparse.ArgumentTypeError(f"--shard K/N needs 1 <= K <= N, not {text!r}")
+    return index, count
+
+
+DEFAULT_DURATIONS_PATH = REPO_ROOT / "tests" / "suite_durations.json"
+UNKNOWN_SECONDS = 10.0
+
+
+def load_durations(path: Path = DEFAULT_DURATIONS_PATH) -> dict[str, float]:
+    """Recorded seconds per module or scenario test, for balancing --shard; empty when unreadable."""
+    try:
+        seconds = json.loads(path.read_text()).get("seconds", {})
+    except (OSError, ValueError, AttributeError):
+        return {}
+    return {name: float(value) for name, value in seconds.items() if isinstance(value, (int, float))}
+
+
+def shard(
+    units: list[str],
+    selected: tuple[int, int] | None,
+    slow: dict[str, str],
+    durations: dict[str, float] | None = None,
+) -> list[str]:
+    """The K-th of N slices of ``units``: each unit in exactly one slice, about equal in recorded time.
+
+    Units are placed longest first, each on the slice with the least time so far (recorded seconds
+    from tests/suite_durations.json; a unit with none counts as a slow module's typical time if it is
+    in suite_slow.json, else UNKNOWN_SECONDS). Ties go to the lowest slice, so every runner computes the
+    same split. The selection's own order is kept within a slice, so the scenario harness still starts
+    its longer tests first. The durations only balance the slices; they never change what runs.
+    """
+    if selected is None:
+        return units
+    index, count = selected
+    durations = durations or {}
+
+    def cost(unit):
+        if unit in durations:
+            return durations[unit]
+        is_slow = any(unit == module or unit.startswith(module + ".") for module in slow)
+        return 60.0 if is_slow else UNKNOWN_SECONDS
+
+    loads = [0.0] * count
+    mine = set()
+    for unit in sorted(units, key=lambda unit: (-cost(unit), unit)):
+        target = min(range(count), key=lambda slot: (loads[slot], slot))
+        loads[target] += cost(unit)
+        if target == index - 1:
+            mine.add(unit)
+    return [unit for unit in units if unit in mine]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument(
@@ -713,6 +778,12 @@ def main(argv: list[str] | None = None) -> int:
         help="with --jobs above 1, end a test module still running after SECONDS and report it as a timed-out failure; "
         f"0 sets no limit (default: {FAST_MODULE_TIMEOUT:g}, or {SLOW_MODULE_TIMEOUT:g} for a module in suite_slow.json)",
     )
+    parser.add_argument(
+        "--shard",
+        type=parse_shard,
+        metavar="K/N",
+        help="run only the K-th of N equal slices of the selected modules (or scenario tests), for CI runners",
+    )
     args = parser.parse_args(argv)
 
     if args.scenario_harness:
@@ -721,11 +792,14 @@ def main(argv: list[str] | None = None) -> int:
         modules, skipped = scenario_selection(changed, load_exclusions(DEFAULT_SLOW_PATH))
         if skipped:
             print(
-                f"Left out {len(skipped)} scenario module(s); they run on master "
+                f"Left out {len(skipped)} scenario module(s); they run in the nightly full run "
                 f"(--include-slow runs them now): {', '.join(skipped)}\n"
             )
         # The scenario modules' tests are the longer ones, so they start first.
         units = [test for module in modules for test in split_module(module)] + harness_tests(changed)
+        units = shard(units, args.shard, load_exclusions(DEFAULT_SLOW_PATH), load_durations())
+        if args.shard:
+            print(f"Shard {args.shard[0]}/{args.shard[1]}: {len(units)} scenario test(s)\n")
         return 0 if run_parallel(units, max(args.jobs, 1), args.verbosity, "processes") else 1
 
     exclusions = load_exclusions(args.exclusions)
@@ -788,12 +862,18 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  - {module}: {why}")
         if skipped:
             print(
-                f"Left out {len(skipped)} slow end-to-end module(s); they run on master "
+                f"Left out {len(skipped)} slow end-to-end module(s); they run in the nightly full run "
                 f"(--include-slow runs them now): {', '.join(skipped)}"
             )
         print()
         modules = [module for module in modules if module in selected]
         kept = unittest.TestSuite(test for test in iter_tests(kept) if _module_of(test.id()) in selected)
+
+    if args.shard:
+        modules = shard(modules, args.shard, slow, load_durations())
+        print(f"Shard {args.shard[0]}/{args.shard[1]}: {len(modules)} test module(s)\n")
+        mine = set(modules)
+        kept = unittest.TestSuite(test for test in iter_tests(kept) if _module_of(test.id()) in mine)
 
     if args.jobs > 1 and not args.durations:
         return (

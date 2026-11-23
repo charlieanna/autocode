@@ -4,7 +4,23 @@ on:
   push:
     branches: [master]
   pull_request:
+  # A merge queue's candidate commit, when the repository has one: the same required gate.
+  merge_group:
+  # The nightly full run: every slow module and the whole scenario catalog, which the required
+  # gate leaves out so that it finishes in minutes, not hours. A red night opens an issue.
+  schedule:
+    - cron: "17 7 * * *"
   workflow_dispatch:
+
+# Two depths of the same checks (2026-11-23 audit: master took 4 to 6 hours per run, so 32 of 41
+# runs were superseded before they finished and red merges went unseen for a day):
+# - gate (pull_request, merge_group, push): every fast test module plus the slow ones a change
+#   touches, in SUITE_SHARDS parallel runners, and the changed scenarios. This is ci-required.
+# - full (schedule, workflow_dispatch): every module and every scenario, sharded the same way.
+env:
+  SUITE_SHARDS: "8"
+  NIGHTLY_SUITE_SHARDS: "8"
+  SCENARIO_SHARDS: "6"
 
 concurrency:
   # Superseded runs of a non-master ref stop burning a full suite: rapid PR pushes
@@ -16,8 +32,9 @@ concurrency:
   # Master runs queue instead: a newer run supersedes only a pending run, never the
   # running one, so each window delivers a verdict and the queue drains to the
   # newest commit.
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+  # The nightly run has its own group, so a master push never waits behind it or supersedes it.
+  group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'nightly' || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' && github.event_name != 'merge_group' }}
 
 jobs:
   scope:
@@ -36,6 +53,11 @@ jobs:
       windows: ${{ steps.select.outputs.windows }}
       wheel: ${{ steps.select.outputs.wheel }}
       docs: ${{ steps.select.outputs.docs }}
+      # gate or full, and the commit the gate's selection compares against (empty for full).
+      mode: ${{ steps.depth.outputs.mode }}
+      base: ${{ steps.depth.outputs.base }}
+      suite_shards: ${{ steps.depth.outputs.suite_shards }}
+      scenario_shards: ${{ steps.depth.outputs.scenario_shards }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -57,6 +79,19 @@ jobs:
           else
             python tools/ci_scope.py --full --github-output "$GITHUB_OUTPUT"
           fi
+      - name: Choose the run's depth
+        id: depth
+        # The gate selects by the event's pinned base: a PR's base, a merge-queue group's base, or the
+        # commit a master push moved from. The nightly and manual runs take everything.
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+          PUSH_BASE: ${{ github.event.before }}
+        run: |
+          python tools/ci_depth.py --event "$EVENT" --pr-base "$PR_BASE" --group-base "$GROUP_BASE" \
+            --push-base "$PUSH_BASE" --suite-shards "$SUITE_SHARDS" --nightly-suite-shards "$NIGHTLY_SUITE_SHARDS" \
+            --scenario-shards "$SCENARIO_SHARDS" --github-output "$GITHUB_OUTPUT"
 
   extension:
     needs: scope
@@ -134,9 +169,13 @@ jobs:
         # 19 minutes against 4 on Ubuntu (each loopback request through the phase guard
         # stalled about 36 s there, not on a local Mac). Native Seatbelt checks run
         # separately in macos-tool-containment below.
-        # Keep the existing one-entry matrix/check name: "suite (ubuntu-latest)".
         os: [ubuntu-latest]
+        # One slice of the selection per runner (run_suite.py --shard), balanced by
+        # tests/suite_durations.json. ci-required reads the matrix's combined result.
+        shard: ${{ fromJSON(needs.scope.outputs.suite_shards) }}
+    name: suite (${{ matrix.os }}, ${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ needs.scope.outputs.mode == 'full' && 300 || 60 }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -229,20 +268,22 @@ jobs:
         # recorded reason). It fails if any non-excluded test fails, and
         # separately fails if an exclusion entry no longer matches anything
         # discovered, so a stale exclusion cannot mask real coverage.
-        # Pull requests select affected modules against the event's immutable base;
-        # ci_scope.py also selects relevant CLI/scenario and native boundary jobs.
-        # Master and manual runs retain the complete suite, including slow modules.
-        # Test modules run side by side, one per CPU.
+        # The gate (PRs, a merge queue, master pushes) runs every fast module and the slow
+        # ones the change touches or a mapped consumer needs, against the event's pinned base,
+        # so a break in a module the change does not import still blocks it. The nightly and
+        # manual runs take every module, slow ones included. Each runner takes one shard;
+        # test modules run side by side, one per CPU.
         env:
-          EVENT: ${{ github.event_name }}
-          BASE: ${{ github.event.pull_request.base.sha }}
+          MODE: ${{ needs.scope.outputs.mode }}
+          BASE: ${{ needs.scope.outputs.base }}
+          SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
           PYTHONDONTWRITEBYTECODE: "1"
           SUITE_EVIDENCE_DIR: ${{ steps.suite_evidence.outputs.directory }}
         run: |
-          if [ "$EVENT" = pull_request ]; then
-            .venv/bin/python tools/run_suite.py --verbosity 2 --changed "$BASE" --failed-out "$SUITE_EVIDENCE_DIR/.suite-failed.json"
+          if [ "$MODE" = gate ]; then
+            .venv/bin/python tools/run_suite.py --verbosity 2 --changed "$BASE" --all-fast --shard "$SHARD" --failed-out "$SUITE_EVIDENCE_DIR/.suite-failed.json"
           else
-            .venv/bin/python tools/run_suite.py --verbosity 2 --failed-out "$SUITE_EVIDENCE_DIR/.suite-failed.json"
+            .venv/bin/python tools/run_suite.py --verbosity 2 --shard "$SHARD" --failed-out "$SUITE_EVIDENCE_DIR/.suite-failed.json"
           fi
 
       - name: Attribute red to base or head
@@ -271,7 +312,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: ${{ always() && github.event_name == 'pull_request' && steps.suite_gate.outcome == 'failure' }}
         with:
-          name: suite-attribution-${{ matrix.os }}
+          name: suite-attribution-${{ matrix.os }}-${{ matrix.shard }}
           path: |
             ${{ steps.suite_evidence.outputs.directory }}/.suite-source.json
             ${{ steps.suite_evidence.outputs.directory }}/.suite-failed.json
@@ -284,6 +325,12 @@ jobs:
   scenario-harness:
     needs: scope
     if: needs.scope.outputs.scenarios == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        # One shard for the gate's changed selection, SCENARIO_SHARDS for the full catalog.
+        shard: ${{ fromJSON(needs.scope.outputs.scenario_shards) }}
+    name: scenario-harness (${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: ubuntu-latest
     timeout-minutes: 360
     steps:
@@ -348,18 +395,19 @@ jobs:
 
       - name: Run the scenario harness
         if: needs.scope.outputs.scenarios == 'true'
-        # Keep the same pinned PR selection and full master/manual coverage. This
-        # independent job lets long unit and harness gates each use their own
-        # hosted-runner budget, and runs even when the unit gate finds a failure.
+        # The gate runs the scenarios its pinned change selects; the nightly and manual runs
+        # take the whole catalog. This independent job lets long unit and harness gates each
+        # use their own hosted-runner budget, and runs even when the unit gate finds a failure.
         run: |
-          if [ "$EVENT" = pull_request ]; then
-            .venv/bin/python tools/run_suite.py --scenario-harness --verbosity 2 --changed "$BASE"
+          if [ "$MODE" = gate ]; then
+            .venv/bin/python tools/run_suite.py --scenario-harness --verbosity 2 --changed "$BASE" --shard "$SHARD"
           else
-            .venv/bin/python tools/run_suite.py --scenario-harness --verbosity 2
+            .venv/bin/python tools/run_suite.py --scenario-harness --verbosity 2 --shard "$SHARD"
           fi
         env:
-          EVENT: ${{ github.event_name }}
-          BASE: ${{ github.event.pull_request.base.sha }}
+          MODE: ${{ needs.scope.outputs.mode }}
+          BASE: ${{ needs.scope.outputs.base }}
+          SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
           PYTHONDONTWRITEBYTECODE: "1"
 
   diff-coverage:
@@ -744,3 +792,22 @@ jobs:
           if failures:
               sys.exit("Selected CI checks did not pass: " + ", ".join(failures))
           PYTHON
+
+  nightly-report:
+    # A red nightly run must reach whoever merges next, not wait for someone to open the Actions tab:
+    # it opens (or comments on) one "Nightly full CI is red" issue, and a green night closes it.
+    needs: [ci-required]
+    if: ${{ always() && github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Open, update or close the nightly issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RESULT: ${{ needs.ci-required.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SHA: ${{ github.sha }}
+        run: python3 tools/ci_nightly_issue.py --result "$RESULT" --run-url "$RUN_URL" --sha "$SHA"

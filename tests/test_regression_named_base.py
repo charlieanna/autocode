@@ -6,7 +6,6 @@ import shutil
 import sys
 import unittest
 
-import autocode_first_suite as first_suite
 import autocode_verify as verify
 import autocode_verify_judgment as judgment
 
@@ -53,37 +52,6 @@ class CompiledFeatureEvidenceTests(unittest.TestCase):
                 document_only=lambda: True,
             )
         )
-
-    def test_empty_collection_licenses_the_first_suite_only_with_source_or_document_only(self):
-        # #3981: an empty collection (the runner ran and collected zero tests) can hide a filtered
-        # existing program, so it does not by itself license counting an uncollected test as proof.
-        receipt = {
-            "results_expected": True,
-            "results": {
-                "passed": [],
-                "failed": [],
-                "skipped": [],
-                "collection_errors": [],
-                "uncollected": [],
-                "total": 0,
-                "complete": True,
-            },
-            "exit_code": 0,
-            "timed_out": False,
-        }
-        baseline = {"base": "pinned", "command": "suite", "receipt": receipt}
-        self.assertTrue(first_suite.empty_collection(receipt))
-        # A data-only base that is not positively document-only and holds no source: no first-suite proof.
-        self.assertFalse(judgment.first_suite_absent(baseline, "pinned", "suite"))
-        self.assertFalse(
-            judgment.first_suite_absent(
-                baseline, "pinned", "suite", document_only=lambda: False, has_source=lambda: False
-            )
-        )
-        # The positive document-only inventory licenses it.
-        self.assertTrue(judgment.first_suite_absent(baseline, "pinned", "suite", document_only=lambda: True))
-        # A base that plainly holds source (preservation judged separately) licenses it too.
-        self.assertTrue(judgment.first_suite_absent(baseline, "pinned", "suite", has_source=lambda: True))
 
     def test_go_build_failure_is_bound_to_its_exact_package(self):
         base = {

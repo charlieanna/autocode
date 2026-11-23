@@ -787,7 +787,12 @@ output directories are not copied. Ignored files under `vendor/` are copied the
 same way. An `--in-place` run's Builder edits that same checkout, so the run saves
 these files before any prerequisite or provider starts, and clean checks use
 only inputs that still match the launch bytes and modes (#529). Added ignored
-files are left out of test copies and noted. A captured generated or vendored
+files are left out of test copies and noted. The one exception is a version file
+the project's own build writes during the run (a Builder's `pip install -e .`
+writes or rewrites a hatch-vcs or setuptools-scm `_version.py`): it is copied
+from its current bytes when the base revision's `pyproject.toml`, `setup.cfg` or
+`setup.py` names its path and the file holds only data, so importing it runs no
+code (`autocode_build_outputs`); the proof notes it. A captured generated or vendored
 file changed or removed since launch makes the proof `UNVERIFIED`; restore it,
 or start a new run after preparing the intended inputs. Missing, damaged or
 incompletely captured launch records also block proof. Older runs without a

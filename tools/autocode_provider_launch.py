@@ -229,7 +229,7 @@ def prepare(
                 "read_roots": [str(path) for path in sorted(roots)],
                 "protected_paths": [str(Path(run_dir).resolve()), str(runtime)],
             }
-            if planning and not kilo_owner:
+            if (planning or route_role == "requirements") and not kilo_owner:
                 # A readonly planning shell coordinates through the handoff, not private run
                 # state: no run's state, events or receipts are readable, only this run's
                 # planning/ artifacts and the context artifacts its handoff names (#1250, #3907).

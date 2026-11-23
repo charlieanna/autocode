@@ -313,5 +313,58 @@ class SavedSettingsIdentityTests(unittest.TestCase):
         self.assertNotIn(util.digest(approved), route_fit.digests(changed))
 
 
+class OfferedTests(unittest.TestCase):
+    """One answer to "which levels does this model serve", read by every effort rule."""
+
+    def test_the_listing_and_the_probed_levels_together_in_scale_order(self):
+        settings = settings_for(declared=["max", "low"])
+        settings[route_fit.CERTIFIED] = {"zai-coding-plan/glm-5.3": ["high"]}
+        self.assertEqual(["low", "high", "max"], route_fit.offered(settings, "zai-coding-plan/glm-5.3"))
+
+    def test_no_listing_or_no_model_is_unknown(self):
+        self.assertIsNone(route_fit.offered(settings_for(declared=None), "zai-coding-plan/glm-5.3"))
+        self.assertIsNone(route_fit.offered(settings_for(), None))
+
+    def test_a_listing_with_only_variants_off_the_scale_offers_no_level(self):
+        settings = settings_for(declared=["minimal"])
+        self.assertEqual([], route_fit.offered(settings, "zai-coding-plan/glm-5.3"))
+        settings[route_fit.CERTIFIED] = {"zai-coding-plan/glm-5.3": ["low"]}
+        self.assertEqual(["low"], route_fit.offered(settings, "zai-coding-plan/glm-5.3"))
+
+    def test_every_effort_rule_keeps_the_level_for_a_model_listing_only_off_scale_variants(self):
+        """Before, five private copies ordered the raw listing by the scale and raised ValueError at launch."""
+        import autocode_plan_difficulty as plan_difficulty
+        import autocode_repair_effort as repair_effort
+        import autocode_requirements_triage as requirements_triage
+        import autocode_review_effort as review_effort
+
+        model = "opencode/odd-model"
+        roles = ("tester", "completion", "planner", "plan_reviewer", "requirements", "builder")
+        state = {
+            "iteration": 1,
+            "workflow": {"kind": "bugfix", "clarity": "vague", "brief_size": "small"},
+            "settings": {
+                "roles": {role: {"model": model, "reasoning_effort": "high"} for role in roles},
+                "effort_origins": {role: "stage_choice" for role in roles},
+                route_fit.DECLARED: {model: ["minimal"]},
+            },
+            "stages": [],
+        }
+        self.assertEqual("no_lower_level", repair_effort.decide(state, "high", model=model)["reason"])
+        state["workflow"]["clarity"] = "clear"
+        self.assertEqual(
+            "no_lower_level", review_effort.decide(state, "tester", "tester", False, "high", model=model)["reason"]
+        )
+        state["workflow"]["clarity"] = "vague"
+        raised = plan_difficulty.decide(state, "draft_plan", "planner", False, "high", model=model)
+        self.assertEqual("strongest_level", raised["reason"])
+        self.assertEqual("high", raised["level"])
+        level, _ = review_effort.launch(
+            state, "requirements_gather", "requirements", False, state["settings"]["roles"]["requirements"]
+        )
+        self.assertEqual("high", level)
+        self.assertIsNone(requirements_triage.effort_decision(state, "requirements_gather", "high"))
+
+
 if __name__ == "__main__":
     unittest.main()
