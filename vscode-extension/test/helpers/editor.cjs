@@ -43,11 +43,11 @@ function editor() {
         if (!match) throw new Error(`Unexpected progress notification: ${options.title}`);
         const args = JSON.parse(decodeURIComponent(match[2]));
         const notice = {
-          message: match[1], items: ['Open chat'], closed: false,
+          message: match[1], items: ['Open chat'], closed: false, reports: [],
           resolve: () => commands.get('autocode.openNeedNotice')?.(...args),
         };
         notices.push(notice);
-        return Promise.resolve(task({}, {})).then(() => { notice.closed = true; });
+        return Promise.resolve(task({ report: (step) => notice.reports.push(step) }, {})).then(() => { notice.closed = true; });
       },
       showQuickPick: async () => undefined,
       showWorkspaceFolderPick: async () => undefined,

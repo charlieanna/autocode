@@ -7643,6 +7643,8 @@ test('test_ac4_done_notifies_once_with_outcome', async (t) => {
   await ui.poll();
   assert.equal(host.notices.length, 2);
   assert.equal(host.notices[1].message, 'AutoCode: alpha finished.');
+  for (const notice of host.notices) assert.deepEqual(notice.reports, [{ increment: 0 }],
+    'wait and completion notices hold still while the Open chat link is available');
   await ui.poll();
   assert.equal(host.notices.length, 2);
 });
