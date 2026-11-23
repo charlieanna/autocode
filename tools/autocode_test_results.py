@@ -60,7 +60,7 @@ def product_files(changes, *, roles=None, source_files=None) -> list[tuple[str, 
         and (
             path in source_files
             if source_files is not None
-            else not (roles.is_test(path) if roles else is_test_path(path))
+            else (roles.is_product(path) if roles else not is_test_path(path))
         )
     ]
 
@@ -164,7 +164,11 @@ def per_test_results(
     setup_errors = {}
     aborted = None
     roles = getattr(framework, "test_roles", None)
-    is_test = (lambda path: roles.role(path) == "test") if roles else is_test_path
+    is_test = (
+        (lambda path: roles.role(path) == "test" or path in getattr(roles, "settlements", {}))
+        if roles
+        else is_test_path
+    )
     if framework.name == "pytest":
         if not Path(xml_path).is_file():
             return None

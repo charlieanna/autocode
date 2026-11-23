@@ -120,8 +120,8 @@ def collect(state: RunState, workspace, run_dir, out, selected, files, command=N
         dependencies = state.get("project_workspace") or str(workspace)
         changes = verify.changed_files(workspace, base, source_paths=source_scope.paths(state))
         roles = role_inventory.from_git(workspace, base, verify.is_test_path, changes=changes)
-        overlay = {path: status for path, status in changes.items() if roles.is_test(path)}
-        if any(not roles.is_test(path) for path in files):
+        overlay = {path: status for path, status in changes.items() if roles.test_member(path)}
+        if any(not roles.test_member(path) for path in files):
             raise ValueError("reported test file has no independent test-file classification")
         overlay.update({path: "modified" for path in files})
         framework = (

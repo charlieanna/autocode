@@ -12,7 +12,7 @@ import posixpath
 import sys
 from collections import Counter
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
 try:
@@ -256,6 +256,11 @@ class Roles:
     # The caller's test-path rule with the original tree's own projects (``_rooted``): which paths the
     # inventory took for tests before it read them. Path-only readers of one tree ask this, never the bare rule.
     test_path: Callable[[str], bool] = project_kinds.is_test_path
+    # Changed paths whose original product/test ownership is ambiguous, settled deterministically as BOTH
+    # test and product (#4095): their declared tests run in the proof as tests, and their changed lines still
+    # need product changed-line evidence, so an ambiguous file never escapes product evidence. The decision
+    # and its reason are recorded here and in the proof's evidence; the run never asks a person about it.
+    settlements: dict[str, str] = field(default_factory=dict)
 
     def role(self, path):
         return self.roles.get(path, AMBIGUOUS)
@@ -264,13 +269,44 @@ class Roles:
         return path not in self.original_products
 
     def partition(self, paths):
-        return tuple([path for path in paths if self.role(path) == role] for role in (TEST, PRODUCT, AMBIGUOUS))
+        tests = [path for path in paths if self.role(path) == TEST or path in self.settlements]
+        sources = [path for path in paths if self.role(path) == PRODUCT or path in self.settlements]
+        ambiguous = [path for path in paths if self.role(path) == AMBIGUOUS and path not in self.settlements]
+        return tests, sources, ambiguous
 
     def is_test(self, path):
         role = self.role(path)
         if role == AMBIGUOUS:
+            if path in self.settlements:
+                return True
             raise ValueError(f"Python product/test ownership is ambiguous for changed path {path}")
         return role == TEST
+
+    def is_product(self, path):
+        """Whether ``path``'s changed lines need product changed-line evidence. A settled ambiguous changed
+        path does (it is both test and product); an unsettled ambiguous entry grants no product authority."""
+        role = self.role(path)
+        if role == AMBIGUOUS:
+            return path in self.settlements
+        return role == PRODUCT
+
+    def test_member(self, path):
+        """Non-raising test membership for the proof's partition reads: a test, or a settled ambiguous
+        changed path (whose declared tests run as tests). ``is_test`` stays the raising protection probe."""
+        return self.role(path) == TEST or path in self.settlements
+
+    def settlement_note(self, changes):
+        """The proof's recorded decision for ambiguous changed paths settled as both test and product (#4095),
+        or "" when none. One answer the proof reads, so the run never asks a person about its own machinery."""
+        settled = sorted(path for path in changes if path in self.settlements)
+        if not settled:
+            return ""
+        return (
+            "Settled ambiguous Python product/test ownership as both test and product for: "
+            + ", ".join(settled)
+            + ". "
+            + self.settlements[settled[0]]
+        )
 
     def selectors(self, paths):
         """Keep original collector identities when their linked oracle bytes change."""
@@ -492,6 +528,26 @@ def build(paths, read, hint, *, candidates=None, links=None, candidate_links=Non
         for alias, endpoint in original_test_links.items()
         if alias in current_links and _endpoint(alias, current_paths, current_links) == endpoint
     )
+    # #4095: a changed path whose ownership is ambiguous is settled deterministically as both test and
+    # product, recorded here so the proof reads one answer and the run never asks a person about its own
+    # machinery. An unchanged ambiguous entry stays protected and unsettled (is_test still refuses it).
+    # Code links whose bytes the tree does not hold (a link to nothing) are excepted: nothing can be read,
+    # so no role can be settled and the proof rightly refuses them rather than running an empty test.
+    unreadable = {
+        path
+        for path in current_links
+        if _endpoint(path, current_paths, current_links) is None
+        and PurePosixPath(path).suffix in project_kinds.CODE_SUFFIXES
+    }
+    settlements = {
+        path: (
+            "Python product/test ownership is ambiguous for this changed path; settled as both test and "
+            "product so its declared tests run in the proof as tests and its changed lines still need "
+            "product changed-line evidence (no gate is relaxed)."
+        )
+        for path, source in candidates.items()
+        if source is not None and roles.get(path) == AMBIGUOUS and path not in unreadable
+    }
     return Roles(
         roles,
         metadata,
@@ -502,6 +558,7 @@ def build(paths, read, hint, *, candidates=None, links=None, candidate_links=Non
         eligible,
         dict(candidate_links or {}),
         hint,
+        settlements,
     )
 
 

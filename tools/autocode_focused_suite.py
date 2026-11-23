@@ -94,7 +94,7 @@ def _importing_tests(base_files, changes, roles, read):
     matching target, never pick one arbitrarily. Unknown/computed imports cannot exclude a test.
     Candidate text never supplies edges, so deleting an import cannot hide existing coverage.
     """
-    products = {path for path in changes if path.endswith(".py") and roles.role(path) == policy.PRODUCT}
+    products = {path for path in changes if path.endswith(".py") and roles.is_product(path)}
     if not products:
         return set()
     paths = {path for path in base_files if path.endswith(".py")} | products
@@ -114,18 +114,18 @@ def _importing_tests(base_files, changes, roles, read):
             if path not in affected:
                 affected.add(path)
                 pending.append(path)
-    return {path for path in affected & set(base_files) if roles.role(path) == policy.TEST}
+    return {path for path in affected & set(base_files) if roles.test_member(path)}
 
 
 def _direct_importing_tests(base_files, changes, roles, read) -> set[str]:
     """Original Python tests that directly import a changed product without transitive/helper expansion."""
-    products = {path for path in changes if path.endswith(".py") and roles.role(path) == policy.PRODUCT}
+    products = {path for path in changes if path.endswith(".py") and roles.is_product(path)}
     if not products:
         return set()
     aliases = _python_aliases(products)
     direct: set[str] = set()
     for path in base_files:
-        if not path.endswith(".py") or roles.role(path) != policy.TEST:
+        if not path.endswith(".py") or not roles.test_member(path):
             continue
         modules, _uncertain = policy._imports(path, read(path))
         for module in modules:
@@ -140,16 +140,12 @@ def _changed_and_named(base_files, changes, roles) -> set[str]:
     tests = {
         path
         for path, status in changes.items()
-        if status != "deleted" and path in base_files and roles.role(path) == policy.TEST
+        if status != "deleted" and path in base_files and roles.test_member(path)
     }
     names = frozenset().union(
-        *(
-            _named_after(path)
-            for path, status in changes.items()
-            if status != "deleted" and roles.role(path) == policy.PRODUCT
-        )
+        *(_named_after(path) for path, status in changes.items() if status != "deleted" and roles.is_product(path))
     )
-    tests.update(path for path in base_files if PurePosixPath(path).name in names and roles.role(path) == policy.TEST)
+    tests.update(path for path in base_files if PurePosixPath(path).name in names and roles.test_member(path))
     return tests
 
 
@@ -170,7 +166,7 @@ def _plan_named_tests(base_files, roles, goal_contract, read) -> set[str]:
     pattern = re.compile(r"(?<![\w])(?:" + "|".join(map(re.escape, names)) + r")(?![\w])")
     found = set()
     for path in base_files:
-        if roles.role(path) != policy.TEST:
+        if not roles.test_member(path):
             continue
         try:
             text = read(path)
@@ -195,7 +191,7 @@ def _approved_plan_tests(base_files, roles, goal_contract) -> set[str]:
     """Original test files explicitly targeted by approved plan commands (never whole-suite commands)."""
     if not goal_contract:
         return set()
-    original_tests = {path for path in base_files if roles.role(path) == policy.TEST}
+    original_tests = {path for path in base_files if roles.test_member(path)}
     if not original_tests:
         return set()
     found: set[str] = set()

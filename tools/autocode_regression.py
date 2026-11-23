@@ -938,7 +938,7 @@ def _prove_once(state: RunState, workspace, run_dir, current, *, all_due=False):
         # suite on the original code and with the change (autocode_companion_suites, #2889).
         changes = verify.changed_files(workspace, base, source_paths=source_scope.paths(state))
         roles = role_inventory.from_git(workspace, base, verify.is_test_path, changes=changes)
-        tests = [path for path, change in changes.items() if roles.is_test(path) and change != "deleted"]
+        tests = [path for path, change in changes.items() if change != "deleted" and roles.test_member(path)]
         detect = lambda directory: verify.detect_framework(directory, python=python)  # noqa: E731
         root_framework = framework
         chosen = companion_suites.test_suites(workspace, root_framework, tests, detect, is_code=verify.is_code_path)
@@ -957,7 +957,7 @@ def _prove_once(state: RunState, workspace, run_dir, current, *, all_due=False):
         framework, test_suites, test_notes = test_homes.place(
             state, workspace, root_framework, chosen, runnable, detect
         )
-        code = [path for path in changes if verify.is_code_path(path) and not roles.is_test(path)]
+        code = [path for path in changes if verify.is_code_path(path) and roles.is_product(path)]
         # Every original file, changed or not: one whose role cannot be proven stays protected, as in the
         # protected-test inventory (autocode_verify), instead of stopping the proof as a changed one does.
         original_tests = [
@@ -1002,7 +1002,7 @@ def _prove_once(state: RunState, workspace, run_dir, current, *, all_due=False):
             framework.test_roles = roles
         commands = verify.select_commands(
             framework,
-            [path for path, status in changes.items() if roles.is_test(path) and status != "deleted"],
+            [path for path, status in changes.items() if status != "deleted" and roles.test_member(path)],
             suite_command=options.get("test_command"),
             regression_command=options.get("regression_command"),
         )
@@ -1240,11 +1240,11 @@ def _listed_tests(looking, changes, roles, framework, workspace, base, out, depe
     tests = sorted(
         path
         for path, status in changes.items()
-        if status != "deleted" and roles.role(path) == role_policy.TEST and verify.is_code_path(path)
+        if status != "deleted" and roles.test_member(path) and verify.is_code_path(path)
     )
     # Build files and manifests first, then the files nearest the root: only the order of the looks.
     others = sorted(
-        (path for path in changes if roles.role(path) != role_policy.TEST),
+        (path for path in changes if roles.is_product(path)),
         key=lambda path: (verify.is_code_path(path), path.count("/"), path),
     )
     runs: list = []
@@ -1594,7 +1594,7 @@ def _proving(
         if coverage and goals.task_kind(state) == "bugfix":
             # Member preservation coverage authorizes tests alone. A product
             # change still needs the ordinary bugfix fail-before/pass-after proof.
-            coverage = not any(roles.role(path) != role_policy.TEST for path in changes)
+            coverage = not any(roles.is_product(path) for path in changes)
         due = cases(state, all_due=all_due)
         # Guards that are commands, where the runner names no test (autocode_command_guards). With no named
         # case and no changed test file, the change is coverage of what those commands already show.
@@ -1613,7 +1613,7 @@ def _proving(
             guard_commands
             and not due
             and goals.task_kind(state) != "bugfix"
-            and not any(roles.role(path) == role_policy.TEST for path in changes)
+            and not any(roles.test_member(path) for path in changes)
         ):
             coverage = True
         # A non-bugfix contract whose due cases are all test criteria may be a coverage
@@ -1626,7 +1626,7 @@ def _proving(
         if test_only and len(((state.get("goal_contract") or {}).get("body") or {}).get("milestones") or []) > 1:
             regression_command = selection.widen(
                 regression_command,
-                {path: change for path, change in changes.items() if roles.role(path) == role_policy.TEST},
+                {path: change for path, change in changes.items() if roles.test_member(path)},
                 framework=framework.name if framework else None,
                 test_root=options.get("test_root"),
             )
@@ -1637,7 +1637,7 @@ def _proving(
         kept.append(scratch_location.scratch_root(out) / "candidate")
         # A bug fix the approved plan makes in test files alone: a fixture, a helper (autocode_test_support).
         support_planned = goals.task_kind(state) == "bugfix" and test_support.planned(
-            state.get("goal_contract"), lambda path: roles.role(path) == role_policy.TEST
+            state.get("goal_contract"), lambda path: roles.test_member(path)
         )
         proving_run = lambda test_side=(): verify.verify(  # noqa: E731
             workspace,
