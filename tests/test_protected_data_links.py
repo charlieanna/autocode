@@ -22,6 +22,7 @@ import unittest
 import autocode_protected_oracles as guard
 import autocode_protected_store as store
 import autocode_taskrun as taskrun
+import autocode_util as util
 import autocode_verify as verify
 
 from .test_agent_step import fixture_workspace
@@ -138,6 +139,15 @@ class DataLinkTests(unittest.TestCase):
         self.assertIn("tests/data/current", receipt["changed_tests"])
         self.assertEqual("pen     12\n", (current / "report.txt").read_text())
         self.assertEqual("pen: 12\n", (self.root / "tests/data/v2/report.txt").read_text())
+
+    def test_an_unbound_source_link_beside_the_bound_data_links_is_still_refused(self):
+        (self.root / "tests/test_report.py").write_text(
+            TESTS + "\n    def test_one_more(self):\n        self.assertEqual(1, len(render([('a', 1)]))\n"
+        )
+        (self.root / "tests/data/extra").symlink_to("/etc/hostname")
+        with self.assertRaises(util.PinnedSourceLinkRefusal) as held:
+            self.replay()
+        self.assertEqual("protected", held.exception.policy)
 
     def test_code_that_is_a_link_to_no_file_of_the_repository_is_still_refused(self):
         for links in (

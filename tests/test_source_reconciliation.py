@@ -300,6 +300,45 @@ class SourceReconciliationTests(unittest.TestCase):
         self.state.pop("source_link_recovery")
         self.assertIsNotNone(self.view()["next_command"], "An unrelated source hold keeps its prior admission")
 
+    def test_protected_recovery_binds_the_same_data_links_as_the_replay(self):
+        data = self.workspace / "data"
+        (data / "v2").mkdir(parents=True)
+        (data / "v2/report.txt").write_text("pen: 12\n")
+        (data / "current").symlink_to("v2")
+        (data / "missing").symlink_to("nowhere")
+        subprocess.run(["git", "-C", str(self.workspace), "add", "data"], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.workspace),
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.invalid",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "-qm",
+                "data links",
+            ],
+            check=True,
+        )
+        record = {"files": {"data/current": {"symlink": "v2"}, "data/missing": {"symlink": "nowhere"}}}
+        self.state["settings"]["protected_tests"] = record
+        self.state["source_link_recovery"] = "protected"
+        self.assertTrue(reconciliation.readable(self.workspace, self.state))
+        self.state["source_link_recovery"] = "strict"
+        self.assertFalse(
+            reconciliation.readable(self.workspace, self.state), "Strict policy keeps every terminal bound"
+        )
+        self.state["source_link_recovery"] = "protected"
+        self.state["settings"]["protected_tests"] = {"files": {}}
+        self.assertFalse(reconciliation.readable(self.workspace, self.state))
+        self.state["settings"]["protected_tests"] = record
+        (self.workspace / "extra").symlink_to("/etc/hostname")
+        self.assertFalse(reconciliation.readable(self.workspace, self.state))
+
     def test_other_source_holds_still_recover_with_a_tracked_link_leaf(self):
         (self.workspace / "source-link.txt").symlink_to("source.txt")
         subprocess.run(["git", "-C", str(self.workspace), "add", "source-link.txt"], check=True)

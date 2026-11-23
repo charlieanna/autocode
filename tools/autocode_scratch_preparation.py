@@ -140,14 +140,20 @@ def validate_protected_policy(enabled, revision, review_mutation=False, acceptan
         raise ValueError("Protected test link policy requires a pinned ordinary replay")
 
 
-def source_parameters(parameters, revision, review_source, protected_test_snapshot_links=False):
+def source_parameters(
+    parameters, revision, review_source, protected_test_snapshot_links=False, protected_data_links=()
+):
     """Transport the source pin and optional review scope to the owned worker."""
+    if protected_data_links and not protected_test_snapshot_links:
+        raise ValueError("Protected data links require the protected test link policy")
     if revision is not None:
         parameters["expected_source_revision"] = revision
     if review_source is not None:
         parameters["review_source"] = review_source
     if protected_test_snapshot_links:
         parameters["protected_test_snapshot_links"] = True
+    if protected_data_links:
+        parameters["protected_data_links"] = sorted(protected_data_links)
     return parameters
 
 
@@ -198,10 +204,13 @@ def prepare(
     review_source=None,
     expected_source_revision=None,
     protected_test_snapshot_links=False,
+    protected_data_links=(),
     _on_prepared=None,
 ):
     """Existing copy operations, supplied to the owned preparation worker."""
     validate_protected_policy(protected_test_snapshot_links, expected_source_revision)
+    if protected_data_links and not protected_test_snapshot_links:
+        raise ValueError("Protected data links require the protected test link policy")
     workspace, run_dir = Path(workspace), Path(run_dir)
     before = _source_access(source_snapshot.snapshot, workspace, paths=source_paths)
     if expected_source_revision is not None and before["revision"] != expected_source_revision:
@@ -214,6 +223,7 @@ def prepare(
         expected_files,
         lambda: git(workspace, "ls-files", "-z").split("\0"),
         allow_untracked_terminal=protected_test_snapshot_links,
+        bound_links=protected_data_links,
     ):
         raise util.PinnedSourceLinkRefusal(
             "PAUSED_SOURCE_UNAVAILABLE",

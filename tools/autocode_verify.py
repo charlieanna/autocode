@@ -1476,6 +1476,7 @@ def scratch_run(
     python=None,
     expected_source_revision=None,
     protected_test_snapshot_links=False,
+    protected_data_links=(),
 ) -> dict:
     """Execute in a copy of HEAD plus current changes and an optional reviewed patch.
     File/link overlays preserve cited inputs. Review mutation returns a typed
@@ -1493,7 +1494,7 @@ def scratch_run(
     if native_execution is not None:
         review_inputs = (review_mutation, review_mutation_deadline, review_source)
         native_checks.validate_scratch_owner(
-            native_execution, review_inputs, preparation.active, protected_test_snapshot_links
+            native_execution, review_inputs, preparation.active, protected_test_snapshot_links, protected_data_links
         )
         native_scope = native_execution.copy(
             workspace,
@@ -1518,7 +1519,7 @@ def scratch_run(
             patch, files, links, source_paths, dependencies_from, generated_record, generated_unrecorded, ignored_inputs
         )
         scratch_preparation.source_parameters(
-            parameters, expected_source_revision, review_source, protected_test_snapshot_links
+            parameters, expected_source_revision, review_source, protected_test_snapshot_links, protected_data_links
         )
         if preparation.active():
             answer = preparation.execute(

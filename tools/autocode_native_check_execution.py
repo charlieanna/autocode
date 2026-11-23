@@ -62,7 +62,9 @@ def _require(value, reason):
         raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Native check: " + reason)
 
 
-def validate_scratch_owner(execution, review, preparation_active, protected_test_snapshot_links=False):
+def validate_scratch_owner(
+    execution, review, preparation_active, protected_test_snapshot_links=False, protected_data_links=()
+):
     """Refuse unsupported ownership before preparing a native verification tree."""
     review_mutation, deadline, review_source = review
     if review_mutation or deadline is not None or review_source is not None:
@@ -71,7 +73,7 @@ def validate_scratch_owner(execution, review, preparation_active, protected_test
         raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Original concrete native check owner required")
     if preparation_active():
         raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Native checks cannot share scheduled preparation ownership")
-    if protected_test_snapshot_links:
+    if protected_test_snapshot_links or protected_data_links:
         raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Native protected replay cannot use the snapshot-only link policy")
 
 
