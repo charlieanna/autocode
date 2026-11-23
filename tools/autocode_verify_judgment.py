@@ -287,7 +287,11 @@ def judge_regression(
             flipped = sorted({*flipped, *reloadable})
             notes.append(UNLOADABLE)
         if new_behavior and changed_tests is not None:
-            unchanged = {name for name in flipped if not changed_tests(name)}
+            # Preservation reads every test that passes now and did not pass on the targeted base, not only
+            # the ones counted as fail-to-pass. An unchanged test the pristine base suite passed can be kept
+            # off the targeted base by a changed test's build/collection failure (a Go package that no longer
+            # builds); it is still preserved behavior, so it must not depend on entering ``flipped`` (#3981).
+            unchanged = {name for name in (passed - set(base["passed"])) if not changed_tests(name)}
             flipped = [name for name in flipped if name not in unchanged]
             preserved = unchanged & (base_suite_passed() if base_suite_passed else set())
             kept |= preserved

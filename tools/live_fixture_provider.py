@@ -105,8 +105,27 @@ TEST_GREET_LOADABLE = (
     .replace("    def test_unicode(self):\n", "    def test_unicode(self):\n        from greet import greet\n")
 )
 
+# A load-and-fail variant for a completion proof on a base that already has a suite: the two function tests
+# run the new CLI through subprocess instead of importing the new module, so the test module loads on the
+# original code and each test fails there on a named assertion rather than a held collection error (#3981).
+TEST_GREET_SUBPROCESS = (
+    TEST_GREET_PY.replace("from greet import greet\n", "")
+    .replace(
+        '        self.assertEqual(greet("Ada"), "Hello, Ada")',
+        '        proc = subprocess.run([sys.executable, "greet.py", "Ada"], capture_output=True, text=True)\n'
+        '        self.assertEqual(proc.stdout, "Hello, Ada\\n")',
+    )
+    .replace(
+        '        self.assertEqual(greet("Zoë"), "Hello, Zoë")',
+        '        proc = subprocess.run([sys.executable, "greet.py", "Zoë"], capture_output=True, text=True)\n'
+        '        self.assertEqual(proc.stdout, "Hello, Zoë\\n")',
+    )
+)
+
 
 def _fixture_tests() -> str:
+    if os.environ.get("LIVE_FIXTURE_SUBPROCESS_TESTS") == "1":
+        return TEST_GREET_SUBPROCESS
     return TEST_GREET_LOADABLE if os.environ.get("LIVE_FIXTURE_LOADABLE_TESTS") == "1" else TEST_GREET_PY
 
 
