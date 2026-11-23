@@ -152,6 +152,7 @@ credentials and Docker socket are not mounted or forwarded. Scenario mode adds
 `--fake` itself; live profiles, providers and model-spend authorization are
 refused.
 
+The Linux test launcher uses `--device=/dev/fuse` for verification copies. The contained shell has its own private `/dev`.
 Docker must support Linux host-PID mode, seccomp user notifications and nested
 unprivileged namespaces. The wrapper uses `--pid=host` so the process and its
 container `/proc` view match, and removes Docker's outer seccomp filter so

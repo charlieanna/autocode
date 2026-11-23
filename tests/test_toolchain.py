@@ -446,7 +446,8 @@ class SelectedToolchainTests(unittest.TestCase):
                 with self.subTest(read=read):
                     self.assertFalse(Path(read) == cargo_home or (cargo_home / "credentials.toml").is_relative_to(read))
             developer = [str(p) for p in (Path("/Library/Developer/CommandLineTools"),) if p.is_dir()]
-            for allow_write in (True, False):
+            # Run the reader before the Builder can create a lockfile or target directory.
+            for allow_write in (False, True):
                 with self.subTest(allow_write=allow_write):
                     boundary = containment.prepare(
                         root,
@@ -464,36 +465,21 @@ class SelectedToolchainTests(unittest.TestCase):
                         cwd, _ = copies.execution(
                             boundary["verification_copy"], boundary["verification_copy_sha256"], root
                         )
-                    if not allow_write and containment.backend() == containment.BUBBLEWRAP:
-                        # #4033: Linux mounts the copy as a writable overlay over its own read-only
-                        # real copy, so cargo creates target/ inside the copy and the check passes
-                        # there, as it already did on macOS. The live workspace stays read-only.
-                        built = subprocess.run(
-                            [boundary["shell"], "-c", "cargo test --offline"],
-                            cwd=cwd,
-                            capture_output=True,
-                            text=True,
-                            timeout=600,
-                        )
-                        if containment.bubblewrap_overlay_capable():
-                            self.assertEqual(0, built.returncode, (built.stdout[-2000:], built.stderr[-2000:]))
-                        else:
-                            # An older bwrap without the overlay mounts keeps the wholly read-only copy.
-                            self.assertNotEqual(0, built.returncode)
-                            self.assertIn("Read-only file system", built.stderr)
-                    output = 'CARGO_TARGET_DIR="$TMPDIR/cargo-target" ' if not allow_write else ""
                     for command in (
                         *selected["probes"],
                         "cargo " + explicit + " --version",
                         shlex.quote(str(cargo)) + " " + explicit + " --version",
-                        output + "cargo test --offline",
-                        output + "cargo doc --offline --no-deps",
+                        "cargo test --offline",
+                        "cargo doc --offline --no-deps",
                         'test "$HOME" != ' + shlex.quote(str(Path.home())),
                     ):
                         result = subprocess.run(
                             [boundary["shell"], "-c", command], cwd=cwd, capture_output=True, text=True, timeout=600
                         )
                         self.assertEqual(0, result.returncode, (command, result.stdout[-2000:], result.stderr[-2000:]))
+                    if not allow_write:
+                        self.assertFalse((root / "Cargo.lock").exists())
+                        self.assertFalse((root / "target").exists())
 
     def test_tool_found_through_a_symlinked_toolchain_directory_runs_contained(self):
         # A version manager's `current` link, then a link to the real binary: both outside every mount.

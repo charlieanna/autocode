@@ -612,6 +612,14 @@ class WorkflowGateTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             self.run_gate(results)
 
+    def test_extension_host_checks_can_start_the_linux_verification_namespace(self):
+        workflow = (ROOT / ".github/workflows/tests.yml").read_text()
+        job = re.search(r"(?ms)^  extension:\n(.*?)(?=^  [a-z][\w-]*:\n)", workflow).group(1)
+        enable = job.index("sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0")
+        probe = job.index("/usr/bin/unshare --user --map-current-user --mount --propagation private /bin/true")
+        self.assertLess(enable, probe)
+        self.assertLess(probe, job.index("npm run test:host"))
+
     def test_harness_and_unit_jobs_have_separate_hosted_runner_budgets(self):
         workflow = (ROOT / ".github/workflows/tests.yml").read_text()
         jobs = dict(re.findall(r"(?ms)^  ([a-z][\w-]*):\n(.*?)(?=^  [a-z][\w-]*:|\Z)", workflow))
@@ -623,7 +631,10 @@ class WorkflowGateTests(unittest.TestCase):
         self.assertEqual(["needs.scope.outputs.scenarios == 'true'"], re.findall(r"^    if: (.+)$", harness, re.M))
         self.assertIn("timeout-minutes: 360", harness)
         self.assertNotIn("outputs.suite", harness)
-        self.assertIn("bubblewrap libseccomp2 tmux", harness)
+        install = next(
+            line.split() for line in harness.splitlines() if "apt-get install" in line and "bubblewrap" in line
+        )
+        self.assertTrue({"bubblewrap", "fuse3", "libseccomp2", "tmux"}.issubset(install), install)
         self.assertIn("/usr/bin/bwrap --unshare-all", harness)
         self.assertIn("tests.test_capability_startup.LinuxCapabilityStartupTests", harness)
         for tool in ("actions/setup-node@v4", "actions/setup-go@v5", "python tools/ci_java.py", "java_toolchain.py"):

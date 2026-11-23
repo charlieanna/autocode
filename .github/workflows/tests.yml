@@ -93,7 +93,12 @@ jobs:
       - name: Prepare the CLI for the Extension Host suite
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q bubblewrap xvfb
+          sudo apt-get install -y -q bubblewrap fuse3 xvfb
+          # The editor launches the same isolated verification shell as the Linux suite.
+          if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          /usr/bin/unshare --user --map-current-user --mount --propagation private /bin/true
           python3 -m venv .venv
           .venv/bin/python -m pip install -e '.[test,coverage]' 'pytest-cov>=6,<8'
       - uses: actions/setup-go@v5
@@ -169,7 +174,7 @@ jobs:
         run: |
           sudo apt-get update -q
           # tmux: tests.test_chat_screens drives the full-screen chat in a real terminal (#1646).
-          sudo apt-get install -y -q bubblewrap libseccomp2 tmux
+          sudo apt-get install -y -q bubblewrap fuse3 libseccomp2 tmux
           if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
@@ -318,7 +323,7 @@ jobs:
         run: |
           sudo apt-get update -q
           # tmux: tests.test_chat_screens drives the full-screen chat in a real terminal (#1646).
-          sudo apt-get install -y -q bubblewrap libseccomp2 tmux
+          sudo apt-get install -y -q bubblewrap fuse3 libseccomp2 tmux
           if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
@@ -377,7 +382,7 @@ jobs:
       - name: Prepare native Linux verification boundary
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q bubblewrap libseccomp2 tmux
+          sudo apt-get install -y -q bubblewrap fuse3 libseccomp2 tmux
           if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
@@ -476,7 +481,7 @@ jobs:
       - name: Install bubblewrap and allow unprivileged user namespaces
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q bubblewrap libseccomp2 python3-venv
+          sudo apt-get install -y -q bubblewrap fuse3 libseccomp2 python3-venv
           if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
@@ -521,6 +526,7 @@ jobs:
               "tests.test_native_initial_callers.OriginalCheckFailureTests",
               "tests.test_kilo_linux_boundary.KiloLinuxBoundaryTests.test_pure_allows_threads_but_denies_process_fork_and_network",
               "tests.test_kilo_linux_boundary.KiloLinuxBoundaryTests.test_client_runs_discovered_python_through_external_symlink",
+              "tests.test_kilo_linux_boundary.KiloLinuxBoundaryTests.test_prepared_shell_inherits_the_client_verification_view",
               "tests.test_kilo_linux_boundary.KiloLinuxBoundaryTests.test_unix_relay_is_reachable_while_foreign_socket_and_host_network_are_absent",
               "tests.test_kilo_linux_boundary.KiloLinuxBoundaryTests.test_original_namespace_pid1_is_bound_but_its_forked_peer_is_refused",
               "tests.test_kilo_linux_boundary.KiloLinuxBoundaryTests.test_policy_filter_and_command_tampering_refuse",

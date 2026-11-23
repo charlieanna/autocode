@@ -124,6 +124,7 @@ def docker_run_prefix(repo: Path) -> list[str]:
         "--user",
         f"{uid}:{gid}",
         "--cap-drop=ALL",
+        "--device=/dev/fuse",
         "--security-opt=no-new-privileges:true",
         "--security-opt=seccomp=unconfined",
         "--security-opt=systempaths=unconfined",

@@ -185,8 +185,11 @@ if agent == "autocode_builder" and os.environ.get("AUTOCODE_FIXTURE_RUSTUP_RECOR
         raise AssertionError("Offline fixture did not create exactly one run")
     run_driver.run_dir = runs[0].parent
     view = run_driver.until_stopped(say_at="needs:approve_plan")
-    if (view.get("needs") or {}).get("kind") != "approve_plan":
-        raise AssertionError(f"Offline Rust task did not reach its plan gate: {view.get('status')}")
+    need = view.get("needs") or {}
+    if need.get("kind") != "approve_plan":
+        raise AssertionError(
+            f"Offline Rust task stopped at {view.get('status')} before plan approval: {need.get('reason')}"
+        )
     if absolute_cargo:
         # Pre-plan roles have no selected command and use manifest discovery.
         # The approved action and all later stages receive the off-PATH setup.

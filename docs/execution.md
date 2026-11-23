@@ -1904,12 +1904,19 @@ inside an empty read-only root that holds only:
   evidence, `.git`, OpenCode configuration and runtime are mounted read-only over it.
   A writable directory that holds one of these further down is mounted onto itself,
   so the Builder can write in it but cannot rename it to recreate the protected name;
-- the stage's own scratch, writable. A reader's verification copy is one read-only
-  mount inside it;
+- the stage's own scratch, writable. A reader's verification copy is one FUSE mount.
+  Existing entries stay protected throughout the check, including directory and symlink names.
+  New files and directories go into private temporary storage that ends with the sandbox;
 - for a native visual run's planning stage, an empty read-only `tmpfs` over
   `.autocode/runs`, with only that run's `planning/` mounted read-only inside it,
   and one over each existing private store listed above (Seatbelt denies reading
   the same paths).
+
+The Linux launcher needs the distribution's FUSE 3 runtime (`fuse3` on Ubuntu), util-linux,
+and access to `/dev/fuse` to mount a verification copy. The host must allow the launcher's
+`unshare` process to create an unprivileged user and mount namespace. AutoCode's Python package installs
+the Linux binding. A container running AutoCode needs `--device=/dev/fuse`. The stage gets
+its own `/dev`, and the mount and its filesystem process end with the command.
 
 There is no home directory, `/tmp`, `/run` or `/var`, so a write anywhere else fails
 (`Read-only file system`, or `No such file or directory` where nothing is mounted)

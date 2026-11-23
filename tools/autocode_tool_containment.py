@@ -30,6 +30,7 @@ from pathlib import Path
 try:
     from . import autocode_captured_process as captured
     from . import autocode_context as handoff_context
+    from . import autocode_linux_copy_view as copy_view
     from . import autocode_native_conformance as native_conformance
     from . import autocode_person_text as person_text
     from . import autocode_tool_shell as tool_shell
@@ -39,6 +40,7 @@ try:
 except ImportError:
     import autocode_captured_process as captured
     import autocode_context as handoff_context
+    import autocode_linux_copy_view as copy_view
     import autocode_native_conformance as native_conformance
     import autocode_person_text as person_text
     import autocode_tool_shell as tool_shell
@@ -312,28 +314,6 @@ def backend_version(name):
     if name == SEATBELT:
         return "macOS " + platform.mac_ver()[0] if platform.mac_ver()[0] else None
     return None
-
-
-# bubblewrap 0.11.0 added the overlay mounts (--overlay/--tmp-overlay/--ro-overlay/--overlay-src)
-# a read-only stage's verification copy needs to create build outputs without a wholly read-only
-# copy (#4033). 0.9.0 and 0.10.0 reject --overlay-src as an unknown option, so they keep the
-# read-only copy rather than failing every contained launch.
-OVERLAY_MINIMUM = (0, 11, 0)
-
-
-def _overlay_capable(version):
-    """Whether a ``bwrap --version`` string names a release with the overlay mounts (#4033)."""
-    match = re.search(r"(\d+)\.(\d+)\.(\d+)", version or "")
-    return bool(match) and tuple(int(part) for part in match.groups()) >= OVERLAY_MINIMUM
-
-
-def bubblewrap_overlay_capable():
-    """Whether this host's bwrap can mount a writable verification overlay; False where it cannot.
-
-    An older bwrap keeps the wholly read-only copy (the pre-#4033 behavior) rather than failing
-    every contained launch on an option it does not know, so the fix degrades gracefully.
-    """
-    return _overlay_capable(backend_version(BUBBLEWRAP))
 
 
 def unavailable(workspace=None, environment=None):
@@ -977,7 +957,7 @@ def bubblewrap_arguments(
     write_paths=None,
     writer_path_kinds=None,
     private_reads=None,
-    overlay_trees=(),
+    verification_tree=None,
 ):
     """bwrap arguments for the Seatbelt profile's authority, and the paths it can only watch.
 
@@ -989,15 +969,8 @@ def bubblewrap_arguments(
     mounted read-only only where the mount above it is writable (a verification
     copy is one mount, not one per file).
 
-    ``overlay_trees`` are verification copies a read-only stage builds in (#4033). Each is
-    mounted ``--overlay-src TREE --tmp-overlay TREE`` (bubblewrap 0.11+): the real copy is the
-    read-only lower layer and a discarded tmpfs is the upper, so a check can create build outputs
-    (cargo's ``target/``, ``.coverage``, a compiler's output dir) beside the sources while the real
-    copy and the read-only workspace are never written. This matches the macOS seal's "existing
-    copied paths are unchangeable, new paths may be made" at one mount whatever the copy's size,
-    where a wholly read-only copy refused every new in-tree output. The capture re-validates the
-    real copy afterwards (autocode_verification_copy.execution) and the clean-source replay re-runs
-    accepted checks against pristine sources, so a check cannot change a source it is judged on.
+    A verification copy uses one bind from the command's private filesystem. That
+    filesystem serves original entries read-only and stores newly created entries in tmpfs.
 
     Seatbelt lets a contained shell read symlink metadata anywhere. Here ``links``, the
     (path, target) symlinks toolchain discovery saw while selecting tools, are recreated
@@ -1015,14 +988,9 @@ def bubblewrap_arguments(
     if private_reads is not None and allow_write:
         raise ValueError("Only a read-only shell takes the private run-store read denial")
     root, scratch, extra, protected = _authority(workspace, scratch, read_roots, protected_paths)
-    overlays = {_path(tree) for tree in overlay_trees}
-    if overlays and allow_write:
-        raise ValueError("Only a read-only shell builds in a writable verification overlay")
-    for tree in overlays:
-        # The overlay's read-only lower layer is the real copy in the owned scratch; it can never
-        # be the workspace or an ancestor of the scratch, so no write reaches the live sources.
-        if not tree.is_relative_to(scratch) or tree == scratch or not tree.is_dir():
-            raise ValueError("A writable verification overlay must be an existing directory inside the owned scratch")
+    tree = _path(verification_tree) if verification_tree is not None else None
+    if tree is not None and (allow_write or tree != scratch / "verification" or not tree.is_dir()):
+        raise ValueError("A verification view requires the read-only stage's own verification copy")
     hidden = [_path(p) for p in (private_reads or {}).get("denied", ())]
     shown_again = [_path(p) for p in (private_reads or {}).get("readable", ())]
     arguments = ["--unshare-all", "--cap-drop", "ALL", "--die-with-parent", "--new-session"]
@@ -1056,15 +1024,9 @@ def bubblewrap_arguments(
             raise ValueError("Linux writer kind differs from its pinned authority")
         mounts[path] = "--bind"
     mounts[scratch] = "--bind"
-    # A verification copy is a writable overlay over its own real copy in scratch (#4033): the
-    # tree is one mount, and the copied paths under it are not mounted again (the overlay's lower
-    # layer already holds them read-only). Removing the tree from `protected` keeps the loop below
-    # from covering it with a read-only bind; its contents are skipped because the nearest mount
-    # above them is the overlay, not a writable bind.
-    for tree in overlays:
-        mounts[tree] = "--tmp-overlay"
-    protected = protected - overlays
-    # Neither is "--bind", so protected paths below them are never mounted again.
+    if tree is not None:
+        mounts[tree] = "verification"
+        protected.discard(tree)
     mounts.update({path: "--tmpfs" for path in hidden})
     mounts.update({path: "--ro-bind-try" for path in shown_again})
     watched = []
@@ -1100,9 +1062,8 @@ def bubblewrap_arguments(
     ordered += [(path, source, "--ro-bind") for path, source in secrets]
     # Stable by depth: an ancestor is mounted before anything inside it.
     for path, source, flag in sorted(ordered, key=lambda mount: len(mount[0].parts)):
-        if flag == "--tmp-overlay":
-            # The real copy is the read-only lower layer; the upper is a discarded tmpfs (#4033).
-            arguments += ["--overlay-src", str(path), "--tmp-overlay", str(path)]
+        if flag == "verification":
+            arguments += copy_view.bind(path)
         elif flag == "--tmpfs":
             arguments += [flag, str(path)]
         else:
@@ -1220,7 +1181,7 @@ def prepare(
         )
         marker.chmod(0o400)
     verification = None
-    overlay_trees = ()
+    view_launcher = []
     if verification_copy:
         if allow_write:
             raise ValueError("Writable stages must execute in the original workspace")
@@ -1228,13 +1189,13 @@ def prepare(
             from . import autocode_verification_copy as copies
         except ImportError:
             import autocode_verification_copy as copies
-        # Seatbelt protects the copy by its seal: one rule, whatever the copy's size. bubblewrap
-        # mounts the copy as a writable overlay over its own read-only real copy (#4033), one mount
-        # whatever its size, so a check can create build outputs beside the unchangeable sources.
         verification = copies.create(root, scratch, source_paths=source_paths, seal=host == SEATBELT)
         protected_paths = [*protected_paths, *verification["protected_paths"]]
-        if host == BUBBLEWRAP and bubblewrap_overlay_capable():
-            overlay_trees = (verification["tree"],)
+        if host == BUBBLEWRAP:
+            view, outputs = control / "verification-view", control / "verification-outputs"
+            view.mkdir(mode=0o700)
+            outputs.mkdir(mode=0o700)
+            view_launcher = ["/usr/bin/env", "-i", "PATH=/usr/bin:/bin", *copy_view.launcher(verification["tree"])]
     profile = control / POLICY_FILES[host]
     watched = []
     if host == SEATBELT:
@@ -1263,7 +1224,7 @@ def prepare(
             write_paths=footprint,
             writer_path_kinds=kinds,
             private_reads=private_reads,
-            overlay_trees=overlay_trees,
+            verification_tree=verification["tree"] if verification else None,
         )
         profile.write_bytes(("\0".join(arguments) + "\0").encode())
     shell = control / "shell"
@@ -1280,6 +1241,7 @@ def prepare(
     )
     sandbox = [SANDBOX_EXEC, "-f", str(profile)] if host == SEATBELT else [BWRAP, "--args", "3"]
     argv = [
+        *view_launcher,
         "/usr/bin/env",
         "-i",
         *(key + "=" + value for key, value in safe.items()),
