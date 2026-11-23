@@ -523,6 +523,14 @@ removed: a run saved at one of those stages is refused with a message to start a
 (`autocode_workflows.RETIRED_STAGES`); its status and saved reports stay readable, and
 `autocode_roles` keeps their screen names only to show such a run. Do not bring them back.
 
+**A fast lane for small, clear tasks, owner request 2026-11-23.** `--fast-lane` is a new-run choice, off by
+default, that runs fewer model stages on a small task and keeps every gate: it implies `--review-routing combined`
+(one independent testing/completion call), and a Planner's first draft that qualifies (small, judged clear,
+approvable, outside `sensitive-paths`, needing no Plan Reviewer observation and passing the strictest source trace)
+goes to the person's exact-token approval without a Plan Reviewer call (`tools/autocode_fast_lane.py`,
+[fast lane](docs/adaptive-planning.md#fast-lane-for-small-clear-tasks)). Every other draft, and every revision,
+is reviewed as before. Do not widen what qualifies, or skip a later gate, without the owner's decision.
+
 Stages that belong to one workflow rather than to the build pipeline (`check_design`,
 `investigate_stuck`, `collect_design`, `write_acceptance_tests`) are listed in `tools/autocode_jobs.py`;
 the runner and Autopilot consult that table, so a new one is added there, not in `autocode.py` or

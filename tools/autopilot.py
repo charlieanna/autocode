@@ -41,6 +41,7 @@ try:
     from . import autocode_escalation as escalation
     from . import autocode_failure_classification as failure_classification
     from . import autocode_failures as failures
+    from . import autocode_fast_lane as fast_lane
     from . import autocode_findings as findings_ledger
     from . import autocode_goal_lifecycle as lifecycle
     from . import autocode_goals as goals
@@ -100,6 +101,7 @@ except ImportError:
     import autocode_escalation as escalation
     import autocode_failure_classification as failure_classification
     import autocode_failures as failures
+    import autocode_fast_lane as fast_lane
     import autocode_findings as findings_ledger
     import autocode_goal_lifecycle as lifecycle
     import autocode_goals as goals
@@ -620,6 +622,8 @@ def apply_planning_result(state: RunState, stage, value, record, *, run_dir=None
     if planning_unit.is_planning(state, stage):
         apply_planning(state, stage, value, record, run_dir=run_dir)
         requirements_observations.seal_plan(state, record)
+        # A small, clear first draft on the fast lane goes to the person without a Plan Reviewer call.
+        fast_lane.after_draft(state, stage, record, queue=human.queue)
         return
     schema = support.read(Path(record["schema"])) if record.get("schema") else goals.DISCOVERY_SCHEMA
     support.validate_schema(value, schema)
