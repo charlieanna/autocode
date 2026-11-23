@@ -11,11 +11,15 @@ base revision, recorded command), never from a runner, language or file name:
 
 - An exit-code statement in a Completion Reviewer's ``agreed_limitations`` or ``deferred_backlog`` that
   states exactly one exit code and cites captures by file name is compared with their recorded exit
-  codes. A capture that is a test run (per-test results, or a command
-  autocode_verification_commands.command_framework recognizes) records its runner's exit code, never
-  the product's, so it is not compared. Established when one compared capture matches; contradicted,
-  and refused, only when every cited capture was read, none is a test run and every one differs;
-  otherwise unverified (a missing or unreadable capture is never a contradiction).
+  codes. A definite success/failure prose assertion that cites captures but states no numeric code
+  ("imports successfully", "succeeds", "fails") is bound the same way: success expects exit 0, failure
+  expects a nonzero exit (#3904). Ambiguous prose (both success and failure words, a negated assertion,
+  or no definite assertion) and prose without a cited capture are never bound. A capture that is a test
+  run (per-test results, or a command autocode_verification_commands.command_framework recognizes)
+  records its runner's exit code, never the product's, so it is not compared. Established when one
+  compared capture matches; contradicted, and refused, only when every cited capture was read, none is
+  a test run and every one differs; otherwise unverified (a missing or unreadable capture is never a
+  contradiction).
 - A Tester PASS for an approved criterion that claims references resolve needs a base-versus-candidate
   diagnostics comparison (autocode_diagnostics_comparison) against the run's base. A single run, a
   comparison against another base or one with new diagnostics is refused. One with no new diagnostics
@@ -69,6 +73,19 @@ _REFERENCE = re.compile(r"\b(?:cross-?references?|references?|refs?|xrefs?|links
 _RESOLVE = re.compile(r"\bresolve[sd]?\b", re.IGNORECASE)
 _CHECK = re.compile(r"check:(\d+)")
 _SUITE_WORDS = re.compile(r"\bsuite\s+command\b", re.IGNORECASE)
+# Definite success/failure assertions (#3904). Only verbs/adverbs that state the input's outcome bind;
+# nouns and adjectives ("success", "successful", "failure", "failing") and "passes" are not triggers, so
+# vague review prose ("a failure mode", "the suite passes") is never bound to a probe's exit code.
+_SUCCESS = re.compile(r"\b(?:succeeds?|successfully)\b", re.IGNORECASE)
+_FAILURE = re.compile(r"\b(?:fails?|failed)\b", re.IGNORECASE)
+_NEGATION = re.compile(
+    r"\b(?:not|never|no|nor|without|cannot|can't|won't|wouldn't|doesn't|don't|isn't|aren't|wasn't|weren't|"
+    r"shouldn't|couldn't|hardly|barely)\b",
+    re.IGNORECASE,
+)
+# File names and hyphenated identifiers, blanked before reading prose so a word inside one
+# ("failed-events.jsonl", "re-fails") is never mistaken for a success/failure assertion (#3904).
+_IDENT = re.compile(r"[A-Za-z0-9_./-]*[A-Za-z0-9_-]\.[A-Za-z0-9]+|[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+")
 
 
 def context(state: RunState, workspace, run_dir=None, *, record=None) -> dict[str, Any]:
@@ -240,8 +257,28 @@ def _authenticated(path: Path, receipt: dict, claim_context: dict) -> bool:
         return False
 
 
+def prose_expectation(sentence: str) -> int | str | None:
+    """The exit-code expectation a definite success/failure assertion implies, or None when ambiguous.
+
+    Success (``succeeds``/``successfully``) implies exit 0; failure (``fails``/``failed``) implies a
+    nonzero exit. None when the sentence states no definite assertion, mixes success and failure words,
+    or negates the assertion ("does not fail"), so such prose is never bound to a probe (#3904). File
+    names and hyphenated identifiers are blanked first, so a word inside one is not an assertion.
+    """
+    view = _IDENT.sub(lambda match: " " * len(match.group(0)), sentence)
+    success = list(_SUCCESS.finditer(view))
+    failure = list(_FAILURE.finditer(view))
+    if bool(success) == bool(failure):  # neither assertion, or both -> ambiguous
+        return None
+    for match in success or failure:
+        if _NEGATION.search(view[: match.start()]):  # a negated assertion is not definite
+            return None
+    return 0 if success else "nonzero"
+
+
 def exit_code_claims(report: dict, claim_context: dict) -> list[dict]:
-    """Rows for each limitation or backlog sentence that states one exit code and cites captures."""
+    """Rows for each limitation or backlog sentence that states one exit code, or a definite
+    success/failure assertion, and cites captures."""
     rows = []
     for field in REPORT_FIELDS:
         entries = report.get(field)
@@ -250,12 +287,24 @@ def exit_code_claims(report: dict, claim_context: dict) -> list[dict]:
                 continue
             codes = {int(match.group(1)) for match in _EXIT.finditer(sentence)}
             cited = list(dict.fromkeys(match.group(1).removeprefix("./") for match in _CITED.finditer(sentence)))
-            if len(codes) == 1 and cited:
+            if not cited:
+                continue
+            if len(codes) == 1:
                 rows.append(_exit_row(field, index, sentence, codes.pop(), cited, claim_context))
+            elif not codes and (expectation := prose_expectation(sentence)) is not None:
+                rows.append(_exit_row(field, index, sentence, expectation, cited, claim_context))
     return rows
 
 
 def _exit_row(field, index, sentence, stated, cited, claim_context) -> dict:
+    # ``stated`` is one explicit exit code (or 0 for a success assertion), or "nonzero" for a failure
+    # assertion, which matches any nonzero exit rather than one code (#3904).
+    nonzero = stated == "nonzero"
+    description = "failure (a nonzero exit)" if nonzero else f"exit {stated}"
+
+    def matches(code: int) -> bool:
+        return code != 0 if nonzero else code == stated
+
     missing, unreadable, unauthenticated, tests, differing, matching = [], [], [], [], [], []
     for name in cited:
         path = _find(name, claim_context)
@@ -268,19 +317,20 @@ def _exit_row(field, index, sentence, stated, cited, claim_context) -> dict:
             unauthenticated.append(name)
         elif is_test_run(receipt):
             tests.append(name)
-        elif receipt["exit_code"] == stated:
-            matching.append(name)
+        elif matches(receipt["exit_code"]):
+            matching.append((name, receipt["exit_code"]))
         else:
             differing.append(f"{name} recorded exit {receipt['exit_code']} (`{_command_text(receipt)}`)")
     row = {"source": field, "id": f"{field}[{index}]", "claim": sentence, "observation": ", ".join(cited)}
     if matching:
-        return {**row, "status": ESTABLISHED, "reason": f"{', '.join(matching)} recorded exit {stated}."}
+        observed = "; ".join(f"{name} recorded exit {code}" for name, code in matching)
+        return {**row, "status": ESTABLISHED, "reason": f"{observed}."}
     if differing and not (missing or unreadable or unauthenticated or tests):
         return {
             **row,
             "status": CONTRADICTED,
             "reason": (
-                f"{field} entry {sentence!r} states exit {stated}, but every capture it cites recorded another "
+                f"{field} entry {sentence!r} states {description}, but every capture it cites recorded another "
                 f"exit code: {'; '.join(differing)}. Correct the statement to what the cited capture recorded, "
                 "or cite the capture that shows it."
             ),
@@ -299,7 +349,7 @@ def _exit_row(field, index, sentence, stated, cited, claim_context) -> dict:
     return {
         **row,
         "status": UNVERIFIED,
-        "reason": f"{field} entry states exit {stated}, which AutoCode has not observed: {'; '.join(reasons)}.",
+        "reason": f"{field} entry states {description}, which AutoCode has not observed: {'; '.join(reasons)}.",
     }
 
 
