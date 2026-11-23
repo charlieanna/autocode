@@ -184,7 +184,9 @@ def accept(state: RunState, text: str, workspace, now: str) -> None:
     }
     # The source log, not the rewritten task below, keeps the earlier request's
     # bytes: task:0 names the same text before and after this turn (#595).
-    source_log.save_feedback(state, event)
+    # The turn record below is where this turn's finished result is retained
+    # (previous.chat_response); keeping it on the event too recorded it twice.
+    source_log.save_feedback(state, event, retain=False)
     state.setdefault("turns", []).append(
         {
             "at": now,

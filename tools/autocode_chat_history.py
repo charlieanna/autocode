@@ -236,6 +236,11 @@ def messages(state: RunState, *, completed=False) -> list[dict]:
             and requirements_review.review_question(state)["id"] == event["question_id"]
         ):
             spoken = requirements_chat.reply(state)
+        # A follow-up turn's finished result is already shown above from its turn record, the one
+        # place it is retained (turns[].previous.chat_response); the event's own copy would say it
+        # a second time above the person's question.
+        if prior.get(ident):
+            spoken = None
         if spoken:
             rows.append({"id": f"{ident}-reply", "role": "assistant", "text": spoken, "format": "plain"})
         if (

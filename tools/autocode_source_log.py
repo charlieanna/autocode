@@ -85,12 +85,15 @@ def seed(state: RunState):
             _append_linked_issues(state, row["id"], row["text"])
 
 
-def save_feedback(state: RunState, event):
+def save_feedback(state: RunState, event, *, retain: bool = True):
     """The one boundary that saves a brief-feedback event: both ledgers, then the log.
 
     goals.feedback, goals.apply_intervention_feedback and follow_up.accept all call
-    this; the source record is written exactly when its ledger event is."""
-    requirements_chat.retain_reply(state, event)
+    this; the source record is written exactly when its ledger event is. ``retain=False``
+    keeps the assistant side of the exchange off an event whose turn record retains it
+    (follow_up), so the finished result is recorded once."""
+    if retain:
+        requirements_chat.retain_reply(state, event)
     state.setdefault("user_events", []).append(event)
     state.setdefault("brief_feedback", []).append(event)
     if KEY not in state or not event.get("id") or not event.get("text"):

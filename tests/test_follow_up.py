@@ -14,6 +14,7 @@ import unittest
 import uuid
 from pathlib import Path
 
+import autocode_chat_history as chat_history
 import autocode_contract_revision as revision
 import autocode_follow_up as follow_up
 import autocode_run_view as run_view
@@ -752,6 +753,100 @@ class FollowUpTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "cannot be read"):
             follow_up.accept(self.state, "Fix them.", self.workspace, "t1")
         self.assertEqual(before, self.state)
+
+
+class FollowUpTranscriptTests(unittest.TestCase):
+    """The finished turn's result is shown once where the follow-up was said.
+
+    A live discuss chat (2026-11-22) showed the first answer as two AutoCode bubbles above the
+    follow-up question: the turn record retained the result (turns[].previous.chat_response) and
+    the event retained it again (assistant_reply), and the transcript rendered both copies.
+    """
+
+    ANSWER = (
+        "Having read through the repo, my honest take: it's an unusually disciplined piece of "
+        "engineering. In short: a serious, well-governed bet that agent output should be "
+        "verified, not believed."
+    )
+    QUESTION = "what would u improve about autocode?"
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.workspace = Path(temp.name)
+        subprocess.run(["git", "init", "-q", str(self.workspace)], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.workspace),
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@example.test",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "seed",
+            ],
+            check=True,
+        )
+        self.state = {
+            "status": "TASK_COMPLETE",
+            "phase": "COMPLETE",
+            "next_stage": None,
+            "completed_at": "t0",
+            "task": "what do u think abt autocode",
+            "settings": {"spec_first": True},
+            "workspace": str(self.workspace),
+            "workflow": {
+                "kind": "discuss",
+                "reason": "a question about this project",
+                "signals": [],
+                "source": "model",
+                "then": "requirements_gather",
+            },
+            "answer": {
+                "answer": self.ANSWER,
+                "evidence": [{"claim": "Read while answering", "source": "RELIABILITY.md"}],
+            },
+            "requirements_handoff": {
+                "report": {"job": "discuss", "summary": "The user asked what I think.", "assistant_reply": self.ANSWER}
+            },
+        }
+
+    def test_the_finished_discuss_answer_is_shown_once_above_the_follow_up(self):
+        follow_up.accept(self.state, self.QUESTION, self.workspace, "t1")
+        texts = [row["text"] for row in chat_history.messages(self.state)]
+        self.assertEqual(1, sum(1 for text in texts if "verified, not believed" in text), texts)
+        said = next(index for index, text in enumerate(texts) if "verified, not believed" in text)
+        asked = next(index for index, text in enumerate(texts) if self.QUESTION in text)
+        self.assertLess(said, asked, "the finished turn's result stands above the question that follows it")
+
+    def test_a_finished_turns_requirements_prose_is_not_re_served_with_the_follow_up(self):
+        # The build's Requirements prose was already shown where it was spoken (the confirmation
+        # exchange); a follow-up after the finished build must not serve it a second time.
+        intro = "I'll add JSON serialization of versions to this library."
+        state = finished_review(self.workspace)
+        state["settings"] = {"spec_first": True}
+        state["requirements_handoff"] = {
+            "report": {"job": "build", "summary": "Serialization for versions.", "assistant_reply": intro}
+        }
+        state["user_events"] = [
+            {
+                "kind": "answer",
+                "id": "requirements-review-1",
+                "question_id": "requirements-review-1",
+                "actor": "user_cli",
+                "text": "plan",
+                "assistant_reply": intro,
+            }
+        ]
+        follow_up.accept(state, "Fix them.", self.workspace, "t1")
+        texts = [row["text"] for row in chat_history.messages(state)]
+        self.assertEqual(1, sum(1 for text in texts if intro in text), texts)
+        self.assertEqual(1, sum(1 for text in texts if "Review complete" in text), texts)
 
 
 if __name__ == "__main__":
