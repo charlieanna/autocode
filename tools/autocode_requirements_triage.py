@@ -183,7 +183,7 @@ def effort_decision(state: RunState, stage: str, configured) -> dict | None:
         return None
     settings = state.get("settings") or {}
     model = ((settings.get("roles") or {}).get("requirements") or {}).get("model")
-    offered = _offered(settings, model)
+    offered = route_fit.offered(settings, model)
     if offered is None:
         return _kept(configured, "levels_unknown", f"the levels {model or 'this model'} offers are not known")
     floor = offered[0]
@@ -200,14 +200,3 @@ def effort_decision(state: RunState, stage: str, configured) -> dict | None:
 
 def _kept(configured, reason: str, text: str) -> dict:
     return {"level": configured, "ceiling": configured, "lowered": False, "reason": reason, "text": text}
-
-
-def _offered(settings: dict, model) -> list | None:
-    """The levels the run knows ``model`` serves, lowest first; None when it knows none (review_effort)."""
-    if not isinstance(model, str):
-        return None
-    listed = route_fit.declared_for(settings, model)
-    certified = route_fit.certified_for(settings, model)
-    if listed is None:
-        return None
-    return sorted(set(listed) | set(certified or ()), key=route_fit.SCALE.index)

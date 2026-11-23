@@ -33,7 +33,7 @@ def decide(state: RunState, configured, *, model=None) -> dict | None:
     """The level a format repair runs at, with why; None when there is no level to bound."""
     if not configured or configured not in route_fit.SCALE:
         return None
-    offered = _offered(state.get("settings") or {}, model)
+    offered = route_fit.offered(state.get("settings") or {}, model)
     if offered is None:
         return _kept(configured, "levels_unknown", f"the levels {model} offers are not known")
     lower = [level for level in offered if route_fit.SCALE.index(level) < route_fit.SCALE.index(configured)]
@@ -44,13 +44,3 @@ def decide(state: RunState, configured, *, model=None) -> dict | None:
 
 def _kept(configured, reason, text) -> dict:
     return {"level": configured, "ceiling": configured, "lowered": False, "reason": reason, "text": text}
-
-
-def _offered(settings, model) -> list | None:
-    """The levels the run knows ``model`` serves: the tool's listing and every level a probe passed."""
-    if not isinstance(model, str):
-        return None
-    listed = route_fit.declared_for(settings, model)
-    if listed is None:
-        return None
-    return sorted(set(listed) | set(route_fit.certified_for(settings, model)), key=route_fit.SCALE.index)

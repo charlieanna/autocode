@@ -108,7 +108,7 @@ def decide(state: RunState, stage, route_role, report_only, configured, *, model
     if not task.get("id") or not paths:
         return None
     saved_model = model or route.get("model")
-    offered = _offered(settings, saved_model)
+    offered = route_fit.offered(settings, saved_model)
     signals = _hard_signals(settings, paths)
     prior = _prior_attempts(state, task)
     bounded = 1 <= len(paths) <= SMALL_PATHS and not signals
@@ -253,18 +253,6 @@ def _cross_model_escalated(state: RunState, route: dict) -> bool:
         if isinstance(initial, dict) and initial.get("model") and initial.get("model") != current_model:
             return True
     return False
-
-
-def _offered(settings: dict, model) -> list[str] | None:
-    if not isinstance(model, str):
-        return None
-    listed = route_fit.declared_for(settings, model)
-    if listed is None:
-        return None
-    return sorted(
-        (level for level in set(listed) | set(route_fit.certified_for(settings, model)) if level in route_fit.SCALE),
-        key=route_fit.SCALE.index,
-    )
 
 
 def _below_offered(offered: list[str], configured: str) -> str | None:

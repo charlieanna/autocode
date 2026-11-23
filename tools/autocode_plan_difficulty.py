@@ -134,7 +134,7 @@ def decide(state: RunState, stage, route_role, report_only, configured, *, model
         return None
     saved_model = route.get("model")
     facts = {"signals": found, "saved": configured}
-    offered = _offered(settings, saved_model)
+    offered = route_fit.offered(settings, saved_model)
     if offered is None:
         return _kept(configured, "levels_unknown", f"the levels {saved_model} offers are not known", facts)
     higher = above(offered, configured)
@@ -179,13 +179,3 @@ def _kept(configured, reason, text, facts) -> dict:
         "text": text,
         **facts,
     }
-
-
-def _offered(settings, model) -> list | None:
-    """The levels the run knows ``model`` serves: the tool's listing and every level a probe passed."""
-    if not isinstance(model, str):
-        return None
-    listed = route_fit.declared_for(settings, model)
-    if listed is None:
-        return None
-    return sorted(set(listed) | set(route_fit.certified_for(settings, model)), key=route_fit.SCALE.index)
