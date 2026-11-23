@@ -2277,6 +2277,7 @@ test('cost availability and its explanation survive rendering, keyboard focus an
       tokens: { input_tokens: { value: 3_000_000, complete: true }, output_tokens: { value: 100_000, complete: true } } } },
   });
   const ui = await openChat(t, unknown);
+  ui.document.querySelector('#header-collapse').click();
   const cost = ui.document.querySelector('#run-cost');
   assert.equal(cost.textContent, 'Cost unavailable · 3.1M tokens');
   assert.equal(ui.window.getComputedStyle(cost).whiteSpace, 'normal', 'the longer availability label wraps instead of clipping the known token count');
@@ -2448,6 +2449,7 @@ test('models and usage are shown once, in the run header, with no second section
     cost: { historical_estimated_usd: q(0.05) },
   } } });
   const ui = await openChat(t, initial);
+  ui.document.querySelector('#header-collapse').click();
   for (const id of ['telemetry', 'usage-details', 'model-info', 'usage-breakdown']) {
     assert.equal(ui.document.getElementById(id), null, `no #${id}: the run header is the one place for models and usage`);
   }
@@ -2472,6 +2474,7 @@ test('a started chat offers to change its own models only between stages, throug
   const routes = { builder: { job: 'Builder', model: 'gpt-5.6-terra', reasoning_effort: 'medium', engine: 'codex' } };
   const initial = headerView({ routes, stage_models: { changeable: true, reason: null, next_command: list } });
   const ui = await openChat(t, initial);
+  ui.document.querySelector('#header-collapse').click();
   const change = ui.document.querySelector('#change-stage-models');
   assert.equal(change.closest('#header-links').id, 'header-links', 'the chat offers the change beside the models it changes');
   assert.equal(change.hidden, false);
@@ -2510,6 +2513,7 @@ function headerView(extra = {}) {
 
 test('the run header sits above the conversation with the pipeline, where the run is and its spend', async (t) => {
   const ui = await openChat(t, headerView());
+  ui.document.querySelector('#header-collapse').click();
   const header = ui.document.querySelector('#run-header');
   assert.equal(header.hidden, false);
   // Always visible: it is outside the scrolling thread, between the tabs and the conversation.
@@ -2540,6 +2544,7 @@ test('the run header sits above the conversation with the pipeline, where the ru
 
 test('the run header unfolds its details and keeps them open across polling, tabs and webview recreation', async (t) => {
   const ui = await openChat(t, headerView());
+  ui.document.querySelector('#header-collapse').click();
   const toggle = ui.document.querySelector('#header-toggle');
   assert.equal(toggle.getAttribute('aria-expanded'), 'false');
   toggle.click();
@@ -2559,7 +2564,7 @@ test('the run header unfolds its details and keeps them open across polling, tab
   const next = headerView({ summary: { state: 'needs_you', label: 'Needs you', sentence: 'Approve the plan.' } });
   await ui.poll(next);
   assert.equal(details.hidden, false, 'a new read keeps the details open');
-  assert.equal(ui.document.querySelector('#run-header').className, 'needs_you collapsed', 'the default fold stays through a new read');
+  assert.equal(ui.document.querySelector('#run-header').className, 'needs_you', 'the expanded overview stays open through a new read');
   assert.equal(ui.document.querySelector('#header-label').textContent, 'Needs you');
   assert.equal(ui.document.querySelector('#message').value, 'Keep my draft while the header updates');
   const restored = new JSDOM(panelHtml(true), { runScripts: 'outside-only' });
@@ -2585,6 +2590,7 @@ test('the run header shows the working stage and what it does, and its details t
         attributed_tokens: { input_tokens: { value: null, known: 9000, complete: false }, output_tokens: { value: null, known: 400, complete: false } } }] } },
     chat: { ...chatView().chat, now: [{ agent: 'Requirements', text: 'reading the issue list' }] },
   }));
+  ui.document.querySelector('#header-collapse').click();
   // Visible without opening anything: the working stage's row, highlighted, and what it is doing under the table.
   const row = ui.document.querySelector('#pipeline tr.working');
   assert.deepEqual([...row.querySelectorAll('td.model, td.num')].map((cell) => cell.textContent).slice(0, 1), ['claude-sonnet-5-5 medium']);
@@ -2624,8 +2630,10 @@ test('the run header starts folded to one summary line, unfolds on demand, and k
     assert.equal(ui.document.getElementById(id).closest('#header-body').id, 'header-body', `${id} folds with the body`);
   }
   assert.equal(fold.closest('#header-now').id, 'header-now', 'the fold button stays on the summary line');
+  assert.equal(header.querySelectorAll('#pipeline tbody tr').length, 0, 'a folded overview owns no stage rows');
   fold.click();
   assert.equal(header.classList.contains('collapsed'), false);
+  assert.ok(header.querySelectorAll('#pipeline tbody tr').length > 0, 'expanding builds the stage table');
   assert.equal(header.className, 'working', 'the run state class stays with the fold');
   assert.equal(fold.getAttribute('aria-expanded'), 'true');
   assert.equal(fold.getAttribute('aria-label'), 'Collapse the run overview');
@@ -2647,6 +2655,8 @@ test('the run header starts folded to one summary line, unfolds on demand, and k
   fold.click();
   assert.equal(header.classList.contains('collapsed'), true);
   assert.equal(ui.webviewState.headerCollapsed, true);
+  assert.equal(header.querySelectorAll('#pipeline tbody tr, #pipeline tfoot tr, #header-details > *').length, 0,
+    'folding releases the dynamic contents');
   assert.deepEqual(['header-body', 'header-brief'].map(shown), [false, true], 'the stage table folds away and the one line shows the totals');
 });
 
@@ -3442,6 +3452,7 @@ test('a chat says its worktree and branch in the header and its details', async 
     kind: 'worktree', path: '/p/.autocode/worktrees/add-x-1', branch: 'autocode/add-x-1', folder: '/p', existing_branch: false,
     moves_to_branch: null, label: 'Own worktree · branch autocode/add-x-1', sentence: 'This chat changes files only in its own worktree.' } };
   const ui = await openChat(t, view);
+  ui.document.querySelector('#header-collapse').click();
   const place = ui.document.querySelector('#header-place');
   assert.equal(place.textContent, 'Own worktree · branch autocode/add-x-1', 'always shown, folded or not');
   assert.match(place.title, /Worktree: \/p\/\.autocode\/worktrees\/add-x-1/);
@@ -3628,6 +3639,30 @@ test('a delayed model choice is rejected after the backend changes, even with id
   await original(held); await flush();
   assert.equal(calls.length, before);
   assert.equal(ui.document.querySelector('#chat-models [data-stage="builder"] select.model').value, 'haiku');
+});
+
+test('opening a run releases new-chat controls and returning restores the current choices', async (t) => {
+  host.config.set('extraOptions', ['--engine', 'claude']);
+  const ui = await openChat(t, null, false, { stages: chatStageView, worktrees: worktreeList });
+  const models = ui.document.querySelector('#chat-models-body');
+  const places = ui.document.querySelector('#chat-place-body');
+  assert.ok(models.querySelector('option') && places.querySelector('input'));
+  ui.type('Keep this draft while I open the run');
+  const freshKey = ui.chat.active.key;
+  ui.setView(headerView());
+  ui.chat.show(run);
+  await flush(); await ui.poll();
+  assert.equal(models.childElementCount, 0);
+  assert.equal(places.childElementCount, 0);
+  ui.document.querySelector('#header-collapse').click();
+  const rows = () => ui.document.querySelectorAll('#pipeline tbody tr').length;
+  assert.ok(rows() > 0);
+  await ui.chat.receive({ type: 'select_tab', tabKey: freshKey });
+  await flush();
+  assert.equal(rows(), 0, 'switching to a fresh chat releases the expanded run table');
+  assert.equal(ui.document.querySelector('#message').value, 'Keep this draft while I open the run');
+  assert.equal(models.querySelector('[data-stage="builder"] select.model').value, 'haiku');
+  assert.ok(places.querySelector('input:checked'));
 });
 
 test('controls from a replaced chat webview cannot change its models', async (t) => {
@@ -5127,6 +5162,7 @@ test('operational reply offer shows a usable composer without a false no-action 
     next_command: 'autocode --resolver-message \"WHAT CHANGED\"' });
   view.chat.input = { kind: 'resolver_response', label: 'Send recovery reply', next_command: 'bound offer' };
   const ui = await openChat(t, view);
+  ui.document.querySelector('#header-collapse').click();
   assert.ok(!ui.document.querySelector('#app').textContent.includes('No action the client can take'));
   ui.type('Leave this run blocked');
   assert.equal(ui.document.querySelector('#send-message').disabled, false);
@@ -5176,7 +5212,10 @@ for (const category of ['stopped', 'blocked', 'working', 'paused', 'done']) {
       };
       const launch = t.mock.method(cli, 'stream', async () => ok);
       const ui = surface === 'chat' ? await openChat(t, view) : await openPanel(t, view);
-      if (surface === 'chat') ui.document.querySelector('#header-toggle').click();
+      if (surface === 'chat') {
+        ui.document.querySelector('#header-collapse').click();
+        ui.document.querySelector('#header-toggle').click();
+      }
       const evidence = () => ui.document.querySelector('[data-section="usage"]');
       assert.ok(evidence(), 'The existing public usage section must be inspectable on both surfaces');
       for (const expected of ['Attempts', 'Requirements', 'exit 1', 'retained-failed-model', '37']) {
@@ -7950,6 +7989,7 @@ test('cap-counted cost renders above historical cost and polling retains its unk
   const initial = { ...chatView(), cost: { spent_usd: 1.966683, cap_usd: 2, complete: false, unpriced_stages: 10 },
     usage: { accounting: { cost: { historical_estimated_usd: { value: null, known: 1.5335513, complete: false, known_items: 15 } } } } };
   const ui = await openChat(t, initial);
+  ui.document.querySelector('#header-collapse').click();
   ui.type('Keep this unsent feedback');
   ui.document.querySelector('#header-toggle').click();
   const lines = () => [...ui.document.querySelectorAll('#header-details [data-section="usage"] .detail-line')].map((node) => node.textContent);
@@ -8081,6 +8121,7 @@ test('the run header lists every stage the run launched in one aligned table, wi
   // Ankur, 2026-11-11: a second Stages box above the composer repeated the header in two-line rows
   // with whole provider ids; each stage is now one row of the header's table, and that box is gone.
   const ui = await openChat(t, meteredView());
+  ui.document.querySelector('#header-collapse').click();
   assert.equal(ui.document.getElementById('stages'), null, 'no second Stages box above the composer');
   const rows = [...ui.document.querySelectorAll('#pipeline tbody tr')];
   assert.deepEqual(rows.map((row) => row.dataset.job), ['Requirements', 'Planner', 'Plan Reviewer', 'Builder', 'Tester']);
@@ -8103,6 +8144,7 @@ test('a long stage name gives its run badge room in the sidebar', async (t) => {
   const base = meteredView();
   const attempt = { ...base.usage.accounting.attempts[0], stage: 'review_completion', job: 'Completion Reviewer' };
   const ui = await openChat(t, meteredView({ usage: { accounting: { ...base.usage.accounting, attempts: [attempt, attempt] } } }));
+  ui.document.querySelector('#header-collapse').click();
   const row = ui.document.querySelector('#pipeline tbody tr');
   const line = row.querySelector('.name-line');
   assert.equal(line.querySelector('.stage-name').textContent, 'Completion Reviewer');
@@ -8128,6 +8170,7 @@ test('a report repair shows on its stage row apart from the stage\'s own runs wi
   ]);
   attempts.splice(4, 0, { ...base.usage.accounting.attempts[4], stage: 'write_acceptance_tests', rejected: false });
   const ui = await openChat(t, meteredView({ usage: { accounting: { ...base.usage.accounting, attempts } } }));
+  ui.document.querySelector('#header-collapse').click();
   const tester = [...ui.document.querySelectorAll('#pipeline tbody tr')].find((row) => row.dataset.job === 'Tester');
   const badge = tester.querySelector('.runs');
   assert.deepEqual([badge.textContent, badge.className, badge.title], ['×2 +1 repair', 'runs', '2 attempts, 1 failed, 1 report repair']);
@@ -9543,7 +9586,10 @@ for (const surface of ['chat', 'Run details']) {
         const launch = t.mock.method(cli, 'stream', async () => ok);
         const value = recordedStageEvidence(context, path);
         const ui = surface === 'chat' ? await openChat(t, value) : await openPanel(t, value);
-        if (surface === 'chat') ui.document.querySelector('#header-toggle').click();
+        if (surface === 'chat') {
+          ui.document.querySelector('#header-collapse').click();
+          ui.document.querySelector('#header-toggle').click();
+        }
         const host = surface === 'chat' ? ui.document.querySelector('#header-details') : ui.document.querySelector('#app');
         const stages = host.querySelector('[data-section="pipeline"]').textContent;
         assert.match(stages, /Builder: not run; saved route: provider\/builder-model medium/);
@@ -9567,7 +9613,10 @@ for (const surface of ['chat', 'Run details']) {
   test(`recorded stage evidence: ${surface} applies readable detail styles to the actual nodes`, async (t) => {
     const value = recordedStageEvidence('stopped', 'full');
     const ui = surface === 'chat' ? await openChat(t, value) : await openPanel(t, value);
-    if (surface === 'chat') ui.document.querySelector('#header-toggle').click();
+    if (surface === 'chat') {
+      ui.document.querySelector('#header-collapse').click();
+      ui.document.querySelector('#header-toggle').click();
+    }
     const host = surface === 'chat' ? ui.document.querySelector('#header-details') : ui.document.querySelector('#app');
     const section = host.querySelector('[data-section="pipeline"]');
     const head = section.querySelector('.detail-head');

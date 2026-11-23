@@ -26,7 +26,9 @@ SEED = {
 }
 CANDIDATE = {
     "calc.py": "def add(a, b):\n    return a + b\n\n\ndef mul(a, b):\n    return a * b\n",
-    "tests/test_mul.py": "from calc import mul\n\n\ndef test_mul():\n    assert mul(2, 3) == 6\n",
+    # The new test loads on the original code and fails there on a named assertion (the recorded-interpreter
+    # proof needs a fail-to-pass test that ran on base, not one that only fails to import the new name, #3981).
+    "tests/test_mul.py": "import calc\n\n\ndef test_mul():\n    assert getattr(calc, 'mul', lambda *a: 0)(2, 3) == 6\n",
 }
 
 

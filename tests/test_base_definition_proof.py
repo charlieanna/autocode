@@ -203,7 +203,7 @@ class BaseDefinitionProofTests(unittest.TestCase):
         return project, self.verified(project, base_patch=patch)
 
     def test_g7_a_follow_up_cannot_undo_the_reviewed_change_and_its_test(self):
-        sub_test = NODE_TEST + "const {sub} = require('../sub.js');\ntest('sub', () => assert.equal(sub(3, 2), 1));\n"
+        sub_test = NODE_TEST + "test('sub', () => assert.equal(require('../sub.js').sub(3, 2), 1));\n"
         undone = {
             "calc.js": CALC,
             "test/calc.test.js": CALC_TEST,
