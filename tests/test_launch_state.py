@@ -26,11 +26,17 @@ TEST_LIB = (
     "    def test_one(self):\n        self.assertEqual(1, one())\n"
 )
 FEATURE = {
-    "feature.py": "def feature():\n    return 'feature'\n",
+    "feature.py": "print('feature')\n",
+    # The new test loads on the original code and fails there on a named assertion: it runs the new CLI
+    # through subprocess rather than importing the new module, so the proof has a fail-to-pass test that
+    # ran on base instead of one that only fails to collect (#3981).
     "test_feature.py": (
-        "import unittest\nfrom feature import feature\n\n\n"
+        "import os, subprocess, sys, unittest\n\n\n"
         "class FeatureTests(unittest.TestCase):\n    def test_feature(self):\n"
-        "        self.assertEqual('feature', feature())\n"
+        "        here = os.path.dirname(os.path.abspath(__file__))\n"
+        "        run = subprocess.run([sys.executable, os.path.join(here, 'feature.py')],"
+        " capture_output=True, text=True)\n"
+        "        self.assertEqual('feature\\n', run.stdout)\n"
     ),
 }
 TOOL_TEST = (

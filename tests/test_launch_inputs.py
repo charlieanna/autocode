@@ -1091,6 +1091,9 @@ class PublicCompletionInputTests(Project):
             "XDG_CONFIG_HOME": str(self.temporary / "config-home"),
             "LAUNCH_INPUT_PROVIDER_CALLS": str(self.provider_calls),
             "PYTHONDONTWRITEBYTECODE": "1",
+            # The completion proof needs a fail-to-pass test that ran on base: this base already has a suite,
+            # so the greeting tests run the new CLI through subprocess instead of importing the new module.
+            "LIVE_FIXTURE_SUBPROCESS_TESTS": "1",
         }
         env.pop("AUTOCODE_PROVIDER", None)
         brief = (

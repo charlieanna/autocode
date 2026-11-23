@@ -228,13 +228,17 @@ class PythonSeamProofTests(unittest.TestCase):
             proof,
         )
 
-    def test_feature_proof_still_allows_a_new_mockable_api(self):
+    def test_feature_proof_holds_a_new_mockable_api_for_repair(self):
+        # A new feature's test that only errors preparing a mock of an API the change adds is held for
+        # repair, like a bug fix's: a setup failure is not an observed behavior failure (#3981,
+        # autocode_test_setup.not_evidence excludes it for both task kinds).
         project = Project({"store.py": STORE, "test_store.py": TESTS})
         self.addCleanup(project.close)
         project.write({"store.py": FIXED_STORE, "test_store.py": RUNTIME_SEAM_TEST})
         proof = project.verify(new_behavior=True)
-        self.assertEqual(verify.PASS, proof["verdict"], proof)
-        self.assertEqual(["test_store.SaveTests.test_t1_rename_failure_is_raised"], proof["fail_to_pass"])
+        self.assertEqual(verify.FAIL, proof["verdict"], proof)
+        self.assertEqual([], proof["fail_to_pass"])
+        self.assertTrue(any("prepare its mock" in note and "replace_file" in note for note in proof["notes"]), proof)
 
     def test_a_test_that_reads_the_seam_while_loading_is_unverified_and_names_it(self):
         # An AttributeError while loading the module stops unittest before it reports any test.
