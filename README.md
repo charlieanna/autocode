@@ -168,6 +168,7 @@ python tools/reliability_table.py docs/reliability-sweeps.json
 
 | Date | Profile | Runs | Passed | False completions |
 | --- | --- | ---: | ---: | ---: |
+| 2026-11-23 | claude-tiers | 4 | 3 | 0 |
 | 2026-10-08 | glm53-mimo | 3 | 2 | 0 |
 | 2026-10-08 | glm53-mimo | 1 | 1 | 0 |
 | 2026-10-07 | glm53-openai | 3 | 2 | 0 |
