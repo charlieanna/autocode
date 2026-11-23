@@ -2499,6 +2499,7 @@ test('self-healing machinery and nonzero live-log commands stay calm in VS Code 
   assert.doesNotMatch(bar.tooltip, /Struggling:/);
 
   // Expanding Show details still surfaces the recorded rejection for anyone inspecting the run!
+  dom.window.document.querySelector('#header-collapse').click();
   const showDetailsBtn = [...dom.window.document.querySelectorAll('#run-header button')].find((b) =>
     b.textContent.includes('Show details'),
   );
