@@ -2830,6 +2830,17 @@ class BubblewrapKernelTests(unittest.TestCase):
             reader,
         )
         self.assertEqual(0, build.returncode, (build.stdout, build.stderr))
+        generate = (
+            "import importlib.util; from pathlib import Path; "
+            "assert importlib.util.find_spec('generated_module') is None; "
+            "Path('generated_module.py').write_text('value = 42'); "
+            "import generated_module; assert generated_module.value == 42"
+        )
+        imported = self.run_shell(
+            "cd " + quoted(str(tree / "src")) + " && " + shlex.join(["/usr/bin/python3", "-c", generate]), reader
+        )
+        self.assertEqual(0, imported.returncode, imported.stderr)
+        self.assertFalse((tree / "src/generated_module.py").exists())
         # The outputs lived in the command's private filesystem, never the real copy or the workspace.
         for output in ("target", ".coverage", ".pytest_cache"):
             self.assertFalse((tree / output).exists(), output)

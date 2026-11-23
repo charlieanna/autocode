@@ -106,10 +106,17 @@ class CopyView:
 
     def getattr(self, path, fh=None):
         info = os.fstat(fh) if fh is not None else self.read_path(path).lstat()
+        times = info
+        if stat.S_ISDIR(info.st_mode):
+            # Build tools cache directory listings against mtime. Once new entries exist
+            # the private directory records changes to those names, including removals.
+            _, output = self.paths(path)
+            with contextlib.suppress(FileNotFoundError):
+                times = output.lstat()
         return {
             name: getattr(info, name)
             for name in ("st_mode", "st_nlink", "st_uid", "st_gid", "st_size", "st_ino", "st_blocks")
-        } | {"st_atime": info.st_atime_ns, "st_mtime": info.st_mtime_ns, "st_ctime": info.st_ctime_ns}
+        } | {"st_atime": info.st_atime_ns, "st_mtime": times.st_mtime_ns, "st_ctime": times.st_ctime_ns}
 
     def readdir(self, path, fh):
         source, output = self.paths(path)
