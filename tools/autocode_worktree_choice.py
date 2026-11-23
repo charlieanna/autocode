@@ -250,12 +250,26 @@ def options(folder) -> dict:
         "start_args": [IN_PLACE_FLAG],
         "warning": warning,
     }
+    places = [new_branch, branch, in_folder]
+    if not controller["ready"] and controller["requirements_ready"]:
+        places.append(
+            {
+                "id": "discuss",
+                "label": "Discuss only in this folder",
+                "does": (
+                    "Answer a question in Requirements without changing this folder. If the request needs "
+                    "file changes, select an isolated AutoCode CLI before building."
+                ),
+                "start_args": [IN_PLACE_FLAG, "--workflow", "discuss"],
+                "warning": None,
+            }
+        )
     return {
         "schema": SCHEMA,
         "folder": str(folder),
         "branch": current,
         "default": NEW_BRANCH,
-        "places": [new_branch, branch, in_folder],
+        "places": places,
         "active": active,
         "controller": controller,
     }

@@ -2025,6 +2025,11 @@ def report_for(stage: str, data: dict) -> dict:
             )
         if data.get("spec_first"):
             report["assistant_reply"] = "Here is what I understand: " + report["intended_outcome"]
+        if not data.get("report_repair") and os.environ.get("SCENARIO_FAKE_REQUIREMENTS_REPAIR_ONCE") == "1":
+            marker = Path(os.environ["SCENARIO_FAKE_CONFIG"]).with_name("fake-requirements-repair")
+            if not marker.exists():
+                marker.touch()
+                report["summary"] = []
         return report
     # An adaptive-planning Planner drafts the complete plan, initial_task included.
     adaptive = "ADAPTIVE PLANNING" in PROMPT or "initial_task" in OUTPUT_SCHEMA.get("properties", {}).get(

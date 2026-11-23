@@ -213,6 +213,66 @@ class LaunchContainment(unittest.TestCase):
                 self.assertNotIn("containment", self.adapter.launch.call_args.kwargs)
                 self.assertNotIn("planning_shell", self.adapter.launch.call_args.kwargs)
 
+    def test_local_requirements_repair_keeps_a_verified_boundary_with_every_tool_disabled(self):
+        from providers.kilocode import KiloProvider
+
+        run_dir = self.options["run_dir"]
+        policy = {
+            "backend": "seatbelt",
+            "allow_write": False,
+            "workspace": str(self.root),
+            "tools": [],
+            "private_reads": {
+                "run_dir": str(run_dir),
+                "denied": [str(self.root / ".autocode/runs")],
+            },
+        }
+        for name in ("opencode", "kilo"):
+            with self.subTest(tool=name):
+                if name == "kilo":
+                    adapter = object.__new__(KiloProvider)
+                else:
+                    adapter = SimpleNamespace(NAME="opencode", CONFIGURED=False, SUPPORTS_REPORT_RECOVERY=True)
+                adapter.launch = mock.Mock(
+                    return_value=([name, "run"], {"AUTOCODE_TOOL_CONTAINMENT": json.dumps(policy)}, {})
+                )
+                _, _, _, worker = launch.prepare(
+                    **{
+                        **self.options,
+                        "adapter": adapter,
+                        "role": "requirements_gather",
+                        "route_role": "requirements",
+                        "planning": True,
+                        "planning_report_recovery": True,
+                        "report_only": True,
+                        "readonly_boundary": True,
+                    }
+                )
+                request = adapter.launch.call_args.kwargs
+                self.assertEqual(str(run_dir), request["containment"]["private_run"])
+                self.assertEqual([], request["containment"]["tool_commands"])
+                self.assertFalse(request["containment"]["verification_copy"])
+                self.assertTrue(request["containment"]["disable_tools"])
+                self.assertNotIn("planning_shell", request)
+                self.assertTrue(request["report_recovery"])
+                self.assertEqual(policy, worker["tool_containment"])
+                self.assertIn("disabled", launch.stage_record(worker)["isolation"])
+
+    def test_local_requirements_boundary_is_validated_before_launch_returns(self):
+        with self.assertRaises(launch.util.Paused) as raised:
+            launch.prepare(
+                **{
+                    **self.options,
+                    "role": "requirements_gather",
+                    "route_role": "requirements",
+                    "planning": True,
+                    "planning_report_recovery": True,
+                    "readonly_boundary": True,
+                }
+            )
+        self.assertEqual("PAUSED_TOOL_CONTAINMENT", raised.exception.status)
+        self.assertIn("private-run read denial", str(raised.exception))
+
     def test_a_planner_gets_the_checkers_contained_shell_without_run_state(self):
         # Owner decision 2026-10-21: every Planner has a shell. On OpenCode it is the kernel-contained one the
         # read-only checkers use, and like native planning (#1250) it cannot read the run's private state.

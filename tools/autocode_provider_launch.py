@@ -85,6 +85,7 @@ def prepare(
     replay_context=None,
     planning_report_recovery=False,
     report_only=False,
+    readonly_boundary=False,
     source_catalog_receipt=None,
 ):
     """Return (command, environment, overrides, worker) for one stage launch.
@@ -97,9 +98,17 @@ def prepare(
     Explicit native role isolation always requires its kernel tool boundary; the
     saved uncontained-tools opt-out cannot weaken that owner.
     """
+    if readonly_boundary and (not planning or allow_write or route_role != "requirements" or sandbox != "read-only"):
+        raise util.Paused(
+            "PAUSED_TOOL_CONTAINMENT", "A required read-only boundary belongs only to the Requirements planning route"
+        )
     # The incoming flag distinguishes native launch from admission/dry-run.
     # #413's OpenCode kernel opt-out must not disable Codex capture isolation.
     if (settings or {}).get("replay_recording"):
+        if readonly_boundary:
+            raise util.Paused(
+                "PAUSED_TOOL_CONTAINMENT", "Recorded replay cannot replace the Requirements read-only boundary"
+            )
         if any(owner is not None for owner in (native_role_isolation, native_environment, native_image_preparation)):
             raise util.Paused(
                 "PAUSED_TOOL_CONTAINMENT", "Recorded replay cannot replace the original fresh native owner"
@@ -144,6 +153,7 @@ def prepare(
         enforce=enforce_tool_boundary,
         isolation=native_role_isolation,
         recovery=planning_report_recovery,
+        readonly_boundary=readonly_boundary,
     )
     planner_shell, kilo_owner = shell.planner_shell, shell.kilo_owner
     kilo_readonly, uncontained = shell.kilo_readonly, shell.uncontained
@@ -237,6 +247,10 @@ def prepare(
                 # planning/ artifacts and the context artifacts its handoff names (#1250, #3907).
                 # Native Kilo isolation keeps its own profile.
                 containment["private_run"] = str(Path(run_dir).resolve())
+            if readonly_boundary:
+                containment["verification_copy"] = False
+                if planning_report_recovery:
+                    containment["disable_tools"] = True
         launch_kwargs = {"containment": containment} if containment else {}
         launch_kwargs["env"] = environment
         if planner_shell and uncontained and not getattr(adapter, "CONFIGURED", False):
@@ -400,6 +414,25 @@ def prepare(
         worker["uncontained_tools"] = True
     if environment.get("AUTOCODE_TOOL_CONTAINMENT"):
         worker["tool_containment"] = json.loads(environment["AUTOCODE_TOOL_CONTAINMENT"])
+    if readonly_boundary:
+        problem = containment_policy.requirements_boundary_problem(
+            worker.get("tool_containment"), workspace=workspace, run_dir=run_dir
+        )
+        if problem:
+            raise util.Paused(
+                "PAUSED_TOOL_CONTAINMENT",
+                "Requirements-only discussion requires its verified read-only boundary and private-run read denial: "
+                + problem,
+            )
+        boundary = worker["tool_containment"]
+        if boundary.get("verification_copy"):
+            raise util.Paused(
+                "PAUSED_TOOL_CONTAINMENT", "Requirements-only discussion cannot allocate a verification copy"
+            )
+        if planning_report_recovery and boundary.get("tools") != []:
+            raise util.Paused(
+                "PAUSED_TOOL_CONTAINMENT", "Requirements report recovery must keep every provider tool disabled"
+            )
     if copy:
         worker["verification_copy"] = copy
     if native_role_isolation is not None:
@@ -531,7 +564,9 @@ def stage_record(worker):
         return {**record, "isolation": "Config-tool sandbox flag and workspace snapshot checks"}
     record.update(
         {
-            "isolation": "Kernel-constrained native shell; other tools disabled"
+            "isolation": "Kernel-constrained report-only recovery; all tools disabled"
+            if worker.get("tool_containment") and worker["tool_containment"].get("tools") == []
+            else "Kernel-constrained native shell; other tools disabled"
             if worker.get("tool_containment")
             else "OpenCode tool permissions and workspace snapshot checks; no OS sandbox",
             "tool_containment": worker.get("tool_containment"),

@@ -123,8 +123,28 @@ class OptionsTests(unittest.TestCase):
             listing = json.loads(output.getvalue())
         setup = listing["controller"]
         self.assertFalse(setup["ready"])
+        self.assertTrue(setup["requirements_ready"])
+        self.assertIn("read-only", setup["requirements_detail"])
+        self.assertIn("containment", setup["requirements_detail"])
         self.assertIn("new worktree", setup["detail"])
         self.assertIn("outside", setup["detail"])
+        discuss = [place for place in listing["places"] if place["id"] == "discuss"]
+        self.assertEqual(
+            [
+                {
+                    "id": "discuss",
+                    "label": "Discuss only in this folder",
+                    "does": (
+                        "Answer a question in Requirements without changing this folder. If the request needs "
+                        "file changes, select an isolated AutoCode CLI before building."
+                    ),
+                    "start_args": ["--in-place", "--workflow", "discuss"],
+                    "warning": None,
+                }
+            ],
+            discuss,
+        )
+        self.assertEqual("new_branch", listing["default"], "discussion is never inferred from the default")
         self.assertEqual(
             [
                 {
@@ -140,6 +160,30 @@ class OptionsTests(unittest.TestCase):
         self.assertEqual(before, git(root, "status", "--porcelain"))
         self.assertFalse((root / ".autocode").exists())
 
+    def test_requirements_only_readiness_needs_an_existing_checkout_with_head(self):
+        for name, committed in (("unborn", False), ("non_git", None)):
+            with self.subTest(name=name):
+                temporary = tempfile.TemporaryDirectory(prefix=f"requirements-{name}-")
+                self.addCleanup(temporary.cleanup)
+                root = Path(temporary.name).resolve()
+                (root / "tools").mkdir()
+                for marker in ("autocode.py", "autocode_controller_isolation.py"):
+                    (root / "tools" / marker).write_text("# marker\n")
+                (root / "AGENTS.md").touch()
+                if committed is not None:
+                    subprocess.run(["git", "init", "-q", str(root)], check=True)
+                    if committed:
+                        subprocess.run(
+                            ["git", "-C", str(root), *IDENTITY, "commit", "-q", "--allow-empty", "-m", "base"],
+                            check=True,
+                        )
+                controller = root / "tools/autocode_controller_isolation.py"
+                setup = isolation.setup_view(root, controller)
+                self.assertFalse(setup["ready"])
+                self.assertFalse(setup["requirements_ready"])
+                self.assertIn("existing Git checkout", setup["requirements_detail"])
+                self.assertNotIn("discuss", [place["id"] for place in choice.options(root)["places"]])
+
     def test_setup_checks_resolved_controller_location_not_just_executable_location(self):
         root = checkout(self)
         (root / "tools").mkdir()
@@ -151,7 +195,9 @@ class OptionsTests(unittest.TestCase):
         self.assertFalse(isolation.setup_view(root, link)["ready"])
         external = isolation.setup_view(root, root.parent / "installed/autocode.py")
         self.assertTrue(external["ready"])
+        self.assertTrue(external["requirements_ready"])
         self.assertEqual([], external["actions"])
+        self.assertNotIn("discuss", [place["id"] for place in choice.options(root)["places"]])
         with self.assertRaisesRegex(ValueError, "Select an AutoCode CLI"):
             isolation.require_isolated(root, link)
         ordinary = isolation.setup_view(root.parent, link)

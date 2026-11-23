@@ -186,12 +186,12 @@ def restrict(argv, child, workspace, *, role, request=None, report_recovery=Fals
     steps = original.get("steps")
     if steps is not None and (type(steps) is not int or steps < 1):
         raise ValueError("Kilo effective agent steps must be a positive integer")
-    if report_recovery and request is not None:
+    if report_recovery and request is not None and request.get("disable_tools") is not True:
         raise ValueError("Report recovery cannot grant a verification shell")
     # A kernel request narrows any stage to its contained shell (#3770): a writer then edits through that shell,
     # whose writes the kernel confines to the workspace, as an OpenCode writer does.
     permitted = (
-        ("bash",) if request is not None else WRITE_TOOLS if write_stage else () if report_recovery else READ_TOOLS
+        () if report_recovery else ("bash",) if request is not None else WRITE_TOOLS if write_stage else READ_TOOLS
     )
     policy = intersect(original.get("permission"), permitted)
     if "bash" in policy:

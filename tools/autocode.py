@@ -8,6 +8,9 @@ The Builder is the only designated writer; review roles are checked for source d
 from __future__ import annotations
 
 if __name__ == "__main__":
+    import sys as _sys
+
+    _sys.dont_write_bytecode = True
     import importlib as _imp
 
     _imp.import_module((f"{__package__}." if __package__ else "") + "autocode_source_host").exit_if_served()
@@ -28,6 +31,7 @@ if TYPE_CHECKING:
 try:
     from . import autocode_action_resolver as action_resolver
     from . import autocode_attempt_ledger as attempt_ledger
+    from . import autocode_controller_isolation as controller_isolation
     from . import autocode_controller_owner as controller_owner  # noqa: F401 - runner compatibility export
     from . import autocode_interaction_timing as interaction_timing
     from . import autocode_phase_timing as phase_timing
@@ -41,6 +45,7 @@ try:
 except ImportError:
     import autocode_action_resolver as action_resolver
     import autocode_attempt_ledger as attempt_ledger
+    import autocode_controller_isolation as controller_isolation
     import autocode_controller_owner as controller_owner  # noqa: F401 - runner compatibility export
     import autocode_interaction_timing as interaction_timing
     import autocode_phase_timing as phase_timing
@@ -410,13 +415,15 @@ def run_role(
     original_stage = cast(str, state["next_stage"])
     stage = original_stage
     joint_stage = planning.is_planning(state, stage)
-    if state.get("version", 2) >= 3 and stage not in ("draft_plan", *jobs.STAGES) and not joint_stage:
+    local_requirements = controller_isolation.local_requirements(workspace, state)
+    planning_stage = joint_stage or local_requirements
+    if state.get("version", 2) >= 3 and stage not in ("draft_plan", *jobs.STAGES) and not planning_stage:
         goals.execution_guard(state)
         if not report_only:
             native.dispatch_guard(
                 state, stage, milestones.dispatch_guard
             ) if native is not None else milestones.dispatch_guard(state, stage)
-    if (joint_stage or stage == "draft_plan") and (
+    if (planning_stage or stage == "draft_plan") and (
         role != planning.role_for(state, stage) or allow_write or sandbox != "read-only"
     ):
         raise support.Paused("PAUSED_DISCOVERY_WRITE", "Planning must use its assigned role read-only")
@@ -426,6 +433,7 @@ def run_role(
         except ValueError as error:
             raise support.Paused("PAUSED_INVALID_PREDECESSOR", str(error)) from error
     route_role = planning.route_for(state, original_stage, role)
+    controller_isolation.require_route(state, stage, role, route_role, allow_write, sandbox, local_requirements)
     native_isolation = native.role_isolation(state, route_role) if native is not None else None
     if not dry_run:
         processes.preflight()  # fail before creating an active request
@@ -508,7 +516,7 @@ def run_role(
             model=model,
             effort=effort,
             allow_write=allow_write,
-            planning=joint_stage or report_only,
+            planning=planning_stage or report_only,
             report=output,
             schema=schema,
             prompt_file=prompt_file,
@@ -522,6 +530,7 @@ def run_role(
             settings=state["settings"],  # the launcher applies the saved #413 opt-out
             planning_report_recovery=report_only or planning_recovery_policy.active(state, original_stage),
             report_only=report_only,
+            readonly_boundary=local_requirements and not dry_run,
             replay_context=role_launch.replay_context(
                 state,
                 stage=stage,
@@ -535,7 +544,7 @@ def run_role(
             tool_commands=(
                 lambda: verification_plan.launch_commands(state, progressive_context=progressive_state.context(state))
             )
-            if engine == "opencode" and not dry_run and not (joint_stage or report_only)
+            if engine == "opencode" and not dry_run and not (planning_stage or report_only)
             else (),
             **({"native_image_preparation": image_preparation} if image_preparation is not None else {}),
             **(
@@ -625,7 +634,7 @@ def run_role(
         record.update(report_only=True, original_stage=original_stage)
     if budget_meta:
         record["first_reply_budget_active"] = budget_meta
-    if joint_stage:
+    if planning_stage:
         record["planning"] = True
     if engine == "opencode" and not configured_tool:
         record["permission_config"] = str(base.with_suffix(".opencode.json"))

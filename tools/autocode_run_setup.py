@@ -314,6 +314,27 @@ def resolve(runner, args, parser):
         parser.error("--figma-review requires --figma-file, --figma-manifest or --ui-run")
     workspace = args.workspace.resolve()
     read_only = args.status or args.explain or args.dry_run
+    local_requirements = False
+    controller_setup = controller_isolation.setup_view(workspace, Path(__file__))
+    if (
+        not read_only
+        and not controller_setup["ready"]
+        and args.in_place
+        and args.workflow == "discuss"
+        and not args.run_dir
+    ):
+        if not controller_setup["requirements_ready"]:
+            parser.error(controller_setup["requirements_detail"])
+        if getattr(args, "_native_intent", None) is not None:
+            parser.error("Requirements-only discussion cannot acquire native build authority")
+        if getattr(args, "package", None) or getattr(args, "worktree_branch", None):
+            parser.error("Requirements-only discussion cannot use build packaging or a task worktree")
+        if getattr(args, "task_preflight", None):
+            parser.error("Requirements-only discussion cannot use task preflight")
+        if getattr(args, "allow_uncontained_tools", False):
+            parser.error("Requirements-only discussion cannot use uncontained tools")
+        local_requirements = True
+    args._local_requirements_only = local_requirements
 
     def require_isolated(selected):
         if not read_only:
@@ -345,6 +366,15 @@ def resolve(runner, args, parser):
                 "`autocode runs` lists this project's runs with their directories"
             )
         state = runner.read_json(state_path)
+        if not local_requirements and controller_isolation.saved_requirements_only(state, allow_task_preflight=True):
+            if (
+                getattr(args, "task_preflight", None)
+                or (state.get("settings") or {}).get("task_preflight")
+                or state.get("task_preflight")
+            ):
+                parser.error("Requirements-only discussion cannot use task preflight")
+            if controller_isolation.local_requirements(workspace, state):
+                local_requirements = args._local_requirements_only = True
         if (carried := build_worktree.resolve(workspace, run_dir, state)) is not None:
             # Planned here and moved to its own worktree to build: the name a client holds stays its handle.
             workspace, run_dir, state = carried
@@ -357,7 +387,8 @@ def resolve(runner, args, parser):
             parser.error(error.args[1] if len(error.args) > 1 else str(error))
         task = state["task"]
         workspace = task_workspaces.resume_workspace(workspace, state)
-        require_isolated(workspace)
+        if not local_requirements:
+            require_isolated(workspace)
     else:
         if not args.task:
             # Reached only when a new-run input (--in-place, --figma-file, ...) turned off finding a saved run.
@@ -367,7 +398,7 @@ def resolve(runner, args, parser):
                 "or task worktree, or name it with --run-dir"
             )
         task = args.task
-        if args.in_place:
+        if args.in_place and not local_requirements:
             require_isolated(workspace)
         if getattr(args, "_native_intent", None) is not None and (
             not args.in_place or not (workspace / ".git").exists()
@@ -401,7 +432,7 @@ def resolve(runner, args, parser):
                 else f"Created task project: {workspace}",
                 flush=True,
             )
-        elif not read_only:
+        elif not read_only and not local_requirements:
             try:
                 first = task_workspaces.first_commit(workspace)
             except ValueError as error:
@@ -442,7 +473,8 @@ def resolve(runner, args, parser):
                 f"Task worktree: {workspace}\nBranch: {isolated['branch']}\nStarting from committed HEAD; the original checkout is unchanged.",
                 flush=True,
             )
-        require_isolated(workspace)
+        if not local_requirements:
+            require_isolated(workspace)
         run_dir = (
             workspace
             / ".autocode"
@@ -496,7 +528,11 @@ def resolve(runner, args, parser):
                 **({"first_commit": True} if first else {}),
                 **({"kept_files": True} if kept else {}),
             }
-        elif getattr(args, "build_in_worktree", False) and not (args.dry_run or args.status or args.explain):
+        elif (
+            not local_requirements
+            and getattr(args, "build_in_worktree", False)
+            and not (args.dry_run or args.status or args.explain)
+        ):
             try:  # Requirements here; planned and built in its own worktree, on --worktree-branch when named
                 build_worktree.request(state, workspace, getattr(args, "worktree_branch", None))
             except ValueError as error:
@@ -507,13 +543,15 @@ def resolve(runner, args, parser):
         # What earlier runs learned about the repository, frozen for this run (#2943).
         project_notes_lifecycle.install(state, project_notes_lifecycle.load(workspace))
         interaction_timing.begin(state, getattr(args, "_interaction_launched_at", None) or state["created_at"])
-        isolated = task_workspaces.metadata(workspace)
+        isolated = {} if local_requirements else task_workspaces.metadata(workspace)
         if isolated:
             state.update(project_workspace=isolated["project_workspace"], task_branch=isolated["branch"])
         # The revision a bug fix is proven against (autocode_regression). A project or task worktree
         # created just now is its HEAD; in any other checkout, including an earlier task's worktree,
         # the files it holds uncommitted or untracked at launch are part of it.
-        if getattr(args, "_native_intent", None) is not None:
+        if local_requirements:
+            pass
+        elif getattr(args, "_native_intent", None) is not None:
             # Its original run and checkout ownership bind the native origin
             # before source-capable baseline preparation in the existing loop.
             state["base_commit"] = None
@@ -607,6 +645,8 @@ def load_locked(runner, args, parser, state: RunState, state_path, run_dir, work
         state = runner.read_json(state_path)
         if state["workspace"] != str(workspace):
             parser.error("workspace differs from the locked checkpoint")
+        if getattr(args, "_local_requirements_only", False):
+            controller_isolation.require_local_requirements(workspace, state)
         try:
             recovery_view.require_token(state, getattr(args, "expected_recovery_token", None))
         except ValueError as error:
@@ -668,21 +708,31 @@ def load_locked(runner, args, parser, state: RunState, state_path, run_dir, work
     # the explicit --allow-uncontained-tools opt-out (#413). That refusal is a refused setting too, with
     # its own text (#714).
     try:
-        containment_policy.configure(
-            state,
-            settings,
-            allow=bool(getattr(args, "allow_uncontained_tools", False)),
-            configured_tool=getattr(runner.opencode, "CONFIGURED", False),
-            workspace=workspace,
-            now=runner.now,
-        )
-        # --agent-sandbox: saved once asked for, and refused here, before any stage, where it cannot exist.
-        agent_sandbox.configure(state, settings, enable=bool(getattr(args, "agent_sandbox", False)), now=runner.now)
+        if getattr(args, "_local_requirements_only", False):
+            containment_policy.configure_requirements(
+                state,
+                settings,
+                allow=bool(getattr(args, "allow_uncontained_tools", False)),
+                configured_tool=getattr(runner.opencode, "CONFIGURED", False),
+                workspace=workspace,
+            )
+        else:
+            containment_policy.configure(
+                state,
+                settings,
+                allow=bool(getattr(args, "allow_uncontained_tools", False)),
+                configured_tool=getattr(runner.opencode, "CONFIGURED", False),
+                workspace=workspace,
+                now=runner.now,
+            )
+            # --agent-sandbox: saved once asked for, and refused here, before any stage, where it cannot exist.
+            agent_sandbox.configure(state, settings, enable=bool(getattr(args, "agent_sandbox", False)), now=runner.now)
     except ValueError as error:
         raise SettingRefused(str(error)) from None
-    if not args.run_dir and not state.get("project_workspace"):
-        launch_inputs.record(state, workspace, run_dir)
-    settings = _protected_test_settings(state, settings, args, workspace, run_dir)
+    if not getattr(args, "_local_requirements_only", False):
+        if not args.run_dir and not state.get("project_workspace"):
+            launch_inputs.record(state, workspace, run_dir)
+        settings = _protected_test_settings(state, settings, args, workspace, run_dir)
     if args.run_dir and args.autoresolver_managed_limits:
         origins = settings.setdefault("budget_origins", {})
         for kind in runner.BUDGET_ARGUMENTS:
@@ -1047,6 +1097,11 @@ def run_locked(
             )
             worker_binding.bind(args, state, run_dir, workspace, owner, runner.write_json)
             code = runner.run_actions.handle(runner, args, parser, state, state_path, run_dir, workspace)
+            if getattr(args, "_local_requirements_only", False):
+                try:
+                    controller_isolation.require_local_requirements(workspace, state)
+                except ValueError as error:
+                    raise runner.support.Paused("PAUSED_LOCAL_REQUIREMENTS_BUILD", str(error)) from error
             if code is not None:
                 runner.json_output.action(runner, args, state, workspace, run_dir, code)
                 if not worker_binding.continue_after_action(args, state, code):

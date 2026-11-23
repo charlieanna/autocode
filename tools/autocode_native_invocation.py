@@ -14,6 +14,7 @@ import sys
 try:
     from . import autocode_capability_startup as capability_startup
     from . import autocode_connected_engine as connected_engine
+    from . import autocode_controller_isolation as controller_isolation
     from . import autocode_controller_owner as controller_owner
     from . import autocode_native_calls as native_calls
     from . import autocode_native_launch as native_launch
@@ -26,6 +27,7 @@ try:
 except ImportError:
     import autocode_capability_startup as capability_startup
     import autocode_connected_engine as connected_engine
+    import autocode_controller_isolation as controller_isolation
     import autocode_controller_owner as controller_owner
     import autocode_native_calls as native_calls
     import autocode_native_launch as native_launch
@@ -121,6 +123,8 @@ def resolve_and_run(base, args, parser, *, failure_routing=True):
 def run(base, args, parser, resolved, *, failure_routing=True):
     workspace, run_dir, state_path, state = base.json_output.loaded(base, args, resolved)
     intent = native_profile.initial_intent(state["task"])
+    if getattr(args, "_local_requirements_only", False) and intent is not None:
+        parser.error("Requirements-only discussion cannot acquire native build authority")
     if intent is not None and "replay_recording" in (state.get("settings") or {}):
         raise base.support.Paused("PAUSED_VISUAL_EVIDENCE", "Native initial planning cannot use recorded inference")
     journal = run_dir / "visual-native-protection"
@@ -143,6 +147,8 @@ def run(base, args, parser, resolved, *, failure_routing=True):
             locked = base.read_json(state_path)
             if locked["workspace"] != str(workspace):
                 parser.error("workspace differs from the locked checkpoint")
+            if getattr(args, "_local_requirements_only", False):
+                controller_isolation.require_local_requirements(workspace, locked)
             if native_profile.initial_intent(locked["task"]) != intent or (
                 intent is not None and locked["task"] != state["task"]
             ):

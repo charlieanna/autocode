@@ -19,6 +19,7 @@ Imports nothing from the runner.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -92,6 +93,44 @@ def refusal(problem: str) -> str:
         f"Use that setup, or add {FLAG} to run those stages with OpenCode's own permission checks only "
         "(no kernel containment); it is saved with the run."
     )
+
+
+def requirements_refusal(problem: str) -> str:
+    return (
+        f"Requirements-only discussion in the AutoCode controller requires verified kernel tool containment: {problem}. "
+        "It cannot use uncontained tools. Select an AutoCode CLI installed outside this checkout, or use a host "
+        "with the supported OpenCode containment boundary."
+    )
+
+
+def requirements_boundary_problem(policy, *, workspace: Path, run_dir: Path) -> str | None:
+    """Whether a prepared Requirements launch is bound to this exact read-only workspace and private run."""
+    if not isinstance(policy, dict) or not policy.get("backend"):
+        return "the launch has no verified kernel boundary"
+    if policy.get("allow_write") is not False:
+        return "the launch boundary is not read-only"
+    if policy.get("workspace") != str(workspace.resolve()):
+        return "the launch boundary belongs to another workspace"
+    private_reads = policy.get("private_reads")
+    if not isinstance(private_reads, dict) or private_reads.get("run_dir") != str(run_dir.resolve()):
+        return "private-run read denial belongs to another run"
+    denied = private_reads.get("denied")
+    if not isinstance(denied, list) or str((workspace / ".autocode" / "runs").resolve()) not in denied:
+        return "private-run read denial does not cover this workspace's run store"
+    return None
+
+
+def configure_requirements(state: RunState, settings, *, allow, configured_tool, workspace) -> None:
+    """Admit local Requirements only when the normal positive boundary is available and never waived."""
+    if allow:
+        raise ValueError("Requirements-only discussion cannot use uncontained tools")
+    if not applies(settings, configured_tool=configured_tool):
+        raise ValueError(requirements_refusal("this route is not covered by the built-in containment boundary"))
+    if accepted(settings):
+        raise ValueError(requirements_refusal("the saved run accepted uncontained tools"))
+    problem = tool_containment.unavailable(workspace)
+    if problem:
+        raise ValueError(requirements_refusal(problem))
 
 
 def configure(state: RunState, settings, *, allow, configured_tool, workspace, now) -> None:

@@ -3533,9 +3533,18 @@ unchanged in place of its own placement flag, and, when that place has a `warnin
 starts only once the person confirms. It reads the list again just before the start.
 
 The additive `controller` object is pre-start admission, not saved-run state:
-`ready` (boolean), `detail` (display text), and `actions` (empty when ready).
+`ready` (boolean), `detail` (display text), `requirements_ready` (boolean) and
+`requirements_detail` (display text), and `actions` (empty when ready).
 When the executing controller is inside an AutoCode task checkout, `ready` is false
-for every placement. Its `select_cli` action has `label` and
+for every placement. If that folder is an existing Git checkout with `HEAD`, the list
+also offers the explicit `discuss` place with
+`start_args: ["--in-place", "--workflow", "discuss"]`. It runs only Requirements,
+with its assigned planning route in the verified read-only kernel boundary; it creates
+no task worktree, launch baseline or build authority and changes no Git or source file.
+A request that needs file changes stops at `PAUSED_LOCAL_REQUIREMENTS_BUILD` before
+Planner, and the person must select an isolated CLI to build. `requirements_ready`
+is not full-task readiness or containment approval, and a client never infers this
+choice from the message. Its `select_cli` action has `label` and
 `next_command: ["worktrees", "list", "--workspace", FOLDER, "--json"]`.
 This is a local executable-selection capability, not an install or a run command:
 the client lets the person pick an existing AutoCode executable and invokes it with

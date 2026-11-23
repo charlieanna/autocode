@@ -460,8 +460,8 @@ def launch(
     image_preparation=None,
     report_recovery=False,
 ):
-    if report_recovery and (allow_write or isolation is not None or containment is not None):
-        raise ValueError("OpenCode report recovery requires a read-only uncontained stage")
+    if report_recovery and (allow_write or isolation is not None or (containment is not None and not planning)):
+        raise ValueError("OpenCode report recovery requires read-only planning without native role isolation")
     if image_preparation is not None and (isolation is None or role != "tester" or planning or allow_write or session):
         raise ValueError("Native image staging requires the original fresh readonly Sol isolation")
     if image_preparation is not None:

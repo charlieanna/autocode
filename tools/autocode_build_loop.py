@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import sys
 from contextlib import ExitStack
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -28,6 +29,7 @@ try:
     from . import autocode_climb_cap as climb_cap
     from . import autocode_completion_result as completion_result
     from . import autocode_contract_identity as contract
+    from . import autocode_controller_isolation as controller_isolation
     from . import autocode_cost as cost
     from . import autocode_dispatch as dispatch
     from . import autocode_early_baseline as early_baseline
@@ -65,6 +67,7 @@ except ImportError:
     import autocode_climb_cap as climb_cap
     import autocode_completion_result as completion_result
     import autocode_contract_identity as contract
+    import autocode_controller_isolation as controller_isolation
     import autocode_cost as cost
     import autocode_dispatch as dispatch
     import autocode_early_baseline as early_baseline
@@ -129,13 +132,27 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
     storage_checked = False
     tools_checked = False
     args._ready_message_boundary = False
+    local_requirements = getattr(args, "_local_requirements_only", False)
+
+    def guard_local(current):
+        if not local_requirements:
+            return
+        try:
+            controller_isolation.require_local_requirements(Path(workspace), current)
+        except ValueError as error:
+            raise support.Paused("PAUSED_LOCAL_REQUIREMENTS_BUILD", str(error)) from error
 
     def check_tools(current):
         nonlocal tools_checked
         # Native ownership constructs and checks its agent in its own isolated
         # configuration. Ordinary metadata cannot certify or replace that owner.
         # A saved report repair has no tools; admit ordinary stages after it clears.
-        if tools_checked or current.get("pending_report_repair") or getattr(runner, "native_calls", None) is not None:
+        if (
+            local_requirements
+            or tools_checked
+            or current.get("pending_report_repair")
+            or getattr(runner, "native_calls", None) is not None
+        ):
             return
         setup_check_retry.patiently(
             lambda: tool_admission.selected_tools(getattr(runner, "opencode", None), current, workspace, run_dir),
@@ -148,7 +165,7 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
 
     def check_storage(current):
         nonlocal storage_checked
-        if storage_checked or storage_budget.conversation_only(current):
+        if local_requirements or storage_checked or storage_budget.conversation_only(current):
             return True
         budget = storage_budget.projection(workspace)
         reason = storage_budget.refusal(budget)
@@ -172,6 +189,29 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
         except interventions.InterventionError as error:
             raise support.Paused("PAUSED_INTERVENTION_ACK", str(error)) from error
 
+    def check_limits(current):
+        limits = current["settings"]["limits"]
+        runner.timeout_recovery_guard(current)
+        if runner.iteration_limit_reached(
+            current["iteration"], limits["iteration_ceiling"]
+        ) and not runner.recover_default_budget(current, run_dir, workspace, "iteration_ceiling"):
+            raise support.Paused("PAUSED_ITERATION_LIMIT", "Saved iteration ceiling reached")
+        if (
+            limits["max_seconds"]
+            and budget_state.active_seconds(current) >= limits["max_seconds"]
+            and not runner.recover_default_budget(current, run_dir, workspace, "max_seconds")
+        ):
+            raise support.Paused("PAUSED_TIME_LIMIT", "Saved active-time limit reached at stage boundary")
+        # The money cap (#721) is the person's: never extended automatically, checked before any launch.
+        if reached := run_spend.exceeded(current):
+            raise support.Paused(
+                "PAUSED_COST_LIMIT",
+                f"Spend so far {cost.usd(reached[0])} reached the {cost.usd(reached[1])} cost cap at stage boundary",
+            )
+        # So is the cap on planning's model calls (owner decision 2026-11-12), checked before a planning call.
+        if calls := planning_calls.reached(current):
+            raise support.Paused(planning_calls.STATUS, planning_calls.stop_reason(*calls))
+
     def before_probe():
         consume_boundary(state)
         if (run_dir / "pause-requested").exists():
@@ -179,21 +219,38 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
         if reason := storage_budget.dispatch_refusal(workspace, run_dir):
             raise support.Paused("PAUSED_TASK_PREFLIGHT", reason)
 
-    try:
-        check_tools(state)
-        model_preflight.check(
-            runner,
-            state,
-            run_dir,
-            workspace,
-            checkpoint=lambda: runner.write_json(state_path, state),
-            before_probe=before_probe,
-            selection=(state.get("settings") or {}).get("route_selection"),
-        )
-    except runner.orchestrator.LoopExit as stopped:
-        return stopped.code
+    guard_local(state)
+    if local_requirements:
+        check_limits(state)
+    else:
+        try:
+            check_tools(state)
+            model_preflight.check(
+                runner,
+                state,
+                run_dir,
+                workspace,
+                checkpoint=lambda: runner.write_json(state_path, state),
+                before_probe=before_probe,
+                selection=(state.get("settings") or {}).get("route_selection"),
+            )
+        except runner.orchestrator.LoopExit as stopped:
+            return stopped.code
 
     def before_code_stage(current):
+        guard_local(current)
+        if local_requirements:
+            check_limits(current)
+            consume_boundary(current)
+            if current.get("pending_report_repair"):
+                record_resume(runner, args, current, state_path)
+                try:
+                    runner.execute_report_repair(current, run_dir, workspace)
+                except runner.ReportRepairQueued:
+                    return runner.orchestrator.SKIP
+                after_code_stage(current, current.get("next_stage", "report_repair"), None)
+                return runner.orchestrator.SKIP
+            return
         check_tools(current)
         if not check_storage(current):
             raise runner.orchestrator.LoopExit(2)
@@ -235,27 +292,7 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
         )
         if (run_dir / "pause-requested").exists() and not repairing_before_upgrade:
             raise support.Paused("PAUSED_REQUESTED", "Pause requested; previous stage saved")
-        limits = current["settings"]["limits"]
-        runner.timeout_recovery_guard(current)
-        if runner.iteration_limit_reached(
-            current["iteration"], limits["iteration_ceiling"]
-        ) and not runner.recover_default_budget(current, run_dir, workspace, "iteration_ceiling"):
-            raise support.Paused("PAUSED_ITERATION_LIMIT", "Saved iteration ceiling reached")
-        if (
-            limits["max_seconds"]
-            and budget_state.active_seconds(current) >= limits["max_seconds"]
-            and not runner.recover_default_budget(current, run_dir, workspace, "max_seconds")
-        ):
-            raise support.Paused("PAUSED_TIME_LIMIT", "Saved active-time limit reached at stage boundary")
-        # The money cap (#721) is the person's: never extended automatically, checked before any launch.
-        if reached := run_spend.exceeded(current):
-            raise support.Paused(
-                "PAUSED_COST_LIMIT",
-                f"Spend so far {cost.usd(reached[0])} reached the {cost.usd(reached[1])} cost cap at stage boundary",
-            )
-        # So is the cap on planning's model calls (owner decision 2026-11-12), checked before a planning call.
-        if calls := planning_calls.reached(current):
-            raise support.Paused(planning_calls.STATUS, planning_calls.stop_reason(*calls))
+        check_limits(current)
         classifying = (
             current.get("next_stage") == "investigate_stuck"
             and (current.get("stuck_investigation") or {}).get("mode") == "builder_failure"
@@ -264,8 +301,8 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
             not repairing_before_upgrade
             and not classifying
             and (not milestones.enabled(current) or current.get("next_stage") in ("builder", "orchestrator"))
-            and limits["no_progress_batches"]
-            and current.get("no_progress_batches", 0) >= limits["no_progress_batches"]
+            and current["settings"]["limits"]["no_progress_batches"]
+            and current.get("no_progress_batches", 0) >= current["settings"]["limits"]["no_progress_batches"]
         ):
             wave = dispatch.select(current) if current.get("next_stage") == "orchestrator" else None
             if not (
@@ -343,6 +380,7 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
             return runner.orchestrator.SKIP
 
     def dispatch_code_stage(current, stage):
+        guard_local(current)
         native = getattr(runner, "native_calls", None)
         if native is not None:
             native.guard(current, stage)
@@ -543,6 +581,7 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
             runner.write_json(state_path, current)
 
     def before_stage(current):
+        guard_local(current)
         if build_worktree.due(current):
             # Requirements talked with the person in their checkout; the plan is made, reviewed and built in
             # a worktree of its own, so this folder is never written to. The run continues there on its next command.

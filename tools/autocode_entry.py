@@ -6,6 +6,8 @@ import importlib
 import sys
 from pathlib import Path
 
+sys.dont_write_bytecode = True
+
 try:
     from . import autocode_source_host as source_host
 except ImportError:
