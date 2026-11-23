@@ -2857,13 +2857,16 @@ class BubblewrapKernelTests(unittest.TestCase):
         self.assertRegex(self.boundary["backend_version"], r"^bubblewrap \d")
         self.assertEqual("policy.bwrap", Path(self.boundary["profile"]).name)
 
-    @unittest.skipUnless(containment.bubblewrap_overlay_capable(), "requires bubblewrap >= 0.11 overlay mounts")
-    def test_readonly_stage_creates_build_outputs_in_its_copy_while_the_workspace_stays_read_only(self):
+    def test_readonly_stage_build_outputs_follow_the_overlay_capability(self):
         # #4033: a read-only stage (Tester/reviewer) runs its checks in the verification copy. A check
         # that writes into the project tree -- cargo's target/, .coverage, .pytest_cache, a compiler's
-        # output dir -- creates that output beside the sources in the copy's writable overlay, while
-        # the live workspace and the copy's real sources stay read-only. Before the fix the whole copy
-        # was one read-only mount and `cargo test` failed "Read-only file system" on its target dir.
+        # output dir -- creates that output beside the sources. On bubblewrap >= 0.11 the copy is a
+        # writable overlay over its own read-only real copy, so the output lands in the discarded tmpfs
+        # upper while the live workspace and the copy's real sources stay read-only. An older bwrap
+        # (< 0.11) has no overlay mounts and keeps the wholly read-only copy, so creating that output is
+        # denied "Read-only file system" -- the pre-#4033 graceful degradation. Both branches execute
+        # here (no skip): the linux-tool-containment CI job requires every selected test to run and pass
+        # without skipping, whatever bwrap version the runner ships.
         (self.workspace / "Cargo.toml").write_text('[package]\nname = "sample"\nversion = "0.1.0"\n')
         (self.workspace / "src").mkdir()
         source = "pub fn sum(a: i32, b: i32) -> i32 { a + b }\n"
@@ -2879,24 +2882,33 @@ class BubblewrapKernelTests(unittest.TestCase):
         quoted = shlex.quote
         # The stage builds in its copy: cargo creates target/ relative to the copy root, plus the
         # other in-tree outputs a check makes. All in one run, as a single check command runs.
-        build = self.run_shell(
+        build_command = (
             "cd " + quoted(str(tree)) + " && mkdir -p target/debug && printf built > target/debug/sample"
-            " && printf coverage > .coverage && mkdir -p .pytest_cache",
-            reader,
+            " && printf coverage > .coverage && mkdir -p .pytest_cache"
         )
-        self.assertEqual(0, build.returncode, (build.stdout, build.stderr))
-        # The outputs lived in the overlay's discarded tmpfs upper, never the real copy or the workspace.
+        if containment.bubblewrap_overlay_capable():
+            # The writable overlay takes the build outputs into its discarded tmpfs upper, so the check
+            # builds beside the sources without touching the real copy.
+            build = self.run_shell(build_command, reader)
+            self.assertEqual(0, build.returncode, (build.stdout, build.stderr))
+        else:
+            # An older bwrap without the overlay mounts keeps the wholly read-only copy: creating a build
+            # output in it is denied (read-only file system), the pre-#4033 degradation, asserted positively.
+            self.assert_denied(build_command, reader)
+        # Either way the outputs never reach the real copy or the live workspace: the overlay discards its
+        # upper per invocation, and the read-only copy never created them.
         for output in ("target", ".coverage", ".pytest_cache"):
             self.assertFalse((tree / output).exists(), output)
             self.assertFalse((self.workspace / output).exists(), output)
         self.assertEqual(source, (tree / "src/lib.rs").read_text())
-        # The LIVE workspace stays read-only: no new output dir and no source write there.
+        # The LIVE workspace stays read-only in both branches: no new output dir and no source write there.
         self.assert_denied("mkdir " + quoted(str(self.workspace / "target")), reader)
         self.assert_denied(": > " + quoted(str(self.workspace / "src/lib.rs")), reader)
         self.assertFalse((self.workspace / "target").exists())
         self.assertEqual(source, (self.workspace / "src/lib.rs").read_text())
-        # A copied source cannot be changed in the real copy either: the overlay's lower is read-only,
-        # so a write the check makes in its own view never reaches the sources it is judged on.
+        # A copied source cannot be changed in the real copy either: the overlay's lower is read-only (the
+        # write goes to the discarded upper), and the old read-only copy denies it outright, so a write the
+        # check makes in its own view never reaches the sources it is judged on.
         self.run_shell("cd " + quoted(str(tree)) + " && printf forged > src/lib.rs", reader)
         self.assertEqual(source, (tree / "src/lib.rs").read_text())
         import autocode_verification_copy as copies
