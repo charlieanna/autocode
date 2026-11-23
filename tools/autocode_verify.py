@@ -2286,10 +2286,8 @@ def verify(
         unverified.append(
             "Product/test ownership is ambiguous; no proof commands were started for: " + ", ".join(ambiguous)
         )
-    notes: list[Any] = []
     settlement = roles.settlement_note(changes)
-    if settlement:
-        notes.append(settlement)
+    notes: list[Any] = [settlement] if settlement else []
     review_reasons: list[Any] = []
     checks: dict[str, dict] = {}  # command receipts only
     proof: dict = {}
