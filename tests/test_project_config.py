@@ -81,6 +81,13 @@ class ProjectConfigTests(unittest.TestCase):
         self.assertIn("Project settings from", stderr)
         self.assertIn("engine, test-command, max-seconds, unlimited-iterations", stderr)
 
+    def test_invalid_new_run_does_not_announce_applied_project_settings(self):
+        self.write('engine = "codex"\n')
+        stderr = self.refused("Build it", "--new-run-dir", str(self.root / "fresh-run"))
+        self.assertTrue(stderr.startswith("usage: autocode [TASK] [OPTIONS]\n"), stderr)
+        self.assertIn("--new-run-dir requires a fresh --in-place task invocation", stderr)
+        self.assertNotIn("Project settings from", stderr)
+
     def test_a_cost_cap_in_the_file_is_an_amount_and_typed(self):
         # TOML writes an amount as a float; it is taken only for a flag that parses an amount (#721).
         for text in ("max-cost-usd = 12.5\n", 'max-cost-usd = "12.5"\n'):
