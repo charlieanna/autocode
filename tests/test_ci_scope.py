@@ -623,7 +623,10 @@ class WorkflowGateTests(unittest.TestCase):
         self.assertEqual(["needs.scope.outputs.scenarios == 'true'"], re.findall(r"^    if: (.+)$", harness, re.M))
         self.assertIn("timeout-minutes: 360", harness)
         self.assertNotIn("outputs.suite", harness)
-        self.assertIn("bubblewrap libseccomp2 tmux", harness)
+        install = next(
+            line.split() for line in harness.splitlines() if "apt-get install" in line and "bubblewrap" in line
+        )
+        self.assertTrue({"bubblewrap", "fuse3", "libseccomp2", "tmux"}.issubset(install), install)
         self.assertIn("/usr/bin/bwrap --unshare-all", harness)
         self.assertIn("tests.test_capability_startup.LinuxCapabilityStartupTests", harness)
         for tool in ("actions/setup-node@v4", "actions/setup-go@v5", "python tools/ci_java.py", "java_toolchain.py"):

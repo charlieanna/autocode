@@ -244,7 +244,7 @@ def main():
     tree, mountpoint, outputs = map(Path, sys.argv[1:4])
     if not Path("/dev/fuse").is_char_device():
         raise SystemExit("Linux verification copies require the FUSE 3 runtime and /dev/fuse in the launcher")
-    safe_env = {"PATH": "/usr/bin:/bin", "FUSE_LIBRARY_PATH": "libfuse3.so.3"}
+    safe_env = {"PATH": "/usr/bin:/bin", "FUSE_LIBRARY_NAME": "fuse3"}
     subprocess.run(
         ["/usr/bin/mount", "-t", "tmpfs", "-o", "mode=0700,nosuid,nodev", "tmpfs", outputs], check=True, env=safe_env
     )
