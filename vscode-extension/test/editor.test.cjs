@@ -5791,6 +5791,59 @@ test('test_ac11_result_card_count_follows_kept_code', async (t) => {
     '6 files: README.md, app.txt, docs/guide.md, link, new file.txt, run.sh');
 });
 
+test('an all-changes request addressed to another chat invokes no CLI command', async (t) => {
+  const ui = await openChat(t, checkpointView());
+  const read = t.mock.method(controller, 'allChanges', async () => ({ since: 'start', changed_files: ['app.txt'], patch: '+hello' }));
+  await ui.chat.receive({ type: 'all_changes', runKey: 'stale-chat', requestId: 1 });
+  await flush();
+  assert.equal(read.mock.callCount(), 0, 'a request addressed to another chat is dropped');
+  await ui.chat.receive({ type: 'all_changes', runKey: `${run.workspace}\n${run.runDir}`, requestId: 2 });
+  await flush();
+  assert.equal(read.mock.callCount(), 1, 'the request for this chat is served');
+});
+
+test('an all-changes request in a chat with no run invokes no CLI command', async (t) => {
+  const ui = await openChat(t, null, false);
+  const read = t.mock.method(controller, 'allChanges', async () => ({ changed_files: [], patch: '' }));
+  await ui.chat.receive({ type: 'all_changes', runKey: ui.chat.activeKey, requestId: 3 });
+  await flush();
+  assert.equal(read.mock.callCount(), 0, 'a chat with no run has no diff to read');
+});
+
+test('the finished card offers its changes while the chat is busy and not while the status is unreadable', async (t) => {
+  const done = meteredView({
+    status: 'TASK_COMPLETE', done: true, needs: { kind: 'done' }, liveness: null,
+    progress: { headline: 'Complete', requirements: { checked: 1, failed: 0, unchecked: 0, awaiting_review: 0 } },
+    code_checkpoints: { all_changes: { id: 'all_changes', label: 'Show all changes', next_command: ALL_CHANGES } },
+  });
+  done.usage.accounting.attempts = done.usage.accounting.attempts.map((row) => ({ ...row, active: false }));
+  let unreadable = false;
+  const ui = await openChat(t, done, run, { statusFor() {
+    if (unreadable) throw new Error('Status reader unavailable');
+    return done;
+  } });
+  t.mock.method(controller, 'allChanges', async () => ({ since: 'start', changed_files: ['app.txt'], patch: '+while busy', truncated: false }));
+  const show = () => ui.document.getElementById('finish-show-changes');
+  assert.equal(show().disabled, false);
+  // A message to the chat holds the tab busy until its status read returns.
+  let answer;
+  controller.status.mock.mockImplementationOnce(() => new Promise((resolve) => { answer = resolve; }));
+  t.after(() => answer?.(structuredClone(done)));
+  void ui.chat.receive({ type: 'send', text: 'one more thing', runKey: `${run.workspace}\n${run.runDir}` });
+  await flush(); await flush();
+  assert.ok(ui.chat.busy.has(`${run.workspace}\n${run.runDir}`), 'the chat is busy with the message');
+  assert.equal(show().disabled, false, 'a display-only read stays available while the chat is busy (#3871)');
+  show().click();
+  await flush(); await flush();
+  assert.ok(ui.document.querySelector('#app').textContent.includes('+while busy'), 'served while the chat is busy');
+  answer(structuredClone(done)); answer = null;
+  await flush(); await flush();
+  unreadable = true;
+  await ui.poll(); await flush();
+  assert.match(ui.document.querySelector('#app').textContent, /couldn’t read the latest status/);
+  assert.equal(show().disabled, true, 'an unreadable status pauses the read');
+});
+
 test('an all-changes action the view did not name exactly is refused without a CLI call', async (t) => {
   const view = checkpointView();
   view.code_checkpoints.all_changes.next_command.push('--extra');
