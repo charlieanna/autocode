@@ -752,7 +752,12 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     void vscode.window.withProgress({
       location: vscode.ProgressLocation.Notification,
       title: `${text} [Open chat](${link})`,
-    }, () => pending);
+    }, (progress) => {
+      // The notice stays available until the need clears. A static bar lets the editor
+      // stop animating while the run is waiting for a person or has already finished.
+      progress.report({ increment: 0 });
+      return pending;
+    });
   }
 
   private closeNotice(key: string, forgetIdentity = false): void {
