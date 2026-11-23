@@ -4,7 +4,7 @@
  * fresh not-yet-started chat. Every open run tab polls (#1566); every tab keeps
  * its own draft (keyed by tab key in the webview), status and errors.
  */
-import * as vscode from "vscode";
+import vscode = require("vscode");
 import { createHash, randomBytes } from "node:crypto";
 import { RunController, type RunRef } from "./controller";
 import { requiresConfirmation } from "./core/next-command";

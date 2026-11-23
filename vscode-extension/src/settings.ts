@@ -1,6 +1,6 @@
 /** Reading the extension's settings into a CLI launch. */
 
-import * as vscode from "vscode";
+import vscode = require("vscode");
 import { invokeRead, tail, STATUS_TIMEOUT_MS, type CliOptions } from "./core/cli";
 import { readWorktrees, type WorktreeList } from "./core/worktrees";
 

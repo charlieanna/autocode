@@ -7,7 +7,7 @@
  * imports runner internals, and never launches a model without a person asking.
  */
 
-import * as vscode from "vscode";
+import vscode = require("vscode");
 import { statusLine } from "./statusBar";
 import { RunController, type RunRef } from "./controller";
 import { RunPanel } from "./panel";

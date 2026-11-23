@@ -1,5 +1,5 @@
 /** Connection metadata and named actions come from the public AutoCode CLI. */
-import * as vscode from "vscode";
+import vscode = require("vscode");
 import { randomBytes } from "node:crypto";
 import { invokeRead, tail, STATUS_TIMEOUT_MS, STAGES_TIMEOUT_MS } from "./core/cli";
 import { partitionOptions, readSettings, routeKeyOf, sanitizeRoutes } from "./settings";
