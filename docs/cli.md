@@ -694,6 +694,9 @@ also accepts `-h` / `--help`.
 
 ## Terminal chat
 
+Run `autocode chat` to open the terminal chat. On macOS or Linux you can also
+use the [low-memory setup](#low-memory-terminal-chat) below.
+
 `autocode chat --execution durable_local "YOUR TASK"` opts a new run into the
 [durable local worker](task-run.md#durable-local-workers) mode on a supported
 persistent Linux host. The core checks an existing systemd user manager (254+)
@@ -983,6 +986,47 @@ directory (a bare `y`, `n` or option number is not kept).
 The older inline chat (`--chat`, the default when `autocode "TASK"` runs in a
 terminal) still works and is being replaced by this client. Scripts that call plain
 `autocode` without a terminal are unchanged.
+
+### Low-memory terminal chat
+
+By default, terminal chat keeps a Python helper alive to reuse workspace
+snapshot hashes between status reads. To use short-lived reads for one chat,
+run `AUTOCODE_SOURCE_HOST=0 autocode chat`. Cold status reads can take
+longer in large workspaces. [How the warm CLI host works](task-run.md#warm-local-cli-host)
+
+The measured setup also used Python 3.12. Create the environment once from an
+AutoCode checkout at the revision you want to run.
+
+```sh
+python3.12 -m venv "$HOME/.venvs/autocode-tui"
+"$HOME/.venvs/autocode-tui/bin/python" -m pip install .
+```
+
+For a reusable shortcut, save this script as `autocode-tui` in a directory
+on your `PATH` and make it executable with `chmod +x autocode-tui` from that
+directory. If you already have a Python 3.12 AutoCode environment, use its
+`bin/autocode` path here and skip installation. [VS Code setup](vscode.md#reduce-memory-use-on-macos-or-linux)
+
+```sh
+#!/bin/sh
+export AUTOCODE_SOURCE_HOST=0
+exec "$HOME/.venvs/autocode-tui/bin/autocode" chat "$@"
+```
+
+Run `autocode-tui` from your project. It accepts the usual chat arguments,
+including a quoted task or `--run-dir RUN`. Use `autocode chat` to return to
+your usual setup.
+
+On an Apple M1 Max, AutoCode 0.10.2 (`5835efc75`) ran the same scripted task
+three times per setup in an already-open VS Code integrated terminal. Each number below is the median of
+the three runs, measured above the idle editor and terminal. Typical memory
+is the median during a run, including its 12-second wait for approval.
+
+| Terminal chat setup | Typical | Waiting for approval | Peak |
+| --- | ---: | ---: | ---: |
+| Python 3.14, warm helper | 229.3 MiB | 144.2 MiB | 334.2 MiB |
+| Python 3.14, helper disabled | 180.9 MiB | 91.6 MiB | 332.0 MiB |
+| Python 3.12, helper disabled | 157.3 MiB | 76.0 MiB | 285.7 MiB |
 
 ## Unattended callers (agents)
 
