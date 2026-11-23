@@ -612,6 +612,14 @@ class WorkflowGateTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             self.run_gate(results)
 
+    def test_extension_host_checks_can_start_the_linux_verification_namespace(self):
+        workflow = (ROOT / ".github/workflows/tests.yml").read_text()
+        job = re.search(r"(?ms)^  extension:\n(.*?)(?=^  [a-z][\w-]*:\n)", workflow).group(1)
+        enable = job.index("sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0")
+        probe = job.index("/usr/bin/unshare --user --map-current-user --mount --propagation private /bin/true")
+        self.assertLess(enable, probe)
+        self.assertLess(probe, job.index("npm run test:host"))
+
     def test_harness_and_unit_jobs_have_separate_hosted_runner_budgets(self):
         workflow = (ROOT / ".github/workflows/tests.yml").read_text()
         jobs = dict(re.findall(r"(?ms)^  ([a-z][\w-]*):\n(.*?)(?=^  [a-z][\w-]*:|\Z)", workflow))

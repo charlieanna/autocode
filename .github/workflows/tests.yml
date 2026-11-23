@@ -94,6 +94,11 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q bubblewrap fuse3 xvfb
+          # The editor launches the same isolated verification shell as the Linux suite.
+          if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          /usr/bin/unshare --user --map-current-user --mount --propagation private /bin/true
           python3 -m venv .venv
           .venv/bin/python -m pip install -e '.[test,coverage]' 'pytest-cov>=6,<8'
       - uses: actions/setup-go@v5

@@ -1913,7 +1913,8 @@ inside an empty read-only root that holds only:
   the same paths).
 
 The Linux launcher needs the distribution's FUSE 3 runtime (`fuse3` on Ubuntu), util-linux,
-and access to `/dev/fuse` to mount a verification copy. AutoCode's Python package installs
+and access to `/dev/fuse` to mount a verification copy. The host must allow the launcher's
+`unshare` process to create an unprivileged user and mount namespace. AutoCode's Python package installs
 the Linux binding. A container running AutoCode needs `--device=/dev/fuse`. The stage gets
 its own `/dev`, and the mount and its filesystem process end with the command.
 
