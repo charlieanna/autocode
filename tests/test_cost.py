@@ -16,6 +16,7 @@ import autocode_support as support
 import autocode_usage as usage
 
 TOKENS = {"input_tokens": 1000, "output_tokens": 200}
+MIMO = "xiaomi-token-plan-sgp/mimo-v2.6-pro"
 
 
 def stage(model="gpt-5.6-sol", tokens=TOKENS, **fields):
@@ -43,6 +44,31 @@ class RequestCostCompletenessTests(unittest.TestCase):
                 ],
             }
         }
+        return record
+
+    def estimated_record(self, complete=True, ledger=True, authoritative=None):
+        """A priced stage whose only cost is the price-table estimate (#3911): complete
+        aggregate tokens, no reported amount, and a native request ledger that observed one
+        finish. Varying `complete` varies only request coverage, as the issue's repro does."""
+        record = stage(
+            MIMO,
+            tokens={"input_tokens": 50116, "cached_input_tokens": 3072, "output_tokens": 19206},
+        )
+        if ledger:
+            record["metrics"]["request_context"] = {
+                "accounting": {
+                    "complete": complete,
+                    "requests": [
+                        {
+                            "identity": ["session", "0"],
+                            "reported_cost_usd": None,
+                            "tokens": dict.fromkeys(usage.request_usage.TOKEN_KEYS, 0),
+                        }
+                    ],
+                }
+            }
+        if authoritative is not None:
+            record["metrics"]["provider_cost_usd"] = authoritative
         return record
 
     def test_missing_request_price_keeps_the_known_subtotal_but_never_claims_a_complete_bill(self):
@@ -93,8 +119,49 @@ class RequestCostCompletenessTests(unittest.TestCase):
         self.assertFalse(view["complete"])
         self.assertEqual(1, view["unpriced_stages"])
 
+    def test_an_estimated_total_is_a_floor_when_request_coverage_is_incomplete(self):
+        # #3911: the price-table estimate path never read the #3000 coverage flag, so an
+        # estimate read complete while the ledger said requests may be unobserved. The known
+        # estimate stays visible, unchanged in value, but as a lower bound.
+        complete_view = cost.view(run(self.estimated_record(complete=True)))
+        for complete in (False, None):
+            with self.subTest(complete=complete):
+                state = run(self.estimated_record(complete=complete))
+                view = cost.view(state)
+                self.assertEqual("estimated", usage.stage_rows(state)[0]["basis"])
+                self.assertIsNotNone(view["spent_usd"])
+                self.assertEqual(complete_view["spent_usd"], view["spent_usd"])
+                self.assertFalse(view["complete"])
+                self.assertTrue(cost.line(view).startswith("Cost: at least $"))
+                totals = usage.summary(state)
+                self.assertEqual(1, totals["partial_stages"])
+                self.assertFalse(totals["cost_usd"]["complete"])
+                self.assertFalse(view["breakdown"]["by_stage"][0]["complete"])
+                self.assertEqual(1, cost.carried(state)["partial_stages"])
 
-MIMO = "xiaomi-token-plan-sgp/mimo-v2.6-pro"
+    def test_an_estimated_total_is_complete_when_request_coverage_is_complete(self):
+        state = run(self.estimated_record(complete=True))
+        view = cost.view(state)
+        self.assertEqual("estimated", usage.stage_rows(state)[0]["basis"])
+        self.assertTrue(view["complete"])
+        self.assertEqual(0, usage.summary(state)["partial_stages"])
+
+    def test_an_estimated_total_without_a_request_ledger_stays_complete(self):
+        # A translator's session total (Codex-shaped events, no native request finishes) or a
+        # run saved without request receipts carries no coverage flag; the estimate is not
+        # made a floor by a ledger that never observed requests.
+        state = run(self.estimated_record(ledger=False))
+        view = cost.view(state)
+        self.assertTrue(view["complete"])
+        self.assertEqual(0, usage.summary(state)["partial_stages"])
+
+    def test_an_authoritative_amount_supersedes_incomplete_coverage_on_a_priced_stage(self):
+        # The issue's fourth row: a whole-attempt amount is complete even when request
+        # coverage is incomplete; only the token-priced estimate becomes a floor.
+        state = run(self.estimated_record(complete=False, authoritative=0.40))
+        view = cost.view(state)
+        self.assertEqual(0.40, view["spent_usd"])
+        self.assertTrue(view["complete"])
 
 
 def step_finish(index, cost_usd=0, fresh=800, read=22400, output=112, reasoning=151):
