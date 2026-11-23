@@ -221,18 +221,6 @@ def holds_source(regular, code_or_test) -> bool:
     return any(size and code_or_test(path) and not test_harness(path) for path, size in regular)
 
 
-def base_holds_source(run, read_git, is_code_path, is_test_path) -> bool:
-    """Whether the pinned base holds visible code or test source, read from its Git inventory.
-
-    An empty collection on such a base means it had no tests for behavior that is plainly there, and
-    preservation of that source is judged separately; a base with no source that is not positively
-    document-only may instead hide a filtered existing program, so its empty collection alone does not
-    license the first-suite proof (#3981).
-    """
-    regular = project_inventory.regular_entries(read_git(run.workspace, "ls-tree", "-r", "-l", "-z", run.base))
-    return regular is not None and holds_source(regular, lambda path: is_code_path(path) or is_test_path(path))
-
-
 def inert_base_file(path, size, *, separate, source, read=None) -> bool:
     """True when a pinned base entry holds no behavior a suite could run.
 

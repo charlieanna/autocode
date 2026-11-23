@@ -104,6 +104,51 @@ class FilterExcludedTests(unittest.TestCase):
         self.assertEqual({"tools.test_a"}, matched)
 
 
+class ShardTests(unittest.TestCase):
+    """--shard K/N spreads one selection over N CI runners, balanced by recorded seconds."""
+
+    UNITS = [f"tests.test_m{index:02d}" for index in range(11)]
+    SLOW = {"tests.test_m07": "slow", "tests.test_m09": "slow", "tests.test_m10": "slow"}
+
+    def test_every_unit_lands_in_exactly_one_shard(self):
+        slices = [run_suite.shard(self.UNITS, (index, 4), self.SLOW) for index in range(1, 5)]
+        self.assertEqual(sorted(self.UNITS), sorted(unit for part in slices for unit in part))
+        self.assertEqual(len(self.UNITS), len({unit for part in slices for unit in part}))
+
+    def test_slow_modules_without_a_recorded_time_are_spread_first(self):
+        slices = [run_suite.shard(self.UNITS, (index, 3), self.SLOW) for index in range(1, 4)]
+        self.assertEqual([1, 1, 1], [sum(unit in self.SLOW for unit in part) for part in slices])
+
+    def test_recorded_seconds_balance_the_slices(self):
+        durations = {"tests.test_m00": 600.0, "tests.test_m01": 300.0, "tests.test_m02": 300.0}
+        first, second = (run_suite.shard(self.UNITS, (index, 2), {}, durations) for index in (1, 2))
+        self.assertIn("tests.test_m00", first)
+        self.assertEqual({"tests.test_m01", "tests.test_m02"}, {"tests.test_m01", "tests.test_m02"} & set(second))
+        load = lambda part: sum(durations.get(unit, run_suite.UNKNOWN_SECONDS) for unit in part)
+        self.assertLessEqual(abs(load(first) - load(second)), run_suite.UNKNOWN_SECONDS)
+
+    def test_a_slice_keeps_the_selection_order(self):
+        units = ["scenarios.test_b.Case.test_2", "scenarios.test_a.Case.test_1", "scenarios.test_b.Case.test_1"]
+        durations = {"scenarios.test_b.Case.test_2": 50.0, "scenarios.test_b.Case.test_1": 40.0}
+        first, second = (run_suite.shard(units, (index, 2), {}, durations) for index in (1, 2))
+        self.assertEqual(["scenarios.test_b.Case.test_2"], first)
+        self.assertEqual(["scenarios.test_a.Case.test_1", "scenarios.test_b.Case.test_1"], second)
+
+    def test_no_shard_keeps_everything(self):
+        self.assertIs(self.UNITS, run_suite.shard(self.UNITS, None, self.SLOW))
+
+    def test_the_option_refuses_a_slice_outside_its_count(self):
+        self.assertEqual((2, 8), run_suite.parse_shard("2/8"))
+        for text in ("0/8", "9/8", "2", "a/b"):
+            with self.subTest(text=text), self.assertRaises(run_suite.argparse.ArgumentTypeError):
+                run_suite.parse_shard(text)
+
+    def test_the_recorded_durations_name_current_modules(self):
+        durations = run_suite.load_durations()
+        self.assertGreater(len(durations), 1000)
+        self.assertTrue(all(value >= 0 for value in durations.values()))
+
+
 class CountAndIterTests(unittest.TestCase):
     def test_count_and_iter_agree_on_a_nested_suite(self):
         inner = _suite("tools.test_a.CaseA.test_one")

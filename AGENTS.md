@@ -642,7 +642,8 @@ $PY -m unittest tests.test_architecture                        # seconds
 $PY tools/run_suite.py --changed                               # the tests for what you changed, in parallel
 $PY scenarios/run.py run --fake                                # supported Linux; full catalog only when justified
 $PY tools/run_suite.py --scenario-harness                      # provider-backed cases require supported Linux
-$PY tools/run_suite.py                                         # every test, in parallel; what master's CI runs
+$PY tools/run_suite.py --changed origin/master --all-fast      # what the required CI gate runs
+$PY tools/run_suite.py                                         # every test, in parallel; what the nightly run takes
 ```
 
 The fake catalog now includes real Go, `node:test` and Vitest execution and
@@ -667,17 +668,28 @@ change to `tools/`, pass the task-focused tests and fake-provider regression
 that exercise the changed behavior. Use `--changed` when its broader selection
 is justified by the actual impact; do not run every fake scenario by default.
 
-A pull request's CI runs `--changed` against the event's pinned base commit.
+CI runs at two depths (`tools/ci_depth.py`). **The gate**, which `ci-required`
+waits on for a pull request, a merge-queue group and every push to master, runs
+every fast test module plus the slow ones the change touches
+(`--changed BASE --all-fast`, BASE the event's pinned base), split over eight
+runners with `--shard`, and the scenarios the change selects. It finishes in
+about twenty minutes, so a merge waits for it. **The nightly full run** (and a
+manual dispatch) runs every module, slow ones included, and the whole scenario
+catalog; a red night opens or updates the "Nightly full CI is red" issue
+(`tools/ci_nightly_issue.py`), and a green one closes it. Fix what it reports
+in its own small pull request. Merge only on a green `ci-required` for the
+current head: a merge while it runs, or over a red one, is how master went red
+for days in November 2026.
 Explicit resource and CLI-consumer mappings in `tools/ci_test_selection.py`
 cover dependencies the import selector cannot see; update those mappings when
 adding a dynamically loaded resource or a public CLI consumer. Required mapped
 consumers run even when listed as slow. `tools/ci_scope.py` selects relevant
 browser, container, platform and packaging jobs, with a stable `ci-required`
 check that rejects a failed or unexpectedly skipped selected job. PR checks use
-fake providers; strict host admission and cleanup still apply. A push to master
-runs every test and every existing master job, including the slow ones.
-A break only a slow module catches can
-therefore first show up on master: fix it forward straight away. Making a slow test fast (in-process instead of a CLI
+fake providers; strict host admission and cleanup still apply. A break only a
+slow module catches can therefore first show up in the nightly run: fix it
+forward straight away. `tests/suite_durations.json` balances the shards; refresh
+it with `tools/suite_durations.py LOG...` when they drift apart. Making a slow test fast (in-process instead of a CLI
 subprocess, a copied Git fixture instead of `git init`, a fake clock instead
 of a wait) and taking it off the slow list is progress. Run the full suite yourself only when you change something many
 modules share.

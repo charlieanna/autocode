@@ -47,16 +47,13 @@ UNLOADABLE = (
 )
 
 
-def first_suite_absent(base_suite, base, command, *, document_only=None, has_source=None):
-    """Accept only the matching completed baseline, and a base that positively had no suite to run.
+def first_suite_absent(base_suite, base, command, *, document_only=None):
+    """Accept only the matching completed baseline, and a base that had no suite to run.
 
-    The base had none when the runner produced no results at all because the project or file does not
-    exist yet (``results`` None, exit 1), or when its pinned inventory holds no behavior
-    (``document_only``, the observation the preservation check reads, ``_document_only_base``). An empty
-    collection alone — the runner ran and collected zero tests — can hide a filtered existing program,
-    so it licenses the first-suite proof only when the base is positively document-only or plainly holds
-    source whose preservation is judged separately (``has_source``). A runner's exit on a project that
-    does not exist yet (npm 254 with no package.json) varies by runner and is not what is judged.
+    The base had none when its own receipt says so (``first_suite.no_base_suite``), or when its pinned
+    inventory holds no behavior (``document_only``, the observation the preservation check reads,
+    ``_document_only_base``): a runner's exit on a project that does not exist yet (npm 254 with no
+    package.json, unittest 1 with no test directory) varies by runner and is not what is judged.
     """
     receipt = (base_suite or {}).get("receipt") or {}
     return bool(
@@ -66,13 +63,7 @@ def first_suite_absent(base_suite, base, command, *, document_only=None, has_sou
         and base_suite.get("base") == base
         and base_suite.get("command") == command
         and command_receipt.completed(receipt)
-        and (
-            (document_only is not None and document_only())
-            or (
-                first_suite.no_base_suite(receipt)
-                and (not first_suite.empty_collection(receipt) or (has_source is not None and has_source()))
-            )
-        )
+        and (first_suite.no_base_suite(receipt) or (document_only is not None and document_only()))
     )
 
 

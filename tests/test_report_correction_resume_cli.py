@@ -33,6 +33,7 @@ import autocode
 import autocode_action_recovery as action_recovery
 import autocode_report_repair_queue as report_repair_queue
 import autocode_run_status as run_status
+import autocode_scratch_location as scratch_location
 import autocode_stage_recovery as stage_recovery
 import autocode_support as support
 import autocode_util as util
@@ -882,8 +883,12 @@ class ReportCorrectionResumeCLI(unittest.TestCase):
         return self.counter.read_text().splitlines() if self.counter.exists() else []
 
     def baselines(self, lines):
-        """Suite runs in an original-code baseline tree (RUN/regression/baseline-<id>/scratch/baseline)."""
-        regression = str(self.run_dir / "regression") + os.sep
+        """Suite runs in an original-code baseline tree (RUN/regression/baseline-<id>/scratch/baseline).
+
+        The scratch tree is mirrored outside the workspace (autocode_scratch_location, #4057), so the
+        prefix is the mirror of RUN/regression, read from the module that places it.
+        """
+        regression = str(scratch_location.relocate(self.run_dir / "regression")) + os.sep
         return [
             line
             for line in lines
