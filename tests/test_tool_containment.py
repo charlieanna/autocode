@@ -2857,13 +2857,8 @@ class BubblewrapKernelTests(unittest.TestCase):
         self.assertRegex(self.boundary["backend_version"], r"^bubblewrap \d")
         self.assertEqual("policy.bwrap", Path(self.boundary["profile"]).name)
 
-    @unittest.skipUnless(containment.bubblewrap_overlay_capable(), "requires bubblewrap >= 0.11 overlay mounts")
     def test_readonly_stage_creates_build_outputs_in_its_copy_while_the_workspace_stays_read_only(self):
-        # #4033: a read-only stage (Tester/reviewer) runs its checks in the verification copy. A check
-        # that writes into the project tree -- cargo's target/, .coverage, .pytest_cache, a compiler's
-        # output dir -- creates that output beside the sources in the copy's writable overlay, while
-        # the live workspace and the copy's real sources stay read-only. Before the fix the whole copy
-        # was one read-only mount and `cargo test` failed "Read-only file system" on its target dir.
+        # Every supported Linux host must allow new outputs beside protected inputs.
         (self.workspace / "Cargo.toml").write_text('[package]\nname = "sample"\nversion = "0.1.0"\n')
         (self.workspace / "src").mkdir()
         source = "pub fn sum(a: i32, b: i32) -> i32 { a + b }\n"
@@ -2895,9 +2890,9 @@ class BubblewrapKernelTests(unittest.TestCase):
         self.assert_denied(": > " + quoted(str(self.workspace / "src/lib.rs")), reader)
         self.assertFalse((self.workspace / "target").exists())
         self.assertEqual(source, (self.workspace / "src/lib.rs").read_text())
-        # A copied source cannot be changed in the real copy either: the overlay's lower is read-only,
-        # so a write the check makes in its own view never reaches the sources it is judged on.
-        self.run_shell("cd " + quoted(str(tree)) + " && printf forged > src/lib.rs", reader)
+        # The write itself must fail inside the check. Checking the backing copy alone
+        # would miss a source change visible only during this invocation.
+        self.assert_denied("cd " + quoted(str(tree)) + " && printf forged > src/lib.rs", reader)
         self.assertEqual(source, (tree / "src/lib.rs").read_text())
         import autocode_verification_copy as copies
 
