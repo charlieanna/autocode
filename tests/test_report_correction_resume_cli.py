@@ -32,8 +32,8 @@ from unittest.mock import patch
 import autocode
 import autocode_action_recovery as action_recovery
 import autocode_report_repair_queue as report_repair_queue
-import autocode_scratch_location as scratch_location
 import autocode_run_status as run_status
+import autocode_scratch_location as scratch_location
 import autocode_stage_recovery as stage_recovery
 import autocode_support as support
 import autocode_util as util
