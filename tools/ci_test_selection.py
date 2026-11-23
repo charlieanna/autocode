@@ -1142,6 +1142,10 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tests.test_requirements_observations_cli",),
     ),
     (
+        ("tools/autocode_repair_claim_binding.py", "tools/autocode_repaired_result.py"),
+        ("tests.test_repaired_claim_binding",),
+    ),
+    (
         ("tools/autocode_suite_observation_view.py", "tools/autocode_status_observation_worker.py"),
         ("tests.test_requirements_observations", "tests.test_status_observation"),
     ),

@@ -16,12 +16,14 @@ from pathlib import Path
 
 try:
     from . import autocode_draft_assignment as draft_assignment
+    from . import autocode_repair_claim_binding as claim_binding
     from . import autocode_report_repair_route as report_repair_route
     from . import autocode_requirements_observations as requirements_observations
     from . import autocode_result_application as result_application
     from . import autocode_source_scope as source_scope
 except ImportError:
     import autocode_draft_assignment as draft_assignment
+    import autocode_repair_claim_binding as claim_binding
     import autocode_report_repair_route as report_repair_route
     import autocode_requirements_observations as requirements_observations
     import autocode_result_application as result_application
@@ -80,6 +82,7 @@ def accept(
         pending = state["pending_report_repair"]
         original = deepcopy(pending["original"])
         report_value = value
+        unverified_claims: list = []
         previous_planning = deepcopy(state.get("planning") or {})
         current = source_scope.snapshot(workspace, state, base_snapshot=runtime.support.snapshot)
         if (
@@ -115,6 +118,13 @@ def accept(
                     else:
                         state["active_stage"] = previous_active
             # History comes from the original report, not from the repair's draft of it.
+            original_report = runtime.original_report_for_repair(original)["report"]
+            # A repair that dropped a declared contract-change row may not still present its
+            # concern answers or summary as publishing that row (#3908). Bind those claims to
+            # the accepted change list before the output's final bytes are hashed and applied.
+            report_value, unverified_claims = claim_binding.bind(original_report, report_value)
+            if unverified_claims:
+                runtime.write_json(Path(repair_record["output"]), report_value)
             if runtime.restore_builder_history(original, report_value):
                 runtime.write_json(Path(repair_record["output"]), report_value)
             output_hash = runtime.support.file_hash(repair_record["output"])
@@ -128,9 +138,7 @@ def accept(
             original.update(
                 runtime.retained_dispositions(
                     original,
-                    runtime.original_report_for_repair(original)["report"]
-                    if runtime.stage_completed(state, original)
-                    else None,
+                    original_report if runtime.stage_completed(state, original) else None,
                     report_value,
                 )
             )
@@ -175,17 +183,18 @@ def accept(
         repair_record["applied_original_events"] = original["events"]
         state["stages"][-1] = repair_record
         state["history"][-1] = repair_record
-        state.setdefault("report_repair_history", []).append(
-            {
-                "original_output": pending["original"]["output"],
-                "repair": repair_record,
-                "output_hash": output_hash,
-                "rejections": list(pending.get("rejections") or filter(None, [pending.get("original_error")])),
-                "attempts": pending["attempts"],
-                "result": "revalidated" if revalidate else "accepted",
-                "at": runtime.now(),
-            }
-        )
+        accepted = {
+            "original_output": pending["original"]["output"],
+            "repair": repair_record,
+            "output_hash": output_hash,
+            "rejections": list(pending.get("rejections") or filter(None, [pending.get("original_error")])),
+            "attempts": pending["attempts"],
+            "result": "revalidated" if revalidate else "accepted",
+            "at": runtime.now(),
+        }
+        if unverified_claims:
+            accepted["unverified_change_claims"] = unverified_claims
+        state.setdefault("report_repair_history", []).append(accepted)
         requirements_observations.seal_repaired(state, repair_record)
         if state.get("pending_report_repair") == pending:
             state.pop("pending_report_repair")
