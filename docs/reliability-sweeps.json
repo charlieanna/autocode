@@ -1,5 +1,50 @@
 [
   {
+    "date": "2026-11-23",
+    "profile": "claude-tiers",
+    "master": "39af945",
+    "mode": "live",
+    "runs": 4,
+    "passed": 3,
+    "false_completions": 0,
+    "median_minutes": 13.6,
+    "note": "Real-repo pilot, one run per case: scenario bugfix-realrepo-docutils-number-lines (PASS 14/14, 19 min) and Arena boltons-indexedset-update (PASS 5/5, 4 min), more-itertools-custom-exceptions (PASS 6/6, 18 min), humanize-intcomma-large (correct fix, oracle 5/5, but PAUSED_INVALID_OUTPUT: a planned check replayed in a clean copy cannot import the gitignored hatch-vcs _version.py). docs/bugs/2026-11-23-real-repo-benchmark-pilot.md",
+    "case_costs": [
+      {
+        "case": "bugfix-realrepo-docutils-number-lines",
+        "run": null,
+        "estimated_usd": null,
+        "reported_usd": 5.77104,
+        "spent_usd": 5.77104,
+        "cap_usd": null
+      },
+      {
+        "case": "boltons-indexedset-update",
+        "run": null,
+        "estimated_usd": null,
+        "reported_usd": 1.424771,
+        "spent_usd": 1.424771,
+        "cap_usd": null
+      },
+      {
+        "case": "more-itertools-custom-exceptions",
+        "run": null,
+        "estimated_usd": null,
+        "reported_usd": 2.670147,
+        "spent_usd": 2.670147,
+        "cap_usd": null
+      },
+      {
+        "case": "humanize-intcomma-large",
+        "run": null,
+        "estimated_usd": null,
+        "reported_usd": 2.244741,
+        "spent_usd": 2.244741,
+        "cap_usd": null
+      }
+    ]
+  },
+  {
     "date": "2026-10-08",
     "profile": "glm53-mimo",
     "master": "a8852cf4",
