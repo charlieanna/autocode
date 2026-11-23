@@ -618,10 +618,12 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=N
             and len(parts) == 1
             and result["verdict"] == "FAIL"
             and outcomes["original"]["outcome"] == check_outcome.FAILED
-            and outcomes["candidate"]["outcome"] in (check_outcome.FAILED, check_outcome.PASSED)
+            and outcomes["candidate"]["outcome"] == check_outcome.FAILED
         ):
             # An original test that fails identically on the unchanged base is the base's failure, not the
             # change's (#3944). Grounded in a fresh authenticated execution of the base, never matching text.
+            # The candidate half must STILL fail on those same tests: a candidate that passes them has
+            # weakened, removed or skipped the assertion, which is the change's failure, never excused.
             preexisting = _preexisting(result, base_run, workspace, directory, command, timeout)
             if preexisting:
                 result["verdict"] = "PASS"
@@ -702,6 +704,30 @@ def _strip_runner_timing(data: bytes) -> bytes:
     return data
 
 
+# A candidate may add passing coverage beside a pre-existing failure (#3944). The runner's own status
+# lines for tests that did NOT fail (unittest's ``... ok`` / ``... skipped`` and pytest's ``PASSED`` /
+# ``SKIPPED`` verbose lines) and its pass/skip counts are runner-owned noise, not failure detail: erasing
+# them lets a candidate that adds passing tests compare equal to the base that lacks them. A failure
+# status line (``FAIL`` / ``ERROR`` / ``FAILED``) and every failure block are never erased, so a changed
+# assertion, value or exception still moves the output and keeps the failure the change's. A runner whose
+# format is not recognized is left as-is, so its comparison fails closed rather than excusing anything.
+_PASSING_STATUS = (
+    re.compile(rb"(?m)^.* \.\.\. ok[ \t]*\n?"),
+    re.compile(rb"(?m)^.* \.\.\. skipped[^\n]*\n?"),
+    re.compile(rb"(?m)^.* (?:PASSED|SKIPPED|XFAIL|XPASS)[^\n]*\n?"),
+)
+_RAN_COUNT = re.compile(rb"Ran \d+ tests?")
+_PYTEST_PASS_PHRASE = re.compile(rb"(?:, )?\d+ (?:passed|skipped|xfailed|xpassed)(?:, )?")
+
+
+def _strip_passing_noise(data: bytes) -> bytes:
+    data = _strip_runner_timing(data)
+    for pattern in _PASSING_STATUS:
+        data = pattern.sub(b"", data)
+    data = _RAN_COUNT.sub(b"Ran <count> tests", data)
+    return _PYTEST_PASS_PHRASE.sub(b"", data)
+
+
 def _preexisting(result, base_run, workspace, directory, command, timeout):
     """The original half's failures when an authenticated execution of the UNCHANGED base has them
     identically (#3944), else None.
@@ -711,15 +737,18 @@ def _preexisting(result, base_run, workspace, directory, command, timeout):
     half to fail with the SAME nonzero exit and the SAME whole output once each copy's directory is
     replaced — a changed assertion, value, parameter, exception chain or execution source moves the
     output and keeps the failure the change's. Matching text alone never excuses: the exemption rests on
-    the independent base execution, not on the message. The candidate half may fail only on tests the
-    original half thus proves fail identically on the base (a new or differently-failing test stays the
-    change's). The base receipt is retained so completion re-verifies the same evidence.
+    the independent base execution, not on the message. The candidate half must STILL fail identically on
+    exactly those tests: a candidate that passes, removes or skips them has weakened the oracle, and a new
+    or differently-failing test (another value or exception) is the change's failure too — neither is
+    excused. The base receipt is retained so completion re-verifies the same evidence.
     """
     original, candidate = result["original"], result["candidate"]
     if not (command_receipt.completed(original) and command_receipt.completed(candidate)):
         return None
     original_failed = _failed_names(original)
-    if not original_failed or not _failed_names(candidate) <= original_failed:
+    # The candidate must fail on EXACTLY the original's failing tests: a passing, removed or skipped case
+    # (fewer names) or a newly-failing test (more names) is the change's failure, never a pre-existing one.
+    if not original_failed or _failed_names(candidate) != original_failed:
         return None
     try:
         base = base_run(workspace, directory / "base", command=command, timeout=timeout)
@@ -733,6 +762,11 @@ def _preexisting(result, base_run, workspace, directory, command, timeout):
         return None
     attribution = base_attribution.judge(original, base, normalize=_strip_runner_timing)
     if attribution.get("kind") != base_attribution.BASE:
+        return None
+    # The candidate half's failure must itself be the authenticated base failure, not a different failure
+    # of the same-named test (another value or exception). Only runner-owned passing noise and counts are
+    # erased, never failure content, so a changed assertion that still fails moves the output and refuses.
+    if base_attribution.judge(candidate, base, normalize=_strip_passing_noise).get("kind") != base_attribution.BASE:
         return None
     return {
         "tests": sorted(original_failed),
@@ -760,7 +794,9 @@ def _preexisting_ready(state: RunState, result):
     ):
         return False
     original_failed = _failed_names(original)
-    if not original_failed or not _failed_names(candidate) <= original_failed:
+    if not original_failed or _failed_names(candidate) != original_failed:
+        return False
+    if check_outcome.classify(candidate)["outcome"] != check_outcome.FAILED:
         return False
     if sorted(original_failed) != accepted.get("tests"):
         return False
@@ -769,7 +805,10 @@ def _preexisting_ready(state: RunState, result):
             return False
     except (OSError, KeyError, TypeError, ValueError):
         return False
-    return base_attribution.judge(original, base, normalize=_strip_runner_timing).get("kind") == base_attribution.BASE
+    return (
+        base_attribution.judge(original, base, normalize=_strip_runner_timing).get("kind") == base_attribution.BASE
+        and base_attribution.judge(candidate, base, normalize=_strip_passing_noise).get("kind") == base_attribution.BASE
+    )
 
 
 def ready(state: RunState, current_revision):

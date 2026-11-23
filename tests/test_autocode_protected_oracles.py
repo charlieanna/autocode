@@ -1517,6 +1517,28 @@ class AuthenticatedBaseFailureTests(unittest.TestCase):
         with self.assertRaises(guard.commands.OriginalGateFailure):
             self.replay(base_run=self.base_run())
 
+    def test_a_changed_value_that_still_fails_is_not_excused(self):
+        # The original test fails identically on the unchanged base and the candidate still fails the same
+        # test name, but the change moved the assertion to another wrong value. The candidate's failure is
+        # not the authenticated base failure (its failure block differs), so it stays the change's (#3944).
+        original = (
+            "import unittest\nfrom layout import height\n"
+            "class LayoutTests(unittest.TestCase):\n"
+            "    def test_height(self):\n        self.assertEqual(height(), 40)\n"
+        )
+        self.bind(original, "def height():\n    return 20\n")
+        self.change(
+            "import unittest\nfrom layout import height\n"
+            "class LayoutTests(unittest.TestCase):\n"
+            "    def test_height(self):\n        self.assertEqual(height(), 30)\n",
+            "def height():\n    return 20\n",
+        )
+        with self.assertRaises(guard.commands.OriginalGateFailure):
+            self.replay(base_run=self.base_run())
+        receipt = json.loads(max((self.run / "replays").glob("protected-tests/*/receipt.json")).read_text())
+        self.assertEqual("FAIL", receipt["verdict"])
+        self.assertNotIn("preexisting_failures", receipt)
+
 
 if __name__ == "__main__":
     unittest.main()
