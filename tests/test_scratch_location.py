@@ -54,6 +54,28 @@ class ScratchLocationTests(unittest.TestCase):
                 root.parent / "regression" / "proof" / "scratch",
             )
 
+    def test_a_store_kept_workspace_mirrors_outside_the_store_listing(self):
+        # A task worktree (.autocode/worktrees/<name>) and a private project (.autocode/projects/<id>)
+        # are listed by their store directory. Their mirror goes beside that directory, so the
+        # listing holds only worktrees and projects (#4118 put it inside, read as one more of each).
+        with tempfile.TemporaryDirectory() as temporary:
+            project = Path(temporary).resolve() / "project"
+            for kind in ("worktrees", "projects", "issues"):
+                workspace = project / ".autocode" / kind / "task-1"
+                run = workspace / ".autocode" / "runs" / "r"
+                root = scratch_location.scratch_root(run)
+                self.assertFalse(root.is_relative_to(workspace))
+                self.assertFalse(root.is_relative_to(project / ".autocode" / kind))
+                self.assertEqual(
+                    project / ".autocode" / f"{kind}.autocode-scratch" / "task-1" / ".autocode" / "runs" / "r",
+                    root.parent,
+                )
+                self.assertEqual(scratch_location.source_base(root), run)
+                self.assertEqual(
+                    scratch_location.source_base(scratch_location.scratch_root(run / "regression" / "proof")),
+                    run / "regression" / "proof",
+                )
+
     def test_external_or_non_store_base_is_left_in_place(self):
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary).resolve() / "evidence"
