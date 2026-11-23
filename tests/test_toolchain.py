@@ -216,7 +216,7 @@ class SelectedToolchainTests(unittest.TestCase):
             (rustup / "settings.toml").write_text('default_toolchain = "selected"\n')
             secret = home / "credential"
             secret.write_text("private fixture")
-            for allow_write in (False, True):
+            for allow_write in (True, False):
                 with self.subTest(allow_write=allow_write):
                     boundary = containment.prepare(
                         root,
@@ -446,7 +446,8 @@ class SelectedToolchainTests(unittest.TestCase):
                 with self.subTest(read=read):
                     self.assertFalse(Path(read) == cargo_home or (cargo_home / "credentials.toml").is_relative_to(read))
             developer = [str(p) for p in (Path("/Library/Developer/CommandLineTools"),) if p.is_dir()]
-            for allow_write in (True, False):
+            # Run the reader before the Builder can create a lockfile or target directory.
+            for allow_write in (False, True):
                 with self.subTest(allow_write=allow_write):
                     boundary = containment.prepare(
                         root,
@@ -476,6 +477,9 @@ class SelectedToolchainTests(unittest.TestCase):
                             [boundary["shell"], "-c", command], cwd=cwd, capture_output=True, text=True, timeout=600
                         )
                         self.assertEqual(0, result.returncode, (command, result.stdout[-2000:], result.stderr[-2000:]))
+                    if not allow_write:
+                        self.assertFalse((root / "Cargo.lock").exists())
+                        self.assertFalse((root / "target").exists())
 
     def test_tool_found_through_a_symlinked_toolchain_directory_runs_contained(self):
         # A version manager's `current` link, then a link to the real binary: both outside every mount.
