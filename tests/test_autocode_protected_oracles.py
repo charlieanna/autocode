@@ -536,6 +536,88 @@ class UndeterminedReplayTests(unittest.TestCase):
                 error, receipt = self.replay(receipts)
                 self.assert_undetermined(error, receipt, phrase)
 
+    def test_recorded_whole_suite_timeout_replays_bounded_selection(self):
+        # #3963: a changed protected data file beside a changed test module keeps the whole bound suite,
+        # which cannot finish under the replay bound. The regression proof already recorded that this whole
+        # suite timed out on the original code and the bounded subset it fell back to. The protected pair
+        # reads that recorded answer and runs the bounded selection on both halves instead of timing out and
+        # pausing for the person; the decision and its verification gap are recorded in the receipt.
+        (self.project / "tests").mkdir()
+        (self.project / "tests" / "data.json").write_text('{"height": 20}\n')
+        suite = shlex.join([sys.executable, "-m", "pytest", "-q"])
+        guard.reconcile(
+            self.state,
+            self.state["settings"],
+            SimpleNamespace(run_dir=None),
+            self.project,
+            self.run_dir,
+            is_test_path=verify.is_test_path,
+            discover_command=lambda: suite,
+        )
+        record = self.state["settings"]["protected_tests"]
+        self.assertIn("tests/data.json", record["files"])
+        self.assertEqual(suite, record["command"])
+        (self.project / "test_layout.py").write_text(
+            ORIGINAL
+            + "\n    def test_positive(self):\n        self.assertGreater(height(), 0)\n"
+            + "\n    def test_extra(self):\n        self.assertTrue(True)\n"
+        )
+        (self.project / "tests" / "data.json").write_text('{"height": 40}\n')
+        self.state["regression_proof"] = {
+            "suite_fallback": {
+                "decision": "focused_suite",
+                "whole_suite": suite,
+                "whole_suite_outcome": "timed_out",
+                "timeout_seconds": 10,
+                "command": shlex.join([sys.executable, "-m", "pytest", "-q", "sub/test_sub.py"]),
+                "tests": ["sub/test_sub.py"],
+                "selection_scope": "changed_and_named",
+                "reason": "The detected whole suite did not finish on the original code within 10 seconds",
+            }
+        }
+
+        def run(workspace, folder, *, command, timeout, **overlays):
+            half = "original" if "files" in overlays else "candidate"
+            self.calls.append((half, command))
+            # The whole bound suite cannot finish under the bound; the bounded selection can.
+            result = self.timed_out() if command == suite else self.passing()
+            return {**copy.deepcopy(result), "command": command}
+
+        try:
+            guard.replay(self.state, self.project, self.out, run, timeout=10)
+            error = None
+        except Exception as raised:  # noqa: BLE001 - the case asserts whether the replay paused
+            error = raised
+        written = list(self.out.glob("protected-tests/*/receipt.json"))
+        self.assertEqual(1, len(written))
+        saved = json.loads(written[0].read_text())
+        self.assertIsNone(error, error)
+        self.assertEqual("PASS", saved["verdict"])
+        bounded = saved["bounded_selection"]
+        self.assertEqual("bounded_protected_replay", bounded["decision"])
+        self.assertEqual("regression_suite_fallback", bounded["source"])
+        self.assertEqual(suite, bounded["whole_suite"])
+        self.assertEqual("timed_out", bounded["whole_suite_outcome"])
+        self.assertEqual(["sub/test_sub.py", "test_layout.py"], bounded["tests"])
+        self.assertIn("verification_gap", bounded)
+        self.assertEqual(bounded["command"], saved["replayed_command"])
+        # Both halves ran the bounded selection, never the whole bound suite.
+        ran = {command for _half, command in self.calls}
+        self.assertEqual({bounded["command"]}, ran)
+        self.assertNotIn(suite, ran)
+        self.assertEqual(2, len(self.calls))
+        # The receipt never claims a full-suite pass: the gate still reads both authenticated halves.
+        for half in ("candidate", "original"):
+            self.assertEqual(0, saved[half]["exit_code"])
+        self.state["validation"] = {
+            "check_replay": {
+                "protected_tests": saved,
+                "verdict": "PASS",
+                "source_revision": saved["source_revision"],
+            }
+        }
+        self.assertTrue(guard.ready(self.state, saved["source_revision"]))
+
     def test_replay_names_an_interrupted_or_unproven_supervision_receipt(self):
         supervised = {
             **self.passing(),
