@@ -2360,6 +2360,251 @@ class KernelTests(unittest.TestCase):
             )
         return boundary
 
+    def native_contained_launch(
+        self, *, transport, role, route_role=None, write_stage=False, report_recovery=False, planning=None
+    ):
+        """Run the real provider launcher and kernel boundary with only the client process faked.
+
+        Unlike the policy-unit fixture, this leaves ``prepare`` and verification-copy creation real. It
+        therefore observes whether a role allocates and seals a copy, while every conformance, private-read
+        and toolchain probe still executes through the host's actual sandbox.
+        """
+        import autocode_provider_launch as provider_launch
+        import autocode_verification_copy as copies
+        from providers import kilocode, opencode
+
+        if not hasattr(self, "run_dir"):
+            self.planning_run_store()
+        schema = self.run_dir / "schema.json"
+        schema.write_text('{"type":"object","properties":{}}')
+        executable = "kilo" if transport == "kilocode" else "opencode"
+        fake = self.home / ("fake-" + transport) / executable
+        fake.parent.mkdir(exist_ok=True)
+        fake.write_text("#!/bin/sh\nexit 99\n")
+        fake.chmod(0o755)
+        config_variable = "KILO_CONFIG_CONTENT" if transport == "kilocode" else "OPENCODE_CONFIG_CONTENT"
+        original = {
+            "default_agent": "selected",
+            "agent": {
+                "selected": {
+                    "permission": [{"permission": "*", "pattern": "*", "action": "allow"}],
+                    "prompt": "Keep the operator prompt",
+                    "steps": 12,
+                }
+            },
+        }
+        if transport == "kilocode":
+            adapter = object.__new__(kilocode.KiloProvider)
+            adapter.NAME = "kilocode"
+            adapter.OUTPUT = "opencode_events"
+            adapter.SUPPORTS_SESSIONS = True
+            adapter.PROMPT_MODE = "stdin"
+            adapter._config = {
+                "name": "kilocode",
+                "command": [executable, "run", "--model", "{model}"],
+                "resume": [],
+                "output": "opencode_events",
+            }
+        else:
+            adapter = opencode
+        version = containment.kilo_versions()[0] if transport == "kilocode" else containment.SUPPORTED_VERSION
+        readonly_agent = {
+            "tools": {"bash": True, "read": False, "edit": False},
+            "permission": [
+                {"permission": "*", "pattern": "*", "action": "deny"},
+                {"permission": "bash", "pattern": "*", "action": "allow"},
+            ],
+        }
+        startup_probe = shlex.join([sys.executable, "-I", "-S", "-B", "-c", "import json"])
+        real_run = containment.captured.run_metadata
+
+        def native(argv, **kwargs):
+            if argv[0] != str(fake):
+                return real_run(argv, **kwargs)
+            if argv[1:] == ["--version"]:
+                return subprocess.CompletedProcess(argv, 0, version + "\n", "")
+            inline = json.loads(kwargs["env"].get(config_variable, "{}"))
+            if transport == "kilocode" and argv[1:] == ["debug", "config"]:
+                value = {"default_agent": "selected"}
+            elif transport == "kilocode" and argv[1:] == ["debug", "agent", "selected"]:
+                value = original["agent"]["selected"]
+            elif transport == "kilocode" and argv[1:] == ["debug", "agent", "code"]:
+                return subprocess.CompletedProcess(argv, 1, "", "no agent named code")
+            elif "--params" in argv:
+                params = json.loads(argv[argv.index("--params") + 1])
+                shell = inline["shell"]
+                ran = real_run(
+                    [shell, "-c", params["command"]],
+                    cwd=params["workdir"],
+                    capture_output=True,
+                    text=True,
+                    timeout=20,
+                )
+                output = {"metadata": {"exit": ran.returncode}, "output": ran.stdout + ran.stderr}
+                value = {"input": params, "result": output}
+            elif transport == "kilocode" and argv[1:3] == ["debug", "agent"]:
+                definition = inline["agent"][argv[3]]
+                permission = definition["permission"]
+                rows = [
+                    {"permission": tool, "pattern": pattern, "action": action}
+                    for tool, patterns in permission.items()
+                    for pattern, action in (patterns.items() if isinstance(patterns, dict) else [("*", patterns)])
+                ]
+                value = {"permission": rows, "tools": {"bash": True, "read": False, "edit": False}}
+            else:
+                value = readonly_agent
+            return subprocess.CompletedProcess(argv, 0, json.dumps(value), "")
+
+        environment = {
+            **os.environ,
+            "PATH": str(fake.parent) + ":" + self.env["PATH"],
+            config_variable: json.dumps(original if transport == "kilocode" else {}),
+        }
+        with (
+            patch.dict(os.environ, environment),
+            patch.object(containment.captured, "run_metadata", side_effect=native),
+            patch.object(toolchain, "discover", return_value={"read_roots": [], "probes": [startup_probe]}),
+            patch.object(copies, "create", wraps=copies.create) as created,
+        ):
+            _, child, _, worker = provider_launch.prepare(
+                engine="opencode",
+                adapter=adapter,
+                role=role,
+                route_role=route_role or role,
+                workspace=self.workspace,
+                run_dir=self.run_dir,
+                session=None,
+                model="controlled/model",
+                effort=None,
+                allow_write=write_stage,
+                planning=not write_stage if planning is None else planning,
+                report=self.run_dir / "report.json",
+                schema=schema,
+                prompt_file=self.run_dir / "prompt.md",
+                sandbox="workspace-write" if write_stage else "read-only",
+                transport_args=[],
+                chatgpt=False,
+                provider="kilocode" if transport == "kilocode" else None,
+                enforce_tool_boundary=True,
+                source_paths=[],
+                source_catalog_receipt=None,
+                settings={},
+                planning_report_recovery=report_recovery,
+                report_only=report_recovery,
+            )
+        return worker, child, created, startup_probe
+
+    def test_requirements_native_launch_omits_copy_and_keeps_the_verified_readonly_boundary(self):
+        import autocode_provider_launch as provider_launch
+
+        cases = (
+            ("requirements", "requirements", False),
+            ("requirements", "requirements", True),
+            ("requirements_gather", "requirements", False),
+        )
+        for transport in ("opencode", "kilocode"):
+            for role, route_role, planning in cases:
+                with self.subTest(transport=transport, role=role, planning=planning):
+                    worker, child, created, startup_probe = self.native_contained_launch(
+                        transport=transport, role=role, route_role=route_role, planning=planning
+                    )
+                    seal = created.call_args.kwargs.get("seal") if created.called else None
+                    self.assertFalse(created.called, f"Requirements allocated a verification copy (seal={seal})")
+                    boundary = worker["tool_containment"]
+                    self.assertNotIn("verification_copy", boundary)
+                    self.assertNotIn("verification_copy_sha256", boundary)
+                    self.assertFalse((Path(boundary["scratch"]) / "verification").exists())
+                    self.assertFalse(boundary["allow_write"])
+                    self.assertEqual(["bash"], boundary["tools"])
+                    self.assertEqual(str(self.run_dir), boundary["private_reads"]["run_dir"])
+                    self.assertNotIn("AUTOCODE_VERIFICATION_COPY", child)
+                    self.assertNotIn("AUTOCODE_VERIFICATION_COPY_SHA256", child)
+                    self.assertEqual("VALUE = 42\n", self.run_shell("cat source.py", boundary).stdout)
+                    self.assert_denied(": > source.py", boundary)
+                    self.assert_denied(
+                        "python -c " + shlex.quote(f"open({str(self.source)!r}, 'w').write('changed')"), boundary
+                    )
+                    self.assert_denied(shlex.join(["cat", str(self.run_dir / "state.json")]), boundary)
+                    self.assert_denied(
+                        shlex.join(["cat", str(self.run_dir.parent / "20261014-sibling-run/state.json")]), boundary
+                    )
+                    self.assertEqual(
+                        0,
+                        self.run_shell(
+                            ": > " + shlex.quote(str(Path(boundary["scratch"]) / "note")), boundary
+                        ).returncode,
+                    )
+                    proof = json.loads(Path(boundary["conformance"]).read_text())
+                    self.assertEqual("passed", proof["native_receipt"]["status"])
+                    self.assertEqual(0, proof["private_reads"]["exit"])
+                    self.assertEqual([startup_probe], [row["command"] for row in proof["toolchain_checks"]])
+                    provider_launch.verify_containment(worker)
+                    record = provider_launch.stage_record(worker)
+                    self.assertNotIn("verification_copy", record)
+                    self.assertEqual(boundary, record["tool_containment"])
+                    self.assertEqual("requirements", record["execution_identity"]["role"])
+                    self.assertEqual("controlled/model", record["execution_identity"]["model"])
+                    self.assertEqual(self.before[self.source], hashlib.sha256(self.source.read_bytes()).hexdigest())
+
+    def test_requirements_report_recovery_stays_tool_free_without_allocating_a_copy(self):
+        import autocode_provider_launch as provider_launch
+
+        for transport in ("opencode", "kilocode"):
+            with self.subTest(transport=transport):
+                worker, child, created, _ = self.native_contained_launch(
+                    transport=transport, role="requirements", report_recovery=True
+                )
+                created.assert_not_called()
+                self.assertNotIn("verification_copy", worker)
+                self.assertNotIn("tool_containment", worker)
+                self.assertNotIn("AUTOCODE_VERIFICATION_COPY", child)
+                self.assertNotIn("AUTOCODE_TOOL_CONTAINMENT", child)
+                self.assertEqual("requirements", worker["role"])
+                self.assertTrue(worker["planning"])
+                provider_launch.verify_containment(worker)
+                record = provider_launch.stage_record(worker)
+                self.assertNotIn("verification_copy", record)
+                self.assertIsNone(record["tool_containment"])
+                if transport == "kilocode":
+                    self.assertEqual("Kilo report-only recovery; all tools disabled", record["isolation"])
+
+    def test_other_native_roles_keep_their_existing_copy_and_writer_behavior(self):
+        import autocode_provider_launch as provider_launch
+        import autocode_verification_copy as copies
+
+        cases = (
+            ("opencode", "planner", False),
+            ("opencode", "task_planner", False),
+            ("opencode", "plan_reviewer", False),
+            ("opencode", "tester", False),
+            ("opencode", "completion", False),
+            ("kilocode", "planner", False),
+            ("kilocode", "tester", False),
+            ("kilocode", "builder", True),
+        )
+        for transport, role, write_stage in cases:
+            with self.subTest(transport=transport, role=role, write_stage=write_stage):
+                worker, _, created, _ = self.native_contained_launch(
+                    transport=transport, role=role, write_stage=write_stage
+                )
+                boundary = worker["tool_containment"]
+                if write_stage:
+                    created.assert_not_called()
+                    self.assertNotIn("verification_copy", boundary)
+                    self.assertTrue(boundary["allow_write"])
+                    self.assertEqual(0, self.run_shell(": > builder-output.py", boundary).returncode)
+                else:
+                    created.assert_called_once()
+                    self.assertEqual(NATIVE == containment.SEATBELT, created.call_args.kwargs["seal"])
+                    self.assertIn("verification_copy", boundary)
+                    copies.execution(
+                        boundary["verification_copy"], boundary["verification_copy_sha256"], self.workspace
+                    )
+                    copied = Path(boundary["scratch"]) / "verification/source.py"
+                    self.assertEqual("VALUE = 42\n", self.run_shell(shlex.join(["cat", str(copied)]), boundary).stdout)
+                    self.assert_denied(": > source.py", boundary)
+                provider_launch.verify_containment(worker)
+
     def test_native_planning_shell_cannot_read_private_run_state(self):
         # #1250: own, sibling and custom-named runs' state is unreadable through every route tried,
         # and so is every private .autocode store (archived runs, arena attempts, parallel Builder
