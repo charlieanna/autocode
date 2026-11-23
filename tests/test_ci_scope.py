@@ -690,6 +690,8 @@ class RedBaseRecoveryTests(unittest.TestCase):
                         PATH=str(root) + os.pathsep + os.environ["PATH"],
                         FULL_SUITE="true",  # The old red-base health step's output.
                         EVENT="pull_request",
+                        MODE="gate",  # ci_depth.py's choice for a pull request
+                        SHARD="2/8",
                         BASE="pinned-base",
                         HEAD="pinned-head",
                         GITHUB_OUTPUT=str(root / "outputs"),
@@ -705,6 +707,37 @@ class RedBaseRecoveryTests(unittest.TestCase):
                     self.assertEqual("pinned-base", args[args.index(flag) + 1])
                     if name == "Select affected checks":
                         self.assertEqual("pinned-head", args[args.index("--head") + 1])
+                    else:
+                        self.assertEqual("2/8", args[args.index("--shard") + 1])
+                        # The unit gate runs every fast module, not only the changed selection.
+                        self.assertEqual(name == "Run the suite gate", "--all-fast" in args)
+
+    def test_a_master_push_runs_the_gate_against_the_commit_it_moved_from(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            python = root / ".venv/bin/python"
+            python.parent.mkdir(parents=True)
+            python.write_text('#!/bin/sh\nprintf "%s\\n" "$@" >> "$COMMAND_LOG"\n')
+            python.chmod(0o755)
+            for name in ("Run the suite gate", "Run the scenario harness"):
+                with self.subTest(step=name):
+                    log = root / "commands"
+                    log.write_text("")
+                    env = dict(
+                        os.environ,
+                        EVENT="push",
+                        MODE="gate",
+                        BASE="pushed-from",
+                        SHARD="1/1",
+                        GITHUB_OUTPUT=str(root / "outputs"),
+                        COMMAND_LOG=str(log),
+                    )
+                    result = subprocess.run(
+                        ["bash", "-e", "-c", self.step(name)], cwd=root, env=env, capture_output=True, text=True
+                    )
+                    self.assertEqual(0, result.returncode, result.stderr)
+                    args = log.read_text().splitlines()
+                    self.assertEqual("pushed-from", args[args.index("--changed") + 1])
 
     def test_push_and_manual_runs_keep_full_head_checks(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -724,6 +757,8 @@ class RedBaseRecoveryTests(unittest.TestCase):
                             os.environ,
                             PATH=str(root) + os.pathsep + os.environ["PATH"],
                             EVENT=event,
+                            MODE="full",  # the nightly or manual depth; a push takes the gate above
+                            SHARD="3/8",
                             BASE="event-base",
                             HEAD="event-head",
                             GITHUB_OUTPUT=str(root / "outputs"),
@@ -741,6 +776,7 @@ class RedBaseRecoveryTests(unittest.TestCase):
                             self.assertNotIn("--changed", args)
                             self.assertIn("tools/run_suite.py", args)
                             self.assertEqual(name == "Run the scenario harness", "--scenario-harness" in args)
+                            self.assertEqual("3/8", args[args.index("--shard") + 1])
 
     def test_scope_has_no_base_health_dependency_or_historical_veto(self):
         workflow = (ROOT / ".github/workflows/tests.yml").read_text()

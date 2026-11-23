@@ -226,7 +226,16 @@ Prompt changes retain rendered-prompt controls and an installed-wheel resource
 check. Process/provider changes retain refusal, supervision and cleanup controls;
 fake providers never bypass unsupported-host admission. The always-reporting
 `ci-required` job fails when scope selection fails or a selected job fails,
-cancels or skips. Master and manual runs retain their existing complete coverage.
+cancels or skips.
+
+The Python gate itself is not limited to the import selection: a pull request,
+a merge-queue group and a push to master all run every fast module plus the
+slow ones the change touches (`run_suite.py --changed BASE --all-fast`), split
+over eight runners with `--shard K/N` and balanced by
+`tests/suite_durations.json`, so a break in a module the change never imports
+still blocks the merge. The slow modules and the whole scenario catalog run in
+the nightly full run (and on a manual dispatch), which reports a red night on
+one "Nightly full CI is red" issue.
 
 The unit/browser gate and the `scenario-harness` gate start independently after
 scope selection. Both are required when selected. Keeping the long full gates in
