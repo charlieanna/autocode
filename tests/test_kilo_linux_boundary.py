@@ -1,6 +1,7 @@
 """Actual Linux controls for the existing native Kilo boundary; no model calls."""
 
 import os
+import shlex
 import socket
 import subprocess
 import sys
@@ -10,9 +11,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import autocode_kilo_isolation as isolation
 import autocode_kilo_linux_boundary as boundary
 import autocode_kilo_linux_peer as peers
 import autocode_process as processes
+import autocode_tool_containment as containment
 import autocode_toolchain as toolchain
 
 
@@ -117,6 +120,40 @@ class KiloLinuxBoundaryTests(unittest.TestCase):
             timeout=30,
         )
         self.assertEqual((0, "ready\n"), (result.returncode, result.stdout), result.stderr)
+
+    def test_prepared_shell_inherits_the_client_verification_view(self):
+        (self.target / "input").write_text("original")
+        git = ["git", "-C", str(self.target), "-c", "user.name=T", "-c", "user.email=t@localhost"]
+        for args in (["init", "-q"], ["add", "input"], ["commit", "-qm", "fixture"]):
+            subprocess.run([*git, *args], check=True)
+        reader = containment.prepare(self.target, verification_copy=True)
+        scratch = Path(reader["scratch"])
+        control, copy = scratch.parent, scratch / "verification"
+        inherited = control / "inherited-shell"
+        inherited.write_bytes(isolation._inherited_shell_body(Path(reader["shell"]).read_bytes(), reader["profile"]))
+        inherited.chmod(0o500)
+        profile = control / "client.json"
+        policy = boundary.policy(
+            profile,
+            kind="client",
+            read_paths=[self.target, control, copy],
+            write_paths=[scratch],
+            hidden_paths=[self.target / ".autocode"],
+            cwd=copy,
+            verification_tree=copy,
+        )
+        boundary.write(profile, policy)
+        command = (
+            'test "$(cat input)" = original && printf built > new && test "$(cat new)" = built'
+            " && ! (echo changed > input) && test ! -e /dev/fuse && ! touch "
+            + shlex.quote(str(control / "verification-outputs/raw"))
+        )
+        result = subprocess.run(
+            [*boundary.prefix(profile), str(inherited), "-c", command], capture_output=True, text=True
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("original", (copy / "input").read_text())
+        self.assertFalse((copy / "new").exists())
 
     def test_pure_allows_threads_but_denies_process_fork_and_network(self):
         profile = self.prepare(reads=[Path(sys.executable).resolve().parents[1]])

@@ -278,7 +278,9 @@ def _inherited_shell_body(raw, profile):
         index = argv.index(containment.BWRAP)
         _require(
             all(word.partition("=")[1] and word.partition("=")[0].isidentifier() for word in argv[2:index])
-            and argv[index:] == [containment.BWRAP, "--args", "3", "/bin/bash", "--noprofile", "--norc"],
+            and argv[index : index + 3] == [containment.BWRAP, "--args", "3"]
+            and argv[index + 3 : index + 4] in (["/bin/bash"], [str(Path("/bin/bash").resolve(strict=True))])
+            and argv[index + 4 :] == ["--noprofile", "--norc"],
             "prepared Linux shell invocation changed",
         )
         return (
