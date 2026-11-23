@@ -1105,12 +1105,20 @@ class BubblewrapArgumentTests(unittest.TestCase):
             with self.subTest(outside=outside), self.assertRaisesRegex(ValueError, "inside the owned scratch"):
                 self.mounts(overlay_trees=[outside])
 
-    def test_overlay_capability_needs_bubblewrap_0_9(self):
-        # The overlay mounts arrived in bubblewrap 0.9.0; an older bwrap keeps the read-only copy.
-        for version in ("bubblewrap 0.9.0", "bubblewrap 0.10.0", "bubblewrap 0.13.1", "bubblewrap 1.0.0"):
+    def test_overlay_capability_needs_bubblewrap_0_11(self):
+        # The overlay mounts arrived in bubblewrap 0.11.0; an older bwrap keeps the read-only copy.
+        for version in ("bubblewrap 0.11.0", "bubblewrap 0.13.1", "bubblewrap 1.0.0"):
             with self.subTest(version=version):
                 self.assertTrue(containment._overlay_capable(version))
-        for version in ("bubblewrap 0.8.0", "bubblewrap 0.8.0-1ubuntu1", "bubblewrap 0.4.1", "", None):
+        for version in (
+            "bubblewrap 0.9.0",
+            "bubblewrap 0.10.0",
+            "bubblewrap 0.8.0",
+            "bubblewrap 0.8.0-1ubuntu1",
+            "bubblewrap 0.4.1",
+            "",
+            None,
+        ):
             with self.subTest(version=version):
                 self.assertFalse(containment._overlay_capable(version))
 
@@ -1945,7 +1953,8 @@ class KernelTests(unittest.TestCase):
         # unchangeable while a read-only stage creates build outputs beside the sources. On macOS the
         # seal denies a write to a copied path in the check's own view; on Linux the writable overlay
         # takes that write into a discarded tmpfs upper layer, so the real copy (the read-only lower)
-        # is still unchanged and the capture's re-validation still passes.
+        # is still unchanged and the capture's re-validation still passes. An older bwrap without the
+        # overlay mounts (< 0.11) keeps the wholly read-only copy and its denials.
         package = self.workspace / "pkg"
         package.mkdir()
         (package / "module.py").write_text("NAME = 1\n")
@@ -1972,7 +1981,7 @@ class KernelTests(unittest.TestCase):
             + quoted(str(module)),
         ):
             with self.subTest(command=command):
-                if NATIVE == containment.SEATBELT:
+                if NATIVE == containment.SEATBELT or not containment.bubblewrap_overlay_capable():
                     self.assert_denied(command, reader)
                 else:
                     # The overlay's tmpfs upper takes the write in the check's view; the real copy below is untouched.
@@ -1999,7 +2008,7 @@ class KernelTests(unittest.TestCase):
             ):
                 with self.subTest(command=command):
                     self.assertEqual(0, self.run_shell(command, reader).returncode)
-        else:
+        elif containment.bubblewrap_overlay_capable():
             # The overlay's tmpfs upper is per-invocation: a check makes, changes and moves its own
             # outputs within one run beside the sources, and they never reach the real copy (#4033).
             build = (
@@ -2018,6 +2027,9 @@ class KernelTests(unittest.TestCase):
             self.assertFalse(new.exists())
             self.assertFalse((tree / "pkg/renamed.py").exists())
             self.assertFalse((tree / "build").exists())
+        else:
+            # An older bwrap without the overlay mounts keeps the wholly read-only copy.
+            self.assert_denied(": > " + quoted(str(new)), reader)
         import autocode_verification_copy as copies
 
         copies.execution(reader["verification_copy"], reader["verification_copy_sha256"], self.workspace)
@@ -2032,7 +2044,7 @@ class KernelTests(unittest.TestCase):
         self.assertTrue((Path(larger["scratch"]) / "verification/pkg/extra_59.py").is_file())
         self.assertEqual([], [part for part in large if b"extra_" in part])
         extra = Path(larger["scratch"]) / "verification/pkg/extra_59.py"
-        if NATIVE == containment.SEATBELT:
+        if NATIVE == containment.SEATBELT or not containment.bubblewrap_overlay_capable():
             self.assert_denied(": > " + quoted(str(extra)), larger)
         else:
             self.assertEqual(0, self.run_shell(": > " + quoted(str(extra)), larger).returncode)
@@ -2845,6 +2857,7 @@ class BubblewrapKernelTests(unittest.TestCase):
         self.assertRegex(self.boundary["backend_version"], r"^bubblewrap \d")
         self.assertEqual("policy.bwrap", Path(self.boundary["profile"]).name)
 
+    @unittest.skipUnless(containment.bubblewrap_overlay_capable(), "requires bubblewrap >= 0.11 overlay mounts")
     def test_readonly_stage_creates_build_outputs_in_its_copy_while_the_workspace_stays_read_only(self):
         # #4033: a read-only stage (Tester/reviewer) runs its checks in the verification copy. A check
         # that writes into the project tree -- cargo's target/, .coverage, .pytest_cache, a compiler's
