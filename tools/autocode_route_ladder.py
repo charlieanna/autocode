@@ -240,18 +240,6 @@ def next_route(settings, role, evidence=None):
     }
 
 
-def _offered_levels(settings, model):
-    if not isinstance(model, str):
-        return None
-    listed = route_fit.declared_for(settings, model)
-    if listed is None:
-        return None
-    return sorted(
-        (level for level in set(listed) | set(route_fit.certified_for(settings, model)) if level in route_fit.SCALE),
-        key=route_fit.SCALE.index,
-    )
-
-
 def _effort_origin(settings, role):
     """The role's saved effort choice, including the Resolver's inherited choice."""
     origins = settings.get("effort_origins") or {}
@@ -266,7 +254,7 @@ def _dynamic_next_route(settings, role, route):
         return {"stay": "off_ladder"}
     model = route.get("model")
     current = route.get("reasoning_effort")
-    offered_levels = _offered_levels(settings, model)
+    offered_levels = route_fit.offered(settings, model)
     if not offered_levels or current not in route_fit.SCALE or current not in offered_levels:
         return {"stay": "off_ladder"}
     rank = route_fit.SCALE.index(current)
