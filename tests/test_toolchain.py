@@ -465,16 +465,22 @@ class SelectedToolchainTests(unittest.TestCase):
                             boundary["verification_copy"], boundary["verification_copy_sha256"], root
                         )
                     if not allow_write and containment.backend() == containment.BUBBLEWRAP:
-                        # Linux protects the entire copy, including new in-tree outputs.
-                        denied = subprocess.run(
+                        # #4033: Linux mounts the copy as a writable overlay over its own read-only
+                        # real copy, so cargo creates target/ inside the copy and the check passes
+                        # there, as it already did on macOS. The live workspace stays read-only.
+                        built = subprocess.run(
                             [boundary["shell"], "-c", "cargo test --offline"],
                             cwd=cwd,
                             capture_output=True,
                             text=True,
                             timeout=600,
                         )
-                        self.assertNotEqual(0, denied.returncode)
-                        self.assertIn("Read-only file system", denied.stderr)
+                        if containment.bubblewrap_overlay_capable():
+                            self.assertEqual(0, built.returncode, (built.stdout[-2000:], built.stderr[-2000:]))
+                        else:
+                            # An older bwrap without the overlay mounts keeps the wholly read-only copy.
+                            self.assertNotEqual(0, built.returncode)
+                            self.assertIn("Read-only file system", built.stderr)
                     output = 'CARGO_TARGET_DIR="$TMPDIR/cargo-target" ' if not allow_write else ""
                     for command in (
                         *selected["probes"],
