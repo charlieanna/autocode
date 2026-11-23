@@ -449,8 +449,9 @@ were archived at tag `archive/pre-restructure-2026-09-26`
    is the typed contract that names every key with who writes and who reads it;
    `tests/test_run_state.py` fails when `tools/` touches a key it does not name.
    Prefer an existing key: read the contract before adding one. If you must add
-   one, write it in one place and document what reads it. Replacing the dict one
-   module at a time is next (#695).
+   one, write it in one place, document what reads it and give it a real type: the
+   count of keys still typed `Any` only goes down (`MAX_ANY_TYPED_KEYS`). Replacing
+   the dict one module at a time is next (#695).
 5. **Anything that works across tasks** (architecture, multi-component builds,
    integration, deployment) goes in a new layer that drives task runs through
    the task-run interface (`docs/task-run.md`): `autocode_taskrun.TaskRun` and

@@ -50,7 +50,8 @@ UNLAUNCHABLE = f"Unchanged repeated failure hold: {stage_stalls.CANNOT_LAUNCH}"
 # The archive reasons whose repair may come back, by kind. A spent repair returns only for a report
 # correction (``resume``); an unlaunchable one only when it now fits the launch bounds
 # (``autocode_stage_recovery.restore_launchable_unlaunchable_repair``), and only if it never launched.
-ARCHIVE_KINDS = {SPENT: "spent", UNLAUNCHABLE: "unlaunchable"}
+# Keyed by an archive entry's saved ``reason``, which may be missing or any value.
+ARCHIVE_KINDS: dict[object, str] = {SPENT: "spent", UNLAUNCHABLE: "unlaunchable"}
 CORRECTION = "Authenticated {stage} report needs only a report correction"
 
 

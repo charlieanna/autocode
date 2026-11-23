@@ -440,8 +440,10 @@ def plan_afresh(state: RunState) -> None:
     contract = identity.token(state["goal_contract"]) if state.get("goal_contract") else None
     archived = []
     for key, history in PLANNED_FOR_THE_EARLIER_JOB:
-        if state.get(key):
-            state.setdefault(history, []).append(state.pop(key))
+        value = state.get(key)
+        if value:
+            del state[key]
+            state.setdefault(history, []).append(value)
             archived.append(key)
     if state.get("validation"):
         state.setdefault("validation_archive", []).append(

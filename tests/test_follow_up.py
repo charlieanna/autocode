@@ -849,5 +849,27 @@ class FollowUpTranscriptTests(unittest.TestCase):
         self.assertEqual(1, sum(1 for text in texts if "Review complete" in text), texts)
 
 
+class PlanAfreshArchiveTests(unittest.TestCase):
+    """A build of the design the previous turn proposed moves that turn's plan records to their histories."""
+
+    def test_only_records_the_earlier_job_holds_move_to_their_histories(self):
+        state = {
+            "turns": [{"say": "Build it.", "previous": {"design": {"mode": "propose"}}}],
+            "requirements_handoff": {"id": "r1"},
+            "planning": {},
+            "current_task": None,
+            "requirements_history": [{"id": "r0"}],
+        }
+        follow_up.plan_afresh(state)
+        self.assertEqual([{"id": "r0"}, {"id": "r1"}], state["requirements_history"])
+        self.assertNotIn("requirements_handoff", state)
+        # Empty records stay where they are and are not archived.
+        self.assertEqual({}, state["planning"])
+        self.assertIsNone(state["current_task"])
+        self.assertNotIn("planning_history", state)
+        self.assertNotIn("task_archive", state)
+        self.assertEqual(["requirements_handoff"], state["turns"][-1]["fresh_plan"]["archived"])
+
+
 if __name__ == "__main__":
     unittest.main()

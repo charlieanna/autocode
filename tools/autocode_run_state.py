@@ -524,12 +524,12 @@ class RunState(TypedDict, total=False):
     changed_files: Any
     checked: Any
     checkpoint_continuation: Any
-    checkpoint_history: Any
+    checkpoint_history: list[dict]
     checkpoint_restores: Any
     clarification_episode: Any
     code_checkpoints: Any
     completed_at: Any
-    completion_archive: Any
+    completion_archive: list[dict]
     completion_actor: Any  # who declared completion; autocode.py writes, pop clears it on rework/stop
     completion_sent_back: Any
     configuration_changes: Any
@@ -573,10 +573,10 @@ class RunState(TypedDict, total=False):
     figma_file: Any
     final_audit_request: Any
     final_decision: Any
-    findings_seq: Any
+    findings_seq: int
     generated_sources_at_start: Any
     goal_base_check: Any
-    human_review_archive: Any
+    human_review_archive: list[dict]
     implementation_handoffs: Any
     input: Any
     intake_input_hash: Any
@@ -606,7 +606,7 @@ class RunState(TypedDict, total=False):
     name: Any
     next_action: Any
     no_progress_reports: Any
-    orchestration_history: Any
+    orchestration_history: list[dict]
     output: Any
     outputs: Any
     parent_batch: Any
@@ -634,36 +634,36 @@ class RunState(TypedDict, total=False):
     planning_artifact_reconciliation: Any
     planning_artifacts: Any
     planning_final: Any
-    planning_final_archive: Any
-    planning_history: Any
-    planning_iteration: Any
+    planning_final_archive: list[dict]
+    planning_history: list[dict]
+    planning_iteration: int
     planning_migrations: Any
     pre_goal_checkpoint: Any
     private_source_exceptions: Any
     progress: Any
     progress_checkpoint: Any
     progress_messages: Any
-    progress_sequence: Any
+    progress_sequence: int
     project_worked_in_place: Any
-    reasoning_escalations: Any
+    reasoning_escalations: list[dict]
     # autocode_output_cap_recovery appends one row per reasoning-bound output stop it lowered (stage, model,
     # from, to); its decide reads it at each launch through autocode_review_effort.launch.
     reasoning_exhaustion_recoveries: list[dict]
     reconciliation_notes: Any
     recovery: Any
-    recovery_context_archive: Any
+    recovery_context_archive: list[dict]
     recovery_grants: list[dict]  # recovery_accounting appends issued grant receipts; recovery reads
     regression_baseline: Any
     regression_proofs: Any
     repair_plan: Any
-    report_repair_archive: Any
-    report_repair_history: Any
-    report_repair_lifetime_attempts: Any
+    report_repair_archive: list[dict]
+    report_repair_history: list[dict]
+    report_repair_lifetime_attempts: int
     reports: Any
     requirements_artifact_token: Any
     requirements_body: Any
     requirements_handoff: Any
-    requirements_history: Any
+    requirements_history: list[dict]
     source_catalog_receipt: str  # content-addressed source inventory selected by catalog reconciliation
     # Retired triage pass record (#2940, #3652): preserved for loading and replaying saved runs
     # whose first Requirements pass recorded {pass, outcome, questions, at}.
@@ -678,7 +678,7 @@ class RunState(TypedDict, total=False):
     # Earlier overlap records of such a saved run; requirements_overlap.recover appends a
     # cleanup-pending record here when it settles, and the records stay as spend evidence.
     requirements_overlap_history: list[dict]
-    resolution_history: Any
+    resolution_history: list[dict]
     resolver: Any
     resolver_human_proposal: Any  # a Resolver proposal awaiting a human; goals writes, dependency pops
     resolver_human_request: Any
@@ -686,7 +686,7 @@ class RunState(TypedDict, total=False):
     # preservation_candidate consumes each writer/source once, recovery_history shows the decision.
     retained_candidate_handoffs: Any
     review: Any  # an earlier runtime's Code Reviewer saved outcome, report digest and source_revision; status inspects freshness
-    session_rotations: Any
+    session_rotations: list[dict]
     # Person-authorized exact rewords of authenticated peer exclusions (#2467):
     # appended only by autocode_scope_question.record_installed_corrections through
     # goals.install_draft; read only by autocode_scope_question, which re-binds each
@@ -699,7 +699,7 @@ class RunState(TypedDict, total=False):
     stop_intent: Any
     targeted_consultation: Any
     task_archive: Any
-    task_branch: Any
+    task_branch: str
     task_preflight: Any
     tasks: Any
     # Where the run's changed tests were found to load by running them: {version, files: {path: {project, from,
