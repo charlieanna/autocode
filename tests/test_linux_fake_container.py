@@ -135,6 +135,7 @@ class LinuxFakeContainerTests(unittest.TestCase):
         uid, gid = linux_fake.host_identity()
         self.assertEqual(f"{uid}:{gid}", command[user + 1])
         self.assertNotEqual("0:0", command[user + 1])
+        self.assertEqual(["--device=/dev/fuse"], [word for word in command if word.startswith("--device")])
         self.assertIn("--cap-drop=ALL", command)
         self.assertIn("--security-opt=no-new-privileges:true", command)
         self.assertIn("--security-opt=seccomp=unconfined", command)

@@ -156,8 +156,30 @@ print('PURE_BOUNDARY_PASS')"""
 
         worker = threading.Thread(target=respond)
         worker.start()
-        profile = self.prepare(kind="client", reads=[visible, Path(sys.executable).resolve().parents[1]])
-        code = f"""import socket
+        copy = self.scratch / "verification"
+        copy.mkdir()
+        (copy / "input").write_text("original")
+        for name in ("verification-view", "verification-outputs"):
+            (self.root / name).mkdir()
+        profile = self.target / "client.json"
+        value = boundary.policy(
+            profile,
+            kind="client",
+            cwd=self.target,
+            write_paths=[self.scratch],
+            read_paths=[self.target, visible, Path(sys.executable).resolve().parents[1], copy],
+            verification_tree=copy,
+        )
+        boundary.write(profile, value)
+        code = f"""import os,socket
+from pathlib import Path
+copy = Path({str(copy)!r})
+assert (copy / "input").read_text() == "original"
+try: (copy / "input").write_text("changed")
+except OSError: pass
+else: raise AssertionError("verification input changed")
+(copy / "new").write_text("built")
+assert not Path("/dev/fuse").exists()
 s=socket.socket(socket.AF_UNIX);s.connect({str(visible)!r});s.sendall(b'actual');assert s.recv(16)==b'original';s.close()
 s=socket.socket(socket.AF_UNIX)
 try:s.connect({str(foreign)!r})

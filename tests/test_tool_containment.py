@@ -1065,62 +1065,29 @@ class BubblewrapArgumentTests(unittest.TestCase):
         _, reader, _ = self.mounts(protected_paths=[nested])
         self.assertNotIn(str(self.root / "vendor"), [target for _, _, target in reader])
 
-    def test_verification_copy_is_a_writable_overlay_inside_the_writable_scratch(self):
-        # #4033: a read-only stage builds in its verification copy. The copy is one writable
-        # overlay over its own read-only real copy (a discarded tmpfs upper layer), so a check can
-        # create build outputs (cargo's target/, .coverage) beside the sources, while the live
-        # workspace stays read-only and the mount count stays constant whatever the copy's size.
+    def test_verification_view_is_one_mount_as_the_copy_grows(self):
         tree = self.scratch / "verification"
         (tree / "src").mkdir(parents=True)
         (tree / "src/app.py").write_text("VALUE = 1\n")
         (tree / "linked").symlink_to(self.root / "runtime", target_is_directory=True)
-        protected = [tree, *tree.rglob("*")]
-        arguments, mounts, watched = self.mounts(protected_paths=protected, overlay_trees=[tree])
-        # The copy is a writable overlay: its real copy is the read-only lower, a tmpfs the upper.
-        overlay = arguments.index("--overlay-src")
-        self.assertEqual(["--overlay-src", str(tree), "--tmp-overlay", str(tree)], arguments[overlay : overlay + 4])
-        # The live workspace is still read-only; the copy is never a writable bind of the workspace.
-        self.assertIn(("--ro-bind", str(self.root), str(self.root)), mounts)
-        self.assertNotIn(("--bind", str(self.root), str(self.root)), mounts)
-        # No copied path is mounted on its own (the overlay covers the whole copy at one mount),
-        # and the copy is no longer the wholly read-only bind that refused every new output.
+        arguments, mounts, watched = self.mounts(protected_paths=[tree, *tree.rglob("*")], verification_tree=tree)
         under = [mount for mount in mounts if Path(mount[2]).is_relative_to(tree)]
-        self.assertEqual([], under)
+        self.assertEqual([("--bind", str(self.scratch.parent / "verification-view"), str(tree))], under)
+        self.assertIn(("--ro-bind", str(self.root), str(self.root)), mounts)
         self.assertEqual([], watched)
-        # Constant cost (#3812): sixty more sources add no mount and name no copied path.
         for index in range(60):
             (tree / "src" / f"extra_{index}.py").write_text(f"EXTRA = {index}\n")
-        larger, _, _ = self.mounts(protected_paths=[tree, *tree.rglob("*")], overlay_trees=[tree])
-        self.assertEqual(len(arguments), len(larger))
-        self.assertEqual([], [part for part in larger if "extra_" in part])
+        larger, _, _ = self.mounts(protected_paths=[tree, *tree.rglob("*")], verification_tree=tree)
+        self.assertEqual(arguments, larger)
 
-    def test_verification_overlay_is_read_only_stage_authority_inside_the_scratch(self):
-        # The overlay's lower layer is the real copy in the owned scratch, never the workspace,
-        # and only a read-only stage builds in a copy (#4033).
+    def test_only_a_readers_own_copy_can_receive_the_verification_view(self):
         tree = self.scratch / "verification"
         tree.mkdir()
-        with self.assertRaisesRegex(ValueError, "read-only shell"):
-            self.mounts(allow_write=True, overlay_trees=[tree])
+        with self.assertRaisesRegex(ValueError, "read-only stage"):
+            self.mounts(allow_write=True, verification_tree=tree)
         for outside in (self.root, self.root / "runtime", self.scratch):
-            with self.subTest(outside=outside), self.assertRaisesRegex(ValueError, "inside the owned scratch"):
-                self.mounts(overlay_trees=[outside])
-
-    def test_overlay_capability_needs_bubblewrap_0_11(self):
-        # The overlay mounts arrived in bubblewrap 0.11.0; an older bwrap keeps the read-only copy.
-        for version in ("bubblewrap 0.11.0", "bubblewrap 0.13.1", "bubblewrap 1.0.0"):
-            with self.subTest(version=version):
-                self.assertTrue(containment._overlay_capable(version))
-        for version in (
-            "bubblewrap 0.9.0",
-            "bubblewrap 0.10.0",
-            "bubblewrap 0.8.0",
-            "bubblewrap 0.8.0-1ubuntu1",
-            "bubblewrap 0.4.1",
-            "",
-            None,
-        ):
-            with self.subTest(version=version):
-                self.assertFalse(containment._overlay_capable(version))
+            with self.subTest(outside=outside), self.assertRaisesRegex(ValueError, "own verification copy"):
+                self.mounts(verification_tree=outside)
 
     def test_external_read_roots_are_mounted_but_the_system_runtime_only_once(self):
         external = self.root.parent / "toolchain"
@@ -1947,14 +1914,8 @@ class KernelTests(unittest.TestCase):
         subprocess.run([*git, "commit", "-qm", "fixture"], check=True)
 
     def test_a_readers_verification_copy_cannot_be_changed_and_its_policy_does_not_grow(self):
-        # #3812/#4033: the copy's protection is one rule (Seatbelt) or one overlay mount (bubblewrap)
-        # whatever its size. One rule per copied path took a contained shell ten seconds to start for
-        # 2,000 files and could not be compiled at all for 6,700. The REAL copy and the workspace stay
-        # unchangeable while a read-only stage creates build outputs beside the sources. On macOS the
-        # seal denies a write to a copied path in the check's own view; on Linux the writable overlay
-        # takes that write into a discarded tmpfs upper layer, so the real copy (the read-only lower)
-        # is still unchanged and the capture's re-validation still passes. An older bwrap without the
-        # overlay mounts (< 0.11) keeps the wholly read-only copy and its denials.
+        # The same invocation that creates outputs must see the original inputs throughout.
+        # One rule or mount protects them regardless of the number of copied paths (#3812).
         package = self.workspace / "pkg"
         package.mkdir()
         (package / "module.py").write_text("NAME = 1\n")
@@ -1981,11 +1942,7 @@ class KernelTests(unittest.TestCase):
             + quoted(str(module)),
         ):
             with self.subTest(command=command):
-                if NATIVE == containment.SEATBELT or not containment.bubblewrap_overlay_capable():
-                    self.assert_denied(command, reader)
-                else:
-                    # The overlay's tmpfs upper takes the write in the check's view; the real copy below is untouched.
-                    self.assertEqual(0, self.run_shell(command, reader).returncode)
+                self.assert_denied(command, reader)
         # The copy's own name: a rule on Seatbelt, a mount point (busy, not read-only) on bubblewrap.
         moved = self.run_shell("mv " + quoted(str(tree)) + " " + quoted(reader["scratch"] + "/moved"), reader)
         self.assertNotEqual(0, moved.returncode, moved.stdout)
@@ -2008,8 +1965,8 @@ class KernelTests(unittest.TestCase):
             ):
                 with self.subTest(command=command):
                     self.assertEqual(0, self.run_shell(command, reader).returncode)
-        elif containment.bubblewrap_overlay_capable():
-            # The overlay's tmpfs upper is per-invocation: a check makes, changes and moves its own
+        else:
+            # Linux outputs are per-invocation: a check makes, changes and moves its own
             # outputs within one run beside the sources, and they never reach the real copy (#4033).
             build = (
                 "echo built > "
@@ -2027,9 +1984,6 @@ class KernelTests(unittest.TestCase):
             self.assertFalse(new.exists())
             self.assertFalse((tree / "pkg/renamed.py").exists())
             self.assertFalse((tree / "build").exists())
-        else:
-            # An older bwrap without the overlay mounts keeps the wholly read-only copy.
-            self.assert_denied(": > " + quoted(str(new)), reader)
         import autocode_verification_copy as copies
 
         copies.execution(reader["verification_copy"], reader["verification_copy_sha256"], self.workspace)
@@ -2044,11 +1998,7 @@ class KernelTests(unittest.TestCase):
         self.assertTrue((Path(larger["scratch"]) / "verification/pkg/extra_59.py").is_file())
         self.assertEqual([], [part for part in large if b"extra_" in part])
         extra = Path(larger["scratch"]) / "verification/pkg/extra_59.py"
-        if NATIVE == containment.SEATBELT or not containment.bubblewrap_overlay_capable():
-            self.assert_denied(": > " + quoted(str(extra)), larger)
-        else:
-            self.assertEqual(0, self.run_shell(": > " + quoted(str(extra)), larger).returncode)
-            self.assertEqual("EXTRA = 59\n", extra.read_text())
+        self.assert_denied(": > " + quoted(str(extra)), larger)
 
     def test_status_view_names_the_boundary_recorded_for_a_contained_launch(self):
         # #709: a real launch's boundary blocks a planted write outside the workspace, and the status
@@ -2880,7 +2830,7 @@ class BubblewrapKernelTests(unittest.TestCase):
             reader,
         )
         self.assertEqual(0, build.returncode, (build.stdout, build.stderr))
-        # The outputs lived in the overlay's discarded tmpfs upper, never the real copy or the workspace.
+        # The outputs lived in the command's private filesystem, never the real copy or the workspace.
         for output in ("target", ".coverage", ".pytest_cache"):
             self.assertFalse((tree / output).exists(), output)
             self.assertFalse((self.workspace / output).exists(), output)
@@ -2980,26 +2930,10 @@ class BubblewrapKernelTests(unittest.TestCase):
         copy = Path(reader["scratch"]) / "verification" / "source.py"
         new = copy.parent / "new.py"
         self.assertEqual("VALUE = 42\n", self.run_shell(shlex.join(["cat", str(copy)]), reader).stdout)
-        if containment.bubblewrap_overlay_capable():
-            # #4033: the copy is a writable overlay over its own read-only real copy. A write to an
-            # existing copied source is taken by the discarded tmpfs upper, visible only within that
-            # one invocation; the real copy the check is judged on never changes.
-            truncated = self.run_shell(": > " + shlex.quote(str(copy)) + " && cat " + shlex.quote(str(copy)), reader)
-            self.assertEqual((0, ""), (truncated.returncode, truncated.stdout), truncated.stderr)
-            self.assertEqual("VALUE = 42\n", copy.read_text())
-            # The upper is discarded per invocation: the next check reads the pristine source again.
-            self.assertEqual("VALUE = 42\n", self.run_shell(shlex.join(["cat", str(copy)]), reader).stdout)
-            # A NEW build output can be created beside the sources in the overlay, and never reaches
-            # the real copy.
-            built = self.run_shell(
-                "printf built > " + shlex.quote(str(new)) + " && cat " + shlex.quote(str(new)), reader
-            )
-            self.assertEqual((0, "built"), (built.returncode, built.stdout), built.stderr)
-            self.assertFalse(new.exists())
-        else:
-            # An older bwrap without the overlay mounts keeps the wholly read-only copy.
-            self.assert_denied(": > " + shlex.quote(str(copy)), reader)
-            self.assert_denied(": > " + shlex.quote(str(new)), reader)
+        self.assert_denied(": > " + shlex.quote(str(copy)), reader)
+        built = self.run_shell("printf built > " + shlex.quote(str(new)) + " && cat " + shlex.quote(str(new)), reader)
+        self.assertEqual((0, "built"), (built.returncode, built.stdout), built.stderr)
+        self.assertFalse(new.exists())
         # The LIVE workspace stays read-only either way: neither its existing source nor a new file
         # can be written there.
         self.assert_denied(": > " + shlex.quote(str(self.source)), reader)
@@ -3007,10 +2941,9 @@ class BubblewrapKernelTests(unittest.TestCase):
         self.assertEqual("VALUE = 42\n", self.source.read_text())
         self.assertFalse((self.workspace / "new.py").exists())
         self.assertEqual(0, self.run_shell(": > " + shlex.quote(reader["scratch"] + "/note"), reader).returncode)
-        # The whole copy, Git objects included, is one mount: the overlay names its tree twice
-        # (--overlay-src lower, --tmp-overlay destination), as the read-only bind named src and dest.
+        # Only the mount destination names the copy. Its source is the private filesystem.
         arguments = Path(reader["profile"]).read_bytes().split(b"\0")
-        self.assertEqual(2, sum(value.startswith(os.fsencode(copy.parent)) for value in arguments))
+        self.assertEqual([os.fsencode(copy.parent)], [v for v in arguments if v.startswith(os.fsencode(copy.parent))])
         self.assertEqual("VALUE = 42\n", copy.read_text())
 
 

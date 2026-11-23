@@ -93,7 +93,7 @@ jobs:
       - name: Prepare the CLI for the Extension Host suite
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q bubblewrap xvfb
+          sudo apt-get install -y -q bubblewrap fuse3 xvfb
           python3 -m venv .venv
           .venv/bin/python -m pip install -e '.[test,coverage]' 'pytest-cov>=6,<8'
       - uses: actions/setup-go@v5
@@ -169,7 +169,7 @@ jobs:
         run: |
           sudo apt-get update -q
           # tmux: tests.test_chat_screens drives the full-screen chat in a real terminal (#1646).
-          sudo apt-get install -y -q bubblewrap libseccomp2 tmux
+          sudo apt-get install -y -q bubblewrap fuse3 libseccomp2 tmux
           if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
@@ -318,7 +318,7 @@ jobs:
         run: |
           sudo apt-get update -q
           # tmux: tests.test_chat_screens drives the full-screen chat in a real terminal (#1646).
-          sudo apt-get install -y -q bubblewrap libseccomp2 tmux
+          sudo apt-get install -y -q bubblewrap fuse3 libseccomp2 tmux
           if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
@@ -377,7 +377,7 @@ jobs:
       - name: Prepare native Linux verification boundary
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q bubblewrap libseccomp2 tmux
+          sudo apt-get install -y -q bubblewrap fuse3 libseccomp2 tmux
           if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
@@ -476,7 +476,7 @@ jobs:
       - name: Install bubblewrap and allow unprivileged user namespaces
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q bubblewrap libseccomp2 python3-venv
+          sudo apt-get install -y -q bubblewrap fuse3 libseccomp2 python3-venv
           if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi

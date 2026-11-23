@@ -12,8 +12,10 @@ import json
 from pathlib import Path
 
 try:
+    from . import autocode_linux_copy_view as copy_view
     from . import autocode_native_linux_boundary as kernel
 except ImportError:
+    import autocode_linux_copy_view as copy_view
     import autocode_native_linux_boundary as kernel
 
 TRAMPOLINE = 'filter=$1; shift; exec "$@" 3< "$filter"'
@@ -25,7 +27,7 @@ def _require(value, reason):
         raise ValueError("Kilo Linux boundary: " + reason)
 
 
-def policy(profile, *, kind, read_paths, write_paths, hidden_paths=(), cwd, links=()):
+def policy(profile, *, kind, read_paths, write_paths, hidden_paths=(), cwd, links=(), verification_tree=None):
     _require(kind in KINDS, "unknown authority kind")
     profile = Path(profile)
     network, deny_fork = KINDS[kind]
@@ -39,6 +41,19 @@ def policy(profile, *, kind, read_paths, write_paths, hidden_paths=(), cwd, link
         inputs["links"] = [list(item) for item in links]
     program = kernel.seccomp_program(network=network, deny_fork=deny_fork)
     arguments = kernel.arguments(**inputs, seccomp_fd=3)
+    if verification_tree is not None:
+        tree = Path(verification_tree)
+        _require(
+            kind == "client"
+            and inputs["write_paths"] == [str(tree.parent)]
+            and tree.name == "verification"
+            and tree.parent.name == "scratch"
+            and str(tree) in inputs["read_paths"],
+            "verification view requires the client's owned copy",
+        )
+        mount = next(i for i in range(len(arguments)) if arguments[i : i + 3] == ["--ro-bind", str(tree), str(tree)])
+        arguments[mount : mount + 3] = copy_view.bind(tree)
+        inputs["verification_tree"] = str(tree)
     if kind == "client":
         arguments.insert(1, "--as-pid-1")
         # Tool children must not obtain a write path to the compiled client's
@@ -79,7 +94,7 @@ def verify(profile):
     inputs = value["inputs"]
     _require(
         isinstance(inputs, dict)
-        and set(inputs)
+        and set(inputs) - {"verification_tree"}
         in (
             {"read_paths", "write_paths", "hidden_paths", "cwd"},
             {"read_paths", "write_paths", "hidden_paths", "cwd", "links"},
@@ -101,7 +116,9 @@ def verify(profile):
 
 def prefix(profile):
     value = verify(profile)
+    tree = value["inputs"].get("verification_tree")
     return [
+        *(copy_view.launcher(tree) if tree else []),
         "/bin/sh",
         "-c",
         TRAMPOLINE,

@@ -266,6 +266,11 @@ def _inherited_shell_body(raw, profile):
             "prepared Linux shell shape changed",
         )
         argv = shlex.split(lines[2][5 : -len(suffix)])
+        tree = Path(profile).parent / "scratch/verification"
+        launcher = ["/usr/bin/env", "-i", "PATH=/usr/bin:/bin", *containment.copy_view.launcher(tree)]
+        if argv[: len(launcher)] == launcher:
+            # The outer client mounts the verification view once. Its shell inherits that mount.
+            argv = argv[len(launcher) :]
         _require(
             argv[:2] == ["/usr/bin/env", "-i"] and argv.count(containment.BWRAP) == 1,
             "prepared Linux shell environment changed",
@@ -1207,6 +1212,7 @@ class KiloRoleIsolation:
                 hidden_paths=[self._root / ".autocode"],
                 cwd=self._root,
                 links=request["runtime_links"],
+                verification_tree=Path(boundary["scratch"]) / "verification",
             )
             program = linux_boundary.write(policy_path, value)
             self._prepared["files"].update({str(path): util.file_hash(path) for path in (policy_path, program)})
@@ -1585,7 +1591,12 @@ def verify_boundary(boundary):
             _require(
                 policy["kind"] == "client"
                 and policy["inputs"]["write_paths"] == [boundary["scratch"]]
-                and ["--ro-bind", str(tree), str(tree)] in mounts
+                and (
+                    containment.copy_view.bind(tree)
+                    if policy["inputs"].get("verification_tree") == str(tree)
+                    else ["--ro-bind", str(tree), str(tree)]
+                )
+                in mounts
                 and all(Path(path).is_relative_to(tree) for path in protected),
                 "installed Kilo profile omitted protected verification inputs",
             )

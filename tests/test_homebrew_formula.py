@@ -55,6 +55,12 @@ class FormulaTests(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "has no sdist"):
             brew.formula("0.8.0", PYPROJECT, fetch.__getitem__)
 
+    def test_linux_only_dependencies_are_resources_only_on_linux(self):
+        project = {"project": {"version": "0.8.0", "dependencies": ["psutil>=7.1,<8; sys_platform == 'linux'"]}}
+        text = brew.formula("0.8.0", project, PYPI.__getitem__)
+        self.assertIn('  on_linux do\n    resource "psutil" do', text)
+        self.assertNotIn('\n  resource "psutil" do', text)
+
     def test_the_repository_dependencies_are_ones_it_can_read(self):
         import tomllib
 

@@ -14,6 +14,7 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         bubblewrap \
+        fuse3 \
         ca-certificates \
         curl \
         git \
@@ -41,7 +42,7 @@ RUN case "$TARGETARCH" in \
     && rm -f "$node_archive" SHASUMS256.txt "$go_archive"
 
 RUN python3.11 -m venv /opt/autocode-venv \
-    && /opt/autocode-venv/bin/pip install --no-cache-dir psutil==7.1.0 pytest==9.1.1 \
+    && /opt/autocode-venv/bin/pip install --no-cache-dir psutil==7.1.0 mfusepy==3.1.1 pytest==9.1.1 \
     # Ubuntu 24.04 images ship their own "ubuntu" user and group as 1000; free the IDs first (#1878).
     && userdel --remove ubuntu \
     && groupadd --gid 1000 autocode \
