@@ -93,6 +93,28 @@ class FitTests(unittest.TestCase):
         fitted = route_fit.fit(settings, "builder")
         self.assertEqual(("fitted", "high"), (fitted.reason, fitted.effort))
 
+    def test_a_known_empty_listing_drops_a_runner_level_to_the_default_not_unverified(self):
+        # #3910: the tool listed the model and it offers no reasoning variant (levels=[]). That is evidence,
+        # not an unknown listing: a runner-chosen or rerouted level cannot run there, so it drops to the
+        # model's default and the move is recorded, instead of being carried as unverified for preflight to refuse.
+        settings = settings_for(effort="high", declared=[])
+        for rerouted in (False, True):
+            self.assertEqual(
+                route_fit.Fit("zai-coding-plan/glm-5.3", None, "high", "fitted", False),
+                route_fit.fit(settings, "builder", rerouted=rerouted),
+            )
+        # No listing at all is still unknown: the launch check decides, the level is carried as unverified.
+        unknown = route_fit.fit(settings_for(effort="high", declared=None), "builder")
+        self.assertEqual(("unverified", "high"), (unknown.reason, unknown.effort))
+        # A level a person named is never moved by the runner, even onto a model that lists no variant.
+        explicit = route_fit.fit(settings_for(effort="high", origin=route_fit.USER_EXPLICIT, declared=[]), "builder")
+        self.assertEqual(("unverified", "high", True), (explicit.reason, explicit.effort, explicit.explicit))
+        # A probe that passed the level proves it even where the listing is empty.
+        certified = settings_for(effort="high", declared=[])
+        certified[route_fit.CERTIFIED] = {"zai-coding-plan/glm-5.3": ["high"]}
+        proved = route_fit.fit(certified, "builder")
+        self.assertEqual(("declared", "high"), (proved.reason, proved.effort))
+
 
 class RouteAnswerTests(unittest.TestCase):
     """A route answer to a model the person's saved level was not named for moves that level (#3120)."""
@@ -135,6 +157,22 @@ class RouteAnswerTests(unittest.TestCase):
         self.assertIsNone(route_fit.answer_choice(settings, "requirements", glm, "high"), "not a route answer's")
         settings["effort_fits"]["requirements"] = {"reason": "route_answer", "model": glm, "to": "high"}
         self.assertIsNone(route_fit.answer_choice(settings, "requirements", glm, "high"), "no saved level")
+
+    def test_a_level_dropped_to_the_default_says_the_model_offers_no_variant(self):
+        # #3910: the destination listed no reasoning variant, so the saved level dropped to its default (None).
+        glm = "zai-coding-plan/glm-5.3"
+        settings = settings_for("requirements", effort=None, declared=[])
+        settings["effort_fits"] = {"requirements": {"from": "high", "to": None, "reason": "route_answer", "model": glm}}
+        self.assertEqual(
+            {
+                "level": None,
+                "saved": "high",
+                "model": glm,
+                "reason": "route_answer_fit",
+                "text": f"{glm} offers no reasoning variants, so this stage runs at its default instead of high",
+            },
+            route_fit.answer_choice(settings, "requirements", glm, None),
+        )
 
 
 class LaunchTests(unittest.TestCase):

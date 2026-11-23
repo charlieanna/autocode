@@ -7,7 +7,9 @@ attempt, an escalation rung. Each site used to fit the effort itself, or not at 
 derived tier was a new place to forget. This module holds the one rule they share: an effort the
 runner chose moves to the nearest declared variant and the move is recorded; an effort a person
 named is never moved and refuses with the flag and the declared variants; with no listing the
-launch records the effort as unverified and the tool's own check decides.
+launch records the effort as unverified and the tool's own check decides. A listing the tool
+returned empty is not "no listing": it is evidence the model offers no reasoning variant, so a
+runner-chosen or rerouted level drops to the model's default rather than being carried (#3910).
 
 A person's level is named for the model it was saved with. When a route answer moves the role to
 another model AutoCode offered and names no level (#3120), the saved level is the person's for the old
@@ -148,12 +150,18 @@ def fit(settings: dict, role: str, *, effort=None, model=None, declared=None, re
     model = model or route.get("model")
     saved = route.get("reasoning_effort")
     requested = effort if effort is not None else saved
-    levels = declared if declared is not None else declared_for(settings, model)
-    levels = [level for level in levels or () if level in SCALE]
+    listing = declared if declared is not None else declared_for(settings, model)
+    levels = [level for level in listing or () if level in SCALE]
     explicit = not rerouted and person_named(settings, role) and requested == saved
     if requested is not None and declared is None and requested in certified_for(settings, model):
         return Fit(model, requested, requested, "declared", explicit)  # a probe proved this level
     if not levels:
+        # A listing the tool returned with no usable variant is evidence the model offers none, not an
+        # unknown listing: a runner-chosen or rerouted level cannot run there, so it drops to the model's
+        # own default instead of being carried as unverified for preflight to refuse (#3910). A level a
+        # person named is never moved by the runner; with no listing at all the launch check still decides.
+        if listing is not None and requested is not None and not explicit:
+            return Fit(model, None, requested, "fitted", False)
         return Fit(model, requested, requested, "unverified", explicit)
     if requested is None or requested in levels:
         return Fit(model, requested, requested, "declared", explicit)
@@ -186,12 +194,17 @@ def answer_choice(settings: dict, role: str, model, effort) -> dict | None:
         return None
     if row.get("model") != model or row.get("to") != effort or not isinstance(row.get("from"), str):
         return None
+    if effort is None:
+        # The destination listed no reasoning variant at all, so the saved level dropped to its default (#3910).
+        text = f"{model} offers no reasoning variants, so this stage runs at its default instead of {row['from']}"
+    else:
+        text = f"{model} does not offer {row['from']}, so this stage runs at {effort}, the nearest level it offers"
     return {
         "level": effort,
         "saved": row["from"],
         "model": model,
         "reason": ROUTE_ANSWER_FIT,
-        "text": f"{model} does not offer {row['from']}, so this stage runs at {effort}, the nearest level it offers",
+        "text": text,
     }
 
 
