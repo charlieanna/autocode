@@ -2957,7 +2957,7 @@ class BubblewrapKernelTests(unittest.TestCase):
         self.assertEqual(126, later.returncode, later.stderr)
         self.assertFalse((self.workspace / "later.txt").exists())
 
-    def test_reader_verification_copy_is_readable_but_not_writable(self):
+    def test_reader_verification_copy_sources_stay_immutable_while_new_outputs_are_writable(self):
         git = ["/usr/bin/git", "-C", str(self.workspace), "-c", "user.name=T", "-c", "user.email=t@example.invalid"]
         subprocess.run([*git, "init", "-q"], check=True)
         subprocess.run([*git, "add", "source.py"], check=True)
@@ -2970,11 +2970,37 @@ class BubblewrapKernelTests(unittest.TestCase):
             source_paths=["source.py"],
         )
         copy = Path(reader["scratch"]) / "verification" / "source.py"
+        new = copy.parent / "new.py"
         self.assertEqual("VALUE = 42\n", self.run_shell(shlex.join(["cat", str(copy)]), reader).stdout)
-        self.assert_denied(": > " + shlex.quote(str(copy)), reader)
-        self.assert_denied(": > " + shlex.quote(str(copy.parent / "new.py")), reader)
+        if containment.bubblewrap_overlay_capable():
+            # #4033: the copy is a writable overlay over its own read-only real copy. A write to an
+            # existing copied source is taken by the discarded tmpfs upper, visible only within that
+            # one invocation; the real copy the check is judged on never changes.
+            truncated = self.run_shell(": > " + shlex.quote(str(copy)) + " && cat " + shlex.quote(str(copy)), reader)
+            self.assertEqual((0, ""), (truncated.returncode, truncated.stdout), truncated.stderr)
+            self.assertEqual("VALUE = 42\n", copy.read_text())
+            # The upper is discarded per invocation: the next check reads the pristine source again.
+            self.assertEqual("VALUE = 42\n", self.run_shell(shlex.join(["cat", str(copy)]), reader).stdout)
+            # A NEW build output can be created beside the sources in the overlay, and never reaches
+            # the real copy.
+            built = self.run_shell(
+                "printf built > " + shlex.quote(str(new)) + " && cat " + shlex.quote(str(new)), reader
+            )
+            self.assertEqual((0, "built"), (built.returncode, built.stdout), built.stderr)
+            self.assertFalse(new.exists())
+        else:
+            # An older bwrap without the overlay mounts keeps the wholly read-only copy.
+            self.assert_denied(": > " + shlex.quote(str(copy)), reader)
+            self.assert_denied(": > " + shlex.quote(str(new)), reader)
+        # The LIVE workspace stays read-only either way: neither its existing source nor a new file
+        # can be written there.
+        self.assert_denied(": > " + shlex.quote(str(self.source)), reader)
+        self.assert_denied(": > " + shlex.quote(str(self.workspace / "new.py")), reader)
+        self.assertEqual("VALUE = 42\n", self.source.read_text())
+        self.assertFalse((self.workspace / "new.py").exists())
         self.assertEqual(0, self.run_shell(": > " + shlex.quote(reader["scratch"] + "/note"), reader).returncode)
-        # The whole copy, Git objects included, is one read-only mount.
+        # The whole copy, Git objects included, is one mount: the overlay names its tree twice
+        # (--overlay-src lower, --tmp-overlay destination), as the read-only bind named src and dest.
         arguments = Path(reader["profile"]).read_bytes().split(b"\0")
         self.assertEqual(2, sum(value.startswith(os.fsencode(copy.parent)) for value in arguments))
         self.assertEqual("VALUE = 42\n", copy.read_text())
