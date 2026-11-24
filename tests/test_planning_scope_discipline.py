@@ -112,6 +112,26 @@ class PlanningScopeDisciplineTests(unittest.TestCase):
                     self.assertNotIn(operand, instruction)
         self.assertIn(operand, " ".join(planner.EXAMPLE_CHECK_RULE.split()))
 
+    def test_every_stage_that_asks_the_person_frames_questions_around_the_requested_behavior(self):
+        """2026-11-24 live run: asked about "an order not yet delivered, or after the 30-day window",
+        Requirements offered only "raise an error" or "return a rejection", though the request's
+        intended answer was that an undelivered order has no window. Every stage that may ask the
+        person reads one framing rule."""
+        phrases = (
+            "QUESTION FRAMING",
+            "options that together include the behavior the request and the saved answers ask for",
+            "never bundle two cases that could get different answers",
+            "show it on one concrete input, so the person chooses between outcomes",
+            "Ask every question you need in one report, not one round at a time",
+        )
+        for stage, instruction in self.acceptance_stage_instructions().items():
+            for phrase in phrases:
+                with self.subTest(stage=stage, phrase=phrase):
+                    if stage == "review_plan":
+                        self.assertNotIn(phrase, instruction)
+                    else:
+                        self.assertIn(phrase, instruction)
+
     def test_ac3_acceptance_policy_selects_rendered_prompt_regression(self):
         self.assertIn(
             "tests.test_planning_scope_discipline",
