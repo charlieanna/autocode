@@ -2444,7 +2444,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/522320531390a264f39aa995ec97ede51d33cc61/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/69b00b2dabbda639c66f57f682e55345e963a2d2/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2696,7 +2696,7 @@ they do not represent charges.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/522320531390a264f39aa995ec97ede51d33cc61/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/69b00b2dabbda639c66f57f682e55345e963a2d2/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -3336,7 +3336,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/522320531390a264f39aa995ec97ede51d33cc61/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/69b00b2dabbda639c66f57f682e55345e963a2d2/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -3366,6 +3366,10 @@ spent time and recovery allowances remain intact.</p>
 <tr>
 <td><code>--allow-uncontained-tools</code></td>
 <td>Built-in OpenCode runs only (including a Codex run whose <code>--investigator-model</code> is an OpenCode <code>provider/model</code>). Without it, a run is refused before any stage when the kernel tool boundary cannot exist here (it needs macOS <code>sandbox-exec</code> or Linux bubblewrap, and OpenCode 1.18.33). With it, every stage, the Planner's read-only shell included, runs with OpenCode's own permission checks only, no kernel containment. Accepted on a new run or a resume (including a <code>PAUSED_TOOL_CONTAINMENT</code> run); saved with the run and recorded as a user event, so later resumes need not repeat it. The status view shows <code>tool_containment</code>. See <a href="../execution/#native-tool-containment">Execution</a>.</td>
+</tr>
+<tr>
+<td><code>--agent-sandbox</code></td>
+<td>Runs each stage's whole agent process (Claude Code, Codex, a configured provider, and every tool and test it starts) inside an OS sandbox: Linux bubblewrap (<code>/usr/bin/bwrap</code>) or macOS <code>sandbox-exec</code>. Inside it the home-directory credential stores (<code>~/.aws</code>, <code>~/.ssh</code>, <code>~/.gnupg</code>, <code>~/.config/gcloud</code>, <code>~/.kube</code>, <code>~/.netrc</code>, registry tokens and the like) and the other engines' logins cannot be read, and only the workspace, the run directory, temporary directories, the engine's own state and package caches can be written. Off by default. Refused before any stage where the host has no such sandbox (and for Codex on macOS, whose own Seatbelt sandbox cannot nest); a stage that cannot be sandboxed later pauses as <code>PAUSED_TOOL_CONTAINMENT</code> without launching. Accepted on a new run or a resume; saved with the run and recorded as a user event. Each stage record's <code>agent_sandbox</code> names the backend, the writable paths and the denied stores. See <a href="../execution/#agent-sandbox">Execution</a>.</td>
 </tr>
 <tr>
 <td><code>--joint-planning</code></td>
@@ -4502,7 +4506,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/522320531390a264f39aa995ec97ede51d33cc61/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/69b00b2dabbda639c66f57f682e55345e963a2d2/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,

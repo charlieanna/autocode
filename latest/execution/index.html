@@ -2100,7 +2100,7 @@
 
 
 <h1 id="execution-and-completion">Execution and completion<a class="headerlink" href="#execution-and-completion" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/522320531390a264f39aa995ec97ede51d33cc61/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/69b00b2dabbda639c66f57f682e55345e963a2d2/README.md">← Back to README</a></p>
 <p>This page covers independent milestone Builders, milestone checkpoints and acceptance,
 open findings, timeouts and recovery, and the completion gate.</p>
 <h2 id="the-projects-own-tests-as-examples">The project's own tests as examples<a class="headerlink" href="#the-projects-own-tests-as-examples" title="Permanent link">&para;</a></h2>
@@ -2476,17 +2476,17 @@ before a PASS is accepted, the runner requires its own current execution of each
 <li><strong>What is refused.</strong> A check that runs <code>git status</code> is refused before anything
   runs: it reads the working tree's state, not the product, and once the work is
   committed and merged it lists nothing
-  (<a href="https://github.com/charlieanna/autocode/blob/522320531390a264f39aa995ec97ede51d33cc61/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
+  (<a href="https://github.com/charlieanna/autocode/blob/69b00b2dabbda639c66f57f682e55345e963a2d2/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
   that names <code>git status</code> is refused when its author hands it in: a criterion's
   verification method, a task's validation plan or requirements, a progressive
   slice's check, a user's <code>--edit-goal</code> or <code>--goal-file</code>. The Planner, Plan Reviewer, Completion
   Reviewer or Resolver gets its report back for repair, with every such row named.
-  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/522320531390a264f39aa995ec97ede51d33cc61/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
+  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/69b00b2dabbda639c66f57f682e55345e963a2d2/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
   A new plan with a command that <code>/bin/sh</code> cannot parse is refused at the same
   points, in the same repair. The replay runs each planned command with
   <code>/bin/sh -c</code>, so the runner asks that shell to read the command with <code>sh -n</code>,
   which runs nothing. A live step with backticks inside double quotes could
-  never run (<a href="https://github.com/charlieanna/autocode/blob/522320531390a264f39aa995ec97ede51d33cc61/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
+  never run (<a href="https://github.com/charlieanna/autocode/blob/69b00b2dabbda639c66f57f682e55345e963a2d2/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
 <li><strong>A validate task's new steps are run when it is written.</strong> A Completion
   Reviewer or Resolver that finds a criterion without evidence hands the Tester a
   validate task, with steps of its own. Such a step must exit 0 in this replay,
@@ -2499,7 +2499,7 @@ before a PASS is accepted, the runner requires its own current execution of each
   the last accepted validation passed on this same source, is not run again here,
   and a failure the base revision has identically is the base's, as below. An
   implement task's steps are not run: they may fail until the Builder works
-  (<a href="https://github.com/charlieanna/autocode/blob/522320531390a264f39aa995ec97ede51d33cc61/docs/bugs/2026-11-13-task-kind-survey.md">task-kind survey</a>, section 36).</li>
+  (<a href="https://github.com/charlieanna/autocode/blob/69b00b2dabbda639c66f57f682e55345e963a2d2/docs/bugs/2026-11-13-task-kind-survey.md">task-kind survey</a>, section 36).</li>
 <li><strong>When one does not reproduce.</strong> The Tester's report is rejected with the
   command, the runner's exit code and the end of its output. The Tester then runs
   again on the same source, once, and is told the command, how its replay ended
@@ -2900,7 +2900,7 @@ plan and review approval the harness gave a run must also be listed among that r
 and so must each budget pause the scenario's person acknowledged, as the resume that names it.
 In a components scenario each such gate names the task run it was given to, so an
 approval listed only in another component's run fails
-(<a href="https://github.com/charlieanna/autocode/blob/522320531390a264f39aa995ec97ede51d33cc61/scenarios/README.md">scenarios/README.md</a>).</p>
+(<a href="https://github.com/charlieanna/autocode/blob/69b00b2dabbda639c66f57f682e55345e963a2d2/scenarios/README.md">scenarios/README.md</a>).</p>
 <h4 id="required-approver">Required approver<a class="headerlink" href="#required-approver" title="Permanent link">&para;</a></h4>
 <p>A team that wants only named people to approve can list their Git email addresses as
 <code>require-approver</code> in its <a href="../cli/#project-settings">project settings</a>:</p>
@@ -3783,6 +3783,39 @@ keep their own paths.</p>
 old requests. Real requirements questions, permission changes, plan approval and
 declared artifact acceptance remain human decisions. External service failures
 cannot be guaranteed resolvable; automatic recovery is bounded rather than infinite.</p>
+<h2 id="agent-sandbox">Agent sandbox<a class="headerlink" href="#agent-sandbox" title="Permanent link">&para;</a></h2>
+<p><code>--agent-sandbox</code> (off by default, <code>tools/autocode_agent_sandbox.py</code>) runs the whole agent process of
+every stage inside one OS sandbox: the provider's client and every tool, command and test it starts.
+Built-in OpenCode stages already run their shell inside the kernel tool boundary below, which reads
+less than this sandbox allows, so those stages keep that boundary and their record says
+<code>covered_by: tool_containment</code>. The sandbox matters for Claude Code, Codex and configured providers,
+whose own permission checks otherwise decide what a model's shell may read.</p>
+<p>Inside the sandbox:</p>
+<ul>
+<li><strong>Reads</strong> are what the user can read, except the home-directory credential stores (<code>CREDENTIALS</code>:
+  cloud and cluster logins such as <code>~/.aws</code>, <code>~/.azure</code>, <code>~/.config/gcloud</code> and <code>~/.kube</code>, SSH and GPG
+  keys, Git and package-registry tokens such as <code>~/.netrc</code>, <code>~/.git-credentials</code>, <code>~/.npmrc</code> and
+  <code>~/.pypirc</code>, password stores, browser profiles and shell histories) and the logins of the engines the
+  stage does not run on (a Claude Code stage cannot read <code>~/.codex/auth.json</code>). A stage still reads its
+  own engine's login, which it needs to reach its model.</li>
+<li><strong>Writes</strong> go only to the workspace and its Git directory, the run directory, the temporary
+  directories, the engine's own state (<code>~/.claude</code> for Claude Code, <code>~/.codex</code> for Codex, OpenCode's and
+  Kilo's directories) and package caches (<code>~/.cache</code>, <code>~/Library/Caches</code>, <code>~/.npm</code>, Go, Cargo, Gradle and
+  Maven caches). A credential file inside a writable cache stays denied.</li>
+</ul>
+<p>On Linux the backend is bubblewrap in a user namespace: the root is mounted read-only, the writable
+paths are bound back, then each credential directory is covered by an empty read-only tmpfs and each
+credential file by <code>/dev/null</code>. On macOS it is a Seatbelt profile, saved in the run's <code>agent-sandbox/</code>
+directory, that denies those reads and every write outside the writable paths. Neither adds a network
+or PID namespace, so the provider reaches its model and process supervision is unchanged. Variables
+that look like credentials are already withheld from the agents' environment (<code>autocode_agent_env</code>).</p>
+<p>The sandbox is fail-safe. Without the flag every stage launches exactly as before. With it, run setup
+refuses the run before any stage when the host cannot provide it (no <code>bwrap</code> able to create a user
+namespace, no <code>sandbox-exec</code>, another platform, or a Codex stage on macOS, where Codex's own Seatbelt
+sandbox cannot start inside another), and a stage that cannot be sandboxed later pauses as
+<code>PAUSED_TOOL_CONTAINMENT</code> without launching. The choice is saved with the run and recorded as an
+<code>agent_sandbox_enabled</code> user event; each stage record's <code>agent_sandbox</code> names the backend, the writable
+paths and the denied stores that exist.</p>
 <h2 id="native-tool-containment">Native tool containment<a class="headerlink" href="#native-tool-containment" title="Permanent link">&para;</a></h2>
 <p>The Plan Reviewer and Tester use the read-only sandbox with the Codex engine; the Builder uses workspace-write.
 Every Planner has a shell (owner decision 2026-10-21) so it can compute the values its examples state:
