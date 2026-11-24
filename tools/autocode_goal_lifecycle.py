@@ -68,6 +68,7 @@ try:
     from . import autocode_milestones as checkpoints
     from . import autocode_native_test_names as native_test_names
     from . import autocode_operational_change as operational_change
+    from . import autocode_plan_base_guards as plan_base_guards
     from . import autocode_plan_chat as plan_chat
     from . import autocode_plan_retention as plan_retention
     from . import autocode_plan_test_suite as plan_test_suite
@@ -127,6 +128,7 @@ except ImportError:
     import autocode_milestones as checkpoints
     import autocode_native_test_names as native_test_names
     import autocode_operational_change as operational_change
+    import autocode_plan_base_guards as plan_base_guards
     import autocode_plan_chat as plan_chat
     import autocode_plan_retention as plan_retention
     import autocode_plan_test_suite as plan_test_suite
@@ -452,10 +454,13 @@ def install_draft(state: RunState, body, *, origin, allow_legacy=False, changes=
         )
     changes = revision_guard(progressive_state.planning_revision_state(state), body, changes or [], origin)
     progressive_state.finish_draft(state)
-    if queue_human and origin not in UNAUTHORED_DRAFTS and (boundary := plan_tool_admission.defect(state, body)):
-        # A command the contained code stages would refuse is the Planner's to correct before approval (#4015).
-        held = [q for q in body.get("open_blocking_questions") or [] if q.get("id") != boundary["id"]]
-        body = {**body, "open_blocking_questions": [*held, boundary]}
+    if queue_human and origin not in UNAUTHORED_DRAFTS:
+        # A command the contained code stages would refuse (#4015), and a guard the original code contradicts,
+        # are the Planner's to correct before approval.
+        for found in (plan_tool_admission.defect(state, body), plan_base_guards.defect(state, body)):
+            if found:
+                held = [q for q in body.get("open_blocking_questions") or [] if q.get("id") != found["id"]]
+                body = {**body, "open_blocking_questions": [*held, found]}
     previous = state.get("goal_contract")
     if previous:
         state.setdefault("contract_history", []).append(copy.deepcopy(previous))
