@@ -17,6 +17,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- **The channel bridge records who asked for each run and who steered it**: the requester is the GitHub login that applied the bridge label, read from the issue's events, and an issue labeled by anyone off `AUTOCODE_BRIDGE_ACTORS` is refused with one comment instead of started. Each applied reply (answer, approval, feedback, resume) is recorded with its login, comment and action; the issue's first comment names the requester and `autocode bridge status` lists both. These logins are marked as authenticated by GitHub, beside the run's own unverified Git provenance. The first step of [team use](docs/plans/multi-user.md).
+
 - **A one-page quickstart** ([docs/quickstart.md](docs/quickstart.md)): install, connect an account, check a project, install the VS Code extension and take a first change through plan approval to a reviewed result. The VS Code extension's Marketplace page now starts with the same steps and has its own icon.
 
 - **A fast lane for small, clear tasks** (`--fast-lane`, new runs, off by default): the run uses one combined review instead of a Tester and a Completion Reviewer, and a small first plan that Requirements judged clear, that touches no sensitive file and needs no Plan Reviewer observation goes straight to your approval without a Plan Reviewer call. Any other plan, and every revision, is reviewed as before; the skipped stages are shown with their reason. The regression proof, changed-code evidence and completion gate are unchanged. On 149 saved live runs, 112 would have qualified, and the removed stages were about 30% of their model time and 35% of their model calls.
