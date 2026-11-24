@@ -182,6 +182,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **The real-repo sweep runs past its first Arena case**: `examples/claude-provider/real_repo_sweep.py run` prepared every Arena case into one store, and `arena/prepare.py` refuses a store that already holds one, so a `starter` or `hard` sweep stopped at its second Arena case. Each Arena case now gets its own store under `--out/arenas/`.
+
 - **A guard whose test fails on the original code goes back to the Planner before you approve the plan**: a `guard:` criterion names the test that shows behavior already works, and the regression proof only checked that after the Builder ran, so a guard over behavior that does not work yet cost a whole repair loop. Each draft's guards that name an existing test are now run on the original commit without a model, with the proof's runner, and one that fails there goes back to the Planner as a plan correction naming the failing test.
 
 - **A new feature's test that imports the module it adds is accepted as proof**: such a test cannot load on the original code, and on a project that already had tests the run paused after its proof failed with "The base test run could not collect", sending the Builder to rewrite its imports. When the original code's test run itself reports the missing module or name, the change adds it and the tests use it, those tests count as failing before and passing after. Any other failure to load is still refused, and a bug fix still needs a test that runs and fails. This also holds when the test imports the new name inside the test body, so it runs and fails importing it on the original code.
