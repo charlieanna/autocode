@@ -49,7 +49,9 @@ estimate until a rate is added there; the status view's `cost` field prices it f
 Parallel Builders are counted once, in their parent. A worker run keeps no ledger of its own: when a
 batch finishes, the parent copies each worker's finished stages, cost included, into its own record
 (`autocode_dispatch.account_workers`), so the parent's row holds them. While a batch is still running its
-workers' spend is not yet in the parent's row; it appears when the batch is accounted.
+workers' spend is not yet in the parent's row; it appears when the batch is accounted. The money cap does
+not wait for that: it compares the whole run's spend, the running workers' included
+([Money cap](execution.md#money-cap)).
 
 ### Current prices and the money cap
 

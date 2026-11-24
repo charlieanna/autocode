@@ -13,6 +13,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - **Go and Rust proofs keep coverage and the mutation check when they name tests**: AutoCode could not read the commands it narrows to the proving tests when a quoted test name held a shell character, so a Go `-run '^(TestA|TestB)$'` selection never got diff coverage and a Rust selection holding a documentation test got no per-test results and no mutation check. Every command parser now counts shell syntax only outside quotes. Go selections also keep their Example and Fuzz targets, and a Rust selection holding a documentation test filters by name instead of `--exact`, which rustdoc never matches.
 
+- **Parallel Builders now stay inside your cost cap.** Each parallel Builder compared the cap with its own spend only, so every one of them could spend up to the whole cap, and a Builder started its report repair or next attempt after the run had already passed it. The cap is now held over the whole run: the parent's spend plus every Builder's finished and running attempts, checked before every provider launch and while each stage runs. A Builder stopped at the cap now pauses the run at your cost cap instead of asking you to retry it, and raising the cap continues it from where it stopped without running any finished Builder again.
+
 ## [0.11.0] - 2026-11-24
 
 ### Added
