@@ -2100,7 +2100,7 @@
 
 
 <h1 id="execution-and-completion">Execution and completion<a class="headerlink" href="#execution-and-completion" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/99a8c2ef60313967588b07bd4436f4e0f50b15a6/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/a8525549ba1263dc8e48eeaa170a63408d60a3f2/README.md">← Back to README</a></p>
 <p>This page covers independent milestone Builders, milestone checkpoints and acceptance,
 open findings, timeouts and recovery, and the completion gate.</p>
 <h2 id="the-projects-own-tests-as-examples">The project's own tests as examples<a class="headerlink" href="#the-projects-own-tests-as-examples" title="Permanent link">&para;</a></h2>
@@ -2476,17 +2476,17 @@ before a PASS is accepted, the runner requires its own current execution of each
 <li><strong>What is refused.</strong> A check that runs <code>git status</code> is refused before anything
   runs: it reads the working tree's state, not the product, and once the work is
   committed and merged it lists nothing
-  (<a href="https://github.com/charlieanna/autocode/blob/99a8c2ef60313967588b07bd4436f4e0f50b15a6/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
+  (<a href="https://github.com/charlieanna/autocode/blob/a8525549ba1263dc8e48eeaa170a63408d60a3f2/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
   that names <code>git status</code> is refused when its author hands it in: a criterion's
   verification method, a task's validation plan or requirements, a progressive
   slice's check, a user's <code>--edit-goal</code> or <code>--goal-file</code>. The Planner, Plan Reviewer, Completion
   Reviewer or Resolver gets its report back for repair, with every such row named.
-  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/99a8c2ef60313967588b07bd4436f4e0f50b15a6/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
+  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/a8525549ba1263dc8e48eeaa170a63408d60a3f2/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
   A new plan with a command that <code>/bin/sh</code> cannot parse is refused at the same
   points, in the same repair. The replay runs each planned command with
   <code>/bin/sh -c</code>, so the runner asks that shell to read the command with <code>sh -n</code>,
   which runs nothing. A live step with backticks inside double quotes could
-  never run (<a href="https://github.com/charlieanna/autocode/blob/99a8c2ef60313967588b07bd4436f4e0f50b15a6/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
+  never run (<a href="https://github.com/charlieanna/autocode/blob/a8525549ba1263dc8e48eeaa170a63408d60a3f2/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
 <li><strong>A validate task's new steps are run when it is written.</strong> A Completion
   Reviewer or Resolver that finds a criterion without evidence hands the Tester a
   validate task, with steps of its own. Such a step must exit 0 in this replay,
@@ -2499,7 +2499,7 @@ before a PASS is accepted, the runner requires its own current execution of each
   the last accepted validation passed on this same source, is not run again here,
   and a failure the base revision has identically is the base's, as below. An
   implement task's steps are not run: they may fail until the Builder works
-  (<a href="https://github.com/charlieanna/autocode/blob/99a8c2ef60313967588b07bd4436f4e0f50b15a6/docs/bugs/2026-11-13-task-kind-survey.md">task-kind survey</a>, section 36).</li>
+  (<a href="https://github.com/charlieanna/autocode/blob/a8525549ba1263dc8e48eeaa170a63408d60a3f2/docs/bugs/2026-11-13-task-kind-survey.md">task-kind survey</a>, section 36).</li>
 <li><strong>When one does not reproduce.</strong> The Tester's report is rejected with the
   command, the runner's exit code and the end of its output. The Tester then runs
   again on the same source, once, and is told the command, how its replay ended
@@ -2888,7 +2888,7 @@ plan and review approval the harness gave a run must also be listed among that r
 and so must each budget pause the scenario's person acknowledged, as the resume that names it.
 In a components scenario each such gate names the task run it was given to, so an
 approval listed only in another component's run fails
-(<a href="https://github.com/charlieanna/autocode/blob/99a8c2ef60313967588b07bd4436f4e0f50b15a6/scenarios/README.md">scenarios/README.md</a>).</p>
+(<a href="https://github.com/charlieanna/autocode/blob/a8525549ba1263dc8e48eeaa170a63408d60a3f2/scenarios/README.md">scenarios/README.md</a>).</p>
 <h4 id="required-approver">Required approver<a class="headerlink" href="#required-approver" title="Permanent link">&para;</a></h4>
 <p>A team that wants only named people to approve can list their Git email addresses as
 <code>require-approver</code> in its <a href="../cli/#project-settings">project settings</a>:</p>
@@ -3090,15 +3090,24 @@ caps what a run may spend, in USD. A run has no cap unless you set one, and <cod
   token counts, is <em>unpriced</em>: it is not counted, so the spend is a floor, and the status view and
   cost line say how many stages are unpriced. Check <code>autocode models --prices</code> before relying on a cap
   with an unusual model, and use a provider that reports token counts or cost. While parallel
-  Builders run, their spend is not yet in the total, which reads as a floor until their batch is
-  accounted.</li>
+  Builders run, the status view's total is a floor until their batch is accounted; the cap itself
+  counts them as they spend (below).</li>
 <li><strong>When it pauses.</strong> The cap is checked at every stage boundary, right after the active-time limit,
-  before anything launches. Once the spend reaches the cap the run stops with <code>PAUSED_COST_LIMIT</code>, in
-  the <em>your decision</em> category, and AutoResolver publishes the usual operational request naming the
-  spend and the cap. A run can still end above its cap by a stage it could not price (below), or by one
-  parallel batch: workers are charged when the parent accounts their batch.</li>
+  and again at every provider launch, whatever asks for it (a stage, a report repair, an Investigator,
+  a parallel Builder's next attempt). Once the spend reaches the cap no new paid work starts: the run
+  stops with <code>PAUSED_COST_LIMIT</code>, in the <em>your decision</em> category, and AutoResolver publishes the usual
+  operational request naming the spend and the cap. A run can still end above its cap by a stage it
+  could not price (below), or by what the stages already running spend before the watch below stops them.</li>
+<li><strong>Parallel Builders share the run's cap.</strong> The spend the cap is compared with is the whole run's
+  (<code>tools/autocode_run_spend.py</code>): the parent's spend outside the batch plus every member's finished
+  attempts and the attempts they are running, under the parent's saved cap. Before, each member compared
+  the cap with its own spend alone, so every member could spend up to the whole cap and a member started
+  its report repair after the run had passed it. A member stopped at the cap pauses the run as
+  <code>PAUSED_COST_LIMIT</code>; raising the cap continues that member from where it stopped, and runs no finished
+  member again.</li>
 <li><strong>While a stage runs.</strong> Every 15 seconds the stage supervisor adds the running stage's usage so far,
-  read from its own event file and priced as a finished stage is, to the spend before it. Once the total
+  read from its own event file and priced as a finished stage is, to the run's spend apart from it, read
+  again at each check, so a parallel Builder sees what its siblings spend meanwhile. Once the total
   reaches the cap the stage is stopped as Stop now stops it: its partial work and logs are kept, it is not
   counted as a failure or an automatic recovery, the chat says it was stopped at your cost cap, and the run
   pauses <code>PAUSED_COST_LIMIT</code>. Raising the cap runs the same stage again from its partial work. Before this, a
