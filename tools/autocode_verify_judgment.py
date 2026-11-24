@@ -268,6 +268,29 @@ def judge_regression(
             if first:
                 flipped_set |= first
                 notes.append("The first suite's named tests were not run on the base because collection failed.")
+        if (
+            new_behavior
+            and not preserve_only
+            and seam_names
+            and base["collection_errors"]
+            and on_candidate["exit_code"] == 0
+            and not candidate.get("skipped")
+            and not failed
+        ):
+            # Owner decision 2026-11-24: a feature's tests that cannot load on the base only because they
+            # import a module or name the change adds show the feature is absent there, as a test that runs
+            # and fails does. The base run's own output must name the missing name (proof_seam.used); any
+            # other collection failure (a syntax error, a missing dependency) stays a refusal below.
+            added = seam_names(on_base)
+            observed = set(base["passed"]) | set(base["failed"]) | set(base.get("skipped") or ())
+            loaded = {name for name in passed - observed if changed_tests is None or changed_tests(name)}
+            if added and loaded:
+                flipped_set |= loaded
+                notes.append(
+                    "Not run on the base: the new tests import "
+                    + ", ".join(added[:5])
+                    + ", which only the change adds, so they could not load there; they pass with the change."
+                )
         flipped = sorted(flipped_set)
         # Tests that ran and passed on the original code and still pass (autocode_regression.check_cases).
         kept = set(base["passed"]) & passed

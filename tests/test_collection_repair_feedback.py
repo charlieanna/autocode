@@ -9,7 +9,7 @@ from tests.test_verify import Project, isolated_python
 
 
 class CollectionRepairFeedbackTests(unittest.TestCase):
-    def test_builder_can_repair_uncollected_tests_without_relaxing_the_gate(self):
+    def project(self, files, base=None):
         # The base already has a passing suite, so the new test is not a project's first suite: that
         # case counts an uncollected test as first-suite proof under its own preservation judgment
         # (tests.test_verify.PreservationEvidenceCase). Here the test must load and fail on base.
@@ -20,24 +20,13 @@ class CollectionRepairFeedbackTests(unittest.TestCase):
                     "class Seed(unittest.TestCase):\n"
                     "    def test_seed(self):\n"
                     "        self.assertTrue(True)\n"
-                )
+                ),
+                **(base or {}),
             }
         )
         self.addCleanup(project.close)
         python = isolated_python(self)
-        project.write(
-            {
-                "hello.py": 'print("hello")\n',
-                "test_hello.py": (
-                    "import subprocess, sys, unittest\n"
-                    "import hello\n"
-                    "class TestHello(unittest.TestCase):\n"
-                    "    def test_cli(self):\n"
-                    '        result = subprocess.run([sys.executable, "hello.py"], capture_output=True, text=True)\n'
-                    '        self.assertEqual(result.stdout, "hello\\n")\n'
-                ),
-            }
-        )
+        project.write(files)
         framework = verify.detect_framework(project.root, python=python)
         baseline = verify.baseline(
             project.root,
@@ -59,6 +48,49 @@ class CollectionRepairFeedbackTests(unittest.TestCase):
                 new_behavior=True,
             )
 
+        return project, run
+
+    def test_feature_test_importing_the_module_the_change_adds_is_proof(self):
+        # Owner decision 2026-11-24: the base run names the missing module ``hello``, which only the
+        # change adds, so the test that could not load there shows the feature is absent.
+        _, run = self.project(
+            {
+                "hello.py": 'print("hello")\n',
+                "test_hello.py": (
+                    "import subprocess, sys, unittest\n"
+                    "import hello\n"
+                    "class TestHello(unittest.TestCase):\n"
+                    "    def test_cli(self):\n"
+                    '        result = subprocess.run([sys.executable, "hello.py"], capture_output=True, text=True)\n'
+                    '        self.assertEqual(result.stdout, "hello\\n")\n'
+                ),
+            }
+        )
+        proof = run()
+        self.assertEqual("PASS", proof["verdict"], proof)
+        self.assertEqual(["test_hello.TestHello.test_cli"], proof["fail_to_pass"], proof)
+        self.assertIn("test_hello.TestHello.test_cli", proof["not_run_on_base"], proof)
+        self.assertTrue(proof["checks"]["regression_on_base"]["results"]["collection_errors"], proof)
+        self.assertIn("hello, which only the change adds", " ".join(proof["notes"]), proof)
+
+    def test_builder_can_repair_uncollected_tests_without_relaxing_the_gate(self):
+        # A collection failure the base run does not attribute to a name the change adds (here the base's
+        # own hello.py imports a module that does not exist) is still not proof: the Builder is told to make
+        # the test load on the base, so its assertion runs and fails there.
+        project, run = self.project(
+            {
+                "hello.py": 'print("hello")\n',
+                "test_hello.py": (
+                    "import subprocess, sys, unittest\n"
+                    "import hello\n"
+                    "class TestHello(unittest.TestCase):\n"
+                    "    def test_cli(self):\n"
+                    '        result = subprocess.run([sys.executable, "hello.py"], capture_output=True, text=True)\n'
+                    '        self.assertEqual(result.stdout, "hello\\n")\n'
+                ),
+            },
+            base={"hello.py": 'import greeting_backend\nprint("hi")\n'},
+        )
         held = run()
         self.assertEqual([], held["fail_to_pass"], held)
         self.assertIn("test_hello", str(held["failures"]))

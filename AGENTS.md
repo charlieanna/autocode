@@ -202,6 +202,16 @@ original-test gate reads that one answer rather than restoring the broken fixtur
 was refused as "Only test files changed" and the person was asked whether to make an exception. Do
 not extend this to a change of a test's own assertions, or to a runner that names no test.
 
+**A feature test that imports what the change adds is proof, owner decision 2026-11-24.** A new
+behavior's test that imports the module or name the change adds cannot load on the original code, so it
+cannot run and fail there. When the base run's own output names a missing module or name that the
+change's source adds and its tests use (`autocode_proof_seam.used`, the observation the bug-fix seam
+refusal already reads), the changed tests that could not load there and pass with the change are the
+fail-to-pass proof (`autocode_verify_judgment.judge_regression`). Before, such a feature on a project that
+already had tests failed its proof with "The base test run could not collect" and the Builder was sent
+to rewrite its imports. Any other collection failure (a module the base itself cannot import, a syntax
+error, a missing dependency) is still refused, and a bug fix still needs a test that runs and fails.
+
 The changed-code evidence gate (#2474) combines authenticated diff coverage
 (`tools/autocode_diff_coverage.py`, #701), behavioral mutation observations and
 exact per-line reasons checked by the existing independent Tester. Raw coverage
