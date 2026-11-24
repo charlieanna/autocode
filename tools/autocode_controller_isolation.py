@@ -112,10 +112,10 @@ def saved_requirements_only(
     repair = state.get("pending_report_repair") or {}
     if repair:
         original = repair.get("original") or {}
-        stage = original.get("stage")
-        if not is_requirements_stage(stage) or state.get("next_stage") != stage:
+        repair_stage = original.get("stage")
+        if not is_requirements_stage(repair_stage) or state.get("next_stage") != repair_stage:
             return False
-        if original.get("role") not in (None, stage_roles.role_for(state, stage)):
+        if original.get("role") not in (None, stage_roles.role_for(state, repair_stage)):
             return False
         if original.get("route_role", original.get("role")) != "requirements":
             return False
@@ -123,9 +123,12 @@ def saved_requirements_only(
         if latest is not None:
             if not isinstance(latest, dict) or latest.get("report_only") is not True:
                 return False
-            if latest.get("stage") != f"{stage}_report_repair" or latest.get("original_stage", stage) != stage:
+            if (
+                latest.get("stage") != f"{repair_stage}_report_repair"
+                or latest.get("original_stage", repair_stage) != repair_stage
+            ):
                 return False
-            if latest.get("role") not in (None, stage_roles.role_for(state, stage)):
+            if latest.get("role") not in (None, stage_roles.role_for(state, repair_stage)):
                 return False
             if latest.get("route_role", latest.get("role")) != "requirements":
                 return False

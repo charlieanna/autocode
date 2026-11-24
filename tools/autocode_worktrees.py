@@ -105,8 +105,9 @@ def _task_branch(workspace, *, state: RunState | None = None, legacy=False):
     if not data or not (data.get("kind") == "task" or legacy and "kind" not in data):
         return None
     if state is not None:
-        saved_workspace, project = (state.get(key) for key in ("workspace", "project_workspace"))
-        if not all(isinstance(value, str) for value in (saved_workspace, project)):
+        saved_workspace = state.get("workspace")
+        project = state.get("project_workspace")
+        if not isinstance(saved_workspace, str) or not isinstance(project, str):
             return None
         if "task_branch" in state and state["task_branch"] != data["branch"]:
             return None
