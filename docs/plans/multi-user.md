@@ -1,9 +1,10 @@
 # Multi-user and team use: design
 
-Status: **proposed, not approved or implemented.** Written 2026-11-24 against master
-`6d4488e`. Merging this document authorizes no runtime change. The first slice below
-needs the owner's decision, because it grows the channel bridge's approved contract
-(`AGENTS.md`, "Channel bridge").
+Status: **first slice approved, not yet implemented.** Written 2026-11-24 against master
+`6d4488e`. On 2026-11-24 the owner gave priority to getting AutoCode ready for team use,
+which chooses the first slice below on one shared team credential (model 1). That
+decision grows the channel bridge's approved contract (`AGENTS.md`, "Channel bridge")
+by exactly that slice; everything listed as out of scope still needs its own decision.
 
 AutoCode today is one person on one machine. This note says what team use would need
 for four things (shared run history, per-person cost caps and credentials, access
@@ -112,19 +113,21 @@ posted, so removing someone stops their pending replies.
 One trusted team, one persistent Linux host, the existing bridge. No new client, no web
 service, no new authentication.
 
-1. **Record who acted.** For runs the bridge starts, record the requesting GitHub login
-   and the login behind every decision it applies, as a new
-   `forge_actor` record marked "authenticated by GitHub", alongside (never replacing)
-   the existing unverified Git provenance. Shown in the status view as an additive field
-   and in the posted result.
-2. **Split submit from decide.** Add an optional `deciders` list to the bridge
-   configuration, defaulting to today's allowlist, so behavior is unchanged unless set.
+1. **Record who acted.** For runs the bridge starts, record the GitHub login that
+   applied the label (the requester; GitHub authenticated it) and the login behind every
+   decision the bridge applies, on the bridge's own record of the run, marked
+   "authenticated by GitHub". It sits alongside, and never replaces, the run's existing
+   unverified Git provenance. `bridge status` and the issue's notices show it.
+2. **Split submit from decide.** The existing `AUTOCODE_BRIDGE_ACTORS` list names who may
+   start runs; an optional `AUTOCODE_BRIDGE_DECIDERS` list names who may answer, approve
+   and steer them, defaulting to the actors, so behavior is unchanged unless set. A
+   labeled issue whose labeler is on neither list is refused, not started.
 3. **Per-person cap through the existing run cap.** An optional per-login period cap in
-   the bridge configuration. At start, the remaining allowance becomes the run's
-   `--max-cost-usd`; at zero the bridge posts the refusal to the issue and starts nothing.
-   The posted result includes the run's cost and the person's period total.
-4. **Keep containment on.** The bridge refuses uncontained runs when more than one login
-   is configured.
+   the bridge configuration. At start, the requester's remaining allowance becomes the
+   run's `--max-cost-usd`, reserved until the run settles; at zero the bridge posts the
+   refusal to the issue and starts nothing. The posted result includes the run's cost.
+4. **Keep containment on.** The bridge refuses `--allow-uncontained-tools` in its launch
+   options when more than one login may act.
 
 Out of scope for the slice: per-person credentials (model 2), a team store across hosts,
 a web or VS Code team view, Slack or Jira, and multi-team tenancy.
@@ -138,8 +141,12 @@ provider path.
 
 ## Open questions for the owner
 
-- Whether unknown or unpriced usage blocks admission once a person has a cap.
-- Whether the first slice should use one shared credential (model 1), or wait for
-  per-person OS accounts (model 2).
+Decided 2026-11-24: the first slice uses one shared credential (model 1), with spend
+attributed per person. Still open, with the slice's interim behavior:
+
+
+- Whether unknown or unpriced usage blocks admission once a person has a cap. Until
+  decided, it does not block; the person's total says how much of it is unknown.
 - Whether the posted result should show the person's period total to everyone who can
-  read the issue, or only on the host.
+  read the issue, or only on the host. Until decided, the issue shows the run's own cost
+  and the host shows period totals.
