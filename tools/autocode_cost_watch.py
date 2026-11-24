@@ -10,7 +10,8 @@ person's Stop now does: its partial work is kept, the run pauses PAUSED_COST_LIM
 boundary, and raising the cap runs the stage again.
 
 An unpriced stage (a model without a rate and no reported cost) cannot trip the cap, as at the
-boundary. The checker reads only the run's saved state and this stage's own event file.
+boundary. The checker reads the run's saved state, this stage's own event file and, for a parallel
+Builder, its parent's and siblings' saved states and running event files (autocode_run_spend).
 """
 
 from __future__ import annotations
@@ -23,10 +24,12 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_cost as cost
+    from . import autocode_run_spend as run_spend
     from . import autocode_support as support
     from . import autocode_util as util
 except ImportError:
     import autocode_cost as cost
+    import autocode_run_spend as run_spend
     import autocode_support as support
     import autocode_util as util
 
@@ -39,21 +42,25 @@ def reason(spent, limit) -> str:
 def checker(state: RunState, record: dict, events):
     """A no-argument callable for the supervisor, or None when the run has no cap.
 
-    The run's spend before this stage is read once, when the stage starts; the stage's own spend is
-    read from ``events`` at each call.
+    The whole run's spend apart from this stage (autocode_run_spend: a parallel Builder's parent and
+    siblings included) and this stage's own spend, from ``events``, are read at each call.
     """
-    limit = cost.cap(state.get("settings"))
-    if limit is None:
+    if run_spend.known(state)["cap"] is None:
         return None
-    before = cost.spent(state)
     settings = state.get("settings")
 
     def reached():
-        path = Path(events)
-        if not path.is_file():
+        # The whole run's spend, read again at each check: a parallel Builder's siblings spend while it runs.
+        answer = run_spend.known(state)
+        limit = answer["cap"]
+        if limit is None:
             return None
-        running = {**record, "metrics": support.event_metrics(path), "finished_at": util.now()}
-        total = before + cost.spent({"settings": settings, "stages": [running]})
+        path = Path(events)
+        own = 0.0
+        if path.is_file():
+            running = {**record, "metrics": support.event_metrics(path), "finished_at": util.now()}
+            own = cost.spent({"settings": settings, "stages": [running]})
+        total = answer["spent"] + own
         return reason(total, limit) if total >= limit else None
 
     return reached
