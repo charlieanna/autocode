@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 import copy
 import datetime as dt
 import json
+import os
 import sys
 import uuid
 from contextlib import ExitStack
@@ -337,6 +338,8 @@ def resolve(runner, args, parser):
             parser.error("Requirements-only discussion cannot use uncontained tools")
         local_requirements = True
     args._local_requirements_only = local_requirements
+    if local_requirements:
+        os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
     def require_isolated(selected):
         if not read_only:
@@ -377,6 +380,7 @@ def resolve(runner, args, parser):
                 parser.error("Requirements-only discussion cannot use task preflight")
             if controller_isolation.local_requirements(workspace, state):
                 local_requirements = args._local_requirements_only = True
+                os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
         if (carried := build_worktree.resolve(workspace, run_dir, state)) is not None:
             # Planned here and moved to its own worktree to build: the name a client holds stays its handle.
             workspace, run_dir, state = carried
