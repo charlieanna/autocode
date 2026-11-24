@@ -1041,12 +1041,16 @@ class NewBehaviorVerifyTests(unittest.TestCase):
         project.write(UNLOADABLE_FEATURE)
         return project
 
-    def test_a_new_test_that_cannot_import_on_base_does_not_prove_a_feature(self):
+    def test_a_new_test_that_cannot_import_on_base_only_for_the_added_name_proves_a_feature(self):
+        # Owner decision 2026-11-24: the base run reports ``sub`` missing, which the change adds and the
+        # test imports, so the test that could not load there shows the feature is absent.
         result = self.project().verify(new_behavior=True)
-        self.assertEqual(verify.FAIL, result["verdict"], result["failures"] + result["unverified"])
-        self.assertNotIn("test_calc.CalcTests.test_c2_subtracts", result["fail_to_pass"])
+        self.assertEqual(verify.PASS, result["verdict"], result["failures"] + result["unverified"])
+        self.assertEqual(["test_calc.CalcTests.test_c2_subtracts"], result["fail_to_pass"])
         self.assertIn("test_calc.CalcTests.test_c2_subtracts", result["not_run_on_base"])
-        self.assertTrue(any("could not collect" in reason for reason in result["failures"]), result["failures"])
+        # The existing test in the edited file passed on the pristine base: preserved, not proof.
+        self.assertNotIn("test_calc.CalcTests.test_add", result["fail_to_pass"])
+        self.assertTrue(any("sub, which only the change adds" in note for note in result["notes"]), result["notes"])
 
     def test_the_same_change_is_not_a_bug_reproduction(self):
         result = self.project().verify()
@@ -1182,16 +1186,18 @@ class FeatureProofTests(unittest.TestCase):
         self.assertEqual("PASS", proof["verdict"], proof["failures"] + proof["unverified"])
         self.assertEqual(["test_guard.GuardTests.test_c4_add_still_works"], proof["case_tests"]["C4"])
 
-    def test_a_guard_that_could_not_run_before_does_not_prove_the_feature(self):
+    def test_a_guard_that_could_not_run_before_counts_with_a_note(self):
         # Its file imports sub, which the change adds, so on the original code the file does not import.
+        # The feature's test is proof (owner decision 2026-11-24); the guard's test counts, noted as not
+        # shown to have passed before.
         proof = self.prove(
             [EXAMPLE, self.GUARD],
             {**UNLOADABLE_FEATURE, "test_calc.py": UNLOADABLE_FEATURE["test_calc.py"] + self.GUARD_TEST},
         )
-        self.assertEqual("FAIL", proof["verdict"], proof["failures"] + proof["unverified"])
-        self.assertEqual([], proof["case_tests"]["C2"])
-        self.assertFalse(proof["fail_to_pass"])
-        self.assertEqual(proof["failures"], json.loads(Path(proof["path"]).read_text())["failures"])
+        self.assertEqual("PASS", proof["verdict"], proof["failures"] + proof["unverified"])
+        self.assertEqual(["test_calc.CalcTests.test_c2_subtracts"], proof["case_tests"]["C2"])
+        self.assertEqual(["test_calc.CalcTests.test_c4_add_still_works"], proof["case_tests"]["C4"])
+        self.assertTrue(any("Preserve case C4" in note for note in proof["notes"]), proof["notes"])
 
     def test_a_guard_whose_test_ran_and_failed_before_the_change_is_mis_tagged(self):
         new_behavior = {**self.GUARD, "id": "C5", "verification_method": "guard: test_c5_sub_exists"}

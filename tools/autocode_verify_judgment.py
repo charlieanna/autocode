@@ -283,7 +283,10 @@ def judge_regression(
             # other collection failure (a syntax error, a missing dependency) stays a refusal below.
             added = seam_names(on_base)
             observed = set(base["passed"]) | set(base["failed"]) | set(base.get("skipped") or ())
-            loaded = {name for name in passed - observed if changed_tests is None or changed_tests(name)}
+            # A test the pristine base suite passed (an existing test in a file the change edits) is
+            # preserved behavior, not proof that the feature was absent.
+            before = base_suite_passed() if base_suite_passed else set()
+            loaded = {name for name in passed - observed - before if changed_tests is None or changed_tests(name)}
             if added and loaded:
                 flipped_set |= loaded
                 notes.append(
