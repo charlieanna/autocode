@@ -23,6 +23,7 @@ try:
     from . import autocode_python_tests as python_tests
     from . import autocode_rspec_tests as rspec_tests
     from . import autocode_shell_syntax as shell_syntax
+    from . import autocode_source_binding as source_binding
     from . import autocode_test_cases as test_cases
 except ImportError:
     import autocode_cargo_tests as cargo_tests
@@ -31,6 +32,7 @@ except ImportError:
     import autocode_python_tests as python_tests
     import autocode_rspec_tests as rspec_tests
     import autocode_shell_syntax as shell_syntax
+    import autocode_source_binding as source_binding
     import autocode_test_cases as test_cases
 
 REPEATS = 3
@@ -51,7 +53,9 @@ def runner(run, trees, framework, run_suite, timeout):
                 f"Checking regression test stability ({label})", command=command, output=run.run_dir, phase="stability"
             )
         tree = trees["candidate" if side == "candidate" else "base_with_tests"]
-        run.checks[label] = run_suite(framework, command, tree, run.run_dir, label, timeout=timeout)
+        run.checks[label] = run_suite(
+            framework, command, tree, run.run_dir, label, timeout=timeout, source_workspace=run.workspace
+        )
         return run.checks[label]
 
     return repeat
@@ -89,7 +93,7 @@ def classify(outcomes) -> str:
 
 def outcome_of(receipt, test) -> str:
     """How one receipt recorded ``test``: pass, fail, or missing."""
-    if not receipt or receipt.get("timed_out") or receipt.get("error"):
+    if not receipt or not source_binding.established(receipt) or receipt.get("timed_out") or receipt.get("error"):
         return "missing"
     results = receipt.get("results") or {}
     if not results.get("complete"):

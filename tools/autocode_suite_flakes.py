@@ -46,6 +46,7 @@ try:
     from . import autocode_project_suite_health as project_suite_health
     from . import autocode_proof_stability as proof_stability
     from . import autocode_scratch_location as scratch_location
+    from . import autocode_source_binding as source_binding
     from . import autocode_test_cases as test_cases
     from . import autocode_util as util
     from . import autocode_verification_schedule as schedule
@@ -54,6 +55,7 @@ except ImportError:
     import autocode_project_suite_health as project_suite_health
     import autocode_proof_stability as proof_stability
     import autocode_scratch_location as scratch_location
+    import autocode_source_binding as source_binding
     import autocode_test_cases as test_cases
     import autocode_util as util
     import autocode_verification_schedule as schedule
@@ -385,6 +387,9 @@ def for_proof(run, trees, on_candidate, comparable, helpers) -> list[str]:
     framework, proof = run.framework, run.proof
     if framework is None or comparable is None or comparable.get("base") != run.base:
         return []
+    if reasons := source_binding.reasons({"candidate": on_candidate, "base": comparable.get("receipt") or {}}):
+        run.unverified.extend("Runner source resolution is not established — " + reason for reason in reasons)
+        return []
     named = [test for key in ("fail_to_pass", "pass_to_pass", "not_run_on_base") for test in proof.get(key) or []]
     texts = ["\n".join([*(case.get("test_name") or "" for case in run.cases or ()), *(run.guards or ())])]
     for path, status in run.changes.items():
@@ -473,7 +478,9 @@ def for_proof(run, trees, on_candidate, comparable, helpers) -> list[str]:
                 )
             )
         tree = trees["candidate"] if side == "candidate" else base_tree[0]
-        run.checks[label] = run_suite(framework, command, tree, run.run_dir, label, timeout=run.timeout)
+        run.checks[label] = run_suite(
+            framework, command, tree, run.run_dir, label, timeout=run.timeout, source_workspace=run.workspace
+        )
         return run.checks[label]
 
     directory = getattr(framework, "directory", None)

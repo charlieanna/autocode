@@ -41,11 +41,13 @@ try:
     from . import autocode_command_receipt as command_receipt
     from . import autocode_package_scope as package_scope
     from . import autocode_project_kinds as project_kinds
+    from . import autocode_source_binding as source_binding
     from . import autocode_verification_commands as verification_commands
 except ImportError:
     import autocode_command_receipt as command_receipt
     import autocode_package_scope as package_scope
     import autocode_project_kinds as project_kinds
+    import autocode_source_binding as source_binding
     import autocode_verification_commands as verification_commands
 
 ROOT = ""
@@ -210,6 +212,8 @@ def guard_results(on_base, on_change) -> dict:
     """What a guard suite's two runs show: ``passing`` (passed in both), ``failing`` (failed with the change),
     and ``complete``, False when either run did not finish or reported no complete per-test results."""
     runs = [on_base, on_change]
+    if not all(source_binding.established(run) for run in runs):
+        return {"passing": [], "failing": [], "complete": False}
     if not all(command_receipt.completed(run) and not run.get("timed_out") for run in runs) or not all(
         (run.get("results") or {}).get("complete") for run in runs
     ):
@@ -225,6 +229,8 @@ def guard_results(on_base, on_change) -> dict:
 def judge(project, command, on_base, on_change) -> tuple[list[str], list[str]]:
     """(failures, unverified) from one companion suite's run on the original code and with the change."""
     suite = f"The {project}/ suite `{command}`" if project else f"The repository root's suite `{command}`"
+    if reasons := source_binding.reasons({"base": on_base, "candidate": on_change}):
+        return [], [f"{suite}: runner source resolution is not established — " + "; ".join(reasons)]
     for receipt, when in ((on_base, "on the original code"), (on_change, "with the change")):
         if not command_receipt.completed(receipt) or receipt.get("timed_out"):
             return [], [f"{suite} did not finish {when}, so it cannot show whether the change breaks a test there"]

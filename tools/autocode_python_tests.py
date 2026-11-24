@@ -378,7 +378,7 @@ class Invocation:
         return shlex.join([*self.prefix, self.python, "-m", "unittest", "-v", *kept, *files])
 
 
-def parse(command, *, include_owned=False):
+def parse(command, *, include_owned=False, owned_directory=None):
     """Parse module invocations; selection-aware consumers may opt into owned collectors.
 
     File discovery, widening and rewrite consumers retain their module-only contract.
@@ -402,7 +402,8 @@ def parse(command, *, include_owned=False):
         and len(tail) >= 2
         and re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", Path(tail[0]).name)
         and Path(tail[1]).is_absolute()
-        and Path(tail[1]).resolve() == Path(__file__).with_name("autocode_component_tests.py").resolve()
+        and Path(tail[1]).resolve()
+        == (Path(owned_directory) if owned_directory else Path(__file__).parent) / "autocode_component_tests.py"
     ):
         return Invocation(tuple(words[:offset]), tail[0], "unittest", tuple(tail[2:]), script=tail[1])
     if (

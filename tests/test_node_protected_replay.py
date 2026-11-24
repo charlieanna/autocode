@@ -20,7 +20,8 @@ BUILD = """const fs = require('node:fs');
 fs.mkdirSync('out-test', {recursive: true});
 fs.copyFileSync('src/shipping.js', 'out-test/shipping.js');
 """
-LOAD_BUILT = ("../src/shipping.js", "../out-test/shipping.js")
+LOAD_BUILT = ("../src/shipping.js", "../src/shipping.js")
+LOAD_FROM_BUILD = ("../src/shipping.js", "../out-test/shipping.js")
 HANG_ON_FIX = """test('a fifty dollar order pays the fee', async () => {
   if (shippingFee(5000) === 0) await new Promise(() => {});
 """
@@ -30,21 +31,23 @@ HANG_ON_FIX = """test('a fifty dollar order pays the fee', async () => {
 class NodeProtectedReplayTests(unittest.TestCase):
     approve = fixture.Gate.approve
 
-    def prepare(self, original):
+    def prepare(self, original, *, build=False):
         package = {
             "name": "shipping",
             "private": True,
-            "scripts": {"test": "node scripts/build.cjs && node --test tests/*.test.js"},
+            "scripts": {"test": "node --test tests/*.test.js"},
         }
-        project = Project(
-            {
-                "package.json": json.dumps(package),
-                ".gitignore": "out-test/\n",
-                "scripts/build.cjs": BUILD,
-                "src/shipping.js": fixture.JS_FEE,
-                fixture.JS_ENTRY["file"]: original.replace(*LOAD_BUILT),
-            }
-        )
+        if build:
+            package["scripts"]["test"] = "node scripts/build.cjs && node --test tests/*.test.js"
+        files = {
+            "package.json": json.dumps(package),
+            ".gitignore": "out-test/\n",
+            "src/shipping.js": fixture.JS_FEE,
+            fixture.JS_ENTRY["file"]: original.replace(*(LOAD_FROM_BUILD if build else LOAD_BUILT)),
+        }
+        if build:
+            files["scripts/build.cjs"] = BUILD
+        project = Project(files)
         self.addCleanup(project.close)
         self.state = {"settings": {}, "workspace": str(project.root), "user_events": []}
         self.run_dir = project.root / ".autocode" / "runs" / "superseded-node"
@@ -58,21 +61,28 @@ class NodeProtectedReplayTests(unittest.TestCase):
             discover_command=lambda: verify.detect_framework(project.root).suite,
         )
         self.approve([fixture.JS_ENTRY], method="test: a fifty dollar order pays the fee")
+        replacement = LOAD_FROM_BUILD if build else LOAD_BUILT
         project.write(
-            {"src/shipping.js": fixture.JS_FIXED, fixture.JS_ENTRY["file"]: fixture.JS_UPDATED.replace(*LOAD_BUILT)}
+            {
+                "src/shipping.js": fixture.JS_FIXED,
+                fixture.JS_ENTRY["file"]: fixture.JS_UPDATED.replace(*replacement),
+            }
         )
         return project.root
 
     def replay(self, root):
         return guard.replay(self.state, root, self.run_dir / "replays", verify.scratch_run, timeout=60)
 
-    def test_original_replay_builds_the_same_package_before_running_selected_tests(self):
-        root = self.prepare(fixture.JS_ORIGINAL)
-        result = self.replay(root)
-        self.assertEqual("PASS", result["verdict"])
-        self.assertEqual(
-            ["tests/shipping.test.js::a small order pays the fee"], result["original"]["results"]["passed"]
-        )
+    def test_an_opaque_build_step_cannot_supply_source_resolution_for_protected_replay(self):
+        root = self.prepare(fixture.JS_ORIGINAL, build=True)
+        with self.assertRaises(guard.commands.OriginalGateUndetermined) as stopped:
+            self.replay(root)
+        self.assertIn("could not establish a result", str(stopped.exception))
+        receipt = stopped.exception.receipt
+        self.assertEqual("NOT_VERIFIED", receipt["verdict"])
+        for half in ("candidate", "original"):
+            self.assertEqual("unverified", receipt[half]["source_binding"]["status"], receipt[half])
+            self.assertIn("literal test invocation", receipt[half]["source_binding"]["reason"])
 
     def test_node_checks_ignore_the_parent_test_context(self):
         root = self.prepare(fixture.JS_ORIGINAL)

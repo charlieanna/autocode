@@ -593,7 +593,9 @@ def _on_the_change(state: RunState, workspace, run_dir, framework, command, labe
             # A command naming the workspace's absolute path runs against the copy, never the workspace.
             for root in dict.fromkeys((str(Path(workspace).resolve()), str(workspace))):
                 command = command.replace(root, str(tree))
-            return verify.run_suite(framework, command, tree, folder, label, timeout=timeout)
+            return verify.run_suite(
+                framework, command, tree, folder, label, timeout=timeout, source_workspace=workspace
+            )
         finally:
             verify.remove_tree(workspace, tree)
 
@@ -1216,7 +1218,15 @@ def _protect_companions(proof, result, companions, workspace, base, out, kept, d
             base_patch=patch,
             ignored_inputs=inputs,
         )["receipt"]
-        on_change = verify.run_suite(found, found.suite, kept[-1], evidence, "suite-on-candidate", timeout=timeout)
+        on_change = verify.run_suite(
+            found,
+            found.suite,
+            kept[-1],
+            evidence,
+            "suite-on-candidate",
+            timeout=timeout,
+            source_workspace=workspace,
+        )
         result["checks"][f"companion_suite_on_base:{at}"] = on_base
         result["checks"][f"companion_suite_on_candidate:{at}"] = on_change
         failed, missing = companion_suites.judge(project, found.suite, on_base, on_change)
@@ -1273,13 +1283,21 @@ def _listed_tests(looking, changes, roles, framework, workspace, base, out, depe
                     return None
                 file.write_text(listed_tests.UNLOADABLE)
             receipt = verify.run_suite(
-                framework, command, tree, Path(out) / "listed-tests", label, timeout=listed_tests.RUN_SECONDS
+                framework,
+                command,
+                tree,
+                Path(out) / "listed-tests",
+                label,
+                timeout=listed_tests.RUN_SECONDS,
+                source_workspace=workspace,
             )
         except (OSError, ValueError):
             return None
         finally:
             verify.remove_tree(workspace, tree)
         finished = verify.command_receipt.completed(receipt) and not receipt.get("timed_out")
+        if not verify.source_binding.established(receipt):
+            return None
         return receipt.get("exit_code") if finished else None
 
     files, unrun, seen = listed_tests.find(tests, others, look)
@@ -1323,7 +1341,13 @@ def _run_guard_commands(
                     ignored_inputs=inputs,
                 )["receipt"]
                 on_change = verify.run_suite(
-                    framework, command, kept[-1], evidence, "guard-on-candidate", timeout=timeout
+                    framework,
+                    command,
+                    kept[-1],
+                    evidence,
+                    "guard-on-candidate",
+                    timeout=timeout,
+                    source_workspace=workspace,
                 )
                 runs[command] = (on_base, on_change)
                 result["checks"][f"guard_command_on_base:{guard['id']}"] = on_base
@@ -1384,7 +1408,9 @@ def _run_guard_suites(guard_suites, result, workspace, base, out, kept, dependen
             base_patch=patch,
             ignored_inputs=inputs,
         )["receipt"]
-        on_change = verify.run_suite(framework, command, kept[-1], evidence, "guards-on-candidate", timeout=timeout)
+        on_change = verify.run_suite(
+            framework, command, kept[-1], evidence, "guards-on-candidate", timeout=timeout, source_workspace=workspace
+        )
         result["checks"][f"companion_guards_on_base:{at}"] = on_base
         result["checks"][f"companion_guards_on_candidate:{at}"] = on_change
         others.append(

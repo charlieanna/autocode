@@ -20,7 +20,7 @@ import autocode_verification_plan as plan
 import autocode_verification_schedule as schedule
 import autocode_verify as verify
 
-from .test_verify import Project, isolated_python, isolated_python_env
+from .test_verify import Project, isolated_python
 
 
 class ReceiptPolicyTests(unittest.TestCase):
@@ -835,14 +835,24 @@ class VerificationRestartCLI(unittest.TestCase):
         scratch = tempfile.TemporaryDirectory(prefix="verification-restart-", dir=results, ignore_cleanup_errors=True)
         self.addCleanup(scratch.cleanup)
         root = Path(scratch.name).resolve()
-        scenario = replace(catalog.load("verification-reuse"), fake_check=".venv/bin/python -m unittest discover -v")
+        # The controller keeps the crash hook; proof interpreters must not load its arbitrary startup code.
+        scenario = replace(
+            catalog.load("verification-reuse"),
+            fake_check="env PYTHONPATH= .venv/bin/python -m unittest discover -v",
+        )
         project = materialize(scenario.seed, root / "project")
         # Only a deliberately selected virtualenv admits cross-invocation
         # reuse; the default global interpreter always executes fresh.
         flags, env = fake_setup(scenario, root, scenario.reference)
-        env = isolated_python_env(self, env, directory=root)
-        runtime_bin = Path(env["PATH"].split(os.pathsep)[0])
-        (project / ".venv").symlink_to(runtime_bin.parent, target_is_directory=True)
+        runtime = Path(isolated_python(self, directory=root))
+        venv = project / ".venv"
+        (venv / "bin").mkdir(parents=True)
+        shutil.copy2(runtime.parent.parent / "pyvenv.cfg", venv / "pyvenv.cfg")
+        interpreter = venv / "bin" / "python"
+        interpreter.write_text(f'#!/bin/sh\nunset PYTHONPATH\nexec {shlex.quote(str(runtime.resolve()))} "$@"\n')
+        interpreter.chmod(0o755)
+        (venv / "bin" / "python3").symlink_to("python")
+        env["PATH"] = os.pathsep.join([str(interpreter.parent), *env["PATH"].split(os.pathsep)])
         hooks = root / "hooks"
         hooks.mkdir()
         shutil.copy2(scenario.dir / "restart_hook.py", hooks / "sitecustomize.py")

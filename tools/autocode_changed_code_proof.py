@@ -104,7 +104,7 @@ def collect(
     def run(command, label, limit):
         if package:
             command = package_scope.command(package, command)
-        receipt = verify.run_suite(framework, command, tree, evidence, label, timeout=limit)
+        receipt = verify.run_suite(framework, command, tree, evidence, label, timeout=limit, source_workspace=workspace)
         # Ownership uncertainty must retain the scratch tree and stop normal
         # cleanup. A truncated/missing capture is never a killed mutant.
         if not measurement.known_capture(receipt, root=out):

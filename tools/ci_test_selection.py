@@ -354,6 +354,12 @@ SCENARIO_SELECTION_INPUTS = {
 # Prefixes deliberately include resource fragments, whose callers generally do
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("tools/autocode_source_probe.py", ("tests.test_source_binding",)),
+    ("tools/autocode_source_binding.py", ("tests.test_source_binding", "tests.test_verify")),
+    ("tools/autocode_python_tests.py", ("tests.test_source_binding", "tests.test_verify")),
+    ("tools/autocode_node_tests.py", ("tests.test_source_binding", "tests.test_verify")),
+    ("tools/autocode_npm_scripts.py", ("tests.test_source_binding", "tests.test_verify")),
+    ("tools/autocode_go_tests.py", ("tests.test_source_binding", "tests.test_verify")),
     ("tests/fixture_plan_review.py", ("tests.test_semver_reference_plan_review",)),
     ("tests/semver_reference_vscode_fixture.py", ("tests.test_semver_reference_plan_review",)),
     ("tests/semver_reference_provider.py", ("tests.test_semver_reference_provider",)),

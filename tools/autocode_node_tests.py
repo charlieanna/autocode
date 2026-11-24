@@ -234,6 +234,20 @@ def instrument(command, result_path):
     return shlex.join([words[0], *_reporter_options(result_path), *words[1:]])
 
 
+def npm_test_declaration(command, tree):
+    """Whether the command names a local npm test that can be resolved before execution."""
+    found = npm_scripts.test_script(command, tree)
+    if not found:
+        return None
+    scripts, extra, prefix = found
+    script = scripts.get("test")
+    if extra or prefix != "." or scripts.get("pretest") or scripts.get("posttest") or not isinstance(script, str):
+        return None
+    if os.path.lexists(os.path.join(tree, ".npmrc")):
+        return None
+    return script
+
+
 def npm_test(command, tree):
     """What ``npm test`` runs in ``tree`` when its ``test`` script is node's own test runner: (the build
     steps before it or None, the ``node --test`` command as package.json writes it). None otherwise.
@@ -248,14 +262,8 @@ def npm_test(command, tree):
     or ``posttest`` script, an ``.npmrc`` in the package (it can set the script's shell or node's options),
     words after ``--``, or a ``--prefix`` package.
     """
-    found = npm_scripts.test_script(command, tree)
-    if not found:
-        return None
-    scripts, extra, prefix = found
-    script = scripts.get("test")
-    if extra or prefix != "." or scripts.get("pretest") or scripts.get("posttest") or not isinstance(script, str):
-        return None
-    if os.path.lexists(os.path.join(tree, ".npmrc")):
+    script = npm_test_declaration(command, tree)
+    if script is None:
         return None
     if command_words(script):
         return None, script.strip()

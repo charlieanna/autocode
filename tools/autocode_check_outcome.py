@@ -17,9 +17,11 @@ from __future__ import annotations
 
 try:
     from . import autocode_command_receipt as command_receipt
+    from . import autocode_source_binding as source_binding
     from . import autocode_util as util
 except ImportError:
     import autocode_command_receipt as command_receipt
+    import autocode_source_binding as source_binding
     import autocode_util as util
 
 PASSED, FAILED, UNDETERMINED = "passed", "failed", "undetermined"
@@ -27,6 +29,7 @@ TIMEOUT = "timeout"
 RUNNER_NOT_STARTED = "runner_not_started"
 SESSION_ABORTED = "session_aborted"
 INCOMPLETE_RECEIPT = "incomplete_receipt"
+SOURCE_UNVERIFIED = "source_unverified"
 STATUS = "PAUSED_VERIFICATION_UNCERTAIN"
 
 
@@ -68,6 +71,11 @@ def _incomplete(receipt) -> str:
     return "supervision receipt does not show a completed, cleaned-up run"
 
 
+def _recorded_failures(receipt) -> list[str]:
+    results = receipt.get("results") if isinstance(receipt.get("results"), dict) else {}
+    return [str(name) for name in results.get("failed") or []]
+
+
 def classify(receipt) -> dict:
     """``{"outcome", "reason", "detail", "failed"}`` for one check receipt.
 
@@ -78,7 +86,11 @@ def classify(receipt) -> dict:
     part by part: any failed part wins, with every failed part's names, else the first undetermined part,
     whose detail names it.
     """
-    if isinstance(receipt, dict) and isinstance(receipt.get("suites"), list) and receipt["suites"]:
+    if not isinstance(receipt, dict):
+        return _result(UNDETERMINED, INCOMPLETE_RECEIPT, "supervision receipt is missing: no run was recorded")
+    if reasons := source_binding.reasons({"run": receipt}):
+        return _result(UNDETERMINED, SOURCE_UNVERIFIED, "; ".join(reasons), _recorded_failures(receipt))
+    if isinstance(receipt.get("suites"), list) and receipt["suites"]:
         parts = [classify(part) for part in receipt["suites"]]
         failing = [part for part in parts if part["outcome"] == FAILED]
         if failing:
@@ -87,8 +99,6 @@ def classify(receipt) -> dict:
             if part["outcome"] == UNDETERMINED:
                 return {**part, "detail": f"{part['detail']} (in part {index} of {len(parts)})"}
         return _result(PASSED)
-    if not isinstance(receipt, dict):
-        return _result(UNDETERMINED, INCOMPLETE_RECEIPT, "supervision receipt is missing: no run was recorded")
     results = receipt.get("results") if isinstance(receipt.get("results"), dict) else None
     recorded = [str(name) for name in (results or {}).get("failed") or []]
     exit_code = receipt.get("exit_code")

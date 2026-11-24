@@ -18,6 +18,7 @@ try:
     from . import autocode_junit_first_suite as junit_first
     from . import autocode_package_scope as package_scope
     from . import autocode_proof_seam as proof_seam
+    from . import autocode_source_binding as source_binding
     from . import autocode_test_root as test_roots
     from . import autocode_test_setup as test_setup
     from . import autocode_verification_schedule as schedule
@@ -30,6 +31,7 @@ except ImportError:
     import autocode_junit_first_suite as junit_first
     import autocode_package_scope as package_scope
     import autocode_proof_seam as proof_seam
+    import autocode_source_binding as source_binding
     import autocode_test_root as test_roots
     import autocode_test_setup as test_setup
     import autocode_verification_schedule as schedule
@@ -130,6 +132,12 @@ def judge_regression(
     the tests the project already had, and those run and pass with the change. No test can run and fail on
     such code, so a bug fix's tests that could not run there and pass now count, as they do for new behavior.
     """
+    source_reasons = source_binding.reasons(
+        {"candidate": on_candidate, **({"base": on_base} if on_base is not None else {})}
+    )
+    if source_reasons:
+        unverified.extend("Runner source resolution is not established — " + reason for reason in source_reasons)
+        return
     candidate = on_candidate.get("results")
     base = (on_base or {}).get("results")
     if not command_receipt.completed(on_candidate) or on_base is not None and not command_receipt.completed(on_base):
@@ -420,8 +428,12 @@ def judge_suite(
     A suite that timed out on the candidate could not establish a result (autocode_check_outcome): only a
     failure it already recorded of a test that passes on base is a FAIL; otherwise preservation is unproven.
     """
-    candidate = on_candidate.get("results")
     base_receipt = (base_suite or {}).get("receipt") or {}
+    source_reasons = source_binding.reasons({"candidate": on_candidate, "base": base_receipt})
+    if source_reasons:
+        unverified.extend("Runner source resolution is not established — " + reason for reason in source_reasons)
+        return
+    candidate = on_candidate.get("results")
     base_results = base_receipt.get("results")
     outcome = check_outcome.classify(on_candidate)
     if outcome["reason"] == check_outcome.TIMEOUT:
@@ -683,8 +695,13 @@ def judge_retained_runner(definition, base_suite, fail, unverified):
     run = definition["run"]
     if run is None:
         return
+    base_receipt = (base_suite or {}).get("receipt") or {}
+    source_reasons = source_binding.reasons({"base definition": run, "base suite": base_receipt})
+    if source_reasons:
+        unverified.extend("Runner source resolution is not established — " + reason for reason in source_reasons)
+        return
     results = run.get("results")
-    base_results = ((base_suite or {}).get("receipt") or {}).get("results") or {}
+    base_results = base_receipt.get("results") or {}
     if (
         run["timed_out"]
         or not command_receipt.completed(run)

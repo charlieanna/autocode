@@ -35,8 +35,8 @@ inputs and the complete overlay it claims:
 
 A failed assembly is an explicit non-PASS result naming the failing step; it
 leaves no destination worktree behind and never changes the candidate
-workspace's revision. Model-free: this module imports only ``autocode_verify``,
-``autocode_util`` and the standard library, and adds no CLI surface.
+workspace's revision. Model-free: this module uses the verification and
+source-binding contracts plus the standard library, and adds no CLI surface.
 """
 
 from __future__ import annotations
@@ -51,9 +51,11 @@ import uuid
 from pathlib import Path
 
 try:
+    from . import autocode_source_binding as source_binding
     from . import autocode_util as util
     from . import autocode_verify as verify
 except ImportError:
+    import autocode_source_binding as source_binding
     import autocode_util as util
     import autocode_verify as verify
 
@@ -238,6 +240,8 @@ def _apply_transformations(tree, transformations, records) -> list[str]:
 def _account(result) -> list[str]:
     """Why an executed run does not account for every expected nodeid by name."""
     suite = result["suite"] or {}
+    if reasons := source_binding.reasons({"selected suite": suite}):
+        return ["incomplete proof: runner source resolution is not established — " + "; ".join(reasons)]
     results = suite.get("results")
     if results is None:
         return ["incomplete proof: the selected suite reported no per-test results"]
@@ -421,7 +425,9 @@ def prepare(
         log_root = Path(log_dir) if log_dir else destination.parent / "compat"
         logs = log_root / f"run-{uuid.uuid4().hex}"
         result["suite"] = {
-            **verify.run_suite(framework, command, tree, logs, "selected-suite", timeout=timeout),
+            **verify.run_suite(
+                framework, command, tree, logs, "selected-suite", timeout=timeout, source_workspace=workspace
+            ),
             "cwd": str(tree),
         }
         reasons.extend(_account(result))

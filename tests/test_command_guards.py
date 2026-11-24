@@ -142,19 +142,16 @@ class ProofTests(unittest.TestCase):
         with mock.patch.object(verify.diff_coverage, "collect", return_value=None):
             return regression.prove(state, self.project.root, self.run_dir)
 
-    def test_a_refactor_is_proved_by_the_existing_tests_command_before_and_after(self):
+    def assert_source_unverified(self, proof):
+        self.assertEqual(verify.UNVERIFIED, proof["verdict"], proof)
+        self.assertTrue(any("source resolution" in reason for reason in proof["unverified"]), proof)
+        self.assertEqual([], proof["failures"])
+
+    def test_an_unobserved_refactor_guard_cannot_pass_or_fail_the_proof(self):
         proof = self.prove(contract(GUARD), {"pager.sh": REFACTORED})
-        self.assertEqual(verify.PASS, proof["verdict"], proof)
+        self.assert_source_unverified(proof)
         self.assertEqual((["pager.sh"], []), (proof["source_files"], proof["test_files"]))
-        checks = proof["checks"]
-        self.assertEqual("sh tests/test_pager.sh", checks["guard_command_on_base:AC1"]["command"])
-        self.assertEqual(
-            (0, 0),
-            (checks["guard_command_on_base:AC1"]["exit_code"], checks["guard_command_on_candidate:AC1"]["exit_code"]),
-        )
-        said = "the plan's guards AC1 (`sh tests/test_pager.sh`) rest on each command's exit code"
-        self.assertTrue(any(said in note for note in proof["notes"]), proof["notes"])
-        self.assertTrue(any(said in note for note in proof["review_reasons"]), proof["review_reasons"])
+        self.assertEqual([], proof["failures"])
 
     def test_without_a_guard_the_same_refactor_still_needs_a_test(self):
         # The gate is where it was: a command that is no guard, a draft plan and a bug fix prove nothing here.
@@ -165,32 +162,25 @@ class ProofTests(unittest.TestCase):
                 if goal_contract["approval_status"] == "approved":
                     self.assertIn("No regression test was added or changed", " ".join(proof["failures"]))
 
-    def test_a_change_that_breaks_the_guarded_tests_is_refused(self):
+    def test_a_change_that_breaks_an_unobserved_guard_is_not_attributed_a_failure(self):
         proof = self.prove(contract(GUARD), {"pager.sh": BROKEN})
-        self.assertEqual(verify.FAIL, proof["verdict"], proof)
-        self.assertIn(
-            "Guard AC1's command `sh tests/test_pager.sh` passes on the original code and fails with the change",
-            " ".join(proof["failures"]),
-        )
+        self.assert_source_unverified(proof)
+        self.assertEqual([], proof["failures"])
 
-    def test_a_guard_that_fails_on_the_original_code_guards_nothing(self):
+    def test_an_unobserved_guard_cannot_be_said_to_fail_on_the_original_code(self):
         broken = Project({"pager.sh": BROKEN, "tests/test_pager.sh": CHECK})
         self.addCleanup(broken.close)
         self.project, self.run_dir = broken, broken.root.parent / "run"
         proof = self.prove(contract(GUARD), {"pager.sh": REFACTORED})
-        self.assertEqual(verify.FAIL, proof["verdict"], proof)
-        self.assertIn("fails on the original code (exit 1), so it guards nothing", " ".join(proof["failures"]))
+        self.assert_source_unverified(proof)
+        self.assertEqual([], proof["failures"])
 
-    def test_a_guard_beside_a_changed_test_file_leaves_the_ordinary_proof_in_charge(self):
+    def test_an_unobserved_guard_beside_a_changed_test_cannot_hide_source_uncertainty(self):
         added = CHECK + '[ "$(page_count 1 5)" = 1 ] || { echo "one page"; exit 1; }\n'
         run = "`sh tests/test_pager.sh` fails on the original code and passes with the change"
-        # The new check passes on the original code too, so the changed test proves nothing: the guard does not
-        # make a change with tests coverage.
         proof = self.prove(contract(run, GUARD), {"pager.sh": REFACTORED, "tests/test_pager.sh": added})
-        self.assertEqual(verify.FAIL, proof["verdict"], proof)
-        self.assertIn("also pass on the unfixed base code", " ".join(proof["failures"]))
-        # The guard itself ran on the original code, with the original test file, and held.
-        self.assertEqual(0, proof["checks"]["guard_command_on_base:AC2"]["exit_code"])
+        self.assert_source_unverified(proof)
+        self.assertFalse(any("also pass on the unfixed base code" in reason for reason in proof["failures"]))
 
     def test_a_guard_that_runs_no_existing_test_is_not_run(self):
         for method in ("guard: run `true`", "guard: run `sh pager.sh`"):
@@ -218,8 +208,9 @@ class DetectedSuiteTests(unittest.TestCase):
         }
         with mock.patch.object(verify.diff_coverage, "collect", return_value=None):
             proof = regression.prove(state, project.root, project.root.parent / "run")
-        self.assertEqual(verify.PASS, proof["verdict"], proof)
-        self.assertEqual("make test", proof["checks"]["guard_command_on_candidate:AC1"]["command"])
+        self.assertEqual(verify.UNVERIFIED, proof["verdict"], proof)
+        self.assertTrue(any("source resolution" in reason for reason in proof["unverified"]), proof)
+        self.assertEqual([], proof["failures"])
 
 
 class PlanCheckTests(unittest.TestCase):

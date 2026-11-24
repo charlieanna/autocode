@@ -38,6 +38,7 @@ try:
     from . import autocode_proof_stability as proof_stability
     from . import autocode_python_tests as python_tests
     from . import autocode_runner_reports as runner_reports
+    from . import autocode_source_binding as source_binding
     from . import autocode_test_cases as test_cases
     from . import autocode_text_mutants as text_mutants
 except ImportError:
@@ -51,6 +52,7 @@ except ImportError:
     import autocode_proof_stability as proof_stability
     import autocode_python_tests as python_tests
     import autocode_runner_reports as runner_reports
+    import autocode_source_binding as source_binding
     import autocode_test_cases as test_cases
     import autocode_text_mutants as text_mutants
 
@@ -493,6 +495,11 @@ def _collect(
         run = _reporting(run, Path(tree), evidence)
     reference_started = clock()
     reference = run(prepare(narrowed), "unmutated", reference_limit)
+    if reasons := source_binding.reasons({"unmutated": reference}):
+        return record(
+            "the unmutated run's source resolution was not established, so no mutant ran: " + "; ".join(reasons),
+            rows,
+        )
     if observe:
         tests = sorted(((reference.get("results") or {}).get("passed")) or [])
         if not tests:
@@ -612,6 +619,14 @@ def _collect(
             # Ruby refused the mutant's syntax, so no test could load it: not a mutation of the product, as a Go
             # mutant that does not build is not (#3817).
             row["notes"].append(f"{row['path']}:{mutant.line}: the {mutant.operator} mutant did not parse; not a site")
+            continue
+        if reasons := source_binding.reasons({"mutant": receipt}):
+            unrun += 1
+            row["mutants"].append({**entry, "outcome": "not_run", "survived_tests": []})
+            row["notes"].append(
+                f"{row['path']}:{mutant.line}: the mutant's source resolution was not established: "
+                + "; ".join(reasons)
+            )
             continue
         if not python and (_did_not_build(receipt) or (observe and _wrote_no_report(receipt))):
             # The text mutator's edit was not a program (Go's "declared and not used" when a dropped call
