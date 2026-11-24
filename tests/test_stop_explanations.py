@@ -213,6 +213,13 @@ class StopExplanationTests(unittest.TestCase):
         missing = sorted(named - set(stop_explanations.TABLE))
         self.assertEqual([], missing, f"pause states without an explanation: {missing}")
 
+    def test_local_requirements_build_stop_names_an_external_controller(self):
+        text = stop_explanations.explain("PAUSED_LOCAL_REQUIREMENTS_BUILD")
+        self.assertIn("PAUSED_LOCAL_REQUIREMENTS_BUILD", text["what_happened"])
+        self.assertIn("controller's own checkout", text["what_it_means"])
+        self.assertIn("installed outside this checkout", text["what_the_command_does"])
+        self.assertNotIn("--resume-paused", text["explanation"])
+
     def test_pause_state_scan_ignores_identifiers_and_comments(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
