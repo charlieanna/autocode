@@ -62,6 +62,25 @@ criterion's check, raise a blocking concern naming the baseline or broken varian
 criterion affected. Do not turn this into a question for the person.
 """
 
+EXTERNAL_CONTRACTS = """
+EXTERNAL CONTRACTS: when the change reads, receives or sends data whose shape is defined outside the repository
+(another service's log documents or API responses, a webhook or alert body, a message or queue format, a table
+another system writes), and neither the request, a saved answer nor a file in the repository shows that shape,
+the shape is the person's fact, not an engineering choice, even in an empty repository. Requirements asks for it
+in the same round as its other questions, offering to take a pasted sample. A plan that still needs it asks the
+person with an open blocking question that offers the likely shape as its recommended option; it never writes a
+guessed field name, payload or response into the technical approach or a criterion as if it were given. A
+criterion checked only against a mock of a guessed shape proves agreement with the guess, not with the person's
+system. A decision left for the person to confirm is asked as a question, never left as a note in the technical
+approach ("flagged for the user to confirm at approval").
+"""
+
+EXTERNAL_CONTRACTS_REVIEW = """
+EXTERNAL CONTRACTS REVIEW: raise a blocking concern when a criterion or the technical approach rests on the shape
+of external data nobody gave (a field name, a payload, a response format), or leaves a decision for the person
+as a note in the technical approach, naming the shape or the decision and the criteria that depend on it.
+"""
+
 REQUIREMENTS_LABELS = """
 SOURCE LABELS: ignored_statements is a JSON array of strings, never objects. Copy each ignored source
 statement exactly into that array. Explain its reason only in the top-level summary string.

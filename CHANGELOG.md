@@ -9,9 +9,6 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
-### Changed
-
-- **A vague request gets proposals, not a blank question**: Requirements used to answer "build me an adaptive engine" with "what do you want this to do?" and then two more rounds of abstract questions. It now says what it understood, offers the readings it sees as options written as short scenarios (recommending the likeliest), sketches how it would build that reading, and asks the choices it leaves open in the same round. Each option shows what you would see on one concrete input ("an order delivered at 23:00 on March 1 is refused from 23:00 on March 31"), and questions keep the behavior you asked for among their options. You can always answer in your own words.
 ### Added
 
 - **Mutation evidence for Maven, Gradle, PHPUnit and CTest proofs**: their proofs are judged by exit code, so the mutation check ran no mutant and every executed changed line in Java, Kotlin, C, C++ or PHP still needed a reason written by the Tester. Each of these runners writes JUnit XML naming its tests; the mutation check now reads it (removing earlier reports before each run), takes the tests the unmutated run reports passing, and counts a mutant killed only when one of them failed in that run's report. Changed `.java`, `.kt`, `.c`, `.h`, `.cpp` and `.php` lines get the same operators as Go and JavaScript; a mutant that does not compile is not a site, and Maven, Gradle and CTest mutants get later modification times so the build compiles them.
@@ -20,9 +17,17 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - **An OS sandbox around every agent** (`--agent-sandbox`, off by default): each stage's whole agent process (Claude Code, Codex or a configured provider, with every command and test it runs) runs inside Linux bubblewrap or macOS `sandbox-exec`. It cannot read home-directory credentials such as `~/.aws`, `~/.ssh`, `~/.config/gcloud`, `~/.kube` or `~/.netrc`, nor another engine's login, and it writes only the workspace, the run, temporary directories, its own engine's state and package caches. A run that asks for it on a host without such a sandbox is refused before any stage, and a stage that cannot be sandboxed pauses without launching, so it never runs unsandboxed. Built-in OpenCode stages keep their stricter kernel tool boundary.
 
+### Changed
+
+- **A vague request gets proposals, not a blank question**: Requirements used to answer "build me an adaptive engine" with "what do you want this to do?" and then two more rounds of abstract questions. It now says what it understood, offers the readings it sees as options written as short scenarios (recommending the likeliest), sketches how it would build that reading, and asks the choices it leaves open in the same round. Each option shows what you would see on one concrete input ("an order delivered at 23:00 on March 1 is refused from 23:00 on March 31"), and questions keep the behavior you asked for among their options. You can always answer in your own words.
+
+- **Plans no longer guess the shape of other systems' data**: asked to build a service that reads Kibana alerts and Elasticsearch logs in an empty repository, the Planner invented the log field names and the alert body and checked every criterion against mocks of its own guess. When a change reads or receives data whose shape another system defines and nobody gave it, Requirements now asks for it (or a pasted sample), a plan that still needs it asks you with the likely shape recommended, and the Plan Reviewer blocks a plan whose criteria rest on a guessed shape or that leaves a decision for you as a note in its technical approach.
+
 ### Fixed
 
 - **Parallel Builders now stay inside your cost cap.** Each parallel Builder compared the cap with its own spend only, so every one of them could spend up to the whole cap, and a Builder started its report repair or next attempt after the run had already passed it. The cap is now held over the whole run: the parent's spend plus every Builder's finished and running attempts, checked before every provider launch and while each stage runs. A Builder stopped at the cap now pauses the run at your cost cap instead of asking you to retry it, and raising the cap continues it from where it stopped without running any finished Builder again.
+
+- **A plan's miscounted output padding is corrected without asking you**: when the Plan Reviewer recomputed a criterion's expected output and the Planner fixed only its spacing or a number, the correction was accepted only if the draft had spelled the expectation as "writes exactly `...` to stdout". A draft that wrote "stdout is exactly '...'" stopped the run to ask you to choose between two strings one space apart, with the wrong one as the default. The correction is now accepted however the draft spelled it, as long as nothing outside the expected output changed.
 
 ## [0.11.0] - 2026-11-24
 

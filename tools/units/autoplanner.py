@@ -1556,7 +1556,11 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
         native = native_test_names.requested(state)
         design_rule += native_test_names.rule(native) if native else ""
         if stage in ("review_plan", "finalize_plan", "plan_review", "plan_finalize"):
-            design_rule += EXAMPLE_CHECK_RULE + acceptance_policy.DISCRIMINATING_REVIEW
+            design_rule += (
+                EXAMPLE_CHECK_RULE
+                + acceptance_policy.DISCRIMINATING_REVIEW
+                + acceptance_policy.EXTERNAL_CONTRACTS_REVIEW
+            )
         if packet.get("prior_review_examples"):
             design_rule += retention.REVIEWED_EXAMPLES_RULE
         design_rule += BRIEF_TRACE_RULE if stage in ("review_plan", "finalize_plan") else ""
@@ -1566,6 +1570,8 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
     design_rule += acceptance_policy.COVERAGE
     # One discriminating-criterion policy for every stage that writes or checks acceptance examples.
     design_rule += acceptance_policy.DISCRIMINATING
+    # One rule for data whose shape another system defines: asked, never guessed into a plan.
+    design_rule += acceptance_policy.EXTERNAL_CONTRACTS
     if stage != "requirements_gather" and not test_cases.design_only(state):
         design_rule += acceptance_policy.DOMAIN
     if rows and stage in TRACE_STAGES:
