@@ -20,6 +20,7 @@ import autocode_follow_up_proof as follow_up_proof
 import autocode_proof_stability as proof_stability
 import autocode_scratch_suites as scratch_suites
 import autocode_source_binding as source_binding
+import autocode_source_probe as source_probe
 import autocode_suite_flakes as suite_flakes
 import autocode_test_framework as test_framework
 import autocode_verify as verify
@@ -642,6 +643,31 @@ class SourceBindingTests(unittest.TestCase):
         self.assertEqual("unverified", leaked["status"])
         self.assertIn("live workspace", leaked["reason"])
         self.assertTrue(any(row.get("name") == "leaked" for row in leaked["observations"]))
+
+    def test_exact_distro_pth_hooks_are_observed_only_inside_dependencies(self):
+        dependency = self.base / "dist-packages"
+        dependency.mkdir()
+        zope = dependency / "zope.interface-6.1-nspkg.pth"
+        zope.write_text(source_probe.ZOPE_NSPKG_PTH + "\n")
+        namespace = SimpleNamespace(__path__=[str(dependency / "zope")])
+        with mock.patch.dict(source_probe.sys.modules, {"zope": namespace}):
+            self.assertTrue(source_probe._distro_pth_observed(zope, zope.read_text(), [dependency]))
+            namespace.__path__ = [str(self.workspace / "zope")]
+            self.assertFalse(source_probe._distro_pth_observed(zope, zope.read_text(), [dependency]))
+        self.assertFalse(
+            source_probe._distro_pth_observed(zope, source_probe.ZOPE_NSPKG_PTH + "\nimport sys\n", [dependency])
+        )
+
+        distutils = dependency / "distutils-precedence.pth"
+        distutils.write_text(source_probe.DISTUTILS_PRECEDENCE_PTH)
+        hack = dependency / "_distutils_hack.py"
+        hack.write_text("")
+        with mock.patch.dict(source_probe.sys.modules, {"_distutils_hack": SimpleNamespace(__file__=str(hack))}):
+            self.assertTrue(source_probe._distro_pth_observed(distutils, distutils.read_text(), [dependency]))
+        with mock.patch.dict(
+            source_probe.sys.modules, {"_distutils_hack": SimpleNamespace(__file__=str(self.workspace / "hack.py"))}
+        ):
+            self.assertFalse(source_probe._distro_pth_observed(distutils, distutils.read_text(), [dependency]))
 
     def test_env_prefix_preserves_python_probe_environment(self):
         self.write(

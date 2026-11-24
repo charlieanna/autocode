@@ -496,7 +496,9 @@ Python observes targeted modules, static imports (including names that can shado
 the standard library), pytest root, effective `addopts`, `pythonpath` and ancestor
 `conftest.py` files. It also checks executable startup paths, `sitecustomize` and
 `usercustomize` (an interpreter-shipped empty or Ubuntu apport-only hook is
-neutral), pytest environment options and plugin autoload. Only a narrow
+neutral, as are Ubuntu's exact distutils-precedence and zope namespace `.pth`
+hooks when they install only their own dependency), pytest environment options
+and plugin autoload. Only a narrow
 virtualenv/editable-install bootstrap is recognized. A deterministic top-level
 prelude may use unaliased `sys` and `Path`, append or insert file-relative roots,
 and use those roots in following imports; each import is resolved with only the

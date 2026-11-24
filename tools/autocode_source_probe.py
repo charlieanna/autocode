@@ -35,6 +35,20 @@ APPORT_STARTUP = (
     "else:\n"
     "    apport_python_hook.install()\n"
 )
+DISTUTILS_PRECEDENCE_PTH = (
+    "import os; var = 'SETUPTOOLS_USE_DISTUTILS'; enabled = os.environ.get(var, 'local') == 'local'; "
+    "enabled and __import__('_distutils_hack').add_shim(); \n"
+)
+ZOPE_NSPKG_PTH = (
+    "import sys, types, os;has_mfs = sys.version_info > (3, 5);"
+    "p = os.path.join(sys._getframe(1).f_locals['sitedir'], *('zope',));"
+    "importlib = has_mfs and __import__('importlib.util');"
+    "has_mfs and __import__('importlib.machinery');"
+    "m = has_mfs and sys.modules.setdefault('zope', importlib.util.module_from_spec("
+    "importlib.machinery.PathFinder.find_spec('zope', [os.path.dirname(p)])));"
+    "m = m or sys.modules.setdefault('zope', types.ModuleType('zope'));"
+    "mp = (m or []) and m.__dict__.setdefault('__path__',[]);(p not in mp) and mp.append(p)"
+)
 NODE_FLAG_OPTIONS = {
     "--test",
     "--test-only",
@@ -857,6 +871,27 @@ def _pytest_setup(arguments, root):
         return None, None, [f"pytest rootdir probe failed: {error}"]
 
 
+def _distro_pth_observed(path, text, dependencies) -> bool:
+    """Whether an exact Ubuntu-managed startup hook only installs its own system package."""
+    try:
+        if path.is_symlink() or not any(path.resolve().is_relative_to(root) for root in dependencies):
+            return False
+        if text == DISTUTILS_PRECEDENCE_PTH:
+            hack = sys.modules.get("_distutils_hack")
+            origin = Path(str(getattr(hack, "__file__", "") or "")).resolve() if hack else None
+            return hack is None or origin is not None and origin.is_relative_to(path.parent.resolve())
+        if text.rstrip("\r\n") == ZOPE_NSPKG_PTH:
+            namespace = sys.modules.get("zope")
+            paths = getattr(namespace, "__path__", ()) if namespace is not None else ()
+            entries = [Path(str(value)).resolve() for value in paths]
+            return bool(entries) and all(
+                any(entry == root or entry.is_relative_to(root) for root in dependencies) for entry in entries
+            )
+    except (OSError, TypeError, ValueError):
+        return False
+    return False
+
+
 def _python_environment(prefix):
     environment = dict(os.environ)
     words = prefix[1:] if prefix[:1] in (("env",), ("/usr/bin/env",), ("/bin/env",)) else prefix
@@ -907,7 +942,10 @@ def _python_startup_errors(dependencies, editable_root=None):
             try:
                 if path.is_symlink() or path.stat().st_size > MAX_CAPTURE_BYTES:
                     raise ValueError("not a bounded regular file")
-                for line in path.read_text().splitlines():
+                text = path.read_text()
+                if _distro_pth_observed(path, text, dependencies):
+                    continue
+                for line in text.splitlines():
                     statement = line.strip()
                     if not statement.startswith(("import ", "import\t")):
                         continue
