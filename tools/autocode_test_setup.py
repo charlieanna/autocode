@@ -22,6 +22,14 @@ IMPORT_ERROR = re.compile(r"^(?:E\s+)?(?:ImportError|ModuleNotFoundError): ([^\n
 UNITTEST_FOOTER = re.compile(r"^-{70}\nRan \d+ tests? in [^\n]*\n\nFAILED\b", re.M)
 
 
+IMPORT_REASON = "The test could not import its dependency on base: "
+
+
+def failed_import(errors) -> set[str]:
+    """The tests among ``errors`` (``not_evidence``) that failed only importing what they use (#3981)."""
+    return {test for test, reason in errors.items() if str(reason).startswith(IMPORT_REASON)}
+
+
 def failure_details(output):
     """Yield unittest failure owners and their separate traceback sections.
 
@@ -76,7 +84,7 @@ def setup_error(traceback, tree, is_test_path, *, outer_message=None):
         and len(imports) == 1
         and (outer_message is None or re.match(r"^(?:ImportError|ModuleNotFoundError)(?:\s*:|\s*$)", outer_message))
     ):
-        return "The test could not import its dependency on base: " + imports[0]
+        return IMPORT_REASON + imports[0]
     return None
 
 

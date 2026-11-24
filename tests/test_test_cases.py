@@ -17,6 +17,7 @@ import autocode_launch_inputs as launch_inputs
 import autocode_regression as regression
 import autocode_test_cases as test_cases
 import autocode_verify as verify
+import autocode_verify_judgment as judgment
 
 from tests.test_verify import Project
 
@@ -1041,12 +1042,14 @@ class NewBehaviorVerifyTests(unittest.TestCase):
         project.write(UNLOADABLE_FEATURE)
         return project
 
-    def test_a_new_test_that_cannot_import_on_base_does_not_prove_a_feature(self):
+    def test_a_new_test_that_imports_what_the_feature_adds_proves_it(self):
+        # The test imports ``sub``, which only the change defines, so it cannot load on the original code.
+        # It did not pass there and passes with the change: that is the feature's proof (decision 2026-11-24).
         result = self.project().verify(new_behavior=True)
-        self.assertEqual(verify.FAIL, result["verdict"], result["failures"] + result["unverified"])
-        self.assertNotIn("test_calc.CalcTests.test_c2_subtracts", result["fail_to_pass"])
+        self.assertEqual(verify.PASS, result["verdict"], result["failures"] + result["unverified"])
+        self.assertIn("test_calc.CalcTests.test_c2_subtracts", result["fail_to_pass"])
         self.assertIn("test_calc.CalcTests.test_c2_subtracts", result["not_run_on_base"])
-        self.assertTrue(any("could not collect" in reason for reason in result["failures"]), result["failures"])
+        self.assertIn(judgment.NEW_NAMES, result["notes"])
 
     def test_the_same_change_is_not_a_bug_reproduction(self):
         result = self.project().verify()
@@ -1182,16 +1185,19 @@ class FeatureProofTests(unittest.TestCase):
         self.assertEqual("PASS", proof["verdict"], proof["failures"] + proof["unverified"])
         self.assertEqual(["test_guard.GuardTests.test_c4_add_still_works"], proof["case_tests"]["C4"])
 
-    def test_a_guard_that_could_not_run_before_does_not_prove_the_feature(self):
+    def test_a_guard_that_could_not_run_before_is_not_shown_to_have_passed(self):
         # Its file imports sub, which the change adds, so on the original code the file does not import.
+        # The feature's own test proves C2 (decision 2026-11-24); the guard's is noted as unshown before,
+        # and the file's existing test, which passed in the base suite, is not counted as proof.
         proof = self.prove(
             [EXAMPLE, self.GUARD],
             {**UNLOADABLE_FEATURE, "test_calc.py": UNLOADABLE_FEATURE["test_calc.py"] + self.GUARD_TEST},
         )
-        self.assertEqual("FAIL", proof["verdict"], proof["failures"] + proof["unverified"])
-        self.assertEqual([], proof["case_tests"]["C2"])
-        self.assertFalse(proof["fail_to_pass"])
-        self.assertEqual(proof["failures"], json.loads(Path(proof["path"]).read_text())["failures"])
+        self.assertEqual("PASS", proof["verdict"], proof["failures"] + proof["unverified"])
+        self.assertEqual(["test_calc.CalcTests.test_c2_subtracts"], proof["case_tests"]["C2"])
+        self.assertNotIn("test_calc.CalcTests.test_add", proof["fail_to_pass"])
+        self.assertTrue(any("C4" in note and "not shown to have passed before" in note for note in proof["notes"]))
+        self.assertEqual(proof["notes"], json.loads(Path(proof["path"]).read_text())["notes"])
 
     def test_a_guard_whose_test_ran_and_failed_before_the_change_is_mis_tagged(self):
         new_behavior = {**self.GUARD, "id": "C5", "verification_method": "guard: test_c5_sub_exists"}

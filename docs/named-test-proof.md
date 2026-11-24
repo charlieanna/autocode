@@ -16,6 +16,16 @@ failure keeps the approved `test:` criterion; a fresh original pass proposes a
 results leave verification unresolved. This classification needs no report-only
 model repair, and never replaces the final regression or changed-code proof.
 
+A new feature's test may use what the feature adds: a new module, function or package. On the
+original code that test cannot load (unittest's `_FailedTest`, a pytest collection error, an import
+inside the test body), so it does not run there. When the base run reports that load failure, the test
+did not pass there and passes with the change, and it is the feature's proof; the proof notes it. A test
+that is simply absent on base with no load failure (defined only when the feature exists), a skipped
+test, and an existing test that passed in the base suite are not. A bug fix still needs a test that ran
+and failed on the original code. The mutation check still requires each such test to notice a broken
+line (owner-delegated decision 2026-11-24; it replaces #3981's refusal, which made the Builder rewrite
+such tests or stopped the run).
+
 A change may rewrite only files that tests read: a golden file, a snapshot or a
 fixture (`tests/golden/report.txt`, `src/__snapshots__/x.test.js.snap`,
 `testdata/report.golden`). No runner can be pointed at such a file, and the tests

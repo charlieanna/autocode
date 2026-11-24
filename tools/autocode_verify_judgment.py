@@ -41,6 +41,11 @@ BASE_DEFINITION_UNKNOWN = (
     "The base suite definition could not be established ({}); preservation of existing behavior is unproven"
 )
 
+NEW_NAMES = (
+    "Some of the change's tests could not load on the original code, which lacks what the change adds; "
+    "they did not pass there and pass with the change, so they count as the new behavior's proof"
+)
+
 UNLOADABLE = (
     "The original code could not be loaded by the tests the project already had, so no test can run and fail "
     "there; the change's tests that could not run there and pass with it count"
@@ -234,8 +239,12 @@ def judge_regression(
             - set(base.get("skipped") or ())
             - set(setup_errors)
         )
-        if setup_errors:
-            notes.append(test_setup.proof_note(setup_errors))
+        # A new feature's test that only failed importing what it uses is counted below; a mock it could not
+        # prepare is not evidence for either task kind.
+        imported = test_setup.failed_import(setup_errors) if new_behavior and not preserve_only else set()
+        held = {test: reason for test, reason in setup_errors.items() if test not in imported}
+        if held:
+            notes.append(test_setup.proof_note(held))
         # A skipped, absent or uncollected result is not an observed failure.
         not_run = passed - set(base["passed"]) - set(base["failed"])
         not_run |= passed & (
@@ -268,6 +277,25 @@ def judge_regression(
             if first:
                 flipped_set |= first
                 notes.append("The first suite's named tests were not run on the base because collection failed.")
+        if new_behavior and not preserve_only:
+            # A new feature's test cannot load on the original code when it uses what the change adds: a
+            # new module, function or package. It did not pass there and passes with the change, which is
+            # the feature's proof (owner-delegated decision 2026-11-24). Only a test the base run shows did
+            # not load is added: an import it could not make, or a run that reported a load failure. A test simply
+            # absent on base (defined only when the feature exists) and a skipped one are not; unchanged
+            # tests are taken out as pass-to-pass below, and the mutation check still requires the test to
+            # notice a broken line. A bug fix still needs a test that ran and failed.
+            load_failed = bool(base.get("collection_errors") or base.get("uncollected"))
+            unloaded = (
+                ((not_run if load_failed else set()) | (passed & imported))
+                - set(base.get("skipped") or ())
+                - flipped_set
+            )
+            # An existing test in the same file that passed in the base suite is preserved behavior, not proof.
+            unloaded -= base_suite_passed() if unloaded and base_suite_passed else set()
+            if unloaded:
+                flipped_set |= unloaded
+                notes.append(NEW_NAMES)
         flipped = sorted(flipped_set)
         # Tests that ran and passed on the original code and still pass (autocode_regression.check_cases).
         kept = set(base["passed"]) & passed

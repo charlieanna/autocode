@@ -1,18 +1,19 @@
-"""An uncollected build test receives feedback and can earn ordinary proof."""
+"""A build test that cannot load on the original code proves the feature, as a loadable one does."""
 
 import unittest
 
-import autocode_proof_findings as proof_findings
 import autocode_verify as verify
+import autocode_verify_judgment as judgment
 
 from tests.test_verify import Project, isolated_python
 
 
 class CollectionRepairFeedbackTests(unittest.TestCase):
-    def test_builder_can_repair_uncollected_tests_without_relaxing_the_gate(self):
-        # The base already has a passing suite, so the new test is not a project's first suite: that
-        # case counts an uncollected test as first-suite proof under its own preservation judgment
-        # (tests.test_verify.PreservationEvidenceCase). Here the test must load and fail on base.
+    def test_a_test_importing_the_new_module_proves_it_without_a_repair(self):
+        # The base already has a passing suite, so the new test is not a project's first suite. Its file
+        # imports ``hello``, which only the change adds, so it cannot load on base: it did not pass there and
+        # passes with the change, the feature's proof (decision 2026-11-24). Moving the import into the test
+        # body proves the same feature by a test that ran and failed on base.
         project = Project(
             {
                 "test_seed.py": (
@@ -59,20 +60,12 @@ class CollectionRepairFeedbackTests(unittest.TestCase):
                 new_behavior=True,
             )
 
-        held = run()
-        self.assertEqual([], held["fail_to_pass"], held)
-        self.assertIn("test_hello", str(held["failures"]))
-        self.assertIn("collect", str(held["failures"]).lower())
-        self.assertIn("load", str(held["failures"]).lower())
-        state = {"regression_proof": {**held, "path": "/run/proof.json"}}
-        finding = proof_findings.reconcile(
-            state, held["source_revision"], required=True, proved=False, reason="; ".join(held["failures"])
-        )
-        self.assertIn("test_hello", finding["finding"])
-        self.assertIn("load", finding["finding"])
-        self.assertEqual("open", finding["status"])
-        # An explicit Builder repair removes a module-level import unrelated to
-        # the CLI assertion; the runner never rewrites or assumes this repair.
+        unloaded = run()
+        self.assertEqual(verify.PASS, unloaded["verdict"], unloaded["failures"] + unloaded["unverified"])
+        self.assertEqual(["test_hello.TestHello.test_cli"], unloaded["fail_to_pass"], unloaded)
+        self.assertEqual(["test_hello.TestHello.test_cli"], unloaded["not_run_on_base"], unloaded)
+        self.assertIn(judgment.NEW_NAMES, unloaded["notes"])
+        self.assertTrue(unloaded["checks"]["regression_on_base"]["results"]["collection_errors"], unloaded)
         test_file = project.root / "test_hello.py"
         test_file.write_text(test_file.read_text().replace("import hello\n", ""))
         repaired = run()
@@ -80,6 +73,4 @@ class CollectionRepairFeedbackTests(unittest.TestCase):
         base = repaired["checks"]["regression_on_base"]["results"]
         self.assertIn("test_hello.TestHello.test_cli", base["failed"], repaired)
         self.assertEqual([], base["collection_errors"], repaired)
-        self.assertIn(
-            "test_hello.TestHello.test_cli", repaired["checks"]["regression_on_candidate"]["results"]["passed"]
-        )
+        self.assertNotIn(judgment.NEW_NAMES, repaired["notes"])

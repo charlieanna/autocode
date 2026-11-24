@@ -302,21 +302,41 @@ class RegressionImportJudgmentTests(unittest.TestCase):
         )
         return failed, unverified, proof
 
-    def test_unrelated_missing_dependency_cannot_prove_a_new_feature(self):
-        reason = "The test could not import its dependency on base: No module named 'external_dependency'"
-        failed, unverified, proof = self.judge(base_results(failed=[SELECTED], setup={SELECTED: reason}))
+    # A new feature's test that cannot load on the original code, because it uses what the change adds,
+    # did not pass there and passes with the change: it proves the feature (decision 2026-11-24). It never
+    # reproduces a bug, which needs a test that ran and failed.
+    def test_a_test_whose_import_fails_on_base_proves_a_feature_and_not_a_fix(self):
+        reason = "The test could not import its dependency on base: cannot import name 'answer'"
+        base = base_results(failed=[SELECTED], setup={SELECTED: reason})
+        failed, unverified, proof = self.judge(base)
+        self.assertEqual([SELECTED], proof["fail_to_pass"])
+        self.assertEqual(([], []), (failed, unverified))
+        failed, unverified, proof = self.judge(base, new_behavior=False)
         self.assertEqual([], proof["fail_to_pass"])
         self.assertTrue(failed or unverified)
 
-    def test_unobserved_unloaded_test_cannot_prove_a_new_feature(self):
-        failed, unverified, proof = self.judge(base_results(unloaded=[UNITTEST_UNLOADED]))
+    def test_a_test_whose_module_did_not_load_on_base_proves_a_feature_and_not_a_fix(self):
+        for unloaded in (UNITTEST_UNLOADED, SELECTED):
+            with self.subTest(unloaded=unloaded):
+                failed, unverified, proof = self.judge(base_results(unloaded=[unloaded]))
+                self.assertEqual([SELECTED], proof["fail_to_pass"])
+                self.assertEqual([SELECTED], proof["not_run_on_base"])
+                self.assertEqual(([], []), (failed, unverified))
+                failed, unverified, proof = self.judge(base_results(unloaded=[unloaded]), new_behavior=False)
+                self.assertEqual([], proof["fail_to_pass"])
+                self.assertTrue(failed or unverified)
+
+    def test_a_test_absent_on_base_without_a_load_failure_does_not_prove_a_feature(self):
+        # Defined only when the feature exists (``if hasattr(app, "new")``): nothing on base failed to load.
+        failed, unverified, proof = self.judge(base_results())
         self.assertEqual([], proof["fail_to_pass"])
         self.assertTrue(failed or unverified)
 
-    def test_collection_failure_sharing_a_test_id_cannot_prove_it_ran(self):
-        failed, unverified, proof = self.judge(base_results(unloaded=[SELECTED]))
+    def test_an_existing_test_that_passed_in_the_base_suite_is_not_a_features_proof(self):
+        failed, unverified, proof = self.judge(
+            base_results(unloaded=[UNITTEST_UNLOADED]), base_suite_passed=lambda: {SELECTED}
+        )
         self.assertEqual([], proof["fail_to_pass"])
-        self.assertEqual([SELECTED], proof["not_run_on_base"])
         self.assertTrue(failed or unverified)
 
     def test_contradictory_skipped_and_failed_result_is_not_a_proof(self):
