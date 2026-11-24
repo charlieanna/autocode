@@ -27,7 +27,7 @@ SMALLEST_RUN_USD = 0.01
 
 def parse_caps(text: str | None) -> dict[str, float]:
     """``AUTOCODE_BRIDGE_PERSON_CAPS``: a JSON object of GitHub login to monthly USD; blank means none."""
-    if not (text or "").strip():
+    if text is None or not text.strip():
         return {}
     try:
         value = json.loads(text)
@@ -59,15 +59,21 @@ def charge(record: dict, in_flight: bool) -> tuple[float, bool]:
 
     In flight, its reserved cap or what it has spent, whichever is more. Settled, what it spent.
     """
-    cost = record.get("cost") if isinstance(record.get("cost"), dict) else {}
-    spent = cost.get("spent_usd")
-    spent = float(spent) if type(spent) in (int, float) and math.isfinite(spent) and spent >= 0 else None
+    cost = record.get("cost")
+    cost = cost if isinstance(cost, dict) else {}
+    spent = _amount(cost.get("spent_usd"))
     unknown = spent is None or bool(cost.get("unpriced_stages")) or cost.get("complete") is False
     if in_flight:
-        reserved = record.get("reserved_usd")
-        reserved = float(reserved) if type(reserved) in (int, float) and math.isfinite(reserved) else 0.0
+        reserved = _amount(record.get("reserved_usd")) or 0.0
         return max(reserved, spent or 0.0), unknown and not reserved
     return spent or 0.0, unknown
+
+
+def _amount(value) -> float | None:
+    """A finite nonnegative USD amount, or None for anything else (a missing, damaged or negative value)."""
+    if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
+        return None
+    return float(value)
 
 
 def used(records, login: str, month: str, in_flight) -> dict:

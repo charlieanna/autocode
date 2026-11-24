@@ -273,7 +273,7 @@ class Bridge:
         month = allowance.period()
         record["period"] = month
         left = self.allowance_left(record)
-        if left == 0:
+        if left == 0 and requested_by:  # an allowance is always some login's, so a requester is known here
             self.hold(issue, requested_by)
             return
         if left is not None:
@@ -313,7 +313,7 @@ class Bridge:
         caps = self.config.person_caps or {}
         if login not in caps:
             return None
-        left = allowance.remaining(caps, self.usage(login))
+        left = allowance.remaining(caps, self.usage(login)) or 0.0
         return left if left >= allowance.SMALLEST_RUN_USD else 0
 
     def hold(self, issue: dict, requested_by: dict) -> None:
@@ -426,7 +426,8 @@ class Bridge:
 
     def note_cost(self, record: dict, view: dict) -> None:
         """Remember what the run has spent, from its own status view, for its requester's allowance."""
-        cost = view.get("cost") if isinstance(view.get("cost"), dict) else {}
+        cost = view.get("cost")
+        cost = cost if isinstance(cost, dict) else {}
         seen = {key: cost.get(key) for key in ("spent_usd", "cap_usd", "unpriced_stages", "complete")}
         if record.get("cost") != seen:
             record["cost"] = seen
