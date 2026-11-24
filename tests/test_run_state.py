@@ -25,7 +25,7 @@ MAX_UNTYPED_STATE_PARAMS = 0
 # RunState keys still typed ``Any`` (#695): mypy checks a key's reads and writes in every function
 # whose ``state`` is a RunState only once the key has a real type. Lower this as keys are typed; a new
 # key arrives typed.
-MAX_ANY_TYPED_KEYS = 137
+MAX_ANY_TYPED_KEYS = 136
 
 # Domain-owned state keys whose raw access on ``state`` is confined to their
 # owner module(s) (#3468). Extend this map as each Phase 2 slice migrates.
