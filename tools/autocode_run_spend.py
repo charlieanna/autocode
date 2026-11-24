@@ -23,7 +23,7 @@ Unpriced work counts as nothing here, as everywhere the cap is compared (autocod
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -69,7 +69,7 @@ def running_usd(state: RunState) -> float:
     except (OSError, ValueError, TypeError):
         return 0.0
     running = {**record, "metrics": metrics, "finished_at": util.now()}
-    return cost.spent({"settings": state.get("settings"), "stages": [running]})
+    return cost.spent({"settings": state.get("settings") or {}, "stages": [running]})
 
 
 def _root(state: RunState):
@@ -123,7 +123,8 @@ def known(state: RunState, *, own_running=False):
             ]
             spent += cost.spent({"settings": root.get("settings"), "stages": copied})
             continue
-        spent += cost.spent({**member, "inherited_spend": None})
+        # A member's own finished attempts; anything it inherited is already in the parent's spend.
+        spent += cost.spent(cast("RunState", {key: value for key, value in member.items() if key != "inherited_spend"}))
         if not caller or own_running:
             spent += running_usd(member)
     return {"spent": spent, "cap": limit}
