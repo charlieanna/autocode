@@ -29,16 +29,7 @@ BASE_TEST = (
     "import server\nclass GatewayTests(unittest.TestCase):\n"
     "    def test_c1_health_answers_ok(self):\n        self.assertEqual('ok', server.health())\n"
 )
-NEW_TEST = (
-    BASE_TEST.replace("import unittest\n", "import unittest\nimport importlib.util\n")
-    .replace("import server\n", "")
-    .replace(
-        "    def test_c1_health_answers_ok(self):\n",
-        "    def test_c1_health_answers_ok(self):\n"
-        "        self.assertIsNotNone(importlib.util.find_spec('server'))\n"
-        "        import server\n",
-    )
-)
+NEW_TEST = BASE_TEST
 OLD_TEST = (
     BASE_TEST.replace("GatewayTests", "ExistingTests")
     .replace("test_c1_health_answers_ok", "test_health_is_string")

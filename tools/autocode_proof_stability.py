@@ -93,7 +93,7 @@ def classify(outcomes) -> str:
 
 def outcome_of(receipt, test) -> str:
     """How one receipt recorded ``test``: pass, fail, or missing."""
-    if not receipt or not source_binding.established(receipt) or receipt.get("timed_out") or receipt.get("error"):
+    if not receipt or source_binding.reasons({"receipt": receipt}) or receipt.get("timed_out") or receipt.get("error"):
         return "missing"
     results = receipt.get("results") or {}
     if not results.get("complete"):

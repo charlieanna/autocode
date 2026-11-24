@@ -212,7 +212,7 @@ def guard_results(on_base, on_change) -> dict:
     """What a guard suite's two runs show: ``passing`` (passed in both), ``failing`` (failed with the change),
     and ``complete``, False when either run did not finish or reported no complete per-test results."""
     runs = [on_base, on_change]
-    if not all(source_binding.established(run) for run in runs):
+    if source_binding.reasons({"base": on_base, "candidate": on_change}):
         return {"passing": [], "failing": [], "complete": False}
     if not all(command_receipt.completed(run) and not run.get("timed_out") for run in runs) or not all(
         (run.get("results") or {}).get("complete") for run in runs

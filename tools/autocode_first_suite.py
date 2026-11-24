@@ -41,7 +41,7 @@ _GO_PATTERN_FAILURES = frozenset({"./...::[build failed]", ".::[build failed]"})
 
 
 def source_established(*receipts):
-    return all(source_binding.established(receipt) for receipt in receipts if receipt is not None)
+    return all(not source_binding.reasons({"receipt": receipt}) for receipt in receipts if receipt is not None)
 
 
 def no_go_project(inventory, copied) -> bool:

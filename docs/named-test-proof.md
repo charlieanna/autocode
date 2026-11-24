@@ -489,8 +489,9 @@ source-observation plan from the actual command, rather than a previously detect
 framework label, and retains the observer and its import closure. After the command
 it runs a bounded observation in the same owning copy
 (`tools/autocode_source_probe.py`), without rerunning the tests, and checks the
-retained bytes again. A command that cannot be classified does not execute as a
-proof without an explicit `UNVERIFIED` binding.
+retained bytes again. A command that cannot be classified as one of those literal
+runners records the reason in an explicit non-evidential binding and remains outside
+this phase's detector, keeping its existing admission.
 
 Python observes targeted modules, static imports (including names that can shadow
 the standard library), pytest root, effective `addopts`, `pythonpath` and ancestor
@@ -500,7 +501,8 @@ neutral, as are Ubuntu's exact distutils-precedence and zope namespace `.pth`
 hooks when they install only their own dependency), pytest environment options
 and plugin autoload. Only a narrow
 virtualenv/editable-install bootstrap is recognized. A deterministic top-level
-prelude may use unaliased `sys` and `Path`, append or insert file-relative roots,
+prelude may use unaliased `sys`, `os.path`, `pathlib.Path` and `Path`, append or
+insert file-relative roots,
 and use those roots in following imports; each import is resolved with only the
 mutations active at that statement, and that context follows into imported modules.
 Path changes in `conftest.py` or imported source, cross-module path changes,
@@ -527,9 +529,10 @@ Explicit tests under `node_modules` cannot be mistaken for owned source.
 
 Go observes its module and transitive package directories, distinguishing
 toolchain/module-cache dependencies from local source and replacements.
-`GOFLAGS`, `GOWORK`, `-modfile` roots and dynamic plugins are classified; configured
-workspace/modfile roots outside the copy and unobserved plugin loading stay
-`UNVERIFIED`.
+`GOFLAGS` is classified (safe build-version-control, parallelism and trim-path
+flags are neutral), as are `GOWORK`, `-modfile` roots and dynamic plugins;
+configured workspace/modfile roots outside the copy, other configured flags and
+unobserved plugin loading stay `UNVERIFIED`.
 
 A plain literal npm test is observed through the direct Node command it rewrites
 to; `package.json` is hash-bound across that classification. Opaque scripts,
@@ -549,9 +552,9 @@ supervised receipt and retained observer/import-closure bytes are authenticated
 together (`tools/autocode_source_binding.py`). The observer also authenticates its
 original tools directory for the narrow editable-install allowance. A binding
 cannot be moved to another receipt, and merged receipts authenticate every child
-against its own receipt. Raw commands,
-unsupported frameworks and selected native checks carry explicit `UNVERIFIED`
-bindings rather than executing without observation. A later integrity check
+against its own receipt. Raw commands and runners outside Python, Node and Go may
+carry a recorded `UNVERIFIED` binding for disclosure, but this phase does not use
+it to change their existing proof admission. A later integrity check
 recomputes the boundary answer from those bytes.
 
 A required test, root or source origin outside the owning copy makes the proof
@@ -560,8 +563,10 @@ judgment. The same hold applies to the original code, stability repeats,
 first-suite repair, independent check replay, protected replay, compatibility and acceptance evidence,
 companion suites, guards, the plan-time guard check, flake rechecks, follow-up
 baselines, original-reference checks and changed-line mutation evidence. Contaminated evidence cannot supply a
-failure either. External dependency origins remain allowed in this phase; linked
-dependency custody and a kernel read boundary are separate work. Legacy receipts
+failure either. External dependency origins remain allowed in this phase; an
+interpreter-controlled `._pth` runtime stays phase-2 dependency custody unless one
+of its roots enters the live workspace, which is held now. Linked dependency
+custody and a kernel read boundary are separate work. Legacy receipts
 without an observation remain readable and neutral; deleting a required binding,
 or retaining a malformed or changed one, fails closed.
 

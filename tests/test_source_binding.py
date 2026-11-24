@@ -202,6 +202,22 @@ class SourceBindingTests(unittest.TestCase):
         self.assertEqual("unverified", leaked["status"], leaked)
 
     @unittest.skipUnless(shutil.which("go"), "Go is not installed")
+    def test_safe_configured_go_flags_are_observed(self):
+        self.write(
+            self.tree,
+            {
+                "go.mod": "module example.test/fixture\n\ngo 1.25\n",
+                "app.go": "package fixture\n",
+                "app_test.go": "package fixture\n",
+            },
+        )
+        safe = self.probe("go", "go test ./...", env={"GOFLAGS": "-buildvcs=false -p=4"})
+        self.assertEqual("established", safe["status"], safe)
+        unsafe = self.probe("go", "go test ./...", env={"GOFLAGS": "-overlay=/tmp/overlay"})
+        self.assertEqual("unverified", unsafe["status"], unsafe)
+        self.assertIn("GOFLAGS", unsafe["reason"])
+
+    @unittest.skipUnless(shutil.which("go"), "Go is not installed")
     def test_go_local_replacement_outside_the_copy_is_unverified(self):
         replacement = self.workspace / "replacement"
         self.write(
@@ -263,6 +279,28 @@ class SourceBindingTests(unittest.TestCase):
                 for row in result["observations"]
             )
         )
+
+    def test_python_os_path_and_pathlib_bootstraps_are_observed(self):
+        self.write(
+            self.tree,
+            {
+                "src/app.py": "VALUE = 1\n",
+                "tests/test_os.py": (
+                    "import os\nimport sys\nimport unittest\n"
+                    "sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))\n"
+                    "from src.app import VALUE\n"
+                ),
+                "tests/test_pathlib.py": (
+                    "import pathlib\nimport sys\nimport unittest\n"
+                    "sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / 'src'))\n"
+                    "from app import VALUE\n"
+                ),
+            },
+        )
+        for module in ("tests.test_os", "tests.test_pathlib"):
+            with self.subTest(module=module):
+                result = self.probe("unittest", f"{sys.executable} -m unittest {module} -v")
+                self.assertEqual("established", result["status"], result)
 
     def test_python_bootstrap_order_and_shadowing_are_held(self):
         for source in (
@@ -912,7 +950,7 @@ class SourceBindingTests(unittest.TestCase):
         self.assertTrue(intact(receipt, root=self.base))
         self.assertEqual([], source_binding.reasons({"candidate": receipt}))
 
-    def test_unsupported_proof_frameworks_fail_closed_without_a_probe(self):
+    def test_unsupported_proof_frameworks_stay_outside_the_phase_one_detector(self):
         def unexpected_execute(*args, **kwargs):
             raise AssertionError("an unsupported runner must not be reported as observed")
 
@@ -930,7 +968,26 @@ class SourceBindingTests(unittest.TestCase):
                     timeout=60,
                 )
                 self.assertEqual("unverified", binding["status"])
-                self.assertTrue(source_binding.reasons({"candidate": {"source_binding": binding}}))
+                self.assertEqual([], source_binding.reasons({"candidate": {"source_binding": binding}}))
+
+    def test_isolated_python_runtime_custody_is_phase_two_unless_it_enters_the_workspace(self):
+        runtime = self.base / "runtime/bin/python"
+        runtime.parent.mkdir(parents=True)
+        runtime.write_text("")
+        framework = test_framework.Framework("unittest", f"{runtime} -m unittest discover -v")
+        command = framework.suite
+        (runtime.parent / "python._pth").write_text(f"{self.base / 'dependency'}\nimport site\n")
+        isolated = source_binding.plan(
+            framework, command, self.tree, self.tree, "suite-on-candidate", workspace=self.workspace
+        )
+        self.assertEqual("isolated-python", isolated["binding"]["framework"])
+        self.assertEqual([], source_binding.reasons({"candidate": {"source_binding": isolated["binding"]}}))
+        (runtime.parent / "python._pth").write_text(f"{self.workspace}\n")
+        leaked = source_binding.plan(
+            framework, command, self.tree, self.tree, "suite-on-candidate", workspace=self.workspace
+        )
+        self.assertEqual("unittest", leaked["binding"]["framework"])
+        self.assertTrue(source_binding.reasons({"candidate": {"source_binding": leaked["binding"]}}))
 
     def test_absent_package_does_not_make_an_opaque_node_command_observable(self):
         framework = test_framework.Framework("node", "node --test")

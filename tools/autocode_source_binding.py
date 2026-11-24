@@ -63,6 +63,18 @@ def admission_required(command):
     return _command_framework(command, None) is not None
 
 
+def applicable(binding):
+    """Whether a binding belongs to a runner this phase is authorized to judge."""
+    if not isinstance(binding, dict):
+        return True
+    children = binding.get("children")
+    if isinstance(children, list):
+        return any(applicable(child) for child in children)
+    if "framework" not in binding:
+        return True
+    return binding["framework"] in FRAMEWORKS
+
+
 def _owner(receipt):
     if not isinstance(receipt, dict):
         return None
@@ -361,6 +373,28 @@ def probe_intact(files, *, root):
     return True
 
 
+def _isolated_python_runtime(command, workspace):
+    invocation = python_tests.parse(command, include_owned=True)
+    if invocation is None or invocation.kind not in ("pytest", "unittest"):
+        return False, []
+    executable = Path(invocation.python)
+    roots = []
+    found = False
+    for name in dict.fromkeys((executable.name, "python", "python3")):
+        path = executable.with_name(name + "._pth")
+        try:
+            if not path.is_file() or path.is_symlink() or path.stat().st_size > MAX_CAPTURE_BYTES:
+                continue
+            found = True
+            for line in path.read_text().splitlines():
+                entry = line.strip()
+                if entry and entry != "import site":
+                    roots.append((path.parent / entry).resolve())
+        except OSError:
+            return True, roots
+    return found, roots
+
+
 def plan(framework, command, tree, root, label, *, workspace, evidence_dir=None):
     if not selected(label):
         return None
@@ -392,6 +426,42 @@ def plan(framework, command, tree, root, label, *, workspace, evidence_dir=None)
             and not (Path(root) / ".npmrc").is_symlink()
         ):
             probe_command = "node --test"
+    if name in ("pytest", "unittest") and python_tests.parse(command, include_owned=True) is None:
+        return {
+            "binding": {
+                "version": VERSION,
+                "framework": "python-command",
+                "command": command,
+                "status": "unverified",
+                "reason": "the Python command is not a literal pytest or unittest invocation",
+                "tree": str(Path(tree).resolve()),
+                "workspace": str(Path(workspace).resolve()) if workspace else None,
+                "observations": [],
+            }
+        }
+    if name in ("pytest", "unittest"):
+        isolated, runtime_roots = _isolated_python_runtime(command, workspace)
+        boundary = Path(workspace).resolve() if workspace else None
+        if isolated and any(boundary is not None and root.is_relative_to(boundary) for root in runtime_roots):
+            return {
+                "binding": {
+                    **unsupported(framework, command, tree, workspace),
+                    "reason": "an isolated Python runtime path enters the live workspace",
+                }
+            }
+        if isolated:
+            return {
+                "binding": {
+                    "version": VERSION,
+                    "framework": "isolated-python",
+                    "command": command,
+                    "status": "unverified",
+                    "reason": "isolated Python runtime custody is phase 2 of #4152",
+                    "tree": str(Path(tree).resolve()),
+                    "workspace": str(boundary) if boundary else None,
+                    "observations": [],
+                }
+            }
     classification = {
         "framework": name,
         "command": probe_command,
@@ -468,7 +538,7 @@ def observe(framework, command, tree, root, evidence_dir, label, *, workspace, e
         shlex.join([*launch, str(probe), str(request)]),
         str(root),
         Path(evidence_dir) / f"{label}.source.log",
-        timeout=min(timeout, 90),
+        timeout=90,
     )
     try:
         if probe_files is not None and not probe_intact(probe_files, root=Path(evidence_dir).resolve()):
@@ -509,6 +579,8 @@ def reasons(receipts):
                 found.append(f"{label}: the source-resolution binding is missing")
             continue
         binding = receipt["source_binding"]
+        if not applicable(binding):
+            continue
         reason = None
         if not isinstance(binding, dict):
             reason = "the source-resolution binding is malformed"

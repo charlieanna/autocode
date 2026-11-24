@@ -240,7 +240,9 @@ def _apply_transformations(tree, transformations, records) -> list[str]:
 def _account(result) -> list[str]:
     """Why an executed run does not account for every expected nodeid by name."""
     suite = result["suite"] or {}
-    if reasons := source_binding.reasons({"selected suite": suite}):
+    if source_binding.admission_required(str(suite.get("command") or "")) and (
+        reasons := source_binding.reasons({"selected suite": suite})
+    ):
         return ["incomplete proof: runner source resolution is not established — " + "; ".join(reasons)]
     results = suite.get("results")
     if results is None:

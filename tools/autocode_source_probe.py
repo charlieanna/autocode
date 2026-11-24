@@ -176,6 +176,17 @@ def _selectors(words, value_options, *, stop=()):
     return selected
 
 
+GO_FLAG_PATTERN = re.compile(r"^-(?:buildvcs=(?:true|false)|p=\d+|trimpath(?:=(?:true|false))?)$")
+
+
+def _go_flags_observed(flags) -> bool:
+    try:
+        words = shlex.split(flags)
+    except ValueError:
+        return False
+    return bool(words) and all(GO_FLAG_PATTERN.fullmatch(word) for word in words)
+
+
 def _go(request):
     words = shlex.split(request["command"])
     offset = 1 if words and words[0] in ("env", "/usr/bin/env", "/bin/env") else 0
@@ -185,10 +196,6 @@ def _go(request):
         return [], ["the Go command is not a literal test invocation"]
     prefix, executable = words[:offset], words[offset]
     arguments = words[offset + 2 :]
-    if os.environ.get("GOFLAGS", "").strip() or any(
-        word == "GOFLAGS" or word.startswith("GOFLAGS=") for word in prefix
-    ):
-        return [], ["GOFLAGS source resolution is not observed"]
     if any(
         word in ("-overlay", "-exec", "-toolexec") or word.startswith(("-overlay=", "-exec=", "-toolexec="))
         for word in arguments
@@ -209,7 +216,7 @@ def _go(request):
     if code != 0:
         errors.append("go env source roots failed: " + _tail(stderr or stdout))
     else:
-        if configured_flags:
+        if configured_flags and not _go_flags_observed(configured_flags):
             errors.append("configured GOFLAGS source resolution is not observed")
         if module and module != "/dev/null":
             observations.append({"kind": "go_module", "path": module, "role": "root"})
@@ -558,6 +565,17 @@ def _python_targets(words, kind, root, *, script=False):
     values = [] if script else _selectors(words, PYTHON_VALUE_OPTIONS, stop=("--",))
     if kind == "unittest" and values[:1] == ["discover"]:
         values = []
+    ignored = set()
+    index = 0
+    while index < len(words):
+        word = words[index]
+        if word in ("--ignore", "--ignore-glob") and index + 1 < len(words):
+            ignored.add(words[index + 1])
+            index += 2
+            continue
+        if word.startswith(("--ignore=", "--ignore-glob=")):
+            ignored.add(word.split("=", 1)[1])
+        index += 1
     targets = []
     for value in values:
         path = (root / value).resolve()
@@ -567,7 +585,11 @@ def _python_targets(words, kind, root, *, script=False):
             targets.append((value, None))
     if targets:
         return targets
-    files = sorted(path.resolve() for path in root.rglob("*.py") if python_tests.TEST_MODULE.match(path.name))
+    files = sorted(
+        path.resolve()
+        for path in root.rglob("*.py")
+        if python_tests.TEST_MODULE.match(path.name) and path.relative_to(root).as_posix() not in ignored
+    )
     if len(files) > MAX_FILES:
         raise ValueError("Python test observation exceeded its file bound")
     return [(_module_name(path, root), path) for path in files]
@@ -578,6 +600,31 @@ def _python_file_root(node, filename):
         if len(node.args) != 1 or node.keywords:
             raise ValueError(f"unsupported {node.func.id}() in an import path")
         return _python_file_root(node.args[0], filename)
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in ("abspath", "dirname")
+        and len(node.args) == 1
+        and not node.keywords
+        and isinstance(node.func.value, ast.Attribute)
+        and node.func.value.attr == "path"
+        and isinstance(node.func.value.value, ast.Name)
+        and node.func.value.value.id == "os"
+    ):
+        value = _python_file_root(node.args[0], filename)
+        return value.resolve() if node.func.attr == "abspath" else value.parent
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "Path"
+        and len(node.args) == 1
+        and not node.keywords
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "pathlib"
+        and isinstance(node.args[0], ast.Name)
+        and node.args[0].id == "__file__"
+    ):
+        return Path(filename)
     if (
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
@@ -654,9 +701,9 @@ def _python_import_paths(parsed, filename):
         if (
             prelude
             and isinstance(statement, ast.Import)
-            and len(statement.names) == 1
-            and statement.names[0].name == "sys"
-            and not statement.names[0].asname
+            and statement.names
+            and not any(alias.asname for alias in statement.names)
+            and all(alias.name in ("sys", "os", "pathlib", "unittest") for alias in statement.names)
         ):
             continue
         if (
@@ -703,6 +750,18 @@ def _python_import_paths(parsed, filename):
             and isinstance(node.target, ast.Name)
         ):
             sys_aliases.add(node.target.id)
+
+    for node in ast.walk(parsed):
+        if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign, ast.Delete)):
+            targets = (
+                node.targets
+                if isinstance(node, ast.Assign)
+                else [node.target]
+                if hasattr(node, "target")
+                else node.targets
+            )
+            if any(isinstance(target, ast.Name) and target.id in {"sys", "os", "pathlib"} for target in targets):
+                raise ValueError("import bootstrap name is shadowed")
 
     def rooted_name(node):
         while isinstance(node, ast.Attribute):
@@ -1103,7 +1162,9 @@ def _component_contexts(arguments, root, tree):
 
 def _python(request):
     invocation = python_tests.parse(
-        request["command"], include_owned=True, owned_directory=request.get("observer_root")
+        python_tests.verbose_unittest(request["command"]),
+        include_owned=True,
+        owned_directory=request.get("observer_root"),
     )
     if invocation is None or invocation.kind not in ("pytest", "unittest"):
         return [], ["the Python command is not a literal pytest or unittest invocation"]
@@ -1172,8 +1233,6 @@ def _python(request):
         context = (path, inherited, tuple(search_paths))
         if context in observed_contexts:
             return
-        if role == "test":
-            context_targets[tuple(search_paths)] = context_targets.get(tuple(search_paths), 0) + 1
         if scan_budget[1] >= MAX_FILES:
             errors.append("Python source observation exceeded its file bound")
             return
@@ -1197,6 +1256,8 @@ def _python(request):
         if "PYTHONPATH" in text or "addsitedir" in text or "pytest_plugins" in text:
             errors.append(f"Python import-path mutation is not observed: {path}")
         found, paths = imports(text, str(path), inherited)
+        if role == "test" and found:
+            context_targets[tuple(search_paths)] = context_targets.get(tuple(search_paths), 0) + 1
         if paths:
             mutations = context_mutations.setdefault(tuple(search_paths), {})
             mutations[path] = tuple((method, index, str(directory.resolve())) for method, index, directory in paths)
@@ -1205,6 +1266,16 @@ def _python(request):
         queue.extend((name, level, path, paths, search_paths) for name, level, paths in found)
 
     def resolve(name, level=0, context=None, paths=(), search_paths=()):
+        def selector_module():
+            if context is not None:
+                return None
+            parts = name.split(".")
+            for end in range(len(parts) - 1, 0, -1):
+                module = ".".join(parts[:end])
+                if root.joinpath(*parts[:end]).with_suffix(".py").is_file():
+                    return module
+            return None
+
         if level and context is not None:
             base = Path(context).parent
             for _ in range(level - 1):
@@ -1223,40 +1294,53 @@ def _python(request):
             else:
                 observations.append({"kind": "python_module", "name": name, "path": None, "role": "source"})
             return
-        top = name.partition(".")[0]
         key = (
-            top,
+            name,
             tuple((method, index, str(directory)) for method, index, directory in paths),
             tuple(str(directory) for directory in search_paths),
         )
-        if not top or key in seen:
+        if not name or key in seen:
             return
         seen.add(key)
         original_path = sys.path[:]
+        resolved_name = name
         try:
             for method, index, directory in paths:
                 if method == "insert":
                     sys.path.insert(index, str(directory))
                 else:
                     sys.path.append(str(directory))
-            spec = importlib.util.find_spec(top)
+            try:
+                spec = importlib.util.find_spec(name)
+            except ModuleNotFoundError:
+                spec = None
+                if (module := selector_module()) is not None:
+                    resolved_name = module
+                    spec = importlib.util.find_spec(module)
+                    if spec is None:
+                        errors.append(f"Python module resolution failed for {name}")
+                        return
+                else:
+                    raise
         except (Exception, SystemExit) as error:
-            errors.append(f"Python module resolution failed for {top}: {error}")
+            errors.append(f"Python module resolution failed for {name}: {error}")
             return
         finally:
             sys.path[:] = original_path
         origins = _origins(spec)
         if not origins:
-            observations.append({"kind": "python_module", "name": top, "path": None, "role": "source"})
+            observations.append({"kind": "python_module", "name": name, "path": None, "role": "source"})
             return
         for value in origins:
             path = Path(value).resolve()
             dependency = any(path.is_relative_to(directory) for directory in dependencies)
             role = "dependency" if dependency else "source"
-            observations.append({"kind": "python_module", "name": top, "path": str(path), "role": role})
+            observations.append({"kind": "python_module", "name": resolved_name, "path": str(path), "role": role})
             if role != "source" or not path.is_relative_to(tree):
                 continue
-            files = [path] if path.suffix == ".py" else sorted(path.rglob("*.py"))
+            files = [path] if path.suffix == ".py" else [path / "__init__.py"]
+            if resolved_name != name and path.suffix == ".py":
+                target_paths.add(path)
             for source in files:
                 observe_file(source, "source", paths, search_paths)
 
@@ -1310,6 +1394,7 @@ def _python(request):
             elif "." in name:
                 candidate = root.joinpath(*name.split(".")).with_suffix(".py")
                 if candidate.is_file():
+                    target_paths.add(candidate.resolve())
                     observe_file(candidate, "test")
                     context = candidate
             resolve(name, context=str(context) if context is not None else None)

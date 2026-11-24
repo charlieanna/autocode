@@ -91,7 +91,11 @@ def incomplete_receipts(checks) -> list[str]:
         if not command_receipt.completed(receipt):
             unverified.append(f"{label} has no complete owned-command evidence")
         binding = receipt.get("source_binding")
-        if "source_binding" in receipt and not source_binding.intact(binding, root=None, receipt=receipt):
+        if (
+            "source_binding" in receipt
+            and source_binding.applicable(binding)
+            and not source_binding.intact(binding, root=None, receipt=receipt)
+        ):
             detail = binding.get("reason") if isinstance(binding, dict) else None
             unverified.append(
                 f"{label}: {detail or 'source-resolution probe evidence is missing, malformed or changed'}"
@@ -194,7 +198,10 @@ def intact(receipt, *, root=None):
             and (
                 not receipt.get("source_binding_required")
                 or "source_binding" in receipt
-                and source_binding.intact(receipt["source_binding"], root=root, receipt=receipt)
+                and (
+                    not source_binding.applicable(receipt["source_binding"])
+                    or source_binding.intact(receipt["source_binding"], root=root, receipt=receipt)
+                )
             )
         )
     except (OSError, KeyError, TypeError, ValueError):
