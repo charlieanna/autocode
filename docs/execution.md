@@ -1774,6 +1774,43 @@ old requests. Real requirements questions, permission changes, plan approval and
 declared artifact acceptance remain human decisions. External service failures
 cannot be guaranteed resolvable; automatic recovery is bounded rather than infinite.
 
+## Agent sandbox
+
+`--agent-sandbox` (off by default, `tools/autocode_agent_sandbox.py`) runs the whole agent process of
+every stage inside one OS sandbox: the provider's client and every tool, command and test it starts.
+Built-in OpenCode stages already run their shell inside the kernel tool boundary below, which reads
+less than this sandbox allows, so those stages keep that boundary and their record says
+`covered_by: tool_containment`. The sandbox matters for Claude Code, Codex and configured providers,
+whose own permission checks otherwise decide what a model's shell may read.
+
+Inside the sandbox:
+
+- **Reads** are what the user can read, except the home-directory credential stores (`CREDENTIALS`:
+  cloud and cluster logins such as `~/.aws`, `~/.azure`, `~/.config/gcloud` and `~/.kube`, SSH and GPG
+  keys, Git and package-registry tokens such as `~/.netrc`, `~/.git-credentials`, `~/.npmrc` and
+  `~/.pypirc`, password stores, browser profiles and shell histories) and the logins of the engines the
+  stage does not run on (a Claude Code stage cannot read `~/.codex/auth.json`). A stage still reads its
+  own engine's login, which it needs to reach its model.
+- **Writes** go only to the workspace and its Git directory, the run directory, the temporary
+  directories, the engine's own state (`~/.claude` for Claude Code, `~/.codex` for Codex, OpenCode's and
+  Kilo's directories) and package caches (`~/.cache`, `~/Library/Caches`, `~/.npm`, Go, Cargo, Gradle and
+  Maven caches). A credential file inside a writable cache stays denied.
+
+On Linux the backend is bubblewrap in a user namespace: the root is mounted read-only, the writable
+paths are bound back, then each credential directory is covered by an empty read-only tmpfs and each
+credential file by `/dev/null`. On macOS it is a Seatbelt profile, saved in the run's `agent-sandbox/`
+directory, that denies those reads and every write outside the writable paths. Neither adds a network
+or PID namespace, so the provider reaches its model and process supervision is unchanged. Variables
+that look like credentials are already withheld from the agents' environment (`autocode_agent_env`).
+
+The sandbox is fail-safe. Without the flag every stage launches exactly as before. With it, run setup
+refuses the run before any stage when the host cannot provide it (no `bwrap` able to create a user
+namespace, no `sandbox-exec`, another platform, or a Codex stage on macOS, where Codex's own Seatbelt
+sandbox cannot start inside another), and a stage that cannot be sandboxed later pauses as
+`PAUSED_TOOL_CONTAINMENT` without launching. The choice is saved with the run and recorded as an
+`agent_sandbox_enabled` user event; each stage record's `agent_sandbox` names the backend, the writable
+paths and the denied stores that exist.
+
 ## Native tool containment
 
 The Plan Reviewer and Tester use the read-only sandbox with the Codex engine; the Builder uses workspace-write.

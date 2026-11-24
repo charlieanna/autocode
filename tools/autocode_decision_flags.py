@@ -71,6 +71,7 @@ DECISION_FLAGS = (
 # Every other flag: setup, routing, planning-flow switches and start-time budgets an
 # unattended caller must be able to set.
 START_FLAGS = (
+    "--agent-sandbox",  # adds the OS sandbox around agents; never lifts a boundary
     "--related-profile",
     "--related-profile-sha256",
     "--adaptive-planning",
