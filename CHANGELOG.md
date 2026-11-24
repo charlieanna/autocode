@@ -9,9 +9,6 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
-### Changed
-
-- **A vague request gets proposals, not a blank question**: Requirements used to answer "build me an adaptive engine" with "what do you want this to do?" and then two more rounds of abstract questions. It now says what it understood, offers the readings it sees as options written as short scenarios (recommending the likeliest), sketches how it would build that reading, and asks the choices it leaves open in the same round. Each option shows what you would see on one concrete input ("an order delivered at 23:00 on March 1 is refused from 23:00 on March 31"), and questions keep the behavior you asked for among their options. You can always answer in your own words.
 ### Added
 
 - **Mutation evidence for Maven, Gradle, PHPUnit and CTest proofs**: their proofs are judged by exit code, so the mutation check ran no mutant and every executed changed line in Java, Kotlin, C, C++ or PHP still needed a reason written by the Tester. Each of these runners writes JUnit XML naming its tests; the mutation check now reads it (removing earlier reports before each run), takes the tests the unmutated run reports passing, and counts a mutant killed only when one of them failed in that run's report. Changed `.java`, `.kt`, `.c`, `.h`, `.cpp` and `.php` lines get the same operators as Go and JavaScript; a mutant that does not compile is not a site, and Maven, Gradle and CTest mutants get later modification times so the build compiles them.
@@ -19,6 +16,12 @@ PR template asks for an entry here; a change without one is incomplete.
 - **Changed lines in C, C++, Java, Kotlin, PHP and C# are classified by the project's own coverage tool**: the changed-code evidence gate read coverage only from coverage.py, Go, c8 and Vitest, so in these languages every non-blank changed line, closing braces, `#include`s and declarations among them, needed a test or a reason written by the Tester. The proof now reads LCOV, Cobertura and JaCoCo XML reports, recognized from their bytes, from the tool the project already has: gcov notes the proof's run left (through gcovr or lcov, whatever the runner), JaCoCo data a Maven or Gradle run left, PHPUnit with pcov or Xdebug, and `dotnet test` with coverlet. Nothing is installed into the project.
 
 - **An OS sandbox around every agent** (`--agent-sandbox`, off by default): each stage's whole agent process (Claude Code, Codex or a configured provider, with every command and test it runs) runs inside Linux bubblewrap or macOS `sandbox-exec`. It cannot read home-directory credentials such as `~/.aws`, `~/.ssh`, `~/.config/gcloud`, `~/.kube` or `~/.netrc`, nor another engine's login, and it writes only the workspace, the run, temporary directories, its own engine's state and package caches. A run that asks for it on a host without such a sandbox is refused before any stage, and a stage that cannot be sandboxed pauses without launching, so it never runs unsandboxed. Built-in OpenCode stages keep their stricter kernel tool boundary.
+
+### Changed
+
+- **A vague request gets proposals, not a blank question**: Requirements used to answer "build me an adaptive engine" with "what do you want this to do?" and then two more rounds of abstract questions. It now says what it understood, offers the readings it sees as options written as short scenarios (recommending the likeliest), sketches how it would build that reading, and asks the choices it leaves open in the same round. Each option shows what you would see on one concrete input ("an order delivered at 23:00 on March 1 is refused from 23:00 on March 31"), and questions keep the behavior you asked for among their options. You can always answer in your own words.
+
+- **Plans no longer guess the shape of other systems' data**: asked to build a service that reads Kibana alerts and Elasticsearch logs in an empty repository, the Planner invented the log field names and the alert body and checked every criterion against mocks of its own guess. When a change reads or receives data whose shape another system defines and nobody gave it, Requirements now asks for it (or a pasted sample), a plan that still needs it asks you with the likely shape recommended, and the Plan Reviewer blocks a plan whose criteria rest on a guessed shape or that leaves a decision for you as a note in its technical approach.
 
 ### Fixed
 
