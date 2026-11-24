@@ -15,6 +15,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - **Changed lines in C, C++, Java, Kotlin, PHP and C# are classified by the project's own coverage tool**: the changed-code evidence gate read coverage only from coverage.py, Go, c8 and Vitest, so in these languages every non-blank changed line, closing braces, `#include`s and declarations among them, needed a test or a reason written by the Tester. The proof now reads LCOV, Cobertura and JaCoCo XML reports, recognized from their bytes, from the tool the project already has: gcov notes the proof's run left (through gcovr or lcov, whatever the runner), JaCoCo data a Maven or Gradle run left, PHPUnit with pcov or Xdebug, and `dotnet test` with coverlet. Nothing is installed into the project.
 
+- **An OS sandbox around every agent** (`--agent-sandbox`, off by default): each stage's whole agent process (Claude Code, Codex or a configured provider, with every command and test it runs) runs inside Linux bubblewrap or macOS `sandbox-exec`. It cannot read home-directory credentials such as `~/.aws`, `~/.ssh`, `~/.config/gcloud`, `~/.kube` or `~/.netrc`, nor another engine's login, and it writes only the workspace, the run, temporary directories, its own engine's state and package caches. A run that asks for it on a host without such a sandbox is refused before any stage, and a stage that cannot be sandboxed pauses without launching, so it never runs unsandboxed. Built-in OpenCode stages keep their stricter kernel tool boundary.
+
 ### Fixed
 
 - **Parallel Builders now stay inside your cost cap.** Each parallel Builder compared the cap with its own spend only, so every one of them could spend up to the whole cap, and a Builder started its report repair or next attempt after the run had already passed it. The cap is now held over the whole run: the parent's spend plus every Builder's finished and running attempts, checked before every provider launch and while each stage runs. A Builder stopped at the cap now pauses the run at your cost cap instead of asking you to retry it, and raising the cap continues it from where it stopped without running any finished Builder again.
@@ -22,6 +24,8 @@ PR template asks for an entry here; a change without one is incomplete.
 ## [0.11.0] - 2026-11-24
 
 ### Added
+
+- **A monthly allowance for each person on a shared bridge** (`AUTOCODE_BRIDGE_PERSON_CAPS`, optional): what is left of the requester's allowance becomes each run's own `--max-cost-usd` and is reserved while the run is in flight; at the allowance a new issue is held with one comment and starts by itself when there is allowance again. The completion comment says what the run cost, and `autocode bridge status` shows each person's month. Part of [team use](docs/plans/multi-user.md).
 
 - **The channel bridge separates who may start runs from who may decide them** (`AUTOCODE_BRIDGE_DECIDERS`, optional): set, only those logins answer, approve and steer, and an actor's reply gets a refusal; unset, the actors decide as before. A bridge that more than one login can use now refuses `--allow-uncontained-tools` in its launch options. Part of [team use](docs/plans/multi-user.md).
 
