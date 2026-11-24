@@ -54,8 +54,10 @@ from __future__ import annotations
 
 try:
     from . import autocode_review_attribution as review_attribution
+    from . import autocode_task_archive as task_archive
 except ImportError:
     import autocode_review_attribution as review_attribution
+    import autocode_task_archive as task_archive
 
 from typing import TYPE_CHECKING, Literal, cast
 
@@ -203,8 +205,7 @@ def accept(state: RunState, text: str, workspace, now: str) -> None:
     )
     # A finished assignment is history, not work on the new request. Preserve it where
     # later evidence and carry-forward readers already look, before any new stage sees it.
-    if state.get("current_task"):
-        state.setdefault("task_archive", []).append(state.pop("current_task"))
+    task_archive.archive_current(state)
     # A completed human turn has its own default review allowance. Historical
     # charges remain archived; explicit run-wide limits and cumulative usage stay.
     planning_cycle.new_cycle(state, new_turn=True)

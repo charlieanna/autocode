@@ -39,6 +39,7 @@ try:
     from . import autocode_stop as stop
     from . import autocode_stray_writes as stray_writes
     from . import autocode_support as support
+    from . import autocode_task_archive as task_archive
     from . import autocode_tester_probes as tester_probes
     from . import autocode_tool_handoff as tool_handoff
     from . import autocode_util as util
@@ -63,6 +64,7 @@ except ImportError:
     import autocode_stop as stop
     import autocode_stray_writes as stray_writes
     import autocode_support as support
+    import autocode_task_archive as task_archive
     import autocode_tester_probes as tester_probes
     import autocode_tool_handoff as tool_handoff
     import autocode_util as util
@@ -934,8 +936,7 @@ def _apply_replan(
             contract["approval_status"] = "draft"
             contract["approval_event"] = None
         goals.invalidate(state, f"Resolver replan required: {guidance}")
-        if state.get("current_task"):
-            state.setdefault("task_archive", []).append(state.pop("current_task"))
+        task_archive.archive_current(state)
         next_stage = "plan" if v2 else "draft_plan"
     _record_history(state, request, record, "replan", counted_in_stages=False, extra={"target_next_stage": next_stage})
     request["in_force"] = True

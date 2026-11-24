@@ -81,7 +81,7 @@ def capture(state: RunState, row, current):
             raise ValueError("Human artifact approval cannot move to another contract")
         tasks = [
             task
-            for task in [*state.get("task_archive", []), state.get("current_task", {})]
+            for task in [*state.get("task_archive", []), cast(dict, state.get("current_task", {}))]
             if task.get("contract_hash") == contract["hash"] and task.get("milestone_id") == row["id"]
         ]
         if not tasks or any(task.get("milestone_ids") for task in tasks):

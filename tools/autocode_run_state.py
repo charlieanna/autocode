@@ -698,7 +698,7 @@ class RunState(TypedDict, total=False):
     source_snapshot: Any
     stop_intent: Any
     targeted_consultation: Any
-    task_archive: Any
+    task_archive: list[dict]  # finished tasks; current_task moves here when replaced (never None)
     task_branch: str
     task_preflight: Any
     tasks: Any
