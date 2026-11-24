@@ -217,6 +217,211 @@
         "tests/baselines/reference/controlFlowAliasing.errors.txt",
         "tests/baselines/reference/controlFlowAliasing.types"
       ]
+    },
+    {
+      "id": "more-itertools-subfactorial",
+      "project": "More Itertools",
+      "repository": "https://github.com/more-itertools/more-itertools.git",
+      "issue_ref": "more-itertools/more-itertools#1166",
+      "source": "https://github.com/more-itertools/more-itertools/pull/1166",
+      "base_commit": "0c48044a70bae53fed919526bb1229d459a3e496",
+      "reference_commit": "842a2b17a8e3f78462fe20cd4a88abd32085c111",
+      "split": "development",
+      "checks": [
+        "small_values",
+        "counts_derangements",
+        "large_values_exact",
+        "negative_raises",
+        "exported"
+      ],
+      "tier": "kinds",
+      "kind": "feature",
+      "language": "python"
+    },
+    {
+      "id": "humanize-superscript-map",
+      "project": "Humanize",
+      "repository": "https://github.com/python-humanize/humanize.git",
+      "issue_ref": "python-humanize/humanize#313",
+      "source": "https://github.com/python-humanize/humanize/pull/313",
+      "base_commit": "55dc47c9f36357a3ffaf7f8c47a04a6259b80d66",
+      "reference_commit": "e7c04f429ddf48ac434037d07eb2ca3c7435ea88",
+      "split": "development",
+      "checks": [
+        "scientific_unchanged",
+        "module_constant",
+        "scientific_uses_constant"
+      ],
+      "tier": "kinds",
+      "kind": "refactor",
+      "language": "python"
+    },
+    {
+      "id": "js-yaml-max-depth",
+      "project": "js-yaml",
+      "repository": "https://github.com/nodeca/js-yaml.git",
+      "issue_ref": "nodeca/js-yaml@4700bafbc9cc91d14df1f6e1fdf1689714047151",
+      "source": "https://github.com/nodeca/js-yaml/commit/4700bafbc9cc91d14df1f6e1fdf1689714047151",
+      "base_commit": "d521df27cd13aeb3b84825b5cb64b53e8b526069",
+      "reference_commit": "4700bafbc9cc91d14df1f6e1fdf1689714047151",
+      "split": "development",
+      "checks": [
+        "deep_flow_sequence_refused",
+        "deep_flow_mapping_refused",
+        "deep_block_mapping_refused",
+        "moderate_nesting_loads",
+        "custom_lower_limit",
+        "custom_higher_limit",
+        "load_all_limited",
+        "limit_resets_between_documents",
+        "ordinary_documents_unchanged"
+      ],
+      "tier": "kinds",
+      "kind": "feature",
+      "language": "javascript"
+    },
+    {
+      "id": "commander-strip-vt-control",
+      "project": "Commander.js",
+      "repository": "https://github.com/tj/commander.js.git",
+      "issue_ref": "tj/commander.js#2486",
+      "source": "https://github.com/tj/commander.js/pull/2486",
+      "base_commit": "987f28966c71baecb0ef4a36780e727bcd575b31",
+      "reference_commit": "373f660f6febb720b82635220eea72dd9b7e0cba",
+      "split": "development",
+      "checks": [
+        "display_width_ignores_colour",
+        "default_output_strips_colour",
+        "coloured_help_layout_unchanged",
+        "plain_help_unchanged",
+        "own_stripper_removed",
+        "uses_node_util"
+      ],
+      "tier": "kinds",
+      "kind": "refactor",
+      "language": "javascript"
+    },
+    {
+      "id": "cast-float-strings-to-integers",
+      "project": "cast",
+      "repository": "https://github.com/spf13/cast.git",
+      "issue_ref": "spf13/cast#261",
+      "source": "https://github.com/spf13/cast/pull/261",
+      "base_commit": "d11fd11a5eab8c79be674a13b32f573c2648cb28",
+      "reference_commit": "ac48031262fa1441c566e5d32719c91094a0d950",
+      "split": "development",
+      "checks": [
+        "string_floats_truncate",
+        "json_number_floats_truncate",
+        "whole_and_invalid_strings_unchanged",
+        "time_from_json_number_unchanged",
+        "float_and_duration_unchanged"
+      ],
+      "tier": "kinds",
+      "kind": "feature",
+      "language": "go"
+    },
+    {
+      "id": "golang-lru-expirable-package",
+      "project": "golang-lru",
+      "repository": "https://github.com/hashicorp/golang-lru.git",
+      "issue_ref": "hashicorp/golang-lru@1154eabd8734fc7f7005e582498ee57dc6b3bc22",
+      "source": "https://github.com/hashicorp/golang-lru/commit/1154eabd8734fc7f7005e582498ee57dc6b3bc22",
+      "base_commit": "f0d41e070d2ae4b14d928de84f28ccacaeefbfaf",
+      "reference_commit": "1154eabd8734fc7f7005e582498ee57dc6b3bc22",
+      "split": "development",
+      "checks": [
+        "simplelru_unchanged",
+        "expirable_package_caches",
+        "expirable_entries_expire",
+        "expirable_evict_callback",
+        "simplelru_has_no_expirable_cache",
+        "list_written_once"
+      ],
+      "tier": "kinds",
+      "kind": "refactor",
+      "language": "go"
+    },
+    {
+      "id": "semver-precedence-comparison",
+      "project": "semver (Rust)",
+      "repository": "https://github.com/dtolnay/semver.git",
+      "issue_ref": "dtolnay/semver#305",
+      "source": "https://github.com/dtolnay/semver/pull/305",
+      "base_commit": "83154eaa576ebbb9637dabaf74922177982c6393",
+      "reference_commit": "83aaaf0d2d75074ca3b9b68c178a6ed791a1fdd3",
+      "split": "development",
+      "checks": [
+        "ignores_build_metadata",
+        "orders_major_minor_patch",
+        "orders_prerelease",
+        "sorts_stably",
+        "total_order_unchanged"
+      ],
+      "tier": "kinds",
+      "kind": "feature",
+      "language": "rust"
+    },
+    {
+      "id": "httparse-chunk-size-duplication",
+      "project": "httparse",
+      "repository": "https://github.com/seanmonstar/httparse.git",
+      "issue_ref": "seanmonstar/httparse#219",
+      "source": "https://github.com/seanmonstar/httparse/pull/219",
+      "base_commit": "4b902ecfa09087c54e5b81e3dc674da5fff19722",
+      "reference_commit": "ac44a38a6b3d1f2dde01c250f622def4aa89f5e0",
+      "split": "development",
+      "checks": [
+        "lowercase_hex_sizes",
+        "uppercase_and_mixed_hex_sizes",
+        "overflow_and_invalid_refused",
+        "extensions_and_partial_input",
+        "hex_digit_branches_merged"
+      ],
+      "tier": "kinds",
+      "kind": "refactor",
+      "language": "rust"
+    },
+    {
+      "id": "commons-cli-option-count",
+      "project": "Apache Commons CLI",
+      "repository": "https://github.com/apache/commons-cli.git",
+      "issue_ref": "apache/commons-cli#396",
+      "source": "https://github.com/apache/commons-cli/pull/396",
+      "base_commit": "5969448d0c55ac75f9616c6d889517d1561a2ca1",
+      "reference_commit": "f6c45f8f46217c9eec2b398fb10a5c60b3ed8c46",
+      "split": "development",
+      "checks": [
+        "counts_repeated_short_option",
+        "counts_by_long_name_and_char",
+        "counts_by_option_object",
+        "absent_and_unknown_count_zero",
+        "counts_options_with_values",
+        "existing_queries_unchanged"
+      ],
+      "tier": "kinds",
+      "kind": "feature",
+      "language": "java"
+    },
+    {
+      "id": "commons-cli-first-value-helper",
+      "project": "Apache Commons CLI",
+      "repository": "https://github.com/apache/commons-cli.git",
+      "issue_ref": "apache/commons-cli@bbc7001dee87e921847dc2bc89ca9c601411134a",
+      "source": "https://github.com/apache/commons-cli/commit/bbc7001dee87e921847dc2bc89ca9c601411134a",
+      "base_commit": "a7849ae40068b5f604ee84cb0aeeeeaee04e22eb",
+      "reference_commit": "bbc7001dee87e921847dc2bc89ca9c601411134a",
+      "split": "development",
+      "checks": [
+        "option_value_unchanged",
+        "group_value_unchanged",
+        "defaults_unchanged",
+        "private_first_helper",
+        "first_or_null_written_once"
+      ],
+      "tier": "kinds",
+      "kind": "refactor",
+      "language": "java"
     }
   ]
 }
