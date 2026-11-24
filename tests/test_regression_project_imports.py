@@ -73,13 +73,16 @@ class ProjectImportRegressionTests(unittest.TestCase):
         self.assertNotEqual(verify.PASS, result["verdict"], result)
         self.assertEqual([], result.get("fail_to_pass"), result)
 
-    def test_module_collection_failure_is_not_an_executed_python_test(self):
+    def test_module_collection_failure_on_the_added_name_proves_the_feature(self):
+        # Owner decision 2026-11-24: the base run reports ``new`` missing, which the change adds and the
+        # test imports, so the test that could not load there shows the feature is absent.
         result = self.check_feature(
             "import unittest\nfrom app import new\nclass Feature(unittest.TestCase):\n"
             "    def test_new(self):\n        self.assertEqual(new(), 42)\n"
         )
-        self.assertNotEqual(verify.PASS, result["verdict"], result)
-        self.assertEqual([], result.get("fail_to_pass"), result)
+        self.assertEqual(verify.PASS, result["verdict"], result)
+        self.assertEqual(1, len(result["fail_to_pass"]), result)
+        self.assertTrue(any("new, which only the change adds" in note for note in result["notes"]), result)
 
     def test_forged_finder_origin_cannot_prove_an_external_import(self):
         result = self.check_feature(

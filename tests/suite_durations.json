@@ -76,7 +76,7 @@
   "scenarios.test_adversarial_runner.ReporterTests.test_timeout_before_first_outcome_is_durable_and_nonzero": 0.2,
   "scenarios.test_adversarial_runner.ReporterTests.test_timeout_retains_completed_outcomes_output_and_cleanup_diagnostics": 0.2,
   "scenarios.test_adversarial_runner.ReporterTests.test_worker_checkpoints_each_outcome_and_publishes_final_atomically": 0.2,
-  "scenarios.test_collection_repair.CollectionRepairScenario.test_builder_repairs_only_after_runner_feedback": 29.5,
+  "scenarios.test_collection_repair.CollectionRepairScenario.test_test_importing_the_module_the_change_adds_needs_no_repair": 29.5,
   "scenarios.test_conformance.ClientDecisionTests.test_a_catalog_run_exports_each_plan_before_the_client_approves_it": 0.3,
   "scenarios.test_conformance.ClientDecisionTests.test_a_command_for_another_run_is_a_gap": 0.3,
   "scenarios.test_conformance.ClientDecisionTests.test_a_moment_waits_for_the_stage_the_view_shows_working": 0.3,
