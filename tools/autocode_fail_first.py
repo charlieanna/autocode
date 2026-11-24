@@ -43,6 +43,7 @@ try:
     from . import autocode_progressive_state as progressive_state
     from . import autocode_project_kinds as project_kinds
     from . import autocode_run_status as run_status
+    from . import autocode_task_archive as task_archive
     from . import autocode_test_cases as test_cases
     from . import autocode_test_support as test_support
     from . import autocode_util as util
@@ -51,6 +52,7 @@ except ImportError:
     import autocode_progressive_state as progressive_state
     import autocode_project_kinds as project_kinds
     import autocode_run_status as run_status
+    import autocode_task_archive as task_archive
     import autocode_test_cases as test_cases
     import autocode_test_support as test_support
     import autocode_util as util
@@ -400,8 +402,7 @@ def send_back(state: RunState, install) -> bool:
             }
         )
         planning_cycle.internal_answer_restart(candidate)
-        if candidate.get("current_task"):
-            candidate.setdefault("task_archive", []).append(candidate.pop("current_task"))
+        task_archive.archive_current(candidate)
         for key in ("next_action", "user_request", human.PRIVATE, human.PUBLIC):
             cast(dict, candidate).pop(key, None)
         run_status.running(

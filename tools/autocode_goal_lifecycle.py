@@ -21,6 +21,7 @@ try:
     from . import autocode_roles as roles
     from . import autocode_source_scope as source_scope
     from . import autocode_stop_kinds as stop_kinds
+    from . import autocode_task_archive as task_archive
     from . import autocode_technical_questions as technical_questions
 except ImportError:
     import autocode_assumption_ledger as assumption_ledger
@@ -30,6 +31,7 @@ except ImportError:
     import autocode_roles as roles
     import autocode_source_scope as source_scope
     import autocode_stop_kinds as stop_kinds
+    import autocode_task_archive as task_archive
     import autocode_technical_questions as technical_questions
 
 
@@ -504,8 +506,7 @@ def install_draft(state: RunState, body, *, origin, allow_legacy=False, changes=
             state, ("edit_goal" if origin == "user_cli_edit" else origin) + ":r" + str(revision)
         )
     invalidate(state, "Contract revision changed; revalidate the current artifact")
-    if state.get("current_task"):
-        state.setdefault("task_archive", []).append(state.pop("current_task"))
+    task_archive.archive_current(state)
     state.pop("next_action", None)
     state["acceptance_criteria"] = [
         {"id": c["id"], "criterion": c["criterion"], "status": "unverified", "evidence": ""}
@@ -1659,8 +1660,7 @@ def assign_task(state: RunState, decision, current, *, draft_slice=None, visual_
     checkpoints.require_prerequisites(
         state, spec["milestone_id"], current=current, visual_proof=visual_proof, decision=normalized_decision
     )
-    if state.get("current_task"):
-        state.setdefault("task_archive", []).append(copy.deepcopy(state["current_task"]))
+    task_archive.archive_current(state, keep=True)
     contract = cast(dict, state["goal_contract"])
     state["current_task"] = {
         **copy.deepcopy(spec),

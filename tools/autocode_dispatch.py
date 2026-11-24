@@ -921,7 +921,8 @@ def integrate(state: RunState, workspace, run_dir, batch):
     )
     for field in ("requirements", "acceptance_criteria", "validation_plan", "affected_paths"):
         combined[field] = list(dict.fromkeys(v for task in tasks for v in task[field]))
-    state.setdefault("task_archive", []).append(state["current_task"])
+    # A batch is scheduled from the current task (schedule), so there is one to archive.
+    state.setdefault("task_archive", []).append(cast(dict, state["current_task"]))
     enforce_cross_model_verification(state)
     state.update(
         {
