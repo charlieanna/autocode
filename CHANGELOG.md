@@ -23,6 +23,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- **A monthly allowance for each person on a shared bridge** (`AUTOCODE_BRIDGE_PERSON_CAPS`, optional): what is left of the requester's allowance becomes each run's own `--max-cost-usd` and is reserved while the run is in flight; at the allowance a new issue is held with one comment and starts by itself when there is allowance again. The completion comment says what the run cost, and `autocode bridge status` shows each person's month. Part of [team use](docs/plans/multi-user.md).
+
 - **The channel bridge separates who may start runs from who may decide them** (`AUTOCODE_BRIDGE_DECIDERS`, optional): set, only those logins answer, approve and steer, and an actor's reply gets a refusal; unset, the actors decide as before. A bridge that more than one login can use now refuses `--allow-uncontained-tools` in its launch options. Part of [team use](docs/plans/multi-user.md).
 
 - **The channel bridge records who asked for each run and who steered it**: the requester is the GitHub login that applied the bridge label, read from the issue's events, and an issue labeled by anyone off `AUTOCODE_BRIDGE_ACTORS` is refused with one comment instead of started. Each applied reply (answer, approval, feedback, resume) is recorded with its login, comment and action; the issue's first comment names the requester and `autocode bridge status` lists both. These logins are marked as authenticated by GitHub, beside the run's own unverified Git provenance. The first step of [team use](docs/plans/multi-user.md).

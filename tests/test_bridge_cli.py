@@ -856,6 +856,119 @@ class AdmissionTests(unittest.TestCase):
             self.assertIn(expected, output.getvalue())
 
 
+class CostRun(SlotRun):
+    """A slot run whose status view reports what it has spent so far."""
+
+    spent = 0.0
+    priced = True
+
+    def status(self):
+        view = super().status()
+        return {
+            **view,
+            "cost": {"spent_usd": self.spent, "cap_usd": None, "unpriced_stages": 0, "complete": self.priced},
+        }
+
+
+class AllowanceTests(unittest.TestCase):
+    """AUTOCODE_BRIDGE_PERSON_CAPS: a requester's monthly allowance becomes each run's own cost cap."""
+
+    setUp = AdmissionTests.setUp
+    launch = AdmissionTests.launch
+
+    def bridge(self, caps, *, options=(), max_active=None):
+        from autocode_bridge_github import GitHubChannel
+
+        self.runs = {number: CostRun(number) for number in (7, 8, 9)}
+        for run in self.runs.values():
+            run.state = "working"
+        self.options_seen = {}
+        launch = self.launch
+
+        def recording(project, ref, issue, options, **kwargs):
+            self.options_seen[ref.number] = list(options)
+            return launch(project, ref, issue, options, **kwargs)
+
+        config = bridge_cli.Config(
+            repo="owner/repo",
+            project=Path("/work/project"),
+            label="autocode",
+            actors=("dev", "lead"),
+            options=tuple(options),
+            poll_seconds=10.0,
+            open_pr=False,
+            max_active=max_active,
+            person_caps=caps,
+        )
+        return bridge_cli.Bridge(
+            config,
+            GitHubChannel(self.client, "owner/repo", "autocode", ("dev", "lead")),
+            launch=recording,
+            adopt=lambda record: self.runs[record["number"]],
+            prepare=lambda record, *, open_: "PR body written",
+        )
+
+    def held_notices(self, number):
+        return [body for issue, body in self.client.posted if issue == number and "holding this issue" in body]
+
+    def test_the_allowance_becomes_the_cap_and_is_reserved_while_the_run_is_in_flight(self):
+        for number in (8, 9):
+            self.client.issues[number]["issue"]["state"] = "closed"
+        bridge = self.bridge({"dev": 5.0}, options=("--engine", "codex", "--max-cost-usd", "0"))
+        bridge.tick()
+        self.assertEqual([7], self.launched)
+        self.assertEqual(["--engine", "codex", "--max-cost-usd", "5"], self.options_seen[7])
+        record = store.load("owner", "repo", 7)
+        self.assertEqual(5.0, record["reserved_usd"])
+        self.assertEqual(bridge_cli.allowance.period(), record["period"])
+
+    def test_a_second_issue_waits_for_the_first_runs_reservation_and_then_gets_what_is_left(self):
+        self.client.issues[9]["issue"]["state"] = "closed"
+        bridge = self.bridge({"dev": 5.0})
+        bridge.tick()
+        self.assertEqual([7], self.launched)  # issue 8 waits: issue 7 reserves the whole allowance
+        self.assertEqual(1, len(self.held_notices(8)))
+        self.assertIn("$5.00 of their $5.00 allowance", self.held_notices(8)[0])
+        bridge.tick()
+        self.assertEqual([7], self.launched)
+        self.assertEqual(1, len(self.held_notices(8)))  # said once
+
+        self.runs[7].spent, self.runs[7].state = 1.5, "stopped"
+        bridge.tick()  # issue 7 settles at $1.50, so $3.50 is left for issue 8
+        bridge.tick()
+        self.assertEqual([7, 8], self.launched)
+        self.assertEqual(["--max-cost-usd", "3.5"], self.options_seen[8])
+        self.assertNotIn("over_allowance", store.load("owner", "repo", 8))
+
+    def test_a_person_without_an_allowance_and_other_people_are_not_held(self):
+        self.client.issues[8]["labeled_by"] = "lead"
+        self.client.issues[9]["labeled_by"] = "lead"
+        bridge = self.bridge({"dev": 0.0}, max_active=3)
+        bridge.tick()
+        self.assertEqual([8, 9], sorted(self.launched))
+        self.assertEqual([], self.options_seen[8])
+        self.assertEqual(1, len(self.held_notices(7)))
+
+    def test_a_lower_cap_in_the_launch_options_stays(self):
+        for number in (8, 9):
+            self.client.issues[number]["issue"]["state"] = "closed"
+        bridge = self.bridge({"dev": 50.0}, options=("--max-cost-usd=4",))
+        bridge.tick()
+        self.assertEqual(["--max-cost-usd", "4"], self.options_seen[7])
+        self.assertEqual(4.0, store.load("owner", "repo", 7)["reserved_usd"])
+
+    def test_the_completion_comment_says_what_the_run_cost(self):
+        for number in (8, 9):
+            self.client.issues[number]["issue"]["state"] = "closed"
+        bridge = self.bridge({"dev": 5.0})
+        bridge.tick()
+        self.runs[7].spent, self.runs[7].state = 2.25, "done"
+        bridge.tick()
+        done = [body for issue, body in self.client.posted if issue == 7 and "Task complete" in body]
+        self.assertEqual(1, len(done))
+        self.assertIn("It cost $2.25.", done[0])
+
+
 class ParserTests(unittest.TestCase):
     def test_the_subcommands_parse(self):
         parsed = bridge_cli.parser().parse_args(["run", "--once"])
