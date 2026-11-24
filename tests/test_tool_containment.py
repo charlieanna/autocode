@@ -1707,6 +1707,32 @@ class AvailabilityTests(unittest.TestCase):
         configure.assert_not_called()
         prepare.assert_not_called()
 
+    def test_kilo_setup_checks_the_exact_executable_and_host_qualified_version(self):
+        client = self.bin / "kilo"
+        client.write_text("#!/bin/sh\necho 7.8.3\nexit 0\n")
+        client.chmod(0o755)
+        environment = {"PATH": str(self.bin / "empty")}
+        with patch.object(containment, "sys", self.mac), self.sandbox:
+            reason = containment.unavailable(
+                self.bin,
+                environment,
+                command=str(client),
+                supported=("7.8.27",),
+                label="Kilo",
+            )
+            self.assertIn("qualified only for Kilo 7.8.27", reason)
+            self.assertIn("this machine has Kilo 7.8.3", reason)
+            client.write_text("#!/bin/sh\necho 7.8.27\nexit 0\n")
+            self.assertIsNone(
+                containment.unavailable(
+                    self.bin,
+                    environment,
+                    command=str(client),
+                    supported=("7.8.27",),
+                    label="Kilo",
+                )
+            )
+
 
 @unittest.skipUnless(NATIVE, f"requires a real kernel sandbox: {NATIVE_PROBLEM}")
 class UnicodeKernelTests(unittest.TestCase):

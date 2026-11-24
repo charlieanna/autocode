@@ -289,13 +289,14 @@ native default and the chosen operator override. This proves request constructio
 not that every remote provider honors it. Other configured providers and the
 separate native-isolation path retain their existing cap behavior.
 
-Ordinary Kilo planning and read-only verification both use a qualified Kilo's
-kernel-constrained shell (bubblewrap on Linux, Seatbelt on macOS), with a writable
-verification copy and source writes denied; a planning shell also cannot read the run's
-private state. Planning report recovery has no tools. Every other native tool is disabled there. Effective operator
-denies are retained; headless asks are denied rather than auto-approved. Restricted
-stages start fresh sessions so previous session grants cannot override their policy.
-Builder permissions and the separate native-isolation route keep their existing contract.
+Ordinary Kilo planning and read-only verification use a qualified Kilo's
+kernel-constrained shell (bubblewrap on Linux, Seatbelt on macOS), with source writes
+denied; a planning shell also cannot read the run's private state. Requirements reads
+the workspace directly without allocating a verification copy. Planning report recovery
+has no tools. Every other native tool is disabled there. Effective operator denies are
+retained; headless asks are denied rather than auto-approved. Restricted stages start
+fresh sessions so previous session grants cannot override their policy. Builder permissions
+and the separate native-isolation route keep their existing contract.
 
 For an isolated native run paused before plan approval, an OpenCode authentication
 failure can also be set aside explicitly with the displayed `--abandon-stage`

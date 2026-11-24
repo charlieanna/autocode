@@ -469,6 +469,14 @@ included; an ordinary CLI launch creates its own worktree by default. An unsafe 
 or advancing invocation is refused before starting a provider. Saved status,
 explanations and dry runs remain readable without changing the checkpoint.
 
+An existing checkout with `HEAD` may run Requirements in place under the explicit
+`--in-place --workflow discuss` exception. Requirements uses its assigned route in
+verified kernel read-only containment and cannot provision a worktree or write source
+or Git metadata. A discussion completes there; a request needing changes stops before
+Planner with a named action to select an isolated controller. `TaskRun.start` can pass
+those exact `start_args`, and advancing the same Requirements-only run preserves the
+boundary. Neither the prompt's wording nor another role's engine grants this exception.
+
 `view.runner` and `view.evidence.runner` identify the controller that last saved
 the run: its package directory (`path`) and source revision (`commit`, with
 `+modified` for local source edits). `view.evidence.base_commit` identifies the

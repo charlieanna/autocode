@@ -88,6 +88,11 @@ def opencode_major(version):
     return int(parsed.split(".", 1)[0])
 
 
+def containment_problem(workspace):
+    """Why this host cannot establish OpenCode's normal kernel boundary, or None."""
+    return tool_containment.unavailable(workspace)
+
+
 def transport_version(settings):
     """The OpenCode version recorded on a run, if that identity is present."""
     if not isinstance(settings, dict):

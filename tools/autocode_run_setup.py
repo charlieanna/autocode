@@ -78,6 +78,7 @@ try:
     from . import autocode_resolver_human as resolver_human
     from . import autocode_resolver_recovery as resolver_recovery
     from . import autocode_retired_token_budget as retired_token_budget
+    from . import autocode_role_transport as role_transport
     from . import autocode_route_advisory as route_advisory
     from . import autocode_run_destination as run_destination
     from . import autocode_run_finder as run_finder
@@ -133,6 +134,7 @@ except ImportError:
     import autocode_resolver_human as resolver_human
     import autocode_resolver_recovery as resolver_recovery
     import autocode_retired_token_budget as retired_token_budget
+    import autocode_role_transport as role_transport
     import autocode_route_advisory as route_advisory
     import autocode_run_destination as run_destination
     import autocode_run_finder as run_finder
@@ -636,6 +638,13 @@ class SettingRefused(ValueError):
     containment (``--allow-uncontained-tools``, given or missing); cli() prints it as ``autocode: ...`` (#714)."""
 
 
+def requirements_adapter(settings, fallback, workspace):
+    """The exact Requirements facade, or None when its route is not on the containment engine."""
+    if quota_route.engine(settings, "requirements") != "opencode":
+        return None
+    return role_transport.adapter(settings, "requirements", fallback, workspace)
+
+
 def load_locked(runner, args, parser, state: RunState, state_path, run_dir, workspace):
     """Under the run lock: reread, configure, register and migrate the run; return its state."""
     support.assert_no_legacy_process(run_dir, workspace)
@@ -713,7 +722,7 @@ def load_locked(runner, args, parser, state: RunState, state_path, run_dir, work
                 state,
                 settings,
                 allow=bool(getattr(args, "allow_uncontained_tools", False)),
-                configured_tool=getattr(runner.opencode, "CONFIGURED", False),
+                adapter=requirements_adapter(settings, runner.opencode, workspace),
                 workspace=workspace,
             )
         else:

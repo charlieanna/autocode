@@ -14,9 +14,11 @@ from unittest import mock
 import autocode_build_loop as build_loop
 import autocode_containment_policy as containment_policy
 import autocode_controller_isolation as isolation
+import autocode_run_setup as run_setup
 import autocode_run_view as run_view
 import autocode_taskrun as taskrun
 import autocode_tool_containment as containment
+from providers import kilocode, opencode
 
 from . import opencode_fixture_cli as fixture_cli
 from . import test_subprocess as fixtures
@@ -202,7 +204,7 @@ class RequirementsContainmentTests(unittest.TestCase):
         with mock.patch.object(containment_policy.tool_containment, "unavailable", return_value="sandbox unavailable"):
             with self.assertRaisesRegex(ValueError, "Requirements-only.*sandbox unavailable"):
                 containment_policy.configure_requirements(
-                    state, settings, allow=False, configured_tool=False, workspace=Path("/project")
+                    state, settings, allow=False, adapter=opencode, workspace=Path("/project")
                 )
         self.assertEqual({}, state)
         self.assertEqual({"engine": "opencode"}, settings)
@@ -212,9 +214,97 @@ class RequirementsContainmentTests(unittest.TestCase):
         settings = {"engine": "opencode", "allow_uncontained_tools": True}
         with self.assertRaisesRegex(ValueError, "Requirements-only.*saved run accepted uncontained tools"):
             containment_policy.configure_requirements(
-                state, settings, allow=False, configured_tool=False, workspace=Path("/project")
+                state, settings, allow=False, adapter=opencode, workspace=Path("/project")
             )
         self.assertEqual({}, state)
+
+    def test_kilo_requirements_uses_its_exact_configured_executable(self):
+        provider = kilocode.KiloProvider(
+            {"name": "kilocode", "command": ["/opt/kilo", "run"], "roles": {}}, Path("/unused-kilo.toml")
+        )
+        settings = {
+            "engine": "opencode",
+            "provider": "kilocode",
+            "roles": {"requirements": {"engine": "opencode", "provider": "kilocode"}},
+        }
+        environment = {"PATH": "/bin"}
+        with (
+            mock.patch.object(provider, "_preflight_environment", return_value=environment),
+            mock.patch.object(containment, "unavailable", return_value=None) as unavailable,
+        ):
+            containment_policy.configure_requirements(
+                {}, settings, allow=False, adapter=provider, workspace=Path("/project")
+            )
+        unavailable.assert_called_once_with(
+            Path("/project"),
+            command="/opt/kilo",
+            environment=environment,
+            supported=containment.kilo_versions(),
+            label="Kilo",
+        )
+
+    def test_requirements_admission_checks_its_route_not_another_opencode_role(self):
+        settings = {
+            "engine": "opencode",
+            "roles": {
+                "requirements": {"engine": "codex"},
+                "builder": {"engine": "opencode"},
+            },
+        }
+        with (
+            mock.patch.object(opencode, "containment_problem") as check,
+            self.assertRaisesRegex(ValueError, "this route is not covered"),
+        ):
+            containment_policy.configure_requirements(
+                {}, settings, allow=False, adapter=opencode, workspace=Path("/project")
+            )
+        check.assert_not_called()
+
+    def test_requirements_admission_refuses_a_configured_provider_without_the_boundary(self):
+        with self.assertRaisesRegex(ValueError, "this route is not covered"):
+            containment_policy.configure_requirements(
+                {},
+                {"engine": "opencode", "provider": "custom"},
+                allow=False,
+                adapter=SimpleNamespace(CONFIGURED=True),
+                workspace=Path("/project"),
+            )
+
+    def test_requirements_adapter_keeps_the_base_kilo_facade_without_a_role_binding(self):
+        provider = kilocode.KiloProvider(
+            {"name": "kilocode", "command": ["/opt/kilo", "run"], "roles": {}}, Path("/unused-kilo.toml")
+        )
+        settings = {
+            "engine": "opencode",
+            "provider": "kilocode",
+            "roles": {"requirements": {"engine": "opencode", "provider": "kilocode"}},
+        }
+        self.assertIs(provider, run_setup.requirements_adapter(settings, provider, Path("/project")))
+
+    def test_requirements_adapter_selects_the_role_binding_instead_of_the_base_provider(self):
+        identity = {
+            "engine": "kilo_role",
+            "identity_version": 1,
+            "executable": "/opt/kilo",
+            "version": "7.8.27",
+            "config_path": "/providers/kilo-role.toml",
+            "config_sha256": "a" * 64,
+        }
+        settings = {
+            "engine": "opencode",
+            "provider": "base",
+            "roles": {"requirements": {"engine": "opencode", "provider": "kilo_role"}},
+            "transport_identities": {"role:requirements": {"provider": "kilo_role", "identity": identity}},
+        }
+        selected = SimpleNamespace(
+            CONFIGURED=True,
+            local_settings=mock.Mock(return_value=identity),
+            transport_drift=mock.Mock(return_value=False),
+        )
+        with mock.patch.object(run_setup.role_transport.providers, "resolve", return_value=selected):
+            self.assertIs(selected, run_setup.requirements_adapter(settings, opencode, Path("/project")))
+        selected.local_settings.assert_called_once_with(Path("/project"))
+        selected.transport_drift.assert_called_once_with(identity, identity)
 
     def test_prepared_boundary_must_name_the_exact_workspace_run_and_store(self):
         workspace = Path("/project")
@@ -293,6 +383,62 @@ class LocalRequirementsLimitTests(unittest.TestCase):
         self.assertEqual("PAUSED_PLANNING_CALL_LIMIT", paused.exception.status)
         preflight.assert_not_called()
         self.assertEqual([], dispatched)
+
+    def test_queued_pause_precedes_exhausted_limits_and_report_repair(self):
+        for at_boundary in (False, True):
+            with self.subTest(at_boundary=at_boundary), tempfile.TemporaryDirectory() as directory:
+
+                class LoopExit(Exception):
+                    pass
+
+                dispatched = []
+                run_dir = Path(directory)
+                pause = run_dir / "pause-requested"
+                if not at_boundary:
+                    pause.touch()
+
+                def drive(current, dispatch, *, before, **kwargs):
+                    if at_boundary:
+                        current["iteration"] = 2
+                        pause.touch()
+                        runner.timeout_recovery_guard.reset_mock()
+                    before(current)
+                    dispatched.append(current["next_stage"])
+
+                state = {
+                    "iteration": 2 if not at_boundary else 1,
+                    "next_stage": "requirements_gather",
+                    "settings": {"limits": {"iteration_ceiling": 1, "max_seconds": 0, "planning_calls": 10}},
+                    "pending_report_repair": {"original": {"stage": "requirements_gather"}},
+                }
+                runner = SimpleNamespace(
+                    orchestrator=SimpleNamespace(drive=drive, LoopExit=LoopExit),
+                    native_calls=None,
+                    consume_interventions=mock.Mock(return_value=False),
+                    timeout_recovery_guard=mock.Mock(),
+                    iteration_limit_reached=build_loop.iteration_limit_reached,
+                    recover_default_budget=mock.Mock(return_value=False),
+                    execute_report_repair=mock.Mock(),
+                    now=lambda: "2026-11-23T00:01:00+00:00",
+                    write_json=mock.Mock(),
+                )
+                args = SimpleNamespace(unit=None, _local_requirements_only=True)
+                with (
+                    mock.patch.object(build_loop.controller_isolation, "require_local_requirements"),
+                    mock.patch.object(build_loop.model_preflight, "check") as preflight,
+                    mock.patch.object(build_loop.cost, "exceeded", return_value=None),
+                    mock.patch.object(build_loop.early_baseline, "reconcile_at_boundary"),
+                    mock.patch.object(build_loop.no_progress_recovery, "conclude_exhausted", return_value=False),
+                    mock.patch.object(build_loop.classification_recovery, "conclude", return_value=False),
+                    self.assertRaises(build_loop.support.Paused) as paused,
+                ):
+                    build_loop.run(runner, args, state, run_dir / "state.json", run_dir, Path("/project"))
+                self.assertEqual("PAUSED_REQUESTED", paused.exception.status)
+                preflight.assert_not_called()
+                runner.timeout_recovery_guard.assert_not_called()
+                runner.recover_default_budget.assert_not_called()
+                runner.execute_report_repair.assert_not_called()
+                self.assertEqual([], dispatched)
 
 
 class ControllerIsolationCliTests(unittest.TestCase):

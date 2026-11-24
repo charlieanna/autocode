@@ -86,17 +86,30 @@ class DeliverTests(Fixture):
         self.assertIn("greet.py", listed)
         self.assertNotIn(".autocode", listed)
 
+    def test_completion_delivers_a_legacy_run_without_a_recorded_branch(self):
+        data, tree, state = self.task()
+        legacy = {key: value for key, value in state.items() if key != "task_branch"}
+        head = git(tree, "rev-parse", "HEAD")
+        note = worktrees.deliver(legacy, tree)
+        self.assertIn(f"Delivered on branch {data['branch']}", note)
+        self.assertEqual("print('hi')", git(self.project, "show", f"{data['branch']}:greet.py"))
+        self.assertEqual(head, git(tree, "rev-parse", "HEAD"))
+
     def test_delivery_requires_the_runs_exact_worktree_identity(self):
         data, tree, state = self.task()
         tip = git(self.project, "rev-parse", data["branch"])
         unbound = {
             key: value for key, value in state.items() if key not in ("workspace", "project_workspace", "task_branch")
         }
+        legacy = {key: value for key, value in state.items() if key != "task_branch"}
         cases = (
             unbound,
             {**state, "workspace": str(self.project)},
             {**state, "project_workspace": str(tree)},
             {**state, "task_branch": data["branch"] + "-other"},
+            {**state, "task_branch": None},
+            {key: value for key, value in legacy.items() if key != "workspace"},
+            {**legacy, "project_workspace": str(tree)},
         )
         for candidate in cases:
             with self.subTest(state=candidate):

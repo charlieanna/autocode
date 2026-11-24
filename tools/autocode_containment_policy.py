@@ -99,7 +99,7 @@ def requirements_refusal(problem: str) -> str:
     return (
         f"Requirements-only discussion in the AutoCode controller requires verified kernel tool containment: {problem}. "
         "It cannot use uncontained tools. Select an AutoCode CLI installed outside this checkout, or use a host "
-        "with the supported OpenCode containment boundary."
+        "with the supported OpenCode or Kilo containment boundary."
     )
 
 
@@ -120,15 +120,16 @@ def requirements_boundary_problem(policy, *, workspace: Path, run_dir: Path) -> 
     return None
 
 
-def configure_requirements(state: RunState, settings, *, allow, configured_tool, workspace) -> None:
-    """Admit local Requirements only when the normal positive boundary is available and never waived."""
+def configure_requirements(state: RunState, settings, *, allow, adapter, workspace) -> None:
+    """Admit the exact Requirements route only when its normal positive boundary is available."""
     if allow:
         raise ValueError("Requirements-only discussion cannot use uncontained tools")
-    if not applies(settings, configured_tool=configured_tool):
-        raise ValueError(requirements_refusal("this route is not covered by the built-in containment boundary"))
     if accepted(settings):
         raise ValueError(requirements_refusal("the saved run accepted uncontained tools"))
-    problem = tool_containment.unavailable(workspace)
+    check = getattr(adapter, "containment_problem", None)
+    if quota_route.engine(settings, "requirements") != "opencode" or not callable(check):
+        raise ValueError(requirements_refusal("this route is not covered by the built-in containment boundary"))
+    problem = check(workspace)
     if problem:
         raise ValueError(requirements_refusal(problem))
 

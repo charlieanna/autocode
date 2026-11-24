@@ -316,26 +316,42 @@ def backend_version(name):
     return None
 
 
-def unavailable(workspace=None, environment=None):
+def unavailable(
+    workspace=None, environment=None, *, command="opencode", supported=(SUPPORTED_VERSION,), label="OpenCode"
+):
     """Why strict containment cannot be established on this machine, or None.
 
     Cheap run-setup check of what every launch's configure() refuses first: the
     platform, its sandbox (sandbox-exec, or bwrap able to create namespaces) and
-    the installed OpenCode version. It runs no conformance; None is not a proof,
+    the installed provider version. It runs no conformance; None is not a proof,
     and each launch still runs configure().
     """
     problem = sandbox_problem()
     if problem:
         return problem
     env = dict(os.environ if environment is None else environment)
-    executable = shutil.which("opencode", path=env.get("PATH", ""))
+    executable = shutil.which(command, path=env.get("PATH", ""))
     if not executable:
-        return opencode_problem(None)
+        if command == "opencode" and label == "OpenCode":
+            return NO_OPENCODE
+        return f"strict tool containment cannot find the {Path(command).name} executable on PATH"
     try:
         result = _tool_version(executable, env, workspace)
     except (OSError, subprocess.SubprocessError) as error:
-        return f"strict tool containment could not read the OpenCode version: {error}"
-    return opencode_problem(result)
+        return f"strict tool containment could not read the {label} version: {error}"
+    return version_problem(result, supported=supported, label=label)
+
+
+def version_problem(result, *, supported, label):
+    """Why the provider whose ``--version`` gave ``result`` cannot run contained, or None."""
+    if result is None:
+        return f"strict tool containment cannot find the {label.lower()} executable on PATH"
+    version = result.stdout.strip()
+    if result.returncode or version not in supported:
+        found = version if version and not result.returncode else f"unknown (exit {result.returncode})"
+        wanted = " or ".join(supported) if supported else "a release qualified for this host's sandbox (none is yet)"
+        return f"strict tool containment is qualified only for {label} {wanted}; this machine has {label} {found}"
+    return None
 
 
 def opencode_problem(result):
@@ -344,16 +360,7 @@ def opencode_problem(result):
     ``result`` is that command's CompletedProcess, or None when no opencode is on PATH.
     unavailable() and `autocode doctor` (which runs the command its own way) share this rule.
     """
-    if result is None:
-        return NO_OPENCODE
-    version = result.stdout.strip()
-    if result.returncode or version != SUPPORTED_VERSION:
-        found = version if version and not result.returncode else f"unknown (exit {result.returncode})"
-        return (
-            f"strict tool containment is qualified only for OpenCode {SUPPORTED_VERSION}; "
-            f"this machine has OpenCode {found}"
-        )
-    return None
+    return version_problem(result, supported=(SUPPORTED_VERSION,), label="OpenCode")
 
 
 def _path(value):
@@ -1909,7 +1916,7 @@ def configure(
         supported_version=supported_version,
         transport=transport,
         private_proof=private_proof,
-        native_tools=actual.get("tools"),
+        native_tools=actual.get("tools") if disable_tools else None,
         probe_tool=probe_tool,
         launch_identity=(lambda: native_conformance.observe(command, child, executable, actual))
         if retain_launch_identity

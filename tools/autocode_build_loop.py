@@ -221,6 +221,9 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
 
     guard_local(state)
     if local_requirements:
+        consume_boundary(state)
+        if (run_dir / "pause-requested").exists():
+            raise support.Paused("PAUSED_REQUESTED", "Pause requested; previous stage saved")
         check_limits(state)
     else:
         try:
@@ -240,8 +243,10 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
     def before_code_stage(current):
         guard_local(current)
         if local_requirements:
-            check_limits(current)
             consume_boundary(current)
+            if (run_dir / "pause-requested").exists():
+                raise support.Paused("PAUSED_REQUESTED", "Pause requested; previous stage saved")
+            check_limits(current)
             if current.get("pending_report_repair"):
                 record_resume(runner, args, current, state_path)
                 try:

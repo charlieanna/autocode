@@ -7,6 +7,10 @@ supply the executing module path; no controller or workflow imports belong here.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_git_location as git_location
@@ -26,7 +30,7 @@ def is_requirements_stage(stage) -> bool:
     return isinstance(stage, str) and stage.removesuffix("_report_repair") in REQUIREMENTS_STAGES
 
 
-def entry_stage(state: dict) -> str | None:
+def entry_stage(state: RunState) -> str | None:
     """The stage a saved invocation would actually enter, including same-stage report repair."""
     active = state.get("active_stage")
     if active:
@@ -39,7 +43,7 @@ def entry_stage(state: dict) -> str | None:
     return state.get("next_stage")
 
 
-def saved_requirements_only(state: dict, *, allow_task_preflight: bool = False) -> bool:
+def saved_requirements_only(state: RunState, *, allow_task_preflight: bool = False) -> bool:
     """Whether a checkpoint has no build authority or provisioning for this invocation to carry forward."""
     active = state.get("active_stage")
     if active:
@@ -113,7 +117,7 @@ def saved_requirements_only(state: dict, *, allow_task_preflight: bool = False) 
     return state.get("status") == "TASK_COMPLETE"
 
 
-def require_route(state: dict, stage: str, role, route_role, allow_write, sandbox, local_requirements) -> None:
+def require_route(state: RunState, stage: str, role, route_role, allow_write, sandbox, local_requirements) -> None:
     if not local_requirements:
         return
     if role != stage_roles.role_for(state, stage) or allow_write or sandbox != "read-only":
@@ -122,7 +126,7 @@ def require_route(state: dict, stage: str, role, route_role, allow_write, sandbo
         raise Paused("PAUSED_DISCOVERY_WRITE", "Requirements must use its assigned planning route read-only")
 
 
-def local_requirements(workspace: Path, state: dict) -> bool:
+def local_requirements(workspace: Path, state: RunState) -> bool:
     """Whether this controller may enter only Requirements in its own checkout, with no build setup."""
     if not saved_requirements_only(state):
         return False
@@ -130,7 +134,7 @@ def local_requirements(workspace: Path, state: dict) -> bool:
     return not setup["ready"] and setup["requirements_ready"]
 
 
-def require_local_requirements(workspace: Path, state: dict) -> None:
+def require_local_requirements(workspace: Path, state: RunState) -> None:
     if not local_requirements(workspace, state):
         raise ValueError(
             "Requirements-only discussion in the AutoCode controller cannot continue into file changes. "

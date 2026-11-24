@@ -91,12 +91,12 @@ def source_tree(worktree) -> str:
         return _git(worktree, "write-tree", env=env)
 
 
-def _task_branch(workspace, *, state=None, legacy=False):
+def _task_branch(workspace, *, state: RunState | None = None, legacy=False):
     """The branch of a task worktree AutoCode created for one task, or None.
 
     ``legacy`` also accepts worktrees made before task worktrees recorded their kind;
     only clean-up does, and it checks program ownership separately. Delivery additionally
-    requires the completed run's exact saved workspace, project and branch identity.
+    requires the completed run's exact saved workspace, project and, when recorded, branch identity.
     """
     try:
         data = workspaces.metadata(workspace)
@@ -105,14 +105,15 @@ def _task_branch(workspace, *, state=None, legacy=False):
     if not data or not (data.get("kind") == "task" or legacy and "kind" not in data):
         return None
     if state is not None:
-        saved_workspace, project, branch = (state.get(key) for key in ("workspace", "project_workspace", "task_branch"))
-        if not all(isinstance(value, str) for value in (saved_workspace, project, branch)):
+        saved_workspace, project = (state.get(key) for key in ("workspace", "project_workspace"))
+        if not all(isinstance(value, str) for value in (saved_workspace, project)):
+            return None
+        if "task_branch" in state and state["task_branch"] != data["branch"]:
             return None
         try:
             matches = (
                 Path(saved_workspace).resolve() == Path(workspace).resolve()
                 and Path(project).resolve() == Path(data["project_workspace"]).resolve()
-                and branch == data["branch"]
             )
         except (OSError, ValueError):
             return None
