@@ -45,6 +45,7 @@ except ImportError:
     from autocode_taskrun import TaskRunError
 
 POLL_SECONDS = 10.0
+UNCONTAINED_OPTION = "--allow-uncontained-tools"
 LABEL = "autocode"
 
 
@@ -63,6 +64,27 @@ class Config:
     open_pr: bool
     owned: bool = False  # the explicit no-systemd mode: runs live with the daemon
     max_active: int | None = None  # bridged runs in flight at once; None starts every labeled issue
+    deciders: tuple[str, ...] | None = None  # who may answer and approve; None: the actors
+
+    @property
+    def decider_logins(self) -> tuple[str, ...]:
+        return self.actors if self.deciders is None else self.deciders
+
+    def validate(self) -> Config:
+        """Refuse a configuration that would let several people's runs run outside the tool boundary.
+
+        On a bridge one person uses, ``--allow-uncontained-tools`` is that person's own acceptance, as on
+        the command line. On a bridge several logins can start or steer, one configuration would accept it
+        for every one of them, so it is refused (docs/plans/multi-user.md).
+        """
+        people = {login.lower() for login in (*self.actors, *self.decider_logins)}
+        uncontained = any(option.split("=", 1)[0] == UNCONTAINED_OPTION for option in self.options)
+        if uncontained and len(people) > 1:
+            raise ConfigError(
+                f"AUTOCODE_BRIDGE_OPTIONS may not hold {UNCONTAINED_OPTION} on a bridge that {len(people)} "
+                "logins can start or steer: every run there keeps its tools inside the kernel boundary"
+            )
+        return self
 
     @classmethod
     def from_env(cls, environ=None, *, project=None, poll_seconds=None) -> Config:
@@ -82,7 +104,10 @@ class Config:
             raise ConfigError("Set AUTOCODE_BRIDGE_GITHUB_REPO to OWNER/REPO")
         actors = names("AUTOCODE_BRIDGE_ACTORS")
         if not actors:
-            raise ConfigError("Set AUTOCODE_BRIDGE_ACTORS to a JSON array of GitHub logins allowed to steer runs")
+            raise ConfigError("Set AUTOCODE_BRIDGE_ACTORS to a JSON array of GitHub logins allowed to start runs")
+        deciders = names("AUTOCODE_BRIDGE_DECIDERS") if "AUTOCODE_BRIDGE_DECIDERS" in environ else None
+        if deciders == []:
+            raise ConfigError("AUTOCODE_BRIDGE_DECIDERS, when set, must name at least one GitHub login")
         selected = Path(project or environ.get("AUTOCODE_BRIDGE_PROJECT") or os.getcwd()).resolve()
         try:
             seconds = float(
@@ -107,7 +132,8 @@ class Config:
             open_pr=environ.get("AUTOCODE_BRIDGE_OPEN_PR", "").lower() in ("1", "true", "yes"),
             owned=environ.get("AUTOCODE_BRIDGE_OWNED", "").lower() in ("1", "true", "yes"),
             max_active=max_active,
-        )
+            deciders=tuple(deciders) if deciders is not None else None,
+        ).validate()
 
 
 class Bridge:
@@ -276,7 +302,7 @@ class Bridge:
             lines.append(f"- requested by @{requester}")
         lines += [
             "- I will ask here when the run needs you: questions, the plan for approval, or a pause.",
-            f"- Steering is limited to: {', '.join('@' + actor for actor in self.config.actors)}.",
+            f"- Steering is limited to: {', '.join('@' + login for login in self.config.decider_logins)}.",
         ]
         self.post(record["number"], f"**AutoCode took this issue** and started {hosted}.\n\n" + "\n".join(lines))
 
@@ -369,7 +395,14 @@ class Bridge:
             try:
                 view = run.status()  # a decision is always taken against a fresh view
                 action = bridge_relay.interpret(record, view, reply.text)
-                if action.kind == "none":
+                if action.kind != "none" and not self.channel.may_decide(reply.actor):
+                    deciders = ", ".join("@" + login for login in self.config.decider_logins)
+                    self.post(
+                        number,
+                        f"@{reply.actor} you may start runs on this bridge but not decide them; "
+                        f"nothing was taken. Ask {deciders}.",
+                    )
+                elif action.kind == "none":
                     self.post(number, f"@{reply.actor} {action.text}")
                 else:
                     outcome = worker.take(run, view, action)
@@ -497,7 +530,9 @@ def holds_slot(record: dict) -> bool:
 
 def cmd_run(args) -> int:
     config = Config.from_env(project=args.project, poll_seconds=args.poll_seconds)
-    channel = bridge_github.GitHubChannel(github.Client(), config.repo, config.label, config.actors)
+    channel = bridge_github.GitHubChannel(
+        github.Client(), config.repo, config.label, config.actors, config.decider_logins
+    )
     bridge = Bridge(config, channel)
     if not config.owned and not worker.durable_availability().get("available"):
         print(
@@ -515,6 +550,14 @@ def cmd_check(args) -> int:
         config = Config.from_env(project=args.project)
         print(
             f"config     {config.repo} label {config.label!r}, {len(config.actors)} actor(s), options {list(config.options) or 'none'}"
+        )
+        print(
+            "deciders   "
+            + (
+                "the actors (AUTOCODE_BRIDGE_DECIDERS sets a separate list)"
+                if config.deciders is None
+                else ", ".join("@" + login for login in config.deciders)
+            )
         )
         print(
             f"limit      at most {config.max_active} bridged run(s) in flight at once"

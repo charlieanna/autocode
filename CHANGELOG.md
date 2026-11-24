@@ -13,6 +13,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- **The channel bridge separates who may start runs from who may decide them** (`AUTOCODE_BRIDGE_DECIDERS`, optional): set, only those logins answer, approve and steer, and an actor's reply gets a refusal; unset, the actors decide as before. A bridge that more than one login can use now refuses `--allow-uncontained-tools` in its launch options. Part of [team use](docs/plans/multi-user.md).
+
 - **The channel bridge records who asked for each run and who steered it**: the requester is the GitHub login that applied the bridge label, read from the issue's events, and an issue labeled by anyone off `AUTOCODE_BRIDGE_ACTORS` is refused with one comment instead of started. Each applied reply (answer, approval, feedback, resume) is recorded with its login, comment and action; the issue's first comment names the requester and `autocode bridge status` lists both. These logins are marked as authenticated by GitHub, beside the run's own unverified Git provenance. The first step of [team use](docs/plans/multi-user.md).
 
 - **A one-page quickstart** ([docs/quickstart.md](docs/quickstart.md)): install, connect an account, check a project, install the VS Code extension and take a first change through plan approval to a reviewed result. The VS Code extension's Marketplace page now starts with the same steps and has its own icon.
