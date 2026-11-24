@@ -1978,7 +1978,7 @@
 
 
 <h1 id="channel-bridge-github-issues-as-the-front-door">Channel bridge: GitHub issues as the front door<a class="headerlink" href="#channel-bridge-github-issues-as-the-front-door" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/88361c43af63a4cebc69087f2464d49271d073d3/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/99a8c2ef60313967588b07bd4436f4e0f50b15a6/README.md">← Back to README</a></p>
 <p>The channel bridge runs <code>autocode bridge</code> on the same persistent Linux host as
 the core. A team member opens an issue with the bridge label; the bridge starts
 a <strong>durable</strong> run (it survives the bridge, the terminal and the SSH session).
@@ -2024,11 +2024,15 @@ autocode bridge run       # the daemon; one per host (a lock file refuses a seco
 </tr>
 <tr>
 <td><code>AUTOCODE_BRIDGE_ACTORS</code></td>
-<td>a JSON array of GitHub logins allowed to start and steer runs. An issue labeled by anyone else is refused, and replies from anyone else are ignored. See <a href="#who-asked-and-who-decided">Who asked and who decided</a>.</td>
+<td>a JSON array of GitHub logins allowed to start runs, and to steer them unless <code>AUTOCODE_BRIDGE_DECIDERS</code> is set. An issue labeled by anyone else is refused, and replies from anyone on neither list are ignored. See <a href="#who-asked-and-who-decided">Who asked and who decided</a>.</td>
+</tr>
+<tr>
+<td><code>AUTOCODE_BRIDGE_DECIDERS</code></td>
+<td>optional: a JSON array of GitHub logins allowed to answer, approve and steer runs (including feedback, follow-ups and resumes). Unset, the actors decide. Set, an actor not on it can still start runs, and their replies get a refusal instead of an action.</td>
 </tr>
 <tr>
 <td><code>AUTOCODE_BRIDGE_OPTIONS</code></td>
-<td>a JSON array of launch options (engine, models, <code>--test-command</code>). Add <code>--evidence-provenance live</code> when the bridge runs real models: without it each run's report says its provider evidence is unknown. Every human or run action flag is refused here.</td>
+<td>a JSON array of launch options (engine, models, <code>--test-command</code>). Add <code>--evidence-provenance live</code> when the bridge runs real models: without it each run's report says its provider evidence is unknown. Every human or run action flag is refused here, and so is <code>--allow-uncontained-tools</code> when more than one login is on the two lists.</td>
 </tr>
 <tr>
 <td><code>AUTOCODE_BRIDGE_POLL_SECONDS</code></td>
@@ -2109,11 +2113,18 @@ and nothing here replaces it.</p>
 <li><strong>Every applied decision</strong> (an answer, an approval, feedback, a resume) is recorded
   with the login that wrote the reply, the comment id, the action the bridge took and
   the time. A refused reply is not recorded: it changed nothing.</li>
+<li><strong>Starting and deciding are separate permissions.</strong> With <code>AUTOCODE_BRIDGE_DECIDERS</code>
+  set, a team can let its members request work while a reviewer approves the plans.
+  A reply from an actor who is not a decider is answered with a refusal and takes no
+  action.</li>
+<li><strong>Tools stay contained.</strong> A bridge that more than one login can start or steer
+  refuses to start with <code>--allow-uncontained-tools</code> in its options: one configuration
+  would otherwise accept uncontained tools for everyone's runs.</li>
 <li>The issue's first comment names the requester. <code>autocode bridge status</code> lists the
   requester and everyone who decided; <code>--json</code> includes the full <code>requested_by</code> and
   <code>decisions</code> records, each marked <code>"authenticated_by": "github"</code>.</li>
 </ul>
-<p>This is the first step of <a href="https://github.com/charlieanna/autocode/blob/88361c43af63a4cebc69087f2464d49271d073d3/docs/plans/multi-user.md">team use</a>.</p>
+<p>This is the first step of <a href="https://github.com/charlieanna/autocode/blob/99a8c2ef60313967588b07bd4436f4e0f50b15a6/docs/plans/multi-user.md">team use</a>.</p>
 <h2 id="the-rules-the-bridge-keeps">The rules the bridge keeps<a class="headerlink" href="#the-rules-the-bridge-keeps" title="Permanent link">&para;</a></h2>
 <p>The bridge is a client of the <a href="../task-run/">task-run interface</a>, exactly like
 the terminal chat and the headless conformance client:</p>
