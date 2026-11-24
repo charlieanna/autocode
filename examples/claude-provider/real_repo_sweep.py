@@ -14,8 +14,9 @@ Every case runs on the ``claude-tiers`` route (scenarios/harness/profiles.py): S
 Planner and the Tester, Opus for the Plan Reviewer, Resolver, Completion Reviewer and Investigator, Haiku for
 the Builder. Scenario cases go through ``scenarios/run.py``; Arena cases through ``tools/autocode_arena.py``,
 which prepares a fresh store under ``--out`` and approves each plan by its exact token (benchmark
-automation). Cases run one at a time: Arena supports one writer. ``run`` starts only the attempts still
-missing a record, so the same command continues after a container restart.
+automation). Cases run one at a time: Arena supports one writer. Each Arena case gets its own store
+(``--out/arenas/CASE``), because ``arena/prepare.py`` never adds a case to a store that already holds one.
+``run`` starts only the attempts still missing a record, so the same command continues after a restart.
 
 ``summary`` reads the records and prints one ``docs/reliability-sweeps.json`` row: runs, passes, false
 completions, median minutes and each run's reported cost. Prefix ``run`` with
@@ -124,8 +125,13 @@ def record_path(out: Path, case: str, index: int) -> Path:
     return out / "records" / f"{case}-{index:02d}.json"
 
 
+def arena_store(out: Path, case: str) -> Path:
+    """The case's own Arena store: ``arena/prepare.py`` prepares only a fresh directory, so cases never share one."""
+    return out / "arenas" / case
+
+
 def run_arena(out: Path, case: str, spec: dict, cohort: str, timeout: int) -> dict:
-    arena = out / "arena"
+    arena = arena_store(out, case)
     test = spec["test"]
     if spec["env"]:
         test = "env " + _env_prefix(spec["env"]) + test
