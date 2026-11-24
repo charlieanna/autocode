@@ -48,7 +48,7 @@ the logs of every step. A difference is one of:
 
 `--keep` leaves each checkout and its clean copies' evidence under `--out`. A run needs the toolchains the
 selected languages use (Python, Node with pnpm and yarn, Go, Rust, a JDK with Maven, Ruby with Bundler,
-Perl, a C compiler and make; the PHP entries install nothing until AutoCode detects a PHP runner) and
+Perl, a C compiler and make, PHP with Composer) and
 network access to GitHub and the package registries.
 The workflow can also be started by hand with a list of repository ids.
 

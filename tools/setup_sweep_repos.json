@@ -506,11 +506,13 @@
       "language": "php",
       "git": "https://github.com/nikic/FastRoute",
       "commit": "7bf572c21c879f53a70c8d53cc8f9b41e2b0b423",
-      "prepare": [],
-      "note": "Open: AutoCode detects no PHP runner (PHPUnit). Add composer install to prepare when it does.",
+      "prepare": [
+        "composer install --no-interaction --no-progress"
+      ],
+      "note": "PHPUnit reports only an exit code, so no test is named and nothing can be narrowed.",
       "expect": {
-        "runner": null,
-        "base": null,
+        "runner": "phpunit",
+        "base": "passing",
         "targeted": false,
         "mutation": false,
         "coverage": null
@@ -521,11 +523,13 @@
       "language": "php",
       "git": "https://github.com/doctrine/lexer",
       "commit": "51489dad40bc2361ba3ab022cde6cba10575dbea",
-      "prepare": [],
-      "note": "Open: AutoCode detects no PHP runner (PHPUnit). Add composer install to prepare when it does.",
+      "prepare": [
+        "composer install --no-interaction --no-progress"
+      ],
+      "note": "PHPUnit reports only an exit code, so no test is named and nothing can be narrowed.",
       "expect": {
-        "runner": null,
-        "base": null,
+        "runner": "phpunit",
+        "base": "passing",
         "targeted": false,
         "mutation": false,
         "coverage": null
@@ -536,11 +540,13 @@
       "language": "php",
       "git": "https://github.com/brick/math",
       "commit": "ee4c0fbc8846e5aca58c8983f6f7d285de09ef89",
-      "prepare": [],
-      "note": "Open: AutoCode detects no PHP runner (PHPUnit). Add composer install to prepare when it does.",
+      "prepare": [
+        "composer install --no-interaction --no-progress"
+      ],
+      "note": "PHPUnit reports only an exit code, so no test is named and nothing can be narrowed.",
       "expect": {
-        "runner": null,
-        "base": null,
+        "runner": "phpunit",
+        "base": "passing",
         "targeted": false,
         "mutation": false,
         "coverage": null
