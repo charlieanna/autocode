@@ -41,6 +41,7 @@ markdown_extensions:
 nav:
   - Start:
       - Overview: index.md
+      - Quickstart: quickstart.md
       - Install: install.md
       - Native Windows: windows.md
       - Providers: providers.md

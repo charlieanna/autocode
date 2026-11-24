@@ -37,7 +37,7 @@ Everything is configured through the environment:
 | `AUTOCODE_BRIDGE_GITHUB_REPO` | `OWNER/REPO`, the single repository this bridge serves. |
 | `AUTOCODE_BRIDGE_PROJECT` | the persistent checkout to build in (default: the daemon's directory). |
 | `AUTOCODE_BRIDGE_LABEL` | the label that takes an issue (default `autocode`). |
-| `AUTOCODE_BRIDGE_ACTORS` | a JSON array of GitHub logins allowed to steer runs. Replies from anyone else are ignored. |
+| `AUTOCODE_BRIDGE_ACTORS` | a JSON array of GitHub logins allowed to start and steer runs. An issue labeled by anyone else is refused, and replies from anyone else are ignored. See [Who asked and who decided](#who-asked-and-who-decided). |
 | `AUTOCODE_BRIDGE_OPTIONS` | a JSON array of launch options (engine, models, `--test-command`). Add `--evidence-provenance live` when the bridge runs real models: without it each run's report says its provider evidence is unknown. Every human or run action flag is refused here. |
 | `AUTOCODE_BRIDGE_POLL_SECONDS` | seconds between polls (default 10). |
 | `AUTOCODE_BRIDGE_MAX_ACTIVE` | the most bridged runs in flight at once, a whole number from 1. Unset, every labeled issue starts as soon as it is seen. See [Many issues at once](#many-issues-at-once). |
@@ -92,6 +92,27 @@ pull request.
 Unset, the bridge behaves as before the limit existed. Removing the limit later
 starts every issue still queued. There is no total cost cap across issues yet:
 each run keeps the cap its launch options give it.
+
+## Who asked and who decided
+
+A team shares one bridge, so each run records who asked for it and who steered it,
+by GitHub login. GitHub authenticated those logins; the run's own Git provenance
+(`--as`, the workspace's `user.email`) is still recorded as the unverified claim it is,
+and nothing here replaces it.
+
+- **The requester** is the login GitHub's issue events name as having applied the
+  bridge label most recently, not the issue's author. A labeled issue is taken only
+  when that login is on `AUTOCODE_BRIDGE_ACTORS`; otherwise the bridge posts once that
+  it may not start runs and keeps the issue off the queue. When GitHub cannot be read,
+  the issue waits for the next poll.
+- **Every applied decision** (an answer, an approval, feedback, a resume) is recorded
+  with the login that wrote the reply, the comment id, the action the bridge took and
+  the time. A refused reply is not recorded: it changed nothing.
+- The issue's first comment names the requester. `autocode bridge status` lists the
+  requester and everyone who decided; `--json` includes the full `requested_by` and
+  `decisions` records, each marked `"authenticated_by": "github"`.
+
+This is the first step of [team use](plans/multi-user.md).
 
 ## The rules the bridge keeps
 

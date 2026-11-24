@@ -185,6 +185,29 @@ class Client:
             raise GitHubError("GitHub returned an invalid issue list")
         return [row for row in rows if "pull_request" not in row]
 
+    def label_actor(self, ref: IssueRef, label: str, max_pages: int = 10) -> str | None:
+        """The login that most recently applied ``label`` to the issue, from its event history.
+
+        GitHub authenticated whoever applied the label, so this names the person who asked for the
+        work, unlike the issue's author or a Git identity. Events are listed oldest first; at most
+        ``max_pages`` pages of 100 are read, and None means no such event was found in them.
+        """
+        actor = None
+        for page in range(1, max_pages + 1):
+            rows = self._call(
+                "GET", f"/repos/{ref.owner}/{ref.repo}/issues/{ref.number}/events?per_page=100&page={page}"
+            )
+            if not isinstance(rows, list):
+                raise GitHubError("GitHub returned an invalid issue event list")
+            for row in rows:
+                if not isinstance(row, dict) or row.get("event") != "labeled":
+                    continue
+                if (row.get("label") or {}).get("name") == label:
+                    actor = (row.get("actor") or {}).get("login") or actor
+            if len(rows) < 100:
+                break
+        return actor
+
     def issue_comment(self, ref: IssueRef, body: str) -> dict:
         """Post one comment on an issue; reading needs no token, posting does."""
         if not self.token:

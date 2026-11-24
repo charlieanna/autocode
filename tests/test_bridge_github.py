@@ -30,6 +30,10 @@ class FakeClient:
         row = self.issues[ref.number]
         return {**row["issue"], "comments_list": list(row["comments"])}
 
+    def label_actor(self, ref, label):
+        # Who applied the label; a test that does not say is one where the allowlisted "dev" did.
+        return self.issues[ref.number].get("labeled_by", "dev")
+
     def issue_comment(self, ref, body):
         self.next_id += 1
         self.posted.append((ref.number, body))
@@ -106,6 +110,41 @@ class PagedIssueTests(unittest.TestCase):
         record = {"initial_comment_id": 0, "comments_seen": [], "gate": {"floor": 29}}
         found = selected.new_comments(record, selected.issue(7))
         self.assertEqual([(30, "dev", "approve")], [(row.id, row.actor, row.text) for row in found])
+
+
+class RequesterTests(unittest.TestCase):
+    """Who asked for a run: the login GitHub's event history says applied the bridge's label."""
+
+    def channel(self, events):
+        calls = []
+
+        def transport(method, url, headers, body):
+            calls.append(url)
+            query = parse_qs(urlsplit(url).query)
+            size, page = int(query["per_page"][0]), int(query["page"][0])
+            return 200, events[(page - 1) * size : page * size]
+
+        client = github.Client(token="t", api="https://api.example", transport=transport)
+        return bridge_github.GitHubChannel(client, "owner/repo", "autocode", ("dev",)), calls
+
+    @staticmethod
+    def labeled(login, name="autocode", event="labeled"):
+        return {"event": event, "label": {"name": name}, "actor": {"login": login}}
+
+    def test_the_newest_application_of_the_bridge_label_names_the_requester_across_pages(self):
+        # 150 events: the label applied by `first`, removed, other labels, then re-applied by `dev` on page two.
+        events = [self.labeled("first"), self.labeled("first", event="unlabeled")]
+        events += [self.labeled("stranger", name="bug") for _ in range(140)]
+        events += [{"event": "commented", "actor": {"login": "stranger"}} for _ in range(7)]
+        events.append(self.labeled("dev"))
+        selected, calls = self.channel(events)
+        self.assertEqual("dev", selected.requester(7))
+        self.assertEqual(2, len(calls))
+        self.assertTrue(all("/repos/owner/repo/issues/7/events?" in url for url in calls))
+
+    def test_an_issue_never_given_the_label_names_no_requester(self):
+        selected, _ = self.channel([self.labeled("stranger", name="bug")])
+        self.assertIsNone(selected.requester(7))
 
 
 class StoreTests(unittest.TestCase):
