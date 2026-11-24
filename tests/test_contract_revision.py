@@ -951,6 +951,60 @@ class LayoutExampleRevisionTests(unittest.TestCase):
             with self.subTest(kind=kind), self.assertRaises(ValueError):
                 revision_guard(state, revised, changes, "revise_plan")
 
+    def spelled(self, old_clause, new_clause=None, before=None, after=None):
+        """A padding correction whose draft criterion spelled its stdout assertion ``old_clause``.
+
+        From a live run (2026-11-24): AC3 said "then stdout is exactly '2025-W10  ops      2.50h...'"; the
+        Plan Reviewer recomputed the padding from render(), the Planner corrected it in the explicit form,
+        and the guard refused it for the draft's spelling alone, so the person was asked to choose between
+        two strings one space apart, with the wrong one as the default."""
+        before = before or "2025-W10  ops      2.50h\\ntotal             2.50h\\n"
+        after = after or "2025-W10  ops     2.50h\\ntotal             2.50h\\n"
+        state, revised, changes = self.inputs(before, after)
+        old = state["goal_contract"]["body"]["acceptance_criteria"][0]
+        old["criterion"] = old["criterion"].replace(f"it writes exactly `{before}` to stdout", old_clause(before))
+        new = revised["acceptance_criteria"][0]
+        new["criterion"] = old["criterion"].replace(old_clause(before), (new_clause or old_clause)(after))
+        changes[0]["replacement"] = new["criterion"]
+        return state, revised, changes
+
+    def test_a_padding_correction_is_accepted_however_the_draft_spelled_its_stdout(self):
+        for name, old_clause in (
+            ("single quotes", lambda v: f"stdout is exactly '{v}'"),
+            ("double quotes", lambda v: f'stdout is exactly "{v}"'),
+            ("prints to stdout", lambda v: f"it prints exactly `{v}` to stdout"),
+            ("explicit", lambda v: f"it writes exactly `{v}` to stdout"),
+        ):
+            explicit = lambda v: f"it writes exactly `{v}` to stdout"
+            for rewritten in (old_clause, explicit):
+                with self.subTest(spelling=name, rewritten=rewritten is explicit):
+                    state, revised, changes = self.spelled(old_clause, rewritten)
+                    self.assertEqual(changes, revision_guard(state, revised, changes, "revise_plan"))
+
+    def test_any_spelling_still_refuses_a_change_outside_the_stdout_value(self):
+        quoted = lambda v: f"stdout is exactly '{v}'"
+        explicit = lambda v: f"it writes exactly `{v}` to stdout"
+        for kind in ("command", "stderr", "twice", "number"):
+            state, revised, changes = self.spelled(quoted, explicit)
+            new = revised["acceptance_criteria"][0]
+            if kind == "command":
+                new["criterion"] = new["criterion"].replace("--by-project", "--other")
+            elif kind == "stderr":
+                new["criterion"] = new["criterion"].replace("to stdout", "to stderr")
+            elif kind == "twice":
+                old = state["goal_contract"]["body"]["acceptance_criteria"][0]
+                literal = changes[0]["example_correction"]["before"]
+                old["criterion"] += f" Again: `{literal}`."
+                new["criterion"] += f" Again: `{literal}`."
+            else:
+                state, revised, changes = self.spelled(
+                    quoted, explicit, after="2025-W10  ops     2.60h\\ntotal             2.50h\\n"
+                )
+                new = revised["acceptance_criteria"][0]
+            changes[0]["replacement"] = new["criterion"]
+            with self.subTest(kind=kind), self.assertRaises(ValueError):
+                revision_guard(state, revised, changes, "revise_plan")
+
     def test_a_word_or_number_inside_the_row_cannot_change_under_the_padding_receipt(self):
         before = "total" + " " * 10 + "15.50h\\n"
         for after in (

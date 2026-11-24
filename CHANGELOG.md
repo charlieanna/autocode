@@ -24,6 +24,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - **Parallel Builders now stay inside your cost cap.** Each parallel Builder compared the cap with its own spend only, so every one of them could spend up to the whole cap, and a Builder started its report repair or next attempt after the run had already passed it. The cap is now held over the whole run: the parent's spend plus every Builder's finished and running attempts, checked before every provider launch and while each stage runs. A Builder stopped at the cap now pauses the run at your cost cap instead of asking you to retry it, and raising the cap continues it from where it stopped without running any finished Builder again.
 
+- **A plan's miscounted output padding is corrected without asking you**: when the Plan Reviewer recomputed a criterion's expected output and the Planner fixed only its spacing or a number, the correction was accepted only if the draft had spelled the expectation as "writes exactly `...` to stdout". A draft that wrote "stdout is exactly '...'" stopped the run to ask you to choose between two strings one space apart, with the wrong one as the default. The correction is now accepted however the draft spelled it, as long as nothing outside the expected output changed.
+
 ## [0.11.0] - 2026-11-24
 
 ### Added
