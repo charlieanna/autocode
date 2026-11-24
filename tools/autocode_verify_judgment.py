@@ -234,8 +234,31 @@ def judge_regression(
             - set(base.get("skipped") or ())
             - set(setup_errors)
         )
-        if setup_errors:
-            notes.append(test_setup.proof_note(setup_errors))
+        # Owner decision 2026-11-24: a feature's test that cannot load on the base only because it imports a
+        # module or name the change adds shows the feature is absent there, as a test that runs and fails does.
+        # The base run's own output must name the missing name, the change's source must add it and the tests
+        # must use it (proof_seam.used); any other load failure (a syntax error, a missing dependency, a
+        # module the base itself cannot import) is not evidence.
+        added = (
+            set(seam_names(on_base))
+            if new_behavior
+            and not preserve_only
+            and seam_names
+            and (base["collection_errors"] or setup_errors)
+            and on_candidate["exit_code"] == 0
+            and not candidate.get("skipped")
+            and not failed
+            else set()
+        )
+        # A test whose own body could not import what the change adds (test_setup.not_evidence) is one of them.
+        imported = {
+            test
+            for test, reason in setup_errors.items()
+            if test in passed and proof_seam.missing_names(str(reason)) & added
+        }
+        held = {test: reason for test, reason in setup_errors.items() if test not in imported}
+        if held:
+            notes.append(test_setup.proof_note(held))
         # A skipped, absent or uncollected result is not an observed failure.
         not_run = passed - set(base["passed"]) - set(base["failed"])
         not_run |= passed & (
@@ -268,30 +291,21 @@ def judge_regression(
             if first:
                 flipped_set |= first
                 notes.append("The first suite's named tests were not run on the base because collection failed.")
-        if (
-            new_behavior
-            and not preserve_only
-            and seam_names
-            and base["collection_errors"]
-            and on_candidate["exit_code"] == 0
-            and not candidate.get("skipped")
-            and not failed
-        ):
-            # Owner decision 2026-11-24: a feature's tests that cannot load on the base only because they
-            # import a module or name the change adds show the feature is absent there, as a test that runs
-            # and fails does. The base run's own output must name the missing name (proof_seam.used); any
-            # other collection failure (a syntax error, a missing dependency) stays a refusal below.
-            added = seam_names(on_base)
+        if added:
             observed = set(base["passed"]) | set(base["failed"]) | set(base.get("skipped") or ())
+            uncollected = passed - observed if base["collection_errors"] else set()
             # A test the pristine base suite passed (an existing test in a file the change edits) is
             # preserved behavior, not proof that the feature was absent.
             before = base_suite_passed() if base_suite_passed else set()
-            loaded = {name for name in passed - observed - before if changed_tests is None or changed_tests(name)}
-            if added and loaded:
+            loaded = {
+                name for name in (uncollected | imported) - before if changed_tests is None or changed_tests(name)
+            }
+            if loaded:
                 flipped_set |= loaded
+                names = sorted(added)
                 notes.append(
                     "Not run on the base: the new tests import "
-                    + ", ".join(added[:5])
+                    + ", ".join(names[:5])
                     + ", which only the change adds, so they could not load there; they pass with the change."
                 )
         flipped = sorted(flipped_set)

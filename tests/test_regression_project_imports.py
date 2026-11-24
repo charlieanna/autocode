@@ -38,13 +38,17 @@ class ProjectImportRegressionTests(unittest.TestCase):
             new_behavior=True,
         )
 
-    def test_new_project_import_without_execution_proof_stays_unverified(self):
+    def test_an_import_of_the_added_name_in_the_test_body_proves_the_feature(self):
+        # Owner decision 2026-11-24: on the base the test runs and fails importing ``new``, which the change
+        # adds and the test uses, so it shows the feature is absent there. An import of a name the change
+        # does not add stays refused (the tests below).
         result = self.check_feature(
             "import unittest\nclass Feature(unittest.TestCase):\n"
             "    def test_new(self):\n        from app import new\n        self.assertEqual(new(), 42)\n"
         )
-        self.assertNotEqual(verify.PASS, result["verdict"], result)
-        self.assertEqual([], result.get("fail_to_pass"), result)
+        self.assertEqual(verify.PASS, result["verdict"], result)
+        self.assertEqual(1, len(result["fail_to_pass"]), result)
+        self.assertTrue(any("new, which only the change adds" in note for note in result["notes"]), result)
 
     def test_missing_external_dependency_is_not_a_feature_failure(self):
         result = self.check_feature(
