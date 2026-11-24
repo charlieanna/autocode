@@ -9,6 +9,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Go and Rust proofs keep coverage and the mutation check when they name tests**: AutoCode could not read the commands it narrows to the proving tests when a quoted test name held a shell character, so a Go `-run '^(TestA|TestB)$'` selection never got diff coverage and a Rust selection holding a documentation test got no per-test results and no mutation check. Every command parser now counts shell syntax only outside quotes. Go selections also keep their Example and Fuzz targets, and a Rust selection holding a documentation test filters by name instead of `--exact`, which rustdoc never matches.
+
 ## [0.11.0] - 2026-11-24
 
 ### Added
