@@ -52,6 +52,7 @@ try:
     from . import autocode_milestones as milestones
     from . import autocode_parallel_retry_admission as parallel_retry_admission
     from . import autocode_process as processes
+    from . import autocode_run_spend as run_spend
     from . import autocode_support as s
     from . import autocode_util as util
     from . import autocode_worker_lifeline as lifeline
@@ -68,6 +69,7 @@ except ImportError:
     import autocode_milestones as milestones
     import autocode_parallel_retry_admission as parallel_retry_admission
     import autocode_process as processes
+    import autocode_run_spend as run_spend
     import autocode_support as s
     import autocode_util as util
     import autocode_worker_lifeline as lifeline
@@ -466,6 +468,12 @@ def run_workers(state: RunState, run_dir, batch):
         if worker_alive(row):
             raise still_running(row)
         s.assert_no_legacy_process(Path(row["run_dir"]), Path(row["workspace"]))
+    for row in batch["workers"]:
+        # A member stopped at the person's cost cap goes on only once the cap admits more spend, checked before
+        # any member launches; its finished siblings are never run again.
+        result_path = Path(row["run_dir"]) / "result.json"
+        if result_path.is_file() and s.read(result_path).get("status") == run_spend.STATUS:
+            run_spend.guard(state, f"Builder {row['milestone_id']}")
     try:
         with processes.interruption_handler():
             for row in batch["workers"]:
@@ -479,6 +487,8 @@ def run_workers(state: RunState, run_dir, batch):
                     if row["status"] == "RUNNING":  # saved by a controller that died; its worker was found gone above
                         row["status"] = result["status"]
                     continue
+                elif result.get("status") == run_spend.STATUS:
+                    mode = "retry"  # the cap admits more spend now (checked above): go on from where it stopped
                 elif not row.get("recovery_attempted"):
                     mode = "recover"
                 else:
@@ -771,6 +781,11 @@ def collect(state: RunState, workspace, run_dir, batch):
         stopped = worker_quota.stop(state, row, result, directory)  # quota or a refusal: route-builder (#458, #465)
         if stopped:
             raise stopped
+        if result.get("status") == run_spend.STATUS:
+            # The person's cap, not a member failure: the run holds for its raise, never for a member retry.
+            raise s.Paused(
+                run_spend.STATUS, f"Builder {row['milestone_id']}: {result.get('reason', 'cost cap reached')}"
+            )
         if result.get("status") != "BUILT":
             raise s.Paused(
                 "PAUSED_ORCHESTRATOR_WORKER",
