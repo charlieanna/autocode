@@ -620,6 +620,19 @@ stays at `report_path`, so a large repository's coverage never reaches a stage
 prompt (#3121). Nothing is installed into the project; a project without a tool
 gets a note and no extra test run.
 
+Other languages are measured by the project's own native tool, when the project
+shows it has one (`tools/autocode_native_coverage.py`): gcov when the proof's run
+compiled with coverage and left `.gcno` notes (read through gcovr or lcov, whatever
+the runner), JaCoCo when a Maven or Gradle run left the agent's `.exec` data at the
+project root (the build's own `jacoco:report` or `jacocoTestReport` writes the XML),
+PHPUnit when PHP has pcov or Xdebug loaded, and coverlet when a `dotnet test` project
+references `coverlet.collector`. Their LCOV, Cobertura or JaCoCo XML report is read by
+one reader that recognizes the format from its bytes
+(`tools/autocode_coverage_reports.py`). For the changed-code evidence gate the report
+classifies which changed lines are statements, so a closing brace, an `#include` or a
+declaration needs no test or reason in C, C++, Java, Kotlin, PHP or C#, as in Go and
+JavaScript.
+
 A stage prompt over 2 MiB is never launched. The runner pauses `PAUSED_PROMPT_SIZE`
 before writing the prompt, admitting the stage or charging anything, and names the
 handoff field that holds most of it (`tools/autocode_prompt_bound.py`). Such a
@@ -1073,15 +1086,24 @@ caps what a run may spend, in USD. A run has no cap unless you set one, and `0` 
   token counts, is *unpriced*: it is not counted, so the spend is a floor, and the status view and
   cost line say how many stages are unpriced. Check `autocode models --prices` before relying on a cap
   with an unusual model, and use a provider that reports token counts or cost. While parallel
-  Builders run, their spend is not yet in the total, which reads as a floor until their batch is
-  accounted.
+  Builders run, the status view's total is a floor until their batch is accounted; the cap itself
+  counts them as they spend (below).
 - **When it pauses.** The cap is checked at every stage boundary, right after the active-time limit,
-  before anything launches. Once the spend reaches the cap the run stops with `PAUSED_COST_LIMIT`, in
-  the *your decision* category, and AutoResolver publishes the usual operational request naming the
-  spend and the cap. A run can still end above its cap by a stage it could not price (below), or by one
-  parallel batch: workers are charged when the parent accounts their batch.
+  and again at every provider launch, whatever asks for it (a stage, a report repair, an Investigator,
+  a parallel Builder's next attempt). Once the spend reaches the cap no new paid work starts: the run
+  stops with `PAUSED_COST_LIMIT`, in the *your decision* category, and AutoResolver publishes the usual
+  operational request naming the spend and the cap. A run can still end above its cap by a stage it
+  could not price (below), or by what the stages already running spend before the watch below stops them.
+- **Parallel Builders share the run's cap.** The spend the cap is compared with is the whole run's
+  (`tools/autocode_run_spend.py`): the parent's spend outside the batch plus every member's finished
+  attempts and the attempts they are running, under the parent's saved cap. Before, each member compared
+  the cap with its own spend alone, so every member could spend up to the whole cap and a member started
+  its report repair after the run had passed it. A member stopped at the cap pauses the run as
+  `PAUSED_COST_LIMIT`; raising the cap continues that member from where it stopped, and runs no finished
+  member again.
 - **While a stage runs.** Every 15 seconds the stage supervisor adds the running stage's usage so far,
-  read from its own event file and priced as a finished stage is, to the spend before it. Once the total
+  read from its own event file and priced as a finished stage is, to the run's spend apart from it, read
+  again at each check, so a parallel Builder sees what its siblings spend meanwhile. Once the total
   reaches the cap the stage is stopped as Stop now stops it: its partial work and logs are kept, it is not
   counted as a failure or an automatic recovery, the chat says it was stopped at your cost cap, and the run
   pauses `PAUSED_COST_LIMIT`. Raising the cap runs the same stage again from its partial work. Before this, a
@@ -1751,6 +1773,43 @@ Source/contract/evidence changes, stale tokens and queued interventions invalida
 old requests. Real requirements questions, permission changes, plan approval and
 declared artifact acceptance remain human decisions. External service failures
 cannot be guaranteed resolvable; automatic recovery is bounded rather than infinite.
+
+## Agent sandbox
+
+`--agent-sandbox` (off by default, `tools/autocode_agent_sandbox.py`) runs the whole agent process of
+every stage inside one OS sandbox: the provider's client and every tool, command and test it starts.
+Built-in OpenCode stages already run their shell inside the kernel tool boundary below, which reads
+less than this sandbox allows, so those stages keep that boundary and their record says
+`covered_by: tool_containment`. The sandbox matters for Claude Code, Codex and configured providers,
+whose own permission checks otherwise decide what a model's shell may read.
+
+Inside the sandbox:
+
+- **Reads** are what the user can read, except the home-directory credential stores (`CREDENTIALS`:
+  cloud and cluster logins such as `~/.aws`, `~/.azure`, `~/.config/gcloud` and `~/.kube`, SSH and GPG
+  keys, Git and package-registry tokens such as `~/.netrc`, `~/.git-credentials`, `~/.npmrc` and
+  `~/.pypirc`, password stores, browser profiles and shell histories) and the logins of the engines the
+  stage does not run on (a Claude Code stage cannot read `~/.codex/auth.json`). A stage still reads its
+  own engine's login, which it needs to reach its model.
+- **Writes** go only to the workspace and its Git directory, the run directory, the temporary
+  directories, the engine's own state (`~/.claude` for Claude Code, `~/.codex` for Codex, OpenCode's and
+  Kilo's directories) and package caches (`~/.cache`, `~/Library/Caches`, `~/.npm`, Go, Cargo, Gradle and
+  Maven caches). A credential file inside a writable cache stays denied.
+
+On Linux the backend is bubblewrap in a user namespace: the root is mounted read-only, the writable
+paths are bound back, then each credential directory is covered by an empty read-only tmpfs and each
+credential file by `/dev/null`. On macOS it is a Seatbelt profile, saved in the run's `agent-sandbox/`
+directory, that denies those reads and every write outside the writable paths. Neither adds a network
+or PID namespace, so the provider reaches its model and process supervision is unchanged. Variables
+that look like credentials are already withheld from the agents' environment (`autocode_agent_env`).
+
+The sandbox is fail-safe. Without the flag every stage launches exactly as before. With it, run setup
+refuses the run before any stage when the host cannot provide it (no `bwrap` able to create a user
+namespace, no `sandbox-exec`, another platform, or a Codex stage on macOS, where Codex's own Seatbelt
+sandbox cannot start inside another), and a stage that cannot be sandboxed later pauses as
+`PAUSED_TOOL_CONTAINMENT` without launching. The choice is saved with the run and recorded as an
+`agent_sandbox_enabled` user event; each stage record's `agent_sandbox` names the backend, the writable
+paths and the denied stores that exist.
 
 ## Native tool containment
 

@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
+
+try:
+    from . import autocode_util as util
+except ImportError:
+    import autocode_util as util
 
 COUNTED = frozenset(
     {
@@ -18,11 +22,8 @@ COUNTED = frozenset(
 
 
 def timestamp(value):
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        return parsed if parsed.tzinfo is not None else None
-    except (AttributeError, TypeError, ValueError):
-        return None
+    """A saved time as an aware datetime, or None (``autocode_util.aware_time``)."""
+    return util.aware_time(value)
 
 
 def saved_checkpoint(record):

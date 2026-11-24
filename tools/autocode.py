@@ -65,6 +65,7 @@ try:
     from . import autocode_classification_recovery as classification_recovery  # noqa: F401 - compatibility API
     from . import autocode_network_retry as network_retry
     from . import autocode_cost_watch as cost_watch
+    from . import autocode_run_spend as run_spend
     from . import autocode_launch_inputs as launch_inputs, autocode_parent_boundary as parent_boundary, autocode_requirements_overlap as requirements_overlap, autocode_requirements_overlap_input as overlap_input  # noqa: F401 - compatibility API
     from . import autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, autocode_cmd_only_report as cmd_only, autocode_check_refs as check_refs, autocode_planning_metadata as planning_metadata, autocode_preflight_attempts as preflight_attempts, model_catalogue, autocode_provider_launch as provider_launch, autocode_verification_plan as verification_plan, autocode_task_preflight as task_preflight, autocode_resolver_recovery as resolver_recovery, autocode_visual_runtime as visual_runtime, autocode_visual_profile as visual_profile  # noqa: F401 - compatibility API
     from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_json_output as json_output, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_report_edits as report_edits, autocode_provider_report_schema as provider_report_schema, autocode_receipt_repair_context as receipt_repair_context, autocode_stuck_repair_context as stuck_repair_context  # noqa: F401 - compatibility API
@@ -110,6 +111,7 @@ except ImportError:
     import autocode_goal_lifecycle as lifecycle
     import autocode_interventions as interventions
     import autocode_cost_watch as cost_watch
+    import autocode_run_spend as run_spend
     import autocode_checkout_lock as checkout_lock  # noqa: F401 - compatibility API
     import autocode_providers  # noqa: F401 - compatibility API
     import autocode_opencode as opencode
@@ -427,6 +429,10 @@ def run_role(
     native_isolation = native.role_isolation(state, route_role) if native is not None else None
     if not dry_run:
         processes.preflight()  # fail before creating an active request
+        # No paid work starts once the whole run has spent the person's cap, whichever path launches it.
+        run_spend.guard(
+            state, f"the {autocode_status.role_name(original_stage, state)}" + (" report repair" if report_only else "")
+        )
     if report_only:
         stage += "_report_repair"
     if stage == "diagnose" and not dry_run:

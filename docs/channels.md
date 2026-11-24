@@ -37,8 +37,10 @@ Everything is configured through the environment:
 | `AUTOCODE_BRIDGE_GITHUB_REPO` | `OWNER/REPO`, the single repository this bridge serves. |
 | `AUTOCODE_BRIDGE_PROJECT` | the persistent checkout to build in (default: the daemon's directory). |
 | `AUTOCODE_BRIDGE_LABEL` | the label that takes an issue (default `autocode`). |
-| `AUTOCODE_BRIDGE_ACTORS` | a JSON array of GitHub logins allowed to start and steer runs. An issue labeled by anyone else is refused, and replies from anyone else are ignored. See [Who asked and who decided](#who-asked-and-who-decided). |
-| `AUTOCODE_BRIDGE_OPTIONS` | a JSON array of launch options (engine, models, `--test-command`). Add `--evidence-provenance live` when the bridge runs real models: without it each run's report says its provider evidence is unknown. Every human or run action flag is refused here. |
+| `AUTOCODE_BRIDGE_ACTORS` | a JSON array of GitHub logins allowed to start runs, and to steer them unless `AUTOCODE_BRIDGE_DECIDERS` is set. An issue labeled by anyone else is refused, and replies from anyone on neither list are ignored. See [Who asked and who decided](#who-asked-and-who-decided). |
+| `AUTOCODE_BRIDGE_DECIDERS` | optional: a JSON array of GitHub logins allowed to answer, approve and steer runs (including feedback, follow-ups and resumes). Unset, the actors decide. Set, an actor not on it can still start runs, and their replies get a refusal instead of an action. |
+| `AUTOCODE_BRIDGE_OPTIONS` | a JSON array of launch options (engine, models, `--test-command`). Add `--evidence-provenance live` when the bridge runs real models: without it each run's report says its provider evidence is unknown. Every human or run action flag is refused here, and so is `--allow-uncontained-tools` when more than one login is on the two lists. |
+| `AUTOCODE_BRIDGE_PERSON_CAPS` | optional: a JSON object of GitHub login to a monthly allowance in USD, such as `{"dev": 50, "lead": 100}`. See [Each person's allowance](#each-persons-allowance). A login not named has no allowance of its own. |
 | `AUTOCODE_BRIDGE_POLL_SECONDS` | seconds between polls (default 10). |
 | `AUTOCODE_BRIDGE_MAX_ACTIVE` | the most bridged runs in flight at once, a whole number from 1. Unset, every labeled issue starts as soon as it is seen. See [Many issues at once](#many-issues-at-once). |
 | `AUTOCODE_BRIDGE_OPEN_PR` | `1` to also push the branch and open the draft PR on completion; the default only prepares it. |
@@ -90,8 +92,33 @@ pull request.
   read; remove its record to free a slot it still holds.
 
 Unset, the bridge behaves as before the limit existed. Removing the limit later
-starts every issue still queued. There is no total cost cap across issues yet:
-each run keeps the cap its launch options give it.
+starts every issue still queued. Each run keeps the cap its launch options give it,
+unless its requester has an allowance (below).
+
+## Each person's allowance
+
+A team sharing a bridge shares its backend login, so the bridge can give each
+requester a monthly allowance with `AUTOCODE_BRIDGE_PERSON_CAPS`. It adds no second
+cost check: it sets each run's own cap.
+
+- **At a run's start**, what is left of the requester's allowance for the calendar
+  month (UTC) becomes the run's `--max-cost-usd`, rounded down to the cent. A lower cap
+  in `AUTOCODE_BRIDGE_OPTIONS` stays; a higher one, or `0`, is lowered. The run pauses
+  at its cap like any capped run.
+- **While a run is in flight** its whole cap is reserved from the allowance, so two
+  runs for one person cannot both spend it. Once the run settles, only what it spent
+  counts, as its status view's `cost.spent_usd` reported.
+- **At the allowance**, a newly labeled issue is held: the bridge comments once with
+  the amount used, and the issue starts by itself when there is allowance again (a new
+  month, or a higher allowance the operator sets). A held issue takes no slot and
+  never holds up other people's issues.
+- **Unknown spend.** A run whose spend is partly unpriced counts the part that is known
+  and is listed as partly unknown; it does not hold the next issue.
+- The completion comment says what the run cost. Each person's total for the month
+  stays on the host: `autocode bridge status` prints it, and `--json` gives it as
+  `spending`. `autocode bridge check` prints the allowances.
+
+Like every spending cap, the allowance is the operator's: AutoCode never raises it.
 
 ## Who asked and who decided
 
@@ -108,6 +135,13 @@ and nothing here replaces it.
 - **Every applied decision** (an answer, an approval, feedback, a resume) is recorded
   with the login that wrote the reply, the comment id, the action the bridge took and
   the time. A refused reply is not recorded: it changed nothing.
+- **Starting and deciding are separate permissions.** With `AUTOCODE_BRIDGE_DECIDERS`
+  set, a team can let its members request work while a reviewer approves the plans.
+  A reply from an actor who is not a decider is answered with a refusal and takes no
+  action.
+- **Tools stay contained.** A bridge that more than one login can start or steer
+  refuses to start with `--allow-uncontained-tools` in its options: one configuration
+  would otherwise accept uncontained tools for everyone's runs.
 - The issue's first comment names the requester. `autocode bridge status` lists the
   requester and everyone who decided; `--json` includes the full `requested_by` and
   `decisions` records, each marked `"authenticated_by": "github"`.

@@ -90,11 +90,13 @@ try:
     from . import autocode_prices as prices
     from . import autocode_roles as roles
     from . import autocode_usage as usage
+    from . import autocode_util as util
 except ImportError:
     import autocode_cost as cost
     import autocode_prices as prices
     import autocode_roles as roles
     import autocode_usage as usage
+    import autocode_util as util
 
 # The run statuses read as finished and as still working; autocode_run_view.COMPLETE names the same
 # finished statuses, but the view imports this module, so it cannot be imported back.
@@ -115,15 +117,6 @@ def _list(value) -> list:
 
 def _dict(value) -> dict:
     return value if isinstance(value, dict) else {}
-
-
-def _when(value) -> dt.datetime | None:
-    """A saved timestamp as an aware datetime, or None when it cannot be read."""
-    try:
-        moment = dt.datetime.fromisoformat(value) if isinstance(value, str) else None
-    except ValueError:
-        return None
-    return moment if moment is not None and moment.tzinfo is not None else None
 
 
 def _route(value) -> tuple[Any, Any]:
@@ -232,7 +225,7 @@ def _builder_failure(decision, attempts, milestones) -> tuple[dict | None, str |
         return found, task
     builders = [row for row in attempts if _role(row["record"]) == "builder"]
     latest = (
-        _latest([row for row in builders if row["record"].get("task_id") == task], _when(decision.get("at")))
+        _latest([row for row in builders if row["record"].get("task_id") == task], util.aware_time(decision.get("at")))
         if task
         else None
     )
@@ -300,7 +293,7 @@ def _recorded(state: RunState, attempts, milestones) -> list[dict]:
             }
         )
     for row in found:
-        row["when"] = _when(row["at"])
+        row["when"] = util.aware_time(row["at"])
     return sorted(found, key=lambda row: (row["when"] is None, row["when"] or dt.datetime.min.replace(tzinfo=dt.UTC)))
 
 
@@ -311,7 +304,7 @@ def _charges(state: RunState, attempts, milestones) -> list[tuple[dt.datetime, d
     review's output), also when it reviewed a validate task's re-check (_builder_failure)."""
     found = []
     for decision in _list(state.get("builder_retry_decisions")):
-        when, action = _when(decision.get("at")), decision.get("action")
+        when, action = util.aware_time(decision.get("at")), decision.get("action")
         failed = _builder_failure(decision, attempts, milestones)[0] if action in CHARGES else None
         if when is not None and failed is not None:
             found.append((when, failed, action))
@@ -327,7 +320,7 @@ def _sent_back(state: RunState, attempts, milestones) -> list[tuple[dt.datetime,
     builders = [row for row in attempts if _role(row["record"]) == "builder"]
     found = []
     for task in [*_list(state.get("task_archive")), _dict(state.get("current_task"))]:
-        when = _when(task.get("assigned_at"))
+        when = util.aware_time(task.get("assigned_at"))
         if task.get("decision") != "REWORK" or task.get("kind") != "implement" or when is None:
             continue
         milestone = milestones.get(_text(task.get("id")))
@@ -344,13 +337,15 @@ def _attempts(state: RunState) -> list[dict]:
     records = [record for record in usage.finished_records(state) if not record.get("dry_run")]
     priced = usage.stage_rows({**state, "stages": records, "active_stage": None}, estimator=prices.estimate)
     found = [
-        {"record": record, "when": _when(record.get("started_at")), **price}
+        {"record": record, "when": util.aware_time(record.get("started_at")), **price}
         for record, price in zip(records, priced, strict=True)
         if record.get("runner_owned") is not True
     ]
     active = usage.running_stage(state)
     if isinstance(active, dict) and not active.get("dry_run"):
-        found.append({"record": active, "when": _when(active.get("started_at")), "cost_usd": None, "basis": "running"})
+        found.append(
+            {"record": active, "when": util.aware_time(active.get("started_at")), "cost_usd": None, "basis": "running"}
+        )
     return [row for row in found if row["when"] is not None]
 
 
@@ -493,7 +488,7 @@ def rows(state: RunState) -> list[dict]:
     validations = _validations(state, attempts)
     index = _by_role(attempts)
     charges = _charges(state, attempts, milestones) + _sent_back(state, attempts, milestones)
-    created = _when(state.get("created_at"))
+    created = util.aware_time(state.get("created_at"))
     for escalation in escalations:
         when, role = escalation["when"], escalation["role"]
         latest = _before(index, role, when)

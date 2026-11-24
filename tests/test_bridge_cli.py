@@ -175,17 +175,18 @@ class BridgeTests(unittest.TestCase):
         else:
             os.environ["AUTOCODE_BRIDGE_HOME"] = self.saved_home
 
-    def bridge(self, run, *, launch=None):
+    def bridge(self, run, *, launch=None, actors=("dev",), deciders=None):
         from autocode_bridge_github import GitHubChannel
 
         config = bridge_cli.Config(
             repo="owner/repo",
             project=Path("/work/project"),
             label="autocode",
-            actors=("dev",),
+            actors=actors,
             options=(),
             poll_seconds=10.0,
             open_pr=False,
+            deciders=deciders,
         )
         started = launch or (
             lambda project, ref, issue, options, owned=False, **_: {
@@ -207,7 +208,7 @@ class BridgeTests(unittest.TestCase):
         )
         return bridge_cli.Bridge(
             config,
-            GitHubChannel(self.client, "owner/repo", "autocode", ("dev",)),
+            GitHubChannel(self.client, "owner/repo", "autocode", actors, deciders),
             launch=started,
             adopt=lambda record: run,
             prepare=lambda record, *, open_: (
@@ -272,6 +273,34 @@ class BridgeTests(unittest.TestCase):
             [(row["login"], row["action"], row["comment_id"]) for row in decisions],
         )
         self.assertTrue(all(row["authenticated_by"] == "github" for row in decisions))
+
+    def test_a_login_that_may_start_runs_but_not_decide_cannot_approve_the_plan(self):
+        run = FakeRun()
+        run.state = "plan"
+        bridge = self.bridge(run, actors=("dev", "lead"), deciders=("lead",))
+        bridge.tick()
+        self.assertTrue(any("Steering is limited to: @lead." in body for body in self.bodies()))
+        comment(self.client, 7, "dev", "approve")
+        bridge.tick()
+        self.assertEqual([], run.calls)
+        self.assertTrue(any("@dev you may start runs on this bridge but not decide them" in b for b in self.bodies()))
+        self.assertNotIn("decisions", store.load("owner", "repo", 7))
+
+        approval = comment(self.client, 7, "lead", "approve")
+        bridge.tick()
+        self.assertEqual([("approve", PLAN_TOKEN)], run.calls)
+        decisions = store.load("owner", "repo", 7)["decisions"]
+        self.assertEqual(
+            [("lead", "approve", approval)], [(r["login"], r["action"], r["comment_id"]) for r in decisions]
+        )
+
+    def test_a_decider_who_may_not_start_runs_cannot_start_one_by_labeling(self):
+        self.client.issues[7]["labeled_by"] = "lead"
+        launched = []
+        bridge = self.bridge(FakeRun(), launch=lambda *a, **k: launched.append(a), deciders=("lead",))
+        bridge.tick()
+        self.assertEqual([], launched)
+        self.assertEqual("failed", store.load("owner", "repo", 7)["gate"]["key"])
 
     def test_a_refused_reply_is_not_recorded_as_a_decision(self):
         run = FakeRun()
@@ -494,6 +523,31 @@ class BridgeTests(unittest.TestCase):
         self.assertTrue(config.open_pr)
         with self.assertRaises(bridge_cli.ConfigError):
             bridge_cli.Config.from_env({"AUTOCODE_BRIDGE_GITHUB_REPO": "owner/repo", "AUTOCODE_BRIDGE_ACTORS": "dev"})
+
+    def test_deciders_default_to_the_actors_and_must_name_someone_when_set(self):
+        base = {"AUTOCODE_BRIDGE_GITHUB_REPO": "owner/repo", "AUTOCODE_BRIDGE_ACTORS": '["dev", "lead"]'}
+        self.assertEqual(("dev", "lead"), bridge_cli.Config.from_env(base).decider_logins)
+        chosen = bridge_cli.Config.from_env({**base, "AUTOCODE_BRIDGE_DECIDERS": '["lead"]'})
+        self.assertEqual(("lead",), chosen.decider_logins)
+        with self.assertRaisesRegex(bridge_cli.ConfigError, "AUTOCODE_BRIDGE_DECIDERS"):
+            bridge_cli.Config.from_env({**base, "AUTOCODE_BRIDGE_DECIDERS": "[]"})
+
+    def test_uncontained_tools_are_refused_on_a_bridge_several_people_use(self):
+        import autocode_containment_policy as containment
+
+        self.assertEqual(containment.FLAG, bridge_cli.UNCONTAINED_OPTION)
+        options = '["--engine", "codex", "--allow-uncontained-tools"]'
+        alone = {"AUTOCODE_BRIDGE_GITHUB_REPO": "owner/repo", "AUTOCODE_BRIDGE_ACTORS": '["dev"]'}
+        self.assertIn(
+            "--allow-uncontained-tools",
+            bridge_cli.Config.from_env({**alone, "AUTOCODE_BRIDGE_OPTIONS": options}).options,
+        )
+        for extra in ({"AUTOCODE_BRIDGE_ACTORS": '["dev", "lead"]'}, {"AUTOCODE_BRIDGE_DECIDERS": '["lead"]'}):
+            with self.assertRaisesRegex(bridge_cli.ConfigError, "kernel boundary"):
+                bridge_cli.Config.from_env({**alone, **extra, "AUTOCODE_BRIDGE_OPTIONS": options})
+        # Two spellings of one login are one person.
+        same = {**alone, "AUTOCODE_BRIDGE_DECIDERS": '["Dev"]', "AUTOCODE_BRIDGE_OPTIONS": options}
+        self.assertEqual(("Dev",), bridge_cli.Config.from_env(same).decider_logins)
 
 
 class SlotRun(FakeRun):
@@ -800,6 +854,119 @@ class AdmissionTests(unittest.TestCase):
             ):
                 bridge_cli.cmd_check(args)
             self.assertIn(expected, output.getvalue())
+
+
+class CostRun(SlotRun):
+    """A slot run whose status view reports what it has spent so far."""
+
+    spent = 0.0
+    priced = True
+
+    def status(self):
+        view = super().status()
+        return {
+            **view,
+            "cost": {"spent_usd": self.spent, "cap_usd": None, "unpriced_stages": 0, "complete": self.priced},
+        }
+
+
+class AllowanceTests(unittest.TestCase):
+    """AUTOCODE_BRIDGE_PERSON_CAPS: a requester's monthly allowance becomes each run's own cost cap."""
+
+    setUp = AdmissionTests.setUp
+    launch = AdmissionTests.launch
+
+    def bridge(self, caps, *, options=(), max_active=None):
+        from autocode_bridge_github import GitHubChannel
+
+        self.runs = {number: CostRun(number) for number in (7, 8, 9)}
+        for run in self.runs.values():
+            run.state = "working"
+        self.options_seen = {}
+        launch = self.launch
+
+        def recording(project, ref, issue, options, **kwargs):
+            self.options_seen[ref.number] = list(options)
+            return launch(project, ref, issue, options, **kwargs)
+
+        config = bridge_cli.Config(
+            repo="owner/repo",
+            project=Path("/work/project"),
+            label="autocode",
+            actors=("dev", "lead"),
+            options=tuple(options),
+            poll_seconds=10.0,
+            open_pr=False,
+            max_active=max_active,
+            person_caps=caps,
+        )
+        return bridge_cli.Bridge(
+            config,
+            GitHubChannel(self.client, "owner/repo", "autocode", ("dev", "lead")),
+            launch=recording,
+            adopt=lambda record: self.runs[record["number"]],
+            prepare=lambda record, *, open_: "PR body written",
+        )
+
+    def held_notices(self, number):
+        return [body for issue, body in self.client.posted if issue == number and "holding this issue" in body]
+
+    def test_the_allowance_becomes_the_cap_and_is_reserved_while_the_run_is_in_flight(self):
+        for number in (8, 9):
+            self.client.issues[number]["issue"]["state"] = "closed"
+        bridge = self.bridge({"dev": 5.0}, options=("--engine", "codex", "--max-cost-usd", "0"))
+        bridge.tick()
+        self.assertEqual([7], self.launched)
+        self.assertEqual(["--engine", "codex", "--max-cost-usd", "5"], self.options_seen[7])
+        record = store.load("owner", "repo", 7)
+        self.assertEqual(5.0, record["reserved_usd"])
+        self.assertEqual(bridge_cli.allowance.period(), record["period"])
+
+    def test_a_second_issue_waits_for_the_first_runs_reservation_and_then_gets_what_is_left(self):
+        self.client.issues[9]["issue"]["state"] = "closed"
+        bridge = self.bridge({"dev": 5.0})
+        bridge.tick()
+        self.assertEqual([7], self.launched)  # issue 8 waits: issue 7 reserves the whole allowance
+        self.assertEqual(1, len(self.held_notices(8)))
+        self.assertIn("$5.00 of their $5.00 allowance", self.held_notices(8)[0])
+        bridge.tick()
+        self.assertEqual([7], self.launched)
+        self.assertEqual(1, len(self.held_notices(8)))  # said once
+
+        self.runs[7].spent, self.runs[7].state = 1.5, "stopped"
+        bridge.tick()  # issue 7 settles at $1.50, so $3.50 is left for issue 8
+        bridge.tick()
+        self.assertEqual([7, 8], self.launched)
+        self.assertEqual(["--max-cost-usd", "3.5"], self.options_seen[8])
+        self.assertNotIn("over_allowance", store.load("owner", "repo", 8))
+
+    def test_a_person_without_an_allowance_and_other_people_are_not_held(self):
+        self.client.issues[8]["labeled_by"] = "lead"
+        self.client.issues[9]["labeled_by"] = "lead"
+        bridge = self.bridge({"dev": 0.0}, max_active=3)
+        bridge.tick()
+        self.assertEqual([8, 9], sorted(self.launched))
+        self.assertEqual([], self.options_seen[8])
+        self.assertEqual(1, len(self.held_notices(7)))
+
+    def test_a_lower_cap_in_the_launch_options_stays(self):
+        for number in (8, 9):
+            self.client.issues[number]["issue"]["state"] = "closed"
+        bridge = self.bridge({"dev": 50.0}, options=("--max-cost-usd=4",))
+        bridge.tick()
+        self.assertEqual(["--max-cost-usd", "4"], self.options_seen[7])
+        self.assertEqual(4.0, store.load("owner", "repo", 7)["reserved_usd"])
+
+    def test_the_completion_comment_says_what_the_run_cost(self):
+        for number in (8, 9):
+            self.client.issues[number]["issue"]["state"] = "closed"
+        bridge = self.bridge({"dev": 5.0})
+        bridge.tick()
+        self.runs[7].spent, self.runs[7].state = 2.25, "done"
+        bridge.tick()
+        done = [body for issue, body in self.client.posted if issue == 7 and "Task complete" in body]
+        self.assertEqual(1, len(done))
+        self.assertIn("It cost $2.25.", done[0])
 
 
 class ParserTests(unittest.TestCase):

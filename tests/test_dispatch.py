@@ -723,6 +723,49 @@ class DispatchTests(unittest.TestCase):
         attempts = [r for r in self.state["stages"] if r.get("worker_milestone") == "M2"]
         self.assertEqual(["builder", "builder_report_repair"], [r["stage"] for r in attempts])
 
+    @staticmethod
+    def model_stages(child):
+        return [r["stage"] for r in child["stages"] if not r.get("runner_owned")]
+
+    def test_a_member_starts_no_paid_work_once_the_whole_run_has_spent_its_cap(self):
+        """Each parallel Builder used to compare the cap with its own spend only: with $8.50 already spent
+        under a $9 cap, both members spent $1 and M1 still launched its report repair. The run now pauses
+        at the cap with nothing more launched, and raising it runs only that repair: neither finished
+        Builder is run again."""
+        self.prepare()
+        prior = {"stage": "tester", "role": "tester", "iteration": 1, "model": "fixture-model", "started_at": s.now()}
+        self.state["stages"].append({**prior, "finished_at": s.now(), "metrics": {"provider_cost_usd": 8.5}})
+        self.state["settings"]["limits"]["max_cost_usd"] = 9
+        spend = {"AUTOCODE_BUILDER_BAD_REPORT": "M1", "AUTOCODE_BUILDER_COST_USD": "1"}
+        with patch.dict(os.environ, spend):
+            with self.assertRaises(s.Paused) as stopped:
+                self.build()
+        self.assertEqual("PAUSED_COST_LIMIT", stopped.exception.status, stopped.exception)
+        self.assertIn("Builder M1", str(stopped.exception))
+        batch = self.state["orchestration_batch"]
+        children = {w["milestone_id"]: s.read(Path(w["run_dir"]) / "state.json") for w in batch["workers"]}
+        self.assertEqual(["builder"], self.model_stages(children["M1"]), "no repair launched")
+        self.assertEqual(["builder"], self.model_stages(children["M2"]))
+        self.assertEqual("PAUSED_COST_LIMIT", children["M1"]["status"])
+        # A plain resume at the same cap launches nothing.
+        with patch.dict(os.environ, spend), self.assertRaises(s.Paused) as held:
+            self.build()
+        self.assertEqual("PAUSED_COST_LIMIT", held.exception.status)
+        self.assertEqual(["builder"], self.model_stages(s.read(Path(batch["workers"][0]["run_dir"]) / "state.json")))
+        # The person raises the cap: M1 goes on from its finished Builder, and M2 is not run again.
+        self.state["settings"]["limits"]["max_cost_usd"] = 20
+        with patch.dict(os.environ, spend):
+            self.build()
+        self.assertEqual("tester", self.state["next_stage"])
+        attempts = [
+            (r.get("worker_milestone"), r["stage"])
+            for r in self.state["stages"]
+            if r.get("worker_milestone") and not r.get("runner_owned")
+        ]
+        self.assertEqual(
+            [("M1", "builder"), ("M1", "builder_report_repair"), ("M2", "builder")], sorted(attempts), attempts
+        )
+
     def test_completed_worker_missing_receipt_is_reconciled_without_rebuild(self):
         self.prepare()
         batch = d.prepare(self.state, self.root, self.run, d.select(self.state))

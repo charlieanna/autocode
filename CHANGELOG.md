@@ -12,10 +12,25 @@ PR template asks for an entry here; a change without one is incomplete.
 ### Changed
 
 - **A vague request gets proposals, not a blank question**: Requirements used to answer "build me an adaptive engine" with "what do you want this to do?" and then two more rounds of abstract questions. It now says what it understood, offers the readings it sees as options written as short scenarios (recommending the likeliest), sketches how it would build that reading, and asks the choices it leaves open in the same round. Each option shows what you would see on one concrete input ("an order delivered at 23:00 on March 1 is refused from 23:00 on March 31"), and questions keep the behavior you asked for among their options. You can always answer in your own words.
+### Added
+
+- **Mutation evidence for Maven, Gradle, PHPUnit and CTest proofs**: their proofs are judged by exit code, so the mutation check ran no mutant and every executed changed line in Java, Kotlin, C, C++ or PHP still needed a reason written by the Tester. Each of these runners writes JUnit XML naming its tests; the mutation check now reads it (removing earlier reports before each run), takes the tests the unmutated run reports passing, and counts a mutant killed only when one of them failed in that run's report. Changed `.java`, `.kt`, `.c`, `.h`, `.cpp` and `.php` lines get the same operators as Go and JavaScript; a mutant that does not compile is not a site, and Maven, Gradle and CTest mutants get later modification times so the build compiles them.
+
+- **Changed lines in C, C++, Java, Kotlin, PHP and C# are classified by the project's own coverage tool**: the changed-code evidence gate read coverage only from coverage.py, Go, c8 and Vitest, so in these languages every non-blank changed line, closing braces, `#include`s and declarations among them, needed a test or a reason written by the Tester. The proof now reads LCOV, Cobertura and JaCoCo XML reports, recognized from their bytes, from the tool the project already has: gcov notes the proof's run left (through gcovr or lcov, whatever the runner), JaCoCo data a Maven or Gradle run left, PHPUnit with pcov or Xdebug, and `dotnet test` with coverlet. Nothing is installed into the project.
+
+- **An OS sandbox around every agent** (`--agent-sandbox`, off by default): each stage's whole agent process (Claude Code, Codex or a configured provider, with every command and test it runs) runs inside Linux bubblewrap or macOS `sandbox-exec`. It cannot read home-directory credentials such as `~/.aws`, `~/.ssh`, `~/.config/gcloud`, `~/.kube` or `~/.netrc`, nor another engine's login, and it writes only the workspace, the run, temporary directories, its own engine's state and package caches. A run that asks for it on a host without such a sandbox is refused before any stage, and a stage that cannot be sandboxed pauses without launching, so it never runs unsandboxed. Built-in OpenCode stages keep their stricter kernel tool boundary.
+
+### Fixed
+
+- **Parallel Builders now stay inside your cost cap.** Each parallel Builder compared the cap with its own spend only, so every one of them could spend up to the whole cap, and a Builder started its report repair or next attempt after the run had already passed it. The cap is now held over the whole run: the parent's spend plus every Builder's finished and running attempts, checked before every provider launch and while each stage runs. A Builder stopped at the cap now pauses the run at your cost cap instead of asking you to retry it, and raising the cap continues it from where it stopped without running any finished Builder again.
 
 ## [0.11.0] - 2026-11-24
 
 ### Added
+
+- **A monthly allowance for each person on a shared bridge** (`AUTOCODE_BRIDGE_PERSON_CAPS`, optional): what is left of the requester's allowance becomes each run's own `--max-cost-usd` and is reserved while the run is in flight; at the allowance a new issue is held with one comment and starts by itself when there is allowance again. The completion comment says what the run cost, and `autocode bridge status` shows each person's month. Part of [team use](docs/plans/multi-user.md).
+
+- **The channel bridge separates who may start runs from who may decide them** (`AUTOCODE_BRIDGE_DECIDERS`, optional): set, only those logins answer, approve and steer, and an actor's reply gets a refusal; unset, the actors decide as before. A bridge that more than one login can use now refuses `--allow-uncontained-tools` in its launch options. Part of [team use](docs/plans/multi-user.md).
 
 - **The channel bridge records who asked for each run and who steered it**: the requester is the GitHub login that applied the bridge label, read from the issue's events, and an issue labeled by anyone off `AUTOCODE_BRIDGE_ACTORS` is refused with one comment instead of started. Each applied reply (answer, approval, feedback, resume) is recorded with its login, comment and action; the issue's first comment names the requester and `autocode bridge status` lists both. These logins are marked as authenticated by GitHub, beside the run's own unverified Git provenance. The first step of [team use](docs/plans/multi-user.md).
 
@@ -175,6 +190,8 @@ PR template asks for an entry here; a change without one is incomplete.
 - **The Job recognizer, Code Reviewer, bug Investigator, Designer and Analyst stages**, with `--utility-model`/`--utility-reasoning-effort` and `--recover-job-report`. A run saved at one of those stages cannot continue: AutoCode says so and asks for a new task; its status and reports stay readable. The Design Reviewer, the stuck-stage Investigator and the acceptance-test writer stay.
 
 ### Fixed
+
+- **The real-repo sweep runs past its first Arena case**: `examples/claude-provider/real_repo_sweep.py run` prepared every Arena case into one store, and `arena/prepare.py` refuses a store that already holds one, so a `starter` or `hard` sweep stopped at its second Arena case. Each Arena case now gets its own store under `--out/arenas/`.
 
 - **A guard whose test fails on the original code goes back to the Planner before you approve the plan**: a `guard:` criterion names the test that shows behavior already works, and the regression proof only checked that after the Builder ran, so a guard over behavior that does not work yet cost a whole repair loop. Each draft's guards that name an existing test are now run on the original commit without a model, with the proof's runner, and one that fails there goes back to the Planner as a plan correction naming the failing test.
 

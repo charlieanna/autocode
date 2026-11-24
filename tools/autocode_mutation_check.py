@@ -11,9 +11,10 @@ Report only: nothing here changes the verdict, the failures, the unverified reas
 receipts, and no mutant run is one of the proof's ``checks``. One deadline, ``BUDGET_SECONDS``,
 covers the unmutated run and every mutant: the same limit as one check replay. Python unittest and
 pytest proofs are mutated through the AST (autocode_mutants); Go, node:test, Vitest, Jest, Mocha,
-Cargo, RSpec and Minitest proofs through tokens (autocode_text_mutants, #3817). A text mutant that is not a
-program is not a site: a Go or Cargo mutant whose package does not build, and a Ruby mutant ``ruby -c``
-refuses, are left out with a file note. Any other runner's record says so in ``unavailable``. Imports nothing
+Cargo, RSpec and Minitest proofs through tokens (autocode_text_mutants, #3817), and so are Maven, Gradle,
+PHPUnit and CTest proofs, whose tests are named by their JUnit XML (OBSERVED, autocode_runner_reports). A text
+mutant that is not a program is not a site: a Go or Cargo mutant whose package does not build, a Ruby mutant
+``ruby -c`` refuses, and a JUnit runner's mutant that failed without a report, are left out with a file note. Any other runner's record says so in ``unavailable``. Imports nothing
 from the runner; the caller owns the scratch tree and runs the commands.
 """
 
@@ -36,6 +37,7 @@ try:
     from . import autocode_package_scope as package_scope
     from . import autocode_proof_stability as proof_stability
     from . import autocode_python_tests as python_tests
+    from . import autocode_runner_reports as runner_reports
     from . import autocode_test_cases as test_cases
     from . import autocode_text_mutants as text_mutants
 except ImportError:
@@ -48,6 +50,7 @@ except ImportError:
     import autocode_package_scope as package_scope
     import autocode_proof_stability as proof_stability
     import autocode_python_tests as python_tests
+    import autocode_runner_reports as runner_reports
     import autocode_test_cases as test_cases
     import autocode_text_mutants as text_mutants
 
@@ -71,12 +74,20 @@ TEXT_FRAMEWORKS = {
     "cargo": "rs",
     "rspec": "rb",
     "minitest": "rb",
+    # Runners that name their tests only in JUnit XML (autocode_runner_reports): see OBSERVED.
+    "maven": "java",
+    "gradle": "java",
+    "phpunit": "php",
+    "ctest": "c",
 }
+# Runners whose proofs are judged by exit code: their selected tests are the ones the unmutated run of the
+# proof's own command reports passing in its JUnit XML, and that command runs unchanged for each mutant.
+OBSERVED = frozenset(runner_reports.RUNNERS)
 # Runners whose build decides a source is unchanged by its modification time alone: Cargo rebuilds a crate
-# only when a source is newer than its last build. A mutant given an older time than that build (as each
+# only when a source is newer than its last build, as Make and Ninja under CTest and Maven's compiler do. A mutant given an older time than that build (as each
 # Python mutant is, for its bytecode cache) would run the binary built before it, unmutated, and survive
 # whatever the tests assert. Each of their versions is given a time later than the one before instead.
-FORWARD_TIME = frozenset({"cargo"})
+FORWARD_TIME = frozenset({"cargo", "maven", "gradle", "ctest"})
 FRAMEWORKS = PYTHON_FRAMEWORKS + tuple(TEXT_FRAMEWORKS)
 # Why a proof's runner can produce no mutation evidence at all. No Builder change closes such a gap, so
 # the changed-line repair route reads it (autocode_changed_code_rework.route).
@@ -99,11 +110,20 @@ def record(note=None, files=(), *, collected=False, unavailable=None) -> dict:
     return result
 
 
+def runner_name(framework_name, command):
+    """The runner the mutation check treats the proof as: its framework's, or, for a framework without a
+    mutation source (a CMake suite whose last step is ``ctest``, a command with no framework), the JUnit
+    runner its command ends with. An operator-selected JUnit report (``junit``) keeps its own runner."""
+    if framework_name in FRAMEWORKS or framework_name == "junit":
+        return framework_name
+    return runner_reports.runner(package_scope.within(command or "")) or framework_name
+
+
 def unsupported(framework_name) -> dict:
     """The record of a proof whose runner has no mutation source, saying which runner it was."""
     return record(
         "the mutation check runs Python unittest and pytest, Go, node:test, Vitest, Jest, Mocha, Cargo, "
-        "RSpec and Minitest proofs; "
+        "RSpec, Minitest, Maven, Gradle, PHPUnit and CTest proofs; "
         "this proof ran " + (framework_name or "no named-test runner"),
         unavailable=NO_SOURCE,
     )
@@ -162,6 +182,38 @@ def _did_not_build(receipt) -> bool:
         isinstance(broken, list)
         and bool(broken)
         and all(isinstance(name, str) and name.endswith("::[build failed]") for name in broken)
+    )
+
+
+def _reporting(run, tree, evidence):
+    """``run``, with each command made to write its JUnit results afresh and the receipt given what it wrote
+    (autocode_runner_reports). The receipt is the one ``run`` returned and recorded, completed in place."""
+
+    def execute(command, label, limit):
+        report = evidence / f"{label}.junit.xml"
+        prepared = runner_reports.prepare(package_scope.within(command), tree, report)
+        if prepared is None:
+            return run(command, label, limit)
+        found = package_scope.entered(command)
+        receipt = run(package_scope.command(found[0], prepared) if found else prepared, label, limit)
+        if receipt.get("results") is None:
+            receipt["results"] = runner_reports.results(prepared, tree, report)
+        return receipt
+
+    return execute
+
+
+def _wrote_no_report(receipt) -> bool:
+    """True when a JUnit runner's run failed without reporting any test: its build or load failed, so no
+    test ran against the mutant (a Java mutant that does not compile)."""
+    return (
+        isinstance(receipt, dict)
+        and receipt.get("results") is None
+        and not receipt.get("error")
+        and not receipt.get("timed_out")
+        and not receipt.get("interrupted")
+        and isinstance(receipt.get("exit_code"), int)
+        and receipt["exit_code"] != 0
     )
 
 
@@ -238,6 +290,7 @@ def collect(
     proof. The proving command is narrowed to the proving tests; when the runner cannot narrow it,
     nothing runs (the whole suite is never the fallback).
     """
+    framework_name = runner_name(framework_name, command)
     if framework_name not in FRAMEWORKS:
         return unsupported(framework_name)
     try:
@@ -287,6 +340,7 @@ def collect_selected_tests(
     the caller's discovery and initial test run in the same 900-second allowance. Unknown command
     ownership is never converted into a report-only note or permission to clean up its tree.
     """
+    framework_name = runner_name(framework_name, command)
     if framework_name not in FRAMEWORKS:
         return unsupported(framework_name)
     try:
@@ -338,10 +392,11 @@ def _collect(
     progress=None,
     outer_deadline=None,
 ) -> dict:
-    if not tests:
+    observe = framework_name in OBSERVED
+    if not tests and not observe:
         return record("no judged test is named after a due case, so the mutation check ran no test")
     python = framework_name in PYTHON_FRAMEWORKS
-    narrowed = proof_stability.narrow(framework_name, command, tests)
+    narrowed = command if observe else proof_stability.narrow(framework_name, command, tests)
     if not narrowed or (python and python_tests.parse(narrowed, include_owned=True) is None):
         return record(
             "this runner cannot select the proving tests alone, so the mutation check ran no test",
@@ -434,8 +489,14 @@ def _collect(
             total=total_mutants,
             elapsed_seconds=elapsed,
         )
+    if observe:
+        run = _reporting(run, Path(tree), evidence)
     reference_started = clock()
     reference = run(prepare(narrowed), "unmutated", reference_limit)
+    if observe:
+        tests = sorted(((reference.get("results") or {}).get("passed")) or [])
+        if not tests:
+            return record("the proof's command reported no passing test unmutated, so no mutant ran", rows)
     observed_reference = reference if python else mutation_results.selected(reference, tests)
     outcome, passed = (proved_outcome if enforcement else judge)(observed_reference, tests)
     if outcome != "survived" or (strict and set(passed) != set(tests)):
@@ -552,7 +613,7 @@ def _collect(
             # mutant that does not build is not (#3817).
             row["notes"].append(f"{row['path']}:{mutant.line}: the {mutant.operator} mutant did not parse; not a site")
             continue
-        if not python and _did_not_build(receipt):
+        if not python and (_did_not_build(receipt) or (observe and _wrote_no_report(receipt))):
             # The text mutator's edit was not a program (Go's "declared and not used" when a dropped call
             # was a name's only use): no test ran, so the site is not a mutation of the product (#3817).
             row["notes"].append(f"{row['path']}:{mutant.line}: the {mutant.operator} mutant did not build; not a site")
@@ -563,7 +624,7 @@ def _collect(
             mutation_results.outcome(
                 judged,
                 expected_tests,
-                stopped=python and mutation_results.stops_after_failure(receipt.get("command", "")),
+                stopped=(python or observe) and mutation_results.stops_after_failure(receipt.get("command", "")),
             )
             if enforcement
             else judge(judged, passed)

@@ -288,6 +288,14 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         "new run or resume",
     )
     parser.add_argument(
+        "--agent-sandbox",
+        action="store_true",
+        help="Run every stage's agent process (Claude Code, Codex, configured providers) inside an OS sandbox "
+        "(Linux bubblewrap or macOS sandbox-exec): it cannot read home-directory credentials such as ~/.aws or "
+        "~/.ssh and writes only the workspace, the run, temporary directories, its own state and package caches. "
+        "Refused where the host has no such sandbox. Saved with the run; new run or resume",
+    )
+    parser.add_argument(
         "--joint-planning",
         action="store_true",
         help="Separate requirements, planning, and independent review; default for new OpenCode runs, opt-in for Codex",
@@ -790,6 +798,10 @@ def parse(unit, argv, default_models):
     if args.allow_uncontained_tools and (args.status or args.explain or args.dry_run):
         parser.error(
             "--allow-uncontained-tools is saved with the run; it cannot be combined with --status, --explain or --dry-run"
+        )
+    if args.agent_sandbox and (args.status or args.explain or args.dry_run):
+        parser.error(
+            "--agent-sandbox is saved with the run; it cannot be combined with --status, --explain or --dry-run"
         )
     if args.retry_report:
         _requires_resume(parser, args, "--retry-report")
