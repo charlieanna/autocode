@@ -3,16 +3,14 @@
 A ``guard:`` criterion says that behavior already works today and names the test that shows it. The
 regression proof checks that claim only after the Builder has run: the named test must pass on the original
 code and with the change. When the claim is wrong the Builder cannot fix it, and the run spends a whole
-repair loop finding that out. Two ways a guard is wrong can be seen on the original code before approval,
-without a model:
+repair loop finding that out. One way a guard is wrong can be seen on the original code before approval,
+without a model: it names a test the original code already has, and that test fails there. The behavior does
+not work yet, so the criterion is a ``test:``, not a guard. The tests are looked up in the original commit's
+test files and run on an original tree, by the runner the proof uses, and read through the proof's own name
+matching (``autocode_test_cases.match_cases``).
 
-- it names a test the original code does not have (a guessed spelling, ``test_parses_dates`` beside the
-  real ``test_parse_dates``), and not a new test named after its criterion (``test_c3_...``), so no test the
-  runner reports can ever match it;
-- it names a test the original code has, and that test fails there: the behavior does not work yet, so
-  the criterion is a ``test:``, not a guard. The same test is run on the same original tree the regression
-  proof builds, by the runner the proof uses, and read through the proof's own name matching
-  (``autocode_test_cases.match_cases``).
+A guard naming a test the original code does not define is left alone: the Builder may write that test, and
+it passes on the original code when the behavior already works.
 
 ``defect`` turns what it finds into one ``plan_defect`` question naming those criteria, so
 ``autocode_plan_defects`` has the Planner correct the plan before approval, as a tool the boundary refuses
@@ -62,11 +60,6 @@ def _defines(text: str, name: str) -> bool:
     return re.search(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])", text) is not None
 
 
-def _new_test_name(case: dict) -> bool:
-    """Whether the guard's test is named after its own criterion (``test_c3_...``): a test the Builder writes."""
-    return bool(test_cases.match_cases([{"id": case["id"], "text": ""}], [case["test_name"]])[case["id"]])
-
-
 def guards(body) -> list[dict]:
     """The plan's guards that name one exact test (not a command, not a title)."""
     return [case for case in test_cases.plan_cases(body) if case.get("kind") == "preserve" and case.get("test_name")]
@@ -94,25 +87,34 @@ def _run(state: RunState, workspace: Path, base: str, files: list[str]) -> dict 
     command = framework.targeted(files)
     if not command:
         return None
-    scratch = Path(tempfile.mkdtemp(prefix="autocode-plan-guards-"))
+    # The original tree is disposable; the run's output and its command-supervision receipts are not
+    # (autocode_command_supervision keeps admission and final records beside retained output, and its keeper
+    # finishes them after the command returns), so they stay in a directory of their own.
+    evidence = Path(tempfile.mkdtemp(prefix="autocode-plan-guards-"))
+    scratch = Path(tempfile.mkdtemp(prefix="autocode-plan-guards-tree-"))
     tree = scratch / "tree"
     try:
         dependencies = state.get("project_workspace") or str(workspace)
         verify.make_tree(workspace, base, tree, workspace, {}, dependencies_from=dependencies)
         for root in dict.fromkeys((str(workspace.resolve()), str(workspace))):
             command = command.replace(root, str(tree))
-        receipt = verify.run_suite(framework, command, tree, scratch / "evidence", "plan-guards", timeout=TIMEOUT)
+        receipt = verify.run_suite(framework, command, tree, evidence, "plan-guards", timeout=TIMEOUT)
     finally:
         if tree.exists():
             verify.remove_tree(workspace, tree)
         shutil.rmtree(scratch, ignore_errors=True)
     if receipt.get("error") or receipt.get("timed_out") or not schedule.complete_results(receipt):
         return None
-    return {"framework": framework.name, "command": command, "results": receipt.get("results") or {}}
+    return {
+        "framework": framework.name,
+        "command": command,
+        "results": receipt.get("results") or {},
+        "output": str(receipt.get("output") or evidence),
+    }
 
 
 def observe(state: RunState, body) -> list[dict]:
-    """What the original code shows of each guard that is wrong there: id, test name, finding and detail."""
+    """Each guard whose existing test fails on the original code: id, test name, failing test ids and detail."""
     cases = guards(body)
     where = state.get("workspace")
     if not cases or not where or not Path(where).is_dir() or test_cases.design_only(state):
@@ -133,35 +135,22 @@ def observe(state: RunState, body) -> list[dict]:
 
 def _observe(state: RunState, workspace: Path, base: str, cases: list[dict]) -> list[dict]:
     texts = original_test_files(workspace, base)
-    found, defined = [], {}
+    defined = {}
     for case in cases:
         files = sorted(path for path, text in texts.items() if _defines(text, case["test_name"]))
         if files:
             defined[case["id"]] = files
-        elif not _new_test_name(case):
-            found.append(
-                {
-                    "id": case["id"],
-                    "test": case["test_name"],
-                    "finding": "absent",
-                    "detail": f"no test file of the original code ({base[:12]}) defines {case['test_name']}",
-                }
-            )
     if not defined:
-        return found
+        return []
     run = _run(state, workspace, base, sorted({path for files in defined.values() for path in files}))
     if run is None:
-        return found
+        return []
     results = run["results"]
     setup = test_setup.not_evidence(results, new_behavior=False)
     named = [case for case in cases if case["id"] in defined]
     passed = test_cases.match_cases(named, list(results.get("passed") or []), framework=run["framework"])
     failed = test_cases.match_cases(named, list(results.get("failed") or []), framework=run["framework"])
-    reported = test_cases.match_cases(
-        named,
-        [*(results.get("passed") or []), *(results.get("failed") or []), *(results.get("skipped") or [])],
-        framework=run["framework"],
-    )
+    found = []
     for case in named:
         cid = case["id"]
         if failed[cid] and not passed[cid] and not any(test in setup for test in failed[cid]):
@@ -169,18 +158,11 @@ def _observe(state: RunState, workspace: Path, base: str, cases: list[dict]) -> 
                 {
                     "id": cid,
                     "test": case["test_name"],
-                    "finding": "fails",
-                    "detail": f"`{run['command']}` on the original code ({base[:12]}) fails {', '.join(failed[cid])}",
-                }
-            )
-        elif not reported[cid]:
-            found.append(
-                {
-                    "id": cid,
-                    "test": case["test_name"],
-                    "finding": "absent",
-                    "detail": f"`{run['command']}` on the original code ({base[:12]}) reports no test named "
-                    f"{case['test_name']}",
+                    "failed": failed[cid],
+                    "detail": (
+                        f"`{run['command']}` on the original code ({base[:12]}) fails {', '.join(failed[cid])} "
+                        f"(output {run['output']})"
+                    ),
                 }
             )
     return found
@@ -188,23 +170,7 @@ def _observe(state: RunState, workspace: Path, base: str, cases: list[dict]) -> 
 
 def question(found) -> dict:
     ids = list(dict.fromkeys(row["id"] for row in found))
-    absent = [row for row in found if row["finding"] == "absent"]
-    failing = [row for row in found if row["finding"] == "fails"]
-    parts = []
-    if absent:
-        parts.append(
-            ", ".join(f"{row['id']} (guard: {row['test']})" for row in absent)
-            + " "
-            + ("names a test" if len(absent) == 1 else "name tests")
-            + " the original code does not have, so no test the runner reports can match"
-        )
-    if failing:
-        parts.append(
-            ", ".join(f"{row['id']} (guard: {row['test']})" for row in failing)
-            + " "
-            + ("names a test that fails" if len(failing) == 1 else "name tests that fail")
-            + " on the original code, so the behavior does not work yet"
-        )
+    named = ", ".join(f"{row['id']} (guard: {row['test']})" for row in found)
     return {
         "id": QUESTION_ID,
         "kind": "plan_defect",
@@ -212,21 +178,21 @@ def question(found) -> dict:
         "delegable": True,
         "convention_ref": "",
         "question": (
-            "; ".join(parts) + ". A guard names an existing test that passes on the original code. "
-            f"Should {', '.join(ids)} name the existing test that shows the behavior, a new test named after "
-            "the criterion, or be a test: criterion for behavior the change adds?"
+            f"{named} {'names a test that fails' if len(found) == 1 else 'name tests that fail'} on the original "
+            f"code, so the behavior does not work yet. Should {', '.join(ids)} be a test: criterion for behavior "
+            "the change adds, or guard a test that passes on the original code?"
         ),
         "why": (
-            "AutoCode checked each guard against the original code before approval: "
+            "AutoCode ran each guard's existing test on the original code before approval: "
             + "; ".join(row["detail"] for row in found)
             + ". The regression proof requires a guard's test to pass on the original code, so the plan as "
             "written cannot be proven."
         ),
         "options": [
-            "Name the existing test that passes on the original code",
             "Make it a test: criterion for behavior the change adds",
+            "Guard a test that passes on the original code",
         ],
-        "proposed_default": "Name the existing test that passes on the original code",
+        "proposed_default": "Make it a test: criterion for behavior the change adds",
     }
 
 

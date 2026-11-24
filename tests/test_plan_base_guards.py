@@ -1,9 +1,9 @@
 """Each guard's example is checked against the original code before the plan is approved.
 
 A guard says behavior already works and names the test that shows it. The regression proof checks that only
-after the Builder ran, so a guard that names a test the original code does not have (no runner output can
-ever match it) or a test that fails there cost a whole repair loop. Both are now observed on the original
-commit when the draft is installed and go back to the Planner as a plan correction, before approval.
+after the Builder ran, so a guard naming an existing test that fails on the original code cost a whole repair
+loop. That test is now run on the original commit when the draft is installed, and such a guard goes back to
+the Planner as a plan correction, before approval.
 """
 
 import copy
@@ -72,21 +72,27 @@ class WorkspaceCase(unittest.TestCase):
 
 
 class ObserveTests(WorkspaceCase):
-    def test_a_guard_on_a_test_the_original_code_lacks_or_fails_is_found(self):
+    def test_a_guard_whose_existing_test_fails_on_the_original_code_is_found(self):
         found = base_guards.observe(
             self.state(),
             plan(
                 "guard: test_add",  # exists and passes: right
                 "guard: test_sub",  # exists and fails on the original code
-                "guard: test_adds_numbers",  # a guessed name no test of the original code defines
+                "guard: test_subtraction_is_commutative_enough",  # a new test the Builder writes
                 "guard: test_c4_subtraction_keeps_working",  # a new test named after its criterion
-                "test: test_c5_subtracts",  # a test: criterion is new behavior; nothing to check today
+                "test: test_sub",  # a test: criterion is new behavior; nothing to check today
             ),
         )
-        self.assertEqual([("C3", "absent"), ("C2", "fails")], [(row["id"], row["finding"]) for row in found])
-        failing = found[1]
-        self.assertIn("test_sub", failing["detail"])
+        self.assertEqual(["C2"], [row["id"] for row in found])
+        [failing] = found
+        self.assertEqual("test_sub", failing["test"])
+        self.assertTrue(failing["failed"] and all("test_sub" in test for test in failing["failed"]))
         self.assertIn(self.base[:12], failing["detail"])
+        # The output and the command-supervision receipts are retained beside each other.
+        output = Path(failing["detail"].rsplit("(output ", 1)[1].rstrip(")"))
+        self.assertTrue(output.is_file())
+        self.addCleanup(shutil.rmtree, output.parent, True)
+        self.assertTrue(list((output.parent / "command-supervision").glob("*/supervision.json")))
 
     def test_nothing_is_observed_without_an_original_commit_or_guards(self):
         no_base = {**self.state(), "base_commit": None}
@@ -103,11 +109,12 @@ class ObserveTests(WorkspaceCase):
         self.assertEqual([], base_guards.observe(state, plan("guard: test_sub")))
 
     def test_the_question_names_each_criterion_and_what_the_original_code_showed(self):
-        question = base_guards.defect(self.state(), plan("guard: test_sub", "guard: test_adds_numbers"))
+        draft = plan("guard: test_sub", "guard: test_add")
+        question = base_guards.defect(self.state(), draft)
         self.assertEqual((base_guards.QUESTION_ID, plan_defects.KIND), (question["id"], question["kind"]))
-        self.assertEqual(["C1", "C2"], plan_defects.named_parts(question, plan("guard: test_sub", "guard: x")))
+        self.assertEqual(["C1"], plan_defects.named_parts(question, draft))
+        self.assertIn("test_sub", question["why"])
         self.assertIn("fails", question["why"])
-        self.assertIn("test_adds_numbers", question["why"])
 
 
 class InstallTests(WorkspaceCase):
@@ -127,7 +134,7 @@ class InstallTests(WorkspaceCase):
 
     def test_guards_the_original_code_supports_reach_approval_unchanged(self):
         current = self.state()
-        draft = plan("guard: test_add", "guard: test_c2_subtraction_keeps_working", "test: test_c3_subtracts")
+        draft = plan("guard: test_add", "guard: test_subtraction_of_zero", "test: test_c3_subtracts")
         lifecycle.install_draft(current, copy.deepcopy(draft), origin="planner_draft")
         self.assertEqual([], self.corrections(current))
 

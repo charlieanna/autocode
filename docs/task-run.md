@@ -910,15 +910,14 @@ program rather than the tool.
 
 AutoCode also checks each guard's example against the original code (`tools/autocode_plan_base_guards.py`).
 A `guard:` criterion says the behavior already works and names the test that shows it, and the regression
-proof needs that test to pass on the original code. When a draft is installed, AutoCode reads the original
-commit's test files and, without a model, finds a guard that names a test the original code does not have
-(and is not a new test named after its criterion, `test_c3_...`), so no test the runner reports can match it,
-and runs the original tests that define the other guards' names, on the same kind of original tree and with the
-runner the proof uses, finding a guard whose test fails there. Either becomes a `plan-guard-base` plan defect
-naming those criteria and what the original code showed, so the Planner corrects the plan before approval
-instead of the Builder spending a repair loop on a guard it cannot satisfy. Where it cannot observe (no
-original commit, no recognized runner, a run that does not finish within five minutes, a setup error) it says
-nothing and the proof decides as before.
+proof needs that test to pass on the original code. When a draft is installed, AutoCode looks each guard's
+test name up in the original commit's test files and, without a model, runs the files that define one on an
+original tree with the runner the proof uses. A guard whose test fails there becomes a `plan-guard-base` plan
+defect naming those criteria and the failing tests, so the Planner corrects the plan (usually to a `test:`
+criterion) before approval, instead of the Builder spending a repair loop on a guard it cannot satisfy. A
+guard naming a test the original code does not define is a new test the Builder writes, and is not checked
+here. Where it cannot observe (no original commit, no recognized runner, a run that does not finish within
+five minutes, a setup error) it says nothing and the proof decides as before.
 
 The boundary admits git, Python and pytest, Node with npm and npx, Go, Cargo (#4017) and the
 POSIX shells (`autocode_toolchain.ADMITTED`), each read past a leading `env` and `NAME=value` assignments
