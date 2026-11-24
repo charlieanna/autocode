@@ -79,6 +79,19 @@ def now():
     return dt.datetime.now(dt.UTC).isoformat()
 
 
+def aware_time(value) -> dt.datetime | None:
+    """A saved ISO-8601 timestamp (``at``, ``started_at``, ``finished_at``) as a timezone-aware time, or None
+    when it is missing, not text, unreadable or has no timezone. The one reading every recovery, budget and
+    view rule uses, so none counts a saved time another ignores."""
+    if not isinstance(value, str):
+        return None
+    try:
+        moment = dt.datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return moment if moment.tzinfo is not None else None
+
+
 def monotonic() -> float:
     """The one monotonic clock (#704). Every wait and deadline in tools/ reads time
     through here so a test can install a fake that advances on demand instead of

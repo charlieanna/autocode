@@ -27,7 +27,6 @@ is JSON), which index the same way.
 
 from __future__ import annotations
 
-import datetime as dt
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -37,11 +36,13 @@ try:
     from . import autocode_planner_escalation as planner_escalation
     from . import autocode_route_fit as route_fit
     from . import autocode_route_permission as permission
+    from . import autocode_util as util
     from . import autocode_verifier_independence as independence
 except ImportError:
     import autocode_planner_escalation as planner_escalation
     import autocode_route_fit as route_fit
     import autocode_route_permission as permission
+    import autocode_util as util
     import autocode_verifier_independence as independence
 
 _DYNAMIC_ORIGINS = ("stage_choice", "auto_selected", "runner_default")
@@ -419,15 +420,6 @@ def record_outcome(state: RunState, outcome, *, builder=True):
 CHARGES = ("retry", "escalate", "pause")
 
 
-def _when(value):
-    """A saved timestamp as an aware datetime, or None when it cannot be read."""
-    try:
-        moment = dt.datetime.fromisoformat(value) if isinstance(value, str) else None
-    except ValueError:
-        return None
-    return moment if moment is not None and moment.tzinfo is not None else None
-
-
 def sent_back(state: RunState):
     """Whether the work the last validation passed was sent back to the Builder after that validation's attempt
     started: the Builder's retry policy charged a failure (a retry, the stronger attempt or the retry-limit pause),
@@ -441,7 +433,7 @@ def sent_back(state: RunState):
     output = (state.get("validation") or {}).get("output")
     started = next(
         (
-            _when(record.get("started_at"))
+            util.aware_time(record.get("started_at"))
             for record in reversed(state.get("stages") or [])
             if isinstance(record, dict) and output and record.get("output") == output
         ),
@@ -454,7 +446,7 @@ def sent_back(state: RunState):
     since += [
         task.get("assigned_at") for task in tasks if (task.get("kind"), task.get("decision")) == ("implement", "REWORK")
     ]
-    return any(when is not None and when > started for when in map(_when, since))
+    return any(when is not None and when > started for when in map(util.aware_time, since))
 
 
 def record_pass(state: RunState):
