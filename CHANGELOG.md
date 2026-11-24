@@ -25,6 +25,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **The real-repo sweep runs past its first Arena case**: `examples/claude-provider/real_repo_sweep.py run` prepared every Arena case into one store, and `arena/prepare.py` refuses a store that already holds one, so a `starter` or `hard` sweep stopped at its second Arena case. Each Arena case now gets its own store under `--out/arenas/`.
+
 - **A new feature's test that imports the module it adds is accepted as proof**: such a test cannot load on the original code, and on a project that already had tests the run paused after its proof failed with "The base test run could not collect", sending the Builder to rewrite its imports. When the original code's test run itself reports the missing module or name, the change adds it and the tests use it, those tests count as failing before and passing after. Any other failure to load is still refused, and a bug fix still needs a test that runs and fails. This also holds when the test imports the new name inside the test body, so it runs and fails importing it on the original code.
 
 - **A task worktree's proof copies no longer show up as another worktree**: since #4118 a run in a task worktree (or a private project for a folder that is not a repository) kept its proof copies in a folder beside the worktree, inside `.autocode/worktrees` (or `.autocode/projects`), where they were listed with the real ones. They now live in `.autocode/worktrees.autocode-scratch` (or `.autocode/projects.autocode-scratch`), still outside the worktree they check.
