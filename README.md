@@ -8,7 +8,8 @@ before implementation begins.
 ## Documentation
 
 [Read the documentation site](https://charlieanna.github.io/autocode/latest/).
-Start with these five guides: [install AutoCode](docs/install.md),
+New here? The [quickstart](docs/quickstart.md) goes from install to a first
+reviewed change in about ten minutes. Then read these five guides: [install AutoCode](docs/install.md),
 [run your first task](docs/workflow.md),
 [understand a pause](docs/cli.md#understanding-a-stop),
 [read completion evidence](docs/execution.md#completion-gate), and

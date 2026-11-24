@@ -4,6 +4,9 @@
 
 ## Quickstart
 
+For the shortest path, with the VS Code extension, see the one-page
+[quickstart](quickstart.md). This section covers the terminal and every option.
+
 You need macOS or Linux (Windows through WSL), Python 3.11 or newer, Git,
 [pipx](https://pipx.pypa.io/), and npm (Node.js) to install the engine.
 
@@ -42,9 +45,9 @@ Or use the published [Homebrew tap](https://github.com/charlieanna/homebrew-tap)
 brew install charlieanna/tap/autocode
 ```
 
-The published version verified on 2026-10-27 is **0.8.2** on both
-[PyPI](https://pypi.org/project/autocode-supervisor/0.8.2/) and Homebrew.
-These commands install the tagged release, not current master; this guide's
+These commands install the latest tagged release
+([PyPI](https://pypi.org/project/autocode-supervisor/), [changelog](https://github.com/charlieanna/autocode/blob/master/CHANGELOG.md)),
+not current master; this guide's
 `latest` documentation can describe newer features and fixes. Use the
 [advanced checkout/master installation](#advanced-install-from-a-checkout)
 when you need those changes. The [release verification record](bugs/2026-10-27-release-installation.md)
