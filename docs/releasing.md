@@ -10,10 +10,10 @@ store or rotate.
 
 ## Published baseline
 
-PyPI and `charlieanna/homebrew-tap` already publish **0.8.2**, checked on
-2026-10-27. The tag points to `86fdb7920f46a935405840f78c8c3bff0ed3422b`
-(2026-10-21), not current master. See the [distribution verification
-record](bugs/2026-10-27-release-installation.md). Existing versions/tags must
+PyPI publishes **0.8.0** through **0.10.2**, checked on 2026-11-24; `v0.10.2` points to
+`f03ef6802e15e973cf4f1ba6af4815595773a3b0`, the 0.10.2 release commit. The Homebrew tap was last
+verified at 0.8.2 (see the [distribution verification
+record](bugs/2026-10-27-release-installation.md)); check it before each release. Existing versions/tags must
 not be republished or moved to ship later master fixes: choose a new version
 and follow the release process below.
 
