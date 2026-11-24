@@ -222,3 +222,16 @@ def pins(receipt):
     ):
         return {}
     return {metadata["receipt"]: pin}
+
+
+def result_pins(result):
+    """The completion-evidence pins of an acceptance result (original brief or risk): each check's output
+    and supervision receipt, and the result's summary. One reading both acceptance gates share."""
+    result = result or {}
+    checks = result.get("checks", [])
+    found = {row["output"]: row["output_sha256"] for row in checks if row.get("output") and row.get("output_sha256")}
+    for row in checks:
+        found.update(pins(row))
+    if result.get("summary") and result.get("summary_sha256"):
+        found[result["summary"]] = result["summary_sha256"]
+    return found
