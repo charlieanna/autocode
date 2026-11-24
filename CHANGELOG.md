@@ -17,6 +17,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- **The channel bridge records who asked for each run and who steered it**: the requester is the GitHub login that applied the bridge label, read from the issue's events, and an issue labeled by anyone off `AUTOCODE_BRIDGE_ACTORS` is refused with one comment instead of started. Each applied reply (answer, approval, feedback, resume) is recorded with its login, comment and action; the issue's first comment names the requester and `autocode bridge status` lists both. These logins are marked as authenticated by GitHub, beside the run's own unverified Git provenance. The first step of [team use](docs/plans/multi-user.md).
+
 - **A one-page quickstart** ([docs/quickstart.md](docs/quickstart.md)): install, connect an account, check a project, install the VS Code extension and take a first change through plan approval to a reviewed result. The VS Code extension's Marketplace page now starts with the same steps and has its own icon.
 
 - **A fast lane for small, clear tasks** (`--fast-lane`, new runs, off by default): the run uses one combined review instead of a Tester and a Completion Reviewer, and a small first plan that Requirements judged clear, that touches no sensitive file and needs no Plan Reviewer observation goes straight to your approval without a Plan Reviewer call. Any other plan, and every revision, is reviewed as before; the skipped stages are shown with their reason. The regression proof, changed-code evidence and completion gate are unchanged. On 149 saved live runs, 112 would have qualified, and the removed stages were about 30% of their model time and 35% of their model calls.
@@ -173,6 +175,8 @@ PR template asks for an entry here; a change without one is incomplete.
 - **The Job recognizer, Code Reviewer, bug Investigator, Designer and Analyst stages**, with `--utility-model`/`--utility-reasoning-effort` and `--recover-job-report`. A run saved at one of those stages cannot continue: AutoCode says so and asks for a new task; its status and reports stay readable. The Design Reviewer, the stuck-stage Investigator and the acceptance-test writer stay.
 
 ### Fixed
+
+- **A guard whose test fails on the original code goes back to the Planner before you approve the plan**: a `guard:` criterion names the test that shows behavior already works, and the regression proof only checked that after the Builder ran, so a guard over behavior that does not work yet cost a whole repair loop. Each draft's guards that name an existing test are now run on the original commit without a model, with the proof's runner, and one that fails there goes back to the Planner as a plan correction naming the failing test.
 
 - **A new feature's test that imports the module it adds is accepted as proof**: such a test cannot load on the original code, and on a project that already had tests the run paused after its proof failed with "The base test run could not collect", sending the Builder to rewrite its imports. When the original code's test run itself reports the missing module or name, the change adds it and the tests use it, those tests count as failing before and passing after. Any other failure to load is still refused, and a bug fix still needs a test that runs and fails. This also holds when the test imports the new name inside the test body, so it runs and fails importing it on the original code.
 

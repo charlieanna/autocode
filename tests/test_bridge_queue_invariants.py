@@ -127,7 +127,7 @@ class History:
     def in_flight(self):
         return sum(1 for run in self.runs.values() if run.state in IN_FLIGHT)
 
-    def launch(self, project, ref, issue, options, owned=False):
+    def launch(self, project, ref, issue, options, owned=False, **_):
         number = ref.number
         self.attempts[number] += 1
         self.case.assertEqual(1, self.attempts[number], f"#{number} was started twice")
