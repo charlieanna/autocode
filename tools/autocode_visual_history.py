@@ -1231,7 +1231,7 @@ class NativeReviewHistory:
             )
             assert builder is not None  # _require above refused a missing Builder record
             metadata["producer_record"] = deepcopy(builder)
-            tasks = [state["current_task"], *state.get("task_archive", [])]
+            tasks = [cast(dict, state["current_task"]), *state.get("task_archive", [])]
             originals = [task for task in tasks if task.get("id") == builder["task_id"]]
             _require(len(originals) == 1, "Original actual Builder task/handoff is missing or ambiguous")
             metadata["producer_task"] = deepcopy(originals[0])
@@ -1355,7 +1355,7 @@ class NativeReviewHistory:
             _require(builder is not None, "correction lost its real original Builder producer")
             assert builder is not None  # _require above refused a missing Builder record
             metadata["producer_record"] = deepcopy(builder)
-            tasks = [state["current_task"], *state.get("task_archive", [])]
+            tasks = [cast(dict, state["current_task"]), *state.get("task_archive", [])]
             originals = [task for task in tasks if task.get("id") == builder["task_id"]]
             _require(len(originals) == 1, "rejection producer task is missing or ambiguous")
             metadata["producer_task"] = deepcopy(originals[0])

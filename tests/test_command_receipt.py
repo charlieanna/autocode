@@ -255,5 +255,31 @@ class CommandReceiptTests(unittest.TestCase):
                 self.assertIsNone(policy.owned_relative(invalid_path, invalid_root))
 
 
+class ResultPinsTests(unittest.TestCase):
+    """The original-brief and risk acceptance gates pin their results through one reading."""
+
+    def test_outputs_receipts_and_summary_are_pinned_and_both_gates_agree(self):
+        import autocode_brief_evidence as brief_evidence
+        import autocode_risk_evidence as risk_evidence
+
+        receipt = "a" * 64
+        result = {
+            "checks": [
+                {"output": "out/1.txt", "output_sha256": "1" * 64},
+                {"output": "out/2.txt", "supervision": {"receipt": "rec.json"}, "supervision_sha256": receipt},
+            ],
+            "summary": "summary.json",
+            "summary_sha256": "s" * 64,
+        }
+        expected = {"out/1.txt": "1" * 64, "rec.json": receipt, "summary.json": "s" * 64}
+        self.assertEqual(expected, policy.result_pins(result))
+        self.assertEqual(expected, brief_evidence.evidence_pins(result))
+        self.assertEqual(expected, risk_evidence.evidence_pins(result))
+
+    def test_no_result_has_no_pins(self):
+        self.assertEqual({}, policy.result_pins(None))
+        self.assertEqual({}, policy.result_pins({"summary": "summary.json"}))
+
+
 if __name__ == "__main__":
     unittest.main()
