@@ -29,6 +29,7 @@ try:
     from . import autocode_names as names
     from . import autocode_rejection_classes as rejection_classes
     from . import autocode_roles as roles
+    from . import autocode_util as util
 except ImportError:
     import autocode_adaptive_planning as adaptive
     import autocode_budget_state as budget_state
@@ -37,6 +38,7 @@ except ImportError:
     import autocode_names as names
     import autocode_rejection_classes as rejection_classes
     import autocode_roles as roles
+    import autocode_util as util
 
 LEDGER_SCHEMA = 2
 OUTCOME_BUCKETS: tuple[str, ...] = ("accepted", "rejected", "report_repair")
@@ -66,16 +68,6 @@ def _nonneg_float(value: object) -> float | None:
 
 def _nonneg_int(value: object) -> int | None:
     return int(value) if type(value) is int and value >= 0 else None
-
-
-def _parse_iso(value: object) -> dt.datetime | None:
-    if not isinstance(value, str) or not value:
-        return None
-    try:
-        parsed = dt.datetime.fromisoformat(value)
-    except (ValueError, TypeError):
-        return None
-    return parsed if parsed.tzinfo is not None else None
 
 
 def _is_runner_owned(record: dict[str, Any]) -> bool:
@@ -251,16 +243,16 @@ def _accumulate(bucket: dict[str, Any], duration: float | None) -> None:
 
 
 def _has_human_wait(state: RunState, launched_at: object, event_at: object) -> bool | None:
-    launch_dt = _parse_iso(launched_at)
-    event_dt = _parse_iso(event_at)
+    launch_dt = util.aware_time(launched_at)
+    event_dt = util.aware_time(event_at)
     if launch_dt is None or event_dt is None or event_dt < launch_dt:
         return None
     escalations = _dict(_dict(state.get("resolver")).get("human_escalations"))
     for entry in escalations.values():
         row = _dict(entry)
         response = _dict(row.get("response"))
-        issued_dt = _parse_iso(row.get("issued_at"))
-        responded_dt = _parse_iso(response.get("at"))
+        issued_dt = util.aware_time(row.get("issued_at"))
+        responded_dt = util.aware_time(response.get("at"))
         if (
             row.get("status") == "consumed"
             and response.get("actor") == "user_cli"
@@ -276,8 +268,8 @@ def _has_human_wait(state: RunState, launched_at: object, event_at: object) -> b
         row = _dict(obs)
         if row.get("kind") != "activity" or row.get("category") != "waiting":
             continue
-        start_dt = _parse_iso(row.get("started_at"))
-        end_dt = _parse_iso(row.get("finished_at"))
+        start_dt = util.aware_time(row.get("started_at"))
+        end_dt = util.aware_time(row.get("finished_at"))
         if (
             start_dt is not None
             and end_dt is not None
@@ -294,7 +286,7 @@ def _has_human_wait(state: RunState, launched_at: object, event_at: object) -> b
             row = _dict(raw_event)
             if row.get("actor") not in (None, "user_cli"):
                 continue
-            event_time = _parse_iso(row.get("at"))
+            event_time = util.aware_time(row.get("at"))
             if event_time is not None and launch_dt < event_time <= event_dt:
                 return True
     return False
@@ -307,7 +299,7 @@ def _interaction_route(
     state: RunState,
     model_of: Callable[[dict[str, Any]], str],
 ) -> dict[str, str | None] | None:
-    event_dt = _parse_iso(event_at)
+    event_dt = util.aware_time(event_at)
     model_records = [
         r for r in all_records if not _is_runner_owned(r) and str(r.get("stage") or "") not in _EXCLUDED_STAGE_NAMES
     ]
@@ -317,7 +309,7 @@ def _interaction_route(
             if mapped in _QUESTION_STAGES:
                 return _route_dict(record, model_of(record))
         for record in model_records:
-            started_dt = _parse_iso(record.get("started_at"))
+            started_dt = util.aware_time(record.get("started_at"))
             if event_dt is None or started_dt is None or started_dt <= event_dt:
                 return _route_dict(record, model_of(record))
         return _configured_route(state, ("requirements", "planner", "task_planner"))
@@ -394,17 +386,17 @@ def _outcome_state(run_status_val: str | None, state: RunState) -> tuple[str, st
 
 
 def _started_at(state: RunState, records: list[dict[str, Any]], launched_at: object) -> str | None:
-    if isinstance(launched_at, str) and _parse_iso(launched_at) is not None:
+    if isinstance(launched_at, str) and util.aware_time(launched_at) is not None:
         return launched_at
     created_at = state.get("created_at")
-    if isinstance(created_at, str) and _parse_iso(created_at) is not None:
+    if isinstance(created_at, str) and util.aware_time(created_at) is not None:
         return created_at
     earliest_str: str | None = None
     earliest_dt: dt.datetime | None = None
     for record in records:
         for key in ("started_at", "finished_at"):
             val = record.get(key)
-            parsed = _parse_iso(val)
+            parsed = util.aware_time(val)
             if isinstance(val, str) and parsed is not None and (earliest_dt is None or parsed < earliest_dt):
                 earliest_dt, earliest_str = parsed, val
     return earliest_str
@@ -420,17 +412,17 @@ def _wall_seconds(
 ) -> float | None:
     if started_at is None or has_running_stage or has_pending_workers:
         return None
-    start_dt = _parse_iso(started_at)
+    start_dt = util.aware_time(started_at)
     if start_dt is None:
         return None
     latest_dt: dt.datetime | None = None
     for val in (state.get("completed_at"), state.get("finished_at")):
-        parsed = _parse_iso(val)
+        parsed = util.aware_time(val)
         if parsed is not None and (latest_dt is None or parsed > latest_dt):
             latest_dt = parsed
     for record in records:
         for key in ("finished_at", "started_at"):
-            parsed = _parse_iso(record.get(key))
+            parsed = util.aware_time(record.get(key))
             if parsed is not None and (latest_dt is None or parsed > latest_dt):
                 latest_dt = parsed
     if latest_dt is None or latest_dt < start_dt:

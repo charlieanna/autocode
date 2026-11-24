@@ -40,7 +40,6 @@ autocode_roles and autocode_util.
 
 from __future__ import annotations
 
-import datetime as dt
 import math
 from typing import TYPE_CHECKING
 
@@ -65,15 +64,6 @@ def _route(value):
     """(model, reasoning effort) of a saved route, launch route or escalation event side."""
     value = value if isinstance(value, dict) else {}
     return value.get("model"), value.get("reasoning_effort")
-
-
-def _when(value):
-    """A saved timestamp (an event's `at`, an attempt's `started_at`) as an aware datetime, or None."""
-    try:
-        moment = dt.datetime.fromisoformat(value) if isinstance(value, str) else None
-    except ValueError:
-        return None
-    return moment if moment is not None and moment.tzinfo is not None else None
 
 
 def _seconds(value):
@@ -273,12 +263,12 @@ def pending(state: RunState, role):
     route = _saved_route(state, role)
     if not climbs or route != _route(climbs[-1].get("selected")):
         return None
-    climbed_at = _when(climbs[-1].get("at"))
+    climbed_at = util.aware_time(climbs[-1].get("at"))
     attempts = attempts_of(state, role)
     if climbed_at is None or not attempts:
         return None
     for row in attempts:
-        started = _when(row.get("started_at"))
+        started = util.aware_time(row.get("started_at"))
         if _route(row["launch_route"]) == route and (started is None or started >= climbed_at):
             return None
     return climbs[-1], attempts[-1]

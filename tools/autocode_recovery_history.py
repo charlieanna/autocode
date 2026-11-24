@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import hashlib
 import re
-from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -503,17 +502,6 @@ def _retained_candidates(state: RunState):
         )
 
 
-def _time(value) -> datetime | None:
-    """A recorded ISO timestamp as a time, or None when it is missing or unreadable."""
-    if not isinstance(value, str) or not value:
-        return None
-    try:
-        moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return moment if moment.tzinfo is not None else None
-
-
 def _stage_of(record: dict) -> str:
     return str(record.get("original_stage") or record.get("stage") or "").removesuffix("_report_repair")
 
@@ -522,12 +510,12 @@ def _ran_after(state: RunState, row: dict, until) -> str:
     """What ran for the investigated stage between this Investigator result and ``until`` (the next
     investigation of that stage): "stage" for a later or running attempt of it, "recheck" for a local
     re-check of a retained report without running it (autocode_acceptance_retry_next), else ""."""
-    stage, start, end = row["stage"], _time(row.get("finished_at")), _time(until)
+    stage, start, end = row["stage"], util.aware_time(row.get("finished_at")), util.aware_time(until)
     if start is None:
         return ""
 
     def within(value) -> bool:
-        moment = _time(value)
+        moment = util.aware_time(value)
         return moment is not None and moment >= start and (end is None or moment < end)
 
     active = state.get("active_stage")
