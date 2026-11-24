@@ -43,6 +43,31 @@ class RequirementsAdmissionTests(unittest.TestCase):
                         isolation.saved_requirements_only(self.state(next_stage=stage, workflow={"kind": kind}))
                     )
 
+    def test_refuses_a_requirements_attempt_that_would_dispatch_a_build_stage(self):
+        active = {"stage": "requirements_gather", "role": "requirements_gather", "route_role": "requirements"}
+        for stage in ("orchestrator", "builder", "draft_plan", None):
+            with self.subTest(stage=stage):
+                self.assertFalse(isolation.saved_requirements_only(self.state(active_stage=active, next_stage=stage)))
+
+    def test_refuses_retained_build_and_repair_authority(self):
+        for key in isolation.BUILD_AUTHORITY_KEYS:
+            with self.subTest(key=key):
+                value = ["AC1"] if key == "acceptance_criteria" else {"id": "retained-build-authority"}
+                self.assertFalse(isolation.saved_requirements_only(self.state(**{key: value})))
+
+    def test_fresh_start_exception_is_only_for_run_action_initialization(self):
+        fresh = {
+            "status": "RUNNING",
+            "next_stage": "plan_task",
+            "stages": [],
+            "settings": {"engine": "opencode"},
+        }
+        self.assertFalse(isolation.saved_requirements_only(fresh))
+        self.assertTrue(isolation.saved_requirements_only(fresh, allow_fresh_start=True))
+        self.assertFalse(
+            isolation.saved_requirements_only({**fresh, "current_task": {"id": "build"}}, allow_fresh_start=True)
+        )
+
     def test_admits_same_stage_read_only_report_repair(self):
         cases = (
             (
@@ -383,6 +408,62 @@ class LocalRequirementsLimitTests(unittest.TestCase):
         self.assertEqual("PAUSED_PLANNING_CALL_LIMIT", paused.exception.status)
         preflight.assert_not_called()
         self.assertEqual([], dispatched)
+
+    def test_local_requirements_cannot_dispatch_the_orchestrator(self):
+        class LoopExit(Exception):
+            pass
+
+        def drive(current, dispatch, *, before, **kwargs):
+            before(current)
+            dispatch(current, "orchestrator")
+
+        state = {
+            "iteration": 1,
+            "next_stage": "requirements_gather",
+            "workflow": {"kind": "discuss"},
+            "settings": {"limits": {"iteration_ceiling": None, "max_seconds": 0, "planning_calls": 10}},
+            "stages": [],
+        }
+        runner = SimpleNamespace(
+            orchestrator=SimpleNamespace(drive=drive, LoopExit=LoopExit, SKIP=None),
+            native_calls=None,
+            consume_interventions=mock.Mock(return_value=False),
+            timeout_recovery_guard=mock.Mock(),
+            iteration_limit_reached=build_loop.iteration_limit_reached,
+            recover_default_budget=mock.Mock(return_value=False),
+            now=lambda: "2026-11-23T00:01:00+00:00",
+            write_json=mock.Mock(),
+        )
+        args = SimpleNamespace(unit=None, _local_requirements_only=True)
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            mock.patch.object(
+                build_loop.controller_isolation,
+                "setup_view",
+                return_value={"ready": False, "requirements_ready": True},
+            ),
+            mock.patch.object(build_loop.model_preflight, "check") as preflight,
+            mock.patch.object(build_loop.cost, "exceeded", return_value=None),
+            mock.patch.object(build_loop.early_baseline, "reconcile_at_boundary"),
+            mock.patch.object(build_loop.no_progress_recovery, "conclude_exhausted", return_value=False),
+            mock.patch.object(build_loop.classification_recovery, "conclude", return_value=False),
+            mock.patch.object(build_loop.progressive, "guard_dispatch"),
+            mock.patch.object(build_loop.autopilot.builder_failure, "dispatch_guard"),
+            mock.patch.object(build_loop.milestones, "dispatch_guard"),
+            mock.patch.object(build_loop.workflow, "dispatch_guard"),
+            mock.patch.object(build_loop.autopilot, "admit_validation"),
+            mock.patch.object(build_loop.planning, "is_planning", return_value=False),
+            mock.patch.object(build_loop.completion_result, "before_review", return_value=False),
+            mock.patch.object(build_loop.launch_inputs, "guard"),
+            mock.patch.object(build_loop.autopilot, "revalidate_resolver", return_value=False),
+            mock.patch.object(build_loop.recovery_dispatch, "dispatch_orchestrator") as dispatch_orchestrator,
+            self.assertRaises(build_loop.support.Paused) as paused,
+        ):
+            build_loop.run(runner, args, state, Path(directory) / "state.json", Path(directory), Path("/project"))
+        self.assertEqual("PAUSED_LOCAL_REQUIREMENTS_BUILD", paused.exception.status)
+        self.assertIn("cannot dispatch orchestrator", str(paused.exception))
+        preflight.assert_not_called()
+        dispatch_orchestrator.assert_not_called()
 
     def test_queued_pause_precedes_exhausted_limits_and_report_repair(self):
         for at_boundary in (False, True):
@@ -922,6 +1003,126 @@ class ControllerIsolationCliTests(unittest.TestCase):
         self.assertEqual(saved, checkpoint.read_bytes())
         self.assertEqual(before, self.footprint(self.project))
         self.assertFalse([row for row in json.loads(saved)["stages"] if row.get("stage") == "builder"])
+
+    @unittest.skipUnless(containment.sandbox_problem() is None, "requires a working kernel sandbox")
+    def test_saved_local_requirements_refuses_repair_before_copy_or_verification(self):
+        import autocode_repair_handoff as handoff
+        import autocode_source_scope as source_scope
+
+        project, brief, controller = self.local_discussion_fixture()
+        options = (
+            "--in-place",
+            "--workflow",
+            "discuss",
+            "--no-chat",
+            "--engine",
+            "opencode",
+            "--evidence-provenance",
+            "fake",
+            "--joint-planning",
+            "--spec-first",
+            "--requirements-model",
+            "openai/gpt-6-sol",
+            "--max-cost-usd",
+            "0",
+        )
+        run = taskrun.TaskRun.start(project, brief, command=controller, options=options, env=self.env, timeout=240)
+        for _ in range(12):
+            view = run.advance_until_input()
+            need = view.get("needs") or {}
+            if view["done"] or need.get("kind") != "answer":
+                break
+            question = need["questions"][0]
+            answer = (
+                view["chat"]["review"]["answer"]
+                if question["id"].startswith("requirements-review-")
+                else question.get("proposed_default") or "No preference"
+            )
+            run.answer(question["id"], answer, resolver_token=need["resolver_token"])
+        self.assertTrue(view["done"], view)
+
+        checkpoint = run.run_dir / "state.json"
+        state = json.loads(checkpoint.read_text())
+        revision = source_scope.snapshot(project, state)["revision"]
+        marker = self.root / "repair-verification-ran"
+        check = f'{sys.executable} -c "from pathlib import Path; Path({str(marker)!r}).touch(); raise SystemExit(3)"'
+        method = f"Run `{check}`"
+        state.update(
+            status="PAUSED_BUILDER_CLASSIFICATION",
+            phase="PAUSED_OR_BLOCKED",
+            stop_reason="A crafted checkpoint retained a dispatched repair",
+            next_stage="requirements_gather",
+            workflow={"kind": "discuss"},
+            active_stage={
+                "stage": "requirements_gather",
+                "role": "requirements",
+                "route_role": "requirements",
+            },
+            resolution_request={
+                "contract_hash": "repair-contract",
+                "task_id": "repair-1",
+                "source_stage": "review_completion",
+                "provenance": "completion_review_decision",
+                "source_revision": revision,
+            },
+            current_task={
+                "id": "repair-1",
+                "kind": "implement",
+                "milestone_id": "M1",
+                "milestone_ids": ["M1"],
+                "decision": "CONTINUE",
+                "objective": "Replace the fixture instructions",
+                "requirements": ["Deliver the replacement externally"],
+                "acceptance_criteria": ["AC1"],
+                "affected_paths": ["AGENTS.md"],
+                "validation_plan": [method],
+                "contract_hash": "repair-contract",
+                "contract_revision": 1,
+                "source_revision": revision,
+            },
+            goal_contract={
+                "hash": "repair-contract",
+                "revision": 1,
+                "body": {
+                    "task_kind": "build",
+                    "acceptance_criteria": [
+                        {"id": "AC1", "criterion": "The instructions changed", "verification_method": method}
+                    ],
+                    "milestones": [
+                        {
+                            "id": "M1",
+                            "objective": "Replace the fixture instructions",
+                            "acceptance_criteria": ["AC1"],
+                            "affected_paths": ["AGENTS.md"],
+                        }
+                    ],
+                },
+            },
+        )
+        state.setdefault("settings", {})["regression"] = {}
+        handoff.export(state, run.run_dir)
+        checkpoint.write_text(json.dumps(state))
+        delivery = self.root / "repair-delivery"
+        subprocess.run(["git", "clone", "-q", str(project), str(delivery)], check=True)
+        (delivery / "AGENTS.md").write_text("externally repaired instructions\n")
+        before = self.footprint(project)
+        saved = checkpoint.read_bytes()
+
+        result = self.invoke(
+            project,
+            "--run-dir",
+            str(run.run_dir),
+            "--submit-repair",
+            str(delivery),
+            "--no-chat",
+            command=controller,
+        )
+        self.assertEqual(2, result.returncode, result.stdout + result.stderr)
+        self.assertIn("Unsafe AutoCode self-build", result.stderr, result.stdout + result.stderr)
+        self.assertFalse(marker.exists(), "repair verification ran before the read-only admission guard")
+        self.assertFalse((run.run_dir / "handoff" / "verification").exists())
+        self.assertEqual(saved, checkpoint.read_bytes())
+        self.assertEqual(before, self.footprint(project))
 
     def test_external_controller_can_start_in_a_caller_owned_linked_worktree(self):
         tree = self.linked("self build\nwith trailing space ")

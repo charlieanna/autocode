@@ -134,11 +134,11 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
     args._ready_message_boundary = False
     local_requirements = getattr(args, "_local_requirements_only", False)
 
-    def guard_local(current):
+    def guard_local(current, stage=None):
         if not local_requirements:
             return
         try:
-            controller_isolation.require_local_requirements(Path(workspace), current)
+            controller_isolation.require_local_requirements(Path(workspace), current, stage=stage)
         except ValueError as error:
             raise support.Paused("PAUSED_LOCAL_REQUIREMENTS_BUILD", str(error)) from error
 
@@ -385,7 +385,7 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
             return runner.orchestrator.SKIP
 
     def dispatch_code_stage(current, stage):
-        guard_local(current)
+        guard_local(current, stage)
         native = getattr(runner, "native_calls", None)
         if native is not None:
             native.guard(current, stage)

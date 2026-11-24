@@ -23,6 +23,29 @@ except ImportError:
 
 
 REQUIREMENTS_STAGES = ("requirements_gather", "requirements")
+BUILD_AUTHORITY_KEYS = (
+    "acceptance_criteria",
+    "acceptance_tests",
+    "builder_failure_hold",
+    "builder_retries",
+    "builder_retry_decisions",
+    "builder_retry_key",
+    "criteria_revision",
+    "current_task",
+    "direct_rework_assignments",
+    "goal_contract",
+    "human_reviews",
+    "implementation",
+    "implementation_discrepancies",
+    "milestone_progress",
+    "orchestration_batch",
+    "parent_batch",
+    "pending_builder_failure",
+    "progressive",
+    "resolution_request",
+    "resolve_repair_request",
+    "validation",
+)
 
 
 def is_requirements_stage(stage) -> bool:
@@ -43,7 +66,9 @@ def entry_stage(state: RunState) -> str | None:
     return state.get("next_stage")
 
 
-def saved_requirements_only(state: RunState, *, allow_task_preflight: bool = False) -> bool:
+def saved_requirements_only(
+    state: RunState, *, allow_task_preflight: bool = False, allow_fresh_start: bool = False
+) -> bool:
     """Whether a checkpoint has no build authority or provisioning for this invocation to carry forward."""
     active = state.get("active_stage")
     if active:
@@ -70,6 +95,7 @@ def saved_requirements_only(state: RunState, *, allow_task_preflight: bool = Fal
         or "task_branch" in state
         or "workspace_bootstrap" in state
         or state.get("launch_sources")
+        or any(state.get(key) for key in BUILD_AUTHORITY_KEYS)
     ):
         return False
     settings = state.get("settings") or {}
@@ -103,7 +129,16 @@ def saved_requirements_only(state: RunState, *, allow_task_preflight: bool = Fal
                 return False
             if latest.get("route_role", latest.get("role")) != "requirements":
                 return False
-    if is_requirements_stage(entry_stage(state)):
+    if is_requirements_stage(entry_stage(state)) and is_requirements_stage(state.get("next_stage")):
+        return True
+    if (
+        allow_fresh_start
+        and state.get("status") == "RUNNING"
+        and not state.get("active_stage")
+        and not state.get("workflow")
+        and not state.get("stages")
+        and state.get("next_stage") == "plan_task"
+    ):
         return True
     questions = state.get("pending_questions") or []
     if (
@@ -134,8 +169,21 @@ def local_requirements(workspace: Path, state: RunState) -> bool:
     return not setup["ready"] and setup["requirements_ready"]
 
 
-def require_local_requirements(workspace: Path, state: RunState) -> None:
-    if not local_requirements(workspace, state):
+def require_local_requirements(
+    workspace: Path, state: RunState, *, stage=None, allow_fresh_start: bool = False
+) -> None:
+    if stage is not None and not is_requirements_stage(stage):
+        raise ValueError(
+            f"Requirements-only discussion cannot dispatch {stage}. "
+            "Select an AutoCode CLI installed outside this checkout before building."
+        )
+    if not saved_requirements_only(state, allow_fresh_start=allow_fresh_start):
+        raise ValueError(
+            "Requirements-only discussion in the AutoCode controller cannot continue into file changes. "
+            "Select an AutoCode CLI installed outside this checkout before building."
+        )
+    setup = setup_view(Path(workspace), Path(__file__))
+    if setup["ready"] or not setup["requirements_ready"]:
         raise ValueError(
             "Requirements-only discussion in the AutoCode controller cannot continue into file changes. "
             "Select an AutoCode CLI installed outside this checkout before building."

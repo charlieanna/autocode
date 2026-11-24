@@ -1055,6 +1055,14 @@ def run_locked(
     """Run under existing ownership; failure_routing is a legacy caller argument, never a guard bypass."""
     owner = None
 
+    def guard_local_requirements(*, fresh=False):
+        if not getattr(args, "_local_requirements_only", False):
+            return
+        try:
+            controller_isolation.require_local_requirements(workspace, state, allow_fresh_start=fresh)
+        except ValueError as error:
+            raise runner.support.Paused("PAUSED_LOCAL_REQUIREMENTS_BUILD", str(error)) from error
+
     def owned_result(code, *, ready=False, reason=None):
         # ``reason`` is only for an exit whose message is not already its saved stop_reason (#3883);
         # the Owner applies one rule to every exit's receipt and controller_exit reason.
@@ -1105,12 +1113,9 @@ def run_locked(
                 controller_owner.Owner(state, run_dir, runner.write_json, can_interrupt=True)
             )
             worker_binding.bind(args, state, run_dir, workspace, owner, runner.write_json)
+            guard_local_requirements(fresh=not getattr(args, "run_dir", None))
             code = runner.run_actions.handle(runner, args, parser, state, state_path, run_dir, workspace)
-            if getattr(args, "_local_requirements_only", False):
-                try:
-                    controller_isolation.require_local_requirements(workspace, state)
-                except ValueError as error:
-                    raise runner.support.Paused("PAUSED_LOCAL_REQUIREMENTS_BUILD", str(error)) from error
+            guard_local_requirements()
             if code is not None:
                 runner.json_output.action(runner, args, state, workspace, run_dir, code)
                 if not worker_binding.continue_after_action(args, state, code):
