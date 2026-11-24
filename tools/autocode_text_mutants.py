@@ -1,4 +1,5 @@
-"""Deterministic first-order mutants of changed Go, JavaScript, TypeScript, Rust and Ruby lines (#3817).
+"""Deterministic first-order mutants of changed Go, JavaScript, TypeScript, Rust, Ruby, Java, Kotlin, C, C++
+and PHP lines (#3817).
 
 The Python mutants (autocode_mutants) find their sites in the AST. These languages have no parser
 here, so this module reads the source as tokens: a scanner marks which bytes are code and which are
@@ -28,13 +29,15 @@ Operators, each only on a changed line and only on code bytes:
 * ``swap_arithmetic``: a spaced ``+`` and ``-`` trade places, except next to a string literal.
 * ``flip_boolean``: the word ``true`` becomes ``false`` and the reverse (not a member, ``.true``).
 * ``constant_return``: a one-line ``return VALUE`` returns nothing useful: JavaScript ``undefined``,
-  Ruby ``nil``, Rust ``Default::default()``; Go's last returned value becomes ``nil`` when it is a
+  Ruby ``nil``, Rust ``Default::default()``, C and C++ ``0`` (Java, Kotlin and PHP have no constant of
+  every type, so their returns are no site); Go's last returned value becomes ``nil`` when it is a
   plain name (``return nil, err`` becomes ``return nil, nil``). A value of a type with no such
   constant fails to build, which proves nothing. A Ruby ``return x if y`` keeps its modifier, so it
   is no site.
 * ``drop_call``: a call made as a whole statement on its own line (``mu.Lock()``, ``save(x);``,
   Ruby ``record.save!(x)``) is blanked, so it is never made. Only when the previous code line ended
-  a statement; a Rust call must end with ``;``, since one without it is its block's value.
+  a statement; a Rust call must end with ``;``, since one without it is its block's value, and so must a
+  C-family call (Java, C, C++, PHP: ``obj->save($x);``), since one without it continues on the next line.
 
 A Rust line that declares (``fn``, ``impl``, ``where``, ``struct``, ``use`` and the like) has no site:
 its ``+`` and ``<`` are trait bounds and generics, which no mutant could change into a program.
@@ -67,6 +70,11 @@ LANGUAGES = {
     **{suffix: "js" for suffix in (".js", ".mjs", ".cjs", ".jsx", ".ts", ".mts", ".cts", ".tsx")},
     ".rs": "rs",
     ".rb": "rb",
+    # C-family languages whose tests reach AutoCode as JUnit XML (autocode_runner_reports): JVM sources,
+    # C and C++, and PHP.
+    **{suffix: "java" for suffix in (".java", ".kt", ".kts")},
+    **{suffix: "c" for suffix in (".c", ".h", ".cc", ".cpp", ".cxx", ".hh", ".hpp")},
+    ".php": "php",
 }
 DISPLAY_CHARS = 60
 # A regular expression literal may start after one of these, or after one of the keywords below.
@@ -93,13 +101,27 @@ RETURN = re.compile(rb"^(\s*return\s+)(.+?)(;?\s*)$")
 CALL = re.compile(rb"^(\s*)((?:await\s+)?[A-Za-z_$][A-Za-z0-9_$]*(?:\??\.[A-Za-z_$][A-Za-z0-9_$]*)*\(.*\));?\s*$")
 RUST_CALL = re.compile(rb"^(\s*)([A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*)*\(.*\));\s*$")
 RUBY_CALL = re.compile(rb"^(\s*)(@{0,2}[A-Za-z_][A-Za-z0-9_]*[!?]?(?:&?\.[A-Za-z_][A-Za-z0-9_]*[!?]?)*\(.*\))\s*$")
-CALLS = {"go": CALL, "js": CALL, "rs": RUST_CALL, "rb": RUBY_CALL}
+# A C-family call statement must end with ``;``: one without it continues on the next line.
+C_CALL = re.compile(rb"^(\s*)(\$?[A-Za-z_][A-Za-z0-9_$]*(?:(?:\.|->|\?->|::)\$?[A-Za-z_][A-Za-z0-9_$]*)*\(.*\));\s*$")
+CALLS = {"go": CALL, "js": CALL, "rs": RUST_CALL, "rb": RUBY_CALL, "java": C_CALL, "c": C_CALL, "php": C_CALL}
+# What a C or C++ ``return VALUE;`` returns instead: ``0`` converts to every scalar and pointer type. Java,
+# Kotlin and PHP have no constant of every type: a typed PHP ``null`` or a Java ``null`` dereferenced is a
+# test *error*, which JUnit XML cannot tell from a broken setup (autocode_junit), so it would never kill.
+C_RETURNS = {"c": b"0"}
 RUST_DECLARATION = re.compile(
     rb"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:fn|impl|where|struct|enum|trait|type|use|mod|extern|unsafe\s+fn|async\s+fn)\b"
 )
 RUST_CLOSURE_BEFORE = set(b"(,=")
 # Comment openers of each language, for a trailing comment after a statement.
-COMMENTS = {"go": (b"//", b"/*"), "js": (b"//", b"/*"), "rs": (b"//", b"/*"), "rb": (b"#",)}
+COMMENTS = {
+    "go": (b"//", b"/*"),
+    "js": (b"//", b"/*"),
+    "rs": (b"//", b"/*"),
+    "rb": (b"#",),
+    "java": (b"//", b"/*"),
+    "c": (b"//", b"/*"),
+    "php": (b"//", b"/*", b"#"),
+}
 # Ruby: a heredoc opener (``<<~SQL``, ``<<-'EOS'``, ``<<EOS``) and a percent literal (``%w[a b]``).
 HEREDOC = re.compile(rb"<<([~-]?)(['\"`]?)([A-Za-z_][A-Za-z0-9_]*)\2")
 PERCENT = re.compile(rb"%[qQwWiIrsx]?([(\[{<|!/^])")
@@ -120,7 +142,8 @@ class _Site:
 
 
 def language(path: str) -> str | None:
-    """``go``, ``js`` (JavaScript and TypeScript), ``rs``, ``rb`` or None for a path this module does not mutate."""
+    """``go``, ``js`` (JavaScript and TypeScript), ``rs``, ``rb``, ``java`` (Java and Kotlin), ``c`` (C and
+    C++), ``php`` or None for a path this module does not mutate."""
     dot = path.rfind(".")
     return LANGUAGES.get(path[dot:].lower()) if dot > path.rfind("/") else None
 
@@ -135,7 +158,7 @@ def text_mutants(
     """
     kind = language(path)
     if kind is None:
-        return [], [f"{path}: not a Go, JavaScript, TypeScript, Rust or Ruby source file"]
+        return [], [f"{path}: not a source file of a language this module mutates"]
     if path.endswith((".d.ts", ".d.mts", ".d.cts")):
         return [], [f"{path}: a type declaration has no runtime behavior to mutate"]
     try:
@@ -283,6 +306,12 @@ def _return(kind, text, match, begin):
         if value != b"nil" and not re.search(rb"\s(?:if|unless|while|until|rescue)\s", b" " + shape + b" "):
             yield _Site("constant_return", begin + match.start(2), begin + match.start(2) + len(value), b"nil")
         return
+    if kind in ("java", "c", "php"):
+        constant = C_RETURNS.get(kind)
+        value = value.rstrip(b";").rstrip()
+        if constant and value and value.lower() not in (constant, b"null", b"nullptr", b"0"):
+            yield _Site("constant_return", begin + match.start(2), begin + match.start(2) + len(value), constant)
+        return
     if kind == "js":
         if value not in NOT_VALUES and value != b"void 0":
             yield _Site("constant_return", begin + match.start(2), begin + match.start(2) + len(value), b"undefined")
@@ -368,6 +397,11 @@ def _code_mask(body: bytes, kind: str) -> list[bool]:
             index = stop
         elif byte in b"\"'":
             stop = _quoted(body, index, bytes([byte]), escapes=True, lines=False)
+            mark(index, stop)
+            index = stop
+        elif kind == "php" and byte == ord("#") and body[index + 1 : index + 2] != b"[":
+            stop = body.find(b"\n", index)  # a PHP line comment; ``#[`` opens an attribute
+            stop = size if stop < 0 else stop
             mark(index, stop)
             index = stop
         elif kind == "js" and byte == ord("/") and _regex_start(body, mask, index, REGEX_KEYWORDS):

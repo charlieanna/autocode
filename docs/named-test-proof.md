@@ -735,7 +735,29 @@ from `tools/autocode_mutants.py`).
   `runner_cannot_select`. Cargo rebuilds a crate only when a source is newer than its last
   build, so each Cargo mutant and each restored source is given a modification
   time later than the one before, never an older one: a backdated mutant ran the
-  unmutated build and survived whatever its tests asserted.
+  unmutated build and survived whatever its tests asserted. Maven, Gradle and CTest
+  builds (Make, Ninja) decide the same way and get the same later times.
+- **Runners that name tests only in JUnit XML.** A Maven, Gradle, PHPUnit or CTest
+  proof (the detected CMake suite ends with `ctest`) is judged by exit code, but each
+  of these runners writes JUnit XML that names every test
+  (`tools/autocode_runner_reports.py`): Surefire's `target/surefire-reports` and
+  Gradle's `build/test-results` in every module, PHPUnit's `--log-junit` and CTest's
+  `--output-junit` into the mutation check's evidence. Every run's earlier reports
+  are removed first. The proof's own command runs unchanged for the unmutated
+  reference and for each mutant, and the selected tests are the ones the reference
+  reports passing; a mutant is `killed` only when one of them failed in a report
+  that run wrote. A run that failed and wrote no report (a Java mutant that does not
+  compile, a C mutant that breaks the build) is left out with the note
+  `the OPERATOR mutant did not build; not a site`. Maven and Gradle stop at the
+  first module whose tests fail, so a later module's tests may be missing from a
+  killing run. Changed `.java`, `.kt`, `.kts`, `.c`, `.h`, `.cc`, `.cpp`, `.cxx`,
+  `.hh`, `.hpp` and `.php` lines get the operators above, with a call blanked only
+  when it ends with `;` (including `$this->save($x);` and `ptr->reset();`); a C or
+  C++ `return VALUE;` returns `0`, and Java, Kotlin and PHP returns are no site,
+  since they have no constant every type takes. PHP's scanner skips `#` comments
+  but not `#[` attributes. A test that ends in an exception rather than a failed
+  assertion is a JUnit `error`, which the report cannot tell from a broken setup, so
+  it never kills a mutant.
   Go runs every mutant with `-count=1`: its test cache answered a test that builds
   and runs the package's command with the unmutated pass. These runners select tests by a name pattern, so the
   parent and siblings of a selected Go subtest, or another test the pattern

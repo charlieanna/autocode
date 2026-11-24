@@ -231,8 +231,13 @@ def _parse(data):
                 # Some XML dialects encode disabled/non-executed tests only
                 # in these attributes. Unsupported states must not look like
                 # the ordinary absence of a failure/skipped child.
-                for attribute, allowed in (("status", "run"), ("result", "completed")):
-                    if attribute in child.attrib and child.attrib[attribute] != allowed:
+                # CTest marks a failed test ``status="fail"`` beside its <failure>, which states the same outcome.
+                failing = any(_tag(detail) == "failure" for detail in child)
+                for attribute, allowed in (
+                    ("status", ("run", "fail") if failing else ("run",)),
+                    ("result", ("completed",)),
+                ):
+                    if attribute in child.attrib and child.attrib[attribute] not in allowed:
                         raise ValueError(f"Unsupported JUnit testcase {attribute}")
                 outcomes = []
                 for detail in child:
