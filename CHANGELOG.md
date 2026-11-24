@@ -9,6 +9,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Parallel Builders now stay inside your cost cap.** Each parallel Builder compared the cap with its own spend only, so every one of them could spend up to the whole cap, and a Builder started its report repair or next attempt after the run had already passed it. The cap is now held over the whole run: the parent's spend plus every Builder's finished and running attempts, checked before every provider launch and while each stage runs. A Builder stopped at the cap now pauses the run at your cost cap instead of asking you to retry it, and raising the cap continues it from where it stopped without running any finished Builder again.
+
 ## [0.11.0] - 2026-11-24
 
 ### Added
@@ -169,8 +173,6 @@ PR template asks for an entry here; a change without one is incomplete.
 - **The Job recognizer, Code Reviewer, bug Investigator, Designer and Analyst stages**, with `--utility-model`/`--utility-reasoning-effort` and `--recover-job-report`. A run saved at one of those stages cannot continue: AutoCode says so and asks for a new task; its status and reports stay readable. The Design Reviewer, the stuck-stage Investigator and the acceptance-test writer stay.
 
 ### Fixed
-
-- **Parallel Builders now stay inside your cost cap.** Each parallel Builder compared the cap with its own spend only, so every one of them could spend up to the whole cap, and a Builder started its report repair or next attempt after the run had already passed it. The cap is now held over the whole run: the parent's spend plus every Builder's finished and running attempts, checked before every provider launch and while each stage runs. A Builder stopped at the cap now pauses the run at your cost cap instead of asking you to retry it, and raising the cap continues it from where it stopped without running any finished Builder again.
 
 - **A new feature's test that imports the module it adds is accepted as proof**: such a test cannot load on the original code, and on a project that already had tests the run paused after its proof failed with "The base test run could not collect", sending the Builder to rewrite its imports. When the original code's test run itself reports the missing module or name, the change adds it and the tests use it, those tests count as failing before and passing after. Any other failure to load is still refused, and a bug fix still needs a test that runs and fails. This also holds when the test imports the new name inside the test body, so it runs and fails importing it on the original code.
 
