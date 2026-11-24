@@ -2103,8 +2103,53 @@ over 149 completed live runs from the task survey (Claude Code, small real tasks
 (75%) would have taken the fast lane; the 37 others were not small (18), needed the Plan Reviewer's
 observations (12) or touched sensitive paths (7). On those 112 the removed stages were 30% of model-stage
 time (median 146 s to an estimated 103 s) and 35% of model calls, and held 27 of the 60 rejected answers.
-The estimate assumes the combined review takes as long as the Completion Reviewer alone; a live
-comparison is still to be run.</p>
+The estimate assumes the combined review takes as long as the Completion Reviewer alone.</p>
+<p><strong>Live, 2026-11-24.</strong> One small bug fix (<code>page_count</code> rounded down; round up and add a regression test), run
+twice on Claude Code with <code>--single-model claude-sonnet-5-5</code>, the same brief and the same one-file project,
+started together, each plan read and approved by the operating agent, both finishing <code>TASK_COMPLETE</code> with the
+Tester's verdict PASS:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Without <code>--fast-lane</code></th>
+<th>With <code>--fast-lane</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Model calls (repairs included)</td>
+<td>9: Requirements, Planner, Plan Reviewer, revision + repair, final review, Builder, Tester, Completion Reviewer</td>
+<td>5: Requirements, Planner, Builder, combined review + repair</td>
+</tr>
+<tr>
+<td>Request to plan shown</td>
+<td>75 s</td>
+<td>31 s</td>
+</tr>
+<tr>
+<td>Approval to done</td>
+<td>42 s</td>
+<td>42 s</td>
+</tr>
+<tr>
+<td>Total wall time</td>
+<td>117 s</td>
+<td>73 s (−38%)</td>
+</tr>
+<tr>
+<td>Cost</td>
+<td>$1.07</td>
+<td>$0.54 (−50%)</td>
+</tr>
+</tbody>
+</table>
+<p>The fast lane skipped the Plan Reviewer as designed (the draft was small and Requirements judged it clear) and
+the plans were equivalent: the same two files and the same cases (31 → 4, 0 → 0, 1 → 1, 30 → 3, a zero page
+size refused). After approval the two runs took the same time: the combined review (15 s, plus a 7 s repair
+because a cited check matched no executed event) cost what the Tester and the Completion Reviewer (12 s and
+9 s) cost together, so on this task the saving came from planning. One run per side, so the numbers show the
+size of the effect, not its spread.</p>
 <h2 id="comparing-it-with-todays-pipeline">Comparing it with today's pipeline<a class="headerlink" href="#comparing-it-with-todays-pipeline" title="Permanent link">&para;</a></h2>
 <p><code>scenarios/run.py plan-compare</code> plans each request in <code>scenarios/planning.toml</code>
 twice, once with today's pipeline and once with <code>--adaptive-planning</code>. Each run
