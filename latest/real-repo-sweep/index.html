@@ -1917,7 +1917,7 @@ models. Results go to <a href="../reliability-table/">the reliability table</a> 
 says what is measured, how often, and how to run it.</p>
 <h2 id="what-is-pinned">What is pinned<a class="headerlink" href="#what-is-pinned" title="Permanent link">&para;</a></h2>
 <p>The sets are fixed in
-<a href="https://github.com/charlieanna/autocode/blob/aca34e31ed818785e0b423615f29163fe73fb88d/examples/claude-provider/real_repo_sweep.py"><code>examples/claude-provider/real_repo_sweep.py</code></a>, so every
+<a href="https://github.com/charlieanna/autocode/blob/23e32d17aa98915fd35eca7242040ed98f425847/examples/claude-provider/real_repo_sweep.py"><code>examples/claude-provider/real_repo_sweep.py</code></a>, so every
 sweep measures the same tasks at the same upstream commits:</p>
 <table>
 <thead>
@@ -1944,18 +1944,18 @@ sweep measures the same tasks at the same upstream commits:</p>
 </tbody>
 </table>
 <p>The cadence and size are the owner's choice (2026-11-24). The upstream pins, oracles and test commands are in
-<a href="https://github.com/charlieanna/autocode/blob/aca34e31ed818785e0b423615f29163fe73fb88d/arena/catalog.json"><code>arena/catalog.json</code></a>, <a href="../arena/">Arena</a> and the scenario's <code>scenario.toml</code>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/23e32d17aa98915fd35eca7242040ed98f425847/arena/catalog.json"><code>arena/catalog.json</code></a>, <a href="../arena/">Arena</a> and the scenario's <code>scenario.toml</code>.</p>
 <p>Every case runs on the <code>claude-tiers</code> route (<code>scenarios/harness/profiles.py</code>): Sonnet for Requirements, the
 Planner and the Tester; Opus for the Plan Reviewer, Resolver, Completion Reviewer and Investigator; Haiku
 for the Builder; medium reasoning. Fable is never used. Plans are approved by their exact token (benchmark
 automation, not a person's review). There is no per-run cost cap, as for all test runs
-(<a href="https://github.com/charlieanna/autocode/blob/aca34e31ed818785e0b423615f29163fe73fb88d/AGENTS.md#fake-first-verification-and-optional-live-runs">AGENTS.md</a>); the sweep's size is the
+(<a href="https://github.com/charlieanna/autocode/blob/23e32d17aa98915fd35eca7242040ed98f425847/AGENTS.md#fake-first-verification-and-optional-live-runs">AGENTS.md</a>); the sweep's size is the
 spending bound.</p>
 <h2 id="what-is-reported">What is reported<a class="headerlink" href="#what-is-reported" title="Permanent link">&para;</a></h2>
 <p>For each sweep: runs, passes, <strong>false completions</strong> (AutoCode reported done and the independent oracle
 disagrees), median minutes, and each run's reported cost. A run that stops (<code>STOPPED</code>, <code>HONEST_BLOCKER</code>)
 is not a pass; its note says why. A stop that asks a person about AutoCode's own machinery is a defect
-and gets fixed (<a href="https://github.com/charlieanna/autocode/blob/aca34e31ed818785e0b423615f29163fe73fb88d/AGENTS.md#what-a-person-is-asked">AGENTS.md</a>).</p>
+and gets fixed (<a href="https://github.com/charlieanna/autocode/blob/23e32d17aa98915fd35eca7242040ed98f425847/AGENTS.md#what-a-person-is-asked">AGENTS.md</a>).</p>
 <p>Cost is the API-equivalent <code>cost_usd</code> Claude Code reports for each stage, summed by the status view's
 <code>cost.spent_usd</code>; on a subscription login it is not an invoice. The pilot (2026-11-23) cost $12.11 for
 four runs; a weekly <code>starter</code> sweep is about $36, a monthly <code>hard</code> sweep an estimated $50 to $80.</p>
@@ -1963,7 +1963,7 @@ four runs; a weekly <code>starter</code> sweep is about $36, a monthly <code>har
 time on fixed tasks, not a contamination-free benchmark score.</p>
 <h2 id="run-it">Run it<a class="headerlink" href="#run-it" title="Permanent link">&para;</a></h2>
 <p>From a Claude Code cloud session, after the setup in
-<a href="https://github.com/charlieanna/autocode/blob/aca34e31ed818785e0b423615f29163fe73fb88d/examples/claude-provider/CLOUD-SESSION.md#1-set-up-every-new-session">CLOUD-SESSION.md</a> plus <code>pytest</code>
+<a href="https://github.com/charlieanna/autocode/blob/23e32d17aa98915fd35eca7242040ed98f425847/examples/claude-provider/CLOUD-SESSION.md#1-set-up-every-new-session">CLOUD-SESSION.md</a> plus <code>pytest</code>
 in the venv:</p>
 <pre><code class="language-sh">setpriv --bounding-set=-sys_admin,-sys_ptrace .venv/bin/python examples/claude-provider/real_repo_sweep.py \
   run starter --out /tmp/sweep --repeat 3 --i-authorize-live-model-spend
