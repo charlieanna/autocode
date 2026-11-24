@@ -11,6 +11,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- **Mutation evidence for Maven, Gradle, PHPUnit and CTest proofs**: their proofs are judged by exit code, so the mutation check ran no mutant and every executed changed line in Java, Kotlin, C, C++ or PHP still needed a reason written by the Tester. Each of these runners writes JUnit XML naming its tests; the mutation check now reads it (removing earlier reports before each run), takes the tests the unmutated run reports passing, and counts a mutant killed only when one of them failed in that run's report. Changed `.java`, `.kt`, `.c`, `.h`, `.cpp` and `.php` lines get the same operators as Go and JavaScript; a mutant that does not compile is not a site, and Maven, Gradle and CTest mutants get later modification times so the build compiles them.
+
 - **Changed lines in C, C++, Java, Kotlin, PHP and C# are classified by the project's own coverage tool**: the changed-code evidence gate read coverage only from coverage.py, Go, c8 and Vitest, so in these languages every non-blank changed line, closing braces, `#include`s and declarations among them, needed a test or a reason written by the Tester. The proof now reads LCOV, Cobertura and JaCoCo XML reports, recognized from their bytes, from the tool the project already has: gcov notes the proof's run left (through gcovr or lcov, whatever the runner), JaCoCo data a Maven or Gradle run left, PHPUnit with pcov or Xdebug, and `dotnet test` with coverlet. Nothing is installed into the project.
 
 ### Fixed
