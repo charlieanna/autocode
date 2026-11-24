@@ -1,26 +1,41 @@
 # AutoCode Task Chat for VS Code
 
-Early preview. Install from the Marketplace as `ankurkothari.autocode-task-chat`.
+Chat with [AutoCode](https://github.com/charlieanna/autocode) in the VS Code sidebar.
+AutoCode runs your coding agent (Claude Code, Codex, OpenCode or Kilo) through
+Requirements, a reviewed plan you approve, the build and independent checks, and
+reports a task done only with evidence. Early preview.
 
-```sh
-code --install-extension ankurkothari.autocode-task-chat
-```
+## Get started
+
+1. Install the AutoCode CLI (Python 3.11+, Git, pipx; macOS or Linux, Windows through WSL).
+   The extension does not bundle it.
+
+   ```sh
+   pipx install autocode-supervisor
+   autocode setup      # connect an account and choose each stage's model
+   ```
+
+2. Install this extension:
+
+   ```sh
+   code --install-extension ankurkothari.autocode-task-chat
+   ```
+
+3. Open a Git project, click the AutoCode icon in the Activity Bar and type a request.
+   Approve AutoCode's understanding, then the plan; nothing is built before you approve.
+
+The [quickstart](https://github.com/charlieanna/autocode/blob/master/docs/quickstart.md)
+walks through a first task, and
+[Installing AutoCode](https://github.com/charlieanna/autocode/blob/master/docs/install.md)
+covers each backend. If `autocode` is not on VS Code's `PATH`, set `autocode.cliPath`.
 
 To run the newest master instead, run `scripts/update-vscode-extension.sh` from an AutoCode
 checkout ([update from master](https://github.com/charlieanna/autocode/blob/master/docs/vscode.md#update-from-master)).
 
-The AutoCode CLI must be installed separately — see
-[Installing AutoCode](https://github.com/charlieanna/autocode/blob/master/docs/install.md).
-This extension does not bundle the CLI or model backends. Providers run on Linux
-and macOS (macOS without kernel session ownership); Windows is not yet qualified.
-Full interactive and live-model qualification is incomplete.
+Providers run on Linux and macOS (macOS without kernel session ownership); Windows is
+not yet qualified. Full interactive and live-model qualification is incomplete.
 
-When working on AutoCode itself, the CLI must be installed outside the opened
-checkout (not editable from it). Before starting, an unsafe controller offers
-**Select isolated AutoCode CLI**: pick an existing executable, let AutoCode check
-it, then send your message again. Only this workspace's CLI path and arguments
-are changed; nothing is installed and global settings are untouched. Choosing
-a new task worktree alone does not isolate the controller during startup.
+## What it does
 
 A thin client for AutoCode task runs. It starts the `autocode` CLI, reads the
 status view, and takes the action the view names. It imports nothing from
@@ -48,6 +63,15 @@ reader alive until it exits and holds identical read attempts in the meantime,
 so repeated polls cannot pile up behind a slow wrapper. Late output is discarded;
 after collection, the next read starts a fresh process. A reader that never exits
 remains unavailable in that extension session.
+
+## Developing
+
+When working on AutoCode itself, the CLI must be installed outside the opened
+checkout (not editable from it). Before starting, an unsafe controller offers
+**Select isolated AutoCode CLI**: pick an existing executable, let AutoCode check
+it, then send your message again. Only this workspace's CLI path and arguments
+are changed; nothing is installed and global settings are untouched. Choosing
+a new task worktree alone does not isolate the controller during startup.
 
 - Documentation: [`docs/vscode.md`](https://github.com/charlieanna/autocode/blob/master/docs/vscode.md)
 - The contract it implements: [`docs/task-run.md`](https://github.com/charlieanna/autocode/blob/master/docs/task-run.md)

@@ -5,16 +5,27 @@
   "version": "0.1.0",
   "private": true,
   "publisher": "ankurkothari",
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#1f2937",
+    "theme": "dark"
+  },
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/charlieanna/autocode.git",
     "directory": "vscode-extension"
   },
+  "homepage": "https://charlieanna.github.io/autocode/latest/vscode/",
+  "bugs": {
+    "url": "https://github.com/charlieanna/autocode/issues"
+  },
   "files": [
     "dist/extension.js",
+    "media/icon.png",
     "media/autocode.svg",
     "README.md",
+    "CHANGELOG.md",
     "THIRD_PARTY_NOTICES.md",
     "LICENSE"
   ],
