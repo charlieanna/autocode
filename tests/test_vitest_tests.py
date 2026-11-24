@@ -36,6 +36,24 @@ class CommandTests(unittest.TestCase):
                 self.assertIn("--outputFile=" + str((self.root / "proof.json").resolve()), words)
                 self.assertTrue(any(word.endswith("/autocode_vitest_reporter.cjs") for word in words))
 
+    def test_a_vitest_the_reporter_cannot_read_runs_by_its_exit_code(self):
+        # The reporter reads Vitest 4. On Vitest 3 it ended a passing run with its own error, so the base
+        # suite was broken (unjs/destr, setup sweep); such a suite is now read by its exit code.
+        import autocode_named_reporters as reporters
+
+        installed = self.root / "node_modules" / "vitest" / "package.json"
+        installed.parent.mkdir(parents=True)
+        (self.root / "package.json").write_text(json.dumps({"scripts": {"test": "eslint . && vitest run"}}))
+        for version, reported in (("3.2.4", False), ("4.1.5", True)):
+            with self.subTest(version=version):
+                installed.write_text(json.dumps({"name": "vitest", "version": version}))
+                self.assertEqual(reported, verify.expects_results(None, "npx --no-install vitest run", self.root))
+                self.assertEqual(reported, reporters.reports("npm test --silent", self.root, self.root))
+                instrumented = vitest.instrument("npx --no-install vitest run", self.root / "p.json", self.root)
+                self.assertEqual(reported, instrumented != "npx --no-install vitest run")
+                # A package below the root resolves the root's node_modules, as Node does.
+                self.assertEqual(reported, verify.expects_results(None, "vitest run", self.root / "frontend"))
+
     def test_no_implicit_install_watch_custom_reporter_shell_or_argument_confusion(self):
         for command in (
             "vitest",
@@ -128,7 +146,7 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(["a.test.js::[collection]"], result["uncollected"])
         self.assertIn("a.test.js::[collection]", result["failed"])
 
-    def test_duplicate_names_files_bad_counts_and_incomplete_results_are_rejected(self):
+    def test_duplicate_files_bad_counts_and_incomplete_results_are_rejected(self):
         variants = []
         for key, value in (
             ("total", 2),
@@ -149,8 +167,7 @@ class EvidenceTests(unittest.TestCase):
         report["total"] = 2
         variants.append(report)
         report = copy.deepcopy(self.report)
-        report["files"][0]["tests"] *= 2
-        report["total"] = 2
+        report["files"][0]["tests"] *= 2  # two tests of one name, counted as one: the total disagrees
         variants.append(report)
         for state in ("pending", "todo", None):
             report = copy.deepcopy(self.report)

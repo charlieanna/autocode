@@ -477,10 +477,10 @@
       "prepare": [
         "if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; elif [ -f yarn.lock ]; then yarn install --frozen-lockfile; elif [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi"
       ],
-      "note": "Open: two rows of a test.each table print alike, and the Vitest reader refuses repeated names. Once read, an npm test chain is still not narrowed.",
+      "note": "Open: npm test chains lint with vitest run, and a test of an npm script chain is not narrowed.",
       "expect": {
         "runner": "vitest",
-        "base": "broken",
+        "base": "passing",
         "targeted": false,
         "mutation": false,
         "coverage": null
@@ -595,13 +595,12 @@
         "python3 -m venv .venv",
         ".venv/bin/python -m pip install -q -e . pytest coverage"
       ],
-      "note": "Open: its tests are named *_test.py, which unittest discovery's default pattern does not collect.",
       "expect": {
         "runner": "unittest",
-        "base": "broken",
-        "targeted": false,
-        "mutation": false,
-        "coverage": null
+        "base": "passing",
+        "targeted": true,
+        "mutation": true,
+        "coverage": "coverage.py"
       }
     },
     {
@@ -817,10 +816,10 @@
       "prepare": [
         "bundle install"
       ],
-      "note": "Open: the RSpec reader refuses repeated example names; one-liner examples also cannot be selected by name.",
+      "note": "Open: a one-liner example (it { is_expected.to ... }) is described only when it runs, so -e cannot select it and the narrowed run misses it.",
       "expect": {
         "runner": "rspec",
-        "base": "broken",
+        "base": "passing",
         "targeted": false,
         "mutation": false,
         "coverage": null
@@ -834,12 +833,12 @@
       "prepare": [
         "bundle install"
       ],
-      "note": "Open: the RSpec reader refuses repeated example names (it { is_expected... } one-liners).",
+      "note": "RSpec has no coverage tool AutoCode can wrap.",
       "expect": {
         "runner": "rspec",
-        "base": "broken",
-        "targeted": false,
-        "mutation": false,
+        "base": "passing",
+        "targeted": true,
+        "mutation": true,
         "coverage": null
       }
     },
@@ -987,10 +986,10 @@
       "prepare": [
         "if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; elif [ -f yarn.lock ]; then yarn install --frozen-lockfile; elif [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi"
       ],
-      "note": "Open: Vitest 3 cannot load AutoCode's Vitest 4 reporter.",
+      "note": "Vitest 3 is read by its exit code (AutoCode's reporter reads Vitest 4), so no test is named and nothing can be narrowed.",
       "expect": {
         "runner": "vitest",
-        "base": "broken",
+        "base": "passing",
         "targeted": false,
         "mutation": false,
         "coverage": null
@@ -1004,10 +1003,10 @@
       "prepare": [
         "if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; elif [ -f yarn.lock ]; then yarn install --frozen-lockfile; elif [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi"
       ],
-      "note": "Open: two tests print alike, and the Vitest reader refuses repeated names. Once read, an npm test chain is still not narrowed.",
+      "note": "Open: npm test chains lint with vitest run, and a test of an npm script chain is not narrowed.",
       "expect": {
         "runner": "vitest",
-        "base": "broken",
+        "base": "passing",
         "targeted": false,
         "mutation": false,
         "coverage": null
@@ -1021,10 +1020,10 @@
       "prepare": [
         "if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; elif [ -f yarn.lock ]; then yarn install --frozen-lockfile; elif [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi"
       ],
-      "note": "Open: Vitest 1 cannot load AutoCode's Vitest 4 reporter.",
+      "note": "Vitest 1 is read by its exit code (AutoCode's reporter reads Vitest 4), so no test is named and nothing can be narrowed.",
       "expect": {
         "runner": "vitest",
-        "base": "broken",
+        "base": "passing",
         "targeted": false,
         "mutation": false,
         "coverage": null

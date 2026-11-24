@@ -20,8 +20,10 @@ import json
 import re
 
 try:
+    from . import autocode_repeated_tests as repeated_tests
     from . import autocode_shell_syntax as shell_syntax
 except ImportError:
+    import autocode_repeated_tests as repeated_tests
     import autocode_shell_syntax as shell_syntax
 import shlex
 from pathlib import Path, PurePosixPath
@@ -75,17 +77,17 @@ def results(path):
     try:
         report = json.loads(Path(path).read_text())
         summary, examples = report["summary"], report["examples"]
-        passed, failed, skipped, collection = set(), set(), set(), set()
+        states: dict[str, set[str]] = {}
         counts = {"passed": 0, "failed": 0, "pending": 0}
         for example in examples:
             file, name, status = _file(example["file_path"]), example["full_description"], example["status"]
             if file is None or not isinstance(name, str) or not name.strip() or status not in counts:
                 return None
-            identity = f"{file}::{name}"
-            if identity in passed | failed | skipped:
-                return None
+            # Examples of one description in one file are one identity (autocode_repeated_tests).
             counts[status] += 1
-            {"passed": passed, "failed": failed, "pending": skipped}[status].add(identity)
+            states.setdefault(f"{file}::{name}", set()).add("skipped" if status == "pending" else status)
+        groups = repeated_tests.settle(states)
+        passed, failed, skipped = groups["passed"], groups["failed"], groups["skipped"]
         outside = summary["errors_outside_of_examples_count"]
         loading = {_file(found) for message in report.get("messages") or [] for found in _LOAD_ERROR.findall(message)}
         if type(outside) is not int or None in loading or len(loading) != outside:
