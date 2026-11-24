@@ -1083,6 +1083,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#each-persons-allowance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Each person's allowance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#who-asked-and-who-decided" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1925,6 +1936,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#each-persons-allowance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Each person's allowance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#who-asked-and-who-decided" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1978,7 +2000,7 @@
 
 
 <h1 id="channel-bridge-github-issues-as-the-front-door">Channel bridge: GitHub issues as the front door<a class="headerlink" href="#channel-bridge-github-issues-as-the-front-door" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/333f87d4ddbebf4bb280aa6618d647e43f6a24fa/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/522320531390a264f39aa995ec97ede51d33cc61/README.md">← Back to README</a></p>
 <p>The channel bridge runs <code>autocode bridge</code> on the same persistent Linux host as
 the core. A team member opens an issue with the bridge label; the bridge starts
 a <strong>durable</strong> run (it survives the bridge, the terminal and the SSH session).
@@ -2033,6 +2055,10 @@ autocode bridge run       # the daemon; one per host (a lock file refuses a seco
 <tr>
 <td><code>AUTOCODE_BRIDGE_OPTIONS</code></td>
 <td>a JSON array of launch options (engine, models, <code>--test-command</code>). Add <code>--evidence-provenance live</code> when the bridge runs real models: without it each run's report says its provider evidence is unknown. Every human or run action flag is refused here, and so is <code>--allow-uncontained-tools</code> when more than one login is on the two lists.</td>
+</tr>
+<tr>
+<td><code>AUTOCODE_BRIDGE_PERSON_CAPS</code></td>
+<td>optional: a JSON object of GitHub login to a monthly allowance in USD, such as <code>{"dev": 50, "lead": 100}</code>. See <a href="#each-persons-allowance">Each person's allowance</a>. A login not named has no allowance of its own.</td>
 </tr>
 <tr>
 <td><code>AUTOCODE_BRIDGE_POLL_SECONDS</code></td>
@@ -2097,8 +2123,31 @@ pull request.</p>
   read; remove its record to free a slot it still holds.</li>
 </ul>
 <p>Unset, the bridge behaves as before the limit existed. Removing the limit later
-starts every issue still queued. There is no total cost cap across issues yet:
-each run keeps the cap its launch options give it.</p>
+starts every issue still queued. Each run keeps the cap its launch options give it,
+unless its requester has an allowance (below).</p>
+<h2 id="each-persons-allowance">Each person's allowance<a class="headerlink" href="#each-persons-allowance" title="Permanent link">&para;</a></h2>
+<p>A team sharing a bridge shares its backend login, so the bridge can give each
+requester a monthly allowance with <code>AUTOCODE_BRIDGE_PERSON_CAPS</code>. It adds no second
+cost check: it sets each run's own cap.</p>
+<ul>
+<li><strong>At a run's start</strong>, what is left of the requester's allowance for the calendar
+  month (UTC) becomes the run's <code>--max-cost-usd</code>, rounded down to the cent. A lower cap
+  in <code>AUTOCODE_BRIDGE_OPTIONS</code> stays; a higher one, or <code>0</code>, is lowered. The run pauses
+  at its cap like any capped run.</li>
+<li><strong>While a run is in flight</strong> its whole cap is reserved from the allowance, so two
+  runs for one person cannot both spend it. Once the run settles, only what it spent
+  counts, as its status view's <code>cost.spent_usd</code> reported.</li>
+<li><strong>At the allowance</strong>, a newly labeled issue is held: the bridge comments once with
+  the amount used, and the issue starts by itself when there is allowance again (a new
+  month, or a higher allowance the operator sets). A held issue takes no slot and
+  never holds up other people's issues.</li>
+<li><strong>Unknown spend.</strong> A run whose spend is partly unpriced counts the part that is known
+  and is listed as partly unknown; it does not hold the next issue.</li>
+<li>The completion comment says what the run cost. Each person's total for the month
+  stays on the host: <code>autocode bridge status</code> prints it, and <code>--json</code> gives it as
+  <code>spending</code>. <code>autocode bridge check</code> prints the allowances.</li>
+</ul>
+<p>Like every spending cap, the allowance is the operator's: AutoCode never raises it.</p>
 <h2 id="who-asked-and-who-decided">Who asked and who decided<a class="headerlink" href="#who-asked-and-who-decided" title="Permanent link">&para;</a></h2>
 <p>A team shares one bridge, so each run records who asked for it and who steered it,
 by GitHub login. GitHub authenticated those logins; the run's own Git provenance
@@ -2124,7 +2173,7 @@ and nothing here replaces it.</p>
   requester and everyone who decided; <code>--json</code> includes the full <code>requested_by</code> and
   <code>decisions</code> records, each marked <code>"authenticated_by": "github"</code>.</li>
 </ul>
-<p>This is the first step of <a href="https://github.com/charlieanna/autocode/blob/333f87d4ddbebf4bb280aa6618d647e43f6a24fa/docs/plans/multi-user.md">team use</a>.</p>
+<p>This is the first step of <a href="https://github.com/charlieanna/autocode/blob/522320531390a264f39aa995ec97ede51d33cc61/docs/plans/multi-user.md">team use</a>.</p>
 <h2 id="the-rules-the-bridge-keeps">The rules the bridge keeps<a class="headerlink" href="#the-rules-the-bridge-keeps" title="Permanent link">&para;</a></h2>
 <p>The bridge is a client of the <a href="../task-run/">task-run interface</a>, exactly like
 the terminal chat and the headless conformance client:</p>
