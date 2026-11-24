@@ -426,10 +426,10 @@
       "prepare": [
         "if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; elif [ -f yarn.lock ]; then yarn install --frozen-lockfile; elif [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi"
       ],
-      "note": "npm test runs pnpm scripts by pattern, so only its exit code is read.",
+      "note": "npm test runs pnpm scripts by pattern, so only its exit code is read. On the CI runner its lint step fails to resolve an ES module import and the suite fails; on a host where pnpm hoists differently it passes.",
       "expect": {
         "runner": "node",
-        "base": "passing",
+        "base": "failing",
         "targeted": false,
         "mutation": false,
         "coverage": null
@@ -509,13 +509,13 @@
       "prepare": [
         "composer install --no-interaction --no-progress"
       ],
-      "note": "PHPUnit reports only an exit code, so no test is named and nothing can be narrowed.",
+      "note": "PHPUnit reports only an exit code, so no test is named and nothing can be narrowed; PHP's coverage driver measures the whole suite.",
       "expect": {
         "runner": "phpunit",
         "base": "passing",
         "targeted": false,
         "mutation": false,
-        "coverage": null
+        "coverage": "phpunit"
       }
     },
     {
@@ -526,13 +526,13 @@
       "prepare": [
         "composer install --no-interaction --no-progress"
       ],
-      "note": "PHPUnit reports only an exit code, so no test is named and nothing can be narrowed.",
+      "note": "PHPUnit reports only an exit code, so no test is named and nothing can be narrowed; PHP's coverage driver measures the whole suite.",
       "expect": {
         "runner": "phpunit",
         "base": "passing",
         "targeted": false,
         "mutation": false,
-        "coverage": null
+        "coverage": "phpunit"
       }
     },
     {
@@ -543,10 +543,10 @@
       "prepare": [
         "composer install --no-interaction --no-progress"
       ],
-      "note": "PHPUnit reports only an exit code, so no test is named and nothing can be narrowed.",
+      "note": "Its suite refuses to run unless CALCULATOR names a math backend (CALCULATOR=Native vendor/bin/phpunit), which the plain vendor/bin/phpunit AutoCode detects does not set. PHPUnit reports only an exit code, so nothing can be narrowed.",
       "expect": {
         "runner": "phpunit",
-        "base": "passing",
+        "base": "failing",
         "targeted": false,
         "mutation": false,
         "coverage": null
@@ -885,10 +885,10 @@
       "prepare": [
         "cargo fetch"
       ],
-      "note": "tests/test_fmt.rs compares rustc's output, which changes with the compiler. No Rust coverage tool is installed (cargo-llvm-cov), so coverage is none.",
+      "note": "No Rust coverage tool is installed (cargo-llvm-cov), so coverage is none. Its tests/test_fmt.rs compares backtrace output, so with RUST_BACKTRACE set (as in some shells) one test fails.",
       "expect": {
         "runner": "cargo",
-        "base": "failing_tests",
+        "base": "passing",
         "targeted": true,
         "mutation": true,
         "coverage": null
