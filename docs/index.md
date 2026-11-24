@@ -7,7 +7,8 @@ AutoCode runs your coding agent through planning, approval, implementation and
 independent checks. Begin in a committed Git project. Approve the plan before
 implementation starts, and use the saved status to decide what comes next.
 
-These five guides cover the first day:
+New? The one-page [quickstart](quickstart.md) goes from install to a first reviewed
+change in VS Code. These five guides cover the first day:
 
 1. **[Install AutoCode](install.md)** — prepare Python, the CLI and your provider.
 2. **[Run your first task](workflow.md)** — ask for an outcome, answer questions
