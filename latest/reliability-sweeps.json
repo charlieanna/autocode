@@ -1,5 +1,82 @@
 [
   {
+    "date": "2026-11-24",
+    "profile": "claude-tiers",
+    "master": "6d4488e",
+    "mode": "live",
+    "runs": 8,
+    "passed": 8,
+    "false_completions": 0,
+    "median_minutes": 7.6,
+    "note": "First full starter sweep: Docutils scenario 2/2 (14/14), Boltons 2/2, Humanize 2/2, More Itertools 2/2 (Arena oracles 5/5, 5/5, 6/6). Ran on the driver fix that gives each Arena case its own store. One Humanize run cost $7.33 on repeated Tester rejections of piped check commands (#4165). 8 runs over 4 pinned real-repo cases; reported spend $23.11.",
+    "case_costs": [
+      {
+        "case": "boltons-indexedset-update",
+        "run": null,
+        "estimated_usd": null,
+        "reported_usd": 1.74984,
+        "spent_usd": 1.74984,
+        "cap_usd": null
+      },
+      {
+        "case": "boltons-indexedset-update",
+        "run": null,
+        "estimated_usd": null,
+        "reported_usd": 1.157656,
+        "spent_usd": 1.157656,
+        "cap_usd": null
+      },
+      {
+        "case": "bugfix-realrepo-docutils-number-lines",
+        "run": null,
+        "estimated_usd": null,
+        "reported_usd": 1.506287,
+        "spent_usd": 1.506287,
+        "cap_usd": null
+      },
+      {
+        "case": "bugfix-realrepo-docutils-number-lines",
+        "run": null,
+        "estimated_usd": null,
+        "reported_usd": 4.908264,
+        "spent_usd": 4.908264,
+        "cap_usd": null
+      },
+      {
+        "case": "humanize-intcomma-large",
+        "run": null,
+        "estimated_usd": null,
+        "reported_usd": 2.241227,
+        "spent_usd": 2.241227,
+        "cap_usd": null
+      },
+      {
+        "case": "humanize-intcomma-large",
+        "run": null,
+        "estimated_usd": null,
+        "reported_usd": 7.33433,
+        "spent_usd": 7.33433,
+        "cap_usd": null
+      },
+      {
+        "case": "more-itertools-custom-exceptions",
+        "run": null,
+        "estimated_usd": null,
+        "reported_usd": 2.193421,
+        "spent_usd": 2.193421,
+        "cap_usd": null
+      },
+      {
+        "case": "more-itertools-custom-exceptions",
+        "run": null,
+        "estimated_usd": null,
+        "reported_usd": 2.014094,
+        "spent_usd": 2.014094,
+        "cap_usd": null
+      }
+    ]
+  },
+  {
     "date": "2026-11-23",
     "profile": "claude-tiers",
     "master": "7fadb3a",
