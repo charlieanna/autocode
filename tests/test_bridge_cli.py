@@ -119,6 +119,10 @@ class FakeClient:
         row = self.issues[ref.number]
         return {**row["issue"], "comments_list": list(row["comments"])}
 
+    def label_actor(self, ref, label):
+        # Who applied the label; a test that does not say is one where the allowlisted "dev" did.
+        return self.issues[ref.number].get("labeled_by", "dev")
+
     def issue_comment(self, ref, body):
         self.next_id += 1
         self.posted.append((ref.number, body))
@@ -184,7 +188,7 @@ class BridgeTests(unittest.TestCase):
             open_pr=False,
         )
         started = launch or (
-            lambda project, ref, issue, options, owned=False: {
+            lambda project, ref, issue, options, owned=False, **_: {
                 "owner": "owner",
                 "repo": "repo",
                 "number": 7,
@@ -245,6 +249,65 @@ class BridgeTests(unittest.TestCase):
         posted = len(self.bodies())
         bridge.tick()  # nothing new to say
         self.assertEqual(posted, len(self.bodies()))
+
+    def test_the_requester_and_every_applied_decision_are_recorded_with_their_github_logins(self):
+        run = FakeRun()
+        bridge = self.bridge(run)
+        bridge.tick()
+        record = store.load("owner", "repo", 7)
+        self.assertEqual(
+            {"login": "dev", "authenticated_by": "github", "via": "label"},
+            {key: record["requested_by"][key] for key in ("login", "authenticated_by", "via")},
+        )
+        self.assertTrue(any("requested by @dev" in body for body in self.bodies()))
+
+        answer = comment(self.client, 7, "dev", "postgres")
+        bridge.tick()
+        bridge.tick()
+        approval = comment(self.client, 7, "dev", "approve")
+        bridge.tick()
+        decisions = store.load("owner", "repo", 7)["decisions"]
+        self.assertEqual(
+            [("dev", "answers", answer), ("dev", "approve", approval)],
+            [(row["login"], row["action"], row["comment_id"]) for row in decisions],
+        )
+        self.assertTrue(all(row["authenticated_by"] == "github" for row in decisions))
+
+    def test_a_refused_reply_is_not_recorded_as_a_decision(self):
+        run = FakeRun()
+        bridge = self.bridge(run)
+        bridge.tick()
+        comment(self.client, 7, "dev", "approve")  # nothing to approve: the run asks questions
+        bridge.tick()
+        self.assertNotIn("decisions", store.load("owner", "repo", 7))
+
+    def test_an_issue_labeled_by_someone_off_the_allowlist_is_refused_and_never_started(self):
+        self.client.issues[7]["labeled_by"] = "stranger"
+        launched = []
+        run = FakeRun()
+        bridge = self.bridge(run, launch=lambda *args, **kwargs: launched.append(args))
+        bridge.tick()
+        bridge.tick()
+        self.assertEqual([], launched)
+        record = store.load("owner", "repo", 7)
+        self.assertEqual("failed", record["gate"]["key"])
+        refusals = [body for body in self.bodies() if "could not start this run" in body]
+        self.assertEqual(1, len(refusals))
+        self.assertIn("@stranger", refusals[0])
+
+    def test_an_issue_whose_labeler_cannot_be_read_waits_for_the_next_poll(self):
+        launched = []
+        run = FakeRun()
+        bridge = self.bridge(run, launch=lambda *args, **kwargs: launched.append(args))
+
+        def unreachable(ref, label):
+            raise github.GitHubError("GitHub is unreachable")
+
+        self.client.label_actor = unreachable
+        bridge.tick()
+        self.assertIsNone(store.load("owner", "repo", 7))
+        self.assertEqual([], launched)
+        self.assertEqual([], self.bodies())
 
     def test_an_approval_matching_no_plan_shown_here_is_refused(self):
         run = FakeRun()
@@ -395,7 +458,7 @@ class BridgeTests(unittest.TestCase):
     def test_a_refused_start_is_recorded_and_never_retried(self):
         run = FakeRun()
 
-        def refused(project, ref, issue, options, owned=False):
+        def refused(project, ref, issue, options, owned=False, **_):
             raise worker.BridgeError("durable execution is unavailable on this host")
 
         bridge = self.bridge(run, launch=refused)
@@ -485,7 +548,7 @@ class AdmissionTests(unittest.TestCase):
         self.runs = {number: SlotRun(number) for number in (7, 8, 9)}
         self.launched = []
 
-    def launch(self, project, ref, issue, options, owned=False):
+    def launch(self, project, ref, issue, options, owned=False, **_):
         run = self.runs[ref.number]
         self.launched.append(ref.number)
         return {
@@ -636,7 +699,7 @@ class AdmissionTests(unittest.TestCase):
         self.assertEqual([7, 8], self.launched)  # labeled again, it takes the free slot
 
     def test_a_refused_start_does_not_hold_a_slot(self):
-        def refused(project, ref, issue, options, owned=False):
+        def refused(project, ref, issue, options, owned=False, **_):
             if ref.number == 7:
                 raise worker.BridgeError("branch autocode/issue-7 already exists")
             return self.launch(project, ref, issue, options, owned)
@@ -846,7 +909,7 @@ class ProvisionTests(unittest.TestCase):
         return bridge_cli.Bridge(
             config,
             GitHubChannel(self.client, "acme/widgets", "autocode", ("dev",)),
-            launch=lambda project, ref, issue, options, owned=False: worker.start_issue_run(
+            launch=lambda project, ref, issue, options, owned=False, **_: worker.start_issue_run(
                 project, ref, issue, options, launch=started, owned=owned
             ),
             adopt=lambda record: run,

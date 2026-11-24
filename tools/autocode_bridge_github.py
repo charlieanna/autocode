@@ -1,7 +1,9 @@
 """The GitHub channel: which labeled issues to take, which replies are ours to act on.
 
 A thin adapter over ``autocode_github.Client`` with the bridge's channel rules:
-discovery reads one label on one repository; a reply counts only when its author
+discovery reads one label on one repository, and an issue is taken only when the
+login that applied the label is on the allowlist (GitHub authenticated it, so it is
+the run's requester); a reply counts only when its author
 is on the configured allowlist and its comment id is newer than everything the
 bridge had consumed when it relayed the current gate, so a message written before
 a plan was posted can never approve it. Everything posted goes through the
@@ -54,6 +56,10 @@ class GitHubChannel:
 
     def allowed(self, login: str) -> bool:
         return str(login or "").lower() in self.actors
+
+    def requester(self, number: int) -> str | None:
+        """The GitHub login that applied the bridge's label to an issue: who asked for the run."""
+        return self.client.label_actor(github.IssueRef(self.owner, self.repo, number), self.label)
 
     def open_labeled_issues(self) -> list[dict]:
         return self.client.open_issues(self.owner, self.repo, self.label)
