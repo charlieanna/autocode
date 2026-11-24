@@ -236,11 +236,30 @@ jobs:
         # it skips where Bundler or RSpec is missing. The runner image ships Ruby and Bundler.
         run: sudo gem install rspec -v 3.13.2 --no-document
 
+      # Every suite shard and scenario shard needs the same pinned Maven and its dependencies. Fetching
+      # them from Maven Central in each of up to 14 parallel jobs drew HTTP 429 and failed setup
+      # (master run 45290041687), so the first job to fetch them saves them and the rest restore.
+      - name: Restore pinned Java scenario dependencies
+        id: java_cache
+        if: needs.scope.outputs.scenarios == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: .scenario-runs/issue-696-java-toolchain
+          key: java-toolchain-${{ runner.os }}-${{ hashFiles('scenarios/harness/java_toolchain.py', 'scenarios/catalog/feature-java-page-count/seed/**') }}
+
       - name: Prepare pinned Java scenario dependencies
         if: needs.scope.outputs.scenarios == 'true'
         run: |
           .venv/bin/python scenarios/harness/java_toolchain.py --root .scenario-runs/issue-696-java-toolchain
           echo "$PWD/.scenario-runs/issue-696-java-toolchain/bin" >> "$GITHUB_PATH"
+
+      - name: Save pinned Java scenario dependencies
+        if: needs.scope.outputs.scenarios == 'true' && steps.java_cache.outputs.cache-hit != 'true'
+        continue-on-error: true  # another shard saving the same key first is not a failure
+        uses: actions/cache/save@v4
+        with:
+          path: .scenario-runs/issue-696-java-toolchain
+          key: ${{ steps.java_cache.outputs.cache-primary-key }}
 
       - name: Prepare suite evidence directory
         id: suite_evidence
@@ -387,11 +406,30 @@ jobs:
         run: |
           sudo env AUTOCODE_TEST_PRIVILEGED_STARTUP=1 .venv/bin/python -m unittest tests.test_capability_startup.LinuxCapabilityStartupTests tests.test_demo
 
+      # Every suite shard and scenario shard needs the same pinned Maven and its dependencies. Fetching
+      # them from Maven Central in each of up to 14 parallel jobs drew HTTP 429 and failed setup
+      # (master run 45290041687), so the first job to fetch them saves them and the rest restore.
+      - name: Restore pinned Java scenario dependencies
+        id: java_cache
+        if: needs.scope.outputs.scenarios == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: .scenario-runs/issue-696-java-toolchain
+          key: java-toolchain-${{ runner.os }}-${{ hashFiles('scenarios/harness/java_toolchain.py', 'scenarios/catalog/feature-java-page-count/seed/**') }}
+
       - name: Prepare pinned Java scenario dependencies
         if: needs.scope.outputs.scenarios == 'true'
         run: |
           .venv/bin/python scenarios/harness/java_toolchain.py --root .scenario-runs/issue-696-java-toolchain
           echo "$PWD/.scenario-runs/issue-696-java-toolchain/bin" >> "$GITHUB_PATH"
+
+      - name: Save pinned Java scenario dependencies
+        if: needs.scope.outputs.scenarios == 'true' && steps.java_cache.outputs.cache-hit != 'true'
+        continue-on-error: true  # another shard saving the same key first is not a failure
+        uses: actions/cache/save@v4
+        with:
+          path: .scenario-runs/issue-696-java-toolchain
+          key: ${{ steps.java_cache.outputs.cache-primary-key }}
 
       - name: Run the scenario harness
         if: needs.scope.outputs.scenarios == 'true'
