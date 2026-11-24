@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import reliability_table
 
@@ -90,6 +91,42 @@ class Summarize(unittest.TestCase):
     def test_run_refuses_without_live_spend_authorization(self):
         with tempfile.TemporaryDirectory() as tmp, self.assertRaises(SystemExit):
             sweep.main(["run", "starter", "--out", tmp])
+
+
+class RunArena(unittest.TestCase):
+    def test_each_arena_case_is_prepared_in_a_fresh_store(self):
+        """arena/prepare.py refuses a non-empty store, so a second Arena case must not reuse the first one's."""
+        prepared = []
+
+        def fake_run(command, **kwargs):
+            if "arena/prepare.py" in command:
+                store = Path(command[command.index("--arena") + 1])
+                if store.exists() and any(store.iterdir()):
+                    raise sweep.subprocess.CalledProcessError(1, command)
+                case = command[command.index("--case") + 1]
+                (store / "cases" / case).mkdir(parents=True)
+                prepared.append((case, store))
+                return mock.Mock(returncode=0)
+            store = Path(command[command.index("--arena") + 1])
+            workspace = store / "attempts" / "x" / "workspace"
+            row = {
+                "verdict": "PASS",
+                "runner_status": "TASK_COMPLETE",
+                "checks": [{"ok": True}],
+                "elapsed_seconds": 60,
+                "workspace": str(workspace),
+            }
+            return mock.Mock(returncode=0, stdout=json.dumps(row))
+
+        arena_cases = [c for c, spec in sweep.SETS["starter"].items() if spec.get("harness") != "scenario"]
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(sweep.subprocess, "run", fake_run):
+            out = Path(tmp)
+            for case in arena_cases:
+                for _ in range(2):
+                    record = sweep.run_arena(out, case, sweep.SETS["starter"][case], "cohort", 60)
+                    self.assertEqual(record["verdict"], "PASS")
+        self.assertEqual([case for case, _store in prepared], arena_cases)
+        self.assertEqual(len({store for _case, store in prepared}), len(arena_cases))
 
 
 if __name__ == "__main__":

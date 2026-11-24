@@ -8,6 +8,7 @@ numbers do and do not claim. A row names the master commit the sweep ran on.
 
 | Date | Profile | Master | Prompts (SHA-256) | Runs | Passed | False completions | Median (min) | Median spent (USD) | First question (s) | First plan (s) | First Builder (s) | Note |
 | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 2026-11-24 | claude-tiers | `6d4488e` | not recorded | 8 | 8 | 0 | 7.6 | 2.103757 |  |  |  | First full starter sweep: Docutils scenario 2/2 (14/14), Boltons 2/2, Humanize 2/2, More Itertools 2/2 (Arena oracles 5/5, 5/5, 6/6). Ran on the driver fix that gives each Arena case its own store. One Humanize run cost $7.33 on repeated Tester rejections of piped check commands (#4165). 8 runs over 4 pinned real-repo cases; reported spend $23.11. |
 | 2026-11-23 | claude-tiers | `7fadb3a` | not recorded | 1 | 1 | 0 | 6.9 | 2.761899 |  |  |  | Re-run of the pilot's Humanize stop after #4148 (a build-written _version.py now reaches the clean test copies): Arena humanize-intcomma-large TASK_COMPLETE, oracle 5/5. docs/bugs/2026-11-23-real-repo-benchmark-pilot.md |
 | 2026-11-23 | claude-tiers | `39af945` | not recorded | 4 | 3 | 0 | 13.6 | 2.457444 |  |  |  | Real-repo pilot, one run per case: scenario bugfix-realrepo-docutils-number-lines (PASS 14/14, 19 min) and Arena boltons-indexedset-update (PASS 5/5, 4 min), more-itertools-custom-exceptions (PASS 6/6, 18 min), humanize-intcomma-large (correct fix, oracle 5/5, but PAUSED_INVALID_OUTPUT: a planned check replayed in a clean copy cannot import the gitignored hatch-vcs _version.py). docs/bugs/2026-11-23-real-repo-benchmark-pilot.md |
 | 2026-10-08 | glm53-mimo | `a8852cf4` | not recorded | 3 | 2 | 0 | 94 |  |  |  |  | Three cases, one run each. bugfix-iso-weeks and feature-timesheet-by-project completed (oracle 5/5, 6/6). greenfield-todo-cli stopped honestly at the 100-minute budget in completion review (INTERRUPTED_UNGRADED). |
@@ -32,6 +33,14 @@ Each amount is copied from that case's `autocode --status` JSON view (`cost`) an
 
 | Profile | Master | Case | Run | Spent USD | Estimated USD | Reported USD | Cap USD |
 | --- | --- | --- | --- | ---: | ---: | ---: | ---: |
+| claude-tiers | `6d4488e` | boltons-indexedset-update | not recorded | 1.74984 | unknown | 1.74984 | no cap |
+| claude-tiers | `6d4488e` | boltons-indexedset-update | not recorded | 1.157656 | unknown | 1.157656 | no cap |
+| claude-tiers | `6d4488e` | bugfix-realrepo-docutils-number-lines | not recorded | 1.506287 | unknown | 1.506287 | no cap |
+| claude-tiers | `6d4488e` | bugfix-realrepo-docutils-number-lines | not recorded | 4.908264 | unknown | 4.908264 | no cap |
+| claude-tiers | `6d4488e` | humanize-intcomma-large | not recorded | 2.241227 | unknown | 2.241227 | no cap |
+| claude-tiers | `6d4488e` | humanize-intcomma-large | not recorded | 7.33433 | unknown | 7.33433 | no cap |
+| claude-tiers | `6d4488e` | more-itertools-custom-exceptions | not recorded | 2.193421 | unknown | 2.193421 | no cap |
+| claude-tiers | `6d4488e` | more-itertools-custom-exceptions | not recorded | 2.014094 | unknown | 2.014094 | no cap |
 | claude-tiers | `7fadb3a` | humanize-intcomma-large | not recorded | 2.761899 | unknown | 2.761899 | no cap |
 | claude-tiers | `39af945` | bugfix-realrepo-docutils-number-lines | not recorded | 5.77104 | unknown | 5.77104 | no cap |
 | claude-tiers | `39af945` | boltons-indexedset-update | not recorded | 1.424771 | unknown | 1.424771 | no cap |

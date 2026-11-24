@@ -51,7 +51,7 @@ setpriv --bounding-set=-sys_admin,-sys_ptrace .venv/bin/python examples/claude-p
 .venv/bin/python examples/claude-provider/real_repo_sweep.py summary /tmp/sweep --master "$(git rev-parse --short HEAD)"
 ```
 
-`run` prepares a fresh Arena store under `--out` (it needs GitHub access), runs one case at a time, and
+`run` prepares a fresh Arena store for each Arena case under `--out/arenas/` (it needs GitHub access), runs one case at a time, and
 writes one record per attempt to `--out/records/`; the same command continues after a restart. For the
 `hard` set, install the dependencies [Arena](arena.md#hard-cases) lists first (the Python test
 dependencies, the TypeScript build bundle with `ARENA_TYPESCRIPT_*` set, Go 1.25.5 with its frozen module
