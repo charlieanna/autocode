@@ -149,8 +149,27 @@ over 149 completed live runs from the task survey (Claude Code, small real tasks
 (75%) would have taken the fast lane; the 37 others were not small (18), needed the Plan Reviewer's
 observations (12) or touched sensitive paths (7). On those 112 the removed stages were 30% of model-stage
 time (median 146 s to an estimated 103 s) and 35% of model calls, and held 27 of the 60 rejected answers.
-The estimate assumes the combined review takes as long as the Completion Reviewer alone; a live
-comparison is still to be run.
+The estimate assumes the combined review takes as long as the Completion Reviewer alone.
+
+**Live, 2026-11-24.** One small bug fix (`page_count` rounded down; round up and add a regression test), run
+twice on Claude Code with `--single-model claude-sonnet-5-5`, the same brief and the same one-file project,
+started together, each plan read and approved by the operating agent, both finishing `TASK_COMPLETE` with the
+Tester's verdict PASS:
+
+| | Without `--fast-lane` | With `--fast-lane` |
+| --- | --- | --- |
+| Model calls (repairs included) | 9: Requirements, Planner, Plan Reviewer, revision + repair, final review, Builder, Tester, Completion Reviewer | 5: Requirements, Planner, Builder, combined review + repair |
+| Request to plan shown | 75 s | 31 s |
+| Approval to done | 42 s | 42 s |
+| Total wall time | 117 s | 73 s (−38%) |
+| Cost | $1.07 | $0.54 (−50%) |
+
+The fast lane skipped the Plan Reviewer as designed (the draft was small and Requirements judged it clear) and
+the plans were equivalent: the same two files and the same cases (31 → 4, 0 → 0, 1 → 1, 30 → 3, a zero page
+size refused). After approval the two runs took the same time: the combined review (15 s, plus a 7 s repair
+because a cited check matched no executed event) cost what the Tester and the Completion Reviewer (12 s and
+9 s) cost together, so on this task the saving came from planning. One run per side, so the numbers show the
+size of the effect, not its spread.
 
 ## Comparing it with today's pipeline
 
