@@ -143,27 +143,57 @@ class Bridge:
             existing = store.load(self.channel.owner, self.channel.repo, number)
             if existing is not None:
                 continue
+            requested_by = self.requester(issue)
+            if requested_by is None:
+                continue  # GitHub could not say who labeled it; the next poll asks again
+            if not self.channel.allowed(requested_by["login"]):
+                self.refuse(
+                    self.base_record(issue),
+                    f"@{requested_by['login']} applied the `{self.channel.label}` label but may not start runs "
+                    "on this bridge",
+                )
+                continue
             if self.config.max_active is None:
-                self.take(issue)
+                self.take(issue, requested_by)
             else:
-                self.queue(issue)
+                self.queue(issue, requested_by)
         return labeled
 
-    def queue(self, issue: dict) -> None:
-        """Remember a labeled issue that waits for a slot; admission starts it, oldest first."""
+    def requester(self, issue: dict) -> dict | None:
+        """Who asked for the run: the login GitHub says applied the label, or None when it cannot say yet.
+
+        An issue whose label event names nobody (the history is too long to read, or the label was applied
+        by an app GitHub reports without a login) records an empty login, which no allowlist holds.
+        """
+        try:
+            login = self.channel.requester(issue["number"])
+        except github.GitHubError as error:
+            print(f"autocode bridge: reading who labeled issue {issue['number']} failed: {error}", file=sys.stderr)
+            return None
+        return requester_record(login or "")
+
+    def base_record(self, issue: dict) -> dict:
         number = issue["number"]
+        return {
+            "owner": self.channel.owner,
+            "repo": self.channel.repo,
+            "number": number,
+            "title": (issue.get("title") or f"Issue {number}").strip(),
+            "url": issue.get("html_url"),
+            "project": str(self.config.project),
+            "gate": {"key": "starting"},
+            "failed": None,
+        }
+
+    def queue(self, issue: dict, requested_by: dict) -> None:
+        """Remember a labeled issue that waits for a slot; admission starts it, oldest first."""
         store.save(
             {
-                "owner": self.channel.owner,
-                "repo": self.channel.repo,
-                "number": number,
-                "title": (issue.get("title") or f"Issue {number}").strip(),
-                "url": issue.get("html_url"),
-                "project": str(self.config.project),
+                **self.base_record(issue),
                 "gate": {"key": "queued"},
                 "queued": True,
                 "queued_at": util.now(),
-                "failed": None,
+                "requested_by": requested_by,
             }
         )
 
@@ -185,7 +215,7 @@ class Bridge:
             if not decision.start:
                 break
             for record in decision.start:
-                self.take(labeled[record["number"]])
+                self.take(labeled[record["number"]], record.get("requested_by"))
         limit = self.config.max_active
         for record in waiting:
             if record.get("queued_notice"):
@@ -198,19 +228,11 @@ class Bridge:
             )
             store.save(record)
 
-    def take(self, issue: dict) -> None:
+    def take(self, issue: dict, requested_by: dict | None) -> None:
         number = issue["number"]
-        title = (issue.get("title") or f"Issue {number}").strip()
-        record = {
-            "owner": self.channel.owner,
-            "repo": self.channel.repo,
-            "number": number,
-            "title": title,
-            "url": issue.get("html_url"),
-            "project": str(self.config.project),
-            "gate": {"key": "starting"},
-            "failed": None,
-        }
+        record = self.base_record(issue)
+        if requested_by:
+            record["requested_by"] = requested_by
         try:
             options = list(self.config.options)
             started = self.launch(
@@ -219,11 +241,14 @@ class Bridge:
                 issue,
                 options,
                 owned=self.config.owned,
+                requested_by=requested_by,
             )
         except (worker.BridgeError, TaskRunError, OSError) as error:
             self.refuse(record, error)
             return
         record.update(started)
+        if requested_by:
+            record["requested_by"] = requested_by
         record["gate"] = {"key": "starting"}
         issue_now = self.safe_issue(number)
         if issue_now is not None:
@@ -245,13 +270,15 @@ class Bridge:
     def announce(self, record: dict) -> None:
         # A run in the no-systemd mode lives with this process, so the notice must not call it durable.
         hosted = "a run that works while the bridge is running" if record.get("owned") else "a durable run"
-        self.post(
-            record["number"],
-            f"**AutoCode took this issue** and started {hosted}.\n\n"
-            f"- run: `{Path(record['run_dir']).name}` on branch `{record['branch']}`\n"
-            f"- I will ask here when the run needs you: questions, the plan for approval, or a pause.\n"
+        requester = (record.get("requested_by") or {}).get("login")
+        lines = [f"- run: `{Path(record['run_dir']).name}` on branch `{record['branch']}`"]
+        if requester:
+            lines.append(f"- requested by @{requester}")
+        lines += [
+            "- I will ask here when the run needs you: questions, the plan for approval, or a pause.",
             f"- Steering is limited to: {', '.join('@' + actor for actor in self.config.actors)}.",
-        )
+        ]
+        self.post(record["number"], f"**AutoCode took this issue** and started {hosted}.\n\n" + "\n".join(lines))
 
     def recover_start(self, record: dict) -> bool:
         """Adopt the run of a start an earlier bridge did not live to record; False when it saved none.
@@ -345,7 +372,9 @@ class Bridge:
                 if action.kind == "none":
                     self.post(number, f"@{reply.actor} {action.text}")
                 else:
-                    self.post(number, f"@{reply.actor} {worker.take(run, view, action)}")
+                    outcome = worker.take(run, view, action)
+                    record["decisions"] = decided(record, reply, action.kind)
+                    self.post(number, f"@{reply.actor} {outcome}")
             except (worker.BridgeError, TaskRunError) as error:
                 self.post(number, f"@{reply.actor} AutoCode refused that: {error}"[:2000])
             except OSError as error:
@@ -427,6 +456,31 @@ def finished_gate(record: dict) -> dict:
     """The gate of a finished run. It keeps the floor of the gate before it: a comment that gate left unread
     stays unread, and only words written after it can ask for a follow-up."""
     return {"key": "done", "floor": int((record.get("gate") or {}).get("floor") or 0)}
+
+
+# The bridge's record of who acted is bounded like its comment ledger; the newest entries are kept.
+REMEMBERED_DECISIONS = 200
+
+
+def requester_record(login: str) -> dict:
+    """Who asked for a run, as the bridge records it: a login GitHub authenticated, never a Git identity."""
+    return {"login": login, "authenticated_by": "github", "via": "label", "at": util.now()}
+
+
+def decided(record: dict, reply, kind: str) -> list[dict]:
+    """The record's decision ledger with one applied reply added: who acted, what the bridge took, and when.
+
+    Only a reply the run accepted is recorded; a refusal changed nothing. The login is the comment's author,
+    which GitHub authenticated, and sits beside (never in place of) the run's own unverified Git provenance.
+    """
+    entry = {
+        "login": reply.actor,
+        "action": kind,
+        "comment_id": reply.id,
+        "authenticated_by": "github",
+        "at": util.now(),
+    }
+    return ([row for row in record.get("decisions") or [] if isinstance(row, dict)] + [entry])[-REMEMBERED_DECISIONS:]
 
 
 def holds_slot(record: dict) -> bool:
@@ -513,6 +567,12 @@ def cmd_status(args) -> int:
         )
         print(f"{where}: {state}")
         print(f"  {record.get('title') or ''}")
+        requester = (record.get("requested_by") or {}).get("login")
+        if requester:
+            print(f"  requested by @{requester}")
+        deciders = sorted({row.get("login") for row in record.get("decisions") or [] if row.get("login")})
+        if deciders:
+            print(f"  decided by {', '.join('@' + login for login in deciders)}")
         print(f"  run {record.get('run_dir') or '-'}")
     return 0
 

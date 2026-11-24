@@ -32,7 +32,7 @@ ACTOR = "dev"
 
 
 class FakeGitHub(BaseHTTPRequestHandler):
-    """The three reads and one write the bridge makes, over in-memory state."""
+    """The four reads and one write the bridge makes, over in-memory state."""
 
     issues = {}
     comments = {}
@@ -54,7 +54,10 @@ class FakeGitHub(BaseHTTPRequestHandler):
 
     def do_GET(self):
         one = re.fullmatch(r"/repos/acme/widgets/issues/(\d+)(/comments.*)?", self.path)
-        if self.path.startswith("/repos/acme/widgets/issues?"):
+        events = re.fullmatch(r"/repos/acme/widgets/issues/(\d+)/events\?.*", self.path)
+        if events and int(events.group(1)) in FakeGitHub.issues:
+            self._send([{"event": "labeled", "label": {"name": "autocode"}, "actor": {"login": ACTOR}}])
+        elif self.path.startswith("/repos/acme/widgets/issues?"):
             self._send([row for row in FakeGitHub.issues.values() if row.get("state") == "open"])
         elif one and int(one.group(1)) in FakeGitHub.issues and one.group(2):
             self._send(FakeGitHub.comments[int(one.group(1))][-30:])
