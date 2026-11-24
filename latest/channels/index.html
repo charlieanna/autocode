@@ -1083,6 +1083,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#who-asked-and-who-decided" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Who asked and who decided
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-rules-the-bridge-keeps" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1914,6 +1925,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#who-asked-and-who-decided" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Who asked and who decided
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-rules-the-bridge-keeps" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1956,7 +1978,7 @@
 
 
 <h1 id="channel-bridge-github-issues-as-the-front-door">Channel bridge: GitHub issues as the front door<a class="headerlink" href="#channel-bridge-github-issues-as-the-front-door" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/a6d080ab1bc783081876c4a313c2eddc00e46af2/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/b55acd5515a46b86a318a46aa90dad693cada6d9/README.md">← Back to README</a></p>
 <p>The channel bridge runs <code>autocode bridge</code> on the same persistent Linux host as
 the core. A team member opens an issue with the bridge label; the bridge starts
 a <strong>durable</strong> run (it survives the bridge, the terminal and the SSH session).
@@ -2002,7 +2024,7 @@ autocode bridge run       # the daemon; one per host (a lock file refuses a seco
 </tr>
 <tr>
 <td><code>AUTOCODE_BRIDGE_ACTORS</code></td>
-<td>a JSON array of GitHub logins allowed to steer runs. Replies from anyone else are ignored.</td>
+<td>a JSON array of GitHub logins allowed to start and steer runs. An issue labeled by anyone else is refused, and replies from anyone else are ignored. See <a href="#who-asked-and-who-decided">Who asked and who decided</a>.</td>
 </tr>
 <tr>
 <td><code>AUTOCODE_BRIDGE_OPTIONS</code></td>
@@ -2073,6 +2095,25 @@ pull request.</p>
 <p>Unset, the bridge behaves as before the limit existed. Removing the limit later
 starts every issue still queued. There is no total cost cap across issues yet:
 each run keeps the cap its launch options give it.</p>
+<h2 id="who-asked-and-who-decided">Who asked and who decided<a class="headerlink" href="#who-asked-and-who-decided" title="Permanent link">&para;</a></h2>
+<p>A team shares one bridge, so each run records who asked for it and who steered it,
+by GitHub login. GitHub authenticated those logins; the run's own Git provenance
+(<code>--as</code>, the workspace's <code>user.email</code>) is still recorded as the unverified claim it is,
+and nothing here replaces it.</p>
+<ul>
+<li><strong>The requester</strong> is the login GitHub's issue events name as having applied the
+  bridge label most recently, not the issue's author. A labeled issue is taken only
+  when that login is on <code>AUTOCODE_BRIDGE_ACTORS</code>; otherwise the bridge posts once that
+  it may not start runs and keeps the issue off the queue. When GitHub cannot be read,
+  the issue waits for the next poll.</li>
+<li><strong>Every applied decision</strong> (an answer, an approval, feedback, a resume) is recorded
+  with the login that wrote the reply, the comment id, the action the bridge took and
+  the time. A refused reply is not recorded: it changed nothing.</li>
+<li>The issue's first comment names the requester. <code>autocode bridge status</code> lists the
+  requester and everyone who decided; <code>--json</code> includes the full <code>requested_by</code> and
+  <code>decisions</code> records, each marked <code>"authenticated_by": "github"</code>.</li>
+</ul>
+<p>This is the first step of <a href="https://github.com/charlieanna/autocode/blob/b55acd5515a46b86a318a46aa90dad693cada6d9/docs/plans/multi-user.md">team use</a>.</p>
 <h2 id="the-rules-the-bridge-keeps">The rules the bridge keeps<a class="headerlink" href="#the-rules-the-bridge-keeps" title="Permanent link">&para;</a></h2>
 <p>The bridge is a client of the <a href="../task-run/">task-run interface</a>, exactly like
 the terminal chat and the headless conformance client:</p>
