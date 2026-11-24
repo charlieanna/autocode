@@ -839,19 +839,35 @@ else:
         goodbye = subprocess.run([sys.executable, "bye.py", "Ada"], capture_output=True, text=True)
         goodbye_passed = goodbye.returncode == 0 and goodbye.stdout == "Goodbye, Ada\n"
         passed = passed and goodbye_passed
-    # A real command the runner can re-run in a clean copy (autocode_check_replay): the same checks.
-    script = (
-        "import subprocess, sys\n"
-        "run = lambda *a: subprocess.run([sys.executable, *a], capture_output=True, text=True)\n"
-        "ok = run('greet.py', 'Ada').stdout == 'Hello, Ada\\n' and run('greet.py', '').returncode == 2\n"
-        + (
-            "ok = ok and run('bye.py', 'Ada').stdout == 'Goodbye, Ada\\n'\n"
-            if mode == "milestones" and data["current_task"]["milestone_id"] == "M2"
-            else ""
-        )
-        + "sys.exit(0 if ok else 1)\n"
+    # A literal unittest command keeps its source resolution observable; a scripted-only delivery keeps
+    # its original inline check, which the runner admits without source resolution.
+    inline = shlex.join(
+        [
+            sys.executable,
+            "-c",
+            "import subprocess, sys\n"
+            "run = lambda *a: subprocess.run([sys.executable, *a], capture_output=True, text=True)\n"
+            "ok = run('greet.py', 'Ada').stdout == 'Hello, Ada\\n' and run('greet.py', '').returncode == 2\n"
+            + (
+                "ok = ok and run('bye.py', 'Ada').stdout == 'Goodbye, Ada\\n'\n"
+                if mode == "milestones" and data["current_task"]["milestone_id"] == "M2"
+                else ""
+            )
+            + "sys.exit(0 if ok else 1)\n",
+        ]
     )
-    command = shlex.join([sys.executable, "-c", script])
+    modules = ["test_greeting"]
+    if builder_files:
+        modules = sorted(
+            Path(name).with_suffix("").as_posix().replace("/", ".")
+            for name in builder_files
+            if Path(name).name != "__init__.py" and Path(name).suffix == ".py" and Path(name).stem.startswith("test")
+        )
+    if mode == "milestones" and data["current_task"]["milestone_id"] == "M2":
+        modules.append("test_goodbye")
+    command = (
+        inline if builder_files and not modules else shlex.join([sys.executable, "-m", "unittest", "-v", *modules])
+    )
     unreproducible = os.environ.get("AUTOCODE_FIXTURE_UNREPRODUCIBLE_CHECK")
     # "once": only the first Validator attempt cites it; the one the runner starts again cites the real check.
     if unreproducible and not (unreproducible == "once" and Path(".autocode/validator-only").exists()):

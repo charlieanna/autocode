@@ -58,6 +58,11 @@ def selected(label):
     ) or label in ("candidate", "original", "original-recheck")
 
 
+def admission_required(command):
+    """Whether ``command`` names a runner whose source resolution this detector observes."""
+    return _command_framework(command, None) is not None
+
+
 def _owner(receipt):
     if not isinstance(receipt, dict):
         return None

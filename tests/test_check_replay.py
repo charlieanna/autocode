@@ -60,6 +60,18 @@ class ReplayTests(unittest.TestCase):
         saved = json.loads(saved_path.read_text())
         self.assertEqual("PASS", saved["verdict"])
 
+    def test_source_uncertainty_cannot_supply_a_passing_replay(self):
+        command = "python -m pytest -q"
+        contaminated = receipt()
+        contaminated["source_binding_required"] = True
+        with self.assertRaises(check_replay.check_outcome.CheckUndetermined) as stopped:
+            self.replay([{"command": command, "exit_code": 0, "evidence_ref": "event:a"}], {command: contaminated})
+        self.assertIn("source-resolution binding is missing", str(stopped.exception))
+        [saved_path] = (self.run_dir / "check-replay").glob("sol-01-*/replay.json")
+        saved = json.loads(saved_path.read_text())
+        self.assertEqual("NOT_VERIFIED", saved["verdict"])
+        self.assertEqual([command], [row["command"] for row in saved["undetermined"]])
+
     def test_g1_a_passing_replay_still_runs_each_distinct_command_once_and_writes_a_pass_receipt(self):
         checks = [
             {"command": "pytest -q", "exit_code": 0, "evidence_ref": "event:a"},
@@ -869,7 +881,8 @@ class CliTests(unittest.TestCase):
         self.assertEqual("PASS", replay["verdict"])
         self.assertEqual(state["validation"]["source_revision"], replay["source_revision"])
         self.assertEqual([0], [row["exit_code"] for row in replay["checks"]])
-        self.assertIn("greet.py", replay["checks"][0]["command"])
+        self.assertIn("unittest", replay["checks"][0]["command"])
+        self.assertIn("test_greeting", replay["checks"][0]["command"])
 
     def test_a_tester_whose_check_does_not_reproduce_runs_again_and_the_run_completes(self):
         # A live Tester cited `cd ../web && npm test`, which passed only from where its last command had left
@@ -893,7 +906,8 @@ class CliTests(unittest.TestCase):
         self.assertTrue(view["done"])
         replay = view["evidence"]["check_replay"]
         self.assertEqual(("PASS", [0]), (replay["verdict"], [row["exit_code"] for row in replay["checks"]]))
-        self.assertIn("greet.py", replay["checks"][0]["command"])
+        self.assertIn("unittest", replay["checks"][0]["command"])
+        self.assertIn("test_greeting", replay["checks"][0]["command"])
 
     def test_a_check_that_passes_only_in_the_validators_session_never_completes(self):
         self.env.update(AUTOCODE_FIXTURE_MODE="no-human", AUTOCODE_FIXTURE_UNREPRODUCIBLE_CHECK="1")

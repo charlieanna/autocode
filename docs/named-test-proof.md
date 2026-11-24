@@ -495,7 +495,8 @@ proof without an explicit `UNVERIFIED` binding.
 Python observes targeted modules, static imports (including names that can shadow
 the standard library), pytest root, effective `addopts`, `pythonpath` and ancestor
 `conftest.py` files. It also checks executable startup paths, `sitecustomize` and
-`usercustomize`, pytest environment options and plugin autoload. Only a narrow
+`usercustomize` (an interpreter-shipped empty or Ubuntu apport-only hook is
+neutral), pytest environment options and plugin autoload. Only a narrow
 virtualenv/editable-install bootstrap is recognized. A deterministic top-level
 prelude may use unaliased `sys` and `Path`, append or insert file-relative roots,
 and use those roots in following imports; each import is resolved with only the
@@ -554,7 +555,7 @@ recomputes the boundary answer from those bytes.
 A required test, root or source origin outside the owning copy makes the proof
 `UNVERIFIED`, before timeout, ownership, merged-suite, failed-name or exit-code
 judgment. The same hold applies to the original code, stability repeats,
-first-suite repair, protected replay, compatibility and acceptance evidence,
+first-suite repair, independent check replay, protected replay, compatibility and acceptance evidence,
 companion suites, guards, the plan-time guard check, flake rechecks, follow-up
 baselines, original-reference checks and changed-line mutation evidence. Contaminated evidence cannot supply a
 failure either. External dependency origins remain allowed in this phase; linked

@@ -62,9 +62,11 @@ try:
     from . import autocode_acceptance_policy as acceptance_policy
     from . import autocode_base_attribution as base_attribution
     from . import autocode_brief_evidence as brief_evidence
+    from . import autocode_check_outcome as check_outcome
     from . import autocode_command_receipt as command_receipt
     from . import autocode_protected_oracles as protected_oracles
     from . import autocode_risk_evidence as risk_evidence
+    from . import autocode_source_binding as source_binding
     from . import autocode_test_quality as test_quality
     from . import autocode_util as util
     from . import autocode_verification_plan as verification_plan
@@ -73,9 +75,11 @@ except ImportError:
     import autocode_acceptance_policy as acceptance_policy
     import autocode_base_attribution as base_attribution
     import autocode_brief_evidence as brief_evidence
+    import autocode_check_outcome as check_outcome
     import autocode_command_receipt as command_receipt
     import autocode_protected_oracles as protected_oracles
     import autocode_risk_evidence as risk_evidence
+    import autocode_source_binding as source_binding
     import autocode_test_quality as test_quality
     import autocode_util as util
     import autocode_verification_plan as verification_plan
@@ -406,6 +410,7 @@ def replay(
     test_quality.require_behavioral_tests(workspace, [check["command"] for check in checks])
     rows: list[Any] = []
     failed: list[Any] = []
+    undetermined: list[Any] = []
     seen: dict[Any, Any] = {}
     on_base: dict[str, Any] = {}
     for check in checks:
@@ -448,6 +453,11 @@ def replay(
                 )
             else:
                 receipt = scratch_run(workspace, out / f"check-{len(seen) + 1:02d}", command=command, timeout=timeout)
+            source_reason = (
+                "; ".join(source_binding.reasons({"check": receipt}))
+                if source_binding.admission_required(command)
+                else ""
+            )
             seen[key] = {
                 "command": command,
                 "exit_code": receipt.get("exit_code"),
@@ -460,6 +470,9 @@ def replay(
                 "scheduling": receipt.get("scheduling"),
                 "error": receipt.get("error") or "",
                 "tail": (receipt.get("tail") or "")[-TAIL_CHARS:],
+                "source_binding": receipt.get("source_binding"),
+                "source_binding_required": bool(receipt.get("source_binding_required")),
+                "source_uncertain": source_reason,
                 **command_receipt.project(receipt),
                 **(
                     {
@@ -473,6 +486,8 @@ def replay(
         rows.append(
             {**seen[key], "reported_exit_code": check.get("exit_code"), "evidence_ref": check.get("evidence_ref")}
         )
+        if source_reason := seen[key]["source_uncertain"]:
+            undetermined.append({"reason": source_reason, "command": command})
         if (
             _failed_check(rows[-1])
             and base_run is not None
@@ -486,6 +501,28 @@ def replay(
         if _failed_check(rows[-1]):
             failed.append(rows[-1])
             break  # This report cannot pass; preserve the failure before spending on later gates.
+    if undetermined:
+        result = {
+            "verdict": "NOT_VERIFIED",
+            "checks": rows,
+            "source_revision": record.get("source_revision"),
+            "protected_tests": protected,
+            "brief_acceptance": None,
+            "risk_acceptance": None,
+            "timeout_seconds": timeout,
+            "replayed_at": dt.datetime.now(dt.UTC).isoformat(),
+            "undetermined": undetermined,
+            "not_run": {"checks": checks[len(rows) :], "brief_acceptance": True, "risk_acceptance": True},
+            "receipt_path": str(out / "replay.json"),
+        }
+        (out / "replay.json").write_text(json.dumps(result, indent=2) + "\n")
+        raise check_outcome.CheckUndetermined(
+            "The independent check replay could not establish a result: "
+            + "; ".join(row["reason"] for row in undetermined)
+            + f". Replay summary: {out / 'replay.json'}.",
+            outcome={"check": {"reason": "; ".join(row["reason"] for row in undetermined), "detail": ""}},
+            receipt=result,
+        )
     brief = risk = refuted = None
     if not failed:
         brief = brief_evidence.replay(

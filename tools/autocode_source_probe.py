@@ -26,6 +26,15 @@ except ImportError:
 MAX_FILES = 1000
 MAX_SCAN_BYTES = 8 * 1024 * 1024
 MAX_CAPTURE_BYTES = 2 * 1024 * 1024
+APPORT_STARTUP = (
+    "# install the apport exception handler if available\n"
+    "try:\n"
+    "    import apport_python_hook\n"
+    "except ImportError:\n"
+    "    pass\n"
+    "else:\n"
+    "    apport_python_hook.install()\n"
+)
 NODE_FLAG_OPTIONS = {
     "--test",
     "--test-only",
@@ -861,7 +870,33 @@ def _python_startup_errors(dependencies, editable_root=None):
     errors = []
     editable_root = Path(editable_root).resolve() if editable_root else Path(python_tests.__file__).parent.resolve()
     for name in ("sitecustomize", "usercustomize"):
-        if name in sys.modules:
+        module = sys.modules.get(name)
+        origin = Path(str(getattr(module, "__file__", "") or "")).resolve() if module is not None else None
+        if module is None or not origin or not origin.is_file():
+            continue
+        try:
+            text = origin.read_text()
+            system = Path(sys.base_prefix).resolve()
+            apport = sys.modules.get("apport_python_hook")
+            apport_origin = Path(str(getattr(apport, "__file__", "") or "")).resolve() if apport else None
+            bounded = (
+                not origin.is_symlink()
+                and origin.stat().st_size <= MAX_CAPTURE_BYTES
+                and (
+                    (
+                        not text.strip()
+                        and (any(origin.is_relative_to(root) for root in dependencies) or origin.is_relative_to(system))
+                    )
+                    or (
+                        text == APPORT_STARTUP
+                        and (apport is None or apport_origin is not None and apport_origin.is_relative_to(system))
+                    )
+                )
+            )
+        except (OSError, UnicodeError):
+            bounded = False
+        # Ubuntu ships an empty or apport-only stdlib startup hook; executable path changes stay unobserved.
+        if not bounded:
             errors.append(f"Python {name} source resolution is not observed")
     scanned = 0
     for directory in dependencies:
