@@ -612,6 +612,21 @@ class WorkflowGateTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             self.run_gate(results)
 
+    def test_every_job_that_fetches_the_java_toolchain_restores_and_saves_it_first(self):
+        # Eight suite shards and the scenario shards fetching Maven Central at once drew HTTP 429
+        # (master run 45290041687); one fetch is cached and the other jobs restore it.
+        workflow = (ROOT / ".github/workflows/tests.yml").read_text()
+        jobs = dict(re.findall(r"(?ms)^  ([a-z][\w-]*):\n(.*?)(?=^  [a-z][\w-]*:|\Z)", workflow))
+        fetching = [name for name, job in jobs.items() if "java_toolchain.py" in job]
+        self.assertEqual({"suite", "scenario-harness"}, set(fetching))
+        for name in fetching:
+            with self.subTest(job=name):
+                job = jobs[name]
+                restore = job.index("actions/cache/restore@v4")
+                self.assertLess(restore, job.index("java_toolchain.py"))
+                self.assertLess(job.index("java_toolchain.py"), job.index("actions/cache/save@v4"))
+                self.assertIn("path: .scenario-runs/issue-696-java-toolchain", job)
+
     def test_extension_host_checks_can_start_the_linux_verification_namespace(self):
         workflow = (ROOT / ".github/workflows/tests.yml").read_text()
         job = re.search(r"(?ms)^  extension:\n(.*?)(?=^  [a-z][\w-]*:\n)", workflow).group(1)
