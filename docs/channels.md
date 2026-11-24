@@ -37,8 +37,9 @@ Everything is configured through the environment:
 | `AUTOCODE_BRIDGE_GITHUB_REPO` | `OWNER/REPO`, the single repository this bridge serves. |
 | `AUTOCODE_BRIDGE_PROJECT` | the persistent checkout to build in (default: the daemon's directory). |
 | `AUTOCODE_BRIDGE_LABEL` | the label that takes an issue (default `autocode`). |
-| `AUTOCODE_BRIDGE_ACTORS` | a JSON array of GitHub logins allowed to start and steer runs. An issue labeled by anyone else is refused, and replies from anyone else are ignored. See [Who asked and who decided](#who-asked-and-who-decided). |
-| `AUTOCODE_BRIDGE_OPTIONS` | a JSON array of launch options (engine, models, `--test-command`). Add `--evidence-provenance live` when the bridge runs real models: without it each run's report says its provider evidence is unknown. Every human or run action flag is refused here. |
+| `AUTOCODE_BRIDGE_ACTORS` | a JSON array of GitHub logins allowed to start runs, and to steer them unless `AUTOCODE_BRIDGE_DECIDERS` is set. An issue labeled by anyone else is refused, and replies from anyone on neither list are ignored. See [Who asked and who decided](#who-asked-and-who-decided). |
+| `AUTOCODE_BRIDGE_DECIDERS` | optional: a JSON array of GitHub logins allowed to answer, approve and steer runs (including feedback, follow-ups and resumes). Unset, the actors decide. Set, an actor not on it can still start runs, and their replies get a refusal instead of an action. |
+| `AUTOCODE_BRIDGE_OPTIONS` | a JSON array of launch options (engine, models, `--test-command`). Add `--evidence-provenance live` when the bridge runs real models: without it each run's report says its provider evidence is unknown. Every human or run action flag is refused here, and so is `--allow-uncontained-tools` when more than one login is on the two lists. |
 | `AUTOCODE_BRIDGE_POLL_SECONDS` | seconds between polls (default 10). |
 | `AUTOCODE_BRIDGE_MAX_ACTIVE` | the most bridged runs in flight at once, a whole number from 1. Unset, every labeled issue starts as soon as it is seen. See [Many issues at once](#many-issues-at-once). |
 | `AUTOCODE_BRIDGE_OPEN_PR` | `1` to also push the branch and open the draft PR on completion; the default only prepares it. |
@@ -108,6 +109,13 @@ and nothing here replaces it.
 - **Every applied decision** (an answer, an approval, feedback, a resume) is recorded
   with the login that wrote the reply, the comment id, the action the bridge took and
   the time. A refused reply is not recorded: it changed nothing.
+- **Starting and deciding are separate permissions.** With `AUTOCODE_BRIDGE_DECIDERS`
+  set, a team can let its members request work while a reviewer approves the plans.
+  A reply from an actor who is not a decider is answered with a refusal and takes no
+  action.
+- **Tools stay contained.** A bridge that more than one login can start or steer
+  refuses to start with `--allow-uncontained-tools` in its options: one configuration
+  would otherwise accept uncontained tools for everyone's runs.
 - The issue's first comment names the requester. `autocode bridge status` lists the
   requester and everyone who decided; `--json` includes the full `requested_by` and
   `decisions` records, each marked `"authenticated_by": "github"`.
