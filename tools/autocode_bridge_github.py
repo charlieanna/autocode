@@ -41,7 +41,14 @@ class Inbound:
 
 
 class GitHubChannel:
-    def __init__(self, client: github.Client, repo: str, label: str, actors: tuple[str, ...] | list[str]):
+    def __init__(
+        self,
+        client: github.Client,
+        repo: str,
+        label: str,
+        actors: tuple[str, ...] | list[str],
+        deciders: tuple[str, ...] | list[str] | None = None,
+    ):
         owner, _, name = repo.partition("/")
         if not owner or not name:
             raise ValueError(f"AUTOCODE_BRIDGE_GITHUB_REPO must be OWNER/REPO, not {repo!r}")
@@ -49,13 +56,24 @@ class GitHubChannel:
         self.owner, self.repo = owner, name
         self.label = label
         self.actors = {str(actor).lower() for actor in actors}
+        # Who may answer, approve and steer; unset, the same logins that may start runs.
+        self.deciders = self.actors if deciders is None else {str(login).lower() for login in deciders}
 
     @property
     def ref_template(self) -> str:
         return f"{self.owner}/{self.repo}#"
 
     def allowed(self, login: str) -> bool:
+        """Whether this login may start a run by labeling an issue."""
         return str(login or "").lower() in self.actors
+
+    def may_decide(self, login: str) -> bool:
+        """Whether this login's reply may answer, approve or otherwise steer a run."""
+        return str(login or "").lower() in self.deciders
+
+    def heard(self, login: str) -> bool:
+        """Whether a reply from this login is read at all: either list."""
+        return self.allowed(login) or self.may_decide(login)
 
     def requester(self, number: int) -> str | None:
         """The GitHub login that applied the bridge's label to an issue: who asked for the run."""
@@ -80,7 +98,7 @@ class GitHubChannel:
             identity = comment.get("id")
             author = (comment.get("user") or {}).get("login") or ""
             body = str(comment.get("body") or "")
-            if not isinstance(identity, int) or identity <= floor or not self.allowed(author) or OWN_COMMENT in body:
+            if not isinstance(identity, int) or identity <= floor or not self.heard(author) or OWN_COMMENT in body:
                 continue
             inbound.append(Inbound(identity, author, body))
         return sorted(inbound, key=lambda row: row.id)
