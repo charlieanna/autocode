@@ -19,7 +19,6 @@ import contextlib
 import copy
 import re
 from dataclasses import asdict
-from datetime import datetime
 from hashlib import sha256
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -878,14 +877,6 @@ def _live_grant(state: RunState, packet, record, authorization):
     )
 
 
-def _time(value):
-    try:
-        result = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        return result if result.tzinfo is not None else None
-    except (AttributeError, ValueError, TypeError):
-        return None
-
-
 def _builder_grant(state: RunState, packet, request: dict, record, prior):
     """Verify outstanding serial authority using its real dispatch history too."""
     stage = record["stage"]
@@ -897,7 +888,7 @@ def _builder_grant(state: RunState, packet, request: dict, record, prior):
         (row for row in reversed(state.get("builder_retry_decisions", [])) if row.get("milestone_key") == key), {}
     )
     source = packet.get("source_output")
-    at = _time(grant.get("at"))
+    at = util.aware_time(grant.get("at"))
     if (
         not at
         or state.get("builder_retry_key") != key
@@ -940,7 +931,7 @@ def _builder_grant(state: RunState, packet, request: dict, record, prior):
     origin = next((index for index, row in reversed(list(enumerate(rows))) if row.get("output") == source), None)
     if origin is None:
         return None
-    finished = _time(rows[origin].get("finished_at"))
+    finished = util.aware_time(rows[origin].get("finished_at"))
     if (
         not finished
         or finished > at
@@ -958,7 +949,7 @@ def _builder_grant(state: RunState, packet, request: dict, record, prior):
     for row in rows[origin + 1 :]:
         if row.get("stage") not in ("builder", "resolve", "diagnose") or row.get("report_only") or row.get("dry_run"):
             continue
-        started = _time(row.get("started_at"))
+        started = util.aware_time(row.get("started_at"))
         if started is None:
             return None  # An unknown/legacy dispatch is not outstanding credit.
         if started < at:
@@ -1069,7 +1060,7 @@ def _investigation_grant(state: RunState, request, record):
         ),
         {},
     )
-    asked, rejected = _time(entry.get("requested_at")), _time(last.get("finished_at"))
+    asked, rejected = util.aware_time(entry.get("requested_at")), util.aware_time(last.get("finished_at"))
     if (
         entry.get("outcome") != "retried"
         or entry.get("trigger") != "rejected_output"
