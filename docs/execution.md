@@ -1073,15 +1073,24 @@ caps what a run may spend, in USD. A run has no cap unless you set one, and `0` 
   token counts, is *unpriced*: it is not counted, so the spend is a floor, and the status view and
   cost line say how many stages are unpriced. Check `autocode models --prices` before relying on a cap
   with an unusual model, and use a provider that reports token counts or cost. While parallel
-  Builders run, their spend is not yet in the total, which reads as a floor until their batch is
-  accounted.
+  Builders run, the status view's total is a floor until their batch is accounted; the cap itself
+  counts them as they spend (below).
 - **When it pauses.** The cap is checked at every stage boundary, right after the active-time limit,
-  before anything launches. Once the spend reaches the cap the run stops with `PAUSED_COST_LIMIT`, in
-  the *your decision* category, and AutoResolver publishes the usual operational request naming the
-  spend and the cap. A run can still end above its cap by a stage it could not price (below), or by one
-  parallel batch: workers are charged when the parent accounts their batch.
+  and again at every provider launch, whatever asks for it (a stage, a report repair, an Investigator,
+  a parallel Builder's next attempt). Once the spend reaches the cap no new paid work starts: the run
+  stops with `PAUSED_COST_LIMIT`, in the *your decision* category, and AutoResolver publishes the usual
+  operational request naming the spend and the cap. A run can still end above its cap by a stage it
+  could not price (below), or by what the stages already running spend before the watch below stops them.
+- **Parallel Builders share the run's cap.** The spend the cap is compared with is the whole run's
+  (`tools/autocode_run_spend.py`): the parent's spend outside the batch plus every member's finished
+  attempts and the attempts they are running, under the parent's saved cap. Before, each member compared
+  the cap with its own spend alone, so every member could spend up to the whole cap and a member started
+  its report repair after the run had passed it. A member stopped at the cap pauses the run as
+  `PAUSED_COST_LIMIT`; raising the cap continues that member from where it stopped, and runs no finished
+  member again.
 - **While a stage runs.** Every 15 seconds the stage supervisor adds the running stage's usage so far,
-  read from its own event file and priced as a finished stage is, to the spend before it. Once the total
+  read from its own event file and priced as a finished stage is, to the run's spend apart from it, read
+  again at each check, so a parallel Builder sees what its siblings spend meanwhile. Once the total
   reaches the cap the stage is stopped as Stop now stops it: its partial work and logs are kept, it is not
   counted as a failure or an automatic recovery, the chat says it was stopped at your cost cap, and the run
   pauses `PAUSED_COST_LIMIT`. Raising the cap runs the same stage again from its partial work. Before this, a

@@ -13,6 +13,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - **An OS sandbox around every agent** (`--agent-sandbox`, off by default): each stage's whole agent process (Claude Code, Codex or a configured provider, with every command and test it runs) runs inside Linux bubblewrap or macOS `sandbox-exec`. It cannot read home-directory credentials such as `~/.aws`, `~/.ssh`, `~/.config/gcloud`, `~/.kube` or `~/.netrc`, nor another engine's login, and it writes only the workspace, the run, temporary directories, its own engine's state and package caches. A run that asks for it on a host without such a sandbox is refused before any stage, and a stage that cannot be sandboxed pauses without launching, so it never runs unsandboxed. Built-in OpenCode stages keep their stricter kernel tool boundary.
 
+### Fixed
+
+- **Parallel Builders now stay inside your cost cap.** Each parallel Builder compared the cap with its own spend only, so every one of them could spend up to the whole cap, and a Builder started its report repair or next attempt after the run had already passed it. The cap is now held over the whole run: the parent's spend plus every Builder's finished and running attempts, checked before every provider launch and while each stage runs. A Builder stopped at the cap now pauses the run at your cost cap instead of asking you to retry it, and raising the cap continues it from where it stopped without running any finished Builder again.
+
 ## [0.11.0] - 2026-11-24
 
 ### Added
