@@ -73,6 +73,26 @@ class CollectionRepairFeedbackTests(unittest.TestCase):
         self.assertTrue(proof["checks"]["regression_on_base"]["results"]["collection_errors"], proof)
         self.assertIn("hello, which only the change adds", " ".join(proof["notes"]), proof)
 
+    def test_feature_test_importing_the_added_name_in_its_body_is_proof(self):
+        # The import is inside the test, so on the base the test runs and fails importing ``hello``: a
+        # setup failure, which proves the feature only because the change adds what it imports.
+        _, run = self.project(
+            {
+                "hello.py": 'def greeting():\n    return "hello"\n',
+                "test_hello.py": (
+                    "import unittest\n"
+                    "class TestHello(unittest.TestCase):\n"
+                    "    def test_greeting(self):\n"
+                    "        from hello import greeting\n"
+                    '        self.assertEqual("hello", greeting())\n'
+                ),
+            }
+        )
+        proof = run()
+        self.assertEqual("PASS", proof["verdict"], proof)
+        self.assertEqual(["test_hello.TestHello.test_greeting"], proof["fail_to_pass"], proof)
+        self.assertIn("which only the change adds", " ".join(proof["notes"]), proof)
+
     def test_builder_can_repair_uncollected_tests_without_relaxing_the_gate(self):
         # A collection failure the base run does not attribute to a name the change adds (here the base's
         # own hello.py imports a module that does not exist) is still not proof: the Builder is told to make
