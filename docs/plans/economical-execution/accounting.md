@@ -146,7 +146,7 @@ and each level states the guarantee it actually gives.
 | Level | What it does | Actual guarantee | Status |
 | --- | --- | --- | --- |
 | 0 Visibility | Accounting with gaps, no limit | None needed | Exists (E8) |
-| 1 Boundary cap | `--max-cost-usd`: no stage launches once known spend reaches the cap | Known spend can exceed the cap by one stage or one parallel batch. Unknown spend is not counted | Exists |
+| 1 Boundary cap | `--max-cost-usd`: no provider launches once the whole run's known spend, parallel Builders included, reaches the cap (`autocode_run_spend`), and a running stage is stopped once it takes the run there | Known spend can exceed the cap by what running stages spend between checks. Unknown spend is not counted | Exists |
 | 2 Fail-closed cap (proposed) | Level 1, plus: an unpriced or partial stage pauses before the next launch, and a parallel batch is priced before launch | Overshoot bounded by the largest single unit already running, on priced routes. Still not a billing ceiling | Needs gaps 4 to 6 |
 | 3 Billing ceiling | A spend limit on the provider account or key | The provider's own guarantee | Provider configuration, outside AutoCode |
 
