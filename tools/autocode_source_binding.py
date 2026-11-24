@@ -43,6 +43,7 @@ def selected(label):
             "stability-",
             "guard-",
             "guards-",
+            "plan-guards",
             "listed-tests-",
             "scratch-tests",
             "scratch-command",

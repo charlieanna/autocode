@@ -555,8 +555,8 @@ A required test, root or source origin outside the owning copy makes the proof
 `UNVERIFIED`, before timeout, ownership, merged-suite, failed-name or exit-code
 judgment. The same hold applies to the original code, stability repeats,
 first-suite repair, protected replay, compatibility and acceptance evidence,
-companion suites, guards, flake rechecks, follow-up baselines, original-reference
-checks and changed-line mutation evidence. Contaminated evidence cannot supply a
+companion suites, guards, the plan-time guard check, flake rechecks, follow-up
+baselines, original-reference checks and changed-line mutation evidence. Contaminated evidence cannot supply a
 failure either. External dependency origins remain allowed in this phase; linked
 dependency custody and a kernel read boundary are separate work. Legacy receipts
 without an observation remain readable and neutral; deleting a required binding,

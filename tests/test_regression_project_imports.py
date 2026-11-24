@@ -74,8 +74,10 @@ class ProjectImportRegressionTests(unittest.TestCase):
             "        from external_fake_3926 import new\n"
             "        self.assertEqual(new(), 42)\n"
         )
-        self.assertNotEqual(verify.PASS, result["verdict"], result)
-        self.assertEqual([], result.get("fail_to_pass"), result)
+        self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
+        self.assertTrue(any("source resolution" in reason for reason in result["unverified"]), result)
+        self.assertIsNone(result.get("fail_to_pass"), result)
+        self.assertEqual([], result["failures"], result)
 
     def test_module_collection_failure_on_the_added_name_proves_the_feature(self):
         # Owner decision 2026-11-24: the base run reports ``new`` missing, which the change adds and the
@@ -106,5 +108,7 @@ class ProjectImportRegressionTests(unittest.TestCase):
             "        from external_finder_3926 import new\n"
             "        self.assertEqual(new(), 42)\n"
         )
-        self.assertNotEqual(verify.PASS, result["verdict"], result)
-        self.assertEqual([], result.get("fail_to_pass"), result)
+        self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
+        self.assertTrue(any("source resolution" in reason for reason in result["unverified"]), result)
+        self.assertIsNone(result.get("fail_to_pass"), result)
+        self.assertEqual([], result["failures"], result)
