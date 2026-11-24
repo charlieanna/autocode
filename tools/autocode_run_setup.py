@@ -28,18 +28,18 @@ from pathlib import Path
 
 try:
     from . import autocode_budget_state as budget_state
-    from . import autocode_cost as cost
     from . import autocode_interaction_timing as interaction_timing
     from . import autocode_operational_block as operational_block
     from . import autocode_planning_calls as planning_calls
     from . import autocode_roles as roles
+    from . import autocode_run_spend as run_spend
 except ImportError:
     import autocode_budget_state as budget_state
-    import autocode_cost as cost
     import autocode_interaction_timing as interaction_timing
     import autocode_operational_block as operational_block
     import autocode_planning_calls as planning_calls
     import autocode_roles as roles
+    import autocode_run_spend as run_spend
 
 try:
     from . import autocode_acceptance_retry_exhaustion as acceptance_exhaustion
@@ -189,7 +189,7 @@ REASSERTABLE_BOUNDS = (
         "PAUSED_COST_LIMIT",
         "max_cost_usd",
         "max_cost_usd",
-        cost.spent,
+        lambda state: run_spend.known(state)["spent"],
         "Operator explicitly resumed with a cost cap above the spend so far",
     ),
     (

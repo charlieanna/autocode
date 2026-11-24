@@ -44,6 +44,7 @@ try:
     from . import autocode_regression as regression
     from . import autocode_resolve_repair_job as resolve_repair_job
     from . import autocode_resolver_runtime as resolver_runtime
+    from . import autocode_run_spend as run_spend
     from . import autocode_setup_check_retry as setup_check_retry
     from . import autocode_skip_requirements as skip_requirements
     from . import autocode_storage_budget as storage_budget
@@ -80,6 +81,7 @@ except ImportError:
     import autocode_regression as regression
     import autocode_resolve_repair_job as resolve_repair_job
     import autocode_resolver_runtime as resolver_runtime
+    import autocode_run_spend as run_spend
     import autocode_setup_check_retry as setup_check_retry
     import autocode_skip_requirements as skip_requirements
     import autocode_storage_budget as storage_budget
@@ -246,7 +248,7 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
         ):
             raise support.Paused("PAUSED_TIME_LIMIT", "Saved active-time limit reached at stage boundary")
         # The money cap (#721) is the person's: never extended automatically, checked before any launch.
-        if reached := cost.exceeded(current):
+        if reached := run_spend.exceeded(current):
             raise support.Paused(
                 "PAUSED_COST_LIMIT",
                 f"Spend so far {cost.usd(reached[0])} reached the {cost.usd(reached[1])} cost cap at stage boundary",
