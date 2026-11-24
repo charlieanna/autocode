@@ -9,6 +9,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Added
+
+- **Changed lines in C, C++, Java, Kotlin, PHP and C# are classified by the project's own coverage tool**: the changed-code evidence gate read coverage only from coverage.py, Go, c8 and Vitest, so in these languages every non-blank changed line, closing braces, `#include`s and declarations among them, needed a test or a reason written by the Tester. The proof now reads LCOV, Cobertura and JaCoCo XML reports, recognized from their bytes, from the tool the project already has: gcov notes the proof's run left (through gcovr or lcov, whatever the runner), JaCoCo data a Maven or Gradle run left, PHPUnit with pcov or Xdebug, and `dotnet test` with coverlet. Nothing is installed into the project.
+
 ### Fixed
 
 - **Go and Rust proofs keep coverage and the mutation check when they name tests**: AutoCode could not read the commands it narrows to the proving tests when a quoted test name held a shell character, so a Go `-run '^(TestA|TestB)$'` selection never got diff coverage and a Rust selection holding a documentation test got no per-test results and no mutation check. Every command parser now counts shell syntax only outside quotes. Go selections also keep their Example and Fuzz targets, and a Rust selection holding a documentation test filters by name instead of `--exact`, which rustdoc never matches.

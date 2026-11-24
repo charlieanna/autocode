@@ -466,6 +466,47 @@ class MeasurementTests(unittest.TestCase):
                 report, receipts = self.coverage(raw, tool=tool)
                 self.assertEqual([1], self.normalize_coverage(report, receipts, rows)["files"][0]["executed_lines"])
 
+    def test_native_reports_classify_c_and_java_statements(self):
+        """A gcov or JaCoCo report of the proof's own tree leaves braces, includes and declarations out."""
+        c = b"#include <stdio.h>\n\nint f(int n) {\n    if (n < 0) {\n        return 0;\n    }\n    return n;\n}\n"
+        java = b"package example;\n\nclass Pager {\n    static int f(int n) {\n        return n;\n    }\n}\n"
+        (self.tree / "src" / "main" / "java" / "example").mkdir(parents=True)
+        (self.tree / "pager.c").write_bytes(c)
+        (self.tree / "src/main/java/example/Pager.java").write_bytes(java)
+        rows = [
+            {"path": "pager.c", "sha256": hashlib.sha256(c).hexdigest(), "lines": [1, 3, 4, 5, 6, 7, 8]},
+            {
+                "path": "src/main/java/example/Pager.java",
+                "sha256": hashlib.sha256(java).hexdigest(),
+                "lines": [1, 3, 4, 5, 6, 7],
+            },
+        ]
+        reports = {
+            "gcovr": (
+                f"<coverage><sources><source>{self.tree}</source></sources><packages><package><classes>"
+                '<class filename="pager.c"><lines><line number="3" hits="1"/><line number="4" hits="1"/>'
+                '<line number="5" hits="0"/><line number="7" hits="1"/></lines></class></classes></package>'
+                "</packages></coverage>",
+                {"pager.c": [3, 4, 5, 7]},
+            ),
+            "lcov": (
+                f"SF:{self.tree}/pager.c\nDA:3,1\nDA:4,1\nDA:5,0\nDA:7,1\nend_of_record\n",
+                {"pager.c": [3, 4, 5, 7]},
+            ),
+            "jacoco": (
+                '<report name="p"><package name="example"><sourcefile name="Pager.java">'
+                '<line nr="3" mi="3" ci="0"/><line nr="5" mi="0" ci="2"/></sourcefile></package></report>',
+                {"src/main/java/example/Pager.java": [3, 5]},
+            ),
+        }
+        for tool, (raw, expected) in reports.items():
+            with self.subTest(tool=tool):
+                report, receipts = self.coverage(raw, tool=tool)
+                envelope = self.normalize_coverage(report, receipts, rows)
+                refined = measurement.refine_inventory(rows, envelope, source_revision=SOURCE, proof_context=CONTEXT)
+                self.assertEqual(expected, {row["path"]: row["lines"] for row in refined if row["path"] in expected})
+                self.assertIn(f"authenticated {tool} statement map", refined[0 if "pager.c" in expected else 1]["note"])
+
     def test_authentic_kills_survivors_and_unrun_rows_all_survive_normalization(self):
         report, receipts = self.mutation("killed", "survived")
         report["files"][0]["mutants"].append({"line": 2, "outcome": "not_run", "source_sha256": self.sha})
