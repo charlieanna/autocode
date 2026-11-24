@@ -22,7 +22,9 @@ import autocode_workflows as workflows
 
 
 class RequirementsChatTests(unittest.TestCase):
-    def test_requirements_interviews_instead_of_defaulting_to_multiple_choice(self):
+    def test_requirements_proposes_readings_before_it_asks(self):
+        """Owner decision 2026-11-24: propose, then ask. A vague request gets concrete readings as
+        options and an approach sketch; the interview continues from the user's answer."""
         instructions = [
             (
                 "gather_conversational",
@@ -35,12 +37,13 @@ class RequirementsChatTests(unittest.TestCase):
         for kind, instruction in instructions:
             text = " ".join(instruction.split())
             with self.subTest(kind=kind):
-                self.assertIn("open-ended question", text)
-                self.assertIn('options=[] and proposed_default=""', text)
-                self.assertIn("Do not invent a menu", text)
+                self.assertIn("propose, then ask", text)
+                self.assertIn("concrete readings as options", text)
                 self.assertIn("concrete recent example", text)
-                self.assertIn("Ask one focused, open-ended question at a time", text)
                 self.assertIn("Follow the user's answer", text)
+                self.assertNotIn("Do not invent a menu", text)
+                if kind == "gather_conversational":
+                    self.assertIn("propose before you ask", text)
 
     def test_a_garbled_message_is_quoted_back_with_no_guess_about_how_it_arrived(self):
         """#3074: Requirements told the person "sum" got lost before the text reached it, a guess

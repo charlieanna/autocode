@@ -877,7 +877,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tools/prompts/requirements-gather.md", REQUIREMENTS_PROMPT_CONSUMERS),
     ("tools/prompts/fragments/autoplanner/requirements-conversation.md", REQUIREMENTS_PROMPT_CONSUMERS),
     ("tools/prompts/fragments/autoplanner/assumption-policy.md", REQUIREMENTS_PROMPT_CONSUMERS),
-    ("tools/prompts/fragments/autoplanner/question-policy.md", REQUIREMENTS_PROMPT_CONSUMERS),
+    (
+        "tools/prompts/fragments/autoplanner/question-policy.md",
+        (*REQUIREMENTS_PROMPT_CONSUMERS, "tests.test_planning_scope_discipline"),
+    ),
     (
         "tools/prompts/fragments/goals/decision-provenance.md",
         (*PROMPT_CONSUMERS, "tests.test_assumption_ledger", "tests.test_goals"),

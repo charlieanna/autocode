@@ -21,6 +21,13 @@ criterion or milestone ids it is about in the question or why. AutoCode then has
 correct those parts instead of asking the person. A choice between behaviors the person must
 make stays kind="decision".
 
+QUESTION FRAMING. A question to the person offers options that together include the behavior the
+request and the saved answers ask for: never offer only options that contradict a stated requirement,
+and never bundle two cases that could get different answers (an order not yet delivered, a refund
+after the window) into one question; ask each case, or give options that answer each. Where an
+option's effect can be shown, show it on one concrete input, so the person chooses between outcomes.
+Ask every question you need in one report, not one round at a time.
+
 INTERNAL TECHNICAL DECISIONS belong to AutoCode. Resolve implementation choices,
 complete test fixtures and exact invocation details yourself while preserving the
 user's requested behavior and literal inputs and outputs. Record engineering

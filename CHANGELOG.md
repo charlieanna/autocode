@@ -9,6 +9,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Changed
+
+- **A vague request gets proposals, not a blank question**: Requirements used to answer "build me an adaptive engine" with "what do you want this to do?" and then two more rounds of abstract questions. It now says what it understood, offers the readings it sees as options written as short scenarios (recommending the likeliest), sketches how it would build that reading, and asks the choices it leaves open in the same round. Each option shows what you would see on one concrete input ("an order delivered at 23:00 on March 1 is refused from 23:00 on March 31"), and questions keep the behavior you asked for among their options. You can always answer in your own words.
 ### Added
 
 - **Mutation evidence for Maven, Gradle, PHPUnit and CTest proofs**: their proofs are judged by exit code, so the mutation check ran no mutant and every executed changed line in Java, Kotlin, C, C++ or PHP still needed a reason written by the Tester. Each of these runners writes JUnit XML naming its tests; the mutation check now reads it (removing earlier reports before each run), takes the tests the unmutated run reports passing, and counts a mutant killed only when one of them failed in that run's report. Changed `.java`, `.kt`, `.c`, `.h`, `.cpp` and `.php` lines get the same operators as Go and JavaScript; a mutant that does not compile is not a site, and Maven, Gradle and CTest mutants get later modification times so the build compiles them.

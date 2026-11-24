@@ -125,6 +125,16 @@ report repair, routing, stage scheduling, or any pause AutoCode can settle itsel
  same way, in any issue, not only in new code. Do not add a new person question,
  flag or confirmation for machinery to work around one.
 
+**Propose, then ask, owner decision 2026-11-24.** AutoCode's main job with a vague request is
+to help the person see what finished work looks like before a plan exists. Requirements
+restates the request, offers the readings it sees as options written as short scenarios
+(with the likeliest recommended), sketches how it would build that reading, and asks the
+forks it leaves open in the same round; each option shows its outcome on one concrete
+input. Only an unreproduced bug still gets one open question asking for a recent example
+(`tools/prompts/requirements-gather.md`, QUESTION FRAMING in
+`tools/prompts/fragments/autoplanner/question-policy.md`). Before, a vague request got a
+blank "what do you want this to do?" and two or three more rounds of abstract questions.
+
 Spending caps, model routes the owner chose and other publishing decisions remain
 the owner's. Repository merges by the operating agent follow the delegation above;
 automatic merging by the AutoCode product or its clients remains unauthorized.
