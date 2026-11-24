@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import ast
 import hashlib
-import json
 import re
 import tokenize
 import types
@@ -218,7 +217,7 @@ def refine_inventory(inventory_rows, authenticated_coverage, *, source_revision,
         or not proof_context
         or authenticated_coverage.get("source_revision") != source_revision
         or authenticated_coverage.get("proof_context") != proof_context
-        or authenticated_coverage.get("tool") not in {"coverage.py", "go coverprofile", "c8", "vitest"}
+        or authenticated_coverage.get("tool") not in diff_coverage.TOOLS
         or not isinstance(authenticated_coverage.get("files"), list)
     ):
         return result
@@ -277,10 +276,9 @@ def coverage_envelope(report, inventory_rows, *, source_revision, proof_context,
                 line for line in raw.decode().splitlines() if not re.search(r":\d+\.\d+,\d+\.\d+\s+0\s+\d+$", line)
             )
             executed, missing = diff_coverage.parse_go_cover(text, source_root)
-        elif tool in ("c8", "vitest"):
-            executed, missing = diff_coverage.parse_istanbul(json.loads(raw), source_root)
-        elif tool == "coverage.py":
-            executed, missing = diff_coverage.parse_coverage_json(json.loads(raw), source_root)
+        elif tool in diff_coverage.TOOLS:
+            known = [row["path"] for row in inventory_rows]
+            executed, missing = diff_coverage.parse(tool, raw, source_root, known)
         else:
             return result
         if any(
