@@ -1,12 +1,8 @@
-import contextlib
-import io
-import runpy
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 TODO = Path(__file__).resolve().parent / "todo.py"
 
@@ -18,24 +14,10 @@ class TodoTests(unittest.TestCase):
         self.store = Path(self.dir.name) / "todos.json"
 
     def todo(self, *args):
-        # Keep the broken format and its self-consistent assertions intact.
-        # The independent oracle still rejects it through real CLI processes.
-        argv = [str(TODO), *args]
-        stdout, stderr = io.StringIO(), io.StringIO()
-        code = 0
-        with (
-            contextlib.chdir(self.dir.name),
-            patch.object(sys, "argv", argv),
-            contextlib.redirect_stdout(stdout),
-            contextlib.redirect_stderr(stderr),
-        ):
-            try:
-                runpy.run_path(str(TODO), run_name="__main__")
-            except SystemExit as error:
-                code = error.code if isinstance(error.code, int) else 0 if error.code is None else 1
-                if error.code is not None and not isinstance(error.code, int):
-                    print(error.code, file=sys.stderr)
-        return subprocess.CompletedProcess(argv, code, stdout.getvalue(), stderr.getvalue())
+        # Keep the broken format and its self-consistent assertions intact. A real CLI process
+        # keeps the proof's source resolution observable; runpy is a dynamic loader.
+        command = [sys.executable, str(TODO), *args]
+        return subprocess.run(command, cwd=self.dir.name, capture_output=True, text=True)
 
     def test_add_list_complete(self):
         self.todo("add", "buy milk")
