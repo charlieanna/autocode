@@ -9,10 +9,16 @@ from pathlib import Path, PurePosixPath
 
 try:
     from . import autocode_project_kinds as project_kinds
+    from . import autocode_shell_syntax as shell_syntax
     from . import autocode_test_setup as test_setup
 except ImportError:
     import autocode_project_kinds as project_kinds
+    import autocode_shell_syntax as shell_syntax
     import autocode_test_setup as test_setup
+
+# The shell syntax that makes a command more than one Python invocation. Not the backslash: a Windows
+# interpreter path holds one.
+PYTHON_SHELL_SYNTAX = ";&|<>`$\n"
 
 COLLECTION_ERROR = re.compile(r"unittest\.loader\.(_FailedTest|ModuleImportFailure)|^::")
 # A test method, or a module unittest skipped at import: "pkg.mod (unittest.loader.ModuleSkipped.pkg.mod)" (#2944).
@@ -379,7 +385,7 @@ def parse(command, *, include_owned=False):
     Recognizing a script for named selection does not give it those capabilities.
     """
     """Accept Python directly or behind env with literal NAME=value assignments."""
-    if not isinstance(command, str) or re.search(r"[;&|<>`$\n]", command):
+    if not isinstance(command, str) or shell_syntax.outside_quotes(command, PYTHON_SHELL_SYNTAX):
         return None
     try:
         words = shlex.split(command)
@@ -419,7 +425,7 @@ def verbose_unittest(command):
     report. ``discover`` has to stay the first argument. A shell program is
     left alone: its text is not a single unittest invocation.
     """
-    if not isinstance(command, str) or re.search(r"[;&|<>`$\n]", command):
+    if not isinstance(command, str) or shell_syntax.outside_quotes(command, PYTHON_SHELL_SYNTAX):
         return command
     try:
         words = shlex.split(command)

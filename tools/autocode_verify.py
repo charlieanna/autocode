@@ -27,10 +27,12 @@ from __future__ import annotations
 try:
     from . import autocode_joint_inputs as joint_inputs
     from . import autocode_native_check_execution as native_checks
+    from . import autocode_shell_syntax as shell_syntax
     from . import autocode_source_snapshot as source_snapshot
 except ImportError:
     import autocode_joint_inputs as joint_inputs
     import autocode_native_check_execution as native_checks
+    import autocode_shell_syntax as shell_syntax
     import autocode_source_snapshot as source_snapshot
 
 import contextlib
@@ -1207,7 +1209,7 @@ def execution_identity(
     python_command = bool(
         words
         and re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", Path(words[0]).name)
-        and not re.search(r"[;&|<>`$\n]", command)
+        and not shell_syntax.outside_quotes(command, ";&|<>`$\n")
     )
     python = (
         invocation.python if invocation else words[0] if python_command else python_for(dependencies_from or workspace)
@@ -1620,7 +1622,7 @@ def scratch_run(
                 if (
                     words[1:3] == ["-m", "unittest"]
                     and receipt["exit_code"] == 0
-                    and not re.search(r"[;&|<>`$\n]", command)
+                    and not shell_syntax.outside_quotes(command, ";&|<>`$\n")
                 ):
                     text = Path(receipt["output"]).read_text(errors="replace")
                     ran = re.findall(r"^Ran (\d+) tests? in ", text, re.M)

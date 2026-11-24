@@ -10,6 +10,11 @@ from __future__ import annotations
 
 import json
 import re
+
+try:
+    from . import autocode_shell_syntax as shell_syntax
+except ImportError:
+    import autocode_shell_syntax as shell_syntax
 import shlex
 from pathlib import Path
 
@@ -18,7 +23,7 @@ SPELLINGS = (["test"], ["t"], ["run", "test"], ["run-script", "test"])
 
 def words(command) -> list[str] | None:
     """The words of one plain command, or None for a shell construct the runner will not rewrite."""
-    if not isinstance(command, str) or re.search(r"[;&|<>`$()\n\r]", command):
+    if not isinstance(command, str) or shell_syntax.outside_quotes(command, ";&|<>`$()\n\r"):
         return None
     try:
         return shlex.split(command)

@@ -19,8 +19,10 @@ from pathlib import Path
 
 try:
     from . import autocode_python_tests as python_tests
+    from . import autocode_shell_syntax as shell_syntax
 except ImportError:
     import autocode_python_tests as python_tests
+    import autocode_shell_syntax as shell_syntax
 
 HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 # Copied beside the evidence and run by the project's interpreter; see its docstring.
@@ -158,7 +160,7 @@ def prepare(framework, command, tree, evidence_dir) -> dict | None:
         )
         finalize = shlex.join([invocation.python, "-m", "coverage", "json", f"--data-file={data}", "-o", str(report)])
         return {"tool": "coverage.py", "command": wrapped, "finalize": finalize, "report": report}
-    if name == "go" and command.startswith("go test ") and not re.search(r"[;&|<>`$()\n]", command):
+    if name == "go" and command.startswith("go test ") and not shell_syntax.outside_quotes(command):
         evidence_dir.mkdir(parents=True, exist_ok=True)
         report = evidence_dir / "cover.out"
         wrapped = "go test -coverprofile=" + shlex.quote(str(report)) + " " + command[len("go test ") :]

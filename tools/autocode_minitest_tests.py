@@ -26,12 +26,13 @@ from pathlib import Path, PurePosixPath
 
 try:
     from . import autocode_project_kinds as project_kinds
+    from . import autocode_shell_syntax as shell_syntax
 except ImportError:
     import autocode_project_kinds as project_kinds
+    import autocode_shell_syntax as shell_syntax
 
 COLLECTION = "::[collection]"
 _ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
-_SHELL_META = re.compile(r"[;&|<>`$()\n\r\\]")
 # Quiet/custom Minitest formatters drop the standard `# = X.XX s = .` lines we parse.
 _CONFLICTING_FLAGS = frozenset({"-q", "--quiet", "--pride", "--junit", "--junit-filename"})
 _TEST_LINE = re.compile(r"^(.+)#(test_.+?)\s+=\s+\d+(?:\.\d+)?\s+s\s+=\s+([.FES])\s*$")
@@ -121,24 +122,7 @@ def _has_verbose(words: list[str], *, after_sep_only: bool = False) -> bool:
 
 def _has_unquoted_shell_meta(command: str) -> bool:
     """True when ``command`` contains shell control/expansion syntax outside literal quotes."""
-    mode: str | None = None
-    for ch in command:
-        if mode is None:
-            if ch in ("'", '"'):
-                mode = ch
-            elif _SHELL_META.search(ch):
-                return True
-        elif mode == "'":
-            if ch == "'":
-                mode = None
-            elif ch in ("\n", "\r"):
-                return True
-        else:
-            if ch == '"':
-                mode = None
-            elif ch in ("`", "$", "\\", "\n", "\r"):
-                return True
-    return mode is not None
+    return shell_syntax.outside_quotes(command)
 
 
 def command_words(command) -> list[str] | None:

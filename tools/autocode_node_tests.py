@@ -18,10 +18,12 @@ from pathlib import Path, PurePosixPath
 try:
     from . import autocode_command_receipt as command_receipt
     from . import autocode_npm_scripts as npm_scripts
+    from . import autocode_shell_syntax as shell_syntax
     from . import autocode_util as util
 except ImportError:
     import autocode_command_receipt as command_receipt
     import autocode_npm_scripts as npm_scripts
+    import autocode_shell_syntax as shell_syntax
     import autocode_util as util
 
 VALUE_OPTIONS = {
@@ -71,13 +73,7 @@ def command_words(command):
         words = shlex.split(command)
     except ValueError:
         return None
-    shell_syntax = r"[;&|<>`$()\n\r]"
-    if re.search(shell_syntax, command) and not (
-        len(words) > 1
-        and words[1].startswith("--test-skip-pattern=")
-        and command == shlex.join(words)
-        and not re.search(shell_syntax, shlex.join([words[0], *words[2:]]))
-    ):
+    if shell_syntax.outside_quotes(command, ";&|<>`$()\n\r"):
         return None
     if len(words) < 2 or Path(words[0]).name not in ("node", "node.exe") or "--test" not in words:
         return None
