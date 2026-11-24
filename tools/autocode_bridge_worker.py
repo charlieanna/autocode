@@ -122,11 +122,14 @@ def start_issue_run(
     run_name: str | None = None,
     owned: bool = False,
     requested_by: dict | None = None,
+    allowance: dict | None = None,
 ) -> dict:
     """Provision the issue worktree and start a durable run on it; the bridge record fields.
 
     ``requested_by`` (the GitHub login that applied the label, autocode_bridge_cli.requester) is saved on
     the bridge record before the launch, so a start the bridge did not survive keeps who asked for it.
+    ``allowance`` (the run's ``period`` and ``reserved_usd``, autocode_bridge_allowance) is saved with it,
+    so that start's reservation counts against the requester's allowance from the first moment.
     """
     project = Path(project).resolve()
     options = provider_options(list(options))
@@ -182,6 +185,7 @@ def start_issue_run(
     }
     if requested_by:
         bridge_record["requested_by"] = dict(requested_by)
+    bridge_record.update(allowance or {})
     # The bridge's own record is saved before the launch as well. In the no-systemd mode the launch
     # returns only at the run's first stop, minutes later: a bridge stopped meanwhile left a run it never
     # adopted, refused the issue at every later poll and did not count it against the limit (2026-11-14).
