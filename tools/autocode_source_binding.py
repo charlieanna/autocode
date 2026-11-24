@@ -32,6 +32,7 @@ PROBE_FILES = (
     "autocode_source_probe.py",
     "autocode_python_tests.py",
     "autocode_project_kinds.py",
+    "autocode_shell_syntax.py",
     "autocode_test_setup.py",
 )
 

@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -849,6 +850,24 @@ class SourceBindingTests(unittest.TestCase):
                 for row in result["observations"]
             ),
             result,
+        )
+
+    def test_retained_probe_files_are_the_probe_import_closure(self):
+        # The retained runtime is a hand-named set; when a retained module gains an import the
+        # copy crashes at startup (#4170 added autocode_shell_syntax to autocode_python_tests).
+        tools = Path(source_binding.__file__).parent
+        seen, queue = set(), ["autocode_source_probe.py"]
+        while queue:
+            name = queue.pop()
+            if name in seen or not (tools / name).is_file():
+                continue
+            seen.add(name)
+            text = (tools / name).read_text()
+            queue.extend(f"{match}.py" for match in re.findall(r"import (autocode_\w+)", text))
+        self.assertEqual(
+            seen,
+            set(source_binding.PROBE_FILES),
+            "an import of the retained observer is missing from PROBE_FILES",
         )
 
     def test_project_cannot_replace_the_retained_observer_sources(self):
