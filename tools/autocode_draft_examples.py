@@ -153,6 +153,43 @@ def layout_padding(before, after):
     )
 
 
+# One stdout assertion, however the criterion spells it: "stdout is exactly 'X'", "prints `X` to stdout",
+# "it writes exactly "X" to stdout". The quote may be a backtick, a single or a double quote.
+_STDOUT_CLAUSE = (
+    r"(?:stdout\s+is\s+(?:exactly\s+)?{q}"
+    r"|(?:it\s+)?(?:writes?|prints?|outputs?)\s+(?:exactly\s+)?{q}\s+to\s+stdout\b)"
+)
+
+
+def stdout_clause(text, literal):
+    """The span of the one stdout assertion in ``text`` whose quoted value is exactly ``literal``, or None.
+
+    None when the literal is not quoted in such an assertion, or appears anywhere else in the text, so a
+    correction can never move a second copy of it."""
+    if not literal or text.count(literal) != 1:
+        return None
+    spans = [
+        match.span()
+        for quote in ("`", "'", '"')
+        for match in re.finditer(_STDOUT_CLAUSE.format(q=re.escape(quote + literal + quote)), text, re.IGNORECASE)
+    ]
+    return spans[0] if len(spans) == 1 else None
+
+
+def only_stdout_changed(text, revised, before, after):
+    """Whether ``revised`` is ``text`` with only its stdout assertion's value ``before`` replaced by ``after``.
+
+    Decided by what changed, not by how the criterion was first spelled: the assertion around each literal
+    may be written in any of the stdout forms above (the Planner is asked to write the explicit
+    "writes exactly `X` to stdout" form when it corrects one), and every word outside it must stay. A live
+    run (2026-11-24) wrote "stdout is exactly '...'"; its reviewer-backed padding correction was refused
+    for that spelling alone and the person was asked to choose between two strings one space apart."""
+    old, new = stdout_clause(text, before), stdout_clause(revised, after)
+    if old is None or new is None:
+        return False
+    return text[: old[0]] + "\0" + text[old[1] :] == revised[: new[0]] + "\0" + revised[new[1] :]
+
+
 def quoted_line_padding(text, revised, before, after, sources):
     """Accept the same explicit stdout assertion written as a list of quoted lines."""
     old, new = spelling(before), spelling(after)
@@ -244,20 +281,13 @@ def corrections(state: RunState, before, after, changes, user_basis):
             or not (numeric_stdout(previous, replacement) or layout_padding(previous, replacement))
         ):
             continue
-        literal = "`" + previous + "`"
         text = old[cid]["criterion"]
         if user_literal(previous, sources):
             continue
         revised = new[cid]["criterion"]
-        prefix, separator, suffix = text.partition(literal)
-        canonical = (
-            separator
-            and literal not in suffix
-            and re.search(r"\b(?:writes?|prints?)\s+(?:exactly\s+)?$", prefix, re.I)
-            and re.match(r"\s+(?:to\s+)?stdout\b", suffix, re.I)
-            and revised == prefix + "`" + replacement + "`" + suffix
-        )
-        if not canonical and not quoted_line_padding(text, revised, previous, replacement, sources):
+        if not only_stdout_changed(text, revised, previous, replacement) and not quoted_line_padding(
+            text, revised, previous, replacement, sources
+        ):
             continue
         for concern in review.get("concerns", []):
             evidence = " ".join(strings(concern))

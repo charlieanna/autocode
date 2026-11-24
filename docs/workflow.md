@@ -323,6 +323,12 @@ questions cannot silently disappear from the draft. A handoff that has only ques
 far, with no behaviors or acceptance tests yet (a vague request), stops the run for your
 answers before any Planner call, on every flow; Requirements then runs again with them.
 
+For a vague request, Requirements proposes before it asks: it says what it understood,
+offers the readings it sees as options written as short scenarios (recommending the
+likeliest), sketches how it would build that reading, and asks the choices that reading
+leaves open in the same round. Each option shows what you would see on one concrete
+input, so you choose between outcomes. You can always answer in your own words instead.
+
 Each question is classified by `kind` (`discoverable`, `inferable`, or `decision`),
 `category`, and `delegable`. A **discoverable** question, one the workspace can answer,
 is never shown to you. The first time the Requirements Gatherer or Planner asks one in a

@@ -18,12 +18,43 @@ class RequirementsQuestionContractTests(unittest.TestCase):
                 flat(requirements_prompt.render(prompts.get("requirements-gather.md"), schema)),
             )
 
-    def test_open_ended_questions_are_only_for_missing_intent_or_an_unreproduced_bug(self):
+    def test_a_vague_request_gets_proposed_readings_and_a_sketch_not_a_blank_question(self):
+        """Owner decision 2026-11-24: for "build me an adaptive engine" Requirements listed five
+        readings in its own `why` and asked "what do you want this to do?" with no options, because
+        this prompt forbade a menu. A person recognizes finished work when shown it, so a vague
+        request now gets the readings as scenario options, a recommended one and an approach sketch;
+        only an unreproduced bug still gets the open question asking for a recent example."""
         for conversational, text in self.rendered():
             with self.subTest(conversational=conversational):
-                self.assertIn("TIER 1, MISSING INTENT. Ask one focused, open-ended question at a time", text)
-                self.assertIn("no outcome is named yet, or a reported bug cannot be reproduced", text)
-                self.assertIn('Use options=[] and proposed_default="" for these exploratory questions', text)
+                self.assertIn("propose, then ask (owner decision 2026-11-24)", text)
+                self.assertIn("offer two to four concrete readings as options", text)
+                self.assertIn("each written as a short user scenario a person can picture", text)
+                self.assertIn(
+                    "set proposed_default to the reading the request and the repository make most likely", text
+                )
+                self.assertIn("sketch in", text)
+                self.assertIn("how the recommended reading would work", text)
+                self.assertIn("ask in this same round the forks that reading leaves open", text)
+                self.assertIn("A reported bug that cannot be reproduced", text)
+                self.assertIn('with options=[] and proposed_default=""', text)
+                self.assertNotIn("Do not invent a menu", text)
+                self.assertNotIn("Ask one focused, open-ended question at a time", text)
+        conversation = flat(prompts.get("fragments/autoplanner/requirements-conversation.md"))
+        self.assertIn("propose before you ask", conversation)
+        self.assertNotIn("do not turn that conversation into a choice menu", conversation)
+
+    def test_options_show_an_outcome_and_the_things_only_the_person_knows_come_in_the_same_round(self):
+        """2026-11-24 live runs: options were prose labels ("Exactly 30x24 hours") with no example of
+        which refund they refuse, and the Kibana service's language and log fields were asked a round
+        later by the Planner, or never."""
+        for conversational, text in self.rendered():
+            with self.subTest(conversational=conversational):
+                self.assertIn("Write each option as what the user would see on one concrete input", text)
+                self.assertIn("so the user chooses between outcomes, not abstract labels", text)
+                self.assertIn("the language or platform for new code in an empty repository", text)
+                self.assertIn("the shape of external data the change reads or receives", text)
+                self.assertIn("offer to take a pasted sample instead of an answer", text)
+                self.assertIn("whether parts outside the repository", text)
 
     def test_code_grounded_forks_are_asked_together_with_options_and_a_recommendation(self):
         for conversational, text in self.rendered():
@@ -69,7 +100,8 @@ class RequirementsQuestionContractTests(unittest.TestCase):
                     self.assertIn(dimension, text)
                 self.assertIn(
                     "while Tier 1 is still asking what the outcome is, outcome_scope is open_question naming "
-                    "that question and the other five dimensions are not_applicable",
+                    "that question, each fork asked in the same round is named by its own dimension, and the "
+                    "dimensions nothing yet decides are not_applicable",
                     text,
                 )
                 self.assertNotIn("for every dimension while Tier 1", text)
