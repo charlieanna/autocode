@@ -1,0 +1,1028 @@
+{
+  "repositories": [
+    {
+      "id": "cjson",
+      "language": "c",
+      "git": "https://github.com/DaveGamble/cJSON",
+      "commit": "6d9f2443ab071f86e5d9b43025a40929ec41c46c",
+      "prepare": [],
+      "note": "make test reports only an exit code, so no test is named and nothing can be narrowed.",
+      "expect": {
+        "runner": "make",
+        "base": "passing",
+        "targeted": false,
+        "mutation": false,
+        "coverage": null
+      }
+    },
+    {
+      "id": "jsmn",
+      "language": "c",
+      "git": "https://github.com/zserge/jsmn",
+      "commit": "25647e692c7906b96ffd2b05ca54c097948e879c",
+      "prepare": [],
+      "note": "make test reports only an exit code, so no test is named and nothing can be narrowed.",
+      "expect": {
+        "runner": "make",
+        "base": "passing",
+        "targeted": false,
+        "mutation": false,
+        "coverage": null
+      }
+    },
+    {
+      "id": "parson",
+      "language": "c",
+      "git": "https://github.com/kgabis/parson",
+      "commit": "ec53fb6528b45811df9db0db22cab96a94a96a11",
+      "prepare": [],
+      "note": "make test reports only an exit code, so no test is named and nothing can be narrowed.",
+      "expect": {
+        "runner": "make",
+        "base": "passing",
+        "targeted": false,
+        "mutation": false,
+        "coverage": null
+      }
+    },
+    {
+      "id": "cast",
+      "language": "go",
+      "git": "https://github.com/spf13/cast",
+      "commit": "d8e892d16caba3fc13f781dcf4b3f4dd8976999c",
+      "prepare": [
+        "go mod download"
+      ],
+      "expect": {
+        "runner": "go",
+        "base": "passing",
+        "targeted": true,
+        "mutation": true,
+        "coverage": "go coverprofile"
+      }
+    },
+    {
+      "id": "color",
+      "language": "go",
+      "git": "https://github.com/fatih/color",
+      "commit": "820c6ebc21b06a3a5328297d556a87f91556e577",
+      "prepare": [
+        "go mod download"
+      ],
+      "expect": {
+        "runner": "go",
+        "base": "passing",
+        "targeted": true,
+        "mutation": true,
+        "coverage": "go coverprofile"
+      }
+    },
+    {
+      "id": "envconfig",
+      "language": "go",
+      "git": "https://github.com/kelseyhightower/envconfig",
+      "commit": "7834011875d613aec60c606b52c2b0fe8949fe91",
+      "prepare": [
+        "go mod download"
+      ],
+      "expect": {
+        "runner": "go",
+        "base": "passing",
+        "targeted": true,
+        "mutation": true,
+        "coverage": "go coverprofile"
+      }
+    },
+    {
+      "id": "golang-lru",
+      "language": "go",
+      "git": "https://github.com/hashicorp/golang-lru",
+      "commit": "2bb29091a6c341aba625d23fea354c4fbaef5d6f",
+      "prepare": [
+        "go mod download"
+      ],
+      "expect": {
+        "runner": "go",
+        "base": "passing",
+        "targeted": true,
+        "mutation": true,
+        "coverage": "go coverprofile"
+      }
+    },
+    {
+      "id": "groupcache",
+      "language": "go",
+      "git": "https://github.com/golang/groupcache",
+      "commit": "2c02b8208cf8c02a3e358cb1d9b60950647543fc",
+      "prepare": [
+        "go mod download"
+      ],
+      "note": "Open: the narrowed run of TestTruncatingByteSliceTarget and the first test does not report both passing.",
+      "expect": {
+        "runner": "go",
+        "base": "passing",
+        "targeted": false,
+        "mutation": false,
+        "coverage": "go coverprofile"
+      }
+    },
+    {
+      "id": "httprouter",
+      "language": "go",
+      "git": "https://github.com/julienschmidt/httprouter",
+      "commit": "484018016424d215c0b87c42f4c9b57d980fbd00",
+      "prepare": [
+        "go mod download"
+      ],
+      "expect": {
+        "runner": "go",
+        "base": "passing",
+        "targeted": true,
+        "mutation": true,
+        "coverage": "go coverprofile"
+      }
+    },
+    {
+      "id": "objx",
+      "language": "go",
+      "git": "https://github.com/stretchr/objx",
+      "commit": "0ad041f3facceb279392388d9bbb88b1f8fa699f",
+      "prepare": [
+        "go mod download"
+      ],
+      "expect": {
+        "runner": "go",
+        "base": "passing",
+        "targeted": true,
+        "mutation": true,
+        "coverage": "go coverprofile"
+      }
+    },
+    {
+      "id": "toml",
+      "language": "go",
+      "git": "https://github.com/BurntSushi/toml",
+      "commit": "d733fc535e4a9f3c454e421a87b90ade5d49bf31",
+      "prepare": [
+        "go mod download"
+      ],
+      "expect": {
+        "runner": "go",
+        "base": "passing",
+        "targeted": true,
+        "mutation": true,
+        "coverage": "go coverprofile"
+      }
+    },
+    {
+      "id": "uuid",
+      "language": "go",
+      "git": "https://github.com/google/uuid",
+      "commit": "2d3c2a9cc518326daf99a383f07c4d3c44317e4d",
+      "prepare": [
+        "go mod download"
+      ],
+      "expect": {
+        "runner": "go",
+        "base": "passing",
+        "targeted": true,
+        "mutation": true,
+        "coverage": "go coverprofile"
+      }
+    },
+    {
+      "id": "commons-cli",
+      "language": "java",
+      "git": "https://github.com/apache/commons-cli",
+      "commit": "da2a34d7c997ad2c17ad574af165ad3391fab090",
+      "prepare": [],
+      "note": "Maven reports only an exit code unless a JUnit report is given (--test-report); the build's own JaCoCo measures the suite.",
+      "expect": {
+        "runner": "maven",
+        "base": "passing",
+        "targeted": false,
+        "mutation": false,
+        "coverage": "jacoco"
+      }
+    },
+    {
+      "id": "commons-codec",
+      "language": "java",
+      "git": "https://github.com/apache/commons-codec",
+      "commit": "f1007c88e7149a06f15a7bb9837242410361c5d8",
+      "prepare": [],
+      "note": "Maven reports only an exit code unless a JUnit report is given (--test-report); the build's own JaCoCo measures the suite.",
+      "expect": {
+        "runner": "maven",
+        "base": "passing",
+        "targeted": false,
+        "mutation": false,
+        "coverage": "jacoco"
+      }
+    },
+    {
+      "id": "commons-csv",
+      "language": "java",
+      "git": "https://github.com/apache/commons-csv",
+      "commit": "e3f6728fd781b9a0d5be57a78cb8d11f801f1fe9",
+      "prepare": [],
+      "note": "Maven reports only an exit code unless a JUnit report is given (--test-report); the build's own JaCoCo measures the suite.",
+      "expect": {
+        "runner": "maven",
+        "base": "passing",
+        "targeted": false,
+        "mutation": false,
+        "coverage": "jacoco"
+      }
+    },
+    {
+      "id": "jcommander",
+      "language": "java",
+      "git": "https://github.com/cbeust/jcommander",
+      "commit": "1b4fb692dd00a46ac2d36f961ecf8a3e9707542d",
+      "prepare": [],
+      "note": "Gradle reports only an exit code unless a JUnit report is given (--test-report).",
+      "expect": {
+        "runner": "gradle",
+        "base": "passing",
+        "targeted": false,
+        "mutation": false,
+        "coverage": null
+      }
+    },
+    {
+      "id": "jsoup",
+      "language": "java",
+      "git": "https://github.com/jhy/jsoup",
+      "commit": "d90d57521d931db7bf7ee464a4c0a1a9293db088",
+      "prepare": [],
+      "note": "Maven reports only an exit code unless a JUnit report is given (--test-report).",
+      "expect": {
+        "runner": "maven",
+        "base": "passing",
+        "targeted": false,
+        "mutation": false,
+        "coverage": null
+      }
+    },
+    {
+      "id": "clsx",
+      "language": "javascript",
+      "git": "https://github.com/lukeed/clsx",
+      "commit": "925494cf31bcd97d3337aacd34e659e80cae7fe2",
+      "prepare": [
+        "if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; elif [ -f yarn.lock ]; then yarn install --frozen-lockfile; elif [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi"
+      ],
+      "note": "The suite fails at this commit on Node 22: uvu cannot load the test files.",
+      "expect": {
+        "runner": "npm",
+        "base": "failing",
+        "targeted": false,
+        "mutation": false,
+        "coverage": null
+      }
+    },
+    {
+      "id": "commander.js",
+      "language": "javascript",
+      "git": "https://github.com/tj/commander.js",
+      "commit": "a5a7dc084d4d2b7932e85ca049c5204e50a2c721",
+      "prepare": [
+        "if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; elif [ -f yarn.lock ]; then yarn install --frozen-lockfile; elif [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi"
+      ],
+      "note": "Open: npm test chains node --test with a type check, and the chain's node:test results are not read.",
+      "expect": {
+        "runner": "node",
+        "base": "passing",
+        "targeted": false,
+        "mutation": false,
+        "coverage": null
+      }
+    },
+    {
+      "id": "cookie",
+      "language": "javascript",
+      "git": "https://github.com/jshttp/cookie",
+      "commit": "a437ef03993af559900010f62c294647589c29db",
+      "prepare": [
+        "if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; elif [ -f yarn.lock ]; then yarn install --frozen-lockfile; elif [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi"
+      ],
+      "note": "npm test runs ts-scripts, an opaque wrapper, so only its exit code is read.",
+      "expect": {
+        "runner": "vitest",
+        "base": "passing",
+        "targeted": false,
+        "mutation": false,
+        "coverage": null
+      }
+    },
+    {
+      "id": "debug",
+      "language": "javascript",
+      "git": "https://github.com/debug-js/debug",
+      "commit": "666dbc50680933bde9e7fde3a6c3241102e8f60b",
+      "prepare": [
+        "if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; elif [ -f yarn.lock ]; then yarn install --frozen-lockfile; elif [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi"
+      ],
+      "note": "npm test runs the xo linter first, which reports an error at this commit.",
+      "expect": {
+        "runner": "mocha",
+        "base": "failing",
+        "targeted": false,
+        "mutation": false,
+        "coverage": null
+      }
+    },
+    {
+      "id": "defu",
+      "language": "javascript",
+      "git": "https://github.com/unjs/defu",
+      "commit": "82632b66f5914e9946edce300e10633a3d5c0cb7",
+      "prepare": [
+        "if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; elif [ -f yarn.lock ]; then yarn install --frozen-lockfile; elif [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi"
+      ],
+      "note": "Open: npm test chains lint with pnpm vitest run, and a runner started through pnpm is not read.",
+      "expect": {
+        "runner": "vitest",
+        "base": "passing",
+        "targeted": false,
+        "mutation": false,
+        "coverage": null
+      }
+    },
+    {
+      "id": "escape-html",
+      "language": "javascript",
+      "git": "https://github.com/component/escape-html",
+      "commit": "b42947eefa79efff01b3fe988c4c7e7b051ec8d8",
+      "prepare": [
+        "if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; elif [ -f yarn.lock ]; then yarn install --frozen-lockfile; elif [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi"
+      ],
+      "note": "Open: mocha 2 writes its JSON report to standard output, which AutoCode does not read.",
+      "expect": {
+        "runner": "mocha",
+        "base": "broken",
+        "targeted": false,
+        "mutation": false,
+        "coverage": null
+      }
+    },
+    {
+      "id": "express",
+      "language": "javascript",
+      "git": "https://github.com/expressjs/express",
+      "commit": "43fca52d28a422c8be48fd489cbd4f2d6152bab6",
+      "prepare": [
+        "if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; elif [ -f yarn.lock ]; then yarn install --frozen-lockfile; elif [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi"
+      ],
+      "note": "Open: npm test runs mocha with --reporter spec, whose results AutoCode does not read.",
+      "expect": {
+        "runner": "mocha",
+        "base": "passing",
+        "targeted": false,
+        "mutation": false,
+        "coverage": null
+      }
+    },
+    {
+      "id": "js-yaml",
+      "language": "javascript",
+      "git": "https://github.com/nodeca/js-yaml",
+      "commit": "3edb91fbc78a10a8ddc15d2e82c8f6d0baa1c3d3",
+      "prepare": [
+        "if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; elif [ -f yarn.lock ]; then yarn install --frozen-lockfile; elif [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi"
+      ],
+      "note": "Open: the node:test results of this suite are not read.",
+      "expect": {
+        "runner": "node",
+        "base": "broken",
+        "targeted": false,
+        "mutation": false,
+        "coverage": null
+      }
+    },
+    {
+      "id": "ms",
+      "language": "javascript",
+      "git": "https://github.com/vercel/ms",
+      "commit": "4ff48cec099f0514c3e9bbca18706c9c21122bfb",
+      "prepare": [
+        "if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; elif [ -f yarn.lock ]; then yarn install --frozen-lockfile; elif [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi"
+      ],
+      "note": "npm test runs further pnpm scripts, so only its exit code is read.",
+      "expect": {
+        "runner": "jest",
+        "base": "passing",
+        "targeted": false,
+        "mutation": false,
+        "coverage": null
+      }
+    },
+    {
+      "id": "nanoid",
+      "language": "javascript",
+      "git": "https://github.com/ai/nanoid",
+      "commit": "055d1700cc67ac843e3efb5235d806b419ec7b2b",
+      "prepare": [
+        "if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; elif [ -f yarn.lock ]; then yarn install --frozen-lockfile; elif [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi"
+      ],
+      "note": "npm test runs pnpm scripts by pattern, so only its exit code is read.",
+      "expect": {
+        "runner": "node",
+        "base": "passing",
+        "targeted": false,
+        "mutation": false,
+        "coverage": null
+      }
+    },
+    {
+      "id": "node-semver",
+      "language": "javascript",
+      "git": "https://github.com/isaacs/node-semver",
+      "commit": "cb1ca1d5480a6c07c12ac31ba5f2071ed530c4ed",
+      "prepare": [
+        "if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; elif [ -f yarn.lock ]; then yarn install --frozen-lockfile; elif [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi"
+      ],
+      "note": "Open: tap reports 'no tests found' for every file in the clean copy.",
+      "expect": {
+        "runner": "npm",
+        "base": "failing",
+        "targeted": false,
+        "mutation": false,
+        "coverage": null
+      }
+    },
+    {
+      "id": "p-limit",
+      "language": "javascript",
+      "git": "https://github.com/sindresorhus/p-limit",
+      "commit": "a8a6fbec4e0e866d6d779b10889bb4f5567e70eb",
+      "prepare": [
+        "if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; elif [ -f yarn.lock ]; then yarn install --frozen-lockfile; elif [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi"
+      ],
+      "note": "npm test chains xo, ava and tsd; AutoCode has no AVA reader, so only the exit code is read.",
+      "expect": {
+        "runner": "npm",
+        "base": "passing",
+        "targeted": false,
+        "mutation": false,
+        "coverage": null
+      }
+    },
+    {
+      "id": "ufo",
+      "language": "javascript",
+      "git": "https://github.com/unjs/ufo",
+      "commit": "f06c800d0c59f2a4a1b9ba65eb6cb61a84419be6",
+      "prepare": [
+        "if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; elif [ -f yarn.lock ]; then yarn install --frozen-lockfile; elif [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi"
+      ],
+      "note": "Open: two rows of a test.each table print alike, and the Vitest reader refuses repeated names. Once read, an npm test chain is still not narrowed.",
+      "expect": {
+        "runner": "vitest",
+        "base": "broken",
+        "targeted": false,
+        "mutation": false,
+        "coverage": null
+      }
+    },
+    {
+      "id": "try-tiny",
+      "language": "perl",
+      "git": "https://github.com/p5sagit/Try-Tiny",
+      "commit": "1263cb9fb2a9758205917879529f5a2fcda71e9d",
+      "prepare": [],
+      "note": "prove reports only an exit code per run, so no test is named and nothing can be narrowed.",
+      "expect": {
+        "runner": "prove",
+        "base": "passing",
+        "targeted": false,
+        "mutation": false,
+        "coverage": null
+      }
+    },
+    {
+      "id": "fastroute",
+      "language": "php",
+      "git": "https://github.com/nikic/FastRoute",
+      "commit": "7bf572c21c879f53a70c8d53cc8f9b41e2b0b423",
+      "prepare": [],
+      "note": "Open: AutoCode detects no PHP runner (PHPUnit). Add composer install to prepare when it does.",
+      "expect": {
+        "runner": null,
+        "base": null,
+        "targeted": false,
+        "mutation": false,
+        "coverage": null
+      }
+    },
+    {
+      "id": "lexer",
+      "language": "php",
+      "git": "https://github.com/doctrine/lexer",
+      "commit": "51489dad40bc2361ba3ab022cde6cba10575dbea",
+      "prepare": [],
+      "note": "Open: AutoCode detects no PHP runner (PHPUnit). Add composer install to prepare when it does.",
+      "expect": {
+        "runner": null,
+        "base": null,
+        "targeted": false,
+        "mutation": false,
+        "coverage": null
+      }
+    },
+    {
+      "id": "math",
+      "language": "php",
+      "git": "https://github.com/brick/math",
+      "commit": "ee4c0fbc8846e5aca58c8983f6f7d285de09ef89",
+      "prepare": [],
+      "note": "Open: AutoCode detects no PHP runner (PHPUnit). Add composer install to prepare when it does.",
+      "expect": {
+        "runner": null,
+        "base": null,
+        "targeted": false,
+        "mutation": false,
+        "coverage": null
+      }
+    },
+    {
+      "id": "boltons",
+      "language": "python",
+      "git": "https://github.com/mahmoud/boltons",
+      "commit": "d31d821d56c8f7756af9c30a864077f2e5855321",
+      "prepare": [
+        "python3 -m venv .venv",
+        ".venv/bin/python -m pip install -q -e . pytest coverage"
+      ],
+      "expect": {
+        "runner": "pytest",
+        "base": "passing",
+        "targeted": true,
+        "mutation": true,
+        "coverage": "coverage.py"
+      }
+    },
+    {
+      "id": "click",
+      "language": "python",
+      "git": "https://github.com/pallets/click",
+      "commit": "08b803cf32ceb2ae6a772c62d5da42757a897d44",
+      "prepare": [
+        "python3 -m venv .venv",
+        ".venv/bin/python -m pip install -q -e . pytest coverage"
+      ],
+      "expect": {
+        "runner": "pytest",
+        "base": "passing",
+        "targeted": true,
+        "mutation": true,
+        "coverage": "coverage.py"
+      }
+    },
+    {
+      "id": "colorama",
+      "language": "python",
+      "git": "https://github.com/tartley/colorama",
+      "commit": "841634ed2a0da5d5ac2d867db533da8131266cb2",
+      "prepare": [
+        "python3 -m venv .venv",
+        ".venv/bin/python -m pip install -q -e . pytest coverage"
+      ],
+      "note": "Open: its tests are named *_test.py, which unittest discovery's default pattern does not collect.",
+      "expect": {
+        "runner": "unittest",
+        "base": "broken",
+        "targeted": false,
+        "mutation": false,
+        "coverage": null
+      }
+    },
+    {
+      "id": "glom",
+      "language": "python",
+      "git": "https://github.com/mahmoud/glom",
+      "commit": "fd70d3051a6a1bcb5152ec2d8e2cdc8e852f95e6",
+      "prepare": [
+        "python3 -m venv .venv",
+        ".venv/bin/python -m pip install -q -e . pytest coverage PyYAML tomli"
+      ],
+      "expect": {
+        "runner": "pytest",
+        "base": "passing",
+        "targeted": true,
+        "mutation": true,
+        "coverage": "coverage.py"
+      }
+    },
+    {
+      "id": "humanize",
+      "language": "python",
+      "git": "https://github.com/python-humanize/humanize",
+      "commit": "a95004512dde4e8f0269946bb4af754382347441",
+      "prepare": [
+        "python3 -m venv .venv",
+        ".venv/bin/python -m pip install -q -e .[tests] coverage"
+      ],
+      "expect": {
+        "runner": "pytest",
+        "base": "passing",
+        "targeted": true,
+        "mutation": true,
+        "coverage": "coverage.py"
+      }
+    },
+    {
+      "id": "itsdangerous",
+      "language": "python",
+      "git": "https://github.com/pallets/itsdangerous",
+      "commit": "672971d66a2ef9f85151e53283113f33d642dabd",
+      "prepare": [
+        "python3 -m venv .venv",
+        ".venv/bin/python -m pip install -q -e . pytest coverage freezegun"
+      ],
+      "expect": {
+        "runner": "pytest",
+        "base": "passing",
+        "targeted": true,
+        "mutation": true,
+        "coverage": "coverage.py"
+      }
+    },
+    {
+      "id": "markupsafe",
+      "language": "python",
+      "git": "https://github.com/pallets/markupsafe",
+      "commit": "4e111271b1494995708a9e878a10829b5e10c7ba",
+      "prepare": [
+        "python3 -m venv .venv",
+        ".venv/bin/python -m pip install -q -e . pytest coverage"
+      ],
+      "expect": {
+        "runner": "pytest",
+        "base": "passing",
+        "targeted": true,
+        "mutation": true,
+        "coverage": "coverage.py"
+      }
+    },
+    {
+      "id": "more-itertools",
+      "language": "python",
+      "git": "https://github.com/more-itertools/more-itertools",
+      "commit": "aa9977698a5e6ae15d3fdfac08a5fc5621c4e179",
+      "prepare": [
+        "python3 -m venv .venv",
+        ".venv/bin/python -m pip install -q -e . pytest coverage"
+      ],
+      "expect": {
+        "runner": "unittest",
+        "base": "passing",
+        "targeted": true,
+        "mutation": true,
+        "coverage": "coverage.py"
+      }
+    },
+    {
+      "id": "pyjwt",
+      "language": "python",
+      "git": "https://github.com/jpadilla/pyjwt",
+      "commit": "9efc7a78761d4e5470b3fbbd819dfb3b28dfb6fc",
+      "prepare": [
+        "python3 -m venv .venv",
+        ".venv/bin/python -m pip install -q -e . pytest coverage"
+      ],
+      "note": "Open: the coverage run of the narrowed command writes no report.",
+      "expect": {
+        "runner": "pytest",
+        "base": "passing",
+        "targeted": true,
+        "mutation": true,
+        "coverage": null
+      }
+    },
+    {
+      "id": "python-semver",
+      "language": "python",
+      "git": "https://github.com/python-semver/python-semver",
+      "commit": "a4b7d337b1eb699ad4bad532a4b3fc68f8ec2408",
+      "prepare": [
+        "python3 -m venv .venv",
+        ".venv/bin/python -m pip install -q -e . pytest pytest-cov coverage"
+      ],
+      "expect": {
+        "runner": "pytest",
+        "base": "passing",
+        "targeted": true,
+        "mutation": true,
+        "coverage": "coverage.py"
+      }
+    },
+    {
+      "id": "python-slugify",
+      "language": "python",
+      "git": "https://github.com/un33k/python-slugify",
+      "commit": "4b6b5b42f050f1ce96899e015247d5e3901cc433",
+      "prepare": [
+        "python3 -m venv .venv",
+        ".venv/bin/python -m pip install -q -e . pytest coverage"
+      ],
+      "expect": {
+        "runner": "pytest",
+        "base": "passing",
+        "targeted": true,
+        "mutation": true,
+        "coverage": "coverage.py"
+      }
+    },
+    {
+      "id": "simplejson",
+      "language": "python",
+      "git": "https://github.com/simplejson/simplejson",
+      "commit": "d88746d03b0a6f37e4e5e2bdd125ece6cac3e6ad",
+      "prepare": [
+        "python3 -m venv .venv",
+        ".venv/bin/python -m pip install -q -e . pytest coverage"
+      ],
+      "expect": {
+        "runner": "unittest",
+        "base": "passing",
+        "targeted": true,
+        "mutation": true,
+        "coverage": "coverage.py"
+      }
+    },
+    {
+      "id": "six",
+      "language": "python",
+      "git": "https://github.com/benjaminp/six",
+      "commit": "c8e394065cd541a16c040515dc0afb85cf22a7c3",
+      "prepare": [
+        "python3 -m venv .venv",
+        ".venv/bin/python -m pip install -q -e . pytest coverage"
+      ],
+      "expect": {
+        "runner": "pytest",
+        "base": "passing",
+        "targeted": true,
+        "mutation": true,
+        "coverage": "coverage.py"
+      }
+    },
+    {
+      "id": "tomli",
+      "language": "python",
+      "git": "https://github.com/hukkin/tomli",
+      "commit": "43a86ade8b795c6ef9b4ec53372a607cd1ed426f",
+      "prepare": [
+        "python3 -m venv .venv",
+        ".venv/bin/python -m pip install -q -e . pytest coverage"
+      ],
+      "expect": {
+        "runner": "unittest",
+        "base": "passing",
+        "targeted": true,
+        "mutation": true,
+        "coverage": "coverage.py"
+      }
+    },
+    {
+      "id": "climate_control",
+      "language": "ruby",
+      "git": "https://github.com/thoughtbot/climate_control",
+      "commit": "d8aba798508e74aff5549d08500f55d9a60ea139",
+      "prepare": [
+        "bundle install"
+      ],
+      "note": "RSpec has no coverage tool AutoCode can wrap.",
+      "expect": {
+        "runner": "rspec",
+        "base": "passing",
+        "targeted": true,
+        "mutation": true,
+        "coverage": null
+      }
+    },
+    {
+      "id": "dry-inflector",
+      "language": "ruby",
+      "git": "https://github.com/dry-rb/dry-inflector",
+      "commit": "1547e4dad8a03a01ed632c14f5c367e713fba4b0",
+      "prepare": [
+        "bundle install"
+      ],
+      "note": "Open: the RSpec reader refuses repeated example names; one-liner examples also cannot be selected by name.",
+      "expect": {
+        "runner": "rspec",
+        "base": "broken",
+        "targeted": false,
+        "mutation": false,
+        "coverage": null
+      }
+    },
+    {
+      "id": "httparty",
+      "language": "ruby",
+      "git": "https://github.com/jnunemaker/httparty",
+      "commit": "e590b20baf99348a4504b778c56e7a0947f8a5b2",
+      "prepare": [
+        "bundle install"
+      ],
+      "note": "Open: the RSpec reader refuses repeated example names (it { is_expected... } one-liners).",
+      "expect": {
+        "runner": "rspec",
+        "base": "broken",
+        "targeted": false,
+        "mutation": false,
+        "coverage": null
+      }
+    },
+    {
+      "id": "rack",
+      "language": "ruby",
+      "git": "https://github.com/rack/rack",
+      "commit": "b432304e8ddc23cc98564d2a8365827b59a835bd",
+      "prepare": [
+        "bundle install"
+      ],
+      "note": "Open: tests are spec_*.rb files run by minitest, which AutoCode does not detect.",
+      "expect": {
+        "runner": null,
+        "base": null,
+        "targeted": false,
+        "mutation": false,
+        "coverage": null
+      }
+    },
+    {
+      "id": "rake",
+      "language": "ruby",
+      "git": "https://github.com/ruby/rake",
+      "commit": "a1953315801cd03b21d12b171b9cedebd740ab9d",
+      "prepare": [
+        "bundle install"
+      ],
+      "note": "Open: rake's suite runs on test-unit, whose output the Minitest reader cannot read.",
+      "expect": {
+        "runner": "minitest",
+        "base": "broken",
+        "targeted": false,
+        "mutation": false,
+        "coverage": null
+      }
+    },
+    {
+      "id": "anyhow",
+      "language": "rust",
+      "git": "https://github.com/dtolnay/anyhow",
+      "commit": "c89c9b82b155f701a20eb4a9d3609ad09df5a62f",
+      "prepare": [
+        "cargo fetch"
+      ],
+      "note": "tests/test_fmt.rs compares rustc's output, which changes with the compiler. No Rust coverage tool is installed (cargo-llvm-cov), so coverage is none.",
+      "expect": {
+        "runner": "cargo",
+        "base": "failing_tests",
+        "targeted": true,
+        "mutation": true,
+        "coverage": null
+      }
+    },
+    {
+      "id": "bitflags",
+      "language": "rust",
+      "git": "https://github.com/bitflags/bitflags",
+      "commit": "8384f6f6e1fd1ab3f448ccf17d400a9e1d6a5280",
+      "prepare": [
+        "cargo fetch"
+      ],
+      "note": "Its compile-fail tests compare rustc's diagnostics, which change with the compiler. No Rust coverage tool is installed (cargo-llvm-cov), so coverage is none.",
+      "expect": {
+        "runner": "cargo",
+        "base": "broken",
+        "targeted": true,
+        "mutation": true,
+        "coverage": null
+      }
+    },
+    {
+      "id": "httparse",
+      "language": "rust",
+      "git": "https://github.com/seanmonstar/httparse",
+      "commit": "a0fa552e4e0fa9a5914a736ef3a556748fef709b",
+      "prepare": [
+        "cargo fetch"
+      ],
+      "note": "No Rust coverage tool is installed (cargo-llvm-cov), so coverage is none.",
+      "expect": {
+        "runner": "cargo",
+        "base": "passing",
+        "targeted": true,
+        "mutation": true,
+        "coverage": null
+      }
+    },
+    {
+      "id": "itoa",
+      "language": "rust",
+      "git": "https://github.com/dtolnay/itoa",
+      "commit": "9339ca99a43c550b5ee36e2afe524d1c90413461",
+      "prepare": [
+        "cargo fetch"
+      ],
+      "note": "No Rust coverage tool is installed (cargo-llvm-cov), so coverage is none.",
+      "expect": {
+        "runner": "cargo",
+        "base": "passing",
+        "targeted": true,
+        "mutation": true,
+        "coverage": null
+      }
+    },
+    {
+      "id": "num-integer",
+      "language": "rust",
+      "git": "https://github.com/rust-num/num-integer",
+      "commit": "765fd9b3eb9397471d41b9f613e530f6d9d6383f",
+      "prepare": [
+        "cargo fetch"
+      ],
+      "note": "No Rust coverage tool is installed (cargo-llvm-cov), so coverage is none.",
+      "expect": {
+        "runner": "cargo",
+        "base": "passing",
+        "targeted": true,
+        "mutation": true,
+        "coverage": null
+      }
+    },
+    {
+      "id": "semver",
+      "language": "rust",
+      "git": "https://github.com/dtolnay/semver",
+      "commit": "280ebcb6edac3aa4cdc545dbff8a26c5ac4861fe",
+      "prepare": [
+        "cargo fetch"
+      ],
+      "note": "No Rust coverage tool is installed (cargo-llvm-cov), so coverage is none.",
+      "expect": {
+        "runner": "cargo",
+        "base": "passing",
+        "targeted": true,
+        "mutation": true,
+        "coverage": null
+      }
+    },
+    {
+      "id": "destr",
+      "language": "typescript",
+      "git": "https://github.com/unjs/destr",
+      "commit": "541b6f9aeada9fc30de9c5a7e086dbfc1c6fcdc7",
+      "prepare": [
+        "if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; elif [ -f yarn.lock ]; then yarn install --frozen-lockfile; elif [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi"
+      ],
+      "note": "Open: Vitest 3 cannot load AutoCode's Vitest 4 reporter.",
+      "expect": {
+        "runner": "vitest",
+        "base": "broken",
+        "targeted": false,
+        "mutation": false,
+        "coverage": null
+      }
+    },
+    {
+      "id": "pathe",
+      "language": "typescript",
+      "git": "https://github.com/unjs/pathe",
+      "commit": "bc7477a01f0bd60ada017add8142c9f9d69ccdc5",
+      "prepare": [
+        "if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; elif [ -f yarn.lock ]; then yarn install --frozen-lockfile; elif [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi"
+      ],
+      "note": "Open: two tests print alike, and the Vitest reader refuses repeated names. Once read, an npm test chain is still not narrowed.",
+      "expect": {
+        "runner": "vitest",
+        "base": "broken",
+        "targeted": false,
+        "mutation": false,
+        "coverage": null
+      }
+    },
+    {
+      "id": "scule",
+      "language": "typescript",
+      "git": "https://github.com/unjs/scule",
+      "commit": "5bc68048caad7c0e7de35842c83a510e8e1a7c4f",
+      "prepare": [
+        "if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; elif [ -f yarn.lock ]; then yarn install --frozen-lockfile; elif [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi"
+      ],
+      "note": "Open: Vitest 1 cannot load AutoCode's Vitest 4 reporter.",
+      "expect": {
+        "runner": "vitest",
+        "base": "broken",
+        "targeted": false,
+        "mutation": false,
+        "coverage": null
+      }
+    }
+  ]
+}

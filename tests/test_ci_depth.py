@@ -68,6 +68,14 @@ class NightlyIssueTests(unittest.TestCase):
         self.assertEqual(["issue", "close", "12"], close)
         self.assertEqual([], ci_nightly_issue.plan("success", None, self.URL, "abc"))
 
+    def test_the_setup_sweep_reports_on_an_issue_of_its_own(self):
+        (create,) = ci_nightly_issue.plan("failure", None, self.URL, "abc", "setup-sweep")
+        self.assertEqual(["issue", "create", "--title", "Nightly setup sweep is red"], create[:4])
+        body = create[create.index("--body") + 1]
+        self.assertIn("The nightly setup sweep (failure)", body)
+        self.assertIn("tools/setup_sweep_repos.json", body)
+        self.assertNotEqual(ci_nightly_issue.KINDS["setup-sweep"][0], ci_nightly_issue.TITLE)
+
 
 class SuiteDurationsTests(unittest.TestCase):
     def test_finished_rows_of_a_ci_log_become_durations(self):

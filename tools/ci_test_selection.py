@@ -748,6 +748,8 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("examples/", ("tests.test_doc_examples",)),
     ("examples/claude-provider/real_repo_sweep.py", ("tests.test_real_repo_sweep",)),
     ("arena/catalog.json", ("tests.test_real_repo_sweep",)),
+    ("tools/setup_sweep_repos.json", ("tests.test_setup_sweep",)),
+    (".github/workflows/setup-sweep.yml", ("tests.test_setup_sweep",)),
     ("README.md", ("tests.test_doc_examples",)),
     ("scenarios/catalog/greenfield-todo-cli/reference/", ("tests.test_brief_cli",)),
     ("scenarios/catalog/review-clean-pr/", ("tests.test_review_clean_fixture",)),

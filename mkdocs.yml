@@ -74,6 +74,7 @@ nav:
       - Replay: replay.md
       - Reliability results: reliability-table.md
       - Real-repo sweep: real-repo-sweep.md
+      - Setup sweep: setup-sweep.md
       - Reliability campaign: reliability-campaign.md
   - Integrate and contribute:
       - Task-run API: task-run.md
