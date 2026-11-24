@@ -290,7 +290,7 @@ class TextMutantTests(unittest.TestCase):
 
     def test_files_it_cannot_read_safely_get_a_note_and_no_mutant(self):
         for path, source, note in (
-            ("x.py", b"x = 1\n", "not a Go, JavaScript, TypeScript, Rust or Ruby source file"),
+            ("x.py", b"x = 1\n", "not a source file of a language this module mutates"),
             ("types.d.ts", b"export type A = 1 | 2;\n", "type declaration"),
             ("x.go", b"\xff\xfe\n", "not valid UTF-8"),
             ("x.js", b"a = 1 < 2;\rb = 3;\n", "carriage return"),
