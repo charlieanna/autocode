@@ -2732,7 +2732,29 @@ from <code>tools/autocode_mutants.py</code>).</p>
   <code>runner_cannot_select</code>. Cargo rebuilds a crate only when a source is newer than its last
   build, so each Cargo mutant and each restored source is given a modification
   time later than the one before, never an older one: a backdated mutant ran the
-  unmutated build and survived whatever its tests asserted.
+  unmutated build and survived whatever its tests asserted. Maven, Gradle and CTest
+  builds (Make, Ninja) decide the same way and get the same later times.</li>
+<li><strong>Runners that name tests only in JUnit XML.</strong> A Maven, Gradle, PHPUnit or CTest
+  proof (the detected CMake suite ends with <code>ctest</code>) is judged by exit code, but each
+  of these runners writes JUnit XML that names every test
+  (<code>tools/autocode_runner_reports.py</code>): Surefire's <code>target/surefire-reports</code> and
+  Gradle's <code>build/test-results</code> in every module, PHPUnit's <code>--log-junit</code> and CTest's
+  <code>--output-junit</code> into the mutation check's evidence. Every run's earlier reports
+  are removed first. The proof's own command runs unchanged for the unmutated
+  reference and for each mutant, and the selected tests are the ones the reference
+  reports passing; a mutant is <code>killed</code> only when one of them failed in a report
+  that run wrote. A run that failed and wrote no report (a Java mutant that does not
+  compile, a C mutant that breaks the build) is left out with the note
+  <code>the OPERATOR mutant did not build; not a site</code>. Maven and Gradle stop at the
+  first module whose tests fail, so a later module's tests may be missing from a
+  killing run. Changed <code>.java</code>, <code>.kt</code>, <code>.kts</code>, <code>.c</code>, <code>.h</code>, <code>.cc</code>, <code>.cpp</code>, <code>.cxx</code>,
+  <code>.hh</code>, <code>.hpp</code> and <code>.php</code> lines get the operators above, with a call blanked only
+  when it ends with <code>;</code> (including <code>$this-&gt;save($x);</code> and <code>ptr-&gt;reset();</code>); a C or
+  C++ <code>return VALUE;</code> returns <code>0</code>, and Java, Kotlin and PHP returns are no site,
+  since they have no constant every type takes. PHP's scanner skips <code>#</code> comments
+  but not <code>#[</code> attributes. A test that ends in an exception rather than a failed
+  assertion is a JUnit <code>error</code>, which the report cannot tell from a broken setup, so
+  it never kills a mutant.
   Go runs every mutant with <code>-count=1</code>: its test cache answered a test that builds
   and runs the package's command with the unmutated pass. These runners select tests by a name pattern, so the
   parent and siblings of a selected Go subtest, or another test the pattern
