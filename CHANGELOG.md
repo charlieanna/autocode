@@ -9,6 +9,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Parallel Builders now stay inside your cost cap.** Each parallel Builder compared the cap with its own spend only, so every one of them could spend up to the whole cap, and a Builder started its report repair or next attempt after the run had already passed it. The cap is now held over the whole run: the parent's spend plus every Builder's finished and running attempts, checked before every provider launch and while each stage runs. A Builder stopped at the cap now pauses the run at your cost cap instead of asking you to retry it, and raising the cap continues it from where it stopped without running any finished Builder again.
+
 ## [0.11.0] - 2026-11-24
 
 ### Added

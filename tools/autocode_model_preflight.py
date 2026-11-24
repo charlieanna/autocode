@@ -64,6 +64,7 @@ try:
     from . import autocode_review_effort as review_effort
     from . import autocode_role_transport as role_transport
     from . import autocode_route_fit as route_fit
+    from . import autocode_run_spend as run_spend
     from . import autocode_support as support
     from . import autocode_tool_admission as tool_admission
     from . import provider_conformance_transport as transport
@@ -84,6 +85,7 @@ except ImportError:
     import autocode_review_effort as review_effort
     import autocode_role_transport as role_transport
     import autocode_route_fit as route_fit
+    import autocode_run_spend as run_spend
     import autocode_support as support
     import autocode_tool_admission as tool_admission
     import provider_conformance_transport as transport
@@ -310,7 +312,7 @@ def probe(
 
 
 def _allowance(runner, state: RunState, run_dir, workspace, timeout):
-    reached = cost.exceeded(state)
+    reached = run_spend.exceeded(state)
     if reached:
         raise support.Paused(
             "PAUSED_COST_LIMIT",

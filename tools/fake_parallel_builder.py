@@ -236,6 +236,14 @@ def write_report(result):
     Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))
 
 
+def finished():
+    """The terminal row; AUTOCODE_BUILDER_COST_USD makes the provider report what each request cost."""
+    row = {"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}
+    if os.environ.get("AUTOCODE_BUILDER_COST_USD"):
+        row["cost_usd"] = float(os.environ["AUTOCODE_BUILDER_COST_USD"])
+    print(json.dumps(row))
+
+
 def main():
     if sys.argv[1:] == ["login", "status"]:
         print("Logged in using ChatGPT (offline fixture)")
@@ -250,11 +258,11 @@ def main():
     if data.get("report_repair"):
         result = repair_report(data)
         write_report(result)
-        print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}))
+        finished()
         return
     if data["stage"] != "builder":
         write_report(report(data))
-        print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}))
+        finished()
         return
     task = data["current_task"]
     marker = Path(os.environ["AUTOCODE_BUILDER_BARRIER"])
@@ -360,7 +368,7 @@ def main():
     if os.environ.get("AUTOCODE_BUILDER_BAD_REPORT") == task["milestone_id"]:
         result.pop("summary")
     write_report(result)
-    print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}))
+    finished()
 
 
 if __name__ == "__main__":
