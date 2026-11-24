@@ -563,7 +563,9 @@ class ControllerIsolationCliTests(unittest.TestCase):
         shutil.copytree(
             source, self.project / "tools", dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__")
         )
-        self.git("add", "tools")
+        # The AutoCode repository ignores bytecode, so the controller may cache it without changing the checkout.
+        (self.project / ".gitignore").write_text("__pycache__/\n")
+        self.git("add", "tools", ".gitignore")
         self.git("commit", "-qm", "Controller fixture")
 
     def test_external_controller_works_in_place_in_the_main_checkout(self):
@@ -613,10 +615,11 @@ class ControllerIsolationCliTests(unittest.TestCase):
             "worktrees": git("worktree", "list", "--porcelain"),
             "index": observed_index,
             "status": git("status", "--porcelain"),
+            # Tracked files and untracked files Git does not ignore: what "no Git or source change" covers.
             "sources": {
-                str(path.relative_to(project)): path.read_bytes()
-                for path in sorted(project.rglob("*"))
-                if path.is_file() and not {".git", ".autocode"} & set(path.relative_to(project).parts)
+                name: (project / name).read_bytes()
+                for name in sorted(git("ls-files", "-z", "--cached", "--others", "--exclude-standard").split("\0"))
+                if name and (project / name).is_file() and not {".git", ".autocode"} & set(Path(name).parts)
             },
         }
 
@@ -634,7 +637,9 @@ class ControllerIsolationCliTests(unittest.TestCase):
         source = Path(__file__).resolve().parents[1] / "tools"
         shutil.copytree(source, project / "tools", ignore=shutil.ignore_patterns("__pycache__"))
         (project / "AGENTS.md").write_text("AutoCode fixture instructions\n")
-        subprocess.run(["git", "-C", str(project), "add", "tools", "AGENTS.md"], check=True)
+        with (project / ".gitignore").open("a") as ignore:
+            ignore.write("__pycache__/\n")
+        subprocess.run(["git", "-C", str(project), "add", "tools", "AGENTS.md", ".gitignore"], check=True)
         subprocess.run(
             [
                 "git",

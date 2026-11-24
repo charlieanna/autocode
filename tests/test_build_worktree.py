@@ -58,6 +58,10 @@ class DueTests(unittest.TestCase):
         }
         self.assertTrue(build_worktree.due(planning))
         self.assertFalse(build_worktree.due({**planning, "next_stage": "requirements_gather"}), "Requirements")
+        # The joint (v2) planning flow names its Requirements stage "requirements": it stays in the folder too,
+        # and its Planner ("plan") moves, as draft_plan does.
+        self.assertFalse(build_worktree.due({**planning, "next_stage": "requirements"}), "v2 Requirements")
+        self.assertTrue(build_worktree.due({**planning, "next_stage": "plan"}), "v2 Planner")
         self.assertFalse(build_worktree.due({**planning, "settings": {"coordination_member": True}}))
         self.assertFalse(build_worktree.due({**planning, "build_worktree": {"state": "building"}}))
         self.assertFalse(build_worktree.due({"run_dir": planning["run_dir"], "next_stage": "draft_plan"}))
