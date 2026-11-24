@@ -101,16 +101,8 @@ def _pinned_bytes(path, expected):
 
 
 def evidence_pins(result):
-    pins = {
-        row["output"]: row["output_sha256"]
-        for row in (result or {}).get("checks", [])
-        if row.get("output") and row.get("output_sha256")
-    }
-    for row in (result or {}).get("checks", []):
-        pins.update(command_receipt.pins(row))
-    if (result or {}).get("summary") and result.get("summary_sha256"):
-        pins[result["summary"]] = result["summary_sha256"]
-    return pins
+    """Output and summary pins for the existing completion evidence map."""
+    return command_receipt.result_pins(result)
 
 
 def replay(
