@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "autocode:schemas/continuous-planner-contract@1",
+  "title": "Autocode Continuous Planner structured draft contract",
+  "description": "Versioned machine-readable contract for structured Planner drafts produced by the backend Planner dispatch pipeline. Every structured result must validate against this schema through tools/autocode_planner_contract.py before it may be committed as an accepted plan-draft revision; schema-invalid drafts are rejected so the previous usable draft is preserved.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "kind",
+    "goal",
+    "requirements",
+    "milestones",
+    "parallelism",
+    "unresolved_questions",
+    "source_revision",
+    "attribution",
+    "freshness"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": 1,
+      "description": "Version of this structured-draft contract; bumped on any incompatible change."
+    },
+    "kind": {
+      "const": "autocode.planner-structured-draft",
+      "description": "Discriminator separating structured Planner results from chat replies and other payloads."
+    },
+    "goal": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000,
+      "description": "The structured goal the Planner derived from the requirements conversation."
+    },
+    "requirements": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "anyOf": [
+          { "type": "string", "minLength": 1, "maxLength": 8000 },
+          { "type": "object" }
+        ]
+      },
+      "description": "Structured requirements rows; objects are preserved verbatim for richer later records."
+    },
+    "milestones": {
+      "type": "array",
+      "maxItems": 60,
+      "items": {
+        "anyOf": [
+          { "type": "string", "minLength": 1, "maxLength": 8000 },
+          { "type": "object" }
+        ]
+      },
+      "description": "Milestone rows of the structured plan."
+    },
+    "parallelism": {
+      "type": "array",
+      "maxItems": 60,
+      "items": {
+        "anyOf": [
+          { "type": "string", "minLength": 1, "maxLength": 8000 },
+          { "type": "object" }
+        ]
+      },
+      "description": "Parallelism/grouping rows of the structured plan."
+    },
+    "unresolved_questions": {
+      "type": "array",
+      "maxItems": 60,
+      "items": {
+        "anyOf": [
+          { "type": "string", "minLength": 1, "maxLength": 8000 },
+          { "type": "object" }
+        ]
+      },
+      "description": "Outstanding questions the Architect must see resolved before acceptance."
+    },
+    "source_revision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requirements_revision", "logical_turn_id"],
+      "properties": {
+        "requirements_revision": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Exact requirements-state revision this structured result answers."
+        },
+        "logical_turn_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,160}$",
+          "description": "Logical human turn that prompted this structured result."
+        }
+      },
+      "description": "Binding of this result to the exact requirements revision and logical turn; results bound to older revisions/turns must never be committed over newer input."
+    },
+    "attribution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "model", "reasoning_effort"],
+      "properties": {
+        "role": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Producing role, e.g. the independent Planner role (never the Gatherer)."
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240,
+          "description": "Exact model that produced the structured result."
+        },
+        "reasoning_effort": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Reasoning effort used for the producing run (no silent fallback)."
+        },
+        "engine": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Engine/transport of the producing run, when known."
+        },
+        "provider": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Provider of the producing run, when known."
+        },
+        "reasoning_summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000,
+          "description": "Retained reasoning provenance for the structured result."
+        }
+      },
+      "description": "Actual role/model/reasoning attribution persisted with every accepted draft."
+    },
+    "freshness": {
+      "type": "object",
+      "required": ["state", "updated_at"],
+      "properties": {
+        "state": {
+          "enum": ["fresh", "stale", "pending", "failed"],
+          "description": "Freshness granted only by a real structured Planner result bound to the current requirements revision; 'failed' retains error evidence."
+        },
+        "updated_at": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Timestamp of the freshness transition."
+        },
+        "error": {
+          "anyOf": [
+            { "type": "string", "minLength": 1, "maxLength": 8000 },
+            { "type": "object" }
+          ],
+          "description": "Retained error evidence for failed structured results."
+        }
+      },
+      "additionalProperties": true,
+      "description": "Source-revision freshness of the structured result, including failed states with retained error evidence; provenance keys such as source ids ride along."
+    }
+  }
+}

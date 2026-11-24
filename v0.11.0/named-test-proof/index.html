@@ -1,0 +1,3067 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Plan, approve, build and independently verify a coding task.">
+      
+      
+      
+        <link rel="canonical" href="https://charlieanna.github.io/autocode/v0.11.0/named-test-proof/">
+      
+      
+        <link rel="prev" href="../execution/">
+      
+      
+        <link rel="next" href="../protected-tests/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Named test proof - AutoCode</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#named-test-proof" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="AutoCode" class="md-header__button md-logo" aria-label="AutoCode" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            AutoCode
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Named test proof
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/charlieanna/autocode" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    charlieanna/autocode
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="AutoCode" class="md-nav__button md-logo" aria-label="AutoCode" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    AutoCode
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/charlieanna/autocode" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    charlieanna/autocode
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_1" id="__nav_1_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Start
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../windows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Native Windows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Models and routing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stage names
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Run a task
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Run a task
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First task
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../spec-first/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spec-first flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adaptive-planning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Adaptive planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../continuous-planner/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Continuous planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-preflight/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task prerequisites
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-preflight-v2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Native prerequisites
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pilot-inputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pilot inputs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../figma/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Figma
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../visual-captures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visual captures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-lanes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parallel tasks and components
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../multi-repo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Several repositories
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Review and approve
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Review and approve
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pauses and commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../interventions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interventions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../issues/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitHub issues
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../channels/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Channel bridge
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Proof and evidence
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Proof and evidence
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Completion and evidence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Named test proof
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Named test proof
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#tests-another-file-of-the-change-lists" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests another file of the change lists
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#junit-xml-from-other-test-runners" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        JUnit XML from other test runners
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mutation-check" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mutation check
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Mutation check">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#tests-in-a-reviewed-patch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests in a reviewed patch
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#contained-tester-evidence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Contained Tester Evidence
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Contained Tester Evidence">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#go-test-prerequisite-metadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Go test prerequisite metadata
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#python-product-and-test-roles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Python product and test roles
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#failed-replay-work" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Failed replay work
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../protected-tests/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protected tests
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../exact-output/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exact output
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cost-reporting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cost reporting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../failure-attribution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Failure attribution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../replay/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Replay
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reliability-table/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reliability results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../real-repo-sweep/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Real-repo sweep
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reliability-campaign/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reliability campaign
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrate and contribute
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Integrate and contribute
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task-run API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vscode/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VS Code extension
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../agent-step/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inside your coding agent
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../registry-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Registry API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../provider-conformance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Provider conformance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scenarios/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scenario harness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing-plan/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../compat-preparation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Preparation compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../arena/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Arena
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../releasing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../documentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Documentation site
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#tests-another-file-of-the-change-lists" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests another file of the change lists
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#junit-xml-from-other-test-runners" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        JUnit XML from other test runners
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mutation-check" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mutation check
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Mutation check">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#tests-in-a-reviewed-patch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests in a reviewed patch
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#contained-tester-evidence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Contained Tester Evidence
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Contained Tester Evidence">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#go-test-prerequisite-metadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Go test prerequisite metadata
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#python-product-and-test-roles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Python product and test roles
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#failed-replay-work" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Failed replay work
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="named-test-proof">Named test proof<a class="headerlink" href="#named-test-proof" title="Permanent link">&para;</a></h1>
+<p>A plan's <code>test: test_c1_example</code> criterion requires that named test to pass with
+the change and not before it. A <code>guard:</code> criterion must pass before and after.
+When every criterion the proof covers is a <code>guard:</code> and the change adds or edits no test
+(it may change nothing, as a validation-only re-check does),
+the guards rest on tests the project already has: the proof runs the suite on the base and
+the candidate, and each guard's named test must pass on both. A <code>test:</code> criterion still needs
+a change, unless the person granted the test-only regression-proof exception.</p>
+<p>Before building, a new acceptance test can already pass on an unfinished candidate
+retained from an earlier attempt. The runner checks those exact observed tests on
+the original product code with today's test files and fixtures. A fresh original
+failure keeps the approved <code>test:</code> criterion; a fresh original pass proposes a
+<code>guard:</code> correction for plan review. Missing, skipped, incomplete or import-only
+results leave verification unresolved. This classification needs no report-only
+model repair, and never replaces the final regression or changed-code proof.</p>
+<p>A change may rewrite only files that tests read: a golden file, a snapshot or a
+fixture (<code>tests/golden/report.txt</code>, <code>src/__snapshots__/x.test.js.snap</code>,
+<code>testdata/report.golden</code>). No runner can be pointed at such a file, and the tests
+that read it are in files the change left alone. Where the runner names each test,
+the project's own suite is then the regression command: it runs on the original
+code with the changed files and with the change, and the tests that fail first and
+pass after are the proof (<code>autocode_verification_commands.held_by_suite</code>). A changed
+test file that holds code is never left to this, and a rewritten file that no test
+reads proves nothing.</p>
+<p>A guard that names its test exactly (<code>guard: test_c4_adds</code>) may name a test the project
+already has in a file the change leaves alone, as a final check does for the
+criteria earlier milestones proved. The targeted run covers only the changed test files,
+so the whole suite also runs on the original code with the change's test files (its tests,
+fixtures and goldens), and such a guard is matched against the tests that pass there and on
+the candidate, with these limits:</p>
+<ul>
+<li>a test whose own name appears in any changed code file is left to the targeted run (a changed
+  test file) or not used (a changed product module that defines it); a document that mentions it
+  does not count;</li>
+<li>if that suite run times out or does not report every test, a guard left without its test is
+  unverified rather than refuted;</li>
+<li>with git-ignored test files that the proof copies into its trees, the whole suite is not
+  consulted, so a guard cannot rest on an ignored file, and the failure says so;</li>
+<li>a case matched by its id alone (a diagnosis's T4) is never matched this way, since another
+  fix's <code>test_t4_...</code> is not its test;</li>
+<li>one failing variant of a matched test breaks the guard, even when it failed before the change
+  too: the same function in the same file or module, with other parameters, as a Go subtest, or
+  run by another class. A failing test elsewhere that only shares the name does not;</li>
+<li>a node:test file that spawns another test runner is refused here as everywhere.</li>
+</ul>
+<p>A guard whose test belongs to another project of the repository, which the proof's suite
+cannot run, is matched against that project's own suite, run on its file on the original code
+and with the change (see the monorepo packages section of <code>docs/workflow.md</code>).</p>
+<p>When the change edits no test file, the guards are matched against the base suite's own
+pass-to-pass, by the case id as well as by exact name, so a guard may name several tests; one
+of them failing beside a test it matched breaks the guard.</p>
+<p>Preservation normally rests on base tests that still pass. When the original code holds no
+test file and its suite had nothing to run (an empty collection, or a known runner with no test
+directory), the change's own tests stand in (#2259). Any of them that pass on the original
+code and on the change show its existing behavior was kept, and the full candidate suite must
+pass. Without such a test the proof stays <code>UNVERIFIED</code>, and its reason tells the Builder to
+add one; no person is asked. A base holding only documents, manifests, data files or a short
+extensionless text note has no behavior to preserve at all.
+An exit code or a printed <code>PASS test_c1_example</code> is not enough to identify which
+case ran. AutoCode currently attributes tests from Python unittest/pytest, Go,
+Node's built-in <code>node:test</code> runner, Vitest 4, RSpec, Rust's <code>cargo test</code>, and an
+explicitly configured JUnit XML report from another test runner.</p>
+<p>RSpec needs no added gem: a plain <code>rspec</code> or <code>bundle exec rspec</code> command also runs
+RSpec's built-in JSON formatter, writing to a file in the proof's evidence while the
+progress output stays on the screen. Each example is named <code>FILE::FULL DESCRIPTION</code>,
+the file relative to where RSpec ran, so <code>test: test_grades_case_insensitively</code> names
+<code>it "test_grades_case_insensitively"</code> inside any <code>describe</code>. A spec file that fails to
+load runs no example and is reported as <code>FILE::[collection]</code>. A command that already
+writes its own output file (<code>--out</code>) or reads another options file is left as it is.</p>
+<p>Cargo needs no reporter either: the test harness prints one line for every test of every
+test binary, and the proof reads those lines from a plain <code>cargo test</code> command's own output
+(<code>tools/autocode_cargo_tests.py</code>). Each test is named <code>FILE::NAME</code>: the file Cargo says it is
+running (<code>tests/pages.rs</code>, or <code>src/lib.rs</code> for unit tests) and the harness's name, so
+<code>test: test_partial_last_page</code> names <code>fn test_partial_last_page</code>, also inside a module
+(<code>src/lib.rs::tests::test_partial_last_page</code>). A documentation test is
+<code>Doc-tests CRATE::FILE - item (line N)</code>, and an ignored test is skipped.</p>
+<ul>
+<li>The command gets <code>--no-fail-fast</code>, so one failing test binary does not hide the results of the
+  binaries after it. A command that changes what the harness prints (<code>-q</code>, <code>--format</code>,
+  <code>--nocapture</code>) is left as it is and judged by its exit code.</li>
+<li>A binary's results count only when they agree with its own <code>test result:</code> line. A binary that
+  exited or crashed mid-run is reported as <code>FILE::[no result]</code> and the results are incomplete.</li>
+<li>A build that fails runs no test and is reported as <code>TARGET::[build failed]</code>, like a Go package
+  that does not build: a bug fix needs a test that ran and failed on the original code. For a
+  feature, whose new test usually calls a function the original code lacks, only the tests the
+  change adds or edits can show the new behavior; an untouched test that passed on the original
+  code is kept as preserved.</li>
+<li>In a workspace two crates may print the same file and test name. The two are one identity,
+  failed when either failed.</li>
+<li>A Rust test needs no <code>test_</code> prefix, so with a Cargo suite the identifier after the mark names
+  the test even without one: <code>guard: exact_multiple</code> is the project's existing
+  <code>fn exact_multiple</code>, and <code>guard: tests::exact_multiple</code> the one in <code>mod tests</code>. A lone word
+  (<code>guard: manual</code>) is still prose. Every other runner keeps the rule above: only a <code>test_*</code> or
+  Go <code>Test*</code> name binds, and anything else falls back to the criterion id.</li>
+<li>The changed test files are the files under <code>tests/</code> (and other test paths), and the code files
+  whose tests changed. Some tests are written inside a code file: a Python doctest in a docstring,
+  a Rust example in a doc comment, a <code>#[cfg(test)]</code> module, and the examples of a doctest document
+  (<code>.txt</code>, <code>.rst</code>, <code>.md</code>). Each language's own syntax says which lines those are
+  (<code>autocode_test_parts.parts</code>). The proof puts the change's edits to those lines on the original
+  code, and nothing else: it refuses to when the original program would differ, read without its
+  docstrings, doc comments and test modules, so a fix cannot ride along. An example of a function
+  the change adds goes into doctest's own <code>__test__</code> table, so it fails on the original code as a
+  new test of a new function does. A docstring example is the change's test only when no test file
+  changed, since a project with test files may not run its doctests; a Rust doc example is one
+  always, since <code>cargo test</code> runs them. A command that names a file holding such tests
+  (<code>python -m doctest textutil.py</code>) runs existing tests, so it can guard a change; the plan check,
+  the guard and the proof's choice of command read that from <code>autocode_test_parts.named_holding</code>.
+  Open: a Rust doc example on a function the change adds
+  cannot be put on the original code, and an edit that mixes test lines and code on one line is not
+  split, so such a proof finds no test rather than passing.</li>
+</ul>
+<p>A literal Go check with an explicit empty selector (<code>go test -run '^$' ./...</code>)
+may validate compilation in a plan. Its exit must be zero, but it supplies no
+named-test results or behavioral proof. Unknown flags, benchmark/fuzz requests,
+and custom test-program arguments retain the normal test-result requirement.
+Submitting an empty-selector command as a regression or suite still cannot
+satisfy that proof: it must execute named tests.</p>
+<p>The identifier right after <code>test:</code> or <code>guard:</code> is the one the runner proves; an
+explanation may follow after <code>—</code> or in parentheses. Without one, the test is
+named after the criterion ID (<code>test_c1_...</code>; Go's <code>TestC1...</code> matches it).</p>
+<p>Use a bare Python test name, such as <code>test_health</code>, after <code>test:</code> or <code>guard:</code>.
+Qualified selectors such as <code>tests.test_health.HealthTests.test_health</code>, including
+those inside paired Markdown backticks, are not supported as proof declarations:
+a new draft, or a saved draft at approval, is refused before building. No module,
+class or method is inferred from a suffix.
+Supported Go test/subtest names and annotations remain valid. Prose,
+placeholders and declarations naming multiple tests retain the criterion-ID
+fallback; they do not bind a qualified selector. An already approved proof is
+not rewritten; changing it needs a goal edit and approval of the new exact plan.</p>
+<p>When the user's brief asks for Go tests by name ("add Go tests
+<code>TestFixedReturnsTwo</code> and <code>TestFixedPreservesCrash</code>"), the plan declares those
+exact names, in the user's spelling: <code>test: TestFixedReturnsTwo</code>, <code>guard:
+TestFixedPreservesCrash</code>, one criterion each. A requested test the runner cannot
+run to a pass (one that skips without a database) may instead be named by an
+ordinary criterion, and no other test with it, for the Validator. Planning
+stages are told the names, and the runner refuses a draft, before it is
+installed or approved, that leaves a requested name unaccounted for, declares a
+respelling of it (<code>test_fixed_returns_two</code>), or declares another identifier (or
+none it can read, as in <code>test: TestFixedReturnsTwo.</code>) while its method or
+criterion text names the requested one, as in prose saying it "resolves to" it
+(#498). A name counts as requested when the user wrote it right after "test",
+"tests" or a Go test-shaped "func" signature (or in a list introduced as tests,
+each name with or without a description). Name-first requests such as
+"Add TestA, a real regression ... plus TestB and TestC" also count. Negations,
+examples and alternatives do not. The proof must run Go tests, and the project
+must not already declare the name as a top-level test in a <code>*_test.go</code> file.
+Comments, strings and callable production APIs (<code>func TestConnection() error</code>,
+"a func named TestConnection that returns an error", "a func called
+TestConnection in product.go") do not make a test existing or requested; "a
+func named TestParse in parser_test.go" or "a func named TestA, a regression
+test" does. This inventory does not replace Go compilation or execution proof.
+A subtest path such as <code>TestCacheExpiry/expired</code> is requested as the user wrote
+it (a quoted one with its spaces as underscores, as Go runs it): planning
+stages and refusals ask for <code>test: TestCacheExpiry/expired</code>. Declaring that
+path, a path under it or its whole test function accounts for it; another
+subtest of the function does not, since the runner binds that one to its own
+outcome only. "Instead of", "rather than" or "not" right before the path
+withdraws that path; before the function, the function and the paths of it an
+earlier message asked for. The user's own <code>--edit-goal</code> is never
+refused by this check and settles which requested names stay; an edit of a
+design job's plan, which "Build it." archives when it plans the build afresh,
+settles nothing for the build. <code>TestMain</code> and <code>TestXxx</code> are never tests to
+write. Other frameworks, and bug fixes proven by their diagnosis's cases, keep
+the criterion-ID convention. The details and limits are in
+<code>docs/bugs/2026-10-06-native-proof-names.md</code>.</p>
+<p>For Node, register each case as a real test, keeping its existing assertions
+and fixture helpers:</p>
+<pre><code class="language-js">const {test} = require('node:test');
+const assert = require('node:assert/strict');
+const {add} = require('../app.cjs');
+
+test('test_c1_adds_two_numbers', () =&gt; {
+  assert.equal(add(2, 3), 5);
+});
+</code></pre>
+<p>Run it with <code>node --test tests/cases.cjs</code>. Use unique case names within each
+suite and await asynchronous assertions. AutoCode detects <code>node:test</code> imports
+in changed test files and derives the targeted command. It runs identical tests
+against the original and candidate source in isolated worktrees. Keep the
+project's existing suite (including custom npm scripts) and protected tests;
+<code>--test-command</code> can continue to run that suite.</p>
+<p>AutoCode attaches its own structured reporter to direct <code>node --test</code> commands.
+It checks completed event streams and final counts, ignores test stdout, and
+does not count skipped, todo, empty-file or ambiguous duplicate results as named
+passes. Import and fixture-hook failures cannot demonstrate a reproduced bug.
+Missing or incomplete evidence stays unverified. The adapter uses the
+<a href="https://nodejs.org/api/test.html#custom-reporters">documented Node TestsStream custom reporter API</a>,
+including final summary events available in current Node 22 and later releases.
+The reporter handles Node 22.14's omitted ordinary-test type while preserving
+suite identity; a missing type in retained proof files is still invalid evidence.</p>
+<p>A project whose suite is <code>npm test</code> reports its tests by name too when the package's
+<code>test</code> script is that command: <code>node --test tests/*.test.js</code>, or build steps and then
+it (<code>tsc -p . &amp;&amp; node --test out/*.test.js</code>). Node reads a reporter option only before
+the test paths, so AutoCode runs the script's own command with its reporter (after the
+build steps, run as <code>npm test</code> runs them) and leaves the path pattern for the shell to
+expand as it does under npm. A change that touches no test file is then proved by the
+suite's own tests, which is what a refactor guarded by the existing tests needs. A
+package with a <code>pretest</code> or <code>posttest</code> script or an <code>.npmrc</code> (which can set the
+script's shell or node's options), a script behind <code>--prefix</code>, and any other script
+keep <code>npm test</code> as written and its exit code (<code>autocode_node_tests.npm_test</code>).</p>
+<p>For Vitest 4, keep the tests in their existing framework. Give each case a unique
+name, such as <code>test('test_c1_adds_two_numbers', ...)</code>, and use
+<code>npx --no-install vitest run tests/example.test.js</code>. An npm <code>test</code> script containing
+a single <code>vitest run</code> command is supported too, including <code>npm --prefix frontend test</code>.
+AutoCode attaches its owned reporter, reads a fresh structured result file, and
+excludes its internal <code>.autocode/</code> test backups. Missing or skipped cases, duplicate
+identities, interrupted reports, and unsupported versions cannot supply named
+passes. Collection and hook failures are separated from application failures.
+The reporter uses Vitest's reporting lifecycle and v4 hook-result metadata;
+qualification currently covers Vitest 4.1.6.</p>
+<p>Jest needs no reporter of its own: its built-in JSON report names every test. AutoCode
+adds <code>--json --outputFile</code> to a plain Jest command (<code>jest</code>, <code>npx --no-install jest</code>,
+<code>node node_modules/jest/bin/jest.js</code>, with or without an environment prefix) and to an
+<code>npm test</code> whose script is one, and reads the report: a test's id is its file, the
+titles of its <code>describe</code> blocks and its own title, <code>tests/pager.test.js::rounding &gt;
+counts a partial last page</code>, as a Vitest id is. Tests that share a name (<code>test.each</code>
+without a placeholder) are one id, failed when any of them failed. A file that could
+not be loaded is a failed, uncollected entry, and a run that failed outside every test
+(a coverage threshold) is a failure with no test to blame. <code>npx jest</code> without
+<code>--no-install</code>, a command that watches, writes its own report or chooses tests from Git
+(<code>--watch</code>, <code>--json</code>, <code>-o</code>), and a script that runs more than Jest are left as written
+and prove by their exit code, as before (<code>tools/autocode_jest_tests.py</code>).</p>
+<p>A test the project already has in <code>node:test</code>, Vitest or Jest is named by its title,
+which is free text: for <code>test('counts a partial last page', ...)</code> a plan writes
+<code>guard: counts a partial last page</code>. AutoCode binds such a declaration to the test
+when a test the proof ran has exactly that title (the last part of its id; inside
+a Vitest or Jest <code>describe</code> block, <code>suite &gt; title</code> or <code>title</code> alone), quoted or followed by an
+annotation if the plan wrote one. A declaration that is no test's title is prose,
+and its criterion keeps the id convention (<code>test_ac2_...</code>). So a refactor or a bug
+fix in a project whose tests have ordinary titles guards its existing behavior
+with the existing tests, without a <code>test_*</code> copy of them
+(<code>autocode_test_cases.titled</code>).</p>
+<p>A JavaScript test's own name is that title, never a word of its file's name. The proof
+leaves a suite test out of the guards when a changed file names it, since the changed
+file may have redefined it: for a titled test that means a changed file spells the
+title. Read from the whole id, <code>tests/pager.test.js::counts a partial last page</code> was
+named "test", so any changed file that says <code>test(</code> took every test of the suite out
+(<code>autocode_test_cases.function_name</code>).</p>
+<p>An RSpec example the project already has is named the same way, by what it says. RSpec
+reports an example by its full description, the descriptions of its groups followed by
+its own: <code>it "counts a partial last page"</code> in <code>describe ".page_count"</code> of
+<code>RSpec.describe Pager</code> is <code>spec/pager_spec.rb::Pager.page_count counts a partial last page</code>.
+A plan writes <code>guard: counts a partial last page</code>, and AutoCode binds it to each example
+the proof ran whose full description is that text or ends with it at a word. Words from
+the middle of a description, or a sentence about the example, name nothing. An example's
+own name is its full description (or the <code>test_*</code> name in it), and a changed file names
+it only by quoting the description or its last words, as a spec file does.</p>
+<p>A <code>node:test</code> case must assert the behavior itself. A case that runs another
+test runner through <code>child_process</code> (<code>npm test -- -t NAME</code>, <code>npx vitest</code>, Jest,
+Mocha or <code>node --test</code>) passes on that runner's exit code, and Vitest exits 0
+when a <code>-t</code> filter matches no test, so a misspelt or renamed case would pass
+without running (#380). AutoCode reads each <code>node:test</code> file that a case's test
+lives in and does not match a case to a test in a file that spawns a test
+runner; the proof names the file. Running the product's own CLI from a
+<code>node:test</code> case (<code>node cli.js add x</code>) is fine. The check only sees commands
+the file spells out; a wrapper is not named proof in any form.</p>
+<p>Where the runner can select the proving tests, each runs three times on the
+candidate, inside the scratch tree the proof already has, and a <code>test:</code> criterion's test also runs three times on the
+original code. A test that passes on one run and fails on another is <code>unstable</code>:
+it does not count as proof, the evidence names the test and its runs, and
+completion stops until the test is fixed. Retrying the proof leaves the same
+disagreement. Guards repeat on the candidate only. Only the proving tests repeat,
+so a stable proof costs two extra executions of those tests, not of the suite.</p>
+<p>When the project already has a coverage tool, the proving-test command runs once
+more to record <code>diff_coverage</code>: each changed product hunk, the hunks no proving
+test executed, and the changed files the report did not measure. That run cannot
+change the verdict, and nothing is installed into the project.</p>
+<p>Shell pipelines, custom reporters, ordinary npm/Mocha summaries and custom
+assertion scripts do not currently provide named proof. A direct supported
+targeted command can accompany an existing package-script suite. A runner that
+reports only an exit code (<code>make test</code>, Maven, Gradle or CMake with CTest when no
+JUnit report is configured, PHPUnit, Perl's <code>prove</code>, Ruby test files run one by
+one, or a runner AutoCode does not detect) cannot prove a <code>test:</code> or <code>guard:</code>
+criterion by name, so a draft that has one there is refused when it is drafted,
+and the Planner writes the criterion as the command that runs its test file
+instead. Behavior that must keep working is guarded there by the command that runs
+the existing tests, <code>guard: run `ruby test/pager_test.rb`</code> (or the detected suite,
+<code>guard: run `make test`</code>): the proof runs that command on the original code and with
+the change, and both must pass. The command must run tests the original code has.
+Where no runner is detected, a guard gives the project's own test command
+(<code>guard: run `./run_tests.sh`</code>) and the proof sees whether it runs the project's
+tests by running it; only a command that names a test file the project does not
+have is refused when the plan is drafted. Elsewhere it is checked when the plan is
+drafted: it names an existing test file, it is the
+detected suite, or, where the build tool selects tests by class, it selects existing
+test classes (<code>guard: run `mvn -B -q test -Dtest=PagerTest,ReportTest`</code>, or
+<code>--tests PagerTest</code> with Gradle), a module that has some (<code>mvn -q -pl core test</code>,
+<code>gradle :core:test</code>), or every test class, whatever its other options (<code>mvn -q test</code>
+where the detected suite is <code>mvn -B -q test</code>). When every criterion the proof is given
+is such a guard and the change touches no test file, the change is coverage of
+existing behavior, as one guarded by named tests is, and needs no new test: a
+refactor of a Minitest, <code>make test</code> or shell project is proven this way. A bug fix
+still needs a test that fails without it, a change with a test file is proven as
+before, and changed product lines still need the Tester's evidence. A project whose
+runner names its tests keeps naming them: a command guard there is refused when the
+plan is drafted (<code>tools/autocode_command_guards.py</code>, owner decision 2026-11-13).</p>
+<p>A bug can be in what the tests are given rather than in the code they test: a fixture that
+builds the wrong week, a helper that rounds too early, a data file with a wrong row. The
+right fix edits only those files, and "Only test files changed; a fix must change product
+code" refused it. Such a change is proven like a repair whose test the project already had (owner
+decision, 2026-11-16)
+(<code>tools/autocode_test_support.py</code>): the task is a bug fix, every path its approved plan
+changes is a test file, no changed file is deleted, and the runner's own per-test results
+name no test defined in any changed file, on the original code and with the change. The
+tests that ran and failed on the original code and pass with the change are then the proof,
+and every test that passed there must still pass. The proof records those files as its
+<code>test_support</code>, and the original-test gate reads that answer: it puts back the original bytes of
+every other changed test file and keeps the repaired support, so the original tests' own
+assertions run on it, where before it put the broken fixture back and could never pass. A
+changed test file, a test edited in
+place, a plan that also names product code, a helper that comes to define a test and a
+runner that names no test keep the rule as it was: a test's own assertions never change to
+make it pass.</p>
+<p>A repair whose regression test the project already had changes no test. Where the runner
+names its tests, the tests that fail on the original code and pass with the change are
+the proof. Code that cannot be loaded at all (a syntax error, merge conflict markers left
+in a file) lets no test run, so there the proof is the tests the original code could not
+load (owner decision, 2026-11-14: existing tests that now pass prove such a fix). The base
+suite must itself name the modules it could not load, the change must modify and delete no
+test file, the whole suite must load with the change, nothing may fail that did not already
+run and fail on the original code, and every one of those modules must have a test the
+project already had that passes now, so code that never had a test is not proved by the
+change's tests alone. The tests that could not run on the original code and pass with the change are
+then the proof, listed as not run on the original code, and the modules count as repaired,
+so the base's collection errors leave nothing unproven. A change may add test files of its
+own: their tests cannot run on such code either, so they count in the same way
+(<code>tools/autocode_first_suite.py</code>, <code>loaded</code> and <code>reloaded</code>). A test file that cannot be loaded
+and that the change neither touches nor repairs proves nothing either way: the proof leaves
+it out, names it and compares every other test
+(<a href="../workflow/">workflow</a>, <code>tools/autocode_unloadable_tests.py</code>). A change that edits one of the
+project's test files is judged as before, and so is any change to code that loads: a bug
+fix's new test must run and fail
+on the original code. <code>cargo test</code> builds every target before it runs a test, and names the
+target that did not build (<code>amounts (lib)</code>), not a test file, while its test names name no
+crate. So in a Cargo project every test of the run is one that could not run, those of a
+workspace's other crates among them, and one the project already had must pass now. Rust
+keeps tests beside the code, where removing one is no edit of a test file, and on code that
+did not build none ran to be missed: the repair must leave each <code>#[cfg(test)]</code> module of
+the files it edits or deletes as it was. It may add a module, as it may add a test file,
+and a file with a test item outside such a module is not shown to keep its tests
+(<code>autocode_rust_inline_tests.tests_kept</code>). A Mocha suite, Minitest files, PHPUnit, Perl's <code>prove</code>, Maven, Gradle, a test script the approved plan names, and a
+Jest command AutoCode leaves as written report only an exit code, so there the suite shows the repair as a whole: it
+failed on the original code and passes with the change. That counts when the change is
+code alone and touches no test, and the suite's own files (its tests, manifests and
+runner configs, among them PHPUnit's <code>phpunit.xml</code> and prove's <code>.proverc</code>) are the ones the original code had, or the original definition also
+passes over the new code. A file a shell test sources (<code>. ./pager.sh</code>) is the code
+under test there, as a file a JavaScript test imports is, and not one of the suite's
+own files; a script the test runs stays one
+(<code>autocode_suite_definition_scan.sourced_product</code>). For Maven and Gradle the suite's own
+files are the ones a JUnit proof of the same command holds to the original: the build
+files, the wrapper and the test sources (<code>autocode_junit_proof.definition</code>), so a
+<code>build.gradle.kts</code> that stops the tests running does not show a repair. <code>make test</code>,
+CMake and a script
+package.json names run whatever a recipe says, so they do not show a repair this way,
+and a change that also edits another kind of file is judged as before
+(<code>tools/autocode_first_suite.py</code>, <code>exit_flip</code>). When AutoCode detects no runner and nothing was typed, the regression
+proof runs the approved plan's own test command and judges its exit code
+(<code>tools/autocode_plan_proof_command.py</code>), recording that choice in the proof's
+notes and review reasons; it never asks the person to pass <code>--test-command</code>.
+Which of the plan's commands that is, it finds by running them
+(<code>tools/autocode_plan_command_roles.py</code>). A command that names a test file is taken
+by its words, as before. Any other command the plan asks to be run and this machine
+can run (its first word is a program on the <code>PATH</code>, or a file of the project that
+may be executed, such as <code>./run_tests.sh</code>) is run on the original code: one that
+passes there and fails there once the change's test files are added runs those
+tests, so it is the suite and the regression command; one that passes there and
+fails there when the project's own test files are made unloadable runs the tests
+the project already has, so it is the suite and a guard may use it. <code>dotnet test</code>,
+<code>mix test</code>, <code>swift test</code>, <code>make tests</code> and a test script name no test file and need
+no runner of their own in AutoCode. At most six commands are tried, in the plan's
+order, each for at most five minutes; what a command does on the original code is
+kept for the run (<code>plan_command_roles</code> in its state and in the proof's receipt),
+and the gate of the original tests runs them with the command found. Finding a
+command's role proves nothing about the change: the proof still runs it on the
+original code, there with the change's tests, and with the change.</p>
+<p>Which files are tests is a rule over paths (<code>tests/</code>, <code>test_*.py</code>, <code>*_spec.rb</code>), and
+a project that keeps its checks elsewhere (<code>checks/pager_check.rb</code> run by
+<code>ruby run_checks.rb</code>) has no test by it. There the approved plan says which command
+runs the project's tests, and AutoCode checks it by running that command. The plan
+says so with the criterion it is asked to write where no runner names a test,
+"run <code>ruby run_checks.rb</code>: it fails on the original code and passes with the fix",
+or with a command guard (<code>guard: run `ruby run_checks.rb`</code>). A code file of the
+change is then a test the command runs when the command passes on the original
+code, fails once the file is made unloadable (it runs the file) and passes once the
+file is emptied (nothing else needs it). A file the change edits is looked at on the
+original code and one it adds on the changed code, at most six files. Such a file is
+taken with the change's tests: the original code the command must fail on holds it,
+and the check of the original tests keeps it as the original code has it. It stays
+code for the evidence of changed lines. A guard there needs a test of the original
+code, which is the edited file or one beside a new file. What was seen is in the
+proof (<code>plan_command_roles.tests</code>, <code>tests_command</code>, <code>existing_test</code>) and in its notes
+and review reasons.</p>
+<p>The looks alone never make a file a test. A program's own entry file passes both of
+them, and so does a module a program loads when it is there, so a command the plan
+only asks to be run ("run <code>./app.sh</code> and see the new line") is not looked with, and
+a file the command names (<code>sh pager.sh</code>, <code>./app.sh</code>) is the program and never its
+test. A draft in such a project that plans no test is refused as before
+(<code>untested_code</code>), unless it says which command runs the tests and that command is
+seen to run a file the plan names, or one beside a file it adds, as a test is run;
+when another of its commands is seen to, the Planner is told how the plan says so
+(<code>tools/autocode_plan_test_suite.py</code>, <code>seen_to_run_tests</code>). A guard there is usable
+when its command is seen to run such a file. Do
+not downgrade an approved named criterion to prose to make a run finish. A
+draft whose test files the proof's suite would never run, such as RSpec specs in
+a repository whose root suite is Node, is refused when it is drafted unless one
+directory with its own suite holds them all (see the monorepo packages section of
+<a href="../workflow/">workflow</a>), so the Planner settles it before a Builder runs. So is a
+build or bug-fix draft that names code files and no test in a project with no test
+code: every change to code needs a test, and nothing there can guard the change
+instead (<code>tools/autocode_plan_test_suite.py</code>, <code>untested_code</code>).</p>
+<h3 id="tests-another-file-of-the-change-lists">Tests another file of the change lists<a class="headerlink" href="#tests-another-file-of-the-change-lists" title="Permanent link">&para;</a></h3>
+<p>The proof runs the change's tests on the original code, and "the change's tests" are
+its test files. Some projects run a test only because a file that is no test names it:
+a <code>Makefile</code> with a rule for each test program, a <code>CMakeLists.txt</code> that registers each
+test, an <code>npm test</code> script of <code>node test/a.js &amp;&amp; node test/b.js</code>, a <code>run_tests.sh</code> that
+names each file. There a new test runs only once that file is edited, so on the original
+code with the test files alone the command passed without running the new test, and the
+proof said "The new tests pass on the unfixed base code" of a test that had not run. Set
+the regression command by hand to the new test's own command and the same change failed
+next with "The base suite definition fails against the candidate code": the check that
+the original tests still pass with the change ran the change's listing without the
+change's tests.</p>
+<p>Which file lists a test is seen by running, not by its name
+(<code>tools/autocode_listed_tests.py</code>). When a proof judged by exit code fails for one of
+those two reasons alone, AutoCode runs its command again:</p>
+<ul>
+<li>on the original code with the change's test files made unloadable, to see which of them
+  the command does not run there;</li>
+<li>on the change with those made unloadable: a command that still passes runs them nowhere,
+  and the Builder is told to add them where the project's test command runs its tests;</li>
+<li>on the change with one other changed file put back as the original code has it, the
+  tests still unloadable: a command that passes now no longer runs them and nothing else
+  broke, so that file lists them.</li>
+</ul>
+<p>The proof then runs once more with those files taken with the tests: the original code
+the tests are run on holds them, and the check of the original tests keeps them as the
+original code has them. What must pass does not change. The command must still fail on
+the original code and pass with the change, the original tests must still pass with the
+change, a listed test that passes on the original code still fails the proof, and a
+file that carries the fix itself makes the command pass on the original code. At most
+six other files are looked at, files that are no code first, each run for at most five
+minutes; a proof that fails for another reason, or whose runner names its tests, costs
+nothing. What was seen is in the proof (<code>listed_tests</code>: the command, the tests, the
+files and each exit code) and in its notes and review reasons.</p>
+<h2 id="junit-xml-from-other-test-runners">JUnit XML from other test runners<a class="headerlink" href="#junit-xml-from-other-test-runners" title="Permanent link">&para;</a></h2>
+<p>With nothing typed, a Maven, Gradle or CMake project is proven by its build tool's
+own test command and that command's exit code, a Composer project with PHPUnit by
+<code>vendor/bin/phpunit</code> and a Perl distribution by <code>prove -lr t</code> (<code>tools/autocode_toolchain_suite.py</code>).
+Use <code>--test-report junit:RELATIVE_PATH</code> with an explicit <code>--test-command</code> to
+attribute Java, Kotlin, .NET, Rust or Ruby tests by name through their runner's JUnit
+XML output. For example, the catalog's Java case runs one real JUnit class:</p>
+<pre><code class="language-sh">autocode --workspace /path/to/project &quot;Count partial pages&quot; \
+  --test-command 'mvn -o -B -q -Dtest=PageCountTest test' \
+  --test-report junit:target/surefire-reports/TEST-example.PageCountTest.xml
+</code></pre>
+<p>Install the project's locked dependencies before running offline. The ordinary
+suite command is also used for the candidate/original-source regression runs
+when <code>--regression-command</code> is omitted. If provided, the regression command
+must produce the same relative report path. Keep every named <code>guard:</code> case in
+the command's selected tests as well as the new <code>test:</code> cases.</p>
+<p>The selection persists in the run and is also available as project settings:</p>
+<pre><code class="language-toml"># pyproject.toml
+[tool.autocode]
+test-command = &quot;mvn -o -B -q -Dtest=PageCountTest test&quot;
+test-report = &quot;junit:target/surefire-reports/TEST-example.PageCountTest.xml&quot;
+</code></pre>
+<p>A saved command/report correction uses the existing reconciled
+<code>--resume-paused</code> repair boundary before the Tester or combined checkpoint.
+When a completed Tester report was rejected and its queued repair has not launched,
+a material verification-command correction archives that obsolete repair after
+settings validation. Rejected artifacts, counters, usage and plan approval remain
+retained; fresh runner proof and an independent Tester attempt are required.
+Active or uncertain ownership and already launched report repairs remain held.
+It cannot replace evidence during an active command or late acceptance.
+Generic JUnit commands have no portable selector: stability repeats the unchanged
+command only when its complete report contains exclusively the proving cases.
+Otherwise the stability record reports that they ran once, without widening to
+an unrelated whole suite. Existing reporter selection is unchanged.</p>
+<p>This interface accepts one XML file per command, not a directory or glob. Use a
+single test class/project or a runner that writes one combined report. The path
+must stay inside each proof tree. Each command starts with that report removed,
+so a previous result or a command that does not rewrite it cannot supply proof.
+The runner captures the fresh XML beside its execution receipt and pins its
+hash; changing that captured artifact invalidates the proof. Missing, malformed,
+zero-test, incomplete or inconsistent reports cannot establish a named pass.
+Failure/error/skipped outcomes retain their meanings; a nonzero command exit
+with no genuine failing case cannot demonstrate a regression. This does not
+change the existing Python, Go, node:test or Vitest reporters.</p>
+<p>JUnit suite preservation pins the base test bodies and recognized build-system
+selectors before running them over the candidate product. Standard Maven,
+Gradle, .NET, cargo-nextest and RSpec commands have this boundary; an unknown
+command cannot establish preservation merely by writing valid XML. Changes to
+unclassified suite inputs remain <code>UNVERIFIED</code>. Existing Rust product files can
+also define inline tests, so changing such a file currently leaves preservation
+<code>UNVERIFIED</code>, even when its reported cases pass. The same conservative boundary
+applies when an existing product file may contain nonstandard test definitions.
+Command-selected custom build/test files, unbound project paths and arbitrary
+build properties also leave preservation <code>UNVERIFIED</code> until their base inputs
+can be bound. The trusted command still runs; its XML cannot prove that those
+hidden definitions stayed intact.</p>
+<p>Runner setup examples (configure unique test names matching the named criteria):</p>
+<ul>
+<li><strong>Maven / Java:</strong> pin JUnit Jupiter and Maven Surefire in <code>pom.xml</code>. Run
+  <code>mvn -Dtest=PageCountTest test</code>; use
+  <code>junit:target/surefire-reports/TEST-example.PageCountTest.xml</code>.
+  Surefire emits XML per class; <code>-Dtest</code> selects the class.
+  <a href="https://maven.apache.org/surefire/maven-surefire-plugin/">Surefire reports</a>,
+  <a href="https://maven.apache.org/surefire/maven-surefire-plugin/examples/single-test.html">single-class selection</a>.</li>
+<li><strong>Gradle / Java or Kotlin:</strong> keep JUnit XML enabled and run
+  <code>./gradlew test --tests example.PageCountTest --rerun-tasks</code>; use
+  <code>junit:build/test-results/test/TEST-example.PageCountTest.xml</code> with Gradle's
+  default layout. <code>reports.junitXml.outputLocation</code> changes the directory;
+  align the report flag with it. Re-running tasks avoids treating Gradle's
+  up-to-date result as fresh execution after the report was removed.
+  <a href="https://docs.gradle.org/current/userguide/java_testing.html#sec:test_reporting">Gradle XML reports</a>.</li>
+<li><strong>.NET / VSTest:</strong> add the compatible <code>JunitXml.TestLogger</code> NuGet package to
+  the test project, then run from that project's directory:
+  <code>dotnet test Tests.csproj --framework net8.0 --logger "junit;LogFilePath=junit.xml"</code>;
+  use <code>junit:junit.xml</code>. Select one project and target framework so outputs do
+  not overwrite each other. This is a third-party JUnit logger.
+  <code>dotnet test --logger trx</code> writes <strong>TRX, not JUnit XML</strong>, and is not accepted
+  by this interface.
+  <a href="https://github.com/spekt/testlogger">JUnit logger</a>,
+  <a href="https://learn.microsoft.com/dotnet/core/tools/dotnet-test-vstest">Microsoft's TRX documentation</a>.</li>
+<li><strong>Rust / cargo-nextest:</strong> in <code>.config/nextest.toml</code>, set:</li>
+</ul>
+<p><code>toml
+  [profile.default.junit]
+  path = "junit.xml"</code></p>
+<p>Run <code>cargo nextest run</code> and use
+  <code>junit:target/nextest/default/junit.xml</code>. The path is relative to the profile's
+  store directory; with <code>--profile ci</code> and <code>[profile.ci.junit]</code>, it becomes
+  <code>target/nextest/ci/junit.xml</code>. JUnit output is configured in the profile,
+  not with a <code>--junit</code> command flag.
+  <a href="https://nexte.st/docs/machine-readable/junit/">Nextest JUnit configuration</a>.
+- <strong>Ruby / RSpec:</strong> a plain <code>bundle exec rspec</code> needs none of this (see above).
+  To use JUnit XML instead, include <code>rspec_junit_formatter</code> in the project's bundle and
+  run <code>bundle exec rspec --format RspecJunitFormatter --out junit.xml</code>; use
+  <code>junit:junit.xml</code>. Keep the formatter in the same dependency group as RSpec.
+  <a href="https://github.com/sj26/rspec_junit_formatter">Formatter usage</a>.</p>
+<p>The <code>feature-java-page-count</code> catalog case exercises this interface with real
+Maven 3.9.9, JUnit Jupiter 5.11.4 and Surefire 3.5.2. Its independent Java oracle
+rejects wrong behavior and a green regression that also passes on the original
+source. The other setup examples document their runners' interfaces; they are
+not claims of locally executed qualification for those ecosystems.</p>
+<h2 id="mutation-check">Mutation check<a class="headerlink" href="#mutation-check" title="Permanent link">&para;</a></h2>
+<p>A proving test can fail without the fix and pass with it and still not pin the
+behavior: <code>assertEqual(3, page_count(11, 5))</code> holds for a correct ceiling and for
+a fix that is wrong when there is only one, partial page. Once a named proof
+passes (its verdict final, after the case check), the runner looks for that by
+changing the product code one small step at a time and running the proving tests
+against each change (#699, <code>tools/autocode_mutation_check.py</code>, with the changes
+from <code>tools/autocode_mutants.py</code>).</p>
+<ul>
+<li><strong>Where.</strong> Only the changed lines of the change's product <code>.py</code> files, in the
+  proof's own candidate scratch tree. Tests, files the change does not touch,
+  type stubs (<code>.pyi</code>), files that are not UTF-8 (ASCII counts, however the coding
+  cookie spells it), files that do not parse with the runner's Python and files
+  with a carriage return no line feed follows (Python and git number their lines
+  differently) are never changed; the record notes why.</li>
+<li><strong>What.</strong> The operators negate a condition (<code>if</code>, <code>while</code>, a conditional
+  expression, <code>assert</code>, a comprehension filter or a <code>case</code> guard); swap a bound
+  (<code>&lt;</code> and <code>&lt;=</code>, <code>&gt;</code> and <code>&gt;=</code>); drop a branch (an <code>if</code> body or its <code>else</code> becomes
+  <code>pass</code>, a decorated definition with its decorators; an <code>elif</code> is mutated as
+  its own <code>if</code>); return a constant instead of the value; shift an integer
+  bound by one: a literal beside <code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code> or <code>&gt;=</code> (an <code>==</code>, <code>!=</code>, <code>is</code> or
+  <code>in</code> operand is not a bound); bind another constant where a bool, number
+  or string literal is assigned to a name (<code>TEXT = "hello"</code> becomes <code>TEXT = ""</code>),
+  so a line whose whole behavior is the value it binds has a site a test can
+  see. The tuple assignment operator swaps the first two distinct names in a
+  simple unpacking on a changed line. A line none of those reaches gets one
+  statement site (#2815): a call made for its effect is dropped (<code>log.write(x)</code>
+  becomes <code>None</code>), a computed value bound to a name becomes <code>None</code>, a <code>for</code>
+  loop runs over nothing, an import or a <code>raise</code> becomes <code>pass</code>, an <code>except</code>
+  clause catches <code>()</code> (nothing), the context manager of a <code>with</code> and the value
+  of an augmented assignment (<code>count += 1</code>) become <code>None</code>, and a keyword argument
+  or dictionary entry on a line of its own takes another constant or <code>None</code>. A
+  list or tuple element on its own changed line also takes another constant,
+  subject to the same import-safety and exact-mutation checks. A
+  mutant counts for the line it starts on, so the later statements of a dropped
+  branch get their own sites. A line holding only <code>try:</code> or <code>pass</code> does nothing a
+  test could notice and is not a changed-line obligation at all. No mutant is
+  made where the module would then fail to load: in a function that runs on
+  import, or in module-level code whose result code run on import reads
+  afterwards (an <code>except</code> around an optional import, a module-level <code>with</code>).
+  Test collection would fail before any test ran, so that mutant could only end
+  <code>not_run</code>, and the line counts as having no site.
+  Each mutant replaces a span of source bytes,
+  keeps every line number, must compile, and must change its statement exactly as
+  intended; a site that fails one of these, or cannot be checked at all (a
+  statement nested too deep, an integer too long to print), is skipped with a
+  note and the next one takes its place.
+  <code>TYPE_CHECKING</code> and <code>__main__</code> guards, f-strings, annotations and branches that
+  already do nothing are left alone.</li>
+<li><strong>How many.</strong> Current task proofs enumerate the eligible sites on every changed
+  line within the existing mutation budget. Unrun sites stay explicit obligations.
+  The older advisory collector and standalone review study retain their six-site
+  sample per file. The same source and selection give the same sites.</li>
+<li><strong>How long.</strong> Each window has a 900-second budget, the same limit as a check replay,
+  covering its unmutated run and mutants. An incomplete current task proof continues
+  its never-launched sites in further windows, within the saved stage allowance and
+  remaining run active time (#3524). A proof the same invocation just made continues
+  this way even when its runtime cannot be reused across invocations (a global
+  interpreter, Node or JUnit), so a large study finishes there too (#3950); a saved
+  proof from an earlier invocation still needs a reusable runtime identity. The extra time is charged to the run. Each
+  completed window publishes a new proof artifact and retains the old one, its
+  captures and all attempted outcomes, including failures and timeouts. Continuation
+  requires unchanged source bytes, exact sites, test selection, commands, contract,
+  runtime and dependencies, with intact owned captures. It stops if no new site ran.
+  While a reusable study is progressing and unattempted sites remain, the controller
+  schedules another bounded local step before launching the independent review.
+  Saved run and model limits stay unchanged. A later step can resume the remaining
+  sites without repeating functional proof checks; a changed context requires fresh
+  proof. Unrun sites never count as evidence.
+  Each refresh retains the exact prior site inventory and every attempted
+  observation. A timed-out, failing or incomplete new reference records an
+  unsuccessful refresh with its command receipts, rather than erasing the prior
+  study. Completion stays unverified until a fresh measurement resolves that gap;
+  line exceptions cannot waive an unsuccessful reference. The next window reserves
+  the observed reference duration as well as one mutant's minimum allowance.
+  The older advisory collector and standalone review study keep one window.
+  Current task proofs prefer the independently
+  observed passing regression tests by exact ID. When the regression command cannot
+  select observed tests, they use the passing candidate-suite tests instead. Suite
+  preservation still runs unchanged on the original and candidate code. The selected
+  tests must pass a fresh, complete unmutated run before any mutant runs; an earlier
+  suite or regression receipt cannot replace it. This preference does not itself
+  refresh a saved measurement at Completion Review; normal validation requests proof
+  under the current runtime identity, while previously qualified evidence stays valid.
+  Once that unmutated reference run passes on all selected tests, enforcement mutation
+  checks narrow each mutant's test command to the conservative AST/import/symbol
+  reachability closure of selected tests (<code>tools/autocode_affected_tests.py</code>, recorded
+  in <code>test_selection</code> and per-mutant <code>selected_tests</code>/<code>selection_rule</code>), falling back
+  to all selected tests on dynamic or unmapped edges and recording provably unobserved
+  lines as <code>survived</code> without launching unrelated tests. An import reaches every workspace
+  module whose path ends in the imported name, so a module reached through any <code>sys.path</code>
+  entry (a directory a test or <code>conftest.py</code> inserts, <code>PYTHONPATH</code>, <code>src/</code>, a start
+  directory) selects the tests that import it.
+  Older advisory collectors
+  select only the named proving tests. Each collection starts with a fresh bytecode
+  cache and reuses unchanged dependencies within that collection. Every mutated
+  source version has a distinct whole-second modification time, so its old compile
+  is invalidated, including in a Python the tests start without that cache setting.
+  Original source bytes and modification times are restored after each mutant. A mutant may take
+  ten times the unmutated run's duration, at least 60 seconds, and never more than the budget
+  left: with fast proving tests one that never returns cannot spend the budget,
+  but with slow ones it can use the rest of it. No mutant starts with less than
+  60 seconds left; those, and a mutant the budget cut short, are <code>not_run</code>.</li>
+<li><strong>Which proofs.</strong> Python <code>unittest</code> and <code>pytest</code> proofs, as above. Go,
+  <code>node:test</code>, Vitest, Jest, Mocha, Cargo, RSpec and Minitest proofs are mutated too (#3817,
+  <code>tools/autocode_text_mutants.py</code>): with no parser for those languages, a
+  scanner marks which bytes are code, not a string, comment, template literal or
+  regular expression, and eight operators match only code on a changed <code>.go</code>,
+  <code>.js</code>, <code>.mjs</code>, <code>.cjs</code>, <code>.jsx</code>, <code>.ts</code>, <code>.mts</code>, <code>.cts</code> or <code>.tsx</code> line: negate a
+  one-line <code>if</code> condition; swap a spaced bound (<code>&lt;</code> and <code>&lt;=</code>, <code>&gt;</code> and <code>&gt;=</code>),
+  equality (<code>==</code> and <code>!=</code>, <code>===</code> and <code>!==</code>), logic (<code>&amp;&amp;</code> and <code>||</code>) or arithmetic
+  operator (<code>+</code> and <code>-</code>, not beside a string); flip <code>true</code> and <code>false</code>; return
+  <code>undefined</code> (JavaScript) or <code>nil</code> for a returned name (Go); and blank a call made
+  as a statement on its own line. Spaces on both sides keep generics, shifts,
+  arrows and Go's <code>&lt;-</code> out. Nothing compiles a mutant beforehand: a Go mutant whose
+  package does not build (<code>return nil</code> for an <code>int</code>, a blanked call that was a
+  name's only use) is no mutant at all, so it is left out with a file note and its
+  line needs a reason like any line without a site. A Ruby mutant is checked with
+  <code>ruby -c</code> (through <code>bundle exec</code> when the proof runs through it) before its tests
+  run: one Ruby refuses does not parse, so it is left out the same way, with the
+  note <code>PATH:LINE: the OPERATOR mutant did not parse; not a site</code>; a parse check
+  that times out or cannot start decides nothing, and the mutant runs. Any other
+  mutant that does not load reports no complete result for its selected tests and
+  ends <code>not_run</code>, never <code>killed</code>.
+  Changed <code>.rs</code> and <code>.rb</code> lines get the same operators. Rust's scanner also skips
+  raw strings (<code>r#"…"#</code>), character literals and nested block comments, keeps a
+  lifetime as code, leaves an empty closure's <code>||</code> and a declaring line (<code>fn</code>,
+  <code>impl</code>, <code>where</code>) alone, and returns <code>Default::default()</code>; a Rust call is blanked
+  only when it ends with <code>;</code>. Ruby's skips <code>#</code> comments, <code>=begin</code> blocks, each
+  <code>#{…}</code> interpolation inside its string, heredoc bodies and percent literals
+  (<code>%w[…]</code>), returns <code>nil</code>, negates <code>if</code>, <code>elsif</code> and <code>unless</code>, and never swaps
+  <code>===</code>, Ruby's case equality. A Cargo proof is narrowed with <code>-- --exact</code> and
+  each test's harness path, an RSpec proof with one <code>--example</code> per full
+  description, and a Minitest proof with Minitest's <code>-n</code> and one anchored regular
+  expression over the proving tests' <code>Class#method</code> names (<code>-n
+  '/^(LabelTest#test_one)$/'</code>): after the test file of <code>ruby FILE</code>, after <code>--</code> for
+  <code>ruby -e</code> (the detected suite) and in <code>TESTOPTS</code> for <code>rake test</code>. A Minitest
+  command that already filters by name (<code>-n</code>, <code>--name</code>, <code>-e</code>, <code>--exclude</code>) or that
+  AutoCode does not read is not narrowed, and its record says
+  <code>runner_cannot_select</code>. Cargo rebuilds a crate only when a source is newer than its last
+  build, so each Cargo mutant and each restored source is given a modification
+  time later than the one before, never an older one: a backdated mutant ran the
+  unmutated build and survived whatever its tests asserted.
+  Go runs every mutant with <code>-count=1</code>: its test cache answered a test that builds
+  and runs the package's command with the unmutated pass. These runners select tests by a name pattern, so the
+  parent and siblings of a selected Go subtest, or another test the pattern
+  matches, may run too; only the selected tests are judged, and a run where only
+  such another test failed proves nothing. They are not narrowed per mutant and
+  do not stop at the first failure. Any other runner's record says so in
+  <code>unavailable</code> (<code>no_mutation_source</code>, or <code>runner_cannot_select</code> when the command
+  cannot name the proving tests). A line with no mutation outcome, because its
+  runner has no mutation source or the line has no mutation site, is settled only
+  by the Tester's reason, so no Builder change can help it. When every open line
+  is such a line and the Tester asked for no test, the lines go to the Investigator
+  from the first round, not to the Builder (<code>builder_skipped</code> in the repair
+  record). When only some are, the Builder is told which lines it can settle and
+  which wait for the Tester's reasons.</li>
+</ul>
+<p>A mutant that makes a proving test fail is <code>killed</code>. One that every proving test
+still passes has <code>survived</code>, and is reported beside each due test case whose
+test passed with it (keyed by the same test-case ids as <code>case_tests</code>), for
+example <code>test_partial_last_page_is_counted passes with pager/__init__.py:9
+changed (`&gt;` -&gt; `&gt;=`)</code>. The status view shows the record as
+<code>evidence.mutation_check</code> (<a href="../task-run/">the task-run interface</a>), the evidence
+report lists each survivor under the regression proof, and the Tester and the
+Completion Reviewer receive it with the proof. The runner combines exact-source
+coverage and authenticated mutation observations in <code>changed_code_evidence</code>
+(#2474). A line merely executed without a meaningful assertion does not pass.
+A named test must actually fail under the mutation; a setup/collection failure,
+missing test, interrupted command or timeout grants no positive evidence.
+Enforced Python mutation runs stop after the first selected test failure. The
+unmutated reference must still pass every selected test, and a survivor must run
+and pass them all. A completed early-stop capture proves only the selected tests
+it actually reports failing; its owned capture and explicit execution policy are
+checked again when reconstructing changed-line evidence. Older reports retain
+their requirement for every selected test result.</p>
+<p>Every changed executable line needs demonstrated mutation evidence or a precise
+reason checked by the existing independent Tester. This is its code-review
+responsibility within the existing workflow, and cannot be self-approved by
+Builder. A survivor can be equivalent (no test could observe the change); the
+Tester can record that specific reason against the current offered gap ID and
+pin its source/test/check evidence. Each obligation also carries a short handle
+(<code>L1</code>, <code>L2</code>, … in inventory order), which the offer accepts beside the full ID and
+the runner maps to the same exact line, so a model never retypes 64-hex IDs. An unavailable tool alone is not a blanket
+exception. Installed dependencies (a file under any <code>node_modules</code>, <code>.venv</code> or <code>venv</code>
+directory) are third-party code, not changed product lines, even in a project that does
+not ignore them: the runner leaves them out of the inventory and records their count and
+directories as <code>changed_code_inputs.installed_dependencies</code> (#3164). The gate's reason
+names the first 40 open lines and counts the rest; every line stays in <code>obligations</code>. Empty survivor lists and the old six-site sample never prove that
+all changed lines were tested.</p>
+<p>Python's source inventory includes runtime-expression tokens as well as compiler
+line-table entries, because constant folding can move a multiline element onto
+another line in the bytecode. It retains meaningful string contents and delimiters
+conservatively, excludes actual comments and existing inert declarations, and
+uses Git's physical line numbering for the line quoted to the reviewer. A mutant
+that starts on a parent line cannot prove a changed child line; nonpositive parent
+observations spanning that line remain visible as diagnostic context.</p>
+<p>A handle only names a line; it cannot show that the reason under it is about
+that line. An accepted S6 report (#2977) put the reason for one line under the
+handle of another: the handles resolved, so the gate passed lines no reason
+described. Each gap the Tester decides therefore carries <code>source_line</code>, the text
+of its exact line read from the measured bytes (whitespace runs collapsed to one
+space, at most 200 characters), and each decision quotes it back in its own
+<code>source_line</code>. A decision whose quote is another line's text is returned for
+report repair, before clean verification runs and again when the decisions are
+bound, with each handle's quoted and actual line; a repaired report is held to
+the same check. The final report shows each line beside its reason, so the
+reviewers judge the reason against the line it covers. A matching quote proves
+only that the reason names its own line; whether the reason is adequate stays
+the independent reviewers' judgment. A line whose bytes could not be read
+carries no text and binds by its handle alone, and a report offered before this
+check binds without a quote.</p>
+<p>A PASS that omits an offered Tester decision for a line with no mutation
+outcome is returned for report repair before clean verification commands run.
+This early check uses the current source and offered gap bindings; missing or
+stale bindings cannot establish such an omission. Complete and repaired reports
+still take the fresh verification and exact evidence-admission gates.</p>
+<p>The core returns unresolved exact lines to Builder for two bounded repair rounds,
+then uses its existing Investigator path and saved run limits. It records those
+decisions and the fallback in the public verification view and final report.
+When a batch correction has narrowed the assignment to one component, a rejected
+gap in another batch member first returns to the Completion Reviewer for
+reassignment within the approved plan. That scope review neither expands the
+Builder's permission nor consumes a Builder repair round; unresolved evidence
+continues to block acceptance.
+A validation-only task likewise returns to the Completion Reviewer when changed
+lines remain unverified: its read-only assignment cannot authorize a Builder
+repair. Review must assign any correction within the approved plan before a
+Builder runs. This handoff preserves the line evidence, milestone obligations,
+attempt history and no-progress counter; it grants no acceptance or new retry.
+Missing project coverage tooling uses demonstrated mutation evidence alone where
+available; otherwise the line remains open for independent judgment. No project
+dependency is installed. Blank/comment-only lines, Python declaration-only lines
+and non-executable lines excluded by an authenticated statement map are omitted.
+Legacy proofs and standalone review mutation studies remain advisory records;
+active task completion requires current evidence rather than inferring it from
+those older records. A proof that did not pass runs no mutant.</p>
+<p>It complements the check replay's sanity gate (<code>tools/autocode_test_quality.py</code>),
+which rejects test bodies that assert nothing at all. A test that asserts
+something, but not enough, passes that gate and shows up here.</p>
+<h3 id="tests-in-a-reviewed-patch">Tests in a reviewed patch<a class="headerlink" href="#tests-in-a-reviewed-patch" title="Permanent link">&para;</a></h3>
+<p>The review workflow keeps two test groups separate. A reviewer's delivered
+finding tests must fail on the change to prove its blocking findings. They are
+not the passing tests used for mutation checks.</p>
+<p>For an explicit <code>change_patch</code>, the runner selects added or modified standard
+Python test files from that patch, excluding <code>review/</code>. It applies the pinned
+patch in its clean scratch copy, runs those original tests, and selects only
+complete, observed passing test IDs. Every selected ID must pass again before
+mutants run. It never executes the model's free-form <code>tests_run</code> strings or
+falls back to the whole suite.</p>
+<p>The check changes only product lines actually added by the patch, excluding
+context lines, tests and unchanged files. It uses the same Python operators,
+six-mutant file limit and one 900-second budget. Missing patches, unsupported
+runners, absent test selections and changes without eligible mutation sites
+produce an explicit not-run note. An empty selection is not evidence that the
+tests reject wrong code. Unknown process cleanup remains a hold.</p>
+<p>Review results expose <code>subject: reviewed_patch_tests</code> in
+<code>evidence.mutation_check</code>, with the patch hash, selected files and test IDs.
+Survivors are keyed by those actual test IDs, rather than invented acceptance
+criteria. The findings artifact and canonical
+<code>workflow_result.mutation_check</code> retain the same report; Markdown presents it
+under <strong>Review test mutation check</strong>. This creates no named regression proof
+and changes neither the review verdict nor the finding-test requirement.</p>
+<h2 id="contained-tester-evidence">Contained Tester Evidence<a class="headerlink" href="#contained-tester-evidence" title="Permanent link">&para;</a></h2>
+<p>A contained Tester cannot bind or connect sockets. If the named regression
+tests exercise real HTTP/end-to-end behavior, it must not run that network-dependent
+regression command again: inspect the named tests and cite the runner's existing
+clean-copy proof, not a model claim of execution. At launch, the runner checks
+the proof's source revision against the current source, its receipt hash, and
+the integrity of its check artifacts using the existing regression validator,
+without requiring the independent changed-line decisions this Tester is about
+to supply. The full completion gate still requires those decisions. The entire
+presented proof must also match the runner's fresh handoff or a deterministic
+Core projection, including JSON types. A compact projection must bind every
+moved original field, receipt index and count to the run-owned, content-addressed
+context artifact and its exact byte hash; an arbitrary summary cannot supply
+that authentication. Only then is <code>runner_regression_proof_current</code>
+true; missing or altered handoff evidence is not authenticated even when the
+saved runner proof is valid. A PASS receipt alone is not sufficient authority.
+The tests must assert the approved flow, not only health or static behavior;
+missing, stale, incomplete, failed, skipped or zero-test proof cannot establish
+HTTP PASS. A current executed regression PASS with pending changed-line review
+is evidence for that execution, not permission to complete the task. Generic
+workloads with unavailable evidence are told to retain BLOCKED/NOT_VERIFIED,
+rather than receiving an unrelated HTTP failure instruction.</p>
+<p>The Tester still executes permitted independent non-network checks and captures
+their receipts in <code>tool_containment.scratch</code>. It cites <code>regression_proof</code> directly
+(<code>verdict</code>, <code>source_revision</code>, <code>case_tests</code>, <code>checks</code>, <code>path</code>), never through a
+check that reads run files, which are absent from clean replay. This changes no
+network permissions, replay policy or completion requirements. Uncontained
+Testers retain the existing instruction to run the regression command themselves.</p>
+<h3 id="go-test-prerequisite-metadata">Go test prerequisite metadata<a class="headerlink" href="#go-test-prerequisite-metadata" title="Permanent link">&para;</a></h3>
+<p>A test may import a package from an already selected transitive module whose
+indirect requirement or checksum is missing from the root manifests. Where the
+approved plan permits it, the acceptance Tester may add that loading metadata
+alongside its tests. The core admits only additive indirect requirements at the
+original Go selection and missing checksums verified against offline cached
+module artifacts. Existing requirements, versions, module/toolchain directives
+and checksums cannot be replaced or removed through this exception.</p>
+<p>The runner retains both native graph observations and exact manifest hashes,
+including any change in transitive module selection. Those observations grant no
+plan approval: a version constraint in the approved plan still applies. The
+Builder must retain admitted metadata byte-for-byte, including for blind tests.
+The final regression comparison uses identical admitted metadata on original and
+corrected production source, while the original suite baseline keeps its original
+inputs. Compilation failures never establish a bug reproduction. Other dependency
+changes remain on the ordinary proof path and are not overlaid onto the original
+source as test prerequisites.</p>
+<h3 id="python-product-and-test-roles">Python product and test roles<a class="headerlink" href="#python-product-and-test-roles" title="Permanent link">&para;</a></h3>
+<p>A test-like filename alone does not make a shipped Python module an oracle. The runner
+uses the original Git tree, including its launch commit's dirty and untracked inputs,
+to read literal setuptools package and module lists and ordinary literal imports.
+Original product ownership keeps those bytes on the base side of a regression proof.
+Dedicated test roots and supported test declarations keep test authority. A test root is
+a <code>tests/</code>-style directory at any depth, or a <code>test/</code> or <code>spec/</code> directory at the repository
+root or directly under a directory that is not a Python package (a project kept one directory
+down, such as Docutils' <code>docutils/test/</code> beside its <code>docutils/docutils/</code> package); a <code>test/</code>
+inside a package (<code>django/test/</code>) may be a shipped subpackage and is not a root. A directory
+the original tree's pytest configuration names in <code>testpaths</code> is a test root too, read relative to
+the directory of the configuration pytest itself would read there (<code>pytest.toml</code>, <code>pytest.ini</code>,
+<code>pyproject.toml</code>, <code>tox.ini</code> or <code>setup.cfg</code>, in pytest's order): pytest keeps its suite in <code>testing/</code>.
+A named directory that the packaging ships, or that code outside it imports by any dotted name, is
+not one, so <code>testpaths = ["src", "tests"]</code> never makes the product a test; the configuration read
+is recorded with the roles, and a change cannot name new test paths. One test
+file beside the code it tests is a test in the same way: a <code>tests.py</code> at any depth (an
+application's tests, as Django's <code>startapp</code> writes them and unittest discovery collects them),
+and a <code>test.py</code> at the top of the repository. A <code>tests.py</code> the package's own code imports is product code whatever it declares
+(<code>jinja2/tests.py</code> holds the template language's tests as functions named <code>test_odd</code>), and
+a <code>test.py</code> inside a package is product code (a <code>test</code> command). Mixed or
+unresolved changed roles remain unverified without executing proof commands. Dynamic
+build configuration is not interpreted, and candidate packaging cannot relabel the
+original product. Original top-level assertions with a literal <code>import unittest</code>
+also declare an oracle; packaging or runtime import ownership still makes that mixed
+role ambiguous. Unknown unchanged oracle entries remain protected conservatively.
+Proofs from an earlier role policy require fresh execution before advancing.</p>
+<p>In the other languages a file is a test by its name (<code>pager.test.js</code>, <code>pager_test.go</code>,
+<code>PagerTest.java</code>) or by its directory. A single test file at the top of the repository is one too,
+where the language's own tools do not say which files are tests: <code>test.js</code> (also <code>.mjs</code>, <code>.cjs</code>,
+<code>.ts</code>, and <code>tests.</code>), which <code>node --test</code> and Jest collect and many small packages run as
+<code>node test.js</code>; <code>test.c</code>, <code>test.cc</code> or <code>test.cpp</code>; and <code>test.sh</code>. A change to it is the change's
+regression test, proven by its named tests or, where the suite reports only an exit code, by the
+suite failing on the original code with the new test and passing with the change. Deeper in the
+tree such a file stays product code (<code>lib/commands/test.js</code>).</p>
+<p>A repository may hold several projects, each with its own manifest (<code>web/package.json</code> beside
+<code>api/pyproject.toml</code>, <code>packages/pager/package.json</code>, <code>services/api/go.mod</code>). What holds tests at
+the top of the repository holds them at the top of each of those projects: <code>web/test/pager.js</code>,
+<code>web/spec/</code>, a single <code>web/test.js</code>. The projects are read from the original tree
+(<code>autocode_project_kinds.project_roots</code>), so a manifest the change adds makes no code a test, and a
+<code>test/</code> directory with no manifest beside it (<code>lib/test/</code>) stays product code. A Python project
+below the root, and a Python file anywhere, are left to the role inventory above, which reads a
+<code>test/</code> directory below the root from the Python packages around it. The proof, the original tests a run keeps and the plan check ask the rule of
+the tree they read (<code>test_rule</code>); a reader with only a path sees the repository's own top.</p>
+<p>The manifests say where the proof first runs a changed test, not where it must run. Many projects
+have none: a backend with only <code>requirements.txt</code>, a directory of code and tests that declares
+nothing, a Python directory inside a Node project. The proof runs the changed tests once where the
+rules put them, and a file that does not load there (<code>collection_errors</code>, <code>uncollected</code> or no test
+at all in the runner's results), or that no suite there runs, is run from each directory around
+it, innermost first, then from the root. It runs from the first place where it loads
+(<code>cd backend &amp;&amp; python3 -m unittest -v tests/test_pager.py</code>; <code>autocode_test_homes</code>), a note says
+which run showed what, and the home is kept for the run as <code>test_homes</code> in its state and in the
+proof's receipt. No file name, language or layout is consulted, and nothing about passing changes:
+the test must still fail on the original code and pass with the change, under one command for
+both. See <a href="../workflow/">the workflow</a> for the whole rule.</p>
+<p>The original-test gate runs the command the run bound when it started, the suite of the
+repository's root. Where that is a Python suite, or the root has none, and the changed original
+tests are another language's files in one project below the root, the gate runs them with that
+project's own suite, as the proof does (<code>cd web &amp;&amp; node --test test/pager.js</code>;
+<code>autocode_protected_project_suite</code>).
+Python tests have the mirror problem: the bound Python runner can run them, but from the root, where
+<code>python3 -m unittest -v api/tests/test_orders.py</code> cannot import <code>orders</code> from <code>api/</code>. Where the root
+is no project of its own (it holds no manifest) and the changed test modules are all in one project
+below it, the gate runs them inside that project with the bound runner
+(<code>cd api &amp;&amp; python3 -m unittest -v tests/test_orders.py</code>), where the proof runs them
+(<code>autocode_package_scope.for_tests</code>). A command the person typed (<code>--test-command</code>, or a correction
+of the original tests' command) runs where they typed it, and so does a runner that names something
+by where it runs: an environment set before it, an interpreter named by a relative path, a pytest
+option that names a path (<code>--rootdir</code>, <code>-c</code>, <code>--ignore</code>).
+The gate does not work out again where a changed test runs. A test the proof saw load anywhere
+but the root (<code>test_homes</code>, above: one it moved, or one the rules put in a project below the root)
+runs in the gate with the command the proof used, on the change and again with the original tests
+put back, so the two agree by reading one answer (<code>autocode_protected_oracles.replay_parts</code>,
+<code>autocode_test_homes.away</code>, <code>replay_commands</code>). Changed tests
+in more than one place (<code>api/</code> and <code>worker/</code>, or one project and the root) give one command for
+each (<code>cd api &amp;&amp; python3 -m unittest -v tests/test_orders.py ; cd worker &amp;&amp; python3 -m unittest -v
+tests/test_jobs.py</code>). Each must pass: the receipt keeps the runs under <code>suites</code>, and one that fails
+with the original tests fails the gate. A changed file in such a project that is no test of its
+own (a helper of its tests), or a deleted test, runs that project's whole suite. A Python
+directory inside another language's project is covered the same way, with or without a manifest of
+its own: its changed original tests now run in the gate, where the root's <code>npm test</code> never ran
+them. Before the proof has run, and for a test that loads at the root, the bound command and the
+rules above decide, as before.
+An original internal test link also retains a declared oracle outside test roots
+when packaging, runtime imports and dynamic uncertainty do not give it a conflicting
+role. A candidate-added link cannot promote an original product or unknown endpoint.</p>
+<p>At an idle saved pause before independent validation, an explicit resume can remove
+positively proven original product entries from an old protected inventory. The runner
+checks their bytes and modes against the original Git pin and authenticated archive,
+retains every remaining original file and the same command, records both bindings and
+the retired proof, and requires fresh proof. Status reads and terminal stops cannot
+perform this correction. Ignored launch-source overlays leave the correction refused.</p>
+<p>The correction remains in full historical custody. Planning packets and reviewer
+handoffs carry only bounded counts, reasons, binding hashes and archive references;
+they do not repeat entire original inventories. The public recovery history explains
+the correction, and the evidence report cites its original and corrected inventories.</p>
+<h3 id="failed-replay-work">Failed replay work<a class="headerlink" href="#failed-replay-work" title="Permanent link">&para;</a></h3>
+<p>When a reported or approved check fails, times out, cannot execute, or lacks
+complete owned-command evidence, its replay is rejected immediately. The saved
+FAIL receipt retains completed checks and lists later checks and acceptance
+observations under <code>not_run</code>; those observations remain unverified, not passed.
+A corrected report must still satisfy every prescribed check and independent
+acceptance gate. Deadlines, required repetitions and proof-reuse rules do not
+change. Work already completed before the failure remains retained.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.top", "search.suggest", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

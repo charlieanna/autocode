@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "as_of": "2026-11-14",
+  "basis": "Initial baseline values from docs/bugs/2026-11-11-nonproductive-stage-wall-time.md, #3344 and RELIABILITY.md; a sample above a target is a regression to investigate, never an execution gate.",
+  "targets": {
+    "non_productive_stage_time_share": {
+      "max": 0.361,
+      "source": "docs/bugs/2026-11-11-nonproductive-stage-wall-time.md (36.1% non-productive stage time across 58 runs on 2026-11-11)"
+    },
+    "rejected_answer_stage_time_share": {
+      "max": 0.186,
+      "source": "#3344 and docs/bugs/2026-11-11-nonproductive-stage-wall-time.md (~18.6% rejected model answers plus report repairs)"
+    },
+    "first_question_seconds": {
+      "median_max": 360.0,
+      "p90_max": 360.0,
+      "source": "RELIABILITY.md#first-interaction-latency-target"
+    },
+    "small_completed_task_model_calls": {
+      "median_max": 6.0,
+      "source": "Single-pass small-task pipeline (Requirements, Planner, Plan Reviewer, Builder, Tester, Completion Reviewer)"
+    }
+  }
+}
