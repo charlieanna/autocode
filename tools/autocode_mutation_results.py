@@ -3,10 +3,12 @@
 try:
     from . import autocode_package_scope as package_scope
     from . import autocode_python_tests as python_tests
+    from . import autocode_runner_reports as runner_reports
     from . import autocode_verification_schedule as schedule
 except ImportError:
     import autocode_package_scope as package_scope
     import autocode_python_tests as python_tests
+    import autocode_runner_reports as runner_reports
     import autocode_verification_schedule as schedule
 
 STOP_POLICY = "stop_after_selected_failure_v1"
@@ -30,6 +32,8 @@ def stops_after_failure(command):
     # A package's run enters its directory first (``cd PACKAGE && RUNNER``, autocode_package_scope.command):
     # the runner inside is the one that stops. Read as the whole command, it was no runner at all, so every
     # mutant a package's test caught counted as not run and each changed line there was left without evidence.
+    if runner_reports.runner(package_scope.within(command)) in runner_reports.STOPS_AFTER_FAILURE:
+        return True
     invocation = python_tests.parse(package_scope.within(command), include_owned=True)
     if invocation is None:
         return False
