@@ -13,10 +13,12 @@ import shlex
 from pathlib import Path, PurePosixPath
 
 try:
+    from . import autocode_shell_syntax as shell_syntax
     from . import autocode_suite_definition_inputs as definition_inputs
     from . import autocode_suite_definition_policy as definition_policy
     from . import autocode_suite_definition_scan as definition_scan
 except ImportError:
+    import autocode_shell_syntax as shell_syntax
     import autocode_suite_definition_inputs as definition_inputs
     import autocode_suite_definition_policy as definition_policy
     import autocode_suite_definition_scan as definition_scan
@@ -33,7 +35,7 @@ def package_scripts(text) -> dict:
 
 def suite_package_script(command):
     """The package.json script name an npm/yarn/pnpm suite command runs, if any."""
-    if not isinstance(command, str) or re.search(r"[;&|<>`$\n\r]", command):
+    if not isinstance(command, str) or shell_syntax.outside_quotes(command, ";&|<>`$\n\r"):
         return None
     try:
         words = shlex.split(command)

@@ -18,6 +18,11 @@ from __future__ import annotations
 
 import json
 import re
+
+try:
+    from . import autocode_shell_syntax as shell_syntax
+except ImportError:
+    import autocode_shell_syntax as shell_syntax
 import shlex
 from pathlib import Path, PurePosixPath
 
@@ -28,7 +33,7 @@ _LOAD_ERROR = re.compile(r"An error occurred while loading (\S+?)\.(?=\s|$)")
 
 def command_words(command):
     """The words of a plain ``rspec`` or ``bundle exec rspec`` command, or None."""
-    if not isinstance(command, str) or re.search(r"[;&|<>`$()\n\r\\]", command):
+    if not isinstance(command, str) or shell_syntax.outside_quotes(command):
         return None
     try:
         words = shlex.split(command)

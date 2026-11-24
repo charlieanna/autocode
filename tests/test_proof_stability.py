@@ -155,6 +155,11 @@ class JudgingTests(unittest.TestCase):
         self.assertEqual(
             "go test -run '^(TestA)$' ./...", stability.narrow("go", "go test ./...", ["example.com/m::TestA/sub"])
         )
+        self.assertEqual(
+            "go test -run '^(ExampleDecode|FuzzParse|TestA)$' ./...",
+            stability.narrow("go", "go test ./...", ["m::TestA/sub", "m::ExampleDecode", "m::FuzzParse"]),
+        )
+        self.assertIsNone(stability.narrow("go", "go test ./...", ["m::TestA", "m::BenchmarkA"]))
         self.assertIn("--test-name-pattern", stability.narrow("node", "node --test test/a.test.js", ["a::adds"]))
         self.assertTrue(stability.narrow("vitest", "npx vitest run", ["a.test.ts::adds"]).endswith("-t adds"))
         self.assertEqual(
