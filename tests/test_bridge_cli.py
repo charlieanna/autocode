@@ -175,17 +175,18 @@ class BridgeTests(unittest.TestCase):
         else:
             os.environ["AUTOCODE_BRIDGE_HOME"] = self.saved_home
 
-    def bridge(self, run, *, launch=None):
+    def bridge(self, run, *, launch=None, actors=("dev",), deciders=None):
         from autocode_bridge_github import GitHubChannel
 
         config = bridge_cli.Config(
             repo="owner/repo",
             project=Path("/work/project"),
             label="autocode",
-            actors=("dev",),
+            actors=actors,
             options=(),
             poll_seconds=10.0,
             open_pr=False,
+            deciders=deciders,
         )
         started = launch or (
             lambda project, ref, issue, options, owned=False, **_: {
@@ -207,7 +208,7 @@ class BridgeTests(unittest.TestCase):
         )
         return bridge_cli.Bridge(
             config,
-            GitHubChannel(self.client, "owner/repo", "autocode", ("dev",)),
+            GitHubChannel(self.client, "owner/repo", "autocode", actors, deciders),
             launch=started,
             adopt=lambda record: run,
             prepare=lambda record, *, open_: (
@@ -272,6 +273,34 @@ class BridgeTests(unittest.TestCase):
             [(row["login"], row["action"], row["comment_id"]) for row in decisions],
         )
         self.assertTrue(all(row["authenticated_by"] == "github" for row in decisions))
+
+    def test_a_login_that_may_start_runs_but_not_decide_cannot_approve_the_plan(self):
+        run = FakeRun()
+        run.state = "plan"
+        bridge = self.bridge(run, actors=("dev", "lead"), deciders=("lead",))
+        bridge.tick()
+        self.assertTrue(any("Steering is limited to: @lead." in body for body in self.bodies()))
+        comment(self.client, 7, "dev", "approve")
+        bridge.tick()
+        self.assertEqual([], run.calls)
+        self.assertTrue(any("@dev you may start runs on this bridge but not decide them" in b for b in self.bodies()))
+        self.assertNotIn("decisions", store.load("owner", "repo", 7))
+
+        approval = comment(self.client, 7, "lead", "approve")
+        bridge.tick()
+        self.assertEqual([("approve", PLAN_TOKEN)], run.calls)
+        decisions = store.load("owner", "repo", 7)["decisions"]
+        self.assertEqual(
+            [("lead", "approve", approval)], [(r["login"], r["action"], r["comment_id"]) for r in decisions]
+        )
+
+    def test_a_decider_who_may_not_start_runs_cannot_start_one_by_labeling(self):
+        self.client.issues[7]["labeled_by"] = "lead"
+        launched = []
+        bridge = self.bridge(FakeRun(), launch=lambda *a, **k: launched.append(a), deciders=("lead",))
+        bridge.tick()
+        self.assertEqual([], launched)
+        self.assertEqual("failed", store.load("owner", "repo", 7)["gate"]["key"])
 
     def test_a_refused_reply_is_not_recorded_as_a_decision(self):
         run = FakeRun()
@@ -494,6 +523,31 @@ class BridgeTests(unittest.TestCase):
         self.assertTrue(config.open_pr)
         with self.assertRaises(bridge_cli.ConfigError):
             bridge_cli.Config.from_env({"AUTOCODE_BRIDGE_GITHUB_REPO": "owner/repo", "AUTOCODE_BRIDGE_ACTORS": "dev"})
+
+    def test_deciders_default_to_the_actors_and_must_name_someone_when_set(self):
+        base = {"AUTOCODE_BRIDGE_GITHUB_REPO": "owner/repo", "AUTOCODE_BRIDGE_ACTORS": '["dev", "lead"]'}
+        self.assertEqual(("dev", "lead"), bridge_cli.Config.from_env(base).decider_logins)
+        chosen = bridge_cli.Config.from_env({**base, "AUTOCODE_BRIDGE_DECIDERS": '["lead"]'})
+        self.assertEqual(("lead",), chosen.decider_logins)
+        with self.assertRaisesRegex(bridge_cli.ConfigError, "AUTOCODE_BRIDGE_DECIDERS"):
+            bridge_cli.Config.from_env({**base, "AUTOCODE_BRIDGE_DECIDERS": "[]"})
+
+    def test_uncontained_tools_are_refused_on_a_bridge_several_people_use(self):
+        import autocode_containment_policy as containment
+
+        self.assertEqual(containment.FLAG, bridge_cli.UNCONTAINED_OPTION)
+        options = '["--engine", "codex", "--allow-uncontained-tools"]'
+        alone = {"AUTOCODE_BRIDGE_GITHUB_REPO": "owner/repo", "AUTOCODE_BRIDGE_ACTORS": '["dev"]'}
+        self.assertIn(
+            "--allow-uncontained-tools",
+            bridge_cli.Config.from_env({**alone, "AUTOCODE_BRIDGE_OPTIONS": options}).options,
+        )
+        for extra in ({"AUTOCODE_BRIDGE_ACTORS": '["dev", "lead"]'}, {"AUTOCODE_BRIDGE_DECIDERS": '["lead"]'}):
+            with self.assertRaisesRegex(bridge_cli.ConfigError, "kernel boundary"):
+                bridge_cli.Config.from_env({**alone, **extra, "AUTOCODE_BRIDGE_OPTIONS": options})
+        # Two spellings of one login are one person.
+        same = {**alone, "AUTOCODE_BRIDGE_DECIDERS": '["Dev"]', "AUTOCODE_BRIDGE_OPTIONS": options}
+        self.assertEqual(("Dev",), bridge_cli.Config.from_env(same).decider_logins)
 
 
 class SlotRun(FakeRun):
