@@ -9,6 +9,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Changed
+
+- **A vague request gets proposals, not a blank question**: Requirements used to answer "build me an adaptive engine" with "what do you want this to do?" and then two more rounds of abstract questions. It now says what it understood, offers the readings it sees as options written as short scenarios (recommending the likeliest), sketches how it would build that reading, and asks the choices it leaves open in the same round. Each option shows what you would see on one concrete input ("an order delivered at 23:00 on March 1 is refused from 23:00 on March 31"), and questions keep the behavior you asked for among their options. You can always answer in your own words.
+
 ## [0.11.0] - 2026-11-24
 
 ### Added
