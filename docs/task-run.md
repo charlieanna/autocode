@@ -908,6 +908,18 @@ next launch: the approval returns to draft, the Planner corrects the plan and th
 correction. Only a second refusal in the same round pauses `PAUSED_TOOL_CONTAINMENT`, naming the plan's
 program rather than the tool.
 
+AutoCode also checks each guard's example against the original code (`tools/autocode_plan_base_guards.py`).
+A `guard:` criterion says the behavior already works and names the test that shows it, and the regression
+proof needs that test to pass on the original code. When a draft is installed, AutoCode reads the original
+commit's test files and, without a model, finds a guard that names a test the original code does not have
+(and is not a new test named after its criterion, `test_c3_...`), so no test the runner reports can match it,
+and runs the original tests that define the other guards' names, on the same kind of original tree and with the
+runner the proof uses, finding a guard whose test fails there. Either becomes a `plan-guard-base` plan defect
+naming those criteria and what the original code showed, so the Planner corrects the plan before approval
+instead of the Builder spending a repair loop on a guard it cannot satisfy. Where it cannot observe (no
+original commit, no recognized runner, a run that does not finish within five minutes, a setup error) it says
+nothing and the proof decides as before.
+
 The boundary admits git, Python and pytest, Node with npm and npx, Go, Cargo (#4017) and the
 POSIX shells (`autocode_toolchain.ADMITTED`), each read past a leading `env` and `NAME=value` assignments
 (`autocode_toolchain.program_words`, which the plan's command extraction reads too). For rustup's Cargo
