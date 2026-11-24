@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 try:
+    from . import autocode_bridge_allowance as allowance
     from . import autocode_bridge_github as bridge_github
     from . import autocode_bridge_relay as bridge_relay
     from . import autocode_bridge_store as store
@@ -34,6 +35,7 @@ try:
     from . import autocode_util as util
     from .autocode_taskrun import TaskRunError
 except ImportError:
+    import autocode_bridge_allowance as allowance
     import autocode_bridge_github as bridge_github
     import autocode_bridge_relay as bridge_relay
     import autocode_bridge_store as store
@@ -65,6 +67,7 @@ class Config:
     owned: bool = False  # the explicit no-systemd mode: runs live with the daemon
     max_active: int | None = None  # bridged runs in flight at once; None starts every labeled issue
     deciders: tuple[str, ...] | None = None  # who may answer and approve; None: the actors
+    person_caps: dict | None = None  # login -> monthly USD allowance (autocode_bridge_allowance)
 
     @property
     def decider_logins(self) -> tuple[str, ...]:
@@ -122,6 +125,10 @@ class Config:
             max_active = admission.parse_limit(environ.get("AUTOCODE_BRIDGE_MAX_ACTIVE"))
         except ValueError as error:
             raise ConfigError(f"AUTOCODE_BRIDGE_MAX_ACTIVE {error}") from None
+        try:
+            person_caps = allowance.parse_caps(environ.get("AUTOCODE_BRIDGE_PERSON_CAPS"))
+        except ValueError as error:
+            raise ConfigError(f"AUTOCODE_BRIDGE_PERSON_CAPS {error}") from None
         return cls(
             repo=repo,
             project=selected,
@@ -133,6 +140,7 @@ class Config:
             owned=environ.get("AUTOCODE_BRIDGE_OWNED", "").lower() in ("1", "true", "yes"),
             max_active=max_active,
             deciders=tuple(deciders) if deciders is not None else None,
+            person_caps=person_caps or None,
         ).validate()
 
 
@@ -235,6 +243,8 @@ class Bridge:
                 and record.get("owner") == self.channel.owner
                 and record.get("repo") == self.channel.repo
                 and record.get("number") in labeled
+                # An issue held for its requester's allowance waits until there is some, out of everyone's way.
+                and not (record.get("over_allowance") and self.allowance_left(record) == 0)
             ]
             decision = admission.admit(queued, sum(1 for record in rows if holds_slot(record)), self.config.max_active)
             waiting = decision.waiting
@@ -259,8 +269,16 @@ class Bridge:
         record = self.base_record(issue)
         if requested_by:
             record["requested_by"] = requested_by
+        options = list(self.config.options)
+        month = allowance.period()
+        record["period"] = month
+        left = self.allowance_left(record)
+        if left == 0:
+            self.hold(issue, requested_by)
+            return
+        if left is not None:
+            options, record["reserved_usd"] = allowance.capped_options(options, left)
         try:
-            options = list(self.config.options)
             started = self.launch(
                 self.config.project,
                 github.IssueRef(self.channel.owner, self.channel.repo, number),
@@ -268,11 +286,13 @@ class Bridge:
                 options,
                 owned=self.config.owned,
                 requested_by=requested_by,
+                allowance={key: record[key] for key in ("period", "reserved_usd") if key in record},
             )
         except (worker.BridgeError, TaskRunError, OSError) as error:
             self.refuse(record, error)
             return
         record.update(started)
+        record.pop("over_allowance", None)
         if requested_by:
             record["requested_by"] = requested_by
         record["gate"] = {"key": "starting"}
@@ -281,6 +301,45 @@ class Bridge:
             record["initial_comment_id"] = self.channel.floor(record, issue_now)
         store.save(record)
         self.announce(record)
+
+    def usage(self, login: str) -> dict:
+        """A login's spend this month across every bridged run it asked for."""
+        return allowance.used(store.records(), login, allowance.period(), holds_slot)
+
+    def allowance_left(self, record: dict) -> float | None:
+        """What the requester of ``record`` may still spend this month: None without an allowance, 0 when
+        less than one run's smallest cap is left."""
+        login = allowance.requester(record)
+        caps = self.config.person_caps or {}
+        if login not in caps:
+            return None
+        left = allowance.remaining(caps, self.usage(login))
+        return left if left >= allowance.SMALLEST_RUN_USD else 0
+
+    def hold(self, issue: dict, requested_by: dict) -> None:
+        """Keep an issue whose requester has spent this month's allowance waiting, and say so once.
+
+        It waits as a queued issue does, takes no slot and starts when its requester has allowance again
+        (a new month, or a higher allowance the operator sets). Nothing raises the allowance on its own.
+        """
+        login = requested_by["login"]
+        record = store.load(self.channel.owner, self.channel.repo, issue["number"]) or {
+            **self.base_record(issue),
+            "queued_at": util.now(),
+            "requested_by": requested_by,
+        }
+        record.update(gate={"key": "queued"}, queued=True, over_allowance=True)
+        if not record.get("allowance_notice"):
+            usage = self.usage(login)
+            cap = (self.config.person_caps or {}).get(login.lower())
+            record["allowance_notice"] = self.post(
+                issue["number"],
+                f"**AutoCode is holding this issue**: @{login} has used ${usage['used_usd']:.2f} of their "
+                f"${cap:.2f} allowance for {usage['period']} on this bridge, counting runs still in flight at "
+                "their cap. It starts by itself when there is allowance again, next month or when the "
+                "bridge's operator raises it. Nothing is needed from you until then.",
+            )
+        store.save(record)
 
     def refuse(self, record: dict, reason) -> None:
         """Record a start that did not happen and say so on the issue; the bridge never retries it."""
@@ -349,6 +408,7 @@ class Bridge:
                 return
         view = run.status()
         self.note_settled(record, view)
+        self.note_cost(record, view)
         self.relay_gate(record, run, view)
         self.consume_replies(record, run)
         if record.get("owned"):  # an owned run only moves when the daemon drives it to its next boundary
@@ -362,6 +422,14 @@ class Bridge:
         settled = admission.settled(view)
         if record.get("settled") is not settled:
             record["settled"] = settled
+            store.save(record)
+
+    def note_cost(self, record: dict, view: dict) -> None:
+        """Remember what the run has spent, from its own status view, for its requester's allowance."""
+        cost = view.get("cost") if isinstance(view.get("cost"), dict) else {}
+        seen = {key: cost.get(key) for key in ("spent_usd", "cap_usd", "unpriced_stages", "complete")}
+        if record.get("cost") != seen:
+            record["cost"] = seen
             store.save(record)
 
     def relay_gate(self, record: dict, run, view: dict) -> None:
@@ -435,7 +503,8 @@ class Bridge:
         record["gate"] = finished_gate(record)
         store.save(record)
         outcome = (view.get("evidence") or {}).get("outcome") or view.get("status") or "complete"
-        summary = f"**Task complete** ({outcome}). The change is committed on `{record['branch']}` with the run's evidence.\n\n```\n{output[-800:]}\n```"
+        self.note_cost(record, view)
+        summary = f"**Task complete** ({outcome}). The change is committed on `{record['branch']}` with the run's evidence.{spend_line(record)}\n\n```\n{output[-800:]}\n```"
         self.post(number, summary)
 
     # ---------------------------------------------------------------- helpers
@@ -516,6 +585,16 @@ def decided(record: dict, reply, kind: str) -> list[dict]:
     return ([row for row in record.get("decisions") or [] if isinstance(row, dict)] + [entry])[-REMEMBERED_DECISIONS:]
 
 
+def spend_line(record: dict) -> str:
+    """The run's own cost for the completion comment; a person's monthly total stays on the host."""
+    cost = record.get("cost") or {}
+    spent = cost.get("spent_usd")
+    if not isinstance(spent, (int, float)):
+        return " Its cost is not known."
+    partial = "" if cost.get("complete") and not cost.get("unpriced_stages") else " (part of it could not be priced)"
+    return f" It cost ${spent:.2f}{partial}."
+
+
 def holds_slot(record: dict) -> bool:
     """A bridged issue whose run is in flight: started, not refused at start, and not settled.
 
@@ -559,6 +638,15 @@ def cmd_check(args) -> int:
                 else ", ".join("@" + login for login in config.deciders)
             )
         )
+        caps = config.person_caps or {}
+        print(
+            "allowance  "
+            + (
+                ", ".join(f"@{login} ${cap:.2f}/month" for login, cap in sorted(caps.items()))
+                if caps
+                else "none: runs keep only the cap their launch options give (AUTOCODE_BRIDGE_PERSON_CAPS sets one)"
+            )
+        )
         print(
             f"limit      at most {config.max_active} bridged run(s) in flight at once"
             if config.max_active
@@ -597,8 +685,11 @@ def cmd_check(args) -> int:
 
 def cmd_status(args) -> int:
     rows = store.records()
+    month = allowance.period()
+    logins = sorted({allowance.requester(row) for row in rows if allowance.requester(row)})
+    spending = [allowance.used(rows, login, month, holds_slot) for login in logins]
     if args.json:
-        print(json.dumps({"version": store.VERSION, "records": rows}, indent=2))
+        print(json.dumps({"version": store.VERSION, "records": rows, "spending": spending}, indent=2))
         return 0
     if not rows:
         print("no bridged issues")
@@ -616,6 +707,11 @@ def cmd_status(args) -> int:
         deciders = sorted({row.get("login") for row in record.get("decisions") or [] if row.get("login")})
         if deciders:
             print(f"  decided by {', '.join('@' + login for login in deciders)}")
+        if record.get("over_allowance"):
+            print("  held: its requester has used this month's allowance")
+    for usage in spending:
+        unknown = f", {usage['unknown_runs']} partly unknown" if usage["unknown_runs"] else ""
+        print(f"@{usage['login']} in {month}: ${usage['used_usd']:.2f} over {usage['runs']} run(s){unknown}")
         print(f"  run {record.get('run_dir') or '-'}")
     return 0
 
