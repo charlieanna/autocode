@@ -626,6 +626,60 @@ class SourceBindingTests(unittest.TestCase):
                 self.assertIn("import", result["reason"])
 
     @unittest.skipUnless(shutil.which("node"), "Node is not installed")
+    def test_node_relative_import_resolves_from_the_importing_file(self):
+        # import.meta.resolve ignores its parent URL in the observer's -e module: a nested
+        # test's relative import joined the run root instead of the test's directory.
+        self.write(
+            self.tree,
+            {
+                "frontend/scripts/routing.mjs": "export const route = () => '/staging';\n",
+                "frontend/scripts/routing.test.mjs": (
+                    "import test from 'node:test';\nimport assert from 'node:assert';\n"
+                    "import { route } from './routing.mjs';\n"
+                    "test('routes', () => assert.ok(route().startsWith('/')));\n"
+                ),
+            },
+        )
+        result = self.probe("node", "node --test frontend/scripts/routing.test.mjs")
+        self.assertEqual("established", result["status"], result)
+        self.assertTrue(
+            any(row.get("path") == str(self.tree / "frontend/scripts/routing.mjs") for row in result["observations"]),
+            result["observations"],
+        )
+
+    @unittest.skipUnless(shutil.which("node"), "Node is not installed")
+    def test_node_bare_builtin_is_not_a_file_path(self):
+        self.write(
+            self.tree,
+            {
+                "app.test.cjs": (
+                    "const test = require('node:test');\nconst { execSync } = require('child_process');\n"
+                    "test('zero', () => {});\n"
+                ),
+            },
+        )
+        result = self.probe("node", "node --test app.test.cjs")
+        self.assertEqual("established", result["status"], result)
+        self.assertFalse(any("child_process" in str(row.get("path")) for row in result["observations"]))
+
+    def test_an_npm_script_naming_another_runner_records_the_boundary(self):
+        for script in ("jest --runInBand", "build-it && node --test test/*.test.cjs"):
+            with self.subTest(script=script):
+                self.write(self.tree, {"package.json": json.dumps({"scripts": {"test": script}})})
+                receipt = verify.run_suite(
+                    test_framework.Framework("node", "npm test --silent"),
+                    "npm test --silent",
+                    self.tree,
+                    self.base / "evidence",
+                    "suite-on-candidate",
+                    timeout=60,
+                    source_workspace=self.workspace,
+                )
+                binding = receipt["source_binding"]
+                self.assertEqual("node-command", binding["framework"], binding)
+                self.assertEqual([], source_binding.reasons({"candidate": receipt}), binding)
+
+    @unittest.skipUnless(shutil.which("node"), "Node is not installed")
     def test_node_esm_import_conditions_are_observed(self):
         self.write(
             self.tree,

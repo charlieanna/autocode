@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shlex
 import sys
 from functools import partial
@@ -426,6 +427,33 @@ def plan(framework, command, tree, root, label, *, workspace, evidence_dir=None)
             and not (Path(root) / ".npmrc").is_symlink()
         ):
             probe_command = "node --test"
+    if name == "node" and node_tests.command_words(probe_command) is None:
+        # The literal invocations were resolved above. A command that names node or npm and hides
+        # what it would run (a lifecycle hook, .npmrc, --prefix, extra arguments, a raw wrapper or
+        # a build step running repo files) keeps holding through the probe; a script that names
+        # another runner only records the boundary — dependency-runner custody is phase 2 of #4152 —
+        # and a command that names no runner at all has no Node surface this phase observes.
+        script = node_tests.npm_test_declaration(command, root)
+        build_steps = script.split(" && ")[:-1] if isinstance(script, str) else []
+        runs_repo_files = any(
+            words[:1] and Path(words[0]).name in ("node", "node.exe", "python", "python3", "python.exe")
+            for part in build_steps
+            if (words := shlex.split(part))
+        )
+        names_runner = re.search(r"\b(?:node|npm|npx)(?:\.(?:exe|cmd))?\b", command) is not None
+        if not names_runner or (script is not None and not runs_repo_files):
+            return {
+                "binding": {
+                    "version": VERSION,
+                    "framework": "node-command",
+                    "command": command,
+                    "status": "unverified",
+                    "reason": "the npm test script names a runner whose source resolution this phase does not observe",
+                    "tree": str(Path(tree).resolve()),
+                    "workspace": str(Path(workspace).resolve()) if workspace else None,
+                    "observations": [],
+                }
+            }
     if name in ("pytest", "unittest") and python_tests.parse(command, include_owned=True) is None:
         return {
             "binding": {

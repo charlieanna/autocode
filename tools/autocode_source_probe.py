@@ -16,6 +16,8 @@ import stat
 import subprocess
 import sys
 import sysconfig
+import tokenize
+from io import BytesIO
 from pathlib import Path
 
 try:
@@ -218,10 +220,6 @@ def _go(request):
     else:
         if configured_flags and not _go_flags_observed(configured_flags):
             errors.append("configured GOFLAGS source resolution is not observed")
-        if module and module != "/dev/null":
-            observations.append({"kind": "go_module", "path": module, "role": "root"})
-        if gowork:
-            observations.append({"kind": "go_module", "path": gowork, "role": "root"})
     build_flags = []
     index = 0
     while index < len(arguments):
@@ -248,13 +246,18 @@ def _go(request):
     )
     if code == 0:
         directories = [line.strip() for line in stdout.splitlines() if line.strip()]
-        if not directories:
-            errors.append("go list returned no package directory")
     elif module == "/dev/null":
         directories = [str(root)]
     else:
         errors.append("go list could not establish package directories: " + _tail(stderr or stdout))
         directories = []
+    # A run that listed no package loaded no source from any module: the module above an
+    # empty first-Go base owns nothing this run executed, so it is not an outside-copy hold.
+    if directories or code != 0:
+        if module and module != "/dev/null":
+            observations.append({"kind": "go_module", "path": module, "role": "root"})
+        if gowork:
+            observations.append({"kind": "go_module", "path": gowork, "role": "root"})
     sources = []
     for value in directories:
         path = Path(value).resolve()
@@ -467,10 +470,13 @@ def _node(request):
     script = r"""
 import fs from 'node:fs';
 import path from 'node:path';
+import {execFileSync} from 'node:child_process';
 import {createRequire} from 'node:module';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 const request = JSON.parse(process.argv[1]);
 const root = path.resolve(request.root);
+let rootPrefix = root + path.sep;
+try { rootPrefix = fs.realpathSync(root) + path.sep; } catch (error) { /* keep the unresolved prefix */ }
 const observations = [{kind: 'node_root', path: root, role: 'root'}];
 const errors = [];
 const pattern = /(\brequire\s*\(\s*|\bfrom\s+|\bimport\s*\(\s*|\bimport\s+)['"]([^'"]+)['"]/g;
@@ -484,6 +490,13 @@ if (request.name && request.exports) {
 let observedBytes = 0;
 const queue = [...request.files, ...request.preloads];
 const seen = new Set();
+const resolvedBare = new Map();
+const recordImport = (specifier, resolved) => {
+  const dependency = resolved.includes(`${path.sep}node_modules${path.sep}`);
+  observations.push({kind: 'node_import', name: specifier, path: resolved,
+    role: dependency ? 'dependency' : 'source'});
+  if (!dependency && resolved.startsWith(rootPrefix) && !seen.has(resolved)) queue.push(resolved);
+};
 for (let index = 0; index < queue.length; index++) {
   const file = queue[index];
   if (seen.has(file)) continue;
@@ -502,30 +515,61 @@ for (let index = 0; index < queue.length; index++) {
   if (request.workspace && text.includes(request.workspace)) {
     errors.push(`${isTest ? 'test' : 'source'} file names the live workspace directly: ${file}`);
   }
-  if (/\b(?:child_process|execSync|spawnSync|execFileSync)\b/.test(text)) {
-    errors.push(`Node child-process source resolution is not observed: ${file}`);
-  }
   const literals = [...text.matchAll(pattern)];
   const withoutLiterals = text.replace(pattern, '');
   if (/\brequire\b/.test(withoutLiterals) || /\bimport\s*(?:\?\.)?\s*\(/.test(withoutLiterals) || /\bimport\s*\.\s*meta\s*\.\s*resolve\b/.test(text) || /\b(?:eval|Function|vm|SourceTextModule|SyntheticModule|register|registerHooks|createRequire|_load|_resolveFilename|_extensions|dlopen|runInThisContext|runInNewContext|compileFunction)\b/.test(text) || /\bmodule\s*\.\s*paths\b/.test(text) || /(?:\.\s*NODE_PATH\b|\[\s*['"]NODE_PATH['"]\s*\])/.test(text)) {
     errors.push(`Node dynamic source resolution is not observed: ${file}`);
   }
+  const pending = [];
   for (const match of literals) {
-    const form = match[1];
     const specifier = match[2];
     if (specifier.startsWith('node:')) continue;
+    const relative = specifier.startsWith('./') || specifier.startsWith('../') || specifier.startsWith('/');
+    if (!match[1].startsWith('require') && !relative) { pending.push(specifier); continue; }
     try {
-      const resolved = form.startsWith('require')
+      // import.meta.resolve ignores its parent URL in an -e module, so a relative import
+      // joined the process directory instead of the importing file; resolve every literal
+      // from the file that names it.
+      const resolved = match[1].startsWith('require')
         ? createRequire(file).resolve(specifier)
-        : fileURLToPath(import.meta.resolve(specifier, pathToFileURL(file).href));
-      const dependency = resolved.includes(`${path.sep}node_modules${path.sep}`);
-      observations.push({kind: 'node_import', name: specifier, path: resolved,
-        role: dependency ? 'dependency' : 'source'});
-      if (!dependency && resolved.startsWith(root + path.sep) && !seen.has(resolved)) queue.push(resolved);
+        : fileURLToPath(new URL(specifier, pathToFileURL(file)));
+      if (resolved === specifier || String(resolved).startsWith('node:')) continue;
+      recordImport(specifier, resolved);
     } catch (error) {
       if (error.code === 'MODULE_NOT_FOUND' || error.code === 'ERR_MODULE_NOT_FOUND') {
         observations.push({kind: 'node_import', name: specifier, path: null, role: 'source'});
       } else { errors.push(`import resolution failed: ${file}: ${specifier}: ${error.message}`); }
+    }
+  }
+  // A bare import follows the package's export conditions, which only import.meta.resolve
+  // applies; in this -e module it resolves from the process directory, so this file's
+  // directory resolves in a child standing there, cached per directory and specifier.
+  if (pending.length) {
+    const dir = path.dirname(file);
+    let known = resolvedBare.get(dir);
+    if (!known) { known = new Map(); resolvedBare.set(dir, known); }
+    const missing = [...new Set(pending)].filter((specifier) => !known.has(specifier));
+    if (missing.length) {
+      if (known.size + missing.length > 256) {
+        errors.push('Node import resolution exceeded its directory bound');
+        break;
+      }
+      try {
+        const rows = JSON.parse(execFileSync(process.execPath,
+          ['--input-type=module', '-e',
+           'const s=JSON.parse(process.argv[1]);const o=[];for(const x of s){try{o.push([x,import.meta.resolve(x)])}catch(error){o.push([x,null])}}process.stdout.write(JSON.stringify(o))',
+           JSON.stringify(missing)],
+          {cwd: dir, encoding: 'utf8', timeout: 30000, maxBuffer: 1048576}));
+        for (const [specifier, url] of rows) known.set(specifier, url);
+      } catch (error) { errors.push(`bare import resolution failed in ${dir}: ${error.message}`); }
+    }
+    for (const specifier of new Set(pending)) {
+      const url = known.get(specifier);
+      if (url === undefined) continue;
+      if (!url) { observations.push({kind: 'node_import', name: specifier, path: null, role: 'source'}); continue; }
+      if (url.startsWith('node:')) continue;
+      try { recordImport(specifier, fileURLToPath(url)); }
+      catch (error) { errors.push(`import resolution failed: ${specifier}: ${url}`); }
     }
   }
 }
@@ -686,6 +730,17 @@ def _python_path_mutation(statement, filename):
     )
 
 
+def _stdlib_only(statement):
+    """Whether one top-level statement imports nothing from the project's own namespace."""
+    if isinstance(statement, ast.Import):
+        return all(alias.name.partition(".")[0] in sys.stdlib_module_names for alias in statement.names)
+    if isinstance(statement, ast.ImportFrom):
+        if statement.level:
+            return False
+        return bool(statement.module) and statement.module.partition(".")[0] in sys.stdlib_module_names
+    return False
+
+
 def _python_import_paths(parsed, filename):
     mutations = []
     recognized = set()
@@ -693,6 +748,9 @@ def _python_import_paths(parsed, filename):
     for statement in parsed.body:
         mutation = _python_path_mutation(statement, filename)
         if mutation is not None:
+            # A literal __file__-rooted insert is deterministic after stdlib imports; after the
+            # project's own imports it is held, because those ran against a different resolution
+            # than the ones below it (their loading order is then part of the proof's question).
             if not prelude:
                 raise ValueError("sys.path mutation after project execution is not observed")
             mutations.append(mutation)
@@ -700,33 +758,12 @@ def _python_import_paths(parsed, filename):
             continue
         if (
             prelude
-            and isinstance(statement, ast.Import)
-            and statement.names
-            and not any(alias.asname for alias in statement.names)
-            and all(alias.name in ("sys", "os", "pathlib", "unittest") for alias in statement.names)
-        ):
-            continue
-        if (
-            prelude
-            and isinstance(statement, ast.ImportFrom)
-            and (
-                (
-                    statement.module == "pathlib"
-                    and statement.level == 0
-                    and len(statement.names) == 1
-                    and statement.names[0].name == "Path"
-                    and not statement.names[0].asname
-                )
-                or (statement.module == "__future__" and statement.level == 0)
-            )
-        ):
-            continue
-        if (
-            prelude
             and isinstance(statement, ast.Expr)
             and isinstance(statement.value, ast.Constant)
             and isinstance(statement.value.value, str)
         ):
+            continue
+        if prelude and _stdlib_only(statement):
             continue
         prelude = False
     sys_aliases = {"sys"}
@@ -963,10 +1000,24 @@ def _python_environment(prefix):
 def _python_startup_errors(dependencies, editable_root=None):
     errors = []
     editable_root = Path(editable_root).resolve() if editable_root else Path(python_tests.__file__).parent.resolve()
+    base = Path(sys.base_prefix).resolve()
+    try:
+        interpreter_paths = [
+            Path(sysconfig.get_path(name, vars={"base": str(base)})).resolve()
+            for name in ("stdlib", "platstdlib", "purelib")
+        ]
+    except (OSError, ValueError, TypeError):
+        interpreter_paths = []
     for name in ("sitecustomize", "usercustomize"):
         module = sys.modules.get(name)
         origin = Path(str(getattr(module, "__file__", "") or "")).resolve() if module is not None else None
         if module is None or not origin or not origin.is_file():
+            continue
+        # A startup hook the interpreter itself ships (Homebrew's path rewriting, Debian's
+        # apport) is runtime custody: this probe runs under the same interpreter, so every
+        # import path the hook added is the one this resolution already classifies. A hook
+        # from anywhere else — a user site, PYTHONPATH or the project — still holds.
+        if any(origin.is_relative_to(path) for path in interpreter_paths):
             continue
         try:
             text = origin.read_text()
@@ -1244,8 +1295,13 @@ def _python(request):
             scan_budget[0] += size
             scan_budget[1] += 1
             observed_contexts.add(context)
-            text = path.read_text()
-        except (OSError, UnicodeError):
+            data = path.read_bytes()
+            try:
+                encoding, _ = tokenize.detect_encoding(BytesIO(data).readline)
+                text = data.decode(encoding, errors="replace")
+            except (SyntaxError, UnicodeError, LookupError):
+                text = data.decode("utf-8", errors="replace")
+        except OSError:
             errors.append(f"Python source could not be observed: {path}")
             return
         observations.append(
@@ -1303,6 +1359,7 @@ def _python(request):
             return
         seen.add(key)
         original_path = sys.path[:]
+        original_modules = sys.modules.copy()
         resolved_name = name
         try:
             for method, index, directory in paths:
@@ -1327,6 +1384,8 @@ def _python(request):
             return
         finally:
             sys.path[:] = original_path
+            sys.modules.clear()
+            sys.modules.update(original_modules)
         origins = _origins(spec)
         if not origins:
             observations.append({"kind": "python_module", "name": name, "path": None, "role": "source"})
@@ -1338,7 +1397,12 @@ def _python(request):
             observations.append({"kind": "python_module", "name": resolved_name, "path": str(path), "role": role})
             if role != "source" or not path.is_relative_to(tree):
                 continue
-            files = [path] if path.suffix == ".py" else [path / "__init__.py"]
+            # A namespace package has no __init__.py: its portions' own files are what it loads.
+            if path.suffix == ".py":
+                files = [path]
+            else:
+                marker = path / "__init__.py"
+                files = [marker] if marker.is_file() else sorted(path.rglob("*.py"))
             if resolved_name != name and path.suffix == ".py":
                 target_paths.add(path)
             for source in files:
@@ -1384,11 +1448,9 @@ def _python(request):
     else:
         targets = _python_targets(arguments, kind, root)
         target_paths = {path.resolve() for _name, path in targets if path is not None}
-        for _name, path in targets:
-            if path is not None:
-                sys.path.insert(0, str(path.parent))
         for name, path in targets:
             context = path
+            scoped = (("insert", 0, path.parent),) if path is not None else ()
             if path is not None:
                 observe_file(path, "test")
             elif "." in name:
@@ -1397,7 +1459,7 @@ def _python(request):
                     target_paths.add(candidate.resolve())
                     observe_file(candidate, "test")
                     context = candidate
-            resolve(name, context=str(context) if context is not None else None)
+            resolve(name, context=str(context) if context is not None else None, paths=scoped)
         if kind == "pytest":
             conftests = set()
             starts = [root, *(path.parent for _name, path in targets if path is not None)]
