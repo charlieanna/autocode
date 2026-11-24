@@ -18,14 +18,22 @@ import subprocess
 from pathlib import Path
 
 try:
+    from . import autocode_coverage_reports as coverage_reports
+    from . import autocode_native_coverage as native_coverage
     from . import autocode_python_tests as python_tests
 except ImportError:
+    import autocode_coverage_reports as coverage_reports
+    import autocode_native_coverage as native_coverage
     import autocode_python_tests as python_tests
 
 HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 # Copied beside the evidence and run by the project's interpreter; see its docstring.
 LINE_TRACE = Path(__file__).with_name("autocode_line_trace.py")
 SKIP_NOTE = "no coverage tool is installed in the project; diff coverage was not collected"
+# The tools whose reports this module reads, each by its own format. The native ones write LCOV, Cobertura or
+# JaCoCo XML (autocode_native_coverage), read by one reader that recognizes the format from the report.
+NATIVE_TOOLS = frozenset({"gcovr", "lcov", "jacoco", "phpunit", "coverlet"})
+TOOLS = frozenset({"coverage.py", "go coverprofile", "c8", "vitest"}) | NATIVE_TOOLS
 
 
 def skipped(note=SKIP_NOTE) -> dict:
@@ -127,12 +135,13 @@ def prepare(framework, command, tree, evidence_dir) -> dict | None:
     """How to collect coverage for this proving-test command, or None when the project has no tool.
 
     The returned command is that proving-test command with the tool's flag or wrapper. The caller
-    runs it in addition to the judged runs; its exit code is not a verdict.
+    runs it in addition to the judged runs; its exit code is not a verdict. A runner without a tool of
+    its own here is measured by the project's own native tool, when it has one (autocode_native_coverage).
     """
-    if not framework or not command:
+    if not command:
         return None
     evidence_dir = Path(evidence_dir)
-    name = framework.name
+    name = framework.name if framework else None
     if name in ("unittest", "pytest"):
         invocation = python_tests.parse(command)
         if invocation is None or invocation.script or invocation.kind not in ("unittest", "pytest"):
@@ -180,7 +189,9 @@ def prepare(framework, command, tree, evidence_dir) -> dict | None:
             f"{command} --coverage --coverage.reporter=json --coverage.reportsDirectory={shlex.quote(str(report_dir))}"
         )
         return {"tool": "vitest", "command": wrapped, "finalize": None, "report": report_dir / "coverage-final.json"}
-    return None
+    if name in ("unittest", "pytest", "go", "node", "vitest"):
+        return None
+    return native_coverage.prepare(command, tree, evidence_dir)
 
 
 def _relative(path, root) -> str:
@@ -311,21 +322,31 @@ def collect(framework, command, tree, evidence_dir, diff_text, run) -> dict:
     return result
 
 
+def parse(tool, raw: bytes, root, known=()) -> tuple[dict, dict]:
+    """(executed, missing) lines by checkout-relative path, from ``tool``'s report bytes. ``known`` are the
+    paths asked about, which a native report may name below a source root (autocode_coverage_reports)."""
+    if tool == "go coverprofile":
+        return parse_go_cover(raw.decode(errors="replace"), root)
+    if tool in ("c8", "vitest"):
+        return parse_istanbul(json.loads(raw), root)
+    if tool == "coverage.py":
+        return parse_coverage_json(json.loads(raw), root)
+    if tool in NATIVE_TOOLS:
+        return coverage_reports.read(raw, root, known)
+    raise ValueError(f"no reader for {tool} coverage reports")
+
+
 def finish(tool, report_path, tree, diff_text) -> dict:
     """Read a coverage report and intersect it with ``diff_text``. A missing report is a note, not a failure."""
     path = Path(report_path)
     if not path.is_file():
         return skipped(f"{tool} ran but wrote no report; diff coverage was not collected")
+    changed = hunks(diff_text)
     try:
-        if tool == "go coverprofile":
-            executed, missing = parse_go_cover(path.read_text(errors="replace"), tree)
-        elif tool in ("c8", "vitest"):
-            executed, missing = parse_istanbul(json.loads(path.read_text()), tree)
-        else:
-            executed, missing = parse_coverage_json(json.loads(path.read_text()), tree)
+        executed, missing = parse(tool, path.read_bytes(), tree, [item["path"] for item in changed])
     except (OSError, ValueError, TypeError, AttributeError):
         return skipped(f"the {tool} report could not be read; diff coverage was not collected")
-    result = intersect(hunks(diff_text), executed, missing)
+    result = intersect(changed, executed, missing)
     measured = {
         name: {"executed": sorted(executed.get(name, ())), "missing": sorted(missing.get(name, ()))}
         for name in executed.keys() | missing.keys()

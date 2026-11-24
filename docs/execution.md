@@ -620,6 +620,19 @@ stays at `report_path`, so a large repository's coverage never reaches a stage
 prompt (#3121). Nothing is installed into the project; a project without a tool
 gets a note and no extra test run.
 
+Other languages are measured by the project's own native tool, when the project
+shows it has one (`tools/autocode_native_coverage.py`): gcov when the proof's run
+compiled with coverage and left `.gcno` notes (read through gcovr or lcov, whatever
+the runner), JaCoCo when a Maven or Gradle run left the agent's `.exec` data at the
+project root (the build's own `jacoco:report` or `jacocoTestReport` writes the XML),
+PHPUnit when PHP has pcov or Xdebug loaded, and coverlet when a `dotnet test` project
+references `coverlet.collector`. Their LCOV, Cobertura or JaCoCo XML report is read by
+one reader that recognizes the format from its bytes
+(`tools/autocode_coverage_reports.py`). For the changed-code evidence gate the report
+classifies which changed lines are statements, so a closing brace, an `#include` or a
+declaration needs no test or reason in C, C++, Java, Kotlin, PHP or C#, as in Go and
+JavaScript.
+
 A stage prompt over 2 MiB is never launched. The runner pauses `PAUSED_PROMPT_SIZE`
 before writing the prompt, admitting the stage or charging anything, and names the
 handoff field that holds most of it (`tools/autocode_prompt_bound.py`). Such a
