@@ -18,6 +18,19 @@ from scenarios.harness.adversarial import AdversarialCase, birth_identity
 from scenarios.harness.attack_lifecycle import ProviderBarrier
 
 
+def stop_exited(provider):
+    """Kill a provider whose parent was just killed, and wait for it.
+
+    The provider may already have exited by then (losing its parent can end it first), which is
+    the outcome the kill is there to ensure, not an error.
+    """
+    try:
+        provider.kill()
+        provider.wait(timeout=10)
+    except psutil.NoSuchProcess:
+        pass
+
+
 class LifecycleAttacks(AdversarialCase):
     # These tests exercise lifecycle ownership; keep their assertions unchanged
     # while letting the greeting tests collect on the original empty project.
@@ -280,8 +293,7 @@ class LifecycleAttacks(AdversarialCase):
         _, controller, parent, provider = self.held_builder()
         parent.kill()
         self.assertLess(controller.wait(timeout=10), 0)
-        provider.kill()
-        provider.wait(timeout=10)
+        stop_exited(provider)
         self.clear_barrier_environment()
         result = self.invoke("--resume-paused", timeout=45)
         self.assertIn(result.returncode, (0, 2), result.stdout + result.stderr)
@@ -334,8 +346,7 @@ class LifecycleAttacks(AdversarialCase):
         self.assertTrue(attempt, public_status)
         parent.kill()
         self.assertLess(controller.wait(timeout=10), 0)
-        provider.kill()
-        provider.wait(timeout=10)
+        stop_exited(provider)
         self.clear_barrier_environment()
         abandoned = self.invoke("--abandon-stage", attempt)
         self.assertEqual(0, abandoned.returncode, abandoned.stdout + abandoned.stderr)

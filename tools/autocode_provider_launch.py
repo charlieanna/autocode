@@ -16,6 +16,7 @@ from pathlib import Path
 try:
     from . import autocode_access_evidence as access_evidence
     from . import autocode_agent_env as agent_env
+    from . import autocode_agent_sandbox as agent_sandbox
     from . import autocode_containment_policy as containment_policy
     from . import autocode_native_locators as native_locators
     from . import autocode_native_role_isolation as native_isolation
@@ -35,6 +36,7 @@ try:
 except ImportError:
     import autocode_access_evidence as access_evidence
     import autocode_agent_env as agent_env
+    import autocode_agent_sandbox as agent_sandbox
     import autocode_containment_policy as containment_policy
     import autocode_native_locators as native_locators
     import autocode_native_role_isolation as native_isolation
@@ -433,7 +435,36 @@ def prepare(
         settings=settings,
         endpoint=(overrides or {}).get("endpoint_identity"),
     )
+    if native_launch and agent_sandbox.enabled(settings):
+        command = _agent_sandbox(command, worker, workspace=workspace, run_dir=run_dir, environment=environment)
     return command, environment, overrides, worker
+
+
+def _agent_sandbox(command, worker, *, workspace, run_dir, environment):
+    """Run the whole provider process inside the --agent-sandbox OS sandbox, or pause having launched nothing.
+
+    A stage whose shell is already inside the kernel tool boundary keeps that boundary alone: it reads
+    less than the agent sandbox allows, and a second sandbox around it would replace its owner.
+    """
+    if worker.get("tool_containment") or worker.get("native_role_isolation"):
+        worker["agent_sandbox"] = {"covered_by": "tool_containment"}
+        return command
+    try:
+        command, worker["agent_sandbox"] = agent_sandbox.wrap(
+            command,
+            workspace=Path(workspace).resolve(),
+            run_dir=Path(run_dir).resolve(),
+            provider=worker["provider"],
+            environment=environment,
+        )
+    except (agent_sandbox.Unavailable, OSError) as error:
+        raise util.Paused(
+            "PAUSED_TOOL_CONTAINMENT",
+            f"The run asked for {agent_sandbox.FLAG} and this stage cannot be sandboxed; no provider was launched: "
+            + str(error),
+        ) from error
+    worker["command"] = command
+    return command
 
 
 def stage_record(worker):
@@ -448,6 +479,8 @@ def stage_record(worker):
         }
     engine = worker.get("engine", "opencode")
     record = {"prompts_hash": prompts.HASH}
+    if worker.get("agent_sandbox"):
+        record["agent_sandbox"] = dict(worker["agent_sandbox"])
     if route_evidence.valid_execution_identity(worker.get("execution_identity")):
         from copy import deepcopy
 

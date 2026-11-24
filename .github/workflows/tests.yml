@@ -539,6 +539,8 @@ jobs:
               "tests.test_native_check_execution.NativeCheckDeadlineTests",
               "tests.test_native_check_execution.NativeCheckOwnerLossTests",
               "tests.test_native_initial_callers.OriginalCheckFailureTests",
+              # --agent-sandbox around a whole agent process (Seatbelt).
+              "tests.test_agent_sandbox.KernelTests",
           )
           suite = unittest.TestSuite()
           for name in names:
@@ -619,6 +621,9 @@ jobs:
               # A fake OpenCode run through the CLI whose Builder, Tester and Completion Reviewer launch
               # contained, and the uncontained control for its planted write outside the workspace.
               "tests.test_contained_fake_cli.ContainedFakeOpenCodeFlow",
+              # --agent-sandbox around a whole agent process, and a fake Codex run with every stage inside it.
+              "tests.test_agent_sandbox.KernelTests",
+              "tests.test_agent_sandbox.SandboxedFakeCodexFlow",
           )
           suite = unittest.TestSuite()
           for name in names:
