@@ -102,6 +102,11 @@ class TerminalScreen:
                 raise AssertionError(f"timed out waiting for {what or condition!r}; the screen:\n{screen}")
             time.sleep(POLL_SECONDS)
 
+    def wait_for_all(self, *texts: str, timeout=WAIT_SECONDS) -> str:
+        """The screen once every one of ``texts`` shows at the same time. A test that waits for one string
+        and then asserts another reads a half-drawn frame whenever the screen is slower than the test."""
+        return self.wait_for(lambda screen: all(text in screen for text in texts), timeout, what=texts)
+
     def exit_status(self, timeout=WAIT_SECONDS) -> int:
         """The program's exit status once it has exited."""
         deadline = time.monotonic() + timeout
