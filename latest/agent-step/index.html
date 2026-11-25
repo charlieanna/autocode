@@ -1571,10 +1571,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#claude-code-skill" class="md-nav__link">
+  <a href="#claude-code-plugin" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Claude Code skill
+        Claude Code plugin
       
     </span>
   </a>
@@ -1909,10 +1909,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#claude-code-skill" class="md-nav__link">
+  <a href="#claude-code-plugin" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Claude Code skill
+        Claude Code plugin
       
     </span>
   </a>
@@ -1962,7 +1962,7 @@
 
 
 <h1 id="autocode-inside-your-coding-agent">AutoCode inside your coding agent<a class="headerlink" href="#autocode-inside-your-coding-agent" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/757b29caf54ac62b4b249e3e4e39d985d00b9456/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/b3be9b1656449466ab6363b8076839dbf93f17bc/README.md">← Back to README</a></p>
 <p>Most people already work in Claude Code, Codex or Cursor. AutoCode can run as one
 step inside that agent instead of replacing it: the agent starts an AutoCode run
 in the repository, tells you where it stands at each stop, passes on your plan
@@ -1972,14 +1972,14 @@ integrations do this, with the same four operations:</p>
 <thead>
 <tr>
 <th>Operation</th>
-<th>Claude Code skill (<code>autocode_agent_step</code>)</th>
-<th>MCP server (<code>autocode_mcp</code>)</th>
+<th>Claude Code plugin (<code>autocode agent-step</code>)</th>
+<th>MCP server (<code>autocode mcp</code>)</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td>Start a run; it works until it needs you or completes</td>
-<td><code>start "REQUEST" [--workflow KIND] -- FLAGS</code></td>
+<td><code>start "REQUEST" [--workflow KIND] [-- FLAGS]</code></td>
 <td><code>autocode_start</code></td>
 </tr>
 <tr>
@@ -1989,7 +1989,7 @@ integrations do this, with the same four operations:</p>
 </tr>
 <tr>
 <td>Pass on your decision, or continue</td>
-<td><code>answer</code>, <code>approve</code>, <code>continue</code></td>
+<td><code>answer</code>, <code>approve</code>, <code>revise</code>, <code>continue</code>, <code>follow-up</code></td>
 <td><code>autocode_respond</code></td>
 </tr>
 <tr>
@@ -2014,11 +2014,15 @@ shows you these at each stop.</p>
 <li><strong>Plan approval</strong> (<code>needs.kind</code> <code>approve_plan</code>) takes <code>needs.token</code> from the view
   whose plan you approved. Approval authorizes AutoCode to change files, so the
   agent approves only when you say so; a token from an older plan is refused.</li>
+<li><strong>Plan changes</strong> (<code>revise_plan</code>, also at <code>approve_plan</code>) take your words for what to
+  change; AutoCode drafts a revised plan for a new approval.</li>
 <li><strong>A question</strong> (<code>answer</code>) takes your answer and <code>needs.resolver_token</code> from the
   view you answered. One answer per call; the questions left return under a new
   token. When none are left, the run continues on its own.</li>
 <li><strong>Continue</strong> works only when <code>needs.kind</code> is <code>continue</code>: the run needs nothing
   from anyone.</li>
+<li><strong>A follow-up</strong> (<code>follow_up</code>) works only once the run has finished: your next
+  request is planned and approved like the first, on the same branch.</li>
 <li><strong>Every other stop</strong> (a human review, a pause, a recovery, a budget, an
   operational request from the Resolver) is refused with the command you run
   yourself: <code>next_command</code>.</li>
@@ -2047,38 +2051,64 @@ done</code>) and <code>progress</code> counts up from 1, with no <code>total</co
 takes is unknown. A client that resets its tool timeout on progress can then wait
 longer than that timeout in one call; any client can show the line to the person.
 A call without a token gets no notifications.</p>
-<h2 id="claude-code-skill">Claude Code skill<a class="headerlink" href="#claude-code-skill" title="Permanent link">&para;</a></h2>
-<p>Copy <a href="https://github.com/charlieanna/autocode/blob/757b29caf54ac62b4b249e3e4e39d985d00b9456/examples/agent-step/skills/autocode/SKILL.md"><code>examples/agent-step/skills/autocode</code></a>
-to <code>.claude/skills/autocode</code> in your project, or to <code>~/.claude/skills/autocode</code> for
-every project. Claude Code then uses it when you ask for AutoCode. The skill runs
-the step with the Python that has AutoCode installed: set <code>AUTOCODE_PYTHON</code> to
-that interpreter when it is not <code>python3</code>.</p>
-<p>The steps can also be run by hand. Each prints one JSON summary; a refusal exits 1
-with the reason on stderr:</p>
-<pre><code class="language-sh">STEP=&quot;python3 -m autocode_cli.autocode_agent_step&quot;
-$STEP start &quot;Add a --json flag to the report command&quot; -- --engine claude
-$STEP status
+<h2 id="claude-code-plugin">Claude Code plugin<a class="headerlink" href="#claude-code-plugin" title="Permanent link">&para;</a></h2>
+<p>Install the <code>autocode</code> CLI once (<code>pipx install autocode-supervisor</code>, then
+<code>autocode setup</code>; see the <a href="../quickstart/">quickstart</a>), then add the plugin in
+Claude Code, in the terminal or the desktop app:</p>
+<pre><code class="language-text">/plugin install autocode --marketplace charlieanna/autocode
+</code></pre>
+<p>or from a shell:</p>
+<pre><code class="language-sh">claude plugin marketplace add charlieanna/autocode
+claude plugin install autocode@autocode
+</code></pre>
+<p>The plugin adds the AutoCode skill
+(<a href="https://github.com/charlieanna/autocode/blob/b3be9b1656449466ab6363b8076839dbf93f17bc/examples/agent-step/skills/autocode/SKILL.md"><code>examples/agent-step/skills/autocode</code></a>).
+Ask for AutoCode in your own words in a Git repository, for example <em>"Use AutoCode to
+add a --json flag to the report command"</em>; Claude starts the run, shows you its
+questions and plan, and passes on only your answers and approval. Without the plugin,
+copy that directory to <code>.claude/skills/autocode</code> in a project or <code>~/.claude/skills/autocode</code>.</p>
+<p>The skill runs <code>autocode agent-step</code>, so it needs only <code>autocode</code> on <code>PATH</code>. It adds no
+engine or model flags: the run uses the account and models <code>autocode setup</code> saved. The
+steps can also be run by hand. Each prints one JSON summary; a refusal exits 1 with
+the reason on stderr:</p>
+<pre><code class="language-sh">STEP=&quot;autocode agent-step&quot;
+$STEP start &quot;Add a --json flag to the report command&quot;
+$STEP status --wait 50
 AUTOCODE_RESOLVER_TOKEN=TOKEN $STEP answer QUESTION_ID &quot;Use snake_case keys&quot; --token -
+$STEP revise &quot;Keep the old text output as the default&quot;
 AUTOCODE_APPROVE_GOAL_TOKEN=TOKEN $STEP approve -
 $STEP continue
 $STEP evidence --markdown
+$STEP follow-up &quot;Also document the flag in the README&quot;
 </code></pre>
 <p><code>--workspace PATH</code> (default: the current directory) selects the repository and
 <code>--run-dir RUN</code> the run when the workspace has more than one. A token argument of
 <code>-</code> is read from the variable the view's <code>next_command</code> names, which keeps it out
-of the process list.</p>
+of the process list. Engine and model flags for a new run follow <code>--</code> on <code>start</code>
+(<code>$STEP start "..." -- --engine codex</code>). <code>python -m autocode_cli.autocode_agent_step</code>
+runs the same command line.</p>
+<p>A run started this way works in the repository itself, not in a worktree of its own: the
+change is left as uncommitted edits for you to review and commit.</p>
+<p><code>revise</code> passes the person's requested changes to a plan that waits for approval;
+AutoCode drafts a revised plan, which comes back for approval under a new token.
+<code>follow-up</code> asks a finished run for the next change: it goes back through
+Requirements and the plan on the same branch, like the first request.</p>
 <h2 id="mcp-server">MCP server<a class="headerlink" href="#mcp-server" title="Permanent link">&para;</a></h2>
-<pre><code class="language-sh">python3 -m autocode_cli.autocode_mcp --workspace /path/to/project -- --engine claude
+<pre><code class="language-sh">autocode mcp --workspace /path/to/project -- --engine claude
 </code></pre>
 <p>The server speaks MCP over standard input and output. It serves one workspace,
 fixed when it starts, and everything after <code>--</code> is the engine, model and budget
-flags for runs it starts: the agent cannot change them. For Claude Code, add it
-to the project's <code>.mcp.json</code>:</p>
+flags for runs it starts: the agent cannot change them. With no flags, runs use the
+account and models <code>autocode setup</code> saved.</p>
+<p>For Codex, add it once:</p>
+<pre><code class="language-sh">codex mcp add autocode -- autocode mcp
+</code></pre>
+<p>For Claude Code, add it to the project's <code>.mcp.json</code>:</p>
 <pre><code class="language-json">{
   &quot;mcpServers&quot;: {
     &quot;autocode&quot;: {
-      &quot;command&quot;: &quot;python3&quot;,
-      &quot;args&quot;: [&quot;-m&quot;, &quot;autocode_cli.autocode_mcp&quot;, &quot;--workspace&quot;, &quot;.&quot;, &quot;--&quot;, &quot;--engine&quot;, &quot;claude&quot;]
+      &quot;command&quot;: &quot;autocode&quot;,
+      &quot;args&quot;: [&quot;mcp&quot;, &quot;--workspace&quot;, &quot;.&quot;]
     }
   }
 }
@@ -2086,7 +2116,8 @@ to the project's <code>.mcp.json</code>:</p>
 <p>The tools return the summary as JSON text and as <code>structuredContent</code>. A refusal is
 a tool result with <code>isError</code> and the reason, so the agent can read it. Tool
 arguments are checked against each tool's schema, and an argument it does not
-name, such as <code>options</code>, is refused.</p>
+name, such as <code>options</code>, is refused. <code>autocode_respond</code> takes the same decisions as
+the steps above: <code>approve_plan</code>, <code>revise_plan</code>, <code>answer</code>, <code>continue</code> and <code>follow_up</code>.</p>
 <h2 id="verify-a-change-you-made">Verify a change you made<a class="headerlink" href="#verify-a-change-you-made" title="Permanent link">&para;</a></h2>
 <p>To have AutoCode judge a change the agent already made, start a review run that
 names the change and what it should do, then read the evidence:</p>

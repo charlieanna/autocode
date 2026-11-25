@@ -503,6 +503,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Default models">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#checks-by-a-second-vendor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Checks by a second vendor
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2078,6 +2095,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Default models">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#checks-by-a-second-vendor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Checks by a second vendor
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2284,7 +2318,7 @@
 
 
 <h1 id="models-roles-and-escalation">Models, roles, and escalation<a class="headerlink" href="#models-roles-and-escalation" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/757b29caf54ac62b4b249e3e4e39d985d00b9456/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/b3be9b1656449466ab6363b8076839dbf93f17bc/README.md">← Back to README</a></p>
 <h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
 <p>Every stage of a run has a <strong>role</strong>. Role names describe responsibilities, not
 mandatory models — each role can select any provider/model from <code>opencode models</code>
@@ -2456,7 +2490,7 @@ review allowance leaves room for it (a large plan, <code>plan_review_call_limit<
 final review and the Planner never climbs. If the stronger revision is still blocked, the
 final review returns the open concerns to you as blocking questions.</p>
 <p>Two scripted scenarios check these rows end to end, through <code>autocode --status --json</code>
-(<a href="https://github.com/charlieanna/autocode/blob/757b29caf54ac62b4b249e3e4e39d985d00b9456/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
+(<a href="https://github.com/charlieanna/autocode/blob/b3be9b1656449466ab6363b8076839dbf93f17bc/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
 attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
 Sol XHigh, one attempt with its cost, <code>passed</code>, and the run completes; <code>escalation_outcomes</code>
 stamps that attempt and the ordinary retry before it <code>passed</code> too. In <code>escalation-ladder-end</code>
@@ -2540,6 +2574,23 @@ spellings (<code>--astra-model</code>, <code>--terra-model</code>, <code>--sol-m
 aliases. Neither is a model choice: <code>--builder-model zai-coding-plan/glm-5.3</code> selects the
 model used for the Builder role.</p>
 </blockquote>
+<h3 id="checks-by-a-second-vendor">Checks by a second vendor<a class="headerlink" href="#checks-by-a-second-vendor" title="Permanent link">&para;</a></h3>
+<p>One account is enough. A model never checks its own work: on Claude Code alone the
+Claude models check each other (for example Opus reviews Sonnet's build), and on Codex
+alone the GPT models do. Checks are stronger when a second vendor makes them, and there
+are two ways to get that:</p>
+<ul>
+<li><strong>OpenCode or Kilo with two vendors' accounts</strong>, for example a ChatGPT login and a Z.ai
+  or Anthropic key. Each checker then runs on another family than what it checks, as in
+  the defaults above. A signed-in OpenCode comes first when a run names no backend.</li>
+<li><strong>Claude Code with one stage on a Kilo account</strong>:
+  <code>autocode "…" --engine claude --role-transport tester=kilocode --tester-model MODEL</code>,
+  with <code>MODEL</code> from <code>autocode models --provider kilocode</code>
+  (<a href="../providers/#a-different-tool-for-one-role">a different tool for one role</a>).</li>
+</ul>
+<p>With both Claude Code and Codex signed in, a run uses one of them for every stage;
+they are not yet combined in one run. <code>autocode setup</code> says this when new runs use
+Claude Code or Codex.</p>
 <h2 id="choosing-each-stages-model">Choosing each stage's model<a class="headerlink" href="#choosing-each-stages-model" title="Permanent link">&para;</a></h2>
 <p>You choose the model and reasoning level of each stage once, and every new task uses them
 (owner decision 2026-10-30). <code>autocode setup</code> offers this right after connecting your
