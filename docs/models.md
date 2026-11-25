@@ -179,6 +179,25 @@ and pauses `PAUSED_MILESTONE_BUDGET` when it would take the milestone past that 
 > aliases. Neither is a model choice: `--builder-model zai-coding-plan/glm-5.3` selects the
 > model used for the Builder role.
 
+### Checks by a second vendor
+
+One account is enough. A model never checks its own work: on Claude Code alone the
+Claude models check each other (for example Opus reviews Sonnet's build), and on Codex
+alone the GPT models do. Checks are stronger when a second vendor makes them, and there
+are two ways to get that:
+
+- **OpenCode or Kilo with two vendors' accounts**, for example a ChatGPT login and a Z.ai
+  or Anthropic key. Each checker then runs on another family than what it checks, as in
+  the defaults above. A signed-in OpenCode comes first when a run names no backend.
+- **Claude Code with one stage on a Kilo account**:
+  `autocode "…" --engine claude --role-transport tester=kilocode --tester-model MODEL`,
+  with `MODEL` from `autocode models --provider kilocode`
+  ([a different tool for one role](providers.md#a-different-tool-for-one-role)).
+
+With both Claude Code and Codex signed in, a run uses one of them for every stage;
+they are not yet combined in one run. `autocode setup` says this when new runs use
+Claude Code or Codex.
+
 ## Choosing each stage's model
 
 You choose the model and reasoning level of each stage once, and every new task uses them

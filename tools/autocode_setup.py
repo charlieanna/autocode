@@ -57,6 +57,8 @@ BACKENDS = (
 INSTALL = dict(BACKENDS)
 # The hubs a person connects every other account and API key in; setup installs one when neither is present.
 HUBS = {"opencode": "OpenCode 1.18.33", "kilocode": f"Kilo {KILO}"}
+# The backends that run tasks with no hub: a person signed in to one can start without OpenCode or Kilo.
+ENGINES = ("claude", "codex")
 # The command a hub installs; npm puts it in its own global bin, which may not be on PATH.
 EXECUTABLES = {"opencode": "opencode", "kilocode": "kilo"}
 NODE = "https://nodejs.org"
@@ -131,6 +133,13 @@ def new_runs_use(found, *, choose=None) -> dict | None:
     return {"id": chosen["id"], "label": chosen["label"], "reason": f"{chosen['label']} is connected"}
 
 
+# Said when new runs use an engine that reaches one vendor's models: what checks the work, and the stronger option.
+SAME_VENDOR_CHECKS = (
+    "{label}'s own models check each other's work (a model never checks itself). For checks by a second "
+    "vendor, see docs/models.md#checks-by-a-second-vendor."
+)
+
+
 def text(found, use) -> str:
     lines = ["AutoCode runs on Claude Code, Codex, OpenCode or Kilo. What this machine has:"]
     for row in found:
@@ -154,6 +163,8 @@ def text(found, use) -> str:
         lines += ["", f"New runs cannot start: {use['reason']}."]
     else:
         lines += ["", f'New runs use {use["label"]} ({use["reason"]}). Start a task with: autocode "your idea"']
+        if use["id"] in ENGINES:
+            lines.append(SAME_VENDOR_CHECKS.format(label=use["label"]))
     return "\n".join(lines)
 
 
@@ -216,7 +227,10 @@ def _install(found, *, wanted=None, ask=None, which=shutil.which, run=None, out=
                 f"OpenCode and Kilo install with npm, which is not on PATH. {_get_node()}, then run `autocode setup` again."
             )
             return None
-        name = _choose_hub(ask, out)
+        engine = next(
+            (row["label"] for row in found if row["id"] in ENGINES and row.get("connection_status") in CONNECTED), None
+        )
+        name = _choose_hub(ask, out, engine=engine)
         if name is None:
             return None
     if not which("npm"):
@@ -247,23 +261,35 @@ HUB_CHOICES = (
 )
 
 
-def _choose_hub(ask, out=print) -> str | None:
+def _choose_hub(ask, out=print, *, engine: str | None = None) -> str | None:
     """Which hub to install, as the person answers: its id, or None for neither.
 
-    The answer is the option's number, or its name ("opencode", "kilo"); Enter takes OpenCode, as
-    the single yes/no offer did; "3", "n" or "no" installs nothing. Anything else installs nothing
-    and says so, so a typo never installs a hub the person did not pick.
+    The answer is the option's number, or its name ("opencode", "kilo"); "3", "n" or "no" installs
+    nothing. Enter takes OpenCode when nothing is connected yet. When ``engine`` (Claude Code or
+    Codex) is already signed in, tasks can start without a hub, so a hub is offered as the optional
+    second vendor for checks and Enter installs nothing: pressing Enter through setup must not install
+    OpenCode and open its sign-in for a person who only needs the account they have. Anything else
+    installs nothing and says so, so a typo never installs a hub the person did not pick.
     """
-    lines = [
-        "Neither OpenCode nor Kilo is installed. Either one connects your other accounts "
-        "(ChatGPT, GLM, MiMo or an API key):"
-    ]
+    if engine:
+        lines = [
+            f"{engine} is signed in, so you can start a task now. Optionally, OpenCode or Kilo connects other "
+            "accounts (ChatGPT, GLM, MiMo or an API key), so another vendor's models can check the work:"
+        ]
+    else:
+        lines = [
+            "Neither OpenCode nor Kilo is installed. Either one connects your other accounts "
+            "(ChatGPT, GLM, MiMo or an API key):"
+        ]
     for number, (hub, note) in enumerate(HUB_CHOICES, 1):
         lines.append(f"  {number}. {HUBS[hub]}: {note} ({INSTALL[hub]})")
-    lines.append(f"  {len(HUB_CHOICES) + 1}. Neither: I will use Claude Code or Codex")
+    neither = len(HUB_CHOICES) + 1
+    lines.append(f"  {neither}. Neither: " + (f"use {engine} only" if engine else "I will use Claude Code or Codex"))
     out("\n".join(lines))
-    answer = ask(f"Install which? [1-{len(HUB_CHOICES) + 1}, Enter for 1] ").strip().lower()
+    answer = ask(f"Install which? [1-{neither}, Enter for {neither if engine else 1}] ").strip().lower()
     names = {"opencode": "opencode", "kilo": "kilocode", "kilocode": "kilocode"}
+    if answer == "" and engine:
+        return None
     if answer in ("", "y", "yes"):
         return HUB_CHOICES[0][0]
     try:
@@ -274,7 +300,7 @@ def _choose_hub(ask, out=print) -> str | None:
         return HUB_CHOICES[number - 1][0]
     if answer in names:
         return names[answer]
-    if answer not in (str(len(HUB_CHOICES) + 1), "n", "no", "neither"):
+    if answer not in (str(neither), "n", "no", "neither"):
         out(f"{answer!r} is not one of the choices; nothing was installed. Run `autocode setup` again to choose.")
     return None
 

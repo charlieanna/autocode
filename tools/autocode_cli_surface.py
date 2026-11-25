@@ -61,9 +61,8 @@ class CompactParser(argparse.ArgumentParser):
             if flag in accepted:
                 lines.append(f"  {flag:<16} {description}")
         lines += [
-            "  -h, --help       Show this overview",
+            "  -h, --help       Show this overview; for one command: autocode COMMAND --help",
             "  --help-all       Show every accepted option",
-            "Subcommands: autocode COMMAND --help.",
             "Full reference: https://github.com/charlieanna/autocode/blob/master/docs/cli.md",
         ]
         return "\n".join(lines) + "\n"

@@ -71,6 +71,8 @@ SUBCOMMANDS = {
     "serve": "autocode_serve_cli",
     "usage": "autocode_usage_report",
     "completion": "autocode_shell_completion",
+    "mcp": "autocode_mcp",
+    "agent-step": "autocode_agent_step",
 }
 # A few existing entry points consume sys.argv rather than an argv parameter.
 ENTRY_FUNCTIONS = {"issue": "main", "arena": "main"}

@@ -40,8 +40,8 @@ brew install charlieanna/tap/autocode
 ```
 
 The demo uses no account or model spend. It shows rejected evidence, a
-completion refusal and a verified result. PyPI and Homebrew currently publish
-**0.8.2**; these install a tagged release, while this documentation follows master.
+completion refusal and a verified result. PyPI and Homebrew install the latest
+tagged release ([changelog](CHANGELOG.md)), while this documentation follows master.
 For fixes merged after that tag, use the [master or development-checkout
 installation](docs/install.md#advanced-install-from-a-checkout). See the
 [release verification record](docs/bugs/2026-10-27-release-installation.md) for
@@ -68,6 +68,20 @@ first connected of Claude Code, Codex and Kilo, which the run names as
 `Engine for this run: …`. API keys go in OpenCode (`opencode auth login`) or Kilo
 (`kilo auth login`); AutoCode's own direct API-key connection is retired. The [installation guide](docs/install.md) covers
 sign-in, a new Git project, route checks and common setup errors.
+
+### From Claude Code or Codex
+
+Already working in Claude Code or Codex? Drive AutoCode from there: it shows you
+AutoCode's questions and plan in the chat and passes on only your answers and
+approval ([AutoCode inside your coding agent](docs/agent-step.md)).
+
+```text
+/plugin install autocode --marketplace charlieanna/autocode    # in Claude Code
+codex mcp add autocode -- autocode mcp                         # for Codex, from a shell
+```
+
+Then ask, in a Git repository: *"Use AutoCode to fix the incorrect result when
+submitting an order."*
 
 ## Stage models and dynamic reasoning effort
 

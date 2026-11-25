@@ -26,10 +26,12 @@ that process is done, and every call takes ``wait``: up to that many seconds for
 next stop, so an agent can wait within its own tool time limit. A call that would
 advance a run while its process works is refused, never queued.
 
-    python -m autocode_cli.autocode_agent_step start "Fix the off-by-one in pager.py" -- --engine claude
-    python -m autocode_cli.autocode_agent_step status --wait 50
-    AUTOCODE_APPROVE_GOAL_TOKEN=... python -m autocode_cli.autocode_agent_step approve -
-    python -m autocode_cli.autocode_agent_step evidence --markdown
+    autocode agent-step start "Fix the off-by-one in pager.py"
+    autocode agent-step status --wait 50
+    AUTOCODE_APPROVE_GOAL_TOKEN=... autocode agent-step approve -
+    autocode agent-step evidence --markdown
+
+`python -m autocode_cli.autocode_agent_step` runs the same command line.
 """
 
 from __future__ import annotations
@@ -63,8 +65,12 @@ SUMMARY_FIELDS = (
     "workflow",
     "stop_reason",
 )
-# What respond() can do: each is the needs.kind it answers.
-ACTIONS = ("approve_plan", "answer", "continue")
+# What respond() can do. approve_plan, answer and continue are each the needs.kind they answer;
+# revise_plan sends the person's changes to a plan waiting for approval (needs.kind approve_plan), and
+# follow_up asks a finished run for the next change on the same branch.
+ACTIONS = ("approve_plan", "revise_plan", "answer", "continue", "follow_up")
+# The stop each action other than its own needs.kind is taken at.
+ACTION_NEEDS = {"revise_plan": "approve_plan"}
 # AutoResolver requests about recovering the run, not questions about the work: the person's (docs/task-run.md).
 OPERATIONAL_SCOPES = ("blocker", "operational_exhaustion")
 # The variables a "-" token argument is read from: the same ones the view's next_command uses.
@@ -140,6 +146,8 @@ class AgentStep:
 
         ``approve_plan`` takes ``needs.token`` and ``answer`` takes ``needs.resolver_token`` from the
         view the person decided on; AutoCode refuses a token for anything but that exact plan or request.
+        ``revise_plan`` takes the person's requested changes as ``text`` and drafts a revised plan for a
+        new approval; ``follow_up`` takes the next change the person asks a finished run for as ``text``.
         """
         if action not in ACTIONS:
             raise StepError(f"action must be one of {', '.join(ACTIONS)}, not {action!r}")
@@ -154,6 +162,11 @@ class AgentStep:
             if not token:
                 raise StepError("approve_plan needs needs.token from the view whose plan the person approved")
             _call(lambda: run.approve_plan(token))
+        elif action in ("revise_plan", "follow_up"):
+            if not isinstance(text, str) or not text.strip():
+                what = "the changes the person asked for" if action == "revise_plan" else "the person's next request"
+                raise StepError(f"{action} needs text: {what}, in their words")
+            _call(lambda: run.feedback(text) if action == "revise_plan" else run.follow_up(text))
         elif action == "answer":
             if not question_id or not token or not isinstance(text, str) or not text.strip():
                 raise StepError(
@@ -294,9 +307,15 @@ def _not_now(view: dict, action: str) -> str | None:
     """Why ``action`` is not this stop's, or None when it is."""
     need = view.get("needs") or {}
     kind = need.get("kind")
+    if action == "follow_up":
+        if view.get("done"):
+            return None
+        return "follow_up is for a finished run; this one is still in progress: act on its current stop."
     if view.get("done"):
-        return f"The run has finished ({view.get('status')}); read its evidence."
-    if kind == action and not (kind == "answer" and need.get("resolver_scope") in OPERATIONAL_SCOPES):
+        return f"The run has finished ({view.get('status')}); read its evidence, or send a follow_up."
+    if kind == ACTION_NEEDS.get(action, action) and not (
+        kind == "answer" and need.get("resolver_scope") in OPERATIONAL_SCOPES
+    ):
         return None
     if kind == "continue":
         return "The run needs nothing from anyone: continue it."
@@ -367,7 +386,7 @@ def _token(value: str, variable: str) -> str:
 
 def parser() -> argparse.ArgumentParser:
     command = argparse.ArgumentParser(
-        prog="python -m autocode_cli.autocode_agent_step",
+        prog="autocode agent-step",
         description="Start, read, answer and report on an AutoCode run from another coding agent. "
         "Prints one JSON summary (docs/agent-step.md).",
         allow_abbrev=False,
@@ -387,13 +406,17 @@ def parser() -> argparse.ArgumentParser:
         "token", help=f"needs.token from the view the person approved; '-' reads {APPROVE_TOKEN_VARIABLE}"
     )
     answer = steps.add_parser("answer", help="answer one question, then continue once none are left")
-    answer.add_argument("question_id")
+    answer.add_argument("question_id", help="the id of the question in needs.questions")
     answer.add_argument("text", help="the person's answer")
     answer.add_argument(
         "--token", required=True, help=f"needs.resolver_token from the view; '-' reads {RESOLVER_TOKEN_VARIABLE}"
     )
+    revise = steps.add_parser("revise", help="send the person's changes to the plan; a revised plan follows")
+    revise.add_argument("text", help="what the person wants changed in the plan, in their words")
+    follow = steps.add_parser("follow-up", help="ask a finished run for the next change, on the same branch")
+    follow.add_argument("text", help="the person's next request, in their words")
     proceed = steps.add_parser("continue", help="continue a run that needs nothing from anyone")
-    for working in (start, status, approve, answer, proceed):
+    for working in (start, status, approve, revise, follow, answer, proceed):
         working.add_argument(
             "--wait",
             type=float,
@@ -434,6 +457,10 @@ def main(argv: list[str] | None = None) -> int:
             result = step.respond(
                 "answer", token=token, question_id=arguments.question_id, text=arguments.text, wait=arguments.wait
             )
+        elif arguments.step == "revise":
+            result = step.respond("revise_plan", text=arguments.text, wait=arguments.wait)
+        elif arguments.step == "follow-up":
+            result = step.respond("follow_up", text=arguments.text, wait=arguments.wait)
         elif arguments.step == "continue":
             result = step.respond("continue", wait=arguments.wait)
         else:
@@ -446,6 +473,10 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     print(json.dumps(result, indent=2))
     return 0
+
+
+# `autocode agent-step` (autocode_subcommands) runs main with the arguments after the command word.
+cli = main
 
 
 if __name__ == "__main__":
