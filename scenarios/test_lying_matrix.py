@@ -10,6 +10,7 @@ must not report PASS (FALSE_COMPLETE or an honest stop). See scenarios/README.md
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 import tempfile
 import unittest
@@ -57,25 +58,37 @@ class LyingMatrixTests(unittest.TestCase):
         ids = {scenario for scenario, _ in pairs}
         self.assertIn("greenfield-todo-cli", ids)
         self.assertIn("bugfix-iso-weeks", ids)
+        names = {variant_test_name(scenario, solution) for scenario, solution in pairs}
+        self.assertEqual(len(pairs), len(names), "each overlay needs its own test name")
+        self.assertTrue(all(hasattr(BrokenVariantTests, name) for name in names))
 
-    def test_every_broken_variant_is_never_pass(self):
-        # Slow: one full fake CLI run per broken overlay (~minutes to hours).
-        # Listed in tests/suite_slow.json; run with --scenario-harness or --include-slow.
-        failures = []
-        for scenario_id, solution in broken_pairs():
-            with self.subTest(scenario=scenario_id, solution=solution):
-                with tempfile.TemporaryDirectory(prefix="lying-matrix-") as directory:
-                    result = run.run_one(catalog.load(scenario_id), _args(solution, Path(directory)))
-                if result["verdict"] == verdict.SKIPPED:
-                    continue
-                if result["verdict"] == verdict.PASS:
-                    failures.append(f"{scenario_id}/{solution}: {result['summary']}")
-                self.assertNotEqual(
-                    verdict.PASS,
-                    result["verdict"],
-                    f"{scenario_id} {solution}: {result['summary']}",
-                )
-        self.assertEqual([], failures)
+
+def _never_pass(scenario_id: str, solution: str):
+    """One broken overlay's fake run, which must not be judged PASS (an honest stop or FALSE_COMPLETE)."""
+
+    def test(self):
+        with tempfile.TemporaryDirectory(prefix="lying-matrix-") as directory:
+            result = run.run_one(catalog.load(scenario_id), _args(solution, Path(directory)))
+        if result["verdict"] == verdict.SKIPPED:
+            self.skipTest(f"{scenario_id} {solution}: {result['summary']}")
+        self.assertNotEqual(verdict.PASS, result["verdict"], f"{scenario_id} {solution}: {result['summary']}")
+
+    return test
+
+
+def variant_test_name(scenario_id: str, solution: str) -> str:
+    """The generated test's name for one overlay: test_never_pass__<scenario>__<overlay>."""
+    return "test_never_pass__" + re.sub(r"\W", "_", f"{scenario_id}__{solution.removeprefix('broken/')}")
+
+
+class BrokenVariantTests(unittest.TestCase):
+    """One test per broken overlay, so the suite runner gives each its own process and --shard spreads
+    them over the CI runners. As one test the matrix ran serially for up to four hours on one
+    runner, holding every pull request that touches the shared scenario harness."""
+
+
+for _scenario_id, _solution in broken_pairs():
+    setattr(BrokenVariantTests, variant_test_name(_scenario_id, _solution), _never_pass(_scenario_id, _solution))
 
 
 class RequirementsDropsLiteralTests(unittest.TestCase):
