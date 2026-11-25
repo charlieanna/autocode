@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 import autocode_acceptance_reference as acceptance_reference
+import autocode_changed_code_proof as changed_code_proof
 import autocode_check_outcome as check_outcome
 import autocode_command_guards as command_guards
 import autocode_companion_suites as companion_suites
@@ -430,6 +431,33 @@ class SourceBindingTests(unittest.TestCase):
         self.assertNotIn("no:cacheprovider", result["reason"])
 
     @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
+    def test_a_stored_receipt_keeps_what_authenticates_its_binding(self):
+        # A mutation continuation re-authenticates the receipts an earlier window stored. Storing only the
+        # binding's verdict made every one of them unauthenticated, so earlier sites read as not run.
+        self.write(
+            self.tree,
+            {
+                "app.py": "VALUE = 1\n",
+                "tests/test_app.py": "import unittest\nimport app\n\n\nclass T(unittest.TestCase):\n    def test_value(self):\n        self.assertEqual(1, app.VALUE)\n",
+            },
+        )
+        evidence = self.base / "evidence"
+        receipt = verify.run_suite(
+            test_framework.Framework("unittest", f"{sys.executable} -m unittest discover -s tests -t ."),
+            f"{sys.executable} -m unittest -v tests.test_app",
+            self.tree,
+            evidence,
+            "mutant-01",
+            timeout=60,
+            source_workspace=self.workspace,
+        )
+        self.assertEqual("established", receipt["source_binding"]["status"], receipt["source_binding"])
+        self.assertTrue(intact(receipt, root=evidence))
+        stored = changed_code_proof.compact_receipt(receipt)
+        self.assertNotIn("observations", stored["source_binding"])
+        self.assertLess(len(json.dumps(stored)), len(json.dumps(receipt)))
+        self.assertTrue(intact(json.loads(json.dumps(stored)), root=evidence))
+
     def test_npm_build_step_cannot_hide_unobserved_source(self):
         self.write(self.workspace, {"app.js": "module.exports = 1;\n"})
         self.write(

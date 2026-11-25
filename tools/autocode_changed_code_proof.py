@@ -43,24 +43,26 @@ VERSION = 6
 
 
 def compact_receipt(receipt):
-    """A receipt as the proof stores it: its source binding's verdict, not the observer's bulk.
+    """A receipt as the proof stores it: without the observer's bulk, but with what authenticates it.
 
-    Nothing re-verifies a changed-code receipt's binding from the proof (intact() authenticates by
-    captured output); the observer's request, capture and pinned probe files stay in the evidence
-    directory their recorded paths name.
+    A mutation continuation authenticates the receipts an earlier window stored
+    (``autocode_verification_schedule.intact``), and that recomputes the source binding from its pinned
+    capture. The stored binding keeps every field that check reads, the probe's own receipt included,
+    and drops only the observation list it recomputes.
     """
     binding = receipt.get("source_binding") if isinstance(receipt, dict) else None
     if isinstance(binding, dict):
-        return {
-            **receipt,
-            "source_binding": {
-                "version": binding.get("version"),
-                "framework": binding.get("framework"),
-                "status": binding.get("status"),
-                "reason": binding.get("reason"),
-            },
-        }
+        return {**receipt, "source_binding": _compact_binding(binding)}
     return receipt
+
+
+def _compact_binding(binding):
+    if not isinstance(binding, dict):
+        return binding
+    kept = {key: value for key, value in binding.items() if key != "observations"}
+    if isinstance(kept.get("children"), list):
+        kept["children"] = [_compact_binding(child) for child in kept["children"]]
+    return kept
 
 
 def collect(
@@ -98,6 +100,18 @@ def collect(
         receipts=coverage_receipts,
         root=out,
     )
+    kept = ((previous or {}).get("changed_code_inputs") or {}).get("coverage")
+    if (
+        previous is not None
+        and not coverage["files"]
+        and previous.get("diff_coverage") == coverage_report
+        and isinstance(kept, dict)
+        and (kept.get("source_revision"), kept.get("proof_context")) == (source_revision, context)
+    ):
+        # A continuation window measures in a new copy, and the copy the coverage report was measured in
+        # is gone, so its bytes cannot be read again. The same report bound to the same candidate and
+        # execution context was authenticated when it was measured: keep that envelope.
+        coverage = json.loads(json.dumps(kept))
     inventory = measurement.refine_inventory(
         inventory,
         coverage,
