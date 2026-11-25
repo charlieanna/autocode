@@ -1219,7 +1219,7 @@ def configure_joint(settings, args, *, fresh, planning, opencode=None):
     if opencode is None:
         opencode = autocode_opencode
     if settings.get("engine") == "codex":
-        configure_codex_joint(settings, args, planning=planning)
+        configure_codex_joint(settings, args, planning=planning, fresh=fresh)
         return
     mod = autocode_providers.resolve(settings.get("provider") or "opencode")
     if fresh:
@@ -1347,13 +1347,19 @@ def _resolver_override(settings, args):
             settings["roles"]["resolver"]["reasoning_effort"] = args.resolver_reasoning_effort
 
 
-def configure_codex_joint(settings, args, *, planning):
-    """Independent planning sessions through the existing native Codex login."""
+def configure_codex_joint(settings, args, *, planning, fresh=False):
+    """Independent planning sessions through the existing native Codex login.
+
+    A role a new run binds to another tool (``--role-transport``, or the checks a second vendor takes:
+    autocode_second_vendor) runs on the facade engine through that tool; every other role stays on Codex.
+    """
     check_subscription(settings["transport_identity"])
     roles = settings["roles"]
     single_model = getattr(args, "single_model", None)
     creating_plan_reviewer = "plan_reviewer" not in roles
     for role in ("requirements", "planner", "plan_reviewer"):
+        if role_transport.entry(settings, role) is not None:
+            continue  # bound to another tool when the run started; its route is that tool's
         creating_requirements = role == "requirements" and role not in roles
         roles.setdefault(role, copy.deepcopy(roles["task_planner"]))
         if planning.engine_for(settings, role) != "codex":
@@ -1382,7 +1388,11 @@ def configure_codex_joint(settings, args, *, planning):
             route["reasoning_effort"] = effort
     _resolver_override(settings, args)
     roles["plan_reviewer"]["model_pinned"] = True
+    if fresh:
+        role_transport.configure(settings, args, getattr(args, "workspace", None))
     for role, route in roles.items():
+        if role_transport.entry(settings, role) is not None:
+            continue
         if planning.engine_for(settings, role) != "codex":
             raise ValueError("Native Codex joint planning cannot switch a saved role's engine")
         if not re.fullmatch(r"gpt-[a-zA-Z0-9.-]+", route.get("model") or ""):

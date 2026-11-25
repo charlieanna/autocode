@@ -88,6 +88,8 @@ class CommandProvider:
         self._config = config
         self._path = path
         self.NAME = config["name"]
+        # The tool's name as a person knows it (``label = "Codex"``), where one line names the tool for them.
+        self.LABEL = config.get("label") or self.NAME
         self.OUTPUT = config.get("output", "report_file")
         self.SUPPORTS_SESSIONS = self.OUTPUT == "opencode_events"
         self.PROMPT_MODE = config.get("prompt", "stdin")
@@ -610,6 +612,9 @@ def _validate(name: str, config: dict) -> None:
             raise ValueError(f"{key} must be an array of non-empty strings")
     if "models" in config and not config["models"]:
         raise ValueError("models must list at least one model")
+    label = config.get("label")
+    if label is not None and (not isinstance(label, str) or not label.strip()):
+        raise ValueError("label must be a non-empty string")
     codex_sandbox.validate(config)
     if "connection" in config:
         _validate_connection(config["connection"])

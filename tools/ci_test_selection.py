@@ -799,10 +799,16 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         )
     ),
     ("tools/fake_command_tool.py", ("tests.test_command_flow", "tests.test_command_source_schema")),
-    ("tools/fake_codex.py", ("tests.test_subprocess",)),
+    ("tools/fake_codex.py", ("tests.test_subprocess", "tests.test_codex_transport_cli")),
     # The gemini provider's tests copy these files or read them by path; none is imported.
     ("tools/fake_gemini.py", ("tests.test_gemini_provider_cli",)),
-    ("tools/fake_claude.py", ("tests.test_claude_provider_cli", "tests.test_gemini_provider_cli")),
+    (
+        "tools/fake_claude.py",
+        ("tests.test_claude_provider_cli", "tests.test_gemini_provider_cli", "tests.test_codex_transport_cli"),
+    ),
+    # The bundled codex provider config and its offline Codex: read by path or copied, never imported.
+    ("tools/fake_codex_config.py", ("tests.test_codex_transport_cli",)),
+    ("tools/providers/configs/codex.toml", ("tests.test_codex_transport_cli",)),
     ("tools/providers/gemini_stream.py", ("tests.test_gemini_stream", "tests.test_gemini_provider_cli")),
     ("tools/prompts/fragments/provider-gemini/", ("tests.test_gemini_provider_cli",)),
     ("tests/fixtures/gemini/", ("tests.test_gemini_stream",)),

@@ -327,6 +327,9 @@ def default_provider() -> str:
 def provider_check(name: str, resolve=autocode_providers.resolve) -> Check:
     """A default provider other than the built-in OpenCode (docs/providers.md#add-a-tool) is
     ready when its config loads and its command answers: the check a run makes before launching it."""
+    if name == autocode_providers.ENGINE_ONLY:
+        # The bundled codex config runs single roles of another tool's run; a run refuses it as its provider.
+        return Check(f"provider:{name}", MISSING, autocode_providers.CODEX_ENGINE, "use --engine codex for Codex")
     try:
         facade = resolve(name)
         settings = facade.local_settings()

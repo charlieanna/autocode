@@ -67,6 +67,7 @@ except ImportError:  # Script-style execution from tools/.
 
 CONFIGURED = True
 NAME = "claude"
+LABEL = "Claude Code"
 OUTPUT = "codex_events"
 SUPPORTS_SESSIONS = True
 RESUME_ACROSS_STAGES = False

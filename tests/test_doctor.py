@@ -261,7 +261,7 @@ class EngineTests(unittest.TestCase):
             codex_engine = {c.name: c for c in doctor.all_checks(Path(config), "codex", on_path("codex"), codex)}
         self.assertEqual(doctor.OK, checks["engine:codex"].status)
         self.assertEqual(doctor.MISSING, checks["provider:codex"].status)
-        self.assertIn("no provider config for 'codex'", checks["provider:codex"].detail)
+        self.assertIn("codex is an engine, not a provider config", checks["provider:codex"].detail)
         self.assertEqual(doctor.MISSING, checks["engine"].status)
         self.assertIn("pass --engine codex", checks["engine"].fix)
         self.assertFalse(doctor.passed(list(checks.values())))
