@@ -20,7 +20,10 @@ class DepthTests(unittest.TestCase):
                 self.assertEqual("gate", outputs["mode"])
                 self.assertEqual(BASE, outputs["base"])
                 self.assertEqual([1, 2, 3], json.loads(outputs["suite_shards"]))
-                self.assertEqual([1], json.loads(outputs["scenario_shards"]))
+                # A shared-harness change selects every scenario: one runner took four hours for them.
+                self.assertEqual([1, 2, 3, 4], json.loads(outputs["scenario_shards"]))
+                outputs = ci_depth.depth(event, **{key: BASE}, scenario_shards=6, gate_scenario_shards=2)
+                self.assertEqual([1, 2], json.loads(outputs["scenario_shards"]))
 
     def test_the_gate_reads_only_its_own_events_base(self):
         outputs = ci_depth.depth("push", pr_base=BASE, group_base=BASE, push_base="")
@@ -39,6 +42,8 @@ class DepthTests(unittest.TestCase):
             ci_depth.depth("pull_request", pr_base="main")
         with self.assertRaises(ValueError):
             ci_depth.depth("schedule", scenario_shards=0)
+        with self.assertRaises(ValueError):
+            ci_depth.depth("push", push_base=BASE, gate_scenario_shards=0)
 
     def test_outputs_are_appended_for_the_workflow(self):
         with tempfile.TemporaryDirectory() as directory:

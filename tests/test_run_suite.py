@@ -424,6 +424,18 @@ class ScenarioModulesTests(unittest.TestCase):
                 with self.subTest(changed=changed):
                     self.assertEqual(([], modules), run_suite.scenario_selection(changed, slow))
 
+    def test_the_lying_matrix_runs_one_overlay_per_process_so_shards_can_spread_it(self):
+        # As one test it ran every broken overlay serially on one runner: about four hours of the
+        # gate whenever a change touched the shared scenario harness (#4167's CI, 2026-11-25).
+        cases = run_suite.split_module("scenarios.test_lying_matrix")
+        overlays = [case for case in cases if ".BrokenVariantTests.test_never_pass__" in case]
+        self.assertGreater(len(overlays), 50)
+        self.assertEqual(len(overlays), len(set(overlays)))
+        slow = run_suite.load_exclusions(run_suite.DEFAULT_SLOW_PATH)
+        slices = [run_suite.shard(overlays, (index, 4), slow, {}) for index in range(1, 5)]
+        self.assertEqual(sorted(overlays), sorted(case for piece in slices for case in piece))
+        self.assertLessEqual(max(map(len, slices)) - min(map(len, slices)), 1)
+
     def test_changed_slow_scenario_runs_without_enrolling_the_lying_matrix(self):
         modules = ["scenarios.test_adversarial_recovery", "scenarios.test_lying_matrix"]
         with mock.patch.object(run_suite, "scenario_modules", return_value=modules):

@@ -569,7 +569,6 @@
   "scenarios.test_lazy_validator_evidence.LazyValidatorEvidenceTests.test_refusal_without_a_validator_attempt_is_not_exercised": 0.1,
   "scenarios.test_lazy_validator_evidence.LazyValidatorEvidenceTests.test_unrelated_pause_is_not_a_citation_refusal": 0.2,
   "scenarios.test_lying_matrix.LyingMatrixTests.test_catalog_enumerates_broken_variants": 2.4,
-  "scenarios.test_lying_matrix.LyingMatrixTests.test_every_broken_variant_is_never_pass": 9120.3,
   "scenarios.test_lying_matrix.RequirementsDropsLiteralTests.test_dropped_list_brackets_stop_before_completion": 14.2,
   "scenarios.test_native_cli.NativeScenarioCliTests.test_bugfix_go_interval_boundary": 62.0,
   "scenarios.test_native_cli.NativeScenarioCliTests.test_bugfix_node_interval_boundary": 51.4,
