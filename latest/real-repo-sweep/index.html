@@ -1940,12 +1940,12 @@
 
 
 <h1 id="real-repository-benchmark-sweep">Real-repository benchmark sweep<a class="headerlink" href="#real-repository-benchmark-sweep" title="Permanent link">&para;</a></h1>
-<p>A recurring live measurement of AutoCode on pinned bugs from real open-source repositories, on the Claude
+<p>A recurring live measurement of AutoCode on pinned tasks from real open-source repositories, on the Claude
 models. Results go to <a href="../reliability-table/">the reliability table</a> as <code>claude-tiers</code> live rows; this page
 says what is measured, how often, and how to run it.</p>
 <h2 id="what-is-pinned">What is pinned<a class="headerlink" href="#what-is-pinned" title="Permanent link">&para;</a></h2>
 <p>The sets are fixed in
-<a href="https://github.com/charlieanna/autocode/blob/e34b2203251e9f06fdb537fcf068705b47bf25c8/examples/claude-provider/real_repo_sweep.py"><code>examples/claude-provider/real_repo_sweep.py</code></a>, so every
+<a href="https://github.com/charlieanna/autocode/blob/cad2b9980d6ca43a5e58bee4590e2703bc769723/examples/claude-provider/real_repo_sweep.py"><code>examples/claude-provider/real_repo_sweep.py</code></a>, so every
 sweep measures the same tasks at the same upstream commits:</p>
 <table>
 <thead>
@@ -1969,21 +1969,68 @@ sweep measures the same tasks at the same upstream commits:</p>
 <td style="text-align: right;">2</td>
 <td>SymPy #25150, Django #33766, pytest #11706, TypeScript #35283 (the corrected <code>-baselines-v2</code> case), Go #59690 (Arena hard cases)</td>
 </tr>
+<tr>
+<td><code>kinds</code></td>
+<td>monthly</td>
+<td style="text-align: right;">1</td>
+<td>One feature and one refactor in each of Python, JavaScript, Go, Rust and Java (Arena <code>kinds</code> cases, below)</td>
+</tr>
 </tbody>
 </table>
+<p>The <code>starter</code> and <code>hard</code> sets are bug fixes in Python, TypeScript and Go. The <code>kinds</code> set measures the
+other jobs a person gives AutoCode, a new feature and a change that keeps behavior, in the languages
+people bring most, each at the size of one upstream pull request or commit:</p>
+<table>
+<thead>
+<tr>
+<th>Language</th>
+<th>Feature</th>
+<th>Refactor</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Python</td>
+<td>More Itertools: <code>subfactorial()</code> to count derangements (#1166)</td>
+<td>Humanize: <code>scientific()</code>'s superscript digits in a module constant (#313)</td>
+</tr>
+<tr>
+<td>JavaScript</td>
+<td>js-yaml: a <code>maxDepth</code> limit on nesting (commit 4700baf)</td>
+<td>Commander: <code>node:util</code>'s <code>stripVTControlCharacters</code> in place of its own colour stripping (#2486)</td>
+</tr>
+<tr>
+<td>Go</td>
+<td>cast: float strings such as <code>"10.9"</code> to integer types (#261)</td>
+<td>golang-lru: the expirable LRU moved out of <code>simplelru</code> into its own package (commit 1154eab)</td>
+</tr>
+<tr>
+<td>Rust</td>
+<td>semver: compare by SemVer precedence, ignoring build metadata (#305)</td>
+<td>httparse: no duplicated letter branches in chunk-size parsing (#219)</td>
+</tr>
+<tr>
+<td>Java</td>
+<td>Commons CLI: count how often an option appears (#396)</td>
+<td>Commons CLI: one helper for <code>CommandLine</code>'s repeated "first value or null" (commit bbc7001)</td>
+</tr>
+</tbody>
+</table>
+<p>A feature case's oracle checks the new behavior; a refactor case's oracle checks that behavior is unchanged
+on inputs pinned from the base commit and that the duplication the request names is gone.</p>
 <p>The cadence and size are the owner's choice (2026-11-24). The upstream pins, oracles and test commands are in
-<a href="https://github.com/charlieanna/autocode/blob/e34b2203251e9f06fdb537fcf068705b47bf25c8/arena/catalog.json"><code>arena/catalog.json</code></a>, <a href="../arena/">Arena</a> and the scenario's <code>scenario.toml</code>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/cad2b9980d6ca43a5e58bee4590e2703bc769723/arena/catalog.json"><code>arena/catalog.json</code></a>, <a href="../arena/">Arena</a> and the scenario's <code>scenario.toml</code>.</p>
 <p>Every case runs on the <code>claude-tiers</code> route (<code>scenarios/harness/profiles.py</code>): Sonnet for Requirements, the
 Planner and the Tester; Opus for the Plan Reviewer, Resolver, Completion Reviewer and Investigator; Haiku
 for the Builder; medium reasoning. Fable is never used. Plans are approved by their exact token (benchmark
 automation, not a person's review). There is no per-run cost cap, as for all test runs
-(<a href="https://github.com/charlieanna/autocode/blob/e34b2203251e9f06fdb537fcf068705b47bf25c8/AGENTS.md#fake-first-verification-and-optional-live-runs">AGENTS.md</a>); the sweep's size is the
+(<a href="https://github.com/charlieanna/autocode/blob/cad2b9980d6ca43a5e58bee4590e2703bc769723/AGENTS.md#fake-first-verification-and-optional-live-runs">AGENTS.md</a>); the sweep's size is the
 spending bound.</p>
 <h2 id="what-is-reported">What is reported<a class="headerlink" href="#what-is-reported" title="Permanent link">&para;</a></h2>
 <p>For each sweep: runs, passes, <strong>false completions</strong> (AutoCode reported done and the independent oracle
 disagrees), median minutes, and each run's reported cost. A run that stops (<code>STOPPED</code>, <code>HONEST_BLOCKER</code>)
 is not a pass; its note says why. A stop that asks a person about AutoCode's own machinery is a defect
-and gets fixed (<a href="https://github.com/charlieanna/autocode/blob/e34b2203251e9f06fdb537fcf068705b47bf25c8/AGENTS.md#what-a-person-is-asked">AGENTS.md</a>).</p>
+and gets fixed (<a href="https://github.com/charlieanna/autocode/blob/cad2b9980d6ca43a5e58bee4590e2703bc769723/AGENTS.md#what-a-person-is-asked">AGENTS.md</a>).</p>
 <p>Cost is the API-equivalent <code>cost_usd</code> Claude Code reports for each stage, summed by the status view's
 <code>cost.spent_usd</code>; on a subscription login it is not an invoice. The pilot (2026-11-23) cost $12.11 for
 four runs; a weekly <code>starter</code> sweep is about $36, a monthly <code>hard</code> sweep an estimated $50 to $80.</p>
@@ -1991,7 +2038,7 @@ four runs; a weekly <code>starter</code> sweep is about $36, a monthly <code>har
 time on fixed tasks, not a contamination-free benchmark score.</p>
 <h2 id="run-it">Run it<a class="headerlink" href="#run-it" title="Permanent link">&para;</a></h2>
 <p>From a Claude Code cloud session, after the setup in
-<a href="https://github.com/charlieanna/autocode/blob/e34b2203251e9f06fdb537fcf068705b47bf25c8/examples/claude-provider/CLOUD-SESSION.md#1-set-up-every-new-session">CLOUD-SESSION.md</a> plus <code>pytest</code>
+<a href="https://github.com/charlieanna/autocode/blob/cad2b9980d6ca43a5e58bee4590e2703bc769723/examples/claude-provider/CLOUD-SESSION.md#1-set-up-every-new-session">CLOUD-SESSION.md</a> plus <code>pytest</code>
 in the venv:</p>
 <pre><code class="language-sh">setpriv --bounding-set=-sys_admin,-sys_ptrace .venv/bin/python examples/claude-provider/real_repo_sweep.py \
   run starter --out /tmp/sweep --repeat 3 --i-authorize-live-model-spend
@@ -2001,7 +2048,9 @@ in the venv:</p>
 writes one record per attempt to <code>--out/records/</code>; the same command continues after a restart. For the
 <code>hard</code> set, install the dependencies <a href="../arena/#hard-cases">Arena</a> lists first (the Python test
 dependencies, the TypeScript build bundle with <code>ARENA_TYPESCRIPT_*</code> set, Go 1.25.5 with its frozen module
-cache). <code>summary</code> prints the row to add at the top of <code>docs/reliability-sweeps.json</code>; then regenerate the
+cache). For the <code>kinds</code> set: Go, a Rust toolchain with Cargo, a JDK with Maven and Node 22; the js-yaml
+case's own test dependency is installed once under <code>--out/support</code> from
+<a href="https://github.com/charlieanna/autocode/blob/cad2b9980d6ca43a5e58bee4590e2703bc769723/arena/support/js-yaml/package-lock.json"><code>arena/support/js-yaml</code></a>. <code>summary</code> prints the row to add at the top of <code>docs/reliability-sweeps.json</code>; then regenerate the
 table and the README copy (<code>python tools/reliability_table.py docs/reliability-sweeps.json</code>).</p>
 
 
