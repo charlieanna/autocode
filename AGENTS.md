@@ -267,7 +267,15 @@ there. The AutoCode direct API-key
 connection (#1493) is retired: nothing offers it to a new user or chooses it automatically,
 a configured one keeps working, and it is deleted in the next release. The stages, the advice
 for each and their independence checks are the same whichever of the four tools runs them. Do not
-add a fifth backend or a new connection path without the owner's decision.
+add another backend or a new connection path without the owner's decision.
+
+**Gemini CLI is the fifth backend, owner decision 2026-11-25.** The owner asked for Google's Gemini
+CLI, on a Google sign-in (a Gemini subscription), mainly as a second vendor that checks a Claude Code
+run's work: `--role-transport tester=gemini` puts the Tester on it, and `--provider gemini` runs every
+stage on it (`tools/providers/gemini.py`). Setup, doctor and connections detect it, including a Google
+Workspace account that needs `GOOGLE_CLOUD_PROJECT`. It takes only Sign in with Google, never an API
+key or Vertex. It is taken for a run that names no backend only after the other four.
+
 The editor still launches only the core CLI and renders its named actions.
 It is a client of the
 [task-run interface](docs/task-run.md) and nothing else:

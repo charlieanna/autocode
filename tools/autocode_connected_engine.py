@@ -1,9 +1,9 @@
 """The engine a new run takes from the accounts this machine has connected (#2049).
 
 A person may hold any mix of subscriptions and API keys: a Claude subscription in
-Claude Code, a ChatGPT login in Codex, and every other account or API key (Z.ai, MiMo,
-OpenAI, Anthropic) in OpenCode or Kilo. Those four are the backends AutoCode offers (owner
-decision 2026-10-30); the AutoCode direct API-key connection is retired and is never chosen
+Claude Code, a ChatGPT login in Codex, a Google sign-in in Gemini CLI, and every other account or
+API key (Z.ai, MiMo, OpenAI, Anthropic) in OpenCode or Kilo. Those five are the backends AutoCode
+offers (owner decisions 2026-10-30 and 2026-11-25); the AutoCode direct API-key connection is retired and is never chosen
 here, though a run that names ``--provider autocode`` still runs on it. Without this module a run that names no engine runs OpenCode, and on a
 machine without OpenCode it stops at "opencode is not on PATH" while a ready Claude
 Code sits beside it; the person then has to learn ``--engine claude`` and type it on
@@ -53,8 +53,9 @@ ORDER = (
     ("claude", "opencode", "claude", "Claude Code"),
     ("codex", "codex", None, "Codex"),
     ("kilocode", "opencode", "kilocode", "Kilo"),
+    ("gemini", "opencode", "gemini", "Gemini CLI"),
 )
-EXECUTABLES = {"claude": "claude", "codex": "codex", "kilocode": "kilo"}
+EXECUTABLES = {"claude": "claude", "codex": "codex", "kilocode": "kilo", "gemini": "gemini"}
 
 
 CHECK_TIMEOUT = env_prep.CONNECTION_TIMEOUT_SECONDS
@@ -176,6 +177,10 @@ def _not_connected(name, which, runner, workspace, resolve) -> str | None:
             # The run's own billing gate: a login it refuses is not a backend to choose.
             refusal = codex_settings.login_refusal((status.stdout or "") + (status.stderr or ""))
             return "codex is signed in on a route a run refuses" if refusal else None
+        if name == "gemini":
+            facade = resolve("gemini")
+            facade.login_check(workspace, run=None if runner is _run else runner)
+            return None
         if name == "kilocode":
             facade = resolve("kilocode")
             if route_discovery.connected_accounts(facade, workspace, runner=None if runner is _run else runner):

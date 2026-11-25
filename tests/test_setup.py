@@ -1,4 +1,4 @@
-"""`autocode setup` (#2049): check the four backends, offer their own sign-in, say what new runs use."""
+"""`autocode setup` (#2049): check the five backends, offer their own sign-in, say what new runs use."""
 
 import contextlib
 import io
@@ -31,6 +31,7 @@ CLAUDE_IN = row("claude", "Claude Code", "credentials_present")
 CODEX_OUT = row("codex", "Codex", "sign_in_required")
 OPENCODE_MISSING = row("opencode", "OpenCode", "", missing=True)
 KILO_MISSING = row("kilocode", "Kilo", "", missing=True)
+GEMINI_MISSING = row("gemini", "Gemini CLI", "", missing=True)
 CLAUDE_CHOSEN = {"id": "claude", "engine": "opencode", "provider": "claude", "label": "Claude Code", "reason": "x"}
 
 
@@ -45,7 +46,13 @@ class SetupTests(unittest.TestCase):
         os.environ.pop("AUTOCODE_PROVIDER", None)
 
     def test_each_backend_is_checked_and_a_missing_one_gets_its_install_command(self):
-        views = {"claude": CLAUDE_IN, "codex": CODEX_OUT, "opencode": OPENCODE_MISSING, "kilocode": KILO_MISSING}
+        views = {
+            "claude": CLAUDE_IN,
+            "codex": CODEX_OUT,
+            "gemini": GEMINI_MISSING,
+            "opencode": OPENCODE_MISSING,
+            "kilocode": KILO_MISSING,
+        }
         calls = []
 
         def view(name, *, check):
@@ -57,6 +64,7 @@ class SetupTests(unittest.TestCase):
         install = {item["id"]: item.get("install_command") for item in found}
         self.assertEqual("npm install -g opencode-ai@1.18.33", install["opencode"])
         self.assertEqual("npm install -g @kilocode/cli@7.8.3", install["kilocode"])
+        self.assertEqual("npm install -g @google/gemini-cli", install["gemini"])
         self.assertIsNone(install["claude"])
         self.assertIsNone(install["codex"])
 

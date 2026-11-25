@@ -27,7 +27,7 @@ Or `brew install charlieanna/tap/autocode`. Details and other hosts:
 autocode setup
 ```
 
-Setup finds Claude Code, Codex, OpenCode and Kilo, offers to install OpenCode or Kilo when
+Setup finds Claude Code, Codex, Gemini CLI, OpenCode and Kilo, offers to install OpenCode or Kilo when
 you have neither, signs in what is not signed in yet, and asks which model and reasoning
 level each stage runs. Every task uses that choice; change it later with
 `autocode stages choose`. If Claude Code or Codex is already signed in, setup reuses it.
