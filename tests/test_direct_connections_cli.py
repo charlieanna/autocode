@@ -83,6 +83,7 @@ class DirectCliTests(unittest.TestCase):
             "ignored_requirements": [],
             "machine_resolutions": [],
             "access_blockers": [],
+            "approach": {"summary": "", "pieces": [], "band": "", "alternatives": [], "out_of_scope": []},
             "ambiguity_audit": {
                 "outcome_scope": {"status": "open_question", "refs": ["outcome"]},
                 "inputs_and_edge_cases": dict(not_applicable),

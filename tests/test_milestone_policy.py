@@ -121,7 +121,9 @@ class MilestonePolicyTests(unittest.TestCase):
             prompt, _ = planning.context(state, stage, "/fixture/state.json")
             if stage == "requirements_gather":
                 self.assertNotIn("MILESTONE HANDOFF POLICY v1", prompt)
-                self.assertIn("Do not create a technical approach, milestone, dependency graph", prompt)
+                # #4171: Requirements sketches the approach but still writes no milestones or plan.
+                self.assertIn("It is a sketch, not a plan: no milestones,", prompt)
+                self.assertIn("dependency graph, task list, file list or implementation steps.", prompt)
             else:
                 self.assertEqual(1, prompt.count("MILESTONE HANDOFF POLICY v1"))
                 self.assertIn("never bypass limits", prompt)
