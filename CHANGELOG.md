@@ -9,6 +9,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-11-25
+
 ### Added
 
 - **Gemini CLI as a backend, and as the second vendor that checks a Claude Code run** ([Gemini CLI provider](docs/providers.md#gemini-cli-provider)): with Gemini CLI signed in with Google, `autocode "…" --engine claude --role-transport tester=gemini --tester-model gemini-2.5-pro` has Gemini test what Claude Code built, and `--provider gemini` runs every stage on Gemini. Before, a person with Claude Code got checks by a second vendor only through an OpenCode or Kilo account with API keys. `autocode setup` and `autocode doctor` find a signed-in Gemini CLI and print that command; a Google Workspace account whose sign-in fails for want of a Google Cloud project is told the `export GOOGLE_CLOUD_PROJECT="your-project-id"` line that fixes it, and an API key, Vertex or an expired sign-in is named too. Gemini CLI reports no command exit codes, so its stages cite checks by their capture receipts.
@@ -4755,6 +4757,7 @@ completion without evidence.
 - A new task runs in its own Git worktree by default; `--in-place` opts out
   (#724). The person's checkout stays usable while the Builder works.
 
-[Unreleased]: https://github.com/charlieanna/autocode/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/charlieanna/autocode/compare/v0.11.1...HEAD
+[0.11.1]: https://github.com/charlieanna/autocode/compare/v0.11.0...v0.11.1
 [0.9.0]: https://github.com/charlieanna/autocode/compare/v0.8.2...v0.9.0
 [0.7.1]: https://github.com/charlieanna/autocode/releases/tag/v0.7.1
