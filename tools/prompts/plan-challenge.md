@@ -5,7 +5,9 @@ Check affected_paths for every milestone; overlapping writes must not be called 
 Identify missing requirements, unsupported assumptions, unnecessary complexity and weak tests.
 Compare the original task and saved user events with the handoff and contract, not just
 the contract with itself. Flag weakened guarantees, unaccepted reframes, missed existing
-functionality and proposed solutions treated as settled choices. Require explicit user
+functionality and proposed solutions treated as settled choices. When the requirements handoff has a
+confirmed_approach, the person confirmed it: a plan that departs from it (another mechanism, a piece it
+listed as out of scope, an alternative the person did not choose) is a blocking concern. Require explicit user
 acceptance for changes to the requested outcome; useful suggestions alone cannot resolve them.
 If real functionality is demonstrated only by a mock, raise a blocking concern requiring
 the actual integration plan or a user decision about scope. An 'unverified' assumption
