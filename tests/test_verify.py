@@ -1746,21 +1746,17 @@ class VerifyCase(unittest.TestCase):
                     "settings": {"regression": options},
                 }
                 proof = regression.prove(state, project.root, project.evidence)
-                self.assertEqual(verify.PASS if suite is None else verify.UNVERIFIED, proof["verdict"], proof)
+                self.assertEqual(verify.PASS, proof["verdict"], proof)
                 self.assertEqual("unittest", proof["framework"]["name"])
                 self.assertEqual("derived:unittest", proof["commands"]["regression_source"])
                 self.assertTrue(proof["fail_to_pass"])
                 self.assertEqual(1, proof["checks"]["regression_on_base"]["exit_code"])
                 self.assertEqual(0, proof["checks"]["regression_on_candidate"]["exit_code"])
-                if suite is None:
-                    self.assertTrue(regression.complete(state, proof["source_revision"], require_changed_code=False))
-                    self.assertTrue(regression.complete(state, proof["source_revision"]))
-                    self.assertEqual(["mutation_only"], proof["changed_code_evidence"]["fallback"])
-                else:
-                    self.assertEqual([], proof["failures"], proof)
-                    self.assertTrue(any("source resolution" in reason for reason in proof["unverified"]), proof)
-                    self.assertFalse(regression.complete(state, proof["source_revision"], require_changed_code=False))
-                    self.assertFalse(regression.complete(state, proof["source_revision"]))
+                # The runner's proof passes either way. Behind an opaque explicit command the mutation check
+                # runs the proof's own derived regression command instead, so the changed line has mutation
+                # evidence and the full gate passes too.
+                self.assertTrue(regression.complete(state, proof["source_revision"], require_changed_code=False))
+                self.assertTrue(regression.complete(state, proof["source_revision"]))
 
     @unittest.skipUnless(shutil.which("node"), "Node is required for named Node proof")
     def test_node_named_case_flip_preserves_original_custom_suite(self):

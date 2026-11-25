@@ -2488,7 +2488,7 @@ def verify(
     unverified += _incomplete_receipts(checks)
     stats = diff_stats(workspace, base, changes, roles=roles, allow_ambiguous=bool(ambiguous))
     review_reasons += _file_kind_reasons(stats)
-    verdict = FAIL if fail else UNVERIFIED if unverified else PASS
+    verdict, fail = verify_result.classified(fail, unverified)
     return verify_result.assemble(
         run,
         verdict=verdict,

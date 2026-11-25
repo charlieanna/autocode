@@ -15,6 +15,7 @@ try:
     from . import autocode_go_tests as go_tests
     from . import autocode_node_tests as node_tests
     from . import autocode_npm_scripts as npm_scripts
+    from . import autocode_project_kinds as project_kinds
     from . import autocode_python_tests as python_tests
     from . import autocode_util as util
 except ImportError:
@@ -22,6 +23,7 @@ except ImportError:
     import autocode_go_tests as go_tests
     import autocode_node_tests as node_tests
     import autocode_npm_scripts as npm_scripts
+    import autocode_project_kinds as project_kinds
     import autocode_python_tests as python_tests
     import autocode_util as util
 
@@ -435,13 +437,59 @@ def plan(framework, command, tree, root, label, *, workspace, evidence_dir=None)
         # another runner only records the boundary — dependency-runner custody is phase 2 of #4152 —
         # and a command that names no runner at all has no Node surface this phase observes.
         script = node_tests.npm_test_declaration(command, root)
-        build_steps = script.split(" && ")[:-1] if isinstance(script, str) else []
+        steps = script.split(" && ") if isinstance(script, str) else []
+
+        def inner_words(text, depth=0):
+            try:
+                words = shlex.split(text) if depth < 2 else []
+            except ValueError:
+                return ["node"]  # unparsable quoting: the step may run repo files, so hold
+            if len(words) > 2 and words[0] in ("sh", "bash", "dash", "zsh") and words[1] == "-c":
+                return inner_words(words[2], depth + 1)
+            return words
+
+        def runs_the_test_itself(arguments):
+            for word in arguments:
+                if word.startswith("-"):
+                    continue
+                name = Path(word).name
+                return bool(
+                    python_tests.TEST_MODULE.match(name)
+                    or project_kinds.TEST_FILE.match(name)
+                    or project_kinds.ROOT_TEST_FILE.match(name)
+                )
+            return False
+
         runs_repo_files = any(
-            words[:1] and Path(words[0]).name in ("node", "node.exe", "python", "python3", "python.exe")
-            for part in build_steps
-            if (words := shlex.split(part))
+            "$" in part  # shell expansion decides what the step runs
+            or (
+                words[:1]
+                and (
+                    words[0] in ("npm", "pnpm", "yarn")  # re-enters the project's own script table
+                    or (
+                        Path(words[0]).name in ("node", "node.exe", "python", "python3", "python.exe")
+                        and (
+                            # The runner form with flags the runner cannot own stays opaque.
+                            ("--test" in words and node_tests.command_words(shlex.join(words)) is None)
+                            or (
+                                "--test" not in words
+                                # the exit-code proof owns a script that is the test
+                                and not runs_the_test_itself(words[1:])
+                                and not any(
+                                    word.startswith("node_modules") or "/node_modules/" in word for word in words[1:]
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+            for part in steps
+            if (words := inner_words(part))
         )
-        names_runner = re.search(r"\b(?:node|npm|npx)(?:\.(?:exe|cmd))?\b", command) is not None
+        names_runner = bool(
+            re.search(r"\b(?:node|npm|npx|pnpm|yarn)(?:\.(?:exe|cmd))?\b", command)
+            or re.search(r"\b(?:sh|bash|zsh|dash)\s+\S", command)
+        )
         if not names_runner or (script is not None and not runs_repo_files):
             return {
                 "binding": {

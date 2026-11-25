@@ -4,6 +4,20 @@ Execution and judgment remain with the caller. These helpers neither run checks
 nor change their verdict, receipts or source binding.
 """
 
+SOURCE_UNESTABLISHED = "Runner source resolution is not established"
+
+
+def classified(fail, unverified):
+    """The verdict, and the failure attribution that survives it.
+
+    Source uncertainty is classified before every other classification (#4152): a run whose
+    runner may read outside its copy cannot attribute the failure it observed, so the proof is
+    unverified rather than failed and no repair is directed from it.
+    """
+    if any(reason.startswith(SOURCE_UNESTABLISHED) for reason in unverified):
+        return "UNVERIFIED", []
+    return ("FAIL" if fail else "UNVERIFIED" if unverified else "PASS"), fail
+
 
 def assemble(run, *, verdict, source_revision, test_files, source_files, stats, ignored_test_files) -> dict:
     proof, baseline = run.proof, run.base_suite

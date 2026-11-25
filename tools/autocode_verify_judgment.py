@@ -621,10 +621,18 @@ def judge_suite(
                     "behavior is unproven"
                 )
             elif definition_run["exit_code"] != 0:
-                fail.append(
-                    "The base suite definition fails against the candidate code: the candidate "
-                    "changed which tests the suite runs, so tests the base ran no longer pass"
-                )
+                # A narrowed definition's failure cannot supply FAIL either until its runner's
+                # source resolution is established (#4152): a script-driven suite that reads the
+                # live tree decides which tests run before any of them fail.
+                if source_reasons := source_binding.reasons({"base definition": definition_run}):
+                    unverified.extend(
+                        "Runner source resolution is not established — " + reason for reason in source_reasons
+                    )
+                else:
+                    fail.append(
+                        "The base suite definition fails against the candidate code: the candidate "
+                        "changed which tests the suite runs, so tests the base ran no longer pass"
+                    )
             else:
                 # Exit 0 alone cannot erase the base's passing-test identities (G5).
                 # Apply the same completeness, collection and preservation rules to

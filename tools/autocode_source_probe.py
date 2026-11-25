@@ -621,10 +621,20 @@ def _python_targets(words, kind, root, *, script=False):
             ignored.add(word.split("=", 1)[1])
         index += 1
     targets = []
+
+    def importable_name(path):
+        # A file inside an __init__ chain imports by its dotted path from the root; below one,
+        # the runner imports it as a top-level module from its own directory (pytest, unittest).
+        relative = path.relative_to(root)
+        parents = [root / part for part in relative.parts[:-1]]
+        if all((parent / "__init__.py").is_file() for parent in parents):
+            return _module_name(path, root)
+        return path.stem
+
     for value in values:
         path = (root / value).resolve()
         if path.suffix == ".py" and path.is_file():
-            targets.append((_module_name(path, root), path))
+            targets.append((importable_name(path), path))
         elif re.match(r"^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*$", value):
             targets.append((value, None))
     if targets:
@@ -636,7 +646,7 @@ def _python_targets(words, kind, root, *, script=False):
     )
     if len(files) > MAX_FILES:
         raise ValueError("Python test observation exceeded its file bound")
-    return [(_module_name(path, root), path) for path in files]
+    return [(importable_name(path), path) for path in files]
 
 
 def _python_file_root(node, filename):
