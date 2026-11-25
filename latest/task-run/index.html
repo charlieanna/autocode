@@ -1896,7 +1896,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/7fdbf81a62c60311929d6a697f9c9dad1767bcc3/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/3a417d016df0b4528559399d52f68cac71915173/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -2320,6 +2320,13 @@ project and <code>TaskRun.start</code> or <code>--in-place</code> works in it di
 included; an ordinary CLI launch creates its own worktree by default. An unsafe new run
 or advancing invocation is refused before starting a provider. Saved status,
 explanations and dry runs remain readable without changing the checkpoint.</p>
+<p>An existing checkout with <code>HEAD</code> may run Requirements in place under the explicit
+<code>--in-place --workflow discuss</code> exception. Requirements uses its assigned route in
+verified kernel read-only containment and cannot provision a worktree or write source
+or Git metadata. A discussion completes there; a request needing changes stops before
+Planner with a named action to select an isolated controller. <code>TaskRun.start</code> can pass
+those exact <code>start_args</code>, and advancing the same Requirements-only run preserves the
+boundary. Neither the prompt's wording nor another role's engine grants this exception.</p>
 <p><code>view.runner</code> and <code>view.evidence.runner</code> identify the controller that last saved
 the run: its package directory (<code>path</code>) and source revision (<code>commit</code>, with
 <code>+modified</code> for local source edits). <code>view.evidence.base_commit</code> identifies the
@@ -3256,7 +3263,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/7fdbf81a62c60311929d6a697f9c9dad1767bcc3/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/3a417d016df0b4528559399d52f68cac71915173/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -4142,7 +4149,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/7fdbf81a62c60311929d6a697f9c9dad1767bcc3/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/3a417d016df0b4528559399d52f68cac71915173/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
@@ -5687,9 +5694,18 @@ shows the places, preselects <code>default</code>, passes the chosen place's (or
 unchanged in place of its own placement flag, and, when that place has a <code>warning</code>, shows it and
 starts only once the person confirms. It reads the list again just before the start.</p>
 <p>The additive <code>controller</code> object is pre-start admission, not saved-run state:
-<code>ready</code> (boolean), <code>detail</code> (display text), and <code>actions</code> (empty when ready).
+<code>ready</code> (boolean), <code>detail</code> (display text), <code>requirements_ready</code> (boolean) and
+<code>requirements_detail</code> (display text), and <code>actions</code> (empty when ready).
 When the executing controller is inside an AutoCode task checkout, <code>ready</code> is false
-for every placement. Its <code>select_cli</code> action has <code>label</code> and
+for every placement. If that folder is an existing Git checkout with <code>HEAD</code>, the list
+also offers the explicit <code>discuss</code> place with
+<code>start_args: ["--in-place", "--workflow", "discuss"]</code>. It runs only Requirements,
+with its assigned planning route in the verified read-only kernel boundary; it creates
+no task worktree, launch baseline or build authority and changes no Git or source file.
+A request that needs file changes stops at <code>PAUSED_LOCAL_REQUIREMENTS_BUILD</code> before
+Planner, and the person must select an isolated CLI to build. <code>requirements_ready</code>
+is not full-task readiness or containment approval, and a client never infers this
+choice from the message. Its <code>select_cli</code> action has <code>label</code> and
 <code>next_command: ["worktrees", "list", "--workspace", FOLDER, "--json"]</code>.
 This is a local executable-selection capability, not an install or a run command:
 the client lets the person pick an existing AutoCode executable and invokes it with
