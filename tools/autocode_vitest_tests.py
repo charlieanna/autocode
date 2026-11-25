@@ -14,8 +14,10 @@ from pathlib import Path
 
 try:
     from . import autocode_npm_scripts as npm_scripts
+    from . import autocode_repeated_tests as repeated_tests
 except ImportError:
     import autocode_npm_scripts as npm_scripts
+    import autocode_repeated_tests as repeated_tests
 
 
 _words = npm_scripts.words
@@ -46,8 +48,31 @@ def _vitest(words):
     )
 
 
+# The Vitest major version AutoCode's reporter (autocode_vitest_reporter.cjs) reads.
+REPORTER_MAJOR = "4"
+
+
+def installed_version(tree) -> str | None:
+    """The version of the Vitest that Node resolves from ``tree``, or None when none is found."""
+    for directory in (Path(tree), *Path(tree).parents):
+        try:
+            package = json.loads((directory / "node_modules" / "vitest" / "package.json").read_text())
+        except (OSError, ValueError):
+            continue
+        version = package.get("version") if isinstance(package, dict) else None
+        return version if isinstance(version, str) else None
+    return None
+
+
 def command_words(command, tree=None):
-    """Recognize a one-shot command whose JSON reporter the runner can own."""
+    """Recognize a one-shot command whose JSON reporter the runner can own.
+
+    Not when the project's own Vitest is another major version than the reporter reads: the reporter
+    would end that run with an error of its own and turn a passing suite into a broken one (Vitest 3,
+    setup sweep, docs/setup-sweep.md). Such a suite is read by its exit code, as any other command is.
+    """
+    if tree is not None and (version := installed_version(tree)) and version.split(".")[0] != REPORTER_MAJOR:
+        return None
     words = _words(command)
     if _vitest(words):
         return words
@@ -94,8 +119,8 @@ def results(path, tree):
         if not isinstance(files, list) or type(count) is not int or type(errors) is not int or errors < 0:
             return None
         root = Path(tree).resolve()
-        groups = {key: set() for key in ("passed", "failed", "skipped")}
-        identities, file_names, collection = set(), set(), set()
+        states: dict[str, set[str]] = {}
+        reported, file_names, collection = 0, set(), set()
         uncollected = set()
         for file in files:
             if not isinstance(file, dict) or not isinstance(file.get("file"), str) or not file["file"]:
@@ -124,14 +149,20 @@ def results(path, tree):
                     return None
                 identity = relative + "::" + test["name"]
                 state = test["state"]
-                if identity in identities or state not in groups:
+                if state not in repeated_tests.STATES:
                     return None
-                identities.add(identity)
+                reported += 1
+                # Tests of one name in one file (a `test.each` table) are one identity (autocode_repeated_tests).
+                states.setdefault(identity, set())
                 if test["collection_error"] or file["collection_error"]:
                     collection.add(identity)
                 else:
-                    groups[state].add(identity)
-        if count != len(identities) or (value["reason"] == "passed" and (groups["failed"] or collection or errors)):
+                    states[identity].add(state)
+        identities = set(states)
+        groups = repeated_tests.settle({identity: seen for identity, seen in states.items() if seen})
+        groups["passed"] -= collection
+        groups["skipped"] -= collection
+        if count != reported or (value["reason"] == "passed" and (groups["failed"] or collection or errors)):
             return None
         if errors or (value["reason"] == "failed" and not groups["failed"] and not collection):
             collection.add("[vitest runtime error]")

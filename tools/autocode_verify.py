@@ -530,7 +530,7 @@ def _python_framework(root, files, python, base) -> Framework | None:
                 ]
             )
             return Framework("unittest", command, python=python, note=note)
-        return Framework("unittest", f"{shlex.quote(python)} -m unittest discover -v{start}", python=python, note=note)
+        return Framework("unittest", python_tests.discover_command(python, start, tests), python=python, note=note)
     return None
 
 

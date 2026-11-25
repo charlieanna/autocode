@@ -1,6 +1,7 @@
 """Parse Python test declarations, literal commands and results without running them."""
 
 import ast
+import fnmatch
 import re
 import shlex
 from collections.abc import Callable
@@ -29,6 +30,25 @@ UNITTEST_FIXTURES = frozenset({"setUpClass", "tearDownClass", "setUpModule", "te
 
 # The Python test modules a targeted unittest or pytest command is given.
 TEST_MODULE = project_kinds.targets("unittest")
+
+
+def discover_command(python, start, tests) -> str:
+    """unittest discovery from ``start`` (`` -s DIR`` or ""), collecting ``tests``."""
+    return f"{shlex.quote(python)} -m unittest discover -v{start}{discovery_pattern(tests)}"
+
+
+def discovery_pattern(tests) -> str:
+    """The ``-p`` option unittest discovery needs to collect ``tests``, or "" for its default ``test*.py``.
+
+    A project whose test modules are all named ``*_test.py`` (colorama's ``ansi_test.py``) ran no test
+    at all under the default, and its base suite was "broken" (setup sweep, docs/setup-sweep.md). A
+    project with modules of both kinds keeps the default: a pattern collecting both would also import
+    modules that are not tests.
+    """
+    names = [PurePosixPath(path).name for path in tests]
+    if not names or any(fnmatch.fnmatch(name, "test*.py") for name in names):
+        return ""
+    return " -p '*_test.py'" if all(name.endswith("_test.py") for name in names) else ""
 
 
 def empty_package_marker(path: str, source: str) -> bool:

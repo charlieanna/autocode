@@ -26,9 +26,11 @@ from pathlib import Path, PurePosixPath
 
 try:
     from . import autocode_project_kinds as project_kinds
+    from . import autocode_repeated_tests as repeated_tests
     from . import autocode_shell_syntax as shell_syntax
 except ImportError:
     import autocode_project_kinds as project_kinds
+    import autocode_repeated_tests as repeated_tests
     import autocode_shell_syntax as shell_syntax
 
 COLLECTION = "::[collection]"
@@ -319,10 +321,8 @@ def results(text: str, root=None) -> dict | None:
     if not isinstance(text, str) or not text.strip():
         return None
     all_tests, owners = _index_test_files(root)
-    passed: set[str] = set()
-    failed: set[str] = set()
-    skipped: set[str] = set()
-    seen: set[str] = set()
+    states: dict[str, set[str]] = {}
+    counts = {"passed": 0, "failed": 0, "skipped": 0}
     summary: tuple[int, int, int] | None = None
 
     for raw_line in text.splitlines():
@@ -331,15 +331,10 @@ def results(text: str, root=None) -> dict | None:
             owner, method, status = match.group(1), match.group(2), match.group(3)
             rel = _resolve_owner_file(owner, all_tests, owners)
             identity = f"{rel}::{owner}::{method}" if rel else f"{owner}::{method}"
-            if identity in seen:
-                return None
-            seen.add(identity)
-            if status == ".":
-                passed.add(identity)
-            elif status == "S":
-                skipped.add(identity)
-            else:
-                failed.add(identity)
+            # One method of one class reopened in two files is one identity (autocode_repeated_tests).
+            state = "passed" if status == "." else "skipped" if status == "S" else "failed"
+            counts[state] += 1
+            states.setdefault(identity, set()).add(state)
         elif smatch := _SUMMARY_LINE.match(line):
             runs, fails, errs, skips = map(int, smatch.groups())
             summary = (runs, fails + errs, skips)
@@ -359,8 +354,10 @@ def results(text: str, root=None) -> dict | None:
         return None
 
     runs, fail_count, skip_count = summary
-    if runs != len(seen) or fail_count != len(failed) or skip_count != len(skipped):
+    if runs != sum(counts.values()) or fail_count != counts["failed"] or skip_count != counts["skipped"]:
         return None
+    groups = repeated_tests.settle(states)
+    passed, failed, skipped = groups["passed"], groups["failed"], groups["skipped"]
     if runs == 0:
         collection = _traceback_collection_errors(text, root)
         if collection:
@@ -380,6 +377,6 @@ def results(text: str, root=None) -> dict | None:
         "skipped": sorted(skipped),
         "collection_errors": [],
         "uncollected": [],
-        "total": runs,
+        "total": len(states),
         "complete": True,
     }
