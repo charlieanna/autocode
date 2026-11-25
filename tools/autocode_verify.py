@@ -784,7 +784,8 @@ def link_dependencies(source_root, tree):
             source = root / name
             if source.is_dir():
                 if not target.exists() and not target.is_symlink():
-                    dependency_dirs.expose(source.resolve(), target, dependency_dirs.view_in(tree))
+                    view = dependency_dirs.view_in(tree, name=name)
+                    dependency_dirs.expose(source.resolve(), target, view, live=roots, tree=tree)
                 break
     package_scope.link_node_modules(tree, roots)  # a package inside the repository has its own
 

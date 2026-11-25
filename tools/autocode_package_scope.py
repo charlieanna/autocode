@@ -364,4 +364,5 @@ def link_node_modules(tree, roots) -> None:
             None,
         )
         if source is not None:
-            dependency_dirs.expose(source.resolve(), target, dependency_dirs.view_in(tree, package))
+            view = dependency_dirs.view_in(tree, package)
+            dependency_dirs.expose(source.resolve(), target, view, live=roots, tree=tree)

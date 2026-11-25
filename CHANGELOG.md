@@ -23,6 +23,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - **A Tester check run inside a longer command no longer costs a rejected answer** (#4165): a Tester that ran `pytest -q 2>&1 | tail -3` or `git diff --stat; git diff --name-only` as one call and cited one command was refused as "not supported by an exact executed Validator event", then a report-only repair that could not run anything was refused again. The check now takes the exit code the line shows under shell semantics (the last command of `a; b`, every command of an `&&` chain that exited 0); a command whose exit code the line hides (`cmd | tail`, the first of `a; b`) counts only in a passing report whose clean-copy replay runs it and sees exit 0 (`autocode_compound_exit`). Anything that could run the command differently (`|| `, `set -e`, `| head`, `grep -q`, a substitution, `cd` out of the workspace) is refused as before.
 
+- **Proofs no longer read the live workspace through installed dependencies, and no longer hold projects that keep them in the project folder** ([linked dependencies](docs/named-test-proof.md#linked-dependencies-keep-custody-of-the-copy-4152-phase-2)): a proof copy gets its own view of a linked `.venv` and `node_modules`, in which an editable install, a script's `#!` line or a linked workspace package points at the copy's own source. Before, the copy of the original code imported the candidate's new module through the person's editable install. A package installed in the workspace's own `.venv` or `node_modules` is now a dependency, as it was beside the main checkout; before, every proof of such a project that imported one was held as unverified.
+
 ## [0.11.1] - 2026-11-25
 
 ### Added

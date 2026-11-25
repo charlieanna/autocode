@@ -3,6 +3,7 @@
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -43,10 +44,6 @@ class InstalledDependencyTests(unittest.TestCase):
         many = dependency_dirs.summary([f"p{n}/node_modules/x.js" for n in range(30)], listed=5)
         self.assertEqual((30, 5), (many["files"], len(many["directories"])))
         self.assertEqual(0, dependency_dirs.summary(["src/app.ts"])["files"])
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 def empty_as_npm_ci_does(directory: Path) -> None:
@@ -123,7 +120,7 @@ class ScratchCopyTests(unittest.TestCase):
         (target / ".package-lock.json").write_text("{}\n")  # `npm install` writes what it installed here
         self.assert_installed()
 
-    def test_a_virtualenv_is_linked_whole(self):
+    def test_a_virtualenv_without_live_roots_is_linked_whole(self):
         environment = self.root / ".venv"
         (environment / "bin").mkdir(parents=True)
         target, view = self.home / "copy/.venv", self.home / "views/.venv"
@@ -171,3 +168,99 @@ class ScratchCopyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Verification"):
             (tree / "node_modules").unlink()
             copies.execution(result["manifest"], result["sha256"], self.root)
+
+
+class CustodyTests(unittest.TestCase):
+    """A proof copy's installed directories lead to the copy's own source, never the live tree (#4152, phase 2).
+
+    On #4057 a task `.venv` with an editable install pointed Python at the live workspace for any module
+    the original code lacked: changing only the candidate's value flipped the supposed run of the original
+    code from exit 0 to 1. A workspace package linked into `node_modules` did the same for Node."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.home = Path(temporary.name).resolve()
+        self.live, self.tree = self.home / "live", self.home / "tree"
+        for root, value in ((self.live, 2), (self.tree, 1)):
+            (root / "src/pkg").mkdir(parents=True)
+            (root / "src/pkg/__init__.py").write_text(f"VALUE = {value}\n")
+        (self.live / "src/added.py").write_text("ADDED = True\n")  # the candidate's new module
+
+    def test_a_copys_virtualenv_reaches_the_copys_source_not_the_live_trees(self):
+        environment = self.live / ".venv"
+        subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(environment)], check=True)
+        site = next((environment / "lib").glob("python*/site-packages"))
+        (site / "__editable__.pkg.pth").write_text(str(self.live / "src") + "\n")
+        (site / "__editable___other_finder.py").write_text(f"MAPPING = {{'other': {str(self.live / 'src/other')!r}}}\n")
+        (site / "installed").mkdir()
+        (site / "installed/__init__.py").write_text("")
+        (environment / "bin/tool").write_text(f"#!{environment}/bin/python\nimport pkg\n")
+        (environment / "bin/tool").chmod(0o755)
+        before = {
+            path: path.read_bytes() for path in environment.rglob("*") if path.is_file() and not path.is_symlink()
+        }
+        target = self.tree / ".venv"
+        record = dependency_dirs.expose(
+            environment, target, self.home / "views/.venv", live=[self.live], tree=self.tree
+        )
+
+        copied = next((target / "lib").glob("python*/site-packages"))
+        self.assertEqual(str(self.tree / "src") + "\n", (copied / "__editable__.pkg.pth").read_text())
+        self.assertIn(repr(str(self.tree / "src/other")), (copied / "__editable___other_finder.py").read_text())
+        self.assertEqual(f"#!{target}/bin/python\n", (target / "bin/tool").read_text().splitlines(True)[0])
+        self.assertEqual((site / "installed").resolve(), (copied / "installed").resolve())  # third-party: linked
+        rewritten = {Path(path).name for path in record["rewritten"]}
+        self.assertLessEqual({"__editable__.pkg.pth", "__editable___other_finder.py", "tool"}, rewritten, record)
+
+        def run(python, code):
+            env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}  # as every proof command runs
+            env.pop("PYTHONPATH", None)
+            return subprocess.run([str(python), "-c", code], cwd=self.home, env=env, capture_output=True, text=True)
+
+        # Through the person's environment the live tree's module is found; through the copy's it is not.
+        self.assertEqual(0, run(environment / "bin/python", "import added").returncode)
+        missing = run(target / "bin/python", "import added")
+        self.assertIn("No module named 'added'", missing.stderr)
+        found = run(target / "bin/python", "import pkg, installed, sys; print(pkg.VALUE, sys.prefix)")
+        self.assertEqual(f"1 {target}", found.stdout.strip(), found.stderr)
+        after = {path: path.read_bytes() for path in environment.rglob("*") if path.is_file() and not path.is_symlink()}
+        self.assertEqual(before, after)  # the person's environment is never written
+
+    def test_a_linked_workspace_package_resolves_to_the_copys_package(self):
+        for root in (self.live, self.tree):
+            for name in ("one", "two"):
+                (root / "packages" / name).mkdir(parents=True)
+                (root / "packages" / name / "cli.js").write_text(f"// {root.name}\n")
+        modules = self.live / "node_modules"
+        (modules / "dep").mkdir(parents=True)
+        (modules / "dep/index.js").write_text("module.exports = 1;\n")
+        (modules / "one").symlink_to("../packages/one")  # npm workspaces write relative links
+        (modules / "@scope").mkdir()
+        (modules / "@scope/two").symlink_to(self.live / "packages/two")  # npm link writes absolute ones
+        (modules / ".bin").mkdir()
+        (modules / ".bin/one").symlink_to("../one/cli.js")
+        (modules / ".bin/dep").symlink_to("../dep/index.js")
+        (modules / ".bin/plain.cmd").write_text("@node ..\\dep\\index.js\n")
+        (modules / ".pnpm/stored@1.0.0").mkdir(parents=True)
+        (modules / ".pnpm/stored@1.0.0/index.js").write_text("module.exports = 3;\n")
+        (modules / "stored").symlink_to(".pnpm/stored@1.0.0")  # pnpm links inside node_modules: installed
+        target = self.tree / "node_modules"
+        dependency_dirs.expose(modules, target, self.home / "views/node_modules", live=[self.live], tree=self.tree)
+        for name, expected in (
+            ("one/cli.js", self.tree / "packages/one/cli.js"),
+            ("@scope/two/cli.js", self.tree / "packages/two/cli.js"),
+            (".bin/one", self.tree / "packages/one/cli.js"),
+            ("dep/index.js", modules / "dep/index.js"),
+            (".bin/dep", modules / "dep/index.js"),
+            ("stored/index.js", modules / ".pnpm/stored@1.0.0/index.js"),
+        ):
+            with self.subTest(name=name):
+                self.assertEqual(expected, (target / name).resolve())
+        self.assertEqual("@node ..\\dep\\index.js\n", (target / ".bin/plain.cmd").read_text())
+        empty_as_npm_ci_does(target)
+        self.assertTrue((modules / "@scope/two").is_symlink() and (modules / ".bin/one").is_symlink())
+
+
+if __name__ == "__main__":
+    unittest.main()

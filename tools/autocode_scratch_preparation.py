@@ -52,11 +52,10 @@ def _installed_link(tree, name, source, expected_files):
         return False
     roots = test_environment.dependency_roots(source)
     if path.parent == Path(".") and path.name in (".venv", "venv"):
+        # The copy's own view of the environment (autocode_dependency_dirs.expose keeps custody of it).
         original = next((root / path.name for root in roots if (root / path.name).is_dir()), None)
-        try:
-            return original is not None and link == original.resolve()
-        except (OSError, RuntimeError):
-            return False
+        view = Path(tree) / dependency_dirs.VIEWS / path.name
+        return original is not None and link == view and view.is_dir()
     if path.name == "node_modules":
         package = path.parent
         if package != Path(".") and (package / "package.json").as_posix() not in expected_files:

@@ -895,6 +895,22 @@ def _python_import_paths(parsed, filename):
     return mutations
 
 
+def _site_paths():
+    """The site directories as the interpreter names them, before links are followed.
+
+    A proof copy's virtualenv is a view whose installed packages link to the person's own
+    (autocode_dependency_dirs.expose, #4152 phase 2): a package resolves outside the view's
+    ``site-packages`` but was found inside it, so it is classified by where it was found."""
+    values = set()
+    for key in ("purelib", "platlib"):
+        value = sysconfig.get_paths().get(key)
+        if value:
+            values.add(Path(os.path.normpath(os.path.abspath(value))))
+    with contextlib.suppress(AttributeError):
+        values.update(Path(os.path.normpath(os.path.abspath(value))) for value in site.getsitepackages())
+    return values
+
+
 def _dependency_roots():
     values = set()
     for key in ("purelib", "platlib", "stdlib"):
@@ -1244,6 +1260,7 @@ def _python(request):
     root = Path(request["root"])
     tree = Path(request["tree"]).resolve()
     dependencies = _dependency_roots()
+    site_paths = _site_paths()
     observations = [{"kind": "python_root", "path": str(root.resolve()), "role": "root"}]
     errors, startup_observations = _python_startup_errors(
         dependencies, request.get("observer_root"), workspace=request.get("workspace")
@@ -1423,7 +1440,10 @@ def _python(request):
             return
         for value in origins:
             path = Path(value).resolve()
-            dependency = any(path.is_relative_to(directory) for directory in dependencies)
+            found = Path(os.path.normpath(os.path.abspath(value)))
+            dependency = any(path.is_relative_to(directory) for directory in dependencies) or any(
+                found.is_relative_to(directory) for directory in site_paths
+            )
             role = "dependency" if dependency else "source"
             observations.append({"kind": "python_module", "name": resolved_name, "path": str(path), "role": role})
             if role != "source" or not path.is_relative_to(tree):
