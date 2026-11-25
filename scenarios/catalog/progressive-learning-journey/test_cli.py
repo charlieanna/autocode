@@ -18,6 +18,12 @@ from harness.driver import DriveError, Driver, default_autocode, fake_setup
 from harness.oracle import run as command
 from harness.project import materialize
 
+# Each Driver's time budget only bounds a hang; max_steps bounds a loop. 180 s was within 6 s of a green CI
+# run of test_permission_material_request_needs_current_answer_and_reapproval (174 s; 122 s on master's
+# nightly, 118 s on an idle machine), and three of these tests ran out of it on a runner that took every
+# test about 1.5x as long. tests.test_scenario_budgets keeps it at least twice the slowest recorded run.
+BUDGET_SECONDS = 720
+
 
 class ProgressiveCLI(unittest.TestCase):
     def driver(self, directory, fault="progressive_happy"):
@@ -25,7 +31,9 @@ class ProgressiveCLI(unittest.TestCase):
         root = Path(directory)
         project = materialize(scenario.seed, root / "project")
         flags, env = fake_setup(scenario, root, scenario.reference)
-        driver = Driver(project, root, flags, env, autocode=default_autocode(), max_steps=60, timeout_seconds=180)
+        driver = Driver(
+            project, root, flags, env, autocode=default_autocode(), max_steps=60, timeout_seconds=BUDGET_SECONDS
+        )
         return scenario, driver
 
     def observed_stages(self, view):
@@ -104,7 +112,7 @@ class ProgressiveCLI(unittest.TestCase):
                 prior_steps = list(driver.steps)
                 del driver
                 driver = Driver(
-                    project, root, flags, env, autocode=default_autocode(), max_steps=60, timeout_seconds=180
+                    project, root, flags, env, autocode=default_autocode(), max_steps=60, timeout_seconds=BUDGET_SECONDS
                 )
                 driver.run_dir = run_dir
                 restored = json.loads(driver.call("status", "--status", action=True, record=False).stdout)
@@ -368,7 +376,7 @@ class ProgressiveCLI(unittest.TestCase):
                 driver.env,
                 autocode=default_autocode(),
                 max_steps=60,
-                timeout_seconds=180,
+                timeout_seconds=BUDGET_SECONDS,
             )
             restarted.run_dir = driver.run_dir
             final = restarted.until_stopped()
@@ -725,7 +733,7 @@ class ProgressiveCLI(unittest.TestCase):
                 driver.env,
                 autocode=default_autocode(),
                 max_steps=60,
-                timeout_seconds=180,
+                timeout_seconds=BUDGET_SECONDS,
             )
             restarted.run_dir = run_dir
             if restarted.view()["status"] == "PAUSED_REQUESTED":
