@@ -1250,13 +1250,17 @@ class ExplicitRoleTransportTests(unittest.TestCase):
         ):
             with self.subTest(flags=flags), self.assertRaisesRegex(ValueError, reason):
                 self.cli_configure(flags)
-        # Codex is an engine with its own transport, not a facade provider.
+        # A Codex-engine run's own tool is Codex; a run on another engine binds no role.
         codex = {"engine": "codex", "provider": None, "roles": {"tester": {"model": "gpt-5"}}}
-        with self.assertRaisesRegex(ValueError, "OpenCode facade engine"):
-            self.transport.configure(
-                codex, SimpleNamespace(role_transport=["sol=kilocode"], tester_model="anthropic/fixture-claude"), None
-            )
+        with self.assertRaisesRegex(ValueError, "run's own tool"):
+            self.transport.configure(codex, SimpleNamespace(role_transport=["sol=codex"], tester_model="gpt-5"), None)
         self.assertNotIn("transport_identities", codex)
+        direct = {"engine": "autocode", "provider": None, "roles": {"tester": {"model": "gpt-5"}}}
+        with self.assertRaisesRegex(ValueError, "OpenCode-engine or Codex-engine run"):
+            self.transport.configure(
+                direct, SimpleNamespace(role_transport=["sol=kilocode"], tester_model="anthropic/fixture-claude"), None
+            )
+        self.assertNotIn("transport_identities", direct)
 
     def test_valid_identity_accepts_each_facade_s_own_shape_and_nothing_else(self):
         valid = self.transport.valid_identity
